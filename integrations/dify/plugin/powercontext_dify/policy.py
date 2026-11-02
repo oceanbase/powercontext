@@ -21,6 +21,8 @@ HIDDEN_PARAMETERS = frozenset(
         "expected_revision",
         "max_bytes",
         "include_code",
+        # Diagnostics stay off the model-facing surface: a Workflow routes `result.content`.
+        "include_receipt",
         "assembly",
         "bootstrap_receipt_id",
     }

@@ -24,11 +24,13 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, InitSettingsSource, PydanticBaseSettingsSource, SettingsConfigDict
+from typing_extensions import override
 
 from powercontext.builtin.artifacts.skill import AgentSkillTarget
 from powercontext.builtin.code.models import CodeConfig
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     DatabaseConfig,
@@ -37,7 +39,7 @@ from powercontext.builtin.runtime.config import (
     InferenceConfig,
     RuntimeConfig,
 )
-from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
+from powercontext.paths import default_database_path, default_seekdb_path, powercontext_data_dir, sqlite_url
 from powercontext.transport import is_loopback_host
 
 _UNSAFE_BIND_MESSAGE = (
@@ -110,10 +112,12 @@ def is_unauthenticated_non_loopback_bind(
 
 
 class HttpConfig(BaseModel):
-    """HTTP listener configuration."""
+    """HTTP listener and process-local admission configuration."""
 
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
+    max_request_body_bytes: int = Field(default=16 * 1024 * 1024, gt=0)
+    max_concurrent_requests: int = Field(default=64, gt=0)
 
 
 class McpConfig(BaseModel):
@@ -136,12 +140,30 @@ class BearerAuthConfig(BaseModel):
 
     enabled: bool = False
     token: SecretStr | None = Field(default=None, repr=False)
+    identities_file: Path | None = None
+    administrators: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def require_token_when_enabled(self) -> BearerAuthConfig:
-        if self.enabled and (self.token is None or not self.token.get_secret_value()):
+        if self.enabled and self.identities_file is None and (self.token is None or not self.token.get_secret_value()):
             raise MissingBearerTokenError("Bearer token is required when authentication is enabled")  # noqa: TRY003
         return self
+
+
+class SourceManagementConfig(BaseModel):
+    """One trusted manager and optional local background deployment."""
+
+    process_mode: Literal["background", "local-service"] = Field(
+        default="background",
+        description="Local collect deployment requires Linux; local-service also requires systemd --user.",
+    )
+    manager_subject: str | None = None
+    manager_id: str = "sources"
+    autostart: bool = False
+    state_dir: Path | None = None
+    request_seconds: float = Field(default=10, gt=0, le=60)
+    lease_seconds: float = Field(default=30, ge=3, le=300)
+    write_wait_timeout_seconds: float = Field(default=300, ge=1, le=300)
 
 
 class DashboardConfig(BaseModel):
@@ -165,6 +187,16 @@ class ServerLoggingConfig(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     format: Literal["console", "json"] = "console"
     access: bool = True
+    file: bool = False
+    directory: Path = Field(default_factory=lambda: powercontext_data_dir() / "logs")
+    max_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
+    backup_count: int = Field(default=10, ge=1)
+    compression: Literal["none", "gzip"] = "gzip"
+
+    @field_validator("directory")
+    @classmethod
+    def resolve_directory(cls, value: Path) -> Path:
+        return value.expanduser().resolve()
 
     @field_validator("level", mode="before")
     @classmethod
@@ -204,6 +236,7 @@ class ServerSettings(BaseSettings):
     allow_insecure_http: bool = False
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
+    source_management: SourceManagementConfig = Field(default_factory=SourceManagementConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     access: AccessControlConfig = Field(default_factory=AccessControlConfig)
     allow_unauthenticated_non_loopback: bool = False
@@ -214,10 +247,32 @@ class ServerSettings(BaseSettings):
     handoff_generation_verification_secrets: tuple[SecretStr, ...] = Field(default=(), max_length=8, repr=False)
     code: CodeConfig = Field(default_factory=CodeConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    artifact_plugins_dir: Path | None = None
+    source_plugins_dir: Path | None = None
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+
+    @classmethod
+    @override
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        if isinstance(init_settings, InitSettingsSource) and init_settings.nested_model_default_partial_update:
+            database = init_settings.init_kwargs.get("database")
+            if isinstance(database, SeekDBConfig) and "database" not in database.model_fields_set:
+                # BaseSettings serializes nested model defaults before validation. Keep an
+                # omitted name implicit so legacy detection and environment selection work.
+                init_settings.init_kwargs["database"] = database.model_dump(exclude={"database"})
+        return super().settings_customise_sources(
+            settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
+        )
 
     @field_validator("cursor_signing_secret")
     @classmethod
@@ -306,11 +361,18 @@ class ServerSettings(BaseSettings):
         return {"kind": "sqlite", "url": _default_database().url, **value}
 
     @model_validator(mode="after")
-    def reject_unauthenticated_non_loopback_bind(self) -> ServerSettings:
+    def reject_unauthenticated_non_loopback_bind(self) -> ServerSettings:  # noqa: C901 - coupled deployment constraints
         if self.access.background_principal_description is not None and self.access.background_principal_id is None:
             raise ValueError("ACCESS_BACKGROUND_PRINCIPAL_DESCRIPTION requires BACKGROUND_PRINCIPAL_ID")  # noqa: TRY003
         if self.auth.enabled:
             self.access.mode = "enforced"
+        if self.auth.identities_file is not None:
+            if self.auth.token is not None:
+                raise ValueError("Configure either the identity map or the legacy token")  # noqa: TRY003
+            if self.access.mode != "enforced":
+                raise ValueError("An identity map requires enforced Access Mode")  # noqa: TRY003
+        if self.source_management.manager_subject is not None and self.access.mode != "enforced":
+            raise ValueError("Source management requires authenticated enforced Access Mode")  # noqa: TRY003
         if (
             self.dashboard.enabled
             and self.access.mode == "enforced"

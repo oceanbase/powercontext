@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import unicodedata
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -94,8 +94,12 @@ from powercontext.builtin.persistence.migrations.atomic_memory_references import
     remove_legacy_collections,
     residual_issues,
 )
+from powercontext.server.authz import ArtifactOwnerRelation, PrincipalRef, ResourceRef
+from powercontext.server.authz.repository import RelationalAccessRepository
 
 MIGRATION_ID = "powercontext.memory.v1-to-atomic-memory.v1"
+DEFAULT_SNAPSHOT_BUDGET_BYTES = 256 * 1024 * 1024
+OWNER_DECISIONS_FORMAT = "powercontext.atomic-memory-owner-decisions.v1"
 _FAMILY = "atomic-memory"
 _PROJECTION_FORMAT = "powercontext.atomic-memory.current.v1"
 _ENTRY_HASH_DOMAIN = b"powercontext:entry-content:v1\0"
@@ -108,6 +112,60 @@ class AtomicMemoryMigrationReport(BaseModel):
     counts: dict[str, int] = Field(default_factory=dict)
     errors: tuple[str, ...] = ()
     processing_snapshot_hash: str | None = None
+
+
+class AtomicMemorySnapshotBudgetError(AtomicMemoryMigrationError):
+    """The frozen processing snapshot exceeds its admitted working set."""
+
+    def __init__(self, table: str, required: int, budget: int) -> None:
+        super().__init__((
+            f"processing snapshot budget exceeded for {table}: estimated {required} bytes, budget {budget} bytes; "
+            "size --snapshot-budget-mib for this offline working set before retrying",
+        ))
+
+
+@dataclass(frozen=True)
+class OwnerDecision:
+    """An operator-attested Owner for one ownerless legacy entry."""
+
+    scope_id: str
+    memory_id: str
+    entry_id: str
+    owner: PrincipalRef
+    idempotency_key: str
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (self.scope_id, self.memory_id, self.entry_id)
+
+
+def load_owner_decisions(payload: Mapping[str, Any]) -> dict[tuple[str, str, str], OwnerDecision]:
+    """Validate exact owner recovery attestations without inferring identity."""
+
+    if payload.get("format") != OWNER_DECISIONS_FORMAT or not isinstance(payload.get("decisions"), list):
+        raise ValueError(f"owner decision file must use format {OWNER_DECISIONS_FORMAT}")  # noqa: TRY003
+    result: dict[tuple[str, str, str], OwnerDecision] = {}
+    for item in payload["decisions"]:
+        fields = {"scope_id", "memory_id", "entry_id", "action", "owner", "idempotency_key"}
+        if not isinstance(item, dict) or set(item) != fields or item.get("action") != "establish":
+            raise ValueError("owner decisions support only the establish action")  # noqa: TRY003
+        owner = item.get("owner")
+        if not isinstance(owner, dict) or not {"type", "id"} <= set(owner) <= {"type", "id", "description"}:
+            raise ValueError("owner must contain type, id and optional description")  # noqa: TRY003
+        for name, maximum in (("scope_id", 256), ("memory_id", 128), ("entry_id", 128), ("idempotency_key", 255)):
+            if not isinstance(item[name], str) or not item[name].strip() or len(item[name]) > maximum:
+                raise ValueError(f"owner decision has invalid {name}")  # noqa: TRY003
+        decision = OwnerDecision(
+            scope_id=item["scope_id"],
+            memory_id=item["memory_id"],
+            entry_id=item["entry_id"],
+            owner=PrincipalRef(type=owner["type"], id=owner["id"], description=owner.get("description")),
+            idempotency_key=item["idempotency_key"],
+        )
+        if decision.key in result:
+            raise ValueError(f"invalid or duplicate owner decision for {decision.key}")  # noqa: TRY003
+        result[decision.key] = decision
+    return result
 
 
 class _FrozenValue(BaseModel):
@@ -477,16 +535,74 @@ def _entry_hash(row: Mapping[str, Any]) -> str:
     return sha256(_ENTRY_HASH_DOMAIN + rfc8785.dumps(payload)).hexdigest()
 
 
-async def _processing_snapshot(connection: AsyncConnection, tables: set[str], errors: list[str]) -> str:
-    digest = sha256()
+async def preflight_processing_snapshot(
+    connection: AsyncConnection,
+    *,
+    snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
+    tables: set[str] | None = None,
+) -> None:
+    """Admit each processing table using scalar byte counts, without fetching its payloads."""
+
+    if isinstance(snapshot_budget_bytes, bool) or snapshot_budget_bytes <= 0:
+        raise ValueError("snapshot budget must be a positive number of bytes")  # noqa: TRY003
+    if tables is None:
+        tables = await _tables(connection)
+    quote = connection.dialect.identifier_preparer.quote
     for name in _PROCESSING_TABLES:
         if name not in tables:
             continue
-        # Read unchanged scheduler records as bytes and scalar values, without
-        # routing them through future scheduling models.
-        records = (await connection.execute(text(f"SELECT * FROM {name}"))).mappings()  # noqa: S608
-        encoded: list[bytes] = []
-        for row in records:
+        columns = await connection.run_sync(lambda value, table_name=name: inspect(value).get_columns(table_name))
+        lengths = [
+            f"COALESCE(LENGTH(CAST({quote(column['name'])} AS BLOB)), 0)"
+            if connection.dialect.name == "sqlite"
+            else f"COALESCE(OCTET_LENGTH({quote(column['name'])}), 0)"
+            for column in columns
+        ]
+        size = " + ".join(lengths)
+        count, total, largest = (
+            await connection.execute(
+                text(
+                    f"SELECT COUNT(*), COALESCE(SUM({size}), 0), COALESCE(MAX({size}), 0) FROM {quote(name)}"  # noqa: S608 - inspected columns and frozen table names
+                )
+            )
+        ).one()
+        # JSON escaping can expand scalar bytes sixfold. Reserve for row/list
+        # objects and for one row's Unicode/hex/JSON intermediates before fetching.
+        overhead = 512 * (len(columns) + 1) + sum(len(_json_bytes(column["name"])) for column in columns)
+        required = 4096 + 6 * int(total) + overhead * int(count) + 32 * int(largest)
+        if required > snapshot_budget_bytes:
+            raise AtomicMemorySnapshotBudgetError(name, required, snapshot_budget_bytes)
+
+
+async def _processing_snapshot(
+    connection: AsyncConnection,
+    tables: set[str],
+    errors: list[str],
+    *,
+    snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
+) -> str:
+    await preflight_processing_snapshot(connection, tables=tables, snapshot_budget_bytes=snapshot_budget_bytes)
+    digest = sha256()
+    for name in _PROCESSING_TABLES:
+        if name in tables:
+            await _hash_processing_table(connection, name, errors, digest.update, snapshot_budget_bytes)
+    return digest.hexdigest()
+
+
+async def _hash_processing_table(
+    connection: AsyncConnection,
+    name: str,
+    errors: list[str],
+    update_digest: Callable[[bytes], None],
+    snapshot_budget_bytes: int,
+) -> None:
+    # One table owns its complete sorting buffer; no previous table's last row
+    # or encoding intermediates survive into the next table.
+    encoded: list[bytes] = []
+    retained = 4096
+    statement = text(f"SELECT * FROM {name}")  # noqa: S608 - frozen processing table names
+    async with connection.stream(statement, execution_options={"yield_per": 1}) as records:
+        async for row in records.mappings():
             values = dict(row)
             # Completion drops the emptied legacy citation column from Candidate revisions.
             optional = {LEGACY_CITATION_COLUMN} | (
@@ -517,14 +633,21 @@ async def _processing_snapshot(connection: AsyncConnection, tables: set[str], er
                 else value
                 for key, value in values.items()
             }
-            encoded.append(_json_bytes(projected))
-        digest.update(name.encode())
-        for value in sorted(encoded):
-            digest.update(value)
-    return digest.hexdigest()
+            value = _json_bytes(projected)
+            retained += len(value) + 64
+            required = retained + 4 * len(value)
+            if required > snapshot_budget_bytes:
+                raise AtomicMemorySnapshotBudgetError(name, required, snapshot_budget_bytes)
+            encoded.append(value)
+    update_digest(name.encode())
+    encoded.sort()
+    for value in encoded:
+        update_digest(value)
 
 
-async def _inventory(connection: AsyncConnection) -> _Inventory:  # noqa: C901
+async def _inventory(  # noqa: C901 - One frozen historical inventory.
+    connection: AsyncConnection, *, snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES
+) -> _Inventory:
     tables = await _tables(connection)
     errors: list[str] = []
     counts = {
@@ -560,6 +683,9 @@ async def _inventory(connection: AsyncConnection) -> _Inventory:  # noqa: C901
             ("legacy migration tables are absent: " + ", ".join(sorted(required - tables)),),
             sha256(b"").hexdigest(),
         )
+    processing_hash = await _processing_snapshot(
+        connection, tables, errors, snapshot_budget_bytes=snapshot_budget_bytes
+    )
     try:
         collections = await load_collections(connection, tables) if legacy_present else {}
     except ValueError as error:
@@ -570,7 +696,6 @@ async def _inventory(connection: AsyncConnection) -> _Inventory:  # noqa: C901
         if "pc_memory_entry_versions" not in tables
         else await _rows(connection, "pc_memory_entry_versions", _VERSION_COLUMNS)
     )
-    processing_hash = await _processing_snapshot(connection, tables, errors)
     for row in await _rows(
         connection,
         "pc_artifacts",
@@ -836,6 +961,79 @@ async def _validate_mapped_owner(connection: AsyncConnection, entry: _Entry) -> 
     )
 
 
+async def _owner_decision_status(
+    connection: AsyncConnection,
+    inventory: _Inventory,
+    decisions: Mapping[tuple[str, str, str], OwnerDecision],
+    *,
+    require_owners: bool,
+) -> tuple[dict[str, int], tuple[str, ...]]:
+    entries = {(entry.scope_id, entry.memory_id, entry.entry_id): entry for entry in inventory.entries}
+    errors: list[str] = []
+    pending = completed = 0
+    if inventory.errors:
+        return {
+            "owner_decisions": len(decisions),
+            "pending_owner_repairs": 0,
+            "completed_owner_repairs": 0,
+        }, ()
+    for key, decision in decisions.items():
+        entry = entries.get(key)
+        if entry is None:
+            errors.append(f"owner decision targets unknown legacy entry {'/'.join(key)}")
+            continue
+        if entry.owners:
+            errors.append(f"{'/'.join(key)}: entry already has a formal Owner; remove the owner decision")
+            continue
+        mapped = await _rows(
+            connection,
+            "pc_access_owners",
+            _OWNER_COLUMNS,
+            "WHERE owner_kind = 'artifact' AND object_key_hash = :key",
+            key=_digest(_resource_key(entry.scope_id, _FAMILY, entry.artifact_id)),
+        )
+        if not mapped:
+            pending += 1
+        elif len(mapped) == 1 and (mapped[0]["owner_type"], mapped[0]["owner_id"], mapped[0]["idempotency_key"]) == (
+            decision.owner.type,
+            decision.owner.id,
+            decision.idempotency_key,
+        ):
+            completed += 1
+        else:
+            errors.append(f"{'/'.join(key)}: mapped Owner conflicts with the owner decision")
+    for key, entry in entries.items():
+        if require_owners and not entry.owners and key not in decisions:
+            mapped = await _rows(
+                connection,
+                "pc_access_owners",
+                _OWNER_COLUMNS,
+                "WHERE owner_kind = 'artifact' AND object_key_hash = :key",
+                key=_digest(_resource_key(entry.scope_id, _FAMILY, entry.artifact_id)),
+            )
+            if len(mapped) != 1 or not mapped[0]["owner_type"] or not mapped[0]["owner_id"]:
+                errors.append(f"{'/'.join(key)}: enforced access requires an explicit owner decision")
+    return {
+        "owner_decisions": len(decisions),
+        "pending_owner_repairs": pending,
+        "completed_owner_repairs": completed,
+    }, tuple(errors)
+
+
+async def _establish_owner_decision(
+    database: AsyncDatabase, connection: AsyncConnection, entry: _Entry, decision: OwnerDecision
+) -> None:
+    await RelationalAccessRepository(database, connection=connection).establish_artifact_owner(
+        ArtifactOwnerRelation(
+            resource=ResourceRef.artifact(entry.scope_id, family=_FAMILY, artifact_id=entry.artifact_id),
+            owner=decision.owner,
+            established_at=datetime.now(UTC),
+            policy_revision="pending",
+            idempotency_key=decision.idempotency_key,
+        )
+    )
+
+
 async def _validate_legacy_bindings(
     connection: AsyncConnection, key: tuple[str, str], bindings: tuple[dict[str, Any], ...], entry_ids: set[str]
 ) -> None:
@@ -870,14 +1068,20 @@ async def plan_atomic_memory_migration(
     *,
     index: AtomicMemoryIndex | None = None,
     decisions: Mapping[tuple[str, str, int], CandidateDecision] | None = None,
+    snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
+    owner_decisions: Mapping[tuple[str, str, str], OwnerDecision] | None = None,
+    require_owners: bool = False,
 ) -> AtomicMemoryMigrationReport:
     """Scan every legacy container, entry version and legacy reference without changing data."""
 
     try:
         await ensure_supported_atomic_memory_schema(connection)
+        inventory = await _inventory(connection, snapshot_budget_bytes=snapshot_budget_bytes)
     except AtomicMemoryMigrationError as error:
         return AtomicMemoryMigrationReport(action="plan", errors=error.errors)
-    inventory = await _inventory(connection)
+    owner_counts, owner_errors = await _owner_decision_status(
+        connection, inventory, owner_decisions or {}, require_owners=require_owners
+    )
     tables = await _tables(connection)
     pending = 0
     for entry in inventory.entries:
@@ -896,15 +1100,30 @@ async def plan_atomic_memory_migration(
         reference_counts, reference_errors = await convert_references(
             dict(inventory.collections), dict(decisions or {}), connection=connection
         )
-    verification = await verify_atomic_memory_migration(connection, index=index) if pending == 0 else None
-    errors = (inventory.errors + schema_errors if verification is None else verification.errors) + reference_errors
+    verification = (
+        await verify_atomic_memory_migration(connection, index=index, snapshot_budget_bytes=snapshot_budget_bytes)
+        if pending == 0
+        else None
+    )
+    errors = (
+        (inventory.errors + schema_errors if verification is None else verification.errors)
+        + reference_errors
+        + owner_errors
+    )
     return AtomicMemoryMigrationReport(
         action="plan",
-        ready=verification is not None and verification.ready and not reference_errors,
+        ready=(
+            verification is not None
+            and verification.ready
+            and not reference_errors
+            and not owner_errors
+            and owner_counts["pending_owner_repairs"] == 0
+        ),
         counts={
             **inventory.counts,
             **({} if verification is None else verification.counts),
             **{f"reference_{name}": value for name, value in reference_counts.items()},
+            **owner_counts,
             "pending_entries": pending,
         },
         errors=tuple(dict.fromkeys(errors)),
@@ -1205,6 +1424,9 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
     maintenance_confirmed: bool,
     embedding_model: Any = None,
     decisions: Mapping[tuple[str, str, int], CandidateDecision] | None = None,
+    snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
+    owner_decisions: Mapping[tuple[str, str, str], OwnerDecision] | None = None,
+    require_owners: bool = False,
 ) -> AtomicMemoryMigrationReport:
     """Archive, import, convert references, then remove legacy collections and citation columns from public tables."""
 
@@ -1214,17 +1436,23 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
     async with database.transaction() as connection:
         await ensure_supported_atomic_memory_schema(connection)
     async with database.transaction() as connection:
-        inventory = await _inventory(connection)
+        try:
+            inventory = await _inventory(connection, snapshot_budget_bytes=snapshot_budget_bytes)
+        except AtomicMemorySnapshotBudgetError as error:
+            return AtomicMemoryMigrationReport(action="apply", errors=error.errors)
+        owner_counts, owner_errors = await _owner_decision_status(
+            connection, inventory, owner_decisions or {}, require_owners=require_owners
+        )
         reference_errors: tuple[str, ...] = ()
         if not inventory.errors:
             _counts, reference_errors = await convert_references(
                 dict(inventory.collections), dict(decisions or {}), connection=connection
             )
-    if inventory.errors or reference_errors:
+    if inventory.errors or reference_errors or owner_errors:
         return AtomicMemoryMigrationReport(
             action="apply",
-            errors=inventory.errors + reference_errors,
-            counts=inventory.counts,
+            errors=inventory.errors + reference_errors + owner_errors,
+            counts={**inventory.counts, **owner_counts},
             processing_snapshot_hash=inventory.processing_snapshot_hash,
         )
     async with database.transaction() as connection:
@@ -1242,7 +1470,7 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
             except ValueError as error:
                 raise AtomicMemoryMigrationError((str(error),)) from error
     async with database.transaction() as connection:
-        archived_inventory = await _inventory(connection)
+        archived_inventory = await _inventory(connection, snapshot_budget_bytes=snapshot_budget_bytes)
     if archived_inventory.errors:
         raise AtomicMemoryMigrationError(archived_inventory.errors)
     publisher = AtomicMemoryProjectionPublisher(index, embedding_model=embedding_model)
@@ -1272,6 +1500,9 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
             ):
                 raise AtomicMemoryMigrationError(("legacy collection head changed during maintenance",))
             imported_entry = await _import_entry(connection, entry)
+            owner_decision = (owner_decisions or {}).get((entry.scope_id, entry.memory_id, entry.entry_id))
+            if owner_decision is not None:
+                await _establish_owner_decision(database, connection, entry, owner_decision)
             migrated_grant_receipts += await _migrate_grant_receipts(connection, entry)
             if not imported_entry:
                 continue
@@ -1288,7 +1519,7 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
             imported += 1
     async with database.transaction() as connection:
         tables = await _tables(connection)
-        after = await _processing_snapshot(connection, tables, [])
+        after = await _processing_snapshot(connection, tables, [], snapshot_budget_bytes=snapshot_budget_bytes)
         if after != inventory.processing_snapshot_hash:
             raise AtomicMemoryMigrationError((
                 "cursor, generation, high-water mark or accepted processing work changed",
@@ -1319,6 +1550,7 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
             check_projection=not rebuilt_projection,
             thorough=True,
             collections_removed=False,
+            snapshot_budget_bytes=snapshot_budget_bytes,
         )
     if not report.ready:
         raise AtomicMemoryMigrationError(report.errors)
@@ -1343,6 +1575,10 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
             "counts": {
                 **report.counts,
                 **{f"reference_{name}": value for name, value in reference_counts.items()},
+                **owner_counts,
+                "pending_owner_repairs": 0,
+                "completed_owner_repairs": owner_counts["completed_owner_repairs"]
+                + owner_counts["pending_owner_repairs"],
                 "archived_collections": archived,
                 "removed_collections": removed,
                 "imported_entries": imported,
@@ -1358,16 +1594,42 @@ async def verify_atomic_memory_migration(
     *,
     index: AtomicMemoryIndex | None = None,
     thorough: bool = True,
+    snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
+    owner_decisions: Mapping[tuple[str, str, str], OwnerDecision] | None = None,
+    require_owners: bool = False,
 ) -> AtomicMemoryMigrationReport:
     """Prove import, reference conversion and removal plus current consistency; never reset a post-upgrade head."""
 
-    return await _verify_atomic_memory_migration(connection, index=index, check_projection=True, thorough=thorough)
+    report = await _verify_atomic_memory_migration(
+        connection,
+        index=index,
+        check_projection=True,
+        thorough=thorough,
+        snapshot_budget_bytes=snapshot_budget_bytes,
+    )
+    if (not owner_decisions and not require_owners) or report.processing_snapshot_hash is None:
+        return report
+    inventory = await _inventory(connection, snapshot_budget_bytes=snapshot_budget_bytes)
+    owner_counts, owner_errors = await _owner_decision_status(
+        connection, inventory, owner_decisions or {}, require_owners=require_owners
+    )
+    return report.model_copy(
+        update={
+            "ready": report.ready and not owner_errors and owner_counts["pending_owner_repairs"] == 0,
+            "counts": {**report.counts, **owner_counts},
+            "errors": tuple(dict.fromkeys(report.errors + owner_errors)),
+        }
+    )
 
 
-async def verify_atomic_memory_migration_authority(connection: AsyncConnection) -> AtomicMemoryMigrationReport:
+async def verify_atomic_memory_migration_authority(
+    connection: AsyncConnection, *, snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES
+) -> AtomicMemoryMigrationReport:
     """Require completed history import before repairing only the derived current rows."""
 
-    return await _verify_atomic_memory_migration(connection, check_projection=False, thorough=False)
+    return await _verify_atomic_memory_migration(
+        connection, check_projection=False, thorough=False, snapshot_budget_bytes=snapshot_budget_bytes
+    )
 
 
 async def _verify_atomic_memory_migration(  # noqa: C901 - One frozen import verification with optional projection checks.
@@ -1377,13 +1639,14 @@ async def _verify_atomic_memory_migration(  # noqa: C901 - One frozen import ver
     check_projection: bool,
     thorough: bool,
     collections_removed: bool = True,
+    snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
 ) -> AtomicMemoryMigrationReport:
 
     try:
         await ensure_supported_atomic_memory_schema(connection)
+        inventory = await _inventory(connection, snapshot_budget_bytes=snapshot_budget_bytes)
     except AtomicMemoryMigrationError as error:
         return AtomicMemoryMigrationReport(action="verify", errors=error.errors)
-    inventory = await _inventory(connection)
     errors = list(inventory.errors)
     tables = await _tables(connection)
     errors.extend(await residual_issues(connection, tables, thorough=thorough, collections_removed=collections_removed))
@@ -1533,12 +1796,18 @@ async def _verify_atomic_memory_migration(  # noqa: C901 - One frozen import ver
 
 
 __all__ = [
+    "DEFAULT_SNAPSHOT_BUDGET_BYTES",
     "MIGRATION_ID",
+    "OWNER_DECISIONS_FORMAT",
     "AtomicMemoryMigrationError",
     "AtomicMemoryMigrationReport",
+    "AtomicMemorySnapshotBudgetError",
+    "OwnerDecision",
     "apply_atomic_memory_migration",
     "assert_atomic_memory_migration_ready",
+    "load_owner_decisions",
     "plan_atomic_memory_migration",
+    "preflight_processing_snapshot",
     "verify_atomic_memory_migration",
     "verify_atomic_memory_migration_authority",
 ]

@@ -205,7 +205,7 @@ class EvaluationReport(EvidenceModel):
 
 
 Arm = Literal["off", "on"]
-ArmOutcome = Literal["passed", "failed", "timeout", "error", "integration_failed"]
+ArmOutcome = Literal["passed", "failed", "timeout", "error", "integration_failed", "cross_scope_access"]
 
 
 class StepObservation(EvidenceModel):
@@ -221,12 +221,28 @@ class StepObservation(EvidenceModel):
     cost_usd: float | None = Field(default=None, ge=0)
 
 
+class OutsideScopeAccess(EvidenceModel):
+    """One API or MCP authorization decision, made while an ON arm ran, about anything but the arm's own Scope."""
+
+    occurred_at: datetime
+    request_id: str | None = None
+    transport: str
+    operation: str
+    action: str
+    scope_id: str | None = Field(description="The other Scope, or none for the Server as a whole, as when listing.")
+    allowed: bool
+    request_rejected: bool = Field(
+        description="Whether the Server denied the request this or another check it enforces, which rejects it."
+    )
+
+
 class PairedArmObservation(EvidenceModel):
     """One arm of one OFF/ON trial for a paired workload."""
 
-    # v2 records each step's time and the host's usage figures, and Server usage in the session snapshots.
-    schema_: Literal["powercontext.e2e-paired-arm/v2"] = Field(
-        default="powercontext.e2e-paired-arm/v2",
+    # v2 records each step's time and the host's usage figures, and Server usage in the session snapshots; v3 adds
+    # what the Server's Access audit recorded outside an ON arm's Scope while it ran.
+    schema_: Literal["powercontext.e2e-paired-arm/v3"] = Field(
+        default="powercontext.e2e-paired-arm/v3",
         alias="schema",
     )
     run_id: str
@@ -243,6 +259,7 @@ class PairedArmObservation(EvidenceModel):
     errors: tuple[str, ...] = ()
     sessions: tuple[SessionSnapshot, ...] = ()
     treatment_failures: tuple[str, ...] = ()
+    outside_scope: tuple[OutsideScopeAccess, ...] = ()
 
 
 class Interval(EvidenceModel):
@@ -290,6 +307,11 @@ class ArmSummary(EvidenceModel):
     timeouts: int = Field(ge=0)
     errors: int = Field(ge=0)
     integration_failures: int = Field(ge=0)
+    cross_scope_accesses: int = Field(
+        default=0,
+        ge=0,
+        description="ON runs that the Server allowed a request on another Scope or Scope content across the Server.",
+    )
     success_rate: float | None = Field(default=None, description="Passed over scored runs.")
     success_rate_interval: Interval | None = Field(default=None, description="95% Wilson score interval.")
     steps: dict[str, StepSummary] = Field(default_factory=dict, description="Per-step metrics over scored runs.")
@@ -323,10 +345,10 @@ class PairedAgent(EvidenceModel):
 
 
 class PairedReport(EvidenceModel):
-    # v2 records the agent host that ran both arms; v3 adds intervals, step metrics, and Server usage. The harness
-    # does not read reports back.
-    schema_: Literal["powercontext.e2e-paired-report/v3"] = Field(
-        default="powercontext.e2e-paired-report/v3",
+    # v2 records the agent host that ran both arms; v3 adds intervals, step metrics, and Server usage; v4 counts ON
+    # runs that reached another Scope. The harness does not read reports back.
+    schema_: Literal["powercontext.e2e-paired-report/v4"] = Field(
+        default="powercontext.e2e-paired-report/v4",
         alias="schema",
     )
     experiment: str

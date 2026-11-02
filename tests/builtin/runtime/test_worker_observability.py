@@ -12,8 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingModelUsageDelta
+from powercontext.builtin.runtime.processing_contracts import (
+    ArtifactProcessingModelUsageDelta,
+    ArtifactProcessingWorkerCompletion,
+    ArtifactProcessingWorkerOutcome,
+)
 from powercontext.builtin.runtime.worker_observability import WorkerModelUsageCollector
+
+
+def test_worker_completion_preserves_positional_model_usage_with_noop() -> None:
+    delta = ArtifactProcessingModelUsageDelta(dropped_records=2, write_failures=3)
+
+    completion = ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.SUCCEEDED, 0, (), delta, noop=True)
+
+    assert completion.model_usage is delta
+    assert completion.noop is True
 
 
 def test_worker_model_usage_collector_leaves_missing_recorder_unobserved() -> None:

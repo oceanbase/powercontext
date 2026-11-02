@@ -277,6 +277,57 @@ def test_prepare_client_preserves_omitted_and_explicit_assembly() -> None:
     asyncio.run(scenario())
 
 
+def test_prepare_client_omits_the_receipt_flag_a_server_may_not_know() -> None:
+    """A client upgraded ahead of its Server must not send a key that Server rejects.
+
+    ``PREPARE_CONTEXT`` serializes its defaults, so the new field would otherwise travel on every
+    ordinary request; a Server that predates it answers ``422 invalid_request`` instead of
+    preparing. ``include_receipt: false`` asks for nothing, so leaving it out says the same thing.
+    """
+
+    async def scenario() -> None:
+        bodies = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            bodies.append(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={
+                    "schema": "powercontext.prepared-context.v1",
+                    "status": "empty",
+                    "content": None,
+                    "content_bytes": 0,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            await client.prepare_context(PrepareContextRequest(scope_id="scope", query="default"))
+            await client.prepare_context(
+                PrepareContextRequest.model_validate({"scope_id": "scope", "query": "asked", "include_receipt": True})
+            )
+            await client.prepare_context(
+                PrepareContextRequest.model_validate({
+                    "scope_id": "scope",
+                    "query": "declined",
+                    "include_receipt": False,
+                })
+            )
+            await client.prepare_context(
+                PrepareContextRequest.model_validate({"scope_id": "scope", "query": "null", "include_receipt": None})
+            )
+
+        assert "include_receipt" not in bodies[0]
+        assert bodies[1]["include_receipt"] is True
+        assert "include_receipt" not in bodies[2]
+        assert "include_receipt" not in bodies[3]
+        # The fields an older Server does understand still travel, so the omission is targeted.
+        assert bodies[0]["max_bytes"] == 8000
+        assert bodies[0]["include_code"] is False
+
+    asyncio.run(scenario())
+
+
 def test_client_exposes_all_three_topic_memory_http_operations_without_search_mode() -> None:
     async def scenario() -> None:
         requests: list[httpx.Request] = []

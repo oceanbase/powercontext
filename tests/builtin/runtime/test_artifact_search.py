@@ -28,9 +28,8 @@ from powercontext.artifacts.search import (
     ArtifactSearchMatch,
     ArtifactSearchQuery,
     ArtifactSearchUnsupported,
-    ChannelScore,
 )
-from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit, ExperienceSearchOutcome
+from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.search import InvalidSearchScore
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillSearchHit
 from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance, ArtifactLifecycleState
@@ -139,13 +138,17 @@ def test_public_lexical_search_returns_current_exact_artifacts_and_true_scores(f
 
 
 @pytest.mark.parametrize("family", ["experience", "skill"])
-def test_public_lexical_search_reports_disabled_index_while_legacy_stays_empty(family: str) -> None:
+@pytest.mark.parametrize("custom_index", [False, True])
+def test_public_lexical_search_reports_disabled_index_while_legacy_stays_empty(family: str, custom_index: bool) -> None:
+    class DisabledIndex(SQLiteExperienceFTSIndex):
+        families = frozenset()
+
     async def scenario() -> None:
         from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
         from powercontext.builtin.runtime.skill_search import SkillArtifactSearcher
 
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
-            index = NoExperienceIndex()
+            index = DisabledIndex() if custom_index else NoExperienceIndex()
             service = ArtifactSearchService(known_families={family})
             if family == "experience":
                 service.register(ExperienceArtifactSearcher(contexts.database, contexts.repositories.artifacts, index))
@@ -154,8 +157,8 @@ def test_public_lexical_search_reports_disabled_index_while_legacy_stays_empty(f
             with pytest.raises(ArtifactSearchUnsupported):
                 await service.search("project", family, {"query": "client"})
             async with contexts.database.transaction() as connection:
-                assert (await index.search(connection, "project", "", 500)).hits == ()
-                assert await index.search_skills(connection, "project", "", 500) == ()
+                assert await index.search(connection, "project", "experience", "", 500) == ()
+                assert await index.search(connection, "project", "skill", "", 500) == ()
 
     asyncio.run(scenario())
 
@@ -237,15 +240,14 @@ def test_public_experience_requires_raw_metadata_even_when_scores_are_hidden(inc
     from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
 
     class Index(SQLiteExperienceFTSIndex):
-        async def search(self, *_args: Any, **_kwargs: Any) -> ExperienceSearchOutcome:
-            return ExperienceSearchOutcome(
-                hits=(
-                    ExperienceSearchHit(
-                        artifact_ref=ArtifactRef(family="experience", artifact_id="missing-raw", revision=1),
-                        content=cast(ExperienceContent, _content("experience", "needle")),
-                        retrieval_score=0.5,
-                    ),
-                )
+        async def search(self, *_args: Any, **_kwargs: Any) -> tuple[dict[str, Any], ...]:
+            return (
+                {
+                    "family": "experience",
+                    "artifact_id": "missing-raw",
+                    "revision": 1,
+                    "content": _content("experience", "needle").model_dump_json().encode(),
+                },
             )
 
     async def scenario() -> None:
@@ -333,30 +335,17 @@ def test_public_search_missing_selected_revision_is_an_internal_contract_failure
     from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
     from powercontext.builtin.runtime.skill_search import SkillArtifactSearcher
 
-    ref = ArtifactRef(family=family, artifact_id="missing-selected-revision", revision=1)
-    scores = {"text": ChannelScore(-1.0, "sqlite_bm25", False)}
-
     class Index(SQLiteExperienceFTSIndex):
-        async def search(self, *_args: Any, **_kwargs: Any) -> ExperienceSearchOutcome:
-            return ExperienceSearchOutcome(
-                hits=(
-                    ExperienceSearchHit(
-                        artifact_ref=ref,
-                        content=cast(ExperienceContent, _content(family, "needle")),
-                        retrieval_score=0.5,
-                        channel_scores=scores,
-                    ),
-                )
-            )
-
-        async def search_skills(self, *_args: Any, **_kwargs: Any) -> tuple[SkillSearchHit, ...]:
+        async def search(self, *_args: Any, **_kwargs: Any) -> tuple[dict[str, Any], ...]:
             return (
-                SkillSearchHit(
-                    artifact_ref=ref,
-                    content=cast(SkillContent, _content(family, "needle")),
-                    retrieval_score=0.5,
-                    channel_scores=scores,
-                ),
+                {
+                    "family": family,
+                    "artifact_id": "missing-selected-revision",
+                    "revision": 1,
+                    "content": None,
+                    "raw_score": -1.0,
+                    "score_metric": "sqlite_bm25",
+                },
             )
 
     async def scenario() -> None:

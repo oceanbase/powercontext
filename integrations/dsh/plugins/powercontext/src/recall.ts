@@ -20,7 +20,7 @@ import type { ResolvedConfig } from './config.ts'
 import { captureUserPrompt } from './capture.ts'
 import { logSafely, reportFailure } from './diagnostics.ts'
 import { InvalidResponseError, TransportError } from './errors.ts'
-import { validatePreparedContext } from './prepared-context.ts'
+import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { formatScopeRouting, sessionCwd } from './scope.ts'
 import { cancellationReason, type RuntimeStatus, type StatusAttempt, type SkipReason } from './status.ts'
 
@@ -110,7 +110,7 @@ async function recallContent(input: RecallInput, query: string, scopeId: string,
     if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
     const result = await input.client.request('prepare_context', {
       scope_id: scopeId,
-      query,
+      query: boundedRecallQuery(query),
       max_bytes: input.config.maxBytes,
       ...(input.config.contextAssembly === undefined ? {} : { assembly: input.config.contextAssembly }),
     }, input.signal)

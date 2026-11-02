@@ -1,0 +1,135 @@
+{
+  "revision": "powercontext.topic-memory-recovery.v1",
+  "source_commits": [
+    "9a994ec2e1440f77f6f0de8f909ed4ebbb386847"
+  ],
+  "schemas": {
+    "budget_v0": {
+      "sqlite": [
+        "CREATE TABLE pc_topic_memory_work_budgets (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tattempt_id VARCHAR(36) NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tfailure_code VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (scope_id, binding_name, source_after), \n\tCONSTRAINT ck_pc_topic_budget_window CHECK (source_after >= 0 AND source_through > source_after), \n\tCONSTRAINT ck_pc_topic_budget_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0)\n)"
+      ],
+      "mysql": [
+        "CREATE TABLE pc_topic_memory_work_budgets (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tbinding_name VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tattempt_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tfailure_code VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (scope_id, binding_name, source_after), \n\tCONSTRAINT ck_pc_topic_budget_window CHECK (source_after >= 0 AND source_through > source_after), \n\tCONSTRAINT ck_pc_topic_budget_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0)\n)"
+      ]
+    },
+    "attempts_v0": {
+      "sqlite": [
+        "CREATE TABLE pc_topic_memory_work_attempts (\n\tblock_id VARCHAR(36) NOT NULL, \n\tattempt_id VARCHAR(36) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\ttarget_source_through BIGINT NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tlast_error_code VARCHAR(64), \n\tblocked_code VARCHAR(64), \n\tstarted_at DATETIME, \n\tfinished_at DATETIME, \n\tblocked_at DATETIME, \n\tretried_at DATETIME, \n\tretry_request_generation BIGINT, \n\tsupervisor_group VARCHAR(64), \n\tsupervisor_generation BIGINT, \n\tholder_id VARCHAR(36), \n\tPRIMARY KEY (block_id), \n\tCONSTRAINT ck_pc_topic_attempt_window CHECK (source_after >= 0 AND source_through > source_after AND target_source_through >= source_through), \n\tCONSTRAINT ck_pc_topic_attempt_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT uq_pc_topic_attempt_identity UNIQUE (scope_id, binding_name, source_after, attempt_id)\n)",
+        "CREATE INDEX ix_pc_topic_attempt_frontier ON pc_topic_memory_work_attempts (scope_id, binding_name, source_after, blocked_at)"
+      ],
+      "mysql": [
+        "CREATE TABLE pc_topic_memory_work_attempts (\n\tblock_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tattempt_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tbinding_name VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\ttarget_source_through BIGINT NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tlast_error_code VARCHAR(64), \n\tblocked_code VARCHAR(64), \n\tstarted_at DATETIME, \n\tfinished_at DATETIME, \n\tblocked_at DATETIME, \n\tretried_at DATETIME, \n\tretry_request_generation BIGINT, \n\tsupervisor_group VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tsupervisor_generation BIGINT, \n\tholder_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tPRIMARY KEY (block_id), \n\tCONSTRAINT ck_pc_topic_attempt_window CHECK (source_after >= 0 AND source_through > source_after AND target_source_through >= source_through), \n\tCONSTRAINT ck_pc_topic_attempt_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT uq_pc_topic_attempt_identity UNIQUE (scope_id, binding_name, source_after, attempt_id)\n)",
+        "CREATE INDEX ix_pc_topic_attempt_frontier ON pc_topic_memory_work_attempts (scope_id, binding_name, source_after, blocked_at)"
+      ]
+    },
+    "budget_v1": {
+      "sqlite": [
+        "CREATE TABLE pc_topic_memory_work_budgets (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tattempt_id VARCHAR(36) NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tfailure_code VARCHAR(64) NOT NULL, \n\tattempt_source_through BIGINT, \n\tstarted_at DATETIME, \n\tfinished_at DATETIME, \n\tsupervisor_group VARCHAR(64), \n\tsupervisor_generation BIGINT, \n\tholder_id VARCHAR(36), \n\tlast_error_code VARCHAR(64), \n\tPRIMARY KEY (scope_id, binding_name, source_after), \n\tCONSTRAINT ck_pc_topic_budget_window CHECK (source_after >= 0 AND source_through > source_after), \n\tCONSTRAINT ck_pc_topic_budget_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT ck_pc_topic_budget_attempt_range CHECK (attempt_source_through IS NULL OR (attempt_source_through > source_after AND attempt_source_through <= source_through))\n)"
+      ],
+      "mysql": [
+        "CREATE TABLE pc_topic_memory_work_budgets (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tbinding_name VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tattempt_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tfailure_code VARCHAR(64) NOT NULL, \n\tattempt_source_through BIGINT, \n\tstarted_at DATETIME, \n\tfinished_at DATETIME, \n\tsupervisor_group VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tsupervisor_generation BIGINT, \n\tholder_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tlast_error_code VARCHAR(64), \n\tPRIMARY KEY (scope_id, binding_name, source_after), \n\tCONSTRAINT ck_pc_topic_budget_window CHECK (source_after >= 0 AND source_through > source_after), \n\tCONSTRAINT ck_pc_topic_budget_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT ck_pc_topic_budget_attempt_range CHECK (attempt_source_through IS NULL OR (attempt_source_through > source_after AND attempt_source_through <= source_through))\n)"
+      ]
+    },
+    "blocks_v1": {
+      "sqlite": [
+        "CREATE TABLE pc_topic_memory_work_blocks (\n\tblock_id VARCHAR(36) NOT NULL, \n\tattempt_id VARCHAR(36) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT, \n\tbudget_source_through BIGINT, \n\tlegacy_source_through BIGINT, \n\ttarget_source_through BIGINT NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tlast_error_code VARCHAR(64), \n\terror_code VARCHAR(64) NOT NULL, \n\tblocked_at DATETIME NOT NULL, \n\tretried_at DATETIME, \n\tretry_request_generation BIGINT, \n\tPRIMARY KEY (block_id), \n\tCONSTRAINT ck_pc_topic_block_window CHECK (source_after >= 0 AND target_source_through > source_after AND (source_through IS NULL OR (source_through > source_after AND source_through <= target_source_through)) AND (budget_source_through IS NULL OR (budget_source_through > source_after AND budget_source_through <= target_source_through)) AND (source_through IS NULL OR budget_source_through IS NULL OR source_through <= budget_source_through) AND (legacy_source_through IS NULL OR (legacy_source_through > source_after AND legacy_source_through <= target_source_through))), \n\tCONSTRAINT ck_pc_topic_block_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT ck_pc_topic_block_acceptance CHECK ((retried_at IS NULL AND retry_request_generation IS NULL) OR (retried_at IS NOT NULL AND retry_request_generation IS NOT NULL AND retry_request_generation > 0)), \n\tCONSTRAINT uq_pc_topic_block_identity UNIQUE (scope_id, binding_name, source_after, attempt_id)\n)"
+      ],
+      "mysql": [
+        "CREATE TABLE pc_topic_memory_work_blocks (\n\tblock_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tattempt_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tbinding_name VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT, \n\tbudget_source_through BIGINT, \n\tlegacy_source_through BIGINT, \n\ttarget_source_through BIGINT NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tlast_error_code VARCHAR(64), \n\terror_code VARCHAR(64) NOT NULL, \n\tblocked_at DATETIME NOT NULL, \n\tretried_at DATETIME, \n\tretry_request_generation BIGINT, \n\tPRIMARY KEY (block_id), \n\tCONSTRAINT ck_pc_topic_block_window CHECK (source_after >= 0 AND target_source_through > source_after AND (source_through IS NULL OR (source_through > source_after AND source_through <= target_source_through)) AND (budget_source_through IS NULL OR (budget_source_through > source_after AND budget_source_through <= target_source_through)) AND (source_through IS NULL OR budget_source_through IS NULL OR source_through <= budget_source_through) AND (legacy_source_through IS NULL OR (legacy_source_through > source_after AND legacy_source_through <= target_source_through))), \n\tCONSTRAINT ck_pc_topic_block_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0), \n\tCONSTRAINT ck_pc_topic_block_acceptance CHECK ((retried_at IS NULL AND retry_request_generation IS NULL) OR (retried_at IS NOT NULL AND retry_request_generation IS NOT NULL AND retry_request_generation > 0)), \n\tCONSTRAINT uq_pc_topic_block_identity UNIQUE (scope_id, binding_name, source_after, attempt_id)\n)"
+      ]
+    },
+    "leases_v0": {
+      "sqlite": [
+        "CREATE TABLE pc_artifact_processing_leases (\n\tsupervisor_group VARCHAR(64) NOT NULL, \n\tholder_id VARCHAR(36) NOT NULL, \n\tsupervisor_generation BIGINT NOT NULL, \n\tlease_expires_at DATETIME, \n\tPRIMARY KEY (supervisor_group), \n\tCONSTRAINT ck_pc_artifact_processing_leases_generation_positive CHECK (supervisor_generation > 0)\n)"
+      ],
+      "mysql": [
+        "CREATE TABLE pc_artifact_processing_leases (\n\tsupervisor_group VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tholder_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsupervisor_generation BIGINT NOT NULL, \n\tlease_expires_at DATETIME, \n\tPRIMARY KEY (supervisor_group), \n\tCONSTRAINT ck_pc_artifact_processing_leases_generation_positive CHECK (supervisor_generation > 0)\n)"
+      ]
+    }
+  },
+  "conversion": {
+    "copy_blocks": "INSERT INTO pc_topic_memory_work_blocks (block_id,attempt_id,scope_id,binding_name,source_after,target_source_through,attempts,requests,tokens,last_error_code,blocked_at,retried_at,retry_request_generation,source_through,budget_source_through,legacy_source_through,error_code) SELECT a.block_id,a.attempt_id,a.scope_id,a.binding_name,a.source_after,a.target_source_through,a.attempts,a.requests,a.tokens,a.last_error_code,a.blocked_at,a.retried_at,a.retry_request_generation,NULL,b.source_through,a.source_through,a.blocked_code FROM pc_topic_memory_work_attempts a LEFT JOIN pc_topic_memory_work_budgets b ON b.scope_id=a.scope_id AND b.binding_name=a.binding_name AND b.source_after=a.source_after AND b.attempt_id=a.attempt_id WHERE a.blocked_at IS NOT NULL",
+    "copy_current": "UPDATE pc_topic_memory_work_budgets SET started_at=(SELECT a.started_at FROM pc_topic_memory_work_attempts a WHERE a.scope_id=pc_topic_memory_work_budgets.scope_id AND a.binding_name=pc_topic_memory_work_budgets.binding_name AND a.source_after=pc_topic_memory_work_budgets.source_after AND a.attempt_id=pc_topic_memory_work_budgets.attempt_id),finished_at=(SELECT a.finished_at FROM pc_topic_memory_work_attempts a WHERE a.scope_id=pc_topic_memory_work_budgets.scope_id AND a.binding_name=pc_topic_memory_work_budgets.binding_name AND a.source_after=pc_topic_memory_work_budgets.source_after AND a.attempt_id=pc_topic_memory_work_budgets.attempt_id),supervisor_group=(SELECT a.supervisor_group FROM pc_topic_memory_work_attempts a WHERE a.scope_id=pc_topic_memory_work_budgets.scope_id AND a.binding_name=pc_topic_memory_work_budgets.binding_name AND a.source_after=pc_topic_memory_work_budgets.source_after AND a.attempt_id=pc_topic_memory_work_budgets.attempt_id),supervisor_generation=(SELECT a.supervisor_generation FROM pc_topic_memory_work_attempts a WHERE a.scope_id=pc_topic_memory_work_budgets.scope_id AND a.binding_name=pc_topic_memory_work_budgets.binding_name AND a.source_after=pc_topic_memory_work_budgets.source_after AND a.attempt_id=pc_topic_memory_work_budgets.attempt_id),holder_id=(SELECT a.holder_id FROM pc_topic_memory_work_attempts a WHERE a.scope_id=pc_topic_memory_work_budgets.scope_id AND a.binding_name=pc_topic_memory_work_budgets.binding_name AND a.source_after=pc_topic_memory_work_budgets.source_after AND a.attempt_id=pc_topic_memory_work_budgets.attempt_id),last_error_code=(SELECT a.last_error_code FROM pc_topic_memory_work_attempts a WHERE a.scope_id=pc_topic_memory_work_budgets.scope_id AND a.binding_name=pc_topic_memory_work_budgets.binding_name AND a.source_after=pc_topic_memory_work_budgets.source_after AND a.attempt_id=pc_topic_memory_work_budgets.attempt_id) WHERE EXISTS (SELECT 1 FROM pc_topic_memory_work_attempts a WHERE a.scope_id=pc_topic_memory_work_budgets.scope_id AND a.binding_name=pc_topic_memory_work_budgets.binding_name AND a.source_after=pc_topic_memory_work_budgets.source_after AND a.attempt_id=pc_topic_memory_work_budgets.attempt_id)",
+    "revoke_old_fences_sqlite": "UPDATE pc_artifact_processing_leases SET holder_id=:migration_holder,supervisor_generation=supervisor_generation+1,lease_expires_at=CURRENT_TIMESTAMP WHERE holder_id<>:migration_holder",
+    "revoke_old_fences_mysql": "UPDATE pc_artifact_processing_leases SET holder_id=:migration_holder,supervisor_generation=supervisor_generation+1,lease_expires_at=UTC_TIMESTAMP() WHERE holder_id<>:migration_holder"
+  },
+  "initialization": [
+    "blocks_v1",
+    "budget_v1"
+  ],
+  "atomic_maintenance_sqlite_v1": {
+    "schema": [
+      [
+        "table",
+        "pc_atomic_memory_current",
+        "pc_atomic_memory_current",
+        "CREATE TABLE pc_atomic_memory_current (\n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision BIGINT NOT NULL, \n\tstate_version BIGINT NOT NULL, \n\tcontent_hash VARCHAR(64) NOT NULL, \n\tprojection_format VARCHAR(64) NOT NULL, \n\tkind TEXT NOT NULL, \n\ttext TEXT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\ttag_keys TEXT NOT NULL, \n\tembedding BLOB, \n\tprofile_fingerprint VARCHAR(64), \n\tembedding_input_hash VARCHAR(64), \n\tPRIMARY KEY (scope_id, artifact_id), \n\tCONSTRAINT ck_pc_atomic_memory_current_revision CHECK (revision > 0), \n\tCONSTRAINT ck_pc_atomic_memory_current_state_version CHECK (state_version >= 0), \n\tCONSTRAINT ck_pc_atomic_memory_current_embedding_metadata CHECK ((embedding IS NULL AND profile_fingerprint IS NULL AND embedding_input_hash IS NULL) OR (embedding IS NOT NULL AND profile_fingerprint IS NOT NULL AND embedding_input_hash IS NOT NULL))\n)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_fts",
+        "pc_atomic_memory_current_fts",
+        "CREATE VIRTUAL TABLE pc_atomic_memory_current_fts USING fts5(scope_id UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED, state_version UNINDEXED, content_hash UNINDEXED, projection_format UNINDEXED, kind UNINDEXED, text UNINDEXED, searchable_text, tag_keys UNINDEXED, identity_token, tokenize='unicode61')"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_fts_config",
+        "pc_atomic_memory_current_fts_config",
+        "CREATE TABLE 'pc_atomic_memory_current_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_fts_content",
+        "pc_atomic_memory_current_fts_content",
+        "CREATE TABLE 'pc_atomic_memory_current_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_fts_data",
+        "pc_atomic_memory_current_fts_data",
+        "CREATE TABLE 'pc_atomic_memory_current_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_fts_docsize",
+        "pc_atomic_memory_current_fts_docsize",
+        "CREATE TABLE 'pc_atomic_memory_current_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_fts_idx",
+        "pc_atomic_memory_current_fts_idx",
+        "CREATE TABLE 'pc_atomic_memory_current_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+      ],
+      [
+        "table",
+        "pc_memory_artifact_archive",
+        "pc_memory_artifact_archive",
+        "CREATE TABLE pc_memory_artifact_archive (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent BLOB NOT NULL, \n\tmemory_citations BLOB, \n\tmetadata BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+      ],
+      [
+        "trigger",
+        "pc_atomic_memory_fts_delete",
+        "pc_atomic_memory_current",
+        "CREATE TRIGGER pc_atomic_memory_fts_delete AFTER DELETE ON pc_atomic_memory_current BEGIN DELETE FROM pc_atomic_memory_current_fts WHERE identity_token MATCH ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); END"
+      ],
+      [
+        "trigger",
+        "pc_atomic_memory_fts_insert",
+        "pc_atomic_memory_current",
+        "CREATE TRIGGER pc_atomic_memory_fts_insert AFTER INSERT ON pc_atomic_memory_current BEGIN INSERT INTO pc_atomic_memory_current_fts (scope_id, artifact_id, revision, state_version, content_hash, projection_format, kind, text, searchable_text, tag_keys, identity_token) VALUES (new.scope_id, new.artifact_id, new.revision, new.state_version, new.content_hash, new.projection_format, new.kind, new.text, new.searchable_text, new.tag_keys, 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id))); END"
+      ],
+      [
+        "trigger",
+        "pc_atomic_memory_fts_update",
+        "pc_atomic_memory_current",
+        "CREATE TRIGGER pc_atomic_memory_fts_update AFTER UPDATE ON pc_atomic_memory_current BEGIN DELETE FROM pc_atomic_memory_current_fts WHERE identity_token MATCH ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); INSERT INTO pc_atomic_memory_current_fts (scope_id, artifact_id, revision, state_version, content_hash, projection_format, kind, text, searchable_text, tag_keys, identity_token) VALUES (new.scope_id, new.artifact_id, new.revision, new.state_version, new.content_hash, new.projection_format, new.kind, new.text, new.searchable_text, new.tag_keys, 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id))); END"
+      ]
+    ],
+    "empty_tables": [
+      "pc_atomic_memory_current",
+      "pc_atomic_memory_current_fts",
+      "pc_memory_artifact_archive"
+    ]
+  }
+}

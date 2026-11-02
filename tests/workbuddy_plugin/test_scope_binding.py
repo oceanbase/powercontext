@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Generator
@@ -200,3 +202,37 @@ def test_expired_deadline_fails_without_contacting_the_server(
 
     assert requests == []
     assert elapsed < 1.0
+
+
+@pytest.mark.parametrize("operation", ["resolve", "bind", "clear"])
+def test_workspace_discovery_obeys_the_operation_deadline(
+    scope_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    run = subprocess.run
+
+    def slow_git(*_args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return run(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+            timeout=kwargs["timeout"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    monkeypatch.setattr(scope_module, "which", lambda _name: sys.executable)
+    monkeypatch.setattr(scope_module.subprocess, "run", slow_git)
+    settings = _settings(scope_module, "http://127.0.0.1:1")
+    started = time.monotonic()
+    deadline = started + 0.15
+    with pytest.raises(scope_module.ScopeBindingError):
+        if operation == "resolve":
+            scope_module.resolve_scope_id(str(tmp_path), session_id=None, settings=settings, deadline=deadline)
+        elif operation == "bind":
+            scope_module.bind_scope(str(tmp_path), "scope-1", settings=settings, deadline=deadline)
+        else:
+            scope_module.clear_scope_binding(str(tmp_path), settings=settings, deadline=deadline)
+
+    assert time.monotonic() - started < 0.8

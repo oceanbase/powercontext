@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import ArtifactAddress, ArtifactRef
+from powercontext.artifacts import ArtifactAddress, ArtifactLineage, ArtifactRef
 from powercontext.builtin.inference import TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -46,29 +48,56 @@ class _RecallOriginResolver:
         connection: AsyncConnection,
         current_scope_id: str,
         artifacts: ArtifactRepository,
+        lineages: tuple[tuple[ArtifactAddress, ArtifactLineage], ...],
     ) -> None:
         self._connection = connection
         self._current_scope_id = current_scope_id
         self._artifacts = artifacts
+        self._lineages = {
+            _artifact_identity(address.scope_id, address.artifact): lineage for address, lineage in lineages
+        }
         self._artifact_sources: dict[tuple[str, str, str, int], frozenset[SourceAddress]] = {}
         self._resolving_artifacts: set[tuple[str, str, str, int]] = set()
 
-    async def resolve(self, origin: PreparedContextOrigin, /) -> set[SourceAddress]:
-        if isinstance(origin, ArtifactAddress):
-            return set(await self._artifact(origin.scope_id, origin.artifact))
-        return set(await self._artifact(self._current_scope_id, origin))
+    async def resolve(self, origins: tuple[PreparedContextOrigin, ...], /) -> tuple[frozenset[SourceAddress], ...]:
+        roots = tuple(
+            (origin.scope_id, origin.artifact)
+            if isinstance(origin, ArtifactAddress)
+            else (self._current_scope_id, origin)
+            for origin in origins
+        )
+        pending = roots
+        expanded: set[tuple[str, str, str, int]] = set()
+        while pending:
+            grouped: dict[str, list[ArtifactRef]] = defaultdict(list)
+            for scope_id, ref in pending:
+                if _artifact_identity(scope_id, ref) not in self._lineages:
+                    grouped[scope_id].append(ref)
+            for scope_id, refs in grouped.items():
+                artifacts = await self._artifacts.get_many(self._connection, scope_id, refs)
+                for artifact in artifacts:
+                    self._lineages[_artifact_identity(scope_id, artifact.as_ref())] = artifact.lineage
+            expanded.update(_artifact_identity(scope_id, ref) for scope_id, ref in pending)
+            parents = {
+                _artifact_identity(scope_id, parent): (scope_id, parent)
+                for scope_id, ref in pending
+                for parent in self._lineages[_artifact_identity(scope_id, ref)].artifacts
+                if _artifact_identity(scope_id, parent) not in expanded
+            }
+            pending = tuple(parents.values())
+        return tuple(self._artifact(scope_id, ref) for scope_id, ref in roots)
 
-    async def _artifact(self, scope_id: str, artifact_ref: ArtifactRef) -> frozenset[SourceAddress]:
+    def _artifact(self, scope_id: str, artifact_ref: ArtifactRef) -> frozenset[SourceAddress]:
         identity = _artifact_identity(scope_id, artifact_ref)
         if identity in self._artifact_sources:
             return self._artifact_sources[identity]
         if identity in self._resolving_artifacts:
             return frozenset()
         self._resolving_artifacts.add(identity)
-        artifact = await self._artifacts.get(self._connection, scope_id, artifact_ref)
-        resolved = _source_identities(scope_id, artifact.lineage.sources)
-        for parent in artifact.lineage.artifacts:
-            resolved.update(await self._artifact(scope_id, parent))
+        lineage = self._lineages[identity]
+        resolved = _source_identities(scope_id, lineage.sources)
+        for parent in lineage.artifacts:
+            resolved.update(self._artifact(scope_id, parent))
         self._resolving_artifacts.remove(identity)
         result = frozenset(resolved)
         self._artifact_sources[identity] = result
@@ -102,9 +131,9 @@ class RelationalRecallTokenEstimator:
                 connection=connection,
                 current_scope_id=self._scope_id,
                 artifacts=self._artifacts,
+                lineages=build.lineages,
             )
-            for origin in build.origins:
-                origin_sources = await resolver.resolve(origin)
+            for origin_sources in await resolver.resolve(build.origins):
                 comparable = comparable and bool(origin_sources)
                 source_refs.update(origin_sources)
 
@@ -118,16 +147,16 @@ class RelationalRecallTokenEstimator:
                 )
 
             texts = []
+            grouped_sources: dict[str, list[SourceRef]] = defaultdict(list)
             for scope_id, source_type, source_id in sorted(
                 source_refs,
                 key=lambda ref: (ref[0].encode(), ref[1].encode(), ref[2].encode()),
             ):
-                stored = await self._sources.get(
-                    connection,
-                    scope_id,
-                    SourceRef(source_type=source_type, source_id=source_id),
-                )
-                texts.append(_source_text(stored.value))
+                grouped_sources[scope_id].append(SourceRef(source_type=source_type, source_id=source_id))
+            for scope_id, refs in grouped_sources.items():
+                for offset in range(0, len(refs), 100):
+                    stored = await self._sources.get_many(connection, scope_id, refs[offset : offset + 100])
+                    texts.extend(_source_text(source.value) for source in stored)
 
         final_content = build.context.content or ""
         return RecallTokenMeasurement(

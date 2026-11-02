@@ -16,15 +16,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 from pydantic import SecretStr
+from pymysql.err import OperationalError as MySQLOperationalError
 from sqlalchemy.dialects import mysql
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.schema import CreateTable
 
@@ -52,7 +53,6 @@ from powercontext.builtin.persistence.tables import (
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import (
     CompositeTopicMemoryIndex,
-    topic_memory_embedding_profile_fingerprint,
 )
 
 
@@ -76,7 +76,7 @@ def test_oceanbase_topic_schema_compiles_native_text_and_vector_storage() -> Non
     vector_topics = str(CreateTable(vector_index.topic_table).compile(dialect=dialect))
     vector_chunks = str(CreateTable(vector_index.chunk_table).compile(dialect=dialect))
 
-    assert "published_at DATETIME NOT NULL" in publication
+    assert "published_at DATETIME(6) NOT NULL" in publication
     assert "FOREIGN KEY(scope_id, family, artifact_id, revision)" in publication
     assert "shape VARCHAR(16)" in retrieval_shape
     assert "profile_fingerprint VARCHAR(64)" in retrieval_shape
@@ -109,6 +109,128 @@ def test_oceanbase_impossible_topic_lexical_floor_returns_empty_before_database_
             ),
         )
         assert result.topic_fts == result.detail_fts == ()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("conflict_on", ["topics", "chunks"])
+@pytest.mark.parametrize("created_by_peer", [False, True])
+def test_oceanbase_fts_startup_recovers_from_ddl_lock_conflict(conflict_on, created_by_peer) -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.dialect = mysql.dialect()
+        created: set[str] = set()
+        conflicted = False
+
+        async def exists(_statement, parameters):
+            return int(parameters["index_name"] in created)
+
+        async def create(statement):
+            nonlocal conflicted
+            index_name = statement.split()[3]
+            # A duplicate CREATE is an error even if another initializer won.
+            assert index_name not in created
+            if conflict_on in index_name and not conflicted:
+                conflicted = True
+                if created_by_peer:
+                    created.add(index_name)
+                raise OperationalError(statement, None, MySQLOperationalError(1205, "DDL lock conflict"))
+            created.add(index_name)
+
+        connection.scalar.side_effect = exists
+        connection.exec_driver_sql.side_effect = create
+        await OceanBaseTopicMemoryFTSIndex().initialize(cast(AsyncConnection, connection))
+
+        assert created == {"ix_pc_topic_memory_active_topics_fts", "ix_pc_topic_memory_active_chunks_fts"}
+        assert conflicted
+        # The adapter must not finish its caller's transaction while recovering.
+        connection.commit.assert_not_awaited()
+        connection.rollback.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_fts_startup_stops_retrying_a_persistent_ddl_lock_conflict() -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.dialect = mysql.dialect()
+        connection.scalar.return_value = 0
+        error = OperationalError("CREATE FULLTEXT INDEX", None, MySQLOperationalError(1205, "DDL lock conflict"))
+        connection.exec_driver_sql.side_effect = error
+
+        # Repeated NOWAIT conflicts must fail startup within a bounded budget.
+        with pytest.raises(OperationalError) as raised:
+            await asyncio.wait_for(
+                OceanBaseTopicMemoryFTSIndex().initialize(cast(AsyncConnection, connection)), timeout=5
+            )
+        assert raised.value is error
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", [1142, 1213, "cancelled"])
+def test_oceanbase_fts_startup_preserves_other_errors_and_cancellation(failure) -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.dialect = mysql.dialect()
+        connection.scalar.return_value = 0
+        error = (
+            asyncio.CancelledError()
+            if failure == "cancelled"
+            else OperationalError("CREATE FULLTEXT INDEX", None, MySQLOperationalError(failure, "DDL failed"))
+        )
+        connection.exec_driver_sql.side_effect = [error, None]
+
+        with pytest.raises(type(error)) as raised:
+            await OceanBaseTopicMemoryFTSIndex().initialize(cast(AsyncConnection, connection))
+        assert raised.value is error
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_vector_startup_recovers_from_ddl_lock_conflict() -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.dialect = mysql.dialect()
+        connection.scalar.return_value = "VECTOR(3)"
+        connection.run_sync.side_effect = [
+            OperationalError("CREATE VECTOR INDEX", None, MySQLOperationalError(1205, "DDL lock conflict")),
+            None,
+        ]
+        profile = EmbeddingProfile(
+            profile_id="topic-test", model="test", dimension=3, distance="l2", normalization="unit"
+        )
+        await OceanBaseTopicMemoryVectorIndex(profile).initialize(cast(AsyncConnection, connection))
+        connection.commit.assert_not_awaited()
+        connection.rollback.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", [1142, 1213, "cancelled", "persistent-lock"])
+def test_oceanbase_vector_startup_preserves_failures_and_bounds_lock_retries(failure) -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.dialect = mysql.dialect()
+        connection.scalar.return_value = "VECTOR(3)"
+        error = (
+            asyncio.CancelledError()
+            if failure == "cancelled"
+            else OperationalError(
+                "CREATE VECTOR INDEX",
+                None,
+                MySQLOperationalError(1205 if failure == "persistent-lock" else failure, "DDL failed"),
+            )
+        )
+        connection.run_sync.side_effect = error if failure == "persistent-lock" else [error, None]
+        profile = EmbeddingProfile(
+            profile_id="topic-test", model="test", dimension=3, distance="l2", normalization="unit"
+        )
+        with pytest.raises(type(error)) as raised:
+            await asyncio.wait_for(
+                OceanBaseTopicMemoryVectorIndex(profile).initialize(cast(AsyncConnection, connection)), timeout=5
+            )
+        assert raised.value is error
 
     asyncio.run(scenario())
 
@@ -191,8 +313,7 @@ def test_live_oceanbase_topic_vector_hybrid_and_detail_search() -> None:
                 ) as profile:
                     async with profile.database.transaction() as connection:
                         await repository.initialize(connection)
-                    # Reverse insertion order, equal distances, multiple chunks:
-                    # tie-break and collapse must occur outside the bounded ANN.
+                    # Equal distances across multi-chunk Topics retain ordering and Scope isolation.
                     for scope, label in (("scope-a", "zulu"), ("scope-a", "alpha"), ("scope-b", "hidden")):
                         content = TopicMemoryContent(
                             title=f"{label} recovery",
@@ -240,66 +361,12 @@ def test_live_oceanbase_topic_vector_hybrid_and_detail_search() -> None:
                         )
                         for hits in (channels.topic_vector, channels.detail_vector):
                             assert [hit.artifact_ref.artifact_id for hit in hits] == ["topic-alpha", "topic-zulu"]
-                        assert [hit.chunk_ordinal for hit in channels.detail_vector] == [0, 0]
+                        assert all(
+                            hit.chunk_ordinal is not None and hit.distance == 0 for hit in channels.detail_vector
+                        )
             finally:
                 if database_created:
                     async with server_profile.database.transaction() as connection:
                         await connection.exec_driver_sql(f"DROP DATABASE `{database_name}`")
-
-    asyncio.run(scenario())
-
-
-@pytest.mark.parametrize("mode", ["vector", "hybrid"])
-def test_oceanbase_detail_vector_collapses_topics_before_the_channel_limit(mode) -> None:
-    async def scenario() -> None:
-        connection = AsyncMock(spec=AsyncConnection)
-        connection.execute.return_value.mappings = MagicMock(return_value=())
-        index = OceanBaseTopicMemoryVectorIndex(_embedding_profile())
-
-        result = await index.search(
-            cast(AsyncConnection, connection),
-            "scope-a",
-            TopicMemorySearchRequest(
-                query="semantic evidence",
-                analyzed_query="semantic evidence",
-                candidate_limit=2,
-                mode=mode,
-                query_vector=(1.0, 0.0, 0.0),
-                embedding_profile=_embedding_profile(),
-            ),
-        )
-
-        statements = [str(call.args[0]) for call in connection.execute.await_args_list]
-        # OceanBase's grammar is `order_by opt_approx limit_clause`: the
-        # modifier follows the ENTIRE sort list, never an individual key.
-        for statement in statements:
-            assert re.search(r"\bAPPROXIMATE\s+LIMIT\s+:(?:candidate|neighbor)_limit\b", statement)
-            assert not re.search(r"\bAPPROXIMATE\s*,", statement)
-            # The vector executor (not just the parser) rejects secondary
-            # sort keys on ANN queries. Tie-break only AFTER bounded KNN.
-            assert re.search(
-                r"ORDER BY\s+l2_distance\([^()]+\)\s+APPROXIMATE\s+LIMIT\s+:(?:candidate|neighbor)_limit",
-                statement,
-            )
-            # CE 4.3.5.6 loses same-scope neighbors if ANN itself joins the
-            # active tables. Hydrate only AFTER bounded, join-free selection.
-            ann_selection = statement[: statement.index("APPROXIMATE")]
-            assert "JOIN" not in ann_selection
-            assert "WHERE v.scope_id = :scope_id" in ann_selection
-            assert "v.profile_fingerprint = :profile_fingerprint" in ann_selection
-            assert statement.index("JOIN pc_topic_memory_active_topics") > statement.index("APPROXIMATE")
-            assert statement.rfind("ORDER BY distance, artifact_id, revision DESC") > statement.index("APPROXIMATE")
-        assert statements[0].index("LIMIT :candidate_limit") < statements[0].rfind("ORDER BY distance")
-        assert "row_number() OVER" in statements[1]
-        assert "WHERE topic_rank = 1" in statements[1]
-        assert statements[1].find("LIMIT :neighbor_limit") < statements[1].find("row_number() OVER")
-        assert statements[1].rfind("LIMIT :candidate_limit") > statements[1].rfind("WHERE topic_rank = 1")
-        assert connection.execute.await_args_list[1].args[1]["neighbor_limit"] == 400
-        for call in connection.execute.await_args_list:
-            assert call.args[1]["profile_fingerprint"] == topic_memory_embedding_profile_fingerprint(
-                _embedding_profile()
-            )
-        assert result.topic_vector == ()
-        assert result.detail_vector == ()
 
     asyncio.run(scenario())

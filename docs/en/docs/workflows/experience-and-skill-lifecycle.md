@@ -27,6 +27,10 @@ immutable versions. Revising it appends a complete replacement proposal as the n
 Reviewers act on the version they inspected. `expected_version` prevents an approval, rejection, or revision from
 silently applying after another writer changes the Candidate. Approval and rejection are terminal states.
 
+After authorization, approving an already rejected Candidate returns a terminal-state error before validating its
+target or evidence or requesting embeddings. Repeating approval of an approved Candidate with the same version
+returns its stored result. A rejection that races with preparation still prevents publication at commit time.
+
 A Candidate is not an Artifact Revision:
 
 - `pending` content has no `result_artifact`;

@@ -21,6 +21,7 @@ import json
 import os
 import shlex
 import sys
+import threading
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager, nullcontext, suppress
@@ -29,13 +30,19 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
+from uuid import UUID, uuid4
 
 from powercontext.cli.env_file import environment_context
 from powercontext.paths import POWERCONTEXT_HOME_ENV, powercontext_data_dir
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.adapters import NativeServiceAdapter, native_service_adapter
 from powercontext.service.adapters.base import atomic_write, definition_state, service_python_executable
-from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
+from powercontext.service.environment import (
+    ProtectedEnvironmentFileError,
+    load_protected_environment_file,
+    read_protected_file,
+    write_protected_file,
+)
 from powercontext.service.model import (
     DEFINITION_VERSION,
     OWNERSHIP_MARKER,
@@ -51,8 +58,10 @@ from powercontext.service.model import (
     ServiceDefinition,
     ServiceError,
     ServiceStatus,
+    ServiceTarget,
     SupportState,
 )
+from powercontext.service.native_command import native_command_boundary, native_command_evidence
 from powercontext.service.probe import probe_server
 from powercontext.transport import is_loopback_host
 
@@ -123,6 +132,7 @@ class ServiceController:
         probe: Callable[[str], ProbeResult] = probe_server,
         readiness_probe: Callable[[str], ProbeResult] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        target: ServiceTarget | None = None,
     ) -> None:
         self._adapter = native_service_adapter() if adapter is None else adapter
         self._probe = probe
@@ -132,26 +142,65 @@ class ServiceController:
             readiness_probe = probe_readiness
         self._readiness_probe = readiness_probe
         self._sleep = sleep
+        self._target = target
+        self._mutation_lock = threading.RLock()
+        self._mutation_depth = 0
 
-    def install(self, *, env_file: Path | None = None, start_on_login: bool = True) -> ServiceStatus:
+    @contextmanager
+    def mutation(self, *, timeout: float = 10.0) -> Generator[None, None, None]:
+        """Serialize revalidation, durable operation acceptance, and native changes.
+
+        Nested operations on this controller share the OS lock. Other threads
+        must acquire the instance lock before inspecting its nesting depth.
+        """
+        if not self._mutation_lock.acquire(timeout=timeout):
+            raise ServiceError("another PowerContext service operation is still running")  # noqa: TRY003
+        try:
+            lock = (
+                _service_lock(self._adapter.lock_path, timeout=timeout) if self._mutation_depth == 0 else nullcontext()
+            )
+            with lock:
+                boundary = (
+                    native_command_boundary(self.native_command_path) if self._mutation_depth == 0 else nullcontext()
+                )
+                with boundary:
+                    self._mutation_depth += 1
+                    try:
+                        yield
+                    finally:
+                        self._mutation_depth -= 1
+        finally:
+            self._mutation_lock.release()
+
+    def _server_target(self, *, require_exists: bool = False) -> ServiceTarget:
+        target = self._target or ServiceTarget(
+            service_python_executable(require_exists=require_exists), version("powercontext")
+        )
+        if require_exists and not Path(target.python_executable).is_file():
+            raise ServiceError("the target Server executable is unavailable", exit_code=2)  # noqa: TRY003
+        if require_exists and sys.platform == "win32" and Path(target.python_executable).name.lower() != "pythonw.exe":
+            raise ServiceError("Windows personal services require the target pythonw.exe", exit_code=2)  # noqa: TRY003
+        return target
+
+    def install(
+        self, *, env_file: Path | None = None, start_on_login: bool = True, require_ready: bool = False
+    ) -> ServiceStatus:
         if not start_on_login and sys.platform != "win32":
             raise ServiceError(  # noqa: TRY003
                 "disabling login auto-start is currently supported only on Windows",
                 exit_code=2,
             )
-        support, detail = self._adapter.support()
-        if support is SupportState.UNSUPPORTED:
-            raise ServiceError(detail)
-        definition = self._build_definition(env_file, start_on_login=start_on_login)
+        self._require_support()
+        definition = self.preview_definition(env_file, start_on_login=start_on_login)
         initial_probe = self._probe(definition.endpoint)
         if initial_probe.state is ProbeState.CONFLICT:
             raise ServiceError(  # noqa: TRY003
                 f"refusing to install over another listener: {initial_probe.detail}"
             )
 
-        with _service_lock(self._adapter.lock_path):
+        with self.mutation():
             record = self._maintenance_record()
-            if record is not None:
+            if record is not None and not (require_ready and record.get("phase") == "start_failed"):
                 if record.get("phase") not in {"manual_stopped", "manual_switching"}:
                     raise ServiceError(  # noqa: TRY003
                         "the personal service is stopped for maintenance; finish migration or use service start first"
@@ -170,6 +219,15 @@ class ServiceController:
             manager_before = (
                 self._adapter.manager_state() if loaded.state is ManagerOwnershipState.OWNED else ManagerState.INACTIVE
             )
+            if require_ready:
+                return self._install_ready(
+                    definition,
+                    registration,
+                    changed=changed,
+                    loaded_changed=loaded_changed,
+                    manager_before=manager_before,
+                    pending=record is not None,
+                )
             if changed:
                 self._commit_definition(definition, registration.content)
             else:
@@ -197,17 +255,77 @@ class ServiceController:
                     )
         return self.status()
 
+    def _install_ready(
+        self,
+        definition: ServiceDefinition,
+        registration: NativeRegistration,
+        *,
+        changed: bool,
+        loaded_changed: bool,
+        manager_before: ManagerState,
+        pending: bool,
+    ) -> ServiceStatus:
+        """Register with a durable activation guard and verify business readiness."""
+        if not changed and not loaded_changed and manager_before is ManagerState.ACTIVE and not pending:
+            if self._readiness_probe(definition.endpoint).state is not ProbeState.LIVE:
+                raise ServiceError("the running service is not ready; inspect its diagnostics")  # noqa: TRY003
+            self._require_running_definition(definition)
+            return self.status()
+        # Keep a persistent guard before replacing the registration or
+        # enabling native activation. A killed installer leaves evidence
+        # for explicit recovery instead of an apparently complete start.
+        self._write_maintenance_record({"phase": "start_failed"})
+        self._adapter.suspend(self.maintenance_path)
+        self._adapter.stop()
+        if registration.definition is not None:
+            self._require_stopped(registration.definition)
+        self._require_stopped(definition)
+        self._adapter.write(self._adapter.render(definition))
+        self._adapter.update_suspended()
+        self._start_registered(definition)
+        self.maintenance_path.unlink(missing_ok=True)
+        return self.status()
+
     @property
     def maintenance_path(self) -> Path:
         return self._adapter.lock_path.with_name(f"{self._adapter.lock_path.name}.maintenance.json")
 
+    @property
+    def native_command_path(self) -> Path:
+        return self._adapter.lock_path.with_name(f"{self._adapter.lock_path.name}.native-command") / "state.json"
+
+    @property
+    def registration_removal_path(self) -> Path:
+        return self._adapter.lock_path.with_name(f"{self._adapter.lock_path.name}.registration-removal") / "state.json"
+
+    def _registration_removal(self) -> str | None:
+        path = self.registration_removal_path
+        if not path.exists() and not path.is_symlink():
+            return None
+        try:
+            record = json.loads(read_protected_file(path).content)
+            if (
+                not isinstance(record, dict)
+                or set(record) != {"format_version", "removal_id"}
+                or type(record["format_version"]) is not int
+                or record["format_version"] != 1
+                or not isinstance(record["removal_id"], str)
+                or str(UUID(record["removal_id"])) != record["removal_id"]
+            ):
+                raise ValueError("invalid registration removal evidence")  # noqa: TRY003, TRY301
+            return record["removal_id"]
+        except (OSError, ValueError) as error:
+            raise ServiceError("the registration removal evidence cannot be verified") from error  # noqa: TRY003
+
     def start(self) -> ServiceStatus:
         """Start the registered executable without reinstalling or changing configuration."""
 
-        with _service_lock(self._adapter.lock_path):
+        with self.mutation():
             self._recover_definition_switch()
             registration, running = self._owned_registration()
             record = self._maintenance_record()
+            if record is not None and record.get("phase") == "runtime_repair":
+                raise ServiceError("resume the owning Ops runtime repair before starting the service")  # noqa: TRY003
             if record is not None and record.get("phase") not in {"manual_stopped", "database_ready", "start_failed"}:
                 raise ServiceError(  # noqa: TRY003
                     "the database migration has not been verified; complete it before starting the service"
@@ -226,12 +344,96 @@ class ServiceController:
             self.maintenance_path.unlink(missing_ok=True)
         return self.status()
 
+    def verify_running(self) -> ServiceStatus:
+        """Explicitly verify readiness of an already running owned service.
+
+        Recovery callers must not use ``start`` for this check: the native
+        manager may stop independently after a previous status observation.
+        """
+        with self.mutation():
+            registration, running = self._owned_registration()
+            if not running or self._maintenance_record() is not None:
+                raise ServiceError("the service is no longer running without a maintenance guard")  # noqa: TRY003
+            definition = registration.definition
+            if definition is None or self._readiness_probe(definition.endpoint).state is not ProbeState.LIVE:
+                raise ServiceError("the running service is not ready; inspect its diagnostics")  # noqa: TRY003
+            self._require_running_definition(definition)
+            return self.status()
+
+    def verify_stopped(self) -> ServiceStatus:
+        """Verify an owned, guarded stop without changing native activation state."""
+        with self.mutation():
+            registration, running = self._owned_registration()
+            if running or self._maintenance_record() is None:
+                raise ServiceError("the service is not stopped with a persistent maintenance guard")  # noqa: TRY003
+            self._require_stopped(registration.definition)
+            return self.status()
+
+    @contextmanager
+    def runtime_repair(self, *, expected_definition: ServiceDefinition, repair_id: str) -> Generator[None, None, None]:
+        """Hold an owned service stopped while its exact runtime is repaired.
+
+        The installer owns resource publication and verification inside this
+        boundary. A normal exit confirms those steps; an exception or process
+        exit retains a guard that ordinary start/install cannot clear. Repair
+        never changes the registered executable, configuration, or version,
+        and completion leaves the service explicitly stopped.
+        """
+        if (
+            not repair_id
+            or len(repair_id) > 96
+            or not all(c.isascii() and (c.isalnum() or c in "-_") for c in repair_id)
+        ):
+            raise ServiceError("the runtime repair identity is invalid")  # noqa: TRY003
+        with self.mutation():
+            registration, _running = self._owned_registration()
+            if registration.definition != expected_definition:
+                raise ServiceError("the service changed; review a new runtime repair plan")  # noqa: TRY003
+            guard: dict[str, object] = {
+                "phase": "runtime_repair",
+                "repair_id": repair_id,
+                "definition": expected_definition.as_dict(),
+                "registration_checksum": hashlib.sha256(registration.content or b"").hexdigest(),
+            }
+            record = self._maintenance_record()
+            if record is not None and record.get("phase") not in {"manual_stopped", "start_failed"} and record != guard:
+                raise ServiceError("finish the existing service maintenance before repairing its runtime")  # noqa: TRY003
+            self._write_maintenance_record(guard)
+            self._adapter.suspend(self.maintenance_path)
+            self._adapter.stop()
+            self._require_stopped(expected_definition)
+            yield
+            registration, running = self._owned_registration()
+            if (
+                running
+                or registration.definition != expected_definition
+                or hashlib.sha256(registration.content or b"").hexdigest() != guard["registration_checksum"]
+                or self._maintenance_record() != guard
+            ):
+                raise ServiceError("the service changed during runtime repair; preserve its recovery guard")  # noqa: TRY003
+            self._require_stopped(expected_definition)
+            if not Path(expected_definition.python_executable).is_file():
+                raise ServiceError("the repaired Server executable is unavailable")  # noqa: TRY003
+            self._write_maintenance_record({"phase": "manual_stopped"})
+
     def stop(self) -> ServiceStatus:
         """Stop the owned service and persistently suppress native automatic activation."""
 
-        with _service_lock(self._adapter.lock_path):
-            registration, _running = self._owned_registration()
+        with self.mutation():
             record = self._maintenance_record()
+            if record is not None and record.get("phase") in {
+                "configuration_switching",
+                "manual_switching",
+                "switching",
+            }:
+                self._require_support()
+                summary = self._validated_switch(record)
+                self._adapter.suspend(self.maintenance_path)
+                self._adapter.stop()
+                self._require_stopped(summary.definition)
+                self._require_stopped(summary.target_definition)
+                return self.status()
+            registration, _running = self._owned_registration()
             if record is None:
                 self._write_maintenance_record({"phase": "manual_stopped"})
             self._adapter.suspend(self.maintenance_path)
@@ -242,8 +444,98 @@ class ServiceController:
     def restart(self) -> ServiceStatus:
         """Stop then start the registered executable; migration is a separate operation."""
 
-        self.stop()
-        return self.start()
+        with self.mutation():
+            self.stop()
+            return self.start()
+
+    def operation_snapshot(self) -> dict[str, object]:
+        """Read exact native ownership and recovery evidence without a readiness probe.
+
+        Call inside ``mutation`` when binding this evidence to a modification.
+        Environment values and credentials are never included.
+        """
+        registration = self._adapter.inspect()
+        loaded = self._adapter.loaded_registration()
+        return {
+            "identifier": self._adapter.identifier,
+            "artifact_path": str(self._adapter.artifact_path),
+            "registration": {
+                "state": registration.state.value,
+                "definition": registration.definition.as_dict() if registration.definition else None,
+                "checksum": hashlib.sha256(registration.content or b"").hexdigest(),
+            },
+            "loaded": {
+                "state": loaded.state.value,
+                "definition": loaded.definition.as_dict() if loaded.definition else None,
+            },
+            "manager": self._adapter.manager_state().value,
+            "maintenance": self._maintenance_record(),
+            "native_command": native_command_evidence(self.native_command_path),
+            "registration_removal": self._registration_removal(),
+        }
+
+    def configure(  # noqa: C901
+        self,
+        *,
+        env_file: Path,
+        start_on_login: bool = True,
+        restart: bool = False,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> ServiceStatus:
+        """Switch to a protected immutable configuration revision under the service lock.
+
+        The caller publishes a new private file; the active file is never
+        overwritten. An interrupted switch requires this explicit operation to
+        finish, and recovery preserves the stopped state.
+        """
+        if not start_on_login and sys.platform != "win32":
+            raise ServiceError("disabling login auto-start is currently supported only on Windows", exit_code=2)  # noqa: TRY003
+        with self.mutation():
+            target = self.preview_definition(env_file, start_on_login=start_on_login)
+            record = self._maintenance_record()
+            if record is not None and record.get("phase") == "configuration_switching":
+                previous_target = self._validated_switch(record).target_definition
+                target = replace(target, data_dir=previous_target.data_dir)
+                if previous_target != target:
+                    raise ServiceError("the configuration revision changed; cannot resume the accepted switch")  # noqa: TRY003
+                self._recover_definition_switch(configuration=True)
+                return self.status()
+            if record is not None and record.get("phase") != "manual_stopped":
+                raise ServiceError("finish the existing service maintenance before changing configuration")  # noqa: TRY003
+            registration, running = self._owned_registration()
+            definition = registration.definition
+            if definition is None:
+                raise ServiceError("the installed service has no definition")  # noqa: TRY003
+            target = replace(target, data_dir=definition.data_dir)
+            if definition.env_file is not None and target.env_file is not None:
+                if definition.env_file.path == target.env_file.path and definition.env_file != target.env_file:
+                    raise ServiceError("configuration changes require a separate immutable revision")  # noqa: TRY003
+                try:
+                    load_protected_environment_file(Path(definition.env_file.path), expected=definition.env_file)
+                except ProtectedEnvironmentFileError as error:
+                    raise ServiceError("the registered environment file is not usable", exit_code=2) from error  # noqa: TRY003
+            if registration.definition == target and registration.content == self._adapter.render(target):
+                if restart and running and record is None and not (cancelled is not None and cancelled()):
+                    return self.verify_running()
+                return self.status()
+            summary = ServiceMaintenanceSummary(
+                self._adapter.identifier,
+                str(self._adapter.artifact_path),
+                definition,
+                target,
+                running and record is None,
+                hashlib.sha256(registration.content or b"").hexdigest(),
+            )
+            self._write_maintenance_record({
+                "phase": "configuration_switching",
+                "summary": summary.as_dict(),
+                "target_checksum": hashlib.sha256(self._adapter.render(target)).hexdigest(),
+            })
+            self._recover_definition_switch(configuration=True)
+            if restart and summary.originally_running and not (cancelled is not None and cancelled()):
+                self._start_registered(target)
+                self.maintenance_path.unlink(missing_ok=True)
+            return self.status()
 
     def maintenance_summary(self, *, env_file: Path | None = None) -> ServiceMaintenanceSummary:
         registration, running = self._owned_registration()
@@ -273,8 +565,8 @@ class ServiceController:
         target = replace(
             definition,
             definition_version=DEFINITION_VERSION,
-            package_version=version("powercontext"),
-            python_executable=service_python_executable(),
+            package_version=self._server_target().package_version,
+            python_executable=self._server_target().python_executable,
         )
         return ServiceMaintenanceSummary(
             self._adapter.identifier,
@@ -294,7 +586,7 @@ class ServiceController:
     ) -> Generator[ServiceMaintenanceSession, None, None]:
         """Keep the local service stopped across backup/migration; failures retain the guard."""
 
-        with _service_lock(self._adapter.lock_path):
+        with self.mutation():
             summary = self.maintenance_summary(env_file=env_file)
             if summary.fingerprint != expected_fingerprint:
                 raise ServiceError("the service configuration or running state changed; review a new plan")  # noqa: TRY003
@@ -367,12 +659,39 @@ class ServiceController:
         })
         self._recover_definition_switch()
 
-    def _recover_definition_switch(self) -> None:
+    def _recover_definition_switch(self, *, configuration: bool = False) -> None:
         """Resume a verified migration or explicit stopped-registration update."""
         record = self._maintenance_record()
-        if record is None or record.get("phase") not in {"switching", "manual_switching"}:
+        phases = {"switching", "manual_switching"}
+        if configuration:
+            phases.add("configuration_switching")
+        if record is None or record.get("phase") not in phases:
             return
+        configuration_update = record.get("phase") == "configuration_switching"
         manual_update = record.get("phase") == "manual_switching"
+        summary = self._validated_switch(record)
+        target = self._adapter.render(summary.target_definition)
+        if summary.target_definition.env_file is not None:
+            identity = summary.target_definition.env_file
+            try:
+                load_protected_environment_file(Path(identity.path), expected=identity)
+            except ProtectedEnvironmentFileError as error:
+                raise ServiceError("the pending service environment file is not usable", exit_code=2) from error  # noqa: TRY003
+        self._adapter.suspend(self.maintenance_path)
+        self._adapter.stop()
+        self._require_stopped(summary.definition)
+        if summary.target_definition.endpoint != summary.definition.endpoint:
+            self._require_stopped(summary.target_definition)
+        self._adapter.write(target)
+        self._adapter.update_suspended()
+        self._require_stopped(summary.target_definition)
+        if manual_update or configuration_update:
+            self._write_maintenance_record({"phase": "manual_stopped"})
+        else:
+            self._write_maintenance_record({"phase": "database_ready", "summary": summary.as_dict()})
+
+    def _validated_switch(self, record: dict[str, object]) -> ServiceMaintenanceSummary:
+        """Verify old/new definition evidence before recovering or stopping a switch."""
         try:
             payload = record["summary"]
             if not isinstance(payload, dict):
@@ -381,7 +700,7 @@ class ServiceController:
             originally_running = payload["originally_running"]
             if not isinstance(originally_running, bool):
                 raise TypeError("invalid original service state")  # noqa: TRY003, TRY301
-            if manual_update and originally_running:
+            if record.get("phase") == "manual_switching" and originally_running:
                 raise ValueError("a manual registration update must preserve the stopped state")  # noqa: TRY003, TRY301
             summary = ServiceMaintenanceSummary(
                 str(payload["identifier"]),
@@ -415,23 +734,15 @@ class ServiceController:
             )
         ):
             raise ServiceError("the service registration changed outside the pending switch")  # noqa: TRY003
-        self._adapter.suspend(self.maintenance_path)
-        self._adapter.stop()
-        self._require_stopped(summary.definition)
-        if summary.target_definition.endpoint != summary.definition.endpoint:
-            self._require_stopped(summary.target_definition)
-        self._adapter.write(target)
-        self._adapter.update_suspended()
-        self._require_stopped(summary.target_definition)
-        if manual_update:
-            self._write_maintenance_record({"phase": "manual_stopped"})
-        else:
-            self._write_maintenance_record({"phase": "database_ready", "summary": summary.as_dict()})
+        return summary
 
-    def _owned_registration(self) -> tuple[NativeRegistration, bool]:
+    def _require_support(self) -> None:
         support, detail = self._adapter.support()
         if support is SupportState.UNSUPPORTED:
             raise ServiceError(detail)
+
+    def _owned_registration(self) -> tuple[NativeRegistration, bool]:
+        self._require_support()
         registration = self._adapter.inspect()
         self._require_mutable_registration(registration)
         if registration.state is not RegistrationState.INSTALLED or registration.definition is None:
@@ -514,6 +825,7 @@ class ServiceController:
                 )
             try:
                 self._adapter.stop()
+                self._require_stopped(definition)
             except BaseException as stop_error:
                 error.add_note(
                     f"stopping the managed service could not be confirmed: {type(stop_error).__name__}: {stop_error}"
@@ -579,11 +891,11 @@ class ServiceController:
             )
 
         definition = registration.definition
-        installed_version = version("powercontext")
+        target = self._server_target()
         installed_definition = definition_state(
             definition,
-            package_version=installed_version,
-            python_executable=service_python_executable(),
+            package_version=target.package_version,
+            python_executable=target.python_executable,
         )
         return ServiceStatus(
             support=support,
@@ -634,7 +946,11 @@ class ServiceController:
             and probe.state is ProbeState.UNREACHABLE
             and record is not None
         ):
-            if record.get("phase") == "manual_switching":
+            if record.get("phase") == "configuration_switching":
+                recovery = "use the owning Ops caller to inspect and resume the interrupted `config_apply` operation"
+            elif record.get("phase") == "runtime_repair":
+                recovery = "use the owning Ops caller to inspect and resume the interrupted runtime repair"
+            elif record.get("phase") == "manual_switching":
                 recovery = "run `powercontext service install` to finish the interrupted stopped-registration update"
             elif record.get("phase") == "manual_stopped" and registration.definition is DefinitionState.CURRENT:
                 recovery = "run `powercontext service start` when ready to resume the manually stopped service"
@@ -649,14 +965,22 @@ class ServiceController:
         )
 
     def uninstall(self) -> ServiceStatus:
-        support, detail = self._adapter.support()
-        if support is SupportState.UNSUPPORTED:
-            raise ServiceError(detail)
-        with _service_lock(self._adapter.lock_path):
+        self._require_support()
+        with self.mutation():
             registration = self._adapter.inspect()
             self._require_mutable_registration(registration)
             loaded = self._adapter.loaded_registration()
             self._require_mutable_manager_registration(loaded)
+            # Persist explicit removal intent before touching the registration.
+            # A first install interrupted before registration is retryable, but
+            # its recovery must never undo a later CLI or Ops removal.
+            try:
+                write_protected_file(
+                    self.registration_removal_path,
+                    json.dumps({"format_version": 1, "removal_id": str(uuid4())}).encode("utf-8"),
+                )
+            except (OSError, ValueError) as error:
+                raise ServiceError("registration removal intent could not be recorded") from error  # noqa: TRY003
             if (
                 registration.state is RegistrationState.NOT_INSTALLED
                 and loaded.state is ManagerOwnershipState.NOT_LOADED
@@ -670,7 +994,8 @@ class ServiceController:
             self.maintenance_path.unlink(missing_ok=True)
         return self.status()
 
-    def _build_definition(self, env_file: Path | None, *, start_on_login: bool) -> ServiceDefinition:
+    def preview_definition(self, env_file: Path | None = None, *, start_on_login: bool = True) -> ServiceDefinition:
+        """Validate and describe the target definition without writing or starting it."""
         try:
             loaded_env = load_protected_environment_file(env_file) if env_file is not None else None
         except ProtectedEnvironmentFileError as error:
@@ -716,15 +1041,17 @@ class ServiceController:
                 f"invalid personal service configuration: {error}", exit_code=2
             ) from error
 
+        target = self._server_target(require_exists=True)
         return ServiceDefinition(
             ownership=OWNERSHIP_MARKER,
             definition_version=DEFINITION_VERSION,
-            package_version=version("powercontext"),
-            python_executable=service_python_executable(),
+            package_version=target.package_version,
+            python_executable=target.python_executable,
             endpoint=endpoint,
             data_dir=data_dir,
             env_file=loaded_env.identity if loaded_env is not None else None,
             start_on_login=start_on_login,
+            isolated_runtime=target.isolated_runtime,
         )
 
     def _run_uninstall_stage(self, stage: str, operation: Callable[[], None]) -> None:

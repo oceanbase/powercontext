@@ -1,0 +1,126 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "s1401": {
+      "statements": [
+        "CREATE TABLE pc_memory_artifact_archive (\n\tscope_id VARCHAR(256) COLLATE utf8mb4_bin NOT NULL, \n\tfamily VARCHAR(128) COLLATE utf8mb4_bin NOT NULL, \n\tartifact_id VARCHAR(128) COLLATE utf8mb4_bin NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent LONGBLOB NOT NULL, \n\tmemory_citations LONGBLOB, \n\tmetadata LONGBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+      ],
+      "changes": [
+        {
+          "pc_memory_artifact_archive": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "content": {
+                "type": [
+                  "longblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "memory_citations": {
+                "type": [
+                  "longblob",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "metadata": {
+                "type": [
+                  "longblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "family",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "revision",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {}
+          }
+        }
+      ]
+    }
+  }
+}

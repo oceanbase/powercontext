@@ -18,6 +18,7 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 export default defineConfig({
   root: "ui",
+  base: "./",
   plugins: [react()],
   clearScreen: false,
   server: { port: 1420, strictPort: true },

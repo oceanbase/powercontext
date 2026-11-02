@@ -40,7 +40,7 @@ from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.review.errors import InvalidCandidateError
 from powercontext.builtin.review.models import Candidate
-from powercontext.builtin.review.service import ReviewService
+from powercontext.builtin.review.service import CandidateCommitHook, ReviewService
 from powercontext.errors import PowerContextError
 from powercontext.sources import Source, SourceRef
 
@@ -111,6 +111,7 @@ class ReviewedGenerationService:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        on_commit: CandidateCommitHook | None = None,
     ) -> GeneratedCandidateResult:
         if self._experience_generator is None:
             raise GenerationCapabilityUnavailableError(Experience.family)
@@ -126,6 +127,7 @@ class ReviewedGenerationService:
             artifacts=_with_prompt_lineage(artifacts, "experience.generate"),
             target=target,
             reason=reason,
+            **({"on_commit": on_commit} if on_commit is not None else {}),
         )
         return GeneratedCandidateResult(candidate=candidate)
 
@@ -138,6 +140,7 @@ class ReviewedGenerationService:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        on_commit: CandidateCommitHook | None = None,
     ) -> GeneratedCandidateResult:
         if self._skill_generator is None:
             raise GenerationCapabilityUnavailableError(Skill.family)
@@ -152,6 +155,7 @@ class ReviewedGenerationService:
             artifacts=_with_prompt_lineage(artifacts, "skill.generate"),
             target=target,
             reason=reason,
+            **({"on_commit": on_commit} if on_commit is not None else {}),
         )
         return GeneratedCandidateResult(candidate=candidate)
 

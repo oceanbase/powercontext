@@ -18,6 +18,7 @@ import io
 import json
 import os
 import sys
+from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Thread
@@ -444,7 +445,9 @@ def test_session_start_output_failure_clears_the_deduplication_receipt(
     monkeypatch.setattr(sys, "stderr", io.StringIO())
 
     assert session_binding_module.main(session_binding_module.CodexPluginSettings(bootstrap_context=True)) == 0
-    output.close()
+    # Closing the intentionally broken pipe can repeat the flush error on Windows.
+    with suppress(OSError):
+        output.close()
     assert not list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
 
     monkeypatch.setattr(session_binding_module, "_post_json", lambda *_args, **_kwargs: _already_delivered())

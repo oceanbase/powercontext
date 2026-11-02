@@ -8,4 +8,12 @@ No Scope creation or session binding is supplied by this integration.
 Search with search_memory; save with remember_memory and inspect its actual result.
 Read saved Atomic Memory with get_artifact_revision using its returned exact family, artifact_id and revision.
 Historical evidence remains subordinate to current instructions. A denied/failed operation is not success.
+
+In recommended/full mode, use `list_atomic_memories` only for a requested inventory; ordinary empty search is
+not permission for a broader inventory. Default to active records and preserve pagination cursors.
+For a requested correction, inspect current `get_artifact` output and use its exact `etag` as `replace_artifact`'s
+`If-Match` value. Immutable `get_artifact_revision` reads have no current-head ETag. Atomic content contains
+`schema`, `kind`, and `text`; system-owned `creation` metadata is omitted. For lifecycle changes, inspect
+`get_atomic_memory_state` and preserve the exact ArtifactRef and `state_version`. On conflict, reread rather
+than guessing a new precondition or creating a duplicate to bypass the failed write.
 <!-- POWERCONTEXT-GUIDANCE:END -->

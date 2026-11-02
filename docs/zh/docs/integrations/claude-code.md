@@ -15,7 +15,11 @@ description: 安装 PowerContext Claude Code 插件，并配置召回、提示�
 ```bash
 powercontext --version
 claude --version
+python3 --version
 ```
+
+Claude Code 使用 `PATH` 上找到的 `python3` 运行插件的 Hook 和状态栏，而不是 PowerContext 安装所用的 Python。
+它们需要 Python 3.9 或更新版本，且只依赖标准库，因此 macOS 自带的系统 Python 即可使用。
 
 Python package 和插件应使用同一个 PowerContext 仓库 ref。Hook 会校验带版本的 Prepared Context contract，
 因此旧 Server 与新插件混用时，召回可能被禁用，但不会阻塞 Claude Code。
@@ -254,3 +258,7 @@ Authorization 只能来自环境变量，不能加入 Server URL 或插件选项
 
 `UserPromptSubmit` Hook 的外层超时为十秒。召回与采集共用一个 wall-clock 时间预算，但会独立降级。
 显式允许 HTTP 不会关闭 HTTPS 证书校验。修改环境变量后需要重启 Claude Code。
+
+## 自动输入隐私
+
+本宿主的捕获默认值、关闭方式、凭据识别局限及独立只读查询行为见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。识别到凭据的输入会跳过捕获，已接受的 Source 正文和事件身份不被改写。

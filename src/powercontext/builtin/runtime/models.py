@@ -54,12 +54,14 @@ from powercontext.builtin.review import (
     CandidateStatus,
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
+from powercontext.builtin.runtime.receipt import PreparedContextReceipt
 from powercontext.builtin.sources import ExternalSkillImportMode
 from powercontext.builtin.tags import TagFilter
 from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
+PreparedContextReason: TypeAlias = Literal["inference_timeout", "inference_unavailable"]
 ReviewedProposal: TypeAlias = (
     ExperienceContent
     | SkillContent
@@ -212,8 +214,9 @@ class RuntimeCapabilities(BaseModel):
 class MemoryFlushResult(BaseModel):
     """Result of processing one scoped Source window.
 
-    ``held_count`` and ``hold_codes`` are retained compatibility fields. Atomic Memory
-    processing leaves them at zero and advances the cursor only with its domain commit.
+    ``held_count`` and ``hold_codes`` report a write-gate ``HOLD``. A held window commits nothing,
+    yet it still advances the cursor past its Sources, so those Sources are consumed rather than
+    retried; ``held_count`` is 0 or 1 and ``hold_codes`` carries the gate rejection codes.
     """
 
     previous_cursor: int
@@ -329,12 +332,16 @@ class PrepareContextRequest(_PreparedContextModel):
     assembly: ContextAssembly | None = None
     bootstrap_receipt_id: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     include_code: bool = Field(default=False, strict=True)
+    include_receipt: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod
     def reject_null_assembly(cls, value: Any) -> Any:
-        if isinstance(value, Mapping) and "assembly" in value and value["assembly"] is None:
-            raise ValueError("assembly must be omitted or contain an object")  # noqa: TRY003
+        if isinstance(value, Mapping):
+            if "assembly" in value and value["assembly"] is None:
+                raise ValueError("assembly must be omitted or contain an object")  # noqa: TRY003
+            if value.get("include_receipt", False) is None:
+                return {**value, "include_receipt": False}
         return value
 
     @field_validator("query")
@@ -359,6 +366,7 @@ class PreparedContext(_PreparedContextModel):
     status: PreparedContextStatus
     content: str | None
     content_bytes: Annotated[int, Field(ge=0)]
+    receipt: PreparedContextReceipt | None = None
 
     @model_validator(mode="after")
     def validate_content(self) -> PreparedContext:

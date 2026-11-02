@@ -782,14 +782,16 @@ async function main() {
   await page.waitForURL(url => url.searchParams.get('kind') === 'skill');
   const skills = (await api('/v1/skill/library', { scope_id: readingScope })).skills;
   if (skills.length) {
-    await page.getByRole('searchbox').fill(skills[0].content.name);
+    const skillName = skills[0].content.name;
+    await page.getByRole('searchbox').fill(skillName);
     await page.getByRole('button', { name: 'Search', exact: true }).click();
-    await page.waitForURL(url => url.searchParams.get('q') === skills[0].content.name);
+    await page.waitForURL(url => url.searchParams.get('q') === skillName);
     assert(await page.getByRole('navigation', { name: 'Pagination', exact: true }).isVisible());
-    await page.getByRole('link', { name: skills[0].content.name, exact: true }).click();
+    await page.getByRole('link', { name: skillName, exact: true }).click();
     await page.waitForURL(url => url.pathname.endsWith('/skill'));
     await page.locator('.back-link').click();
-    await page.waitForURL(url => url.pathname.endsWith('/methods') && url.searchParams.get('kind') === 'skill');
+    await page.waitForURL(url =>
+      url.pathname.endsWith('/methods') && url.searchParams.get('kind') === 'skill' && url.searchParams.get('q') === skillName);
   }
   await page.goto(base + '/dashboard/home');
   await context.setOffline(true);

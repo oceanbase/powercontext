@@ -28,10 +28,22 @@ from powercontext.builtin.artifacts.experience import (
 )
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime import (
+    ApproveCandidateRequest,
+    BuiltinConfig,
+    CaptureSource,
+    GetExperienceRequest,
+    InferenceConfig,
+    RuntimeConfig,
+    open_builtin_runtime,
+)
+from powercontext.builtin.runtime import (
+    ListCandidatesRequest as RuntimeListCandidatesRequest,
+)
 from powercontext.builtin.runtime.composition import open_builtin_contexts
 from powercontext.builtin.runtime.family_processing import process_family_invocation
 from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient
 from powercontext.http import (
@@ -44,6 +56,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.processing_security import open_worker_security
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.sources import Source, SourceRef
+from tests.e2e.atomic_memory_migration_backend import MigrationBackend
 
 
 class _TaskOutcomePipeline:
@@ -61,6 +74,60 @@ class _TaskOutcomePipeline:
             for source in sources
             if isinstance(source, ContentSource) and source.metadata.get("kind") == "task-outcome"
         )
+
+
+def test_source_batch_incubation_review_and_artifact_readback(migration_backend: MigrationBackend) -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(
+            BuiltinConfig(database=migration_backend.config), experience_pipeline=_TaskOutcomePipeline()
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = (
+                await runtime.scopes.create(
+                    ScopeDraft(title="Experience", summary="Source batch readback", idempotency_key="source-batch")
+                )
+            ).scope_id
+            sources = runtime.sources.for_scope(scope)
+            receipts = await sources.capture_many(
+                tuple(
+                    CaptureSource(
+                        source_id=f"task-{index}",
+                        content=f"Verified result {index}",
+                        metadata={"kind": "task-outcome"},
+                    )
+                    for index in range(20)
+                )
+            )
+            assert tuple(receipt.sequence for receipt in receipts) == tuple(range(1, 21))
+            assert (
+                await sources.capture_many(
+                    tuple(
+                        CaptureSource(
+                            source_id=f"task-{index}",
+                            content=f"Verified result {index}",
+                            metadata={"kind": "task-outcome"},
+                        )
+                        for index in range(20)
+                    )
+                )
+                == receipts
+            )
+            result = await runtime.experience.for_scope(scope).incubate(limit=20)
+            inbox = await runtime.review.for_scope(scope).list(
+                RuntimeListCandidatesRequest(family="experience", limit=100)
+            )
+            assert result.candidate_count == len(inbox.candidates) == 20
+            candidate = inbox.candidates[0]
+            approved = await runtime.review.for_scope(scope).approve(
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+            )
+            assert approved.result_artifact is not None
+            experience = await runtime.experience.for_scope(scope).get(
+                GetExperienceRequest(artifact=approved.result_artifact)
+            )
+            assert experience.lineage.sources == candidate.sources
+
+    asyncio.run(scenario())
 
 
 def _experience_worker(spec, assignment):

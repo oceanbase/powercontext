@@ -21,6 +21,7 @@ import os
 import re
 import stat
 import subprocess
+import tempfile
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,175 @@ class LoadedEnvironmentFile:
     path: Path
     identity: EnvironmentFileIdentity
     values: dict[str, str]
+
+
+@dataclass(frozen=True)
+class LoadedProtectedFile:
+    """Bytes and the verified identity of one private control/configuration file."""
+
+    path: Path
+    identity: EnvironmentFileIdentity
+    content: bytes
+
+
+def read_protected_file(
+    path: Path,
+    *,
+    expected: EnvironmentFileIdentity | None = None,
+    max_bytes: int = 1024 * 1024,
+) -> LoadedProtectedFile:
+    """Read bounded private bytes, rejecting links, replacement and unsafe ownership."""
+    candidate = Path(os.path.abspath(path.expanduser()))
+    _reject_link_components(candidate)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(candidate, flags)
+    try:
+        before = os.fstat(descriptor)
+        owner_sid = _validate_protection(candidate, before)
+        identity = EnvironmentFileIdentity.from_stat(candidate, before, owner_sid=owner_sid)
+        if expected is not None and expected != identity:
+            raise ProtectedEnvironmentFileError("protected file identity changed")  # noqa: TRY003
+        if before.st_size > max_bytes:
+            raise ProtectedEnvironmentFileError("protected file exceeds its size limit")  # noqa: TRY003
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        if len(content) > max_bytes:
+            raise ProtectedEnvironmentFileError("protected file exceeds its size limit")  # noqa: TRY003
+        _reject_link_components(candidate)
+        after_sid = _validate_protection(candidate, os.fstat(descriptor))
+        if (
+            EnvironmentFileIdentity.from_stat(candidate, os.fstat(descriptor), owner_sid=after_sid) != identity
+            or EnvironmentFileIdentity.from_stat(candidate, candidate.stat(), owner_sid=after_sid) != identity
+        ):
+            raise ProtectedEnvironmentFileError("protected file changed while reading")  # noqa: TRY003
+        return LoadedProtectedFile(candidate, identity, content)
+    finally:
+        os.close(descriptor)
+
+
+def protect_directory(path: Path, *, create: bool = False) -> Path:
+    """Validate an owned private directory, optionally creating missing directories."""
+    candidate = Path(os.path.abspath(path.expanduser()))
+    _reject_link_components(candidate)
+    if not candidate.exists() and create:
+        if not candidate.parent.exists():
+            protect_directory(candidate.parent, create=True)
+        try:
+            candidate.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+        else:
+            if os.name == "nt":
+                _restrict_windows_file(candidate, directory=True)
+    status = candidate.lstat()
+    _reject_link_components(candidate)
+    if not stat.S_ISDIR(status.st_mode):
+        raise ProtectedEnvironmentFileError("control path is not a directory")  # noqa: TRY003
+    if os.name == "nt":
+        _validate_windows_protection(candidate)
+    elif status.st_uid != os.getuid() or status.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        raise ProtectedEnvironmentFileError("control directory must be private and owned by the current user")  # noqa: TRY003
+    return candidate
+
+
+def ensure_protected_file(path: Path) -> EnvironmentFileIdentity:
+    """Create an empty private file exclusively, preserving any existing inode.
+
+    Lock files must keep the same inode across writers; atomic replacement is
+    appropriate for checkpoints but would disconnect an existing file lock.
+    """
+    candidate = Path(os.path.abspath(path.expanduser()))
+    protect_directory(candidate.parent, create=True)
+    _reject_link_components(candidate)
+    try:
+        descriptor = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        try:
+            if os.name == "nt":
+                _restrict_windows_file(candidate)
+        finally:
+            os.close(descriptor)
+    # Validate metadata without reading the locked byte range. On Windows a
+    # concurrent lock holder may deny content reads even for an empty file.
+    _reject_link_components(candidate)
+    descriptor = os.open(candidate, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        status = os.fstat(descriptor)
+        owner_sid = _validate_protection(candidate, status)
+        identity = EnvironmentFileIdentity.from_stat(candidate, status, owner_sid=owner_sid)
+        if EnvironmentFileIdentity.from_stat(candidate, candidate.stat(), owner_sid=owner_sid) != identity:
+            raise ProtectedEnvironmentFileError("protected file changed while opening")  # noqa: TRY003
+        return identity
+    finally:
+        os.close(descriptor)
+
+
+def write_protected_file(path: Path, content: bytes) -> EnvironmentFileIdentity:
+    """Publish complete private bytes without exposing temporary contents to other users."""
+    candidate = Path(os.path.abspath(path.expanduser()))
+    parent = protect_directory(candidate.parent, create=True)
+    parent_status = parent.stat()
+    _reject_link_components(candidate)
+    if candidate.exists():
+        _validate_protection(candidate, candidate.stat())
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{candidate.name}.", dir=parent)
+    temporary = Path(temporary_name)
+    try:
+        if os.name == "nt":
+            _restrict_windows_file(temporary)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        protect_directory(parent)
+        current_parent = parent.stat()
+        if (parent_status.st_dev, parent_status.st_ino) != (current_parent.st_dev, current_parent.st_ino):
+            raise ProtectedEnvironmentFileError("control directory changed while writing")  # noqa: TRY003
+        _reject_link_components(candidate)
+        os.replace(temporary, candidate)
+        if os.name != "nt":
+            directory = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        return read_protected_file(candidate, max_bytes=max(len(content), 1)).identity
+    finally:
+        if descriptor != -1:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def _reject_link_components(path: Path) -> None:
+    for component in (path, *path.parents):
+        try:
+            status = component.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(status.st_mode) or getattr(status, "st_file_attributes", 0) & 0x400:
+            raise ProtectedEnvironmentFileError("protected paths cannot contain links or reparse points")  # noqa: TRY003
+
+
+def _restrict_windows_file(path: Path, *, directory: bool = False) -> None:
+    _account, sid = _windows_user_identity()
+    rights = "(OI)(CI)(F)" if directory else "(F)"
+    for arguments in (
+        ["icacls.exe", str(path), "/setowner", f"*{sid}"],
+        ["icacls.exe", str(path), "/inheritance:r", "/grant:r", f"*{sid}:{rights}"],
+    ):
+        result = run_windows_command(arguments, timeout=10)
+        if result.returncode:
+            raise ProtectedEnvironmentFileError("could not protect the control file or directory")  # noqa: TRY003
 
 
 def load_protected_environment_file(
@@ -268,7 +438,12 @@ def _read_utf8(descriptor: int, path: Path) -> str:
 
 __all__ = [
     "LoadedEnvironmentFile",
+    "LoadedProtectedFile",
     "ProtectedEnvironmentFileError",
+    "ensure_protected_file",
     "environment_identity_is_current",
     "load_protected_environment_file",
+    "protect_directory",
+    "read_protected_file",
+    "write_protected_file",
 ]

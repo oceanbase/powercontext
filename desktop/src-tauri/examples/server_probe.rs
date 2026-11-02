@@ -20,9 +20,9 @@ use powercontext_desktop::{
         profiles::ProfileRepository,
         session::{CompatibilityProfile, ConnectionManager, WriteStatus},
     },
-    credentials::{Secret, WindowsVault},
+    credentials::{NativeVault, Secret},
     error::SafeError,
-    transport::{Endpoint, ServerApi, wire::ArtifactReference},
+    transport::{DiscoveryDocument, Endpoint, ServerApi, wire::ArtifactReference},
 };
 use serde::Deserialize;
 #[derive(Deserialize)]
@@ -46,6 +46,8 @@ async fn main() {
         let dir = std::path::Path::new(&args[2]);
         let mut ca = CertificateParams::new(vec![]).unwrap();
         ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        // Python 3.13+ verifies fixture chains with OpenSSL's strict X.509 rules.
+        ca.use_authority_key_identifier_extension = true;
         ca.distinguished_name
             .push(rcgen::DnType::CommonName, "Desktop test CA");
         ca.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
@@ -55,6 +57,7 @@ async fn main() {
         let mut leaf =
             CertificateParams::new(vec!["localhost".into(), "127.0.0.1".into()]).unwrap();
         leaf.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+        leaf.use_authority_key_identifier_extension = true;
         let key = KeyPair::generate().unwrap();
         let cert = leaf.signed_by(&key, &issuer).unwrap();
         std::fs::write(dir.join("ca.pem"), ca_cert.pem()).unwrap();
@@ -71,6 +74,17 @@ async fn main() {
         fixture.token.take(),
     )
     .unwrap();
+    let DiscoveryDocument::Server(server) = api.server_info().await.unwrap() else {
+        panic!("expected PowerContext discovery");
+    };
+    let server_id = server.server_id;
+    if args
+        .get(2)
+        .is_some_and(|argument| argument == "discovery-only")
+    {
+        println!("{{\"result\":\"passed\",\"operation\":\"get_server_info\"}}");
+        return;
+    }
     api.live().await.unwrap();
     api.readiness().await.unwrap();
     if has_token {
@@ -126,7 +140,7 @@ async fn main() {
     let manager = ConnectionManager::with_compatibility(
         ProfileRepository::open(
             temporary.path().join("profiles.json"),
-            std::sync::Arc::new(WindowsVault),
+            std::sync::Arc::new(NativeVault),
         )
         .unwrap(),
         vec![fixture.compatibility_profile.clone()],
@@ -141,6 +155,15 @@ async fn main() {
         "authentication":if has_token { "bearer" } else { "unauthenticated_loopback" },
         "caPem":fixture.ca_pem,"compatibility":compatibility,"keepCredential":false,"credential":credential
     })).unwrap()).unwrap().profiles[0].id.clone();
+    assert!(manager.state().unwrap().active.is_none());
+    let checked = manager.check(&profile, false).await.unwrap();
+    assert!(checked.active.is_none());
+    assert!(
+        checked
+            .reports
+            .iter()
+            .any(|report| report.connection_id == profile)
+    );
     let generation = manager.check(&profile, true).await.unwrap().generation;
     let generation = manager
         .select_scope(generation, &fixture.scope_id)
@@ -152,6 +175,10 @@ async fn main() {
     let expected = format!("{keyword} 中文 café\nSecond line.");
     let saved = manager.remember(generation, &submitted).await.unwrap();
     assert_eq!(saved.record.status, WriteStatus::Succeeded);
+    assert_eq!(
+        saved.record.context.server_id.as_deref(),
+        Some(server_id.as_str())
+    );
     let result = saved.result.unwrap();
     assert_eq!(
         saved.record.references,
@@ -397,12 +424,19 @@ async fn verify_scope_pages(
     let first = manager.scopes(generation, &title, None).await.unwrap();
     assert_eq!(first.items.len(), 50);
     let second = manager
-        .scopes(generation, &title, first.next_cursor.as_deref())
+        .scopes(
+            generation,
+            &title,
+            first
+                .next_cursor
+                .as_ref()
+                .and_then(|cursor| cursor.as_deref()),
+        )
         .await
         .unwrap();
     assert!(first.next_cursor.is_some());
     assert_eq!(second.items.len(), 1);
-    assert!(second.next_cursor.is_none());
+    assert!(second.next_cursor.flatten().is_none());
     let found: std::collections::BTreeSet<_> = first
         .items
         .iter()

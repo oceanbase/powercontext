@@ -32,6 +32,9 @@ _CONTEXT_BLOCK_BYTES = 20_000
 _SCOPE_BODY = json.dumps({"scope_id": "scope-1"}).encode()
 _DRIP_INTERVAL_SECONDS = 0.05
 _DRIP_WRITES = 60
+_RECALL_QUERY_BOUND = json.loads(
+    (Path(__file__).resolve().parents[2] / "tests/fixtures/recall_query_bound.json").read_text(encoding="utf-8")
+)
 
 
 def _prepared(content: str | None = "prepared context", *, status: str = "ready") -> dict[str, object]:
@@ -48,6 +51,10 @@ def _host_message(question: str, *, context_bytes: int = _CONTEXT_BLOCK_BYTES) -
 
     reminder = "<system-reminder>" + "x" * context_bytes + "</system-reminder>"
     return f"{reminder}\n<user_query>{question}</user_query>"
+
+
+def _expand(segments: list[dict[str, Any]]) -> str:
+    return "".join(segment["text"] * segment.get("repeat", 1) for segment in segments)
 
 
 def _payload(prompt: str) -> dict[str, object]:
@@ -174,6 +181,24 @@ def test_recall_query_keeps_a_multibyte_prompt_within_the_byte_bound(
     assert len(query) < len(joined)
     assert len(query.encode("utf-8")) <= 8192
     assert joined.strip().endswith(query)
+
+
+@pytest.mark.parametrize(
+    "case", _RECALL_QUERY_BOUND["cases"], ids=[case["id"] for case in _RECALL_QUERY_BOUND["cases"]]
+)
+def test_recall_query_bounds_the_joined_prompt_like_the_other_hooks(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    case: dict[str, Any],
+) -> None:
+    """The joined prompt keeps its end the way every host that reads the shared fixture keeps it."""
+
+    queries: list[str] = []
+    _stub_recall(hook_module, monkeypatch, queries)
+
+    _run_main(hook_module, monkeypatch, _payload(_expand(case["prompt"])))
+
+    assert queries == [_expand(case["query"])]
 
 
 def test_recall_query_passes_a_plain_prompt_through_unchanged(
@@ -593,3 +618,56 @@ def test_prompt_hook_refuses_redirects(
                 )
 
     assert target_headers == []
+
+
+@pytest.mark.parametrize(
+    ("status", "outcome"),
+    [
+        (401, "authentication_failed"),
+        (403, "invalid_response"),
+        (404, "version_mismatch"),
+        (503, "server_unavailable"),
+    ],
+)
+def test_scope_resolution_failure_emits_the_documented_diagnostic(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status: int,
+    outcome: str,
+) -> None:
+    paths: list[str] = []
+
+    class RejectedBindingHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            paths.append(self.path)
+            self.send_response(status)
+            self.end_headers()
+            self.wfile.write(b"untrusted response body")
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    with _serve(RejectedBindingHandler) as server_url:
+        monkeypatch.setenv("POWERCONTEXT_WORKBUDDY_SERVER_URL", server_url)
+        monkeypatch.setenv("POWERCONTEXT_WORKBUDDY_AUTHORIZATION", "Bearer private-token")
+        output, errors = _run_main(
+            hook_module,
+            monkeypatch,
+            {
+                **_payload("private prompt content"),
+                "cwd": str(tmp_path),
+                "session_id": "private-session",
+            },
+        )
+
+    assert paths == ["/v1/scope-bindings/resolve"]
+    assert json.loads(output)["hookSpecificOutput"]["additionalContext"] == ""
+    event = json.loads(errors)
+    assert event == {
+        "component": "powercontext.workbuddy.recall",
+        "event": "context_prepare",
+        "outcome": outcome,
+        **({"http_status": status} if status not in {401, 503} else {}),
+    }

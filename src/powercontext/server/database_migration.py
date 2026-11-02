@@ -28,15 +28,23 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from powercontext.builtin.persistence.migrations import MigrationError, MigrationPlan, MigrationResult
 from powercontext.builtin.persistence.migrations.deployment import MigrationRunner, deployment_runner
+from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
+from powercontext.builtin.persistence.migrations.revision_names import describe_revision
 from powercontext.server.configuration import (
     ServerConfigurationError,
     resolve_server_environment_file,
     server_settings_context,
 )
+from powercontext.server.settings import ServerSettings
 from powercontext.service.controller import ServiceController
+from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
 from powercontext.service.model import ServiceError
 
 BackupPolicy = Literal["auto", "manual", "skip"]
+Bundle = Annotated[
+    Literal["server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection"],
+    typer.Option(help="Select the registered domain bundle; readiness covers only that bundle."),
+]
 EnvFile = Annotated[Path | None, typer.Option(help="Read the same environment file as the deployed Server.")]
 EvidenceDir = Annotated[
     Path | None,
@@ -50,12 +58,16 @@ LockCoordination = Annotated[
 ]
 ManageService = Annotated[
     bool,
-    typer.Option(help="Request local service maintenance; unavailable for the current partial acceptance bundle."),
+    typer.Option(help="Coordinate the owned local service through a full Server migration and readiness check."),
 ]
 SharedDatabase = Annotated[
     bool,
     typer.Option(help="Declare other Servers share this database; coordinate all writers through deployment tooling."),
 ]
+MigrationID = Annotated[
+    str, typer.Option(help="Processing maintenance resume ID; choose a new ID for each mode switch.")
+]
+BatchSize = Annotated[int, typer.Option(min=1, max=10000, help="Rows per Processing maintenance step.")]
 
 app = typer.Typer(
     name="db-migrate",
@@ -72,18 +84,34 @@ def main() -> None:
 
 @app.command()
 def status(
-    env_file: EnvFile = None, evidence_dir: EvidenceDir = None, lock_coordination: LockCoordination = None
+    env_file: EnvFile = None,
+    evidence_dir: EvidenceDir = None,
+    lock_coordination: LockCoordination = None,
+    bundle: Bundle = "server",
 ) -> None:
     """Inspect the schema version without creating a database or control tables."""
-    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=False)
+    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=False, bundle=bundle)
 
 
 @app.command()
 def verify(
-    env_file: EnvFile = None, evidence_dir: EvidenceDir = None, lock_coordination: LockCoordination = None
+    env_file: EnvFile = None,
+    evidence_dir: EvidenceDir = None,
+    lock_coordination: LockCoordination = None,
+    bundle: Bundle = "server",
+    migration_id: MigrationID = "rfc1515",
+    batch_size: BatchSize = 100,
 ) -> None:
     """Verify database readiness; this does not assert Server or cluster readiness."""
-    _inspect(env_file, evidence_dir=evidence_dir, lock_coordination=lock_coordination, verify=True)
+    _inspect(
+        env_file,
+        evidence_dir=evidence_dir,
+        lock_coordination=lock_coordination,
+        verify=True,
+        bundle=bundle,
+        migration_id=migration_id,
+        batch_size=batch_size,
+    )
 
 
 @app.command()
@@ -94,11 +122,23 @@ def plan(
     backup: Annotated[BackupPolicy, typer.Option(help="Bind the selected backup policy to the plan.")] = "auto",
     manage_service: ManageService = False,
     shared_database: SharedDatabase = False,
+    bundle: Bundle = "server",
+    migration_id: MigrationID = "rfc1515",
+    batch_size: BatchSize = 100,
 ) -> None:
     """Preview the target, resource digests, backup policy, and maintenance scope."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination)
-        service = _service_scope(_environment_file(env_file)) if manage_service else None
+        runner = deployment_runner(
+            settings,
+            evidence_dir=evidence_dir,
+            lock_coordination=lock_coordination,
+            bundle=bundle,
+            migration_id=migration_id,
+            batch_size=batch_size,
+        )
+        service = (
+            _service_scope(_environment_file(env_file), bundle=bundle, settings=settings) if manage_service else None
+        )
         reviewed = runner.plan(backup_policy=backup, service=service, shared_database=shared_database)
         _write_payload(reviewed)
 
@@ -137,6 +177,9 @@ def apply(
     backup_ref: Annotated[str | None, typer.Option(help="Optional reference for the operator's manual backup.")] = None,
     manage_service: ManageService = False,
     shared_database: SharedDatabase = False,
+    bundle: Bundle = "server",
+    migration_id: MigrationID = "rfc1515",
+    batch_size: BatchSize = 100,
 ) -> None:
     """Review once, then stop writes, back up, migrate, verify, and optionally switch a local service."""
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
@@ -145,14 +188,19 @@ def apply(
             evidence_dir=evidence_dir,
             lock_coordination=lock_coordination,
             acknowledge_previous_run=acknowledge_previous_run,
+            bundle=bundle,
+            migration_id=migration_id,
+            batch_size=batch_size,
         )
         policy: BackupPolicy = backup or "auto"
         initial = runner.plan(backup_policy=policy, shared_database=shared_database)
         _check_previous_run(initial, acknowledge_previous_run)
-        if initial.state == "ready":
+        if initial.state == "ready" and (not manage_service or bundle != "server"):
             _write_payload(runner.verify())
             return
-        service = _service_scope(_environment_file(env_file)) if manage_service else None
+        service = (
+            _service_scope(_environment_file(env_file), bundle=bundle, settings=settings) if manage_service else None
+        )
         reviewed = runner.plan(backup_policy=policy, service=service, shared_database=shared_database)
         _check_previous_run(reviewed, acknowledge_previous_run)
         if policy == "auto" and not reviewed.backup_available and reviewed.state != "uninitialized":
@@ -199,10 +247,25 @@ def _inspect(
     evidence_dir: Path | None,
     lock_coordination: Literal["single-host"] | None,
     verify: bool,
+    bundle: Literal["server", "artifacts", "topic-memory-recovery", "processing", "atomic-projection"] = "server",
+    migration_id: str = "rfc1515",
+    batch_size: int = 100,
 ) -> None:
     with _operator_errors(), server_settings_context(env_file=_environment_file(env_file)) as settings:
-        runner = deployment_runner(settings, evidence_dir=evidence_dir, lock_coordination=lock_coordination)
-        result = runner.verify() if verify else runner.plan()
+        runner = deployment_runner(
+            settings,
+            evidence_dir=evidence_dir,
+            lock_coordination=lock_coordination,
+            bundle=bundle,
+            migration_id=migration_id,
+            batch_size=batch_size,
+        )
+        if verify:
+            result = runner.verify()
+        elif isinstance(runner, MySQLMigrationRunner):
+            result = runner.plan(require_existing_database=True)
+        else:
+            result = runner.plan()
         _write_payload(result)
 
 
@@ -215,19 +278,25 @@ def _interactive() -> bool:
 
 
 def _write_payload(value: MigrationPlan | MigrationResult, *, indent: int | None = None) -> None:
-    typer.echo(
-        json.dumps(
-            {**value.model_dump(mode="json"), "server_ready": False},
-            indent=indent,
-        )
-    )
+    payload: dict[str, object] = {}
+    if value.readiness_scope == "server":
+        if isinstance(value, MigrationPlan):
+            payload.update(
+                source_migration=describe_revision(value.source_revision),
+                target_migration=describe_revision(value.target_revision),
+                pending_migrations=[describe_revision(revision) for revision in value.revisions],
+            )
+        else:
+            payload["migration"] = describe_revision(value.revision)
+    payload.update(value.model_dump(mode="json"))
+    payload["server_ready"] = value.readiness_scope == "server" and value.state == "ready"
+    typer.echo(json.dumps(payload, indent=indent))
 
 
 def _write_confirmation(reviewed: MigrationPlan, policy: BackupPolicy) -> None:
     _write_payload(reviewed, indent=2)
-    typer.echo(
-        "This acceptance bundle does not verify complete Server schema, task formats, indexes or startup readiness."
-    )
+    if reviewed.readiness_scope != "server":
+        typer.echo("This partial bundle does not verify full Server readiness.")
     typer.echo("Maintenance pauses writes. Stop all other Servers, Workers, SDK clients and automatic restarts first.")
     typer.echo("PC cannot automatically discover every node or client connected to this database.")
     if reviewed.coordination and reviewed.coordination.get("mode") == "single-host":
@@ -253,12 +322,31 @@ def _write_confirmation(reviewed: MigrationPlan, policy: BackupPolicy) -> None:
     typer.echo("Old tables and recovery points are retained.")
 
 
-def _service_scope(env_file: Path | None) -> dict[str, object]:
-    del env_file
-    raise MigrationError(
-        "service_unsupported",
-        "This partial acceptance bundle cannot establish complete Server readiness or switch a business service.",
-    )
+def _service_scope(env_file: Path | None, *, bundle: str, settings: ServerSettings) -> dict[str, object]:
+    if bundle != "server":
+        raise MigrationError(
+            "service_unsupported",
+            "This partial acceptance bundle cannot establish complete Server readiness or switch a business service.",
+        )
+    summary = ServiceController().maintenance_summary(env_file=env_file)
+    registered = summary.definition
+    try:
+        environment = (
+            {}
+            if registered.env_file is None
+            else load_protected_environment_file(Path(registered.env_file.path), expected=registered.env_file).values
+        )
+    except ProtectedEnvironmentFileError as error:
+        raise MigrationError(
+            "service_configuration_mismatch", "The registered service environment changed; review its configuration."
+        ) from error
+    with server_settings_context(environment=environment, data_dir=Path(registered.data_dir)) as service_settings:
+        if settings != service_settings:
+            raise MigrationError(
+                "service_configuration_mismatch",
+                "Use the registered service environment and data directory for its database migration.",
+            )
+    return summary.as_dict()
 
 
 def _apply_reviewed(
@@ -291,6 +379,7 @@ def _apply_reviewed(
         raise MigrationError("service_unsupported", "The local service does not provide a stable maintenance identity.")
     with ServiceController().maintenance(expected_fingerprint=fingerprint, env_file=env_file) as session:
         result = migrate()
+        runner.verify()
         try:
             session.complete()
         except (ServiceError, OSError):

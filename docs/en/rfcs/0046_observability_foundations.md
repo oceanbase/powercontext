@@ -149,6 +149,8 @@ operation and its outcome.
 
 ## Logging boundary
 
+> Implementation note: The Server supports optional file output with size-based rotation and gzip archives through standard-library logging. macOS/Windows personal services enable it by default. Shutdown bounds Worker-channel cleanup; native file I/O cleanup has no separate timeout. See [file logging](../docs/operate/observability.md#file-output-rotation-and-compression).
+
 Server logging covers:
 
 - startup, readiness changes, and shutdown;

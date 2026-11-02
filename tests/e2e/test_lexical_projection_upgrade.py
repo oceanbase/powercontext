@@ -16,12 +16,15 @@
 
 import asyncio
 
+import pytest
 from pydantic import JsonValue
 from sqlalchemy import update
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult
+from powercontext.builtin.persistence.artifact_governance import ArtifactLifecycleState
 from powercontext.builtin.persistence.atomic_memory_index_schema import atomic_memory_current_table
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     LEXICAL_PROJECTION_VERSIONS_TABLE,
@@ -29,7 +32,7 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
 )
 from powercontext.builtin.records import ArtifactWrite
-from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_runtime
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts, open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
 from tests.e2e.atomic_memory_migration_backend import migration_profile
 
@@ -39,6 +42,62 @@ class _Embedding:
 
     async def embed(self, texts, /):
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+@pytest.mark.parametrize("missing_helper", (False, True))
+def test_restart_reuses_search_text_and_preserves_skill_reactivation(migration_backend, missing_helper):
+    if missing_helper and not isinstance(migration_backend.config, SQLiteConfig):
+        pytest.skip("Only SQLite has a separately stored FTS helper")
+    config = BuiltinConfig(database=migration_backend.config)
+
+    async def scenario():
+        async with open_builtin_contexts(config) as contexts:
+            scope = (
+                await contexts.scopes.create(
+                    ScopeDraft(title="Restart", summary="Search lifecycle", idempotency_key="restart")
+                )
+            ).scope_id
+            experience = await contexts.records.create_artifact(
+                scope,
+                "experience",
+                ArtifactWrite(
+                    content={
+                        "situation": "restartmarker",
+                        "action": "Restart",
+                        "outcome": "Ready",
+                        "lesson": "Reuse text",
+                    }
+                ),
+            )
+            skill = await contexts.records.create_artifact(
+                scope,
+                "skill",
+                ArtifactWrite(
+                    content={
+                        "name": "restart-skill",
+                        "description": "restartmarker",
+                        "instructions": "Restart",
+                        "validation": ["Search finds the current revision"],
+                    }
+                ),
+            )
+            await contexts.update_skill_lifecycle(scope, skill.artifact_id, 0, ArtifactLifecycleState.DEPRECATED, None)
+            if missing_helper:
+                async with contexts.database.transaction() as connection:
+                    await connection.exec_driver_sql("DROP TABLE pc_artifact_fts")
+
+        async with open_builtin_contexts(config) as contexts:
+            assert [
+                hit.artifact_ref.artifact_id for hit in await contexts.search_experience(scope, "restartmarker", 8)
+            ] == [experience.artifact_id]
+            assert await contexts.search_skills(scope, "restartmarker", 8) == ()
+            await contexts.update_skill_lifecycle(scope, skill.artifact_id, 1, ArtifactLifecycleState.ACTIVE, None)
+            hits = await contexts.search_skills(scope, "restartmarker", 8)
+            assert [(hit.artifact_ref.artifact_id, hit.artifact_ref.revision) for hit in hits] == [
+                (skill.artifact_id, skill.revision)
+            ]
+
+    asyncio.run(scenario())
 
 
 def test_upgrade_preserves_search_exact_records_and_vectors(migration_backend):

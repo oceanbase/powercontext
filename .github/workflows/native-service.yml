@@ -1,27 +1,32 @@
 name: Native personal service
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: native-service-${{ github.event.pull_request.number || github.ref }}
+  group: native-service-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   changes:
+    if: ${{ inputs.suites == '' }}
     uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: native-service.yml
 
   linux-systemd-user:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').native) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').native) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -52,6 +57,9 @@ jobs:
           wheel=$(find dist -name '*.whl' -print -quit)
           uv venv .native-venv
           uv pip install --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
+          uv venv .native-source-venv
+          uv pip install --python .native-source-venv/bin/python "powercontext[cli,server] @ https://files.pythonhosted.org/packages/30/bd/463f998f8794bc7f8ff588d47157ca0e62dd03a9f3ae466e2eb34fb66045/powercontext-1.3.0-py3-none-any.whl#sha256=8da7983763f3a6ab80b413c770a4973a46c557a54e1a1fa675099e58d47305e5"
+          echo "POWERCONTEXT_NATIVE_UPGRADE_SOURCE_PYTHON=$PWD/.native-source-venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Exercise the real systemd user lifecycle
         run: >-
@@ -96,7 +104,7 @@ jobs:
 
   macos-launchagent:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').native) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').native) }}
     runs-on: macos-latest
     timeout-minutes: 30
     env:
@@ -122,6 +130,9 @@ jobs:
           # Finish bytecode compilation during installation, before launchd
           # runs the cold-start lifecycle under its bounded startup deadline.
           uv pip install --compile-bytecode --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
+          uv venv .native-source-venv
+          uv pip install --compile-bytecode --python .native-source-venv/bin/python "powercontext[cli,server] @ https://files.pythonhosted.org/packages/30/bd/463f998f8794bc7f8ff588d47157ca0e62dd03a9f3ae466e2eb34fb66045/powercontext-1.3.0-py3-none-any.whl#sha256=8da7983763f3a6ab80b413c770a4973a46c557a54e1a1fa675099e58d47305e5"
+          echo "POWERCONTEXT_NATIVE_UPGRADE_SOURCE_PYTHON=$PWD/.native-source-venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Exercise the real LaunchAgent lifecycle
         run: >-
@@ -164,7 +175,7 @@ jobs:
 
   windows-task-scheduler:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').native) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').native) }}
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -187,6 +198,9 @@ jobs:
           $wheelUri = "file:///" + $wheel.Replace('\', '/')
           uv venv .native-venv
           uv pip install --python .native-venv\Scripts\python.exe "powercontext[cli,server] @ $wheelUri" pytest
+          uv venv .native-source-venv
+          uv pip install --python .native-source-venv\Scripts\python.exe "powercontext[cli,server] @ https://files.pythonhosted.org/packages/30/bd/463f998f8794bc7f8ff588d47157ca0e62dd03a9f3ae466e2eb34fb66045/powercontext-1.3.0-py3-none-any.whl#sha256=8da7983763f3a6ab80b413c770a4973a46c557a54e1a1fa675099e58d47305e5"
+          "POWERCONTEXT_NATIVE_UPGRADE_SOURCE_PYTHON=$PWD\.native-source-venv\Scripts\python.exe" >> $env:GITHUB_ENV
 
       - name: Verify binary cursor persistence and restart compatibility
         shell: pwsh

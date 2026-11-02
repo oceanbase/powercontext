@@ -45,5 +45,8 @@
   },
   "retained_revisions": {
     "pc_retained_p0002_artifact_tags": "p0003"
-  }
+  },
+  "mysql_layouts": [
+    "mysql_layouts.json"
+  ]
 }

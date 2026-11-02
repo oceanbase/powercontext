@@ -276,7 +276,7 @@ class ForkWorkflowAcceptance(BaseModel):
     This is supplied by a backend adapter, never by CLI flags or user confirmation.
     The default provider has no accepted workflow: a feature version alone cannot
     enable PC automatic backup. Evidence must cover restoring the configured name,
-    especially embedded seekdb's fixed ``test`` database.
+    including an explicitly configured legacy seekdb ``test`` database.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -764,7 +764,8 @@ def _matches_context(ref: BackupRef, context: BackupContext) -> bool:
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as source:
+    # Windows' flush requires a writable descriptor for our owned recovery file.
+    with path.open("rb+") as source:
         os.fsync(source.fileno())
 
 

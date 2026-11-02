@@ -35,7 +35,7 @@ D1–D6 和 D8 对应 RFC 中的负责方契约，D7 在本计划中跟踪人员
 | 平台 | 建议状态 | 验收 |
 | --- | --- | --- |
 | Windows 11 x64 + SQLite | 首个平台；当前项目 Windows 支持仍为 experimental | 签名标准用户安装、WebView2 有/无、Credential Manager、Task Scheduler/登录、通知/激活、非 ASCII 路径 |
-| macOS | 后续 | 具名架构、Keychain、LaunchAgent、签名/notarization、WebView/通知行为 |
+| macOS | 原生内部预览；发布验收待完成 | 具名架构、Keychain、LaunchAgent、签名/notarization、WebView/通知行为 |
 | Linux | 按发行版/桌面环境后续验收 | WebKitGTK/系统库、Secret Service、systemd 会话、托盘、包/激活 |
 
 不包含 Windows ARM 和 Windows 嵌入式 seekdb。框架编译通过不代表平台验收。P0 确定 Desktop/Install/Server/
@@ -142,3 +142,18 @@ Handoff 投递、Review/Handoff 通知、恢复、无障碍和保留数据的移
 | 支持哪些 Server 版本，恢复或克隆后如何识别？ | D1 明确版本/生命周期，1.0.0 作为旧版验收候选 | P0 契约讨论，早于相关控制交付 |
 | 安装和投递接口由谁提供，什么时候可用？ | D3–D6 原负责方维护 schema/恢复，桌面不另造替代 | 承诺 P3/P4 前 |
 | 整个产品要多快、多省资源？ | 在具名硬件实测，公布含 Python/WebView 的数字预算 | P0 结束、P2 扩展前 |
+
+## macOS 内部预览
+
+Desktop 支持 macOS 原生 Keychain、WKWebView 本地页面和 `.app` / `.dmg` 打包。
+开发环境需要 macOS 12 或更新版本、Xcode Command Line Tools、Node 24.14.1、pnpm 11.13.1 和 Rust 1.95.0。
+在 `desktop/` 执行 `pnpm install --frozen-lockfile`，再执行 `pnpm desktop:dev` 或 `pnpm desktop:build`。
+安装包位于 `desktop/src-tauri/target/release/bundle/dmg/`，打开后将应用拖入 Applications。
+
+持久凭据使用 Keychain。用户仍可明确选择仅本次会话保存。诊断进程使用独立进程组，保留输出上限、超时与取消清理。
+诊断注册文件和 launcher 要求见 [Desktop README](https://github.com/oceanbase/powercontext/blob/master/desktop/README.md#build-on-macos)。
+应用不会安装或管理 LaunchAgent，也不会修改独立 Server 数据。
+CI 配置覆盖 Apple Silicon 和 Intel；实际通过情况必须以运行结果为准。
+当前产物用于内部验证。Developer ID 签名、公证、干净机器安装、输入法、辅助功能和应用内 Keychain 提示仍需单独验收。
+
+当前契约的协议验收记录为 `sqlite-atomic-d9a78567-v1`。部署相应 Server 源码后，在连接页明确选择此配置并重新检查连接，才能选择 Scope。真实 SQLite Server 的四种连接/认证模式已验收；精确源码、wheel 与契约标识见 [验收记录](https://github.com/oceanbase/powercontext/blob/master/desktop/VALIDATION.md#server-d9a78567-protocol-qualification)。这不表示任意远端 Server 已验证，也不代替平台发布验收。

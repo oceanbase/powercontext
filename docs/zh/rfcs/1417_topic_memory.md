@@ -658,13 +658,25 @@ metadata 重新检查出错时保留已知终止状态、等待间隔和日志�
 不将正在检查的 Scope 记成新的失败。
 
 终止的 frontier 保留 Source、Cursor、Pending 以及同 Scope 尾部；不会视为 NOOP、成功或跳过证据的授权。其他 Scope
-仍可处理。剩余额度内重试成功后仍按原合同发布，并继续处理尾部。不提供自动额度重置、retry/reset API 或 quarantine
-跳过操作；终止输入或重复失败需要运维明确修复，反复 flush 或重启不能重新授权模型成本。
+仍可处理。剩余额度内重试成功后仍按原合同发布，并继续处理尾部。不提供自动额度重置或 quarantine 跳过操作。
+`POST /v1/topic-memory/processing/status` 返回当前 Cursor、Source head、target 和阻塞记录；仍在执行的最后一次尝试
+显示为 pending。`POST /v1/topic-memory/processing/blocks/get` 读取准确的历史阻塞记录。这些查询需要 `scope.read`。
+`POST /v1/topic-memory/processing/retry` 需要 `scope.admin` 和查询得到的 block ID，在一个事务中保留旧诊断、申请一次
+新的有限额度并接受处理请求，不推进 Cursor、不删除 target 或 Source。重复 ID 返回原接受结果，不能重置后续尝试；
+尚未重试且已过期的 ID 返回冲突。普通 flush 和重启仍不能重新授权模型成本。
+
+`pc_topic_memory_work_attempts` 为每次尝试保留一条 metadata 记录，包含准确的执行 owner、已尝试范围、target、额度
+快照及最后错误类别。首次观察到终止时记录稳定 block ID 和 `blocked_at`；retry 保存重试时间及接受的请求 generation，
+不覆盖原诊断。记录不含 Source 或模型原文。正常启动会创建新增表，不修改旧预算表。旧记录使用首次观察时间，缺失的
+历史错误类别为 null，不推测原始失败时间。没有逐次审计记录的旧范围保留预算的累计覆盖范围，不推测最后一次尝试的
+实际终点。查询使用索引身份，写入仅作用于一个 frontier；正常每个窗口额度最多产生
+三条尝试记录，显式接受的 retry 可再申请相同的有限额度。记录保留用于审计。
 
 `pc_topic_memory_work_budgets` 保存 frontier、尝试过的最远终点、不透明 attempt ID、尝试次数、预留请求/token 与有界
 failure code，不保存 prompt、Source 原文或模型输出。可结合 Cursor 和结构化错误日志检查这些列，区分持久终止与暂时
-退避。同一任期内新尝试也会使旧尝试失去发布权。只有成功原子发布事务才能与 Cursor CAS、Topic/index 写入一起删除
-该记录；回滚会恢复额度记录。不创建分片 checkpoint 或持久 Job history。该新增表会在现有受支持数据库打开时创建。
+退避。同一任期内新尝试也会使旧尝试失去发布权。成功原子发布事务与 Cursor CAS、Topic/index 写入一起删除额度记录，
+回滚会恢复记录。显式接受的 retry 也可在一个事务中移除准确的耗尽额度，并保留旧审计记录与新的处理请求。不创建
+分片 checkpoint。新增表会在现有受支持数据库打开时创建。
 
 模型调用、输出校验、检索、启用后的 Embedding、数据库提交、Worker crash 和 timeout 等实际错误采用同一退避策略，
 但必须按 `stage` 和 `error_code` 写结构化日志。Cursor/Head CAS 冲突与 leadership lost 是控制信号，不增加
@@ -871,3 +883,32 @@ Revision 拥有不同通道数，融合排名不可比较，因此保留旧 acti
 - 增加 Topic 人工纠正、回滚、retire、历史可视化和评估标注能力。
 - 为已有 FTS-only Topic Heads 增加停写、向量投影回填、完整性校验和能力恢复的离线迁移流程。
 - Topic Memory 开发完成并通过功能验收后，再设计并执行 LoCoMo 对比评测与调参，不把该评测作为本 RFC 实现验收条件。
+
+## 生成内容准入
+
+最终 proposal 在二次检索前及协调后、准备投影之前接受保守的内容准入检查。
+可识别的编号占位正文和纯身份协调说明会导致整个 Window 被拒绝。
+规则使用所引用的规范证据、所选准确历史内容及服务端分配的 ID；仅含标识符、短文本、停用词或词汇相似度低均不构成拒绝原因。
+普通身份保留规则无需与证据逐字匹配。模板识别还要求有限模板词汇中的生成段落标签或所提供的内部 ID，协调措辞本身不构成拒绝依据。
+常见句末标点、成对强调符号、包裹整个字段的行内代码及引用块不会使编号模板免于检查。
+引用支持先检查原始字段，再允许移除这些外层展示格式，不删除标点，也不拼接证据字段。
+工作项、协调组件及临时 proposal 等已知阶段 ID 在压缩和协调后仍保留给准入检查。
+对于模板原文引用，概要与详情可以分别匹配不同的所引用 Source 或所选准确历史记录。
+标题无需特定关键词，未引用 Source 与未选历史记录不能提供引用支持；纯编号占位正文仍会被拒绝。
+这不是通用事实验证器，也不能证明语义质量。
+
+`invalid_topic_placeholder` 与 `invalid_topic_coordination_content` 是记录在现有预算中的可恢复生成拒绝。
+拒绝保留 Head、投影和 Source 游标；后续尝试消耗相同的持久化额度，耗尽后遵循现有终止前沿策略。
+拒绝不能通过过滤 proposal 被转为成功 NOOP，也不能部分发布 Window。普通空结果仍使用正常 NOOP 语义，无额外模型调用。
+检查仅访问当前有界 proposal、Window 证据及所选历史 Topic，不扫描 Scope；同批检查共享证据归一化结果。
+Topic 正文与持久化 schema 保持不变。
+
+七个内置阶段提示均包含具体内容、证据边界及各自空结果规则，内置版本为 `v2`。
+自定义提示保留相同内容约束，其示例使用运行时准入规则。Auto 编译逻辑及其他 Artifact 家族保持不变。
+预算按实际选中指令与 schema 核算。通用直接写入及已有历史 revision 维持现有契约，处理流程不自动修复历史污染。
+
+自定义示例仅使用显式证据正文和所选历史 Topic 为模板引用提供支持，中间 proposal 只携带引用，不充当 Source 证据。
+`reduce`、`reconcile` 或缺少足够显式证据及所选历史的 `evolve` 示例，即使重复中间输入中的模板文字，也会被拒绝。
+请使用具体的解释性正文，或在阶段输入允许时提供支持证据；普通业务内容仍可通过。
+已保存的自定义 Prompt 在解析使用时会再次检查，不受支持的示例以 `prompt_definition_incompatible` 失败。
+示例 JSON 和阶段 schema 保持不变。

@@ -17,7 +17,8 @@
     "build": "pnpm generate:check && tsc --noEmit && vite build",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build --bundles nsis --ci -- --locked",
+    "desktop:build": "tauri build --ci -- --locked",
+    "desktop:build:windows:ci": "tauri build --bundles nsis --ci --features ci-fixtures -- --locked",
     "ipc:check": "cargo run --locked --manifest-path src-tauri/Cargo.toml --example export_ipc -- --check",
     "format:check": "prettier --check ui/src/app ui/src/shared ui/tests scripts vite.config.ts",
     "icons": "node scripts/icons.mjs",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4",
+    "@openapitools/openapi-generator-cli": "2.41.0",
     "@testing-library/react": "16.3.0",
     "@testing-library/user-event": "14.6.1",
     "@types/node": "26.3.0",
@@ -42,7 +44,7 @@
     "prettier": "3.6.2",
     "sharp": "0.34.5",
     "typescript": "5.9.3",
-    "vite": "8.3.0",
+    "vite": "8.3.3",
     "vitest": "5.0.1",
     "yaml": "2.9.0"
   }

@@ -58,6 +58,15 @@ def test_http_code_prepare_preserves_approved_experience_when_memory_is_empty(tm
     lesson = "Budget preparation must preserve approved historical evidence."
 
     async def exercise():
+        bootstrap = create_server_app(
+            settings=ServerSettings(
+                database=database, mcp=McpConfig(enabled=False), metrics=MetricsConfig(enabled=False)
+            ),
+            scheduler_path=tmp_path / "bootstrap-scheduler.db",
+        )
+        # Initialize Server-owned storage before seeding it through the SDK.
+        async with bootstrap.router.lifespan_context(bootstrap):
+            pass
         async with open_builtin_runtime(
             BuiltinConfig(database=database), scheduler_path=tmp_path / "runtime-scheduler.db"
         ) as runtime:

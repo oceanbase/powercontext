@@ -24,7 +24,7 @@ limitations under the License.
 <article class="reading-sheet">
   <div>
   <div class="reading-heading">
-    <a class="back-link d-block mb-4" href="{{ link('methods') }}">← {{ t.back_methods }}</a>
+    <a class="back-link d-block mb-4" href="{{ return_to or link('methods') }}">← {{ t.back_methods }}</a>
     <span class="method-type text-secondary small">{{ t.experience }} · {{ data.title }}</span>
     <h1>{{ data.experience.lesson }}</h1>
   </div>

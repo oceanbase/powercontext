@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Install and inspect the minimal Kimi Code memory plugin."""
+"""Install and inspect Kimi Code memory and workflow profiles."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
 from shutil import which
@@ -38,10 +39,19 @@ from powercontext.transport import is_loopback_host
 
 PLUGIN_RELATIVE = Path("integrations/kimi-code/plugins/powercontext")
 OWNER_MARKER = ".powercontext-owned"
-MEMORY_TOOLS = ["search_memory", "remember_memory", "get_artifact_revision"]
+
+
+class KimiProfile(StrEnum):
+    MINIMAL = "minimal"
+    RECOMMENDED = "recommended"
+    FULL = "full"
+
+
 HOOK = {"event": "UserPromptSubmit", "command": "node ./hooks/user_prompt_submit.mjs", "timeout": 5}
 REQUIRED_FILES = (
     "kimi.plugin.json",
+    "profiles.json",
+    "shared/mcp.mjs",
     "hooks/user_prompt_submit.mjs",
     "shared/runtime.mjs",
     "shared/observations.mjs",
@@ -106,7 +116,15 @@ def _endpoint(value: str) -> str:
     return endpoint
 
 
-def _configured_skill(skill: Path, *, scope: str | None, previous_scope: str | None, scope_script: Path) -> bytes:
+def _configured_skill(
+    skill: Path,
+    *,
+    scope: str | None,
+    previous_scope: str | None,
+    scope_script: Path,
+    profile: KimiProfile,
+    previous_profile: KimiProfile,
+) -> bytes:
     existing = skill.read_bytes().decode("utf-8")
     region = guidance_region(existing)
     if region is None:
@@ -121,7 +139,63 @@ def _configured_skill(skill: Path, *, scope: str | None, previous_scope: str | N
     for label in ("The configured Scope is", "The configured explicit Scope is"):
         content = content.replace(f"{label} {old_scope}.", f"{label} {json.dumps(scope, ensure_ascii=False)}.")
     content = content.replace("__POWERCONTEXT_SCOPE_SCRIPT_JSON__", json.dumps(str(scope_script), ensure_ascii=False))
+    old_profile = (
+        "__POWERCONTEXT_PROFILE_JSON__"
+        if "__POWERCONTEXT_PROFILE_JSON__" in content
+        else json.dumps(previous_profile.value)
+    )
+    content = content.replace(
+        f"The enabled MCP profile is {old_profile}.", f"The enabled MCP profile is {json.dumps(profile.value)}."
+    )
+    workflow_start = "<!-- POWERCONTEXT-WORKFLOWS:START -->"
+    workflow_end = "<!-- POWERCONTEXT-WORKFLOWS:END -->"
+    if workflow_start not in content and workflow_end not in content and profile is KimiProfile.MINIMAL:
+        return (existing[:start] + content + existing[end:]).encode("utf-8")
+    if (
+        content.count(workflow_start) != 1
+        or content.count(workflow_end) != 1
+        or content.index(workflow_start) > content.index(workflow_end)
+    ):
+        raise SetupError("Run powercontext setup kimi-code to install profile-aware guidance")  # noqa: TRY003
+    before, remaining = content.split(workflow_start)
+    _, after = remaining.split(workflow_end)
+    content = before + workflow_start + "\n" + _profile_guidance(profile) + "\n" + workflow_end + after
     return (existing[:start] + content + existing[end:]).encode("utf-8")
+
+
+def _profile_tools(plugin: Path, profile: KimiProfile) -> list[str]:
+    value = _read_json(plugin / "profiles.json")
+    try:
+        tools = value["profiles"][profile]
+    except (KeyError, TypeError) as error:
+        raise SetupError("Missing Kimi MCP tool profile") from error  # noqa: TRY003
+    if (
+        value.get("schema") != "powercontext.kimi-code.profiles.v1"
+        or not isinstance(tools, list)
+        or not tools
+        or any(not isinstance(tool, str) or not tool for tool in tools)
+        or len(set(tools)) != len(tools)
+    ):
+        raise SetupError("Invalid Kimi MCP tool profile")  # noqa: TRY003
+    return tools
+
+
+def _profile_guidance(profile: KimiProfile) -> str:
+    if profile is KimiProfile.MINIMAL:
+        return ""
+    result = (
+        "For Work Contract, Handoff, continuation, acknowledgment and Task Outcome, "
+        "read [Work Handoff](references/work-handoff.md) before the first operation. "
+        "An ordinary transfer is temporary; commit only an explicitly requested durable milestone."
+    )
+    if profile is KimiProfile.FULL:
+        result += (
+            "\nFor Experience, managed/external Skill and candidate workflows, "
+            "read [Experience and Skill](references/experience-skill.md) and "
+            "[Review and publication](references/review-publication.md). "
+            "Inspection grants no decision authority."
+        )
+    return result
 
 
 @dataclass
@@ -129,11 +203,13 @@ class KimiInstaller:
     scope_id: str | None = None
     capture_prompts: bool | None = None
     workspace_scope: bool = False
+    profile: KimiProfile | str | None = None
 
     @cached_property
     def _preferences(self):
         path = kimi_home() / "plugins/managed/powercontext/powercontext.json"
         previous = _read_json(path) if path.exists() else {}
+        profile = KimiProfile(self.profile if self.profile is not None else previous.get("profile", "minimal"))
         if self.workspace_scope and self.scope_id is not None:
             raise SetupError("--workspace-scope and --scope-id are mutually exclusive")  # noqa: TRY003
         scope = (
@@ -151,10 +227,10 @@ class KimiInstaller:
             not token or not token.isascii() or any(ord(c) < 33 or ord(c) > 126 for c in token) or len(token) > 8192
         ):
             raise SetupError("POWERCONTEXT_KIMI_TOKEN must contain one raw token")  # noqa: TRY003
-        return previous, scope, capture, token is not None
+        return previous, scope, capture, token is not None, profile
 
     def install(self, source):  # noqa: C901
-        _ = self._preferences
+        profile = self._preferences[-1]
         if kimi_executable() is None or which("node") is None:
             raise SetupError("Kimi CLI and Node must be available; KIMI_CLI_BIN may point to a built CLI")  # noqa: TRY003
         with source.package("kimi-code") as plugin:
@@ -176,6 +252,7 @@ class KimiInstaller:
                 or manifest.get("sessionStart") != {"skill": "powercontext-project-context"}
             ):
                 raise SetupError("Invalid PowerContext Kimi plugin manifest")  # noqa: TRY003
+            _profile_tools(plugin, profile)
             home = kimi_home()
             registry_path, destination = home / "plugins/installed.json", home / "plugins/managed/powercontext"
             if registry_path.is_symlink() or destination.is_symlink():
@@ -208,6 +285,8 @@ class KimiInstaller:
                             scope=previous["scope_id"],
                             previous_scope=previous["scope_id"],
                             scope_script=destination / "scripts/scope.mjs",
+                            profile=KimiProfile(previous.get("profile", "minimal")),
+                            previous_profile=KimiProfile(previous.get("profile", "minimal")),
                         )
                     )
                 write_json(staged / "kimi.plugin.json", manifest)
@@ -232,24 +311,38 @@ class KimiInstaller:
                 "config_file": str(registry_path),
                 "server_url": previous.get("server_url", "http://127.0.0.1:8000"),
                 "scope_id": previous.get("scope_id"),
+                "profile": previous.get("profile", "minimal"),
             }
 
     def configure(self, connection):
         destination = kimi_home() / "plugins/managed/powercontext"
-        previous, scope, capture, supplied_token = self._preferences
+        previous, scope, capture, supplied_token, profile = self._preferences
         endpoint = connection.server_url
         use_token = supplied_token or (endpoint == previous.get("server_url") and previous.get("use_token") is True)
-        settings = {"server_url": endpoint, "scope_id": scope, "capture_prompts": capture, "use_token": use_token}
+        settings = {
+            "server_url": endpoint,
+            "scope_id": scope,
+            "capture_prompts": capture,
+            "use_token": use_token,
+            "profile": profile.value,
+        }
         manifest = _read_json(destination / "kimi.plugin.json")
         server = manifest["mcpServers"]["powercontext"]
         server["url"] = endpoint + "/mcp"
+        if self.profile is not None or not previous:
+            server["enabledTools"] = _profile_tools(destination, profile)
         if use_token:
             server["bearerTokenEnvVar"] = "POWERCONTEXT_KIMI_TOKEN"
         elif server.get("bearerTokenEnvVar") == "POWERCONTEXT_KIMI_TOKEN":
             del server["bearerTokenEnvVar"]
         skill = destination / "skills/powercontext-project-context/SKILL.md"
         content = _configured_skill(
-            skill, scope=scope, previous_scope=previous.get("scope_id"), scope_script=destination / "scripts/scope.mjs"
+            skill,
+            scope=scope,
+            previous_scope=previous.get("scope_id"),
+            scope_script=destination / "scripts/scope.mjs",
+            profile=profile,
+            previous_profile=KimiProfile(previous.get("profile", "minimal")),
         )
         publish(
             writes={
@@ -259,10 +352,10 @@ class KimiInstaller:
                 skill: content,
             }
         )
-        return {"server_url": endpoint, "scope_id": scope}
+        return {"server_url": endpoint, "scope_id": scope, "profile": profile.value}
 
-    def verify(
-        self, *, runtime: bool = False, cwd: Path | None = None, session_id: str | None = None
+    def verify(  # noqa: C901 - installed declarations plus opt-in runtime and transport probes.
+        self, *, runtime: bool = False, cwd: Path | None = None, session_id: str | None = None, mcp: bool = False
     ) -> dict[str, Diagnostic]:
         """Check installed declarations and perform readonly Server and Scope probes."""
         ok, failed, skipped = DiagnosticStatus.OK, DiagnosticStatus.FAILED, DiagnosticStatus.SKIPPED
@@ -286,13 +379,16 @@ class KimiInstaller:
             settings = _read_json(destination / "powercontext.json")
             manifest = _read_json(destination / "kimi.plugin.json")
             server = manifest["mcpServers"]["powercontext"]
+            profile = KimiProfile(settings.get("profile", "minimal"))
+            tools = _profile_tools(destination, profile)
+            checks["profile"] = Diagnostic(ok, profile.value, {"enabled_tools": str(len(tools))})
             capabilities = (record or {}).get("capabilities", {}).get("mcpServers", {}).get("powercontext", {})
             configured = (
                 server.get("url") == _endpoint(settings["server_url"]) + "/mcp"
                 and server.get("bearerTokenEnvVar")
                 == ("POWERCONTEXT_KIMI_TOKEN" if settings.get("use_token") else None)
                 and not server.get("headers")
-                and server.get("enabledTools") == MEMORY_TOOLS
+                and server.get("enabledTools") == tools
                 and server.get("enabled", True) is True
                 and capabilities.get("enabled", True) is True
             )
@@ -322,6 +418,10 @@ class KimiInstaller:
             return checks
         try:
             arguments = [node, str(destination / "scripts/doctor.mjs"), "--cwd", str((cwd or Path.cwd()).absolute())]
+            if mcp and enabled and configured:
+                arguments.append("--mcp")
+            elif mcp:
+                checks["mcp_discovery"] = Diagnostic(skipped, "Plugin/MCP configuration is disabled or invalid")
             if runtime:
                 arguments.append("--runtime")
                 if session_id is not None:

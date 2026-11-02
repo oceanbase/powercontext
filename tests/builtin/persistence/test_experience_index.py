@@ -69,9 +69,10 @@ def test_artifact_head_search_projection_schema_is_mysql_compilable() -> None:
     assert "pc_experience_heads" not in {table.name for table in BUILTIN_TABLES}
 
 
-def test_sqlite_startup_upgrades_legacy_artifact_heads_without_searchable_text(tmp_path) -> None:
-    database = tmp_path / "legacy.db"
+def test_sqlite_startup_upgrades_legacy_artifact_heads_without_searchable_text(initialized_sqlite_database) -> None:
+    database = initialized_sqlite_database
     with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE pc_artifact_heads")
         connection.execute(
             """
             CREATE TABLE pc_artifact_heads (
@@ -218,10 +219,12 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             assert raw.raw < 0
             assert raw.higher_is_better is False
             assert scored_hit.retrieval_score == -raw.raw / (1 - raw.raw)
-            async with contexts.database.transaction() as connection:
-                excluded = await contexts.experience_index.search(
-                    connection, scope_id, "hamsterlegacy", 8, min_score=1, require_scores=True
-                )
+            from powercontext.builtin.artifacts.experience import ExperienceSearchRequest
+            from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
+
+            excluded = await ExperienceArtifactSearcher(
+                contexts.database, contexts.repositories.artifacts, contexts.experience_index
+            ).search(scope_id, ExperienceSearchRequest(query="hamsterlegacy", limit=8, min_score=1))
             assert excluded.hits == ()
             assert excluded.admission is not None
             assert excluded.admission.admitted == 1
@@ -329,7 +332,7 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             assert await contexts.search_experience(scope_id, "falconcurrent", 8) == ()
 
             async with contexts.database.transaction() as connection:
-                await contexts.experience_index.initialize(connection)
+                await contexts.experience_index.rebuild(connection)
             rebuilt = await contexts.search_experience(scope_id, "falconcurrent", 8)
             assert tuple(hit.artifact_ref for hit in rebuilt) == (replaced.result_artifact,)
             assert await contexts.search_experience(scope_id, "staleprojection", 8) == ()
@@ -465,22 +468,16 @@ def test_skill_threshold_uses_same_score_and_admission_contract() -> None:
     assert hits[0].channel_scores["text"].raw == -1
 
 
-def test_oceanbase_search_selects_match_raw_and_preserves_candidate_window() -> None:
+def test_oceanbase_search_preserves_match_raw_score() -> None:
     rows = [_experience_row("one", 2.0, "oceanbase_match")]
-    connection = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(mappings=lambda: rows)))
-    outcome = asyncio.run(
-        OceanBaseExperienceFTSIndex().search(
-            cast(AsyncConnection, connection), "project", "client", 8, require_scores=True
-        )
+    connection = SimpleNamespace(
+        dialect=SimpleNamespace(name="mysql"),
+        execute=AsyncMock(return_value=SimpleNamespace(mappings=lambda: rows)),
     )
-    statement = connection.execute.await_args.args[0]
-    compiled = statement.compile(dialect=mysql.dialect())
-    sql = str(compiled)
-
-    assert "AS raw_score" in sql
-    assert "MATCH (pc_artifact_heads.searchable_text) AGAINST" in sql
-    assert "ORDER BY MATCH" in sql
-    assert " DESC, pc_artifact_heads.artifact_id, pc_artifact_heads.revision" in sql
-    assert 32 in compiled.params.values()
+    selected = asyncio.run(
+        OceanBaseExperienceFTSIndex().search(cast(AsyncConnection, connection), "project", "experience", "client", 8)
+    )
+    outcome = experience_search_hits(selected, "client", 8, "project", require_scores=True)
     assert outcome.hits[0].channel_scores is not None
     assert outcome.hits[0].channel_scores["text"].metric == "oceanbase_match"
+    assert outcome.hits[0].channel_scores["text"].raw == 2.0

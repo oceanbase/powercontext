@@ -34,12 +34,14 @@ from sqlalchemy import Table, event
 from sqlalchemy.engine import URL, AdaptedConnection, ExceptionContext, make_url
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream_schema import assert_dream_schema_ready
+from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
+from powercontext.builtin.persistence.topic_memory_recovery_schema import BUDGET, prepare_topic_memory_recovery_schema
 
 _WARMUP_RETRY_SECONDS = 0.05
 _WARMUP_LOCKS: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]] = WeakKeyDictionary()
@@ -95,9 +97,15 @@ class SQLiteProfile:
         *,
         tables: tuple[Table, ...],
         load_vector_extension: bool = False,
+        _archive_recovery: bool = False,
     ) -> AsyncIterator[SQLiteProfile]:
         """Create, initialize and exclusively own one SQLite engine."""
 
+        if sqlite3.sqlite_version_info < (3, 38, 0):
+            raise PersistenceError(  # noqa: TRY003
+                "SQLite 3.38.0 or newer is required for retrieval; "
+                f"this Python uses SQLite {sqlite3.sqlite_version}. Upgrade Python's SQLite library."
+            )
         _create_database_directory(config.url)
         engine_options: dict[str, object] = {"echo": config.echo, "hide_parameters": True}
         if not config.is_persistent:
@@ -107,7 +115,11 @@ class SQLiteProfile:
         database = AsyncDatabase.own(engine, shared_connection=not config.is_persistent)
         profile = cls(database=database, tables=tables)
         try:
-            await assert_dream_schema_ready(engine)
+            await assert_dream_schema_ready(engine, _archive_recovery=_archive_recovery)
+            if tables:
+                await prepare_topic_memory_recovery_schema(
+                    engine, initialize=any(table.name == BUDGET for table in tables)
+                )
             await _warm_sqlite(engine, config)
             async with database.transaction() as connection:
                 await create_tables(connection, tables)
@@ -196,6 +208,7 @@ def _configure_sqlite(
             connection_record.info["_powercontext_sqlite_stop"] = _make_sqlite_stop_idempotent(driver)
         if load_vector_extension:
             dbapi_connection.run_async(_load_sqlite_vec)
+            connection_record.info["powercontext_sqlite_vec_loaded"] = True
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute(f"PRAGMA busy_timeout = {config.busy_timeout_ms}")
@@ -258,6 +271,14 @@ def _make_sqlite_stop_idempotent(connection: Connection) -> Callable[[], asyncio
 
     setattr(connection, "stop", stop_once)  # noqa: B010 - patch one connection; the shared aiosqlite class stays untouched
     return stop_once
+
+
+async def ensure_sqlite_vector_extension(connection: AsyncConnection) -> None:
+    """Load vector functions only when this connection first serves vector search."""
+    if not connection.info.get("powercontext_sqlite_vec_loaded"):
+        raw = await connection.get_raw_connection()
+        await _load_sqlite_vec(cast(Connection, raw.driver_connection))
+        connection.info["powercontext_sqlite_vec_loaded"] = True
 
 
 async def _load_sqlite_vec(connection: Connection) -> None:

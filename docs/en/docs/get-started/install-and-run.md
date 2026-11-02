@@ -1,6 +1,6 @@
 ---
 title: Install and run
-description: Install PowerContext 1.4.0 and run the local Server.
+description: Install PowerContext 1.4.1 and run the local Server.
 ---
 
 # Install and run
@@ -103,13 +103,13 @@ The default `--version latest` installs or upgrades to the newest stable release
 and compatible with the chosen Python. It excludes prereleases. `--version` accepts an exact release, including an
 explicit prerelease such as `1.3.0rc1`; it never substitutes a different version if that release is unavailable.
 
-For example, install PowerContext 1.4.0 with its Codex integration:
+For example, install PowerContext 1.4.1 with its Codex integration:
 
 ```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.4.0 --host codex
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.4.1 --host codex
 ```
 
-This selects package `1.4.0` and Git tag `powercontext-v1.4.0`. With `latest`, the installer reads the installed CLI's
+This selects package `1.4.1` and Git tag `powercontext-v1.4.1`. With `latest`, the installer reads the installed CLI's
 version and uses its matching tag; it never uses the moving `master` branch for host setup. To add an integration later:
 
 ```bash
@@ -161,7 +161,7 @@ To inspect the installer or pass several options in PowerShell, save it first:
 
 ```powershell
 irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn --version 1.4.0
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn --version 1.4.1
 ```
 
 Cached reinstallation with `UV_OFFLINE=1` can work when uv, compatible Python, and all required packages are already
@@ -169,12 +169,12 @@ present. This is not an offline distribution bundle; missing downloads fail expl
 
 ## Choose a version
 
-These instructions use PowerContext 1.4.0. Keep the package and Agent integration on
-the same version: package `1.4.0` and Git tag `powercontext-v1.4.0`.
+These instructions use PowerContext 1.4.1. Keep the package and Agent integration on
+the same version: package `1.4.1` and Git tag `powercontext-v1.4.1`.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
-powercontext setup codex --ref powercontext-v1.4.0
+uv tool install --force "powercontext[cli,server]==1.4.1"
+powercontext setup codex --ref powercontext-v1.4.1
 ```
 
 Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status.
@@ -186,14 +186,18 @@ You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on ma
 PowerContext from PyPI:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
+uv tool install --force "powercontext[cli,server]==1.4.1"
 ```
 
 For a source installation of the same version:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.4.0"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.4.1"
 ```
+
+For a machine that only connects to a remote Server, the `cli` extra includes `setup`, `doctor`, and remote content
+commands. Add `server` to run a local Server or use the `service` commands. If a command provider has a missing
+dependency, the CLI reports the provider and missing module so the installation can be repaired.
 
 The Git command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
 including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the Git URL
@@ -267,7 +271,7 @@ Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` 
 support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.4.0"
+uv tool install --force "powercontext[cli,server,seekdb]==1.4.1"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
@@ -283,7 +287,10 @@ powercontext server run
 pass `--env-file <path>` to select another file, or pass `--no-env-file` to ignore environment files. Process managers
 and containers should normally provide an explicit environment instead of relying on their working directory.
 
-PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
+PowerContext defaults to a dedicated `powercontext` database and creates it before initializing application tables.
+To select another database, set `POWERCONTEXT_SERVER_DATABASE_DATABASE=my_context`; a missing database is created,
+and an existing one is reused. Names containing backticks are rejected before initialization.
+Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
 the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the
 default is `$POWERCONTEXT_HOME/seekdb`; set `POWERCONTEXT_SERVER_DATABASE_PATH` only when a different location is
 required.
@@ -295,6 +302,98 @@ powercontext doctor
 powercontext ready
 powercontext capabilities
 ```
+
+### Existing seekDB installations
+
+Before upgrading, back up the seekDB instance and configuration, then explicitly retain the old database:
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
+export POWERCONTEXT_SERVER_DATABASE_DATABASE=test
+powercontext server run
+```
+
+Keep the original `POWERCONTEXT_SERVER_DATABASE_PATH` or `POWERCONTEXT_HOME`. The instance directory and database name
+are separate settings: changing either can select different data. Configure services and containers with the same values.
+
+If no database name was explicitly configured and `test` contains tables named with PowerContext's `pc_` prefix,
+startup stops before creating application tables and asks you to choose a database. It never automatically selects,
+copies, or deletes the old database. Explicitly choose `test` to retain old data, or `powercontext` to use the new database.
+The configuration wizard also asks for the database name; existing users should enter `test`.
+
+To move data, keep using `test` until you have a backup and a validated export/import procedure for your engine version.
+Stop all source writers, provision the target database, export/import the schema and data using that procedure, verify
+identities and relationships, and read the migrated data through PowerContext before switching the configuration.
+Automatic database creation does not perform this migration. Do not assume an arbitrary SQL dump is compatible across
+engine or schema versions; existing schemas remain subject to compatibility checks and explicit schema maintenance.
+Code graph references identify their instance and database: copying relational rows alone does not migrate graph storage.
+Include target Code index rebuilding and queries in your validation; explicitly retaining `test` preserves legacy graph identities.
+
+After switching, keep the old database without writers for a retention period you choose. Record the source and target
+instance paths and names, backup location, stop-write and cutover times, validation results, and a review date. Before
+manually deleting the source, confirm that no deployment uses it and that a usable backup remains. New writes to the
+target are not copied back to the source, so keeping the source does not provide lossless rollback. PowerContext does
+not automatically migrate data, send retention reminders, compare databases, or delete old databases.
+
+## Use OceanBase
+
+Connect to an existing OceanBase **MySQL-compatible user tenant**. Prepare the selected database and initialize its
+full Server schema through explicit maintenance before starting the Server. PowerContext does not provision an
+OceanBase instance, tenant, or account. Ensure network access and complete the Server
+installation steps above, then configure the connection:
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
+# Store credentials in your secret manager or a protected environment file.
+export POWERCONTEXT_SERVER_DATABASE_URL='mysql+aoceanbase://user%40tenant:encoded-password@host:2881/?charset=utf8mb4'
+```
+
+Use the tenant account and the actual direct-connection or OBProxy endpoint and port. Percent-encode reserved characters
+in the URL username and password; for example, `user@tenant` becomes `user%40tenant`. The URL requires the
+`mysql+aoceanbase` driver, an explicit port, and `charset=utf8mb4`.
+
+The example omits the database name and therefore selects `powercontext`. To select a custom database, put its name in
+the URL path, for example `/team_context?charset=utf8mb4`. Existing URLs with an explicit database continue to select
+that database. Select the database only in the URL path; `db` and `database` query parameters are rejected.
+Database identifiers support 1–64 BMP characters, excluding control characters, slash, backslash, dot, backticks,
+leading/trailing whitespace, and system database names; names are never silently trimmed or renamed by PowerContext. The server's identifier case rules still apply.
+Names containing backticks are rejected during configuration validation, before connecting or creating a database.
+Choose a name such as `powercontext`, `team_context`, or a Chinese name without backticks.
+
+Python SDK initialization first connects to the selected database. If it is usable, no database-creation privileges are required. Only a
+confirmed unknown-database error triggers an instance/tenant connection and `CREATE DATABASE IF NOT EXISTS`, followed
+by a new connection to the selected database and application-table initialization. Authentication and network errors
+do not trigger creation or fallback. If access is denied without proving whether the database exists, the error asks
+an administrator to check both existence and privileges.
+
+For a new full Server deployment, create the selected database first. If SDK initialization cannot create a missing
+database, the same administrator step applies. Run the following in the **same tenant**, using your configured name,
+then grant the application account the required database privileges:
+
+```sql
+CREATE DATABASE IF NOT EXISTS `powercontext` CHARACTER SET utf8mb4;
+```
+
+For the full Server, follow [database migrations](../operate/database-migrations.md) to plan, apply, and verify the
+registered Server bundle with an explicit evidence directory and coordination mode. Start `powercontext server run`
+only after the database is ready. Server startup checks readiness and does not initialize OceanBase schemas or
+automatically migrate existing databases. SDK callers can retry initialization using the same URL after provisioning.
+Creating missing tables requires table-creation privileges; an existing fully initialized database does not acquire a
+new database-creation privilege requirement. Initialization never drops or
+recreates an existing database, never switches to another database after a failure, and does not authorize schema upgrades.
+Concurrent creation uses idempotent database/table DDL and handles duplicate-index creation races. This does not provide
+coordination for existing-schema migrations or change embedded seekDB's process-ownership restrictions.
+
+For Python callers, `OceanBaseProfile.open()` resolves an omitted URL database and provisions it when necessary.
+`OceanBaseProfile.open_existing()` connects only to an already provisioned database, and `attach()` requires a
+caller-owned engine that already selects an existing database; neither replaces that engine or provisions a different
+connection target. Read-only inspection (`plan`, `verify`, and the `db-migrate` inspection commands) never creates a
+missing OceanBase or embedded seekDB database; explicit writable seekDB maintenance can provision its configured database
+before applying its bundle.
+
+Read-only seekDB inspection requires an initialized instance directory. A missing or empty path is rejected before
+starting the native engine, without creating parent directories or storage files. A file or a nonempty directory without
+recognized native storage is also rejected without changing its contents. Ordinary startup still initializes new instances.
 
 ## Verify the installation
 
@@ -315,47 +414,49 @@ For a long-running process, Docker, authentication, or remote access, continue w
 
 ## Update or replace an installation
 
-Before upgrading an existing deployment, back up its database and configuration. Version 1.1.0 upgrades legacy
-tag-table constraints during Server startup to support Topic Memory tags. Stop the old Server instances and start
-one upgraded instance first so the schema upgrade completes before other instances connect. Databases from before
-1.0.0 also need the [Artifact processing migration](../operate/artifact-processing-migration.md) if it has not already
-been completed. Existing collection-based Memory databases also require the [offline Atomic Memory migration](../operate/atomic-memory-migration.md)
-for existing collection databases. Complete any required Artifact processing migration first, stop all writers, then
-apply and verify the Atomic Memory migration. Start the new service only after verification returns `ready: true`.
-Upgrade the Server, clients, and Agent integrations together.
-The Dashboard must be explicitly enabled; static Bearer authentication is optional for local use. See
-[Deploy the Server](../operate/deploy-server.md). Remote plaintext HTTP connections require explicit client consent;
-see [Connect to a remote Server](../operate/connect-remote-server.md).
+<!-- upgrade-support:start -->
+Upgrades from 1.3.0 and 1.4.0 require passing full Server acceptance on SQLite, seekDB and OceanBase. These migration paths are not yet verified; do not upgrade existing databases.
+<!-- upgrade-support:end -->
+
+Keep existing deployments on their working version until their source version and backend have an accepted upgrade
+path. To evaluate a fresh installation, use a separate program environment, database location, and port. Replacing
+the installed package does not migrate its database. Backups do not make an unsupported migration supported.
+
+The support declaration is checked against the release matrix and installed-artifact acceptance; see
+[Preparing a release](../../development/releasing.md). Domain-specific
+[Processing](../operate/artifact-processing-migration.md) and
+[Atomic Memory](../operate/atomic-memory-migration.md) maintenance guides do not establish full Server readiness.
 
 Review the [Dream coordinated upgrade requirements](../workflows/review-dream-revisions.md#coordinated-upgrade)
 before upgrading an existing database. The unified Candidate routes replace `/v1/artifact-candidates/*` with
 `/v1/candidates/*` without aliases, and Dream Clients require contract 2. Existing Dream storage needs an explicit
-migration after unfinished runs have drained. The current unified migration bundle reports `server_ready=false`;
-it does not provide a complete production Server upgrade path. Atomic Memory verification alone does not establish
-that readiness. Do not bypass `migration_required` or `migration_framework_not_ready`.
+migration after unfinished runs have drained. [Full Server migration](../operate/database-migrations.md) requires
+`state=ready` and `server_ready=true`; partial Artifact or Atomic Memory verification cannot replace it. Do not bypass
+the migration gate.
 
-To upgrade to 1.4.0:
-
-```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
-```
-
-To replace the installed tool with another Git ref:
+To install 1.4.1 in a separate environment for a fresh deployment:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
+uv venv /path/to/powercontext-preview
+uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.4.1"
 ```
 
-Update each installed host using its [integration guide](../integrations/index.md) and the same ref. Restart the Server and open a new host session
-after updating. Existing SQLite data remains in the user data directory unless `POWERCONTEXT_HOME` or the database URL
-changes.
+To install another Git ref in the separate environment:
+
+```bash
+uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
+```
+
+Use the matching ref for clients and Agent integrations connected to the fresh deployment. Preserve the original
+deployment's database location and configuration; do not point the new Server at it as an installation check.
+On Windows, the virtual environment interpreter is at `Scripts/python.exe`.
 
 ## Install a Python role
 
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client]==1.4.0"
+uv add "powercontext[client]==1.4.1"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for

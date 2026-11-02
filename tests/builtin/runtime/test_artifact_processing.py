@@ -118,6 +118,45 @@ else:
         with pytest.raises(ChildProcessError):
             os.waitpid(pid, os.WNOHANG)
 
+    class _ReapingPublicationGate:
+        """Pause a real join after reaping and before publishing its exit code."""
+
+        def __init__(self, process):
+            self.pid = process.pid
+            self.entered = threading.Event()
+            self.reaped = threading.Event()
+            self.release = threading.Event()
+            self.published = threading.Event()
+            self.owner_thread = None
+            self._waitpid = os.waitpid
+            self._join = process.join
+
+        def waitpid(self, pid, options):
+            current_thread = threading.get_ident()
+            if pid == self.pid and options == 0:
+                if self.owner_thread is None:
+                    self.owner_thread = current_thread
+                    self.entered.set()
+                elif current_thread != self.owner_thread:
+                    assert self.reaped.wait(SPAWN_TEST_TIMEOUT_SECONDS)
+            result = self._waitpid(pid, options)
+            if pid == self.pid and result[0] == pid and current_thread == self.owner_thread:
+                self.reaped.set()
+                assert self.release.wait(SPAWN_TEST_TIMEOUT_SECONDS)
+            return result
+
+        def join(self, *args):
+            try:
+                return self._join(*args)
+            finally:
+                if threading.get_ident() == self.owner_thread:
+                    self.published.set()
+
+        async def finish(self):
+            self.release.set()
+            if self.owner_thread is not None:
+                assert await asyncio.to_thread(self.published.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+
 
 # multiprocessing creates the spawn child in `Popen._launch` on POSIX and in `Popen.__init__` on
 # Windows. Both take `(popen, process_obj)` and leave the same attributes (`pid`, `returncode`,
@@ -157,6 +196,75 @@ def test_spawn_launcher_runs_a_real_child_process() -> None:
                 == ArtifactProcessingWorkerCompletion()
             )
         finally:
+            await handle.terminate()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("cancel_termination", [False, True])
+def test_cancelled_wait_keeps_reaping_owned_until_exit_status_is_published(
+    tmp_path, monkeypatch, cancel_termination
+) -> None:
+    if sys.platform == "win32":
+        pytest.skip("POSIX waitpid/result-publication boundary")
+
+    async def scenario() -> None:
+        ready = tmp_path / "reaping-ready"
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name=BINDING,
+            scope_id=str(ready),
+            artifact_family="topic-memory",
+            claimed_request_generation=1,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global",
+                holder_id="holder-a",
+                supervisor_generation=1,
+                lease_mode="single-process",
+            ),
+            worker_id="00000000-0000-4000-8000-000000000001",
+        )
+        handle = await SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment)
+        process = cast(Any, handle)._process
+        child_pid = process.pid
+        gate = _ReapingPublicationGate(process)
+        waiter = None
+        termination = None
+        try:
+
+            async def child_is_ready():
+                return ready.exists()
+
+            await _wait_until(child_is_ready, timeout_seconds=SPAWN_TEST_TIMEOUT_SECONDS)
+            monkeypatch.setattr(os, "waitpid", gate.waitpid)
+            monkeypatch.setattr(process, "join", gate.join)
+            waiter = asyncio.create_task(handle.wait())
+            assert await asyncio.to_thread(gate.entered.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            termination = asyncio.create_task(handle.terminate())
+            assert await asyncio.to_thread(gate.reaped.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+            if cancel_termination:
+                termination.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await termination
+                termination = asyncio.create_task(handle.terminate())
+            # Reaping the PID is insufficient: shutdown must await publication
+            # of the owned join result before closing its Process resources.
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(termination), timeout=0.1)
+            gate.release.set()
+            await asyncio.wait_for(termination, timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+            _assert_child_reaped(child_pid)
+            await handle.terminate()
+        finally:
+            gate.release.set()
+            for task in (waiter, termination):
+                if task is not None:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await task
+            await gate.finish()
             await handle.terminate()
 
     asyncio.run(scenario())

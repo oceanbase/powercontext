@@ -126,6 +126,18 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
         assert envelope["items"][0]["content"] == "Use the WorkBuddy service chain for project context."
         assert AUTH_TOKEN not in recalled.stderr
 
+        if authentication_enabled:
+            rejected = _run_hook(
+                command,
+                environment={**environment, "POWERCONTEXT_WORKBUDDY_AUTHORIZATION": "Bearer rejected-token"},
+                prompt="private prompt for the rejected request",
+                prompt_id="prompt-rejected",
+            )
+            assert json.loads(rejected.stdout)["hookSpecificOutput"]["additionalContext"] == ""
+            assert json.loads(rejected.stderr)["outcome"] == "authentication_failed"
+            assert "rejected-token" not in rejected.stderr
+            assert "private prompt" not in rejected.stderr
+
         mcp_entry = json.loads((home / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["powercontext"]
         plugin_mcp_entry = json.loads((WORKBUDDY_PLUGIN / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"][
             "powercontext"

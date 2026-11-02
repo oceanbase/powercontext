@@ -40,6 +40,7 @@ from powercontext.service.model import (
     ServiceError,
     SupportState,
 )
+from powercontext.service.native_command import run_native_command
 
 _FAILURE_LIMIT = 3
 _FAILURE_WINDOW_SECONDS = 60
@@ -281,7 +282,10 @@ class LaunchdUserAdapter:
     def _run(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         command = ["launchctl", *arguments]
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)  # noqa: S603
+            if arguments and arguments[0] in {"enable", "disable", "bootstrap", "bootout", "kickstart"}:
+                result = run_native_command(command, text=True, timeout=30)
+            else:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)  # noqa: S603
         except (OSError, subprocess.SubprocessError) as error:
             raise ServiceError(f"failed to execute launchctl: {error}") from error  # noqa: TRY003
         if check and result.returncode != 0:
@@ -332,9 +336,10 @@ def _clear_retry_files(definition: ServiceDefinition) -> None:
 
 
 def _launcher_arguments(definition: ServiceDefinition) -> list[str]:
+    launcher = definition.launcher_arguments()
+    module_position = launcher.index("-m")
     return [
-        definition.python_executable,
-        "-m",
+        *launcher[: module_position + 1],
         "powercontext_service_bootstrap",
         "--retry-state",
         str(_failure_state_path(definition)),
@@ -345,7 +350,7 @@ def _launcher_arguments(definition: ServiceDefinition) -> list[str]:
         "--retry-window-seconds",
         str(_FAILURE_WINDOW_SECONDS),
         "--",
-        *definition.launcher_arguments()[3:],
+        *launcher[module_position + 2 :],
     ]
 
 

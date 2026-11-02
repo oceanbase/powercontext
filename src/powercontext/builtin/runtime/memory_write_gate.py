@@ -16,9 +16,10 @@
 
 The gate answers one narrow question: are the citations behind a pending Memory write strong
 enough to record it now? It never decides content, only whether to proceed. A ``HOLD`` is a
-visible refusal — it carries a structured code and a bounded reason back to its caller — and
-never a silent drop or an automatic approval. Any backend failure degrades to ``ACCEPT`` so an
-unavailable judge can never block a write.
+visible refusal — it carries a structured code and a bounded reason back to its caller — and never
+an automatic approval. The gate does not decide what happens to the refused window: the Runtime
+reports the hold through ``MemoryFlushResult`` and consumes the window instead of retrying it. Any
+backend failure degrades to ``ACCEPT`` so an unavailable judge can never block a write.
 """
 
 from __future__ import annotations

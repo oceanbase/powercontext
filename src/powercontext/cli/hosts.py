@@ -61,9 +61,10 @@ def validate_native_options(selected: Sequence[str], **options: Any) -> None:
         "scope_id": ("kimi-code",),
         "workspace_scope": ("kimi-code",),
         "boundary_flush": ("zcode",),
-        "profile": ("dsh",),
+        "profile": ("dsh", "kimi-code"),
         "dsh_command": ("dsh",),
         "runtime": ("kimi-code",),
+        "mcp": ("kimi-code",),
         "cwd": ("kimi-code",),
         "session_id": ("kimi-code",),
         "runtime_data_dir": ("zcode",),
@@ -74,13 +75,28 @@ def validate_native_options(selected: Sequence[str], **options: Any) -> None:
             flag = "--" + key.replace("_", "-")
             raise typer.BadParameter(f"{flag} requires selecting {', '.join(owners[key])}")  # noqa: TRY003
 
+    if options.get("profile") is not None:
+        from powercontext.cli.dsh_runtime import DshProfile
+        from powercontext.cli.kimi_code import KimiProfile
+
+        profiles = {"dsh": DshProfile, "kimi-code": KimiProfile}
+        for host in selected:
+            profile_type = profiles.get(host)
+            if profile_type is None:
+                continue
+            try:
+                profile_type(options["profile"])
+            except ValueError as error:
+                choices = ", ".join(item.value for item in profile_type)
+                raise typer.BadParameter(f"{host} profile must be one of: {choices}", param_hint="--profile") from error  # noqa: TRY003 - CLI input validation.
+
 
 def native_options(host: str, **options: Any) -> dict[str, Any]:
     """Pass only options owned by the selected native adapter."""
     fields = {
         "claude-code": ("capture_prompts",),
         "dsh": ("dsh_target",),
-        "kimi-code": ("scope_id", "capture_prompts", "workspace_scope"),
+        "kimi-code": ("scope_id", "capture_prompts", "workspace_scope", "profile"),
         "zcode": ("capture_prompts", "boundary_flush"),
     }
     return {key: options[key] for key in fields.get(host, ()) if options.get(key) is not None}
@@ -98,7 +114,7 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
 
             options["dsh_target"] = resolve_dsh_target(options.get("profile"), options.get("dsh_command"))
         installer = installers()[host](**native_options(host, **options))
-        fields = {"kimi-code": ("runtime", "cwd", "session_id"), "zcode": ("runtime_data_dir", "prepare")}
+        fields = {"kimi-code": ("runtime", "cwd", "session_id", "mcp"), "zcode": ("runtime_data_dir", "prepare")}
         checks = installer.verify(**{key: options[key] for key in fields.get(host, ()) if options.get(key) is not None})
     except Exception as error:  # Each target must produce a result even when native configuration is malformed.
         return {"verification": Diagnostic(DiagnosticStatus.FAILED, str(error))}

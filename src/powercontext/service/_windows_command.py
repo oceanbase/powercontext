@@ -18,19 +18,31 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Sequence
+from pathlib import Path
+
+from powercontext.service.native_command import run_native_command
 
 
 def run_windows_command(command: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
     """Run icacls, whoami, or schtasks with isolated console settings and strict decoding."""
     # A hidden console uses the system OEM code page rather than inheriting a
     # caller's chcp setting. Python's UTF-8 mode must not select the decoder.
-    result = subprocess.run(  # noqa: S603
-        command,
-        capture_output=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        timeout=timeout,
-        check=False,
+    mutation = (
+        bool(command)
+        and Path(command[0]).name.casefold() in {"schtasks", "schtasks.exe"}
+        and len(command) > 1
+        and command[1].casefold() in {"/create", "/change", "/run", "/end", "/delete"}
     )
+    if mutation:
+        result = run_native_command(command, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=timeout)
+    else:
+        result = subprocess.run(  # noqa: S603
+            command,
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=timeout,
+            check=False,
+        )
     try:
         # Decode in this thread: Windows subprocess reader-thread exceptions
         # otherwise leave stdout/stderr as None instead of reaching the caller.

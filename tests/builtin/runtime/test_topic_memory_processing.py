@@ -202,8 +202,8 @@ class _FenceRevokingTopicRepository(TopicMemoryRepository):
         super().__init__(artifacts=delegate.artifacts, index=delegate.index)
         self._leases = leases
 
-    async def publish_create(self, connection, scope_id, artifact_id, draft, projection, /):
-        published = await super().publish_create(connection, scope_id, artifact_id, draft, projection)
+    async def publish_creates(self, connection, scope_id, items, /, *, known_sources=()):
+        published = await super().publish_creates(connection, scope_id, items, known_sources=known_sources)
         await self._leases.start_single_process_term(connection, "replacement-holder")
         return published
 
@@ -1087,6 +1087,9 @@ def test_history_selection_applies_threshold_floor_cap_and_stable_exact_binding(
                 async def get_exact(self, _connection, _scope_id, ref):
                     return stored[ref.artifact_id]
 
+                async def get_exact_many(self, connection, scope_id, refs):
+                    return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
+
             processor = TopicMemoryProcessor(
                 database=profile.database,
                 sources=sources,
@@ -1175,6 +1178,9 @@ def test_global_structural_ambiguity_falls_back_to_lightweight_planner(
 
                 async def get_exact(self, _connection, _scope_id, _ref):
                     return published
+
+                async def get_exact_many(self, connection, scope_id, refs):
+                    return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
 
             global_proposals = tuple(
                 TopicMemoryProposal(
@@ -1588,6 +1594,9 @@ def test_related_coordination_fails_closed_for_candidate_union_above_stage_contr
             async def get_exact(self, _connection, _scope_id, ref):
                 return published[ref.artifact_id]
 
+            async def get_exact_many(self, connection, scope_id, refs):
+                return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
+
         try:
             stages = _stages(probe=TopicMemoryProbeOutput(), global_output=TopicMemoryGlobalOutput())
             processor = TopicMemoryProcessor(
@@ -1672,6 +1681,9 @@ def test_related_coordination_fails_closed_and_keeps_cursor_when_history_exceeds
 
                 async def get_exact(self, _connection, _scope_id, _ref):
                     return published
+
+                async def get_exact_many(self, connection, scope_id, refs):
+                    return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
 
             class UnexpectedPublisher:
                 async def publish(self, *_args, **_kwargs):
@@ -1763,6 +1775,9 @@ async def _union_over_stage_contract_setup(*, retrying: bool = False):
 
         async def get_exact(self, _connection, _scope_id, ref):
             return published[ref.artifact_id]
+
+        async def get_exact_many(self, connection, scope_id, refs):
+            return tuple([await self.get_exact(connection, scope_id, ref) for ref in refs])
 
     leases = ArtifactProcessingLeaseRepository()
     async with profile.database.transaction() as connection:
@@ -2326,7 +2341,8 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
     asyncio.run(scenario())
 
 
-def test_oversized_source_temporary_fragments_publish_atomically_with_original_lineage() -> None:
+@pytest.mark.parametrize("invalid_final", [False, True])
+def test_oversized_source_temporary_fragments_publish_atomically_with_original_lineage(invalid_final) -> None:
     class Planner:
         async def generate(self, value: TopicMemoryPlannerInput, /):
             return GenerationResult(
@@ -2364,11 +2380,12 @@ def test_oversized_source_temporary_fragments_publish_atomically_with_original_l
                 TopicMemoryProbeOutput(probes=(TopicMemoryProbe(query="segmented", evidence_ids=("evidence-0001",)),))
             )
             temporary = TemporaryGenerator(proposal)
+            evolver = _RepeatingGenerator(TopicMemoryEvolveOutput(proposal=proposal))
             stages = TopicMemoryStageSet(
                 probe=probe,
                 planner=Planner(),
                 temporary=temporary,
-                evolver=_RepeatingGenerator(TopicMemoryEvolveOutput(proposal=proposal)),
+                evolver=evolver,
                 global_evolver=_QueueGenerator(),
                 reconciler=_QueueGenerator(),
                 estimator=character_token_estimator(),
@@ -2393,6 +2410,28 @@ def test_oversized_source_temporary_fragments_publish_atomically_with_original_l
             temporary.fail_tail = False
             temporary.inputs.clear()
             probe.inputs.clear()
+            if invalid_final:
+                evolver.output = TopicMemoryEvolveOutput(
+                    proposal=TopicMemoryProposal(
+                        content=TopicMemoryContent(
+                            title="T-19",
+                            summary="S-19 coordinated without merging historical identities.",
+                            detail="D-19 coordinated detail preserving distinct historical identity.",
+                        ),
+                        evidence_ids=("evidence-0001",),
+                    )
+                )
+                with pytest.raises(TopicMemoryGenerationError, match="invalid_topic_placeholder"):
+                    await processor.process(assignment)
+                async with profile.database.transaction() as connection:
+                    assert await topics.browse_current(connection, "scope-a", limit=10) == ()
+                    assert (
+                        await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                        is None
+                    )
+                evolver.output = TopicMemoryEvolveOutput(proposal=proposal)
+                temporary.inputs.clear()
+                probe.inputs.clear()
             assert (await processor.process(assignment)).outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
             for inputs, stage in ((probe.inputs, "probe"), (temporary.inputs, "temporary")):
                 assert len(inputs) > 1

@@ -28,6 +28,15 @@ powercontext doctor codex
 未提供新地址时，setup 复用保存的地址。文件与进程中声明的地址冲突时，仍需显式选择：使用 `--server-url`，
 并在重新执行前统一或清除运行时地址覆盖。`--source` 指定插件代码来源，不指定 Server 地址。
 
+在 Windows 上，安装与诊断会使用 PATH 中解析出的 Codex 可执行入口，包括 npm 的 `.cmd` 启动脚本。
+当前目录中的启动脚本不会优先于 PATH：解析直接枚举 PATH 目录；PATH 中显式写入的 `.` 条目与空条目仍按其位置与语义生效。
+`PATH` 为空字符串时完全不搜索，未设置时回退到系统标准搜索根；两种行为均与 `shutil.which` 一致。
+对于 `.cmd` / `.bat` 入口，PowerContext 会在启动该条命令前拒绝可执行路径或命令参数中的 shell 元字符
+（`& | < > ( ) ^ % ! "`）及 ASCII 控制字符，支持空格和 Unicode。这可避免批处理解释静默改写来源或 ref；
+请使用原生可执行文件，或不含这些字符的启动脚本路径及参数。该限制不作用于原生可执行文件或其他平台。
+不支持的 source/ref 参数会在注册 marketplace 前被拒绝；如果后续命令因返回的 marketplace 名称而被拒绝，
+注册步骤可能已经完成，安装不会因此自动回滚。
+
 ### 首次会话 Hook 信任
 
 配置完成后开启新的 Codex 会话。发送第一条消息前，通过 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。
@@ -103,8 +112,8 @@ Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于�
 
 ## 选择启用 Session 启动上下文
 
-启动上下文默认关闭。若要在 Codex 的 `startup`、`resume`、`clear` 或 `compact` 事件中，于第一条 prompt 前加载一份
-小而确定的上下文包，请用以下环境启动 Codex：
+启动上下文默认关闭。若要在 Codex 的 `startup`、`resume`、`clear`、`compact` 或 `fork` 事件中，于第一条 prompt 前
+加载一份小而确定的上下文包，请用以下环境启动 Codex：
 
 ```bash
 export POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=true
@@ -322,3 +331,7 @@ Hook 默认允许环回 HTTP，远程 HTTP 需要显式同意，HTTPS 证书校�
 Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。未显式指定
 Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。进程级配置必须存在于启动
 Codex 的环境中；Windows setup 会把鉴权写入用户环境，但 Desktop 仍需重启才能继承。
+
+## 自动输入隐私
+
+本宿主的捕获默认值、关闭方式、凭据识别局限及独立只读查询行为见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。识别到凭据的输入会跳过捕获，已接受的 Source 正文和事件身份不被改写。

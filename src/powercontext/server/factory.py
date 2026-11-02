@@ -20,10 +20,12 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
+from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.routing import APIRoute
+from sqlalchemy import select
 from starlette.middleware import Middleware
 
 from powercontext._logging import log_safely
@@ -36,7 +38,9 @@ from powercontext.builtin.artifacts.profile.service import ProfileGenerator
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.inference import EmbeddingModel
+from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.tables import ARTIFACT_FAMILY_SCHEMAS_TABLE
 from powercontext.builtin.records import BaseOperationNotSupportedError
 from powercontext.builtin.runtime import (
     BuiltinRuntime,
@@ -61,31 +65,47 @@ from powercontext.http import (
 from powercontext.paths import default_scheduler_path
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import _bind_evidence_access, access_readiness_checks, create_app
+from powercontext.server.artifact_plugins import (
+    ArtifactPluginManager,
+    read_artifact_declarations,
+    refresh_artifact_access_families,
+)
 from powercontext.server.authentication import (
     AuthenticationProvider,
+    MultiBearerAuthenticationProvider,
     StaticBearerAuthenticationProvider,
 )
 from powercontext.server.authz import (
     AccessAction,
     AccessAuditContext,
     AccessControlService,
+    CandidateOwnerAttestation,
     PrincipalRef,
     ResourceRef,
     access_control_for_mode,
 )
 from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.authz.owner_recovery import (
+    OwnerRecovery,
+    flush_owner_writes,
+    owner_recovery_session,
+    owner_write_access,
+)
+from powercontext.server.authz.profiles import register_custom_artifact_access_family
 from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.server.context import current_principal, current_request_id
 from powercontext.server.cursor_secret import resolve_cursor_secret
 from powercontext.server.dashboard import mount_dashboard
 from powercontext.server.dream_access import DreamAccess
+from powercontext.server.http_limits import HttpResourceLimitsMiddleware
 from powercontext.server.identity import ServerIdentityRepository
 from powercontext.server.info import server_info
-from powercontext.server.logging import WorkerLogging
+from powercontext.server.logging import worker_logging
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.processing_security import build_worker_security
+from powercontext.server.request_id import HttpRequestIdMiddleware
 from powercontext.server.settings import MissingAuthenticationProviderError, ServerSettings
 from powercontext.server.tracing import HttpTracingMiddleware, ServerTracing
 from powercontext.server.worker_tracing import WorkerTracing
@@ -121,7 +141,7 @@ class _MetricsEndpoint:
                 ),
             )
         runtime = request.app.state.application
-        self._metrics.set_processing_families(None if runtime is None else runtime.artifact_processing_supervisor)
+        self._metrics.refresh_runtime(runtime)
         return Response(self._metrics.render(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -157,6 +177,9 @@ def create_server_app(  # noqa: C901
             authentication_provider=authentication_provider,
         )
     )
+    from powercontext.source_management.deployment import prepare as prepare_source_deployment
+
+    configured_authentication, _ = prepare_source_deployment(resolved, configured_authentication)
     config = BuiltinConfig(
         code=resolved.code,
         runtime=resolved.runtime,
@@ -165,7 +188,7 @@ def create_server_app(  # noqa: C901
         inference=resolved.inference,
         external_skills=resolved.external_skills,
     )
-    metrics = ServerMetrics() if resolved.metrics.enabled else None
+    metrics = ServerMetrics(role=resolved.runtime.artifact_processing_role) if resolved.metrics.enabled else None
     resolved_tracing = (
         ServerTracing.context_only(role=resolved.runtime.artifact_processing_role) if tracing is None else tracing
     )
@@ -174,23 +197,42 @@ def create_server_app(  # noqa: C901
     readiness_probe = _ServerReadinessProbe(metrics, tracing=resolved_tracing)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901 - shared Server and plugin resource lifecycle
         _log_lifecycle("server.starting", "PowerContext Server is starting")
         if resolved.allow_insecure_http:
             _log_insecure_remote_http_warning()
         if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
             _log_in_memory_database_warning()
+        from powercontext.builtin.persistence.migrations.server_readiness import prepare_server_storage
+
+        await asyncio.to_thread(
+            prepare_server_storage,
+            resolved,
+            embedding_profile=None if embedding_model is None else embedding_model.profile,
+        )
         configured_cursor_secret = (
             None if resolved.cursor_signing_secret is None else resolved.cursor_signing_secret.get_secret_value()
         )
         cursor_secret = resolve_cursor_secret(config.database, configured_cursor_secret)
         async with AsyncExitStack() as resources:
+            logging_bootstrap = resources.enter_context(
+                worker_logging(resolved.logging, role=resolved.runtime.artifact_processing_role)
+            )
             active_access_control = configured_access_control
             if active_access_control is None and resolved.access.mode == "enforced":
                 active_access_control = await resources.enter_async_context(
                     open_builtin_access_control(
                         resolved.database,
                         bootstrap_administrators=(static_principal,) if legacy_static_admin else (),
+                        server_administrators=(
+                            tuple(
+                                principal
+                                for principal in configured_authentication.principals()
+                                if f"{principal.type}:{principal.id}" in resolved.auth.administrators
+                            )
+                            if isinstance(configured_authentication, MultiBearerAuthenticationProvider)
+                            else ()
+                        ),
                         deployment_id=resolved.access.deployment_id,
                     )
                 )
@@ -240,7 +282,7 @@ def create_server_app(  # noqa: C901
                     scheduled_source_runner=scheduled_source_runner,
                     scheduled_experience_runner=scheduled_experience_runner,
                     worker_security=worker_security,
-                    worker_initializer=WorkerLogging(resolved.logging),
+                    worker_initializer=logging_bootstrap,
                     worker_entrypoint_wrapper=WorkerTracing(resolved.tracing).wrap,
                     scheduled_profile_runner=_scheduled_profile_runner(
                         resolved,
@@ -256,10 +298,48 @@ def create_server_app(  # noqa: C901
                     ),
                 )
             )
+            if (
+                active_access_control is not None
+                and runtime.owner_write_database is not None
+                and not active_access_control.supports_write_transaction(runtime.owner_write_database.engine)
+            ):
+                recovery = OwnerRecovery(runtime.owner_write_database, active_access_control)
+                await recovery.initialize()
+                app.state.owner_recovery = recovery
+                await resources.enter_async_context(recovery.monitor())
             identity_repository = ServerIdentityRepository(runtime.primary_database)
             await identity_repository.initialize()
             server_id = await identity_repository.load_or_create()
+            records = await _restore_artifact_access_profiles(runtime)
+            app.state.artifact_access_refresher = partial(refresh_artifact_access_families, records.database)
             _bind_evidence_access(runtime, active_access_control, resolved.access.mode)
+            if (
+                config.runtime.artifact_processing_supervisor_mode == "global"
+                and config.runtime.artifact_processing_role != "api"
+            ):
+
+                def bind_plugin_supervisor(supervisors) -> None:
+                    runtime.artifact_processing_supervisor = supervisors
+
+                app.state.artifact_plugin_manager = await resources.enter_async_context(
+                    ArtifactPluginManager(
+                        records.database,
+                        config.database,
+                        runtime.artifact_processing_supervisor,
+                        lambda: build_worker_security(
+                            resolved,
+                            active_access_control,
+                            legacy_static_principal=static_principal if legacy_static_admin else None,
+                            enabled=True,
+                            injected=configured_access_control is not None,
+                        ),
+                        on_supervisor=bind_plugin_supervisor,
+                        plugins_dir=resolved.artifact_plugins_dir,
+                        embedding_model=runtime._topic_memory_embedding_model,
+                        inference_config=config.inference,
+                        runtime_config=config.runtime,
+                    )
+                )
             if active_access_control is not None:
                 migrated, unresolved = await runtime._records().migrate_handoff_receipts(
                     active_access_control.committed_receipt_identity,
@@ -270,6 +350,9 @@ def create_server_app(  # noqa: C901
                 )
                 await _remove_legacy_topic_owners(active_access_control)
             readiness_probe.bind(runtime)
+            gateway = await _source_gateway(runtime, resolved)
+            await resources.enter_async_context(gateway)
+            app.state.source_gateway = gateway
             app.state.application = runtime
             app.state.dashboard_runtime = runtime
             app.state.access_control = active_access_control
@@ -287,22 +370,36 @@ def create_server_app(  # noqa: C901
                     }
                 )
 
+            app.state.artifact_declaration_provider = partial(read_artifact_declarations, records.database)
             app.state.capabilities = capabilities
             app.state.capability_provider = current_capabilities
             app.state.server_info = server_info(server_id)
             await readiness_probe()
+            deployment_task = None
+            if resolved.source_plugins_dir is not None or resolved.source_management.autostart:
+                from powercontext.source_management.deployment import DeploymentCoordinator
+
+                deployment_task = asyncio.create_task(DeploymentCoordinator(resolved).startup())
             if metrics is not None:
                 await resources.enter_async_context(readiness_probe.monitor())
             try:
                 yield
             finally:
+                if deployment_task is not None:
+                    deployment_task.cancel()
+                    await asyncio.gather(deployment_task, return_exceptions=True)
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
+                app.state.artifact_plugin_manager = None
+                app.state.artifact_declaration_provider = None
+                app.state.artifact_access_refresher = None
                 app.state.application = None
+                app.state.source_gateway = None
                 app.state.dashboard_runtime = None
                 app.state.capability_provider = None
                 app.state.access_control = configured_access_control
                 app.state.authentication_provider = configured_authentication
+                app.state.owner_recovery = None
                 app.state.server_info = None
                 app.state.capabilities = Capabilities(
                     source_types=[],
@@ -340,6 +437,14 @@ def create_server_app(  # noqa: C901
         authentication_provider=configured_authentication,
         allow_insecure_remote_http=resolved.allow_insecure_http,
     )
+    # Admission must see the outward send; only non-buffering instrumentation
+    # wraps it so early rejections retain the same correlation and observations.
+    app.add_middleware(
+        HttpResourceLimitsMiddleware,
+        max_request_body_bytes=resolved.http.max_request_body_bytes,
+        max_concurrent_requests=resolved.http.max_concurrent_requests,
+    )
+    app.add_middleware(HttpRequestIdMiddleware)
     if metrics is not None:
         app.add_api_route(
             "/metrics",
@@ -377,6 +482,30 @@ def create_server_app(  # noqa: C901
     return app
 
 
+async def _restore_artifact_access_profiles(runtime: BuiltinRuntime) -> RelationalRecordService:
+    """Restore retained family access even when this process runs no plugin manager."""
+    records = runtime._records()
+    if not isinstance(records, RelationalRecordService):
+        raise TypeError("Artifact plugins require relational record storage")  # noqa: TRY003
+    async with records.database.transaction() as connection:
+        families = (await connection.execute(select(ARTIFACT_FAMILY_SCHEMAS_TABLE.c.family).distinct())).scalars().all()
+    for family in families:
+        register_custom_artifact_access_family(family)
+    return records
+
+
+async def _source_gateway(runtime: BuiltinRuntime, settings: ServerSettings):
+    from powercontext.source_management.gateway import SourceGateway
+    from powercontext.source_management.write import SourceWritePlugins
+
+    records = runtime._records()
+    write_plugins = None
+    if isinstance(records, RelationalRecordService):
+        write_plugins = SourceWritePlugins(records.database, settings.workspace)
+        await write_plugins.restore()
+    return SourceGateway(settings, write_plugins)
+
+
 def _state_access_checks(app: FastAPI) -> Callable[[], Awaitable[Mapping[str, str]]]:
     async def checks() -> dict[str, str]:
         return await access_readiness_checks(app.state)
@@ -401,6 +530,9 @@ def _resolve_security_providers(
         return static_principal, None, None, False
     if authentication_provider is not None:
         return static_principal, authentication_provider, access_control, False
+    if settings.auth.identities_file is not None:
+        authentication = MultiBearerAuthenticationProvider(settings.auth.identities_file)
+        return static_principal, authentication, access_control, False
     if settings.auth.token is None:
         raise MissingAuthenticationProviderError
     authentication = StaticBearerAuthenticationProvider(
@@ -455,16 +587,51 @@ def _scheduled_access_runners(
         context = AccessAuditContext(transport="background", operation="incubate_experience_candidates")
         await access.bootstrap_static_scope(principal, scope_id, context=context)
         await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id), context=context)
-        result = await runtime.experience.for_scope(scope_id).incubate()
-        for candidate_id in result.candidate_ids:
-            await access.attest_candidate_owner(
-                scope_id=scope_id,
-                candidate_id=candidate_id,
-                family="experience",
-                proposed_owner=principal,
-                target=None,
-                idempotency_key=f"background-candidate-owner:{scope_id}:{candidate_id}",
+
+        async def on_commit(connection, candidates):
+            bound = owner_write_access(access, connection)
+            await bound.attest_candidate_owners(
+                tuple(
+                    CandidateOwnerAttestation(
+                        scope_id=scope_id,
+                        candidate_id=candidate.candidate_id,
+                        family="experience",
+                        proposed_owner=principal,
+                        target=None
+                        if candidate.target is None
+                        else ResourceRef.artifact(
+                            scope_id,
+                            family=candidate.target.family,
+                            artifact_id=candidate.target.artifact_id,
+                        ),
+                        idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+                    )
+                    for candidate in candidates
+                )
             )
+
+        if runtime.owner_write_database is not None:
+            recovery = (
+                None
+                if access.supports_write_transaction(runtime.owner_write_database.engine)
+                else OwnerRecovery(runtime.owner_write_database, access)
+            )
+            async with owner_recovery_session(recovery):
+                return await runtime.experience.for_scope(scope_id).incubate(on_commit=on_commit)
+        result = await runtime.experience.for_scope(scope_id).incubate()
+        await access.attest_candidate_owners(
+            tuple(
+                CandidateOwnerAttestation(
+                    scope_id=scope_id,
+                    candidate_id=candidate_id,
+                    family="experience",
+                    proposed_owner=principal,
+                    target=None,
+                    idempotency_key=f"background-candidate-owner:{scope_id}:{candidate_id}",
+                )
+                for candidate_id in result.candidate_ids
+            )
+        )
         return result
 
     return (
@@ -491,8 +658,8 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                 await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
 
         async def on_commit(connection, artifact, candidate):
-            bound = access.with_connection(connection)
-            if artifact is not None and await bound.artifact_owner(resource) is None:
+            bound = owner_write_access(access, connection)
+            if artifact is not None and await access.for_read(connection).artifact_owner(resource) is None:
                 await bound.establish_artifact_owner(
                     resource,
                     principal,
@@ -509,9 +676,20 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                     idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
                 )
 
-        return await profiles.flush(
-            scope_id, high_watermark=high, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+        recovery = (
+            None
+            if access.supports_write_transaction(profiles.database.engine)
+            else OwnerRecovery(profiles.database, access)
         )
+        async with owner_recovery_session(recovery):
+            result = await profiles.flush(
+                scope_id, high_watermark=high, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+            )
+            await flush_owner_writes(
+                artifact=resource,
+                candidate=None if result.candidate_id is None else (scope_id, result.candidate_id),
+            )
+            return result
 
     return run
 
@@ -708,13 +886,14 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
 
 
 __all__ = [
+    "create_background_metrics_app",
     "create_server_app",
 ]
 
 
 def create_background_metrics_app(
     settings: ServerSettings,
-    runtime: BuiltinRuntime,
+    runtime: BuiltinRuntime | None,
     metrics: ServerMetrics,
     access_control: AccessControlService | None,
 ) -> FastAPI:
@@ -726,10 +905,12 @@ def create_background_metrics_app(
     app = create_app(
         infrastructure_only=True,
         middleware=middleware,
+        metrics=metrics,
         access_control=access,
         access_mode=settings.access.mode,
         authentication_provider=authentication,
     )
     app.state.application = runtime
-    app.add_api_route("/metrics", _MetricsEndpoint(metrics), include_in_schema=False)
+    if settings.metrics.enabled:
+        app.add_api_route("/metrics", _MetricsEndpoint(metrics), include_in_schema=False)
     return app

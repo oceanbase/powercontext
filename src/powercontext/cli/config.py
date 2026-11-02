@@ -173,6 +173,8 @@ _BASE_ENVIRONMENT: dict[str, str] = {
     "POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE": "coding",
     "POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS": "30",
     "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS": "2",
+    "POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING": "disabled",
+    "POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS": "60",
     "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION": "unit",
     "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE": "10",
     "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS": "30",
@@ -272,7 +274,10 @@ def configure_agents(
         typer.Option("--workspace-scope", help="Kimi Code: resolve workspace bindings, then the Server default Scope."),
     ] = False,
     boundary_flush: Annotated[bool | None, typer.Option("--boundary-flush/--no-boundary-flush")] = None,
-    profile: Annotated[str | None, typer.Option(help="DSH profile; defaults to the saved profile or web.")] = None,
+    profile: Annotated[
+        str | None,
+        typer.Option(help="DSH profile or Kimi MCP profile: minimal, recommended, full; omission preserves it."),
+    ] = None,
     dsh_command: Annotated[Path | None, typer.Option(help="DSH launcher path.")] = None,
     env_file: Annotated[Path | None, typer.Option(help="Setup environment file; defaults to .env.")] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
@@ -305,6 +310,7 @@ def configure_agents(
             scope_id=scope_id,
             workspace_scope=workspace_scope or None,
             boundary_flush=boundary_flush,
+            profile=profile,
         )
         if host == "dsh":
             options["dsh_target"] = resolve_dsh_target(

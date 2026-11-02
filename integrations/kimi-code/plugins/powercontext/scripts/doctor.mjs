@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-import { Failure, loadSettings, request, resolveScope } from '../shared/runtime.mjs'
+import { Failure, loadSettings, profileTools, request, resolveScope } from '../shared/runtime.mjs'
+import { discoverTools } from '../shared/mcp.mjs'
 import { parseArgs } from 'node:util'
 import { queryObservations } from '../shared/observations.mjs'
 
 const { values } = parseArgs({ options: { cwd: { type: 'string' }, 'session-id': { type: 'string' },
-  runtime: { type: 'boolean', default: false } } })
+  runtime: { type: 'boolean', default: false }, mcp: { type: 'boolean', default: false } } })
 const input = { cwd: values.cwd ?? process.cwd(), session_id: values['session-id'] }
 const checks = {}
 let settings
@@ -44,6 +45,10 @@ if (settings) {
     checks.scope = { status: 'ok', detail: 'Current Scope is accessible.',
       checks: { scope_id: scopeId, selection: settings.scopeId ? 'explicit' : 'workspace_or_default' } }
   } catch (error) { checks.scope = result(error) }
+  if (values.mcp) {
+    try { checks.mcp_discovery = await discoverTools(settings, profileTools(settings.profile)) }
+    catch (error) { checks.mcp_discovery = result(error) }
+  }
 }
 let runtime
 if (values.runtime) {

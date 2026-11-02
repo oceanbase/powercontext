@@ -246,10 +246,15 @@ async def _seed(config: DatabaseConfig, extra=None, *, embedding_model: Embeddin
     return internal_bytes
 
 
-async def _migrate(config: DatabaseConfig, decisions=None):
+async def _migrate(config: DatabaseConfig, decisions=None, owner_decisions=None, *, require_owners: bool = False):
     async with migration_profile(config) as profile:
         return await apply_atomic_memory_migration(
-            profile.database, migration_index(config), maintenance_confirmed=True, decisions=decisions
+            profile.database,
+            migration_index(config),
+            maintenance_confirmed=True,
+            decisions=decisions,
+            owner_decisions=owner_decisions,
+            require_owners=require_owners,
         )
 
 

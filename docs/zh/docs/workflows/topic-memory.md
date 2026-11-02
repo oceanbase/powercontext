@@ -14,6 +14,34 @@ Topic Memory 只属于当前 Scope。Source 被采集后不会同步生成主题
 它适合回答“关于 Aurora 部署，我们在几次对话中形成了什么决定”这类需要串起多次输入的问题。Topic Memory 属于历史
 证据，不会覆盖当前 Prompt、实时项目状态、授权边界或 Agent 的其他指令。
 
+## 生成内容准入
+
+Source 必须包含值得长期保留的信息，才能支持新增 Topic 或 revision。“检查 dashboard”之类的模糊请求并不代表已有结果。
+没有持久信息补充或纠正时，处理可以不发布 Topic，并正常推进 Source 游标。
+
+Worker 在二次检索前和协调后检查正文，拒绝可识别的编号占位模板，以及仅描述内部身份协调的内容。
+检查组合字段，不禁止某个标识符：真实的 `T-19` 协议或引用 `candidate-0001` 的排查内容仍可使用。
+普通身份保留规则无需与证据逐字匹配。模板识别还要求有限模板词汇中的生成段落标签或所提供的内部 ID，协调措辞本身不构成拒绝依据。
+常见句末标点、成对强调符号、包裹整个字段的行内代码及引用块不会使编号模板免于检查。
+引用支持先检查原始字段，再允许移除这些外层展示格式，不删除标点，也不拼接证据字段。
+工作项、协调组件及临时 proposal 等已知阶段 ID 在压缩和协调后仍保留给准入检查。
+对于模板原文引用，概要与详情可以分别匹配不同的所引用 Source 或所选准确历史记录。
+标题无需特定关键词，未引用 Source 与未选历史记录不能提供引用支持；纯编号占位正文仍会被拒绝。
+这些保守规则无法验证任意陈述的真实性，也不保证所有生成内容的语义质量。
+
+任一 proposal 被拒绝时，整个 Window 均不发布，原 Head、检索投影和游标保持不变。
+Worker 记录 `invalid_topic_placeholder` 或 `invalid_topic_coordination_content`，并可在现有尝试次数和模型预算内重试。
+耗尽预算后保留 Source 和待处理前沿，等待运维修复。重复 flush 或重启不会补充预算。内容拒绝不等于成功 NOOP。
+
+准入适用于自动生成，包括自定义 Prompt。通用 Artifact 接口的直接写入仍使用结构校验。
+已有 revision 不会被自动扫描、删除或重写；恢复有用内容前，应先检查准确的历史 revision，再通过通用替换接口追加 revision。
+
+自定义示例仅使用显式证据正文和所选历史 Topic 为模板引用提供支持，中间 proposal 只携带引用，不充当 Source 证据。
+`reduce`、`reconcile` 或缺少足够显式证据及所选历史的 `evolve` 示例，即使重复中间输入中的模板文字，也会被拒绝。
+请使用具体的解释性正文，或在阶段输入允许时提供支持证据；普通业务内容仍可通过。
+已保存的自定义 Prompt 在解析使用时会再次检查，不受支持的示例以 `prompt_definition_incompatible` 失败。
+示例 JSON 和阶段 schema 保持不变。
+
 ## 与其他上下文能力的区别
 
 | 能力 | 保存内容 | 典型用途 |
@@ -85,6 +113,44 @@ Content-Type: application/json
 响应只包含 `status`。Source capture、主题生成和索引更新由部署配置的 worker 异步完成；没有配置生成模型或后台
 处理能力时，flush 不会凭空产生主题。向量或混合检索是否可用也是部署选项，不由调用方在请求中指定。
 
+## 查询并恢复阻塞的处理
+
+处理额度耗尽后，同一 Scope 后续的 Source 会保留待处理。Supervisor 停止为该 frontier 启动 Worker，仅定期检查
+metadata，其他 Scope 可继续处理。普通 flush 和重启不会增加额度。
+
+具有 `scope.read` 权限时，可以查询当前 Cursor、Source head、target 和阻塞记录：
+
+```bash
+powercontext --json topic-memory status --scope-id "$SCOPE_ID"
+```
+
+状态为 `idle`、`pending` 或 `blocked`。阻塞记录包含准确的 `block_id`、已尝试范围、保留的 target、尝试/请求/token
+计数、终止原因 `error_code`、最后错误类别 `last_error_code` 和 UTC 时间 `blocked_at`。仍在执行的第三次尝试可能
+成功，因此显示为 pending。旧预算的 `blocked_at` 表示首次观察到阻塞的时间，无法追溯的最后错误类别为 null。
+`source_through` 表示准确选择终点，未知时为 null；`budget_source_through` 独立保留累计额度覆盖，导入的历史阻塞
+已经没有原预算时也可能为 null。`legacy_source_through` 保留旧 attempts 表中无法证明含义的范围原值，新阻塞中为
+null。成功和被取代尝试不形成保留历史；阻塞快照和已接受回执永久可查询，不自动过期。
+
+已有数据库须先执行显式的 [Topic 恢复迁移](../operate/database-migrations.md#topic-memory-恢复-bundle)。普通启动在业务
+写入前检查格式，不执行迁移。
+
+修复失败原因后，将返回的阻塞 ID 填入 `BLOCK_ID`。Scope 管理员可显式申请一次新的有限额度，并请求后台处理：
+
+```bash
+powercontext --json topic-memory retry --scope-id "$SCOPE_ID" --block-id "$BLOCK_ID"
+powercontext --json topic-memory block --scope-id "$SCOPE_ID" --block-id "$BLOCK_ID"
+```
+
+retry 需要 `scope.admin` 权限，查询还需要该角色未包含的 `scope.read` 权限。`accepted` 表示请求已提交，不保证生成成功。
+重复提交同一个 ID 只返回原接受结果，即使后台处理已关闭也如此，
+不会重置后续尝试；尚未重试且已不再对应当前 frontier 的记录返回 HTTP 409。Cursor、target 和 Source 均保留，
+恢复后仍可读取原阻塞记录和重试时间。普通 flush、重启的额度语义不变；每次明确接受的 retry 使用相同的三次尝试
+和 provider 上限。
+
+Python Client SDK 对应方法为 `get_topic_memory_processing_status`、`get_topic_memory_processing_block` 和
+`retry_topic_memory_processing`。HTTP 路径分别为 `POST /v1/topic-memory/processing/status`、
+`POST /v1/topic-memory/processing/blocks/get` 和 `POST /v1/topic-memory/processing/retry`。这些管理操作不作为 MCP 工具提供。
+
 ## 搜索当前主题
 
 搜索需要 `scope.read` 权限，输入 `scope_id`、非空 `query`，可选 `limit`（范围 1–20，默认 10）：
@@ -102,6 +168,17 @@ Content-Type: application/json
 
 需要完整 Artifact 结果、显式文本/向量/混合模式、准入、评分阈值或通道原分时，使用[检索 Artifact](search-artifacts.md)。
 Topic 的融合参数见[融合算法与参数](search-fusion.md)。专用入口保留原来的摘要响应和 `0`–`100` 评分。
+
+显式向量或混合检索在空 Scope 中也使用配置的 query embedding provider；模型错误及回退行为由请求模式决定。
+SQLite 对标题/摘要和详情两个向量通道计算精确最近主题。先检查有界的精确邻居前缀；
+取得足够的合格不同 Topic 或已穷尽时即返回，否则用一次完整精确查询替换前缀。
+最坏延迟会随资格范围内的 chunk 数增长。距离完全相等时，
+边界 Topic 的入选和等距最佳 chunk 的选择不保证遵循全局身份或 ordinal 顺序；这可能改变融合候选和得分，
+最终融合得分并列时的排序规则仍然适用。
+seekdb/OceanBase 的标题/摘要使用近似检索；详情按各 Topic 当前 chunk 的最小距离排序，
+再截取候选和读取正文。该路径扫描资格范围内的 chunk，不保证固定时延；标题通道仍是 ANN，
+需要测量实际部署的融合召回率与尾时延。启动保留已有 detail HNSW，新库不创建 detail 图。
+详情查询不使用该图；旧库中的已有图仍产生数据库维护成本。
 
 ## 读取精确详情
 

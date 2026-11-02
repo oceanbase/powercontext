@@ -75,6 +75,58 @@ from powercontext_eval_longmemeval_v2.smoke import prepare_smoke_run
 app = typer.Typer(no_args_is_help=True, help="Pinned LongMemEval-V2 evaluation.")
 
 
+@app.command("lineage-fixture")
+def lineage_fixture(
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+    runtime_revision: Annotated[str, typer.Option("--runtime-revision")],
+    backend: Annotated[str, typer.Option("--backend")] = "sqlite",
+    dependency_state: Annotated[str, typer.Option("--dependency-state")] = "unknown",
+    oceanbase_url_env: Annotated[str, typer.Option("--oceanbase-url-env")] = "POWERCONTEXT_TEST_OCEANBASE_URL",
+) -> None:
+    """Measure lineage/occupancy on disposable native-backend fixtures, without models."""
+    import asyncio
+
+    from powercontext_eval_longmemeval_v2.lineage import LineageEvaluationError
+    from powercontext_eval_longmemeval_v2.lineage_run import run_lineage_fixture
+
+    try:
+        result = asyncio.run(
+            run_lineage_fixture(
+                output_dir=output_dir,
+                backend=backend,
+                runtime_revision=runtime_revision,
+                dependency_state=dependency_state,
+                oceanbase_url_env=oceanbase_url_env,
+            )
+        )
+    except LineageEvaluationError as error:
+        typer.echo(f"Lineage evaluation refused: {error}", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo(
+        json.dumps({"report": str(result.report_path), "manifest": str(result.manifest_path)}, ensure_ascii=False)
+    )
+
+
+@app.command("lineage-compare")
+def lineage_compare(
+    baseline: Annotated[Path, typer.Option("--baseline")],
+    alternative: Annotated[Path, typer.Option("--alternative")],
+) -> None:
+    """Validate two pinned fixture manifests before interpreting an arm comparison."""
+    from powercontext_eval_longmemeval_v2.lineage import LineageEvaluationError, ensure_comparable_lineage_runs
+
+    try:
+        first = json.loads(baseline.read_text(encoding="utf-8"))
+        second = json.loads(alternative.read_text(encoding="utf-8"))
+        if not isinstance(first, dict) or not isinstance(second, dict):
+            raise LineageEvaluationError("manifest must be a JSON object")
+        ensure_comparable_lineage_runs(first, second)
+    except (OSError, ValueError, LineageEvaluationError):
+        typer.echo("Lineage comparison refused: invalid or incompatible manifests", err=True)
+        raise typer.Exit(code=1) from None
+    typer.echo("Comparable: only the declared evaluation arm differs.")
+
+
 def _parse_price_policy_option(value: str | None, *, label: str) -> ModelPricePolicy | None:
     """Parse an explicitly passed JSON price policy, or keep costs unconfigured as null."""
 

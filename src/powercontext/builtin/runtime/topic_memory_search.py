@@ -22,16 +22,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from powercontext._logging import log_safely
-from powercontext.artifacts import ArtifactRef
 from powercontext.artifacts.search import ArtifactSearchContractError, ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.memory import MemoryQueryEmbedding
 from powercontext.builtin.artifacts.search import AdmissionFloor, analyze_text
 from powercontext.builtin.artifacts.topic_memory import (
     MAX_TOPIC_MEMORY_QUERY_TERMS,
-    PublishedTopicMemory,
     TopicArtifactSearchRequest,
     TopicMemoryCapabilities,
-    TopicMemoryCurrentItem,
     TopicMemorySearchResult,
 )
 from powercontext.builtin.artifacts.topic_memory.search import TopicSearchPlan, plan_topic_search, topic_search_error
@@ -43,7 +40,6 @@ from powercontext.builtin.inference import (
     InvalidInferenceOutputError,
 )
 from powercontext.builtin.inference.protocols import embed_query
-from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +49,7 @@ class TopicMemorySearcher:
 
     The calling Runtime facade owns scoped operation and model usage accounting.
     Public execution forwards the Family request to the composed backend. Legacy
-    execution preserves its existing callback keywords and complete-read cost.
+    execution preserves its existing callback keywords.
     """
 
     family = "topic-memory"
@@ -63,15 +59,11 @@ class TopicMemorySearcher:
         self,
         *,
         search: Callable[..., Awaitable[TopicMemorySearchResult]],
-        get: Callable[[str, ArtifactRef], Awaitable[PublishedTopicMemory]] | None = None,
-        browse: Callable[..., Awaitable[tuple[TopicMemoryCurrentItem, ...]]] | None = None,
         embedding_model: EmbeddingModel | None = None,
         observer: Callable[[str, bool], None] | None = None,
         capabilities: TopicMemoryCapabilities | None = None,
     ) -> None:
         self._search = search
-        self._get = get
-        self._browse = browse
         self._embedding = embedding_model
         self._observer = observer
         self._capabilities = capabilities
@@ -114,22 +106,9 @@ class TopicMemorySearcher:
             embedding_model=embedding,
             execution_context=execution_context,
         )
-        if result.artifacts is None:
-            if self._get is None:
-                raise ArtifactSearchContractError(
-                    self.family, "public Topic search did not materialize exact Artifacts"
-                )
-            if len(result.matches) != len(result.hits):
-                raise ArtifactSearchContractError(self.family, "public Topic hits and matches must have the same count")
-            artifacts = []
-            for match in result.matches:
-                try:
-                    publication = await self._get(scope_id, match.artifact_ref)
-                except RepositoryNotFoundError as error:
-                    raise ArtifactSearchContractError(self.family, "selected exact Artifact is missing") from error
-                artifacts.append(publication.topic)
-            result = result.model_copy(update={"artifacts": tuple(artifacts)})
-        self._observe(result, fallback)
+        if len(result.matches) != len(result.hits) or len(result.artifacts) != len(result.matches):
+            raise ArtifactSearchContractError(self.family, "public Topic search requires complete exact Artifacts")
+        self._observe(result, fallback is not None)
         return result
 
     async def search_legacy(
@@ -156,7 +135,7 @@ class TopicMemorySearcher:
             embedding_model=self._embedding,
             execution_context=execution_context,
         )
-        self._observe(result, fallback)
+        self._observe(result, fallback is not None)
         return result
 
     async def _execute(
@@ -173,8 +152,16 @@ class TopicMemorySearcher:
         artifact_request: TopicArtifactSearchRequest | None = None,
         plan: TopicSearchPlan | None = None,
         execution_context: ArtifactSearchExecutionContext | None = None,
-    ) -> tuple[TopicMemorySearchResult, bool]:
-        embedding = embedding_model if allow_embedding and (plan is None or plan.mode != "fts") else None
+    ) -> tuple[TopicMemorySearchResult, str | None]:
+        embedding = embedding_model if plan is None or plan.mode != "fts" else None
+        reusable = (
+            embedding is not None
+            and query_embedding is not None
+            and query_embedding.embedding_profile == embedding.profile
+        )
+        # Disallowing embedding stops new provider requests; a matching cached vector needs none.
+        if not allow_embedding and not reusable:
+            embedding = None
         keywords: dict[str, Any] = {"limit": limit}
         if admission is not None:
             keywords["admission"] = admission
@@ -182,20 +169,11 @@ class TopicMemorySearcher:
             keywords["artifact_request"] = artifact_request
         if execution_context is not None:
             keywords["execution_context"] = execution_context
-        if (
-            embedding is not None
-            and self._browse is not None
-            and (execution_context is None or (execution_context.access is None and execution_context.trusted_local))
-            and not await self._browse(scope_id, limit=1, after=None)
-        ):
-            if artifact_request is not None and plan is not None and not plan.fallback_allowed:
-                return TopicMemorySearchResult(mode=plan.mode, artifacts=()), False
-            embedding = None
         if embedding is None:
             result = await self._search(scope_id, query, mode="fts", **keywords)
-            return result.model_copy(update={"embedding_calls": 0}), False
+            return result.model_copy(update={"embedding_calls": 0}), None
         mode = "hybrid" if plan is None else plan.mode
-        if query_embedding is not None and query_embedding.embedding_profile == embedding.profile:
+        if query_embedding is not None and reusable:
             result = await self._search(
                 scope_id,
                 query,
@@ -204,16 +182,23 @@ class TopicMemorySearcher:
                 embedding_profile=query_embedding.embedding_profile,
                 **keywords,
             )
-            return result.model_copy(update={"query_embedding": query_embedding, "embedding_calls": 0}), False
-        embedded = await self._embed_for_search(
+            return result.model_copy(update={"query_embedding": query_embedding, "embedding_calls": 0}), None
+        started = asyncio.get_running_loop().time()
+        embedded, fallback = await self._embed_for_search(
             embedding,
             query,
             timeout_seconds=embedding_timeout_seconds,
             allow_fallback=plan is None or plan.fallback_allowed,
         )
+        waited = asyncio.get_running_loop().time() - started
         if embedded is None:
             result = await self._search(scope_id, query, mode="fts", **keywords)
-            return result.model_copy(update={"embedding_calls": 1}), True
+            return (
+                result.model_copy(
+                    update={"embedding_calls": 1, "embedding_fallback": fallback, "embedding_wait_seconds": waited}
+                ),
+                fallback,
+            )
         result = await self._search(
             scope_id,
             query,
@@ -228,8 +213,9 @@ class TopicMemorySearcher:
                     query_vector=tuple(embedded.vectors[0]), embedding_profile=embedding.profile
                 ),
                 "embedding_calls": 1,
+                "embedding_wait_seconds": waited,
             }
-        ), False
+        ), None
 
     async def _embed_for_search(
         self,
@@ -238,7 +224,7 @@ class TopicMemorySearcher:
         *,
         timeout_seconds: float | None,
         allow_fallback: bool,
-    ) -> EmbeddingResult | None:
+    ) -> tuple[EmbeddingResult | None, str | None]:
         try:
             async with asyncio.timeout(timeout_seconds):
                 embedded = await embed_query(embedding, (query,))
@@ -250,11 +236,24 @@ class TopicMemorySearcher:
                     raise InferenceUnavailableError("embed", "embedding request timed out") from None
                 raise
             self._log_fallback(error)
-            return None
-        return embedded
+            return None, self._fallback_reason(error)
+        return embedded, None
 
     @staticmethod
-    def _log_fallback(error: Exception) -> None:
+    def _fallback_reason(error: Exception) -> str:
+        """Why an abandoned embedding gave way to FTS.
+
+        The same value is the ``topic_memory.search.embedding_fallback`` ``error_code`` and, when a
+        preparation asks for a Receipt, its search ``fallback_reason``. RFC 1435 spells this vocabulary
+        ``inference_*`` because the failure belongs to the inference provider, not to the channel it
+        was going to feed.
+        """
+
+        return (
+            "inference_timeout" if isinstance(error, (InferenceTimeoutError, TimeoutError)) else "inference_unavailable"
+        )
+
+    def _log_fallback(self, error: Exception) -> None:
         log_safely(
             logger,
             logging.WARNING,
@@ -263,9 +262,9 @@ class TopicMemorySearcher:
                 "event": "topic_memory.search.embedding_fallback",
                 "outcome": "fallback",
                 "mode": "fts",
-                "error_code": "inference_timeout"
-                if isinstance(error, (InferenceTimeoutError, TimeoutError))
-                else "inference_unavailable",
+                # Derived from the public reason so the event and the response cannot disagree
+                # about why the vector channel was lost.
+                "error_code": self._fallback_reason(error),
                 "unit": "topic-memory",
             },
         )

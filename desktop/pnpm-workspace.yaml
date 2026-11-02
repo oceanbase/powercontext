@@ -13,4 +13,5 @@
 # limitations under the License.
 
 allowBuilds:
+  '@openapitools/openapi-generator-cli': true
   sharp: true

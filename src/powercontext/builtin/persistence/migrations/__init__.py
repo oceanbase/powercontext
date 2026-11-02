@@ -12,10 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Versioned, explicitly invoked migrations; never startup backfills.
+"""Versioned, explicitly invoked migrations.
 
-Bundles explicitly describe the objects they own. The experimental fixture bundle
-is an isolated four-table prototype, not a migration for a deployed PowerContext DB.
+Nothing in this package runs during startup and nothing here is a startup backfill. Startup
+convergence is a separate mechanism owned by the Runtime: it applies additive schema adjustments
+and repairs search projections before serving. Bundles here describe the objects they own and are
+executed only through ``powercontext server db-migrate``.
+
+The experimental fixture bundle is an isolated four-table prototype, not a migration for a
+deployed PowerContext DB.
 """
 
 from .bundle import MigrationBundle

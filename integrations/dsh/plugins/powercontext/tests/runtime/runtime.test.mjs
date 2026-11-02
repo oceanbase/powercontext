@@ -21,7 +21,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 import { test } from 'node:test'
-import { environment, injected, CANARY, NATIVE_ERROR_CANARY } from './fixture.mjs'
+import { environment, injected, CANARY, CANARY_DESCRIPTION, NATIVE_ERROR_CANARY } from './fixture.mjs'
 import { installIntoHome } from './setup-fixture.mjs'
 import { registerSkill } from '../../src/skill.ts'
 import { MCP_OPERATIONS } from '../../src/mcp-operations.generated.ts'
@@ -79,6 +79,8 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     assert.ok(env.calls.some(call => call.path === '/v1/memory/flush' && call.status === 200), JSON.stringify(env.calls))
     const memory = await env.api('/v1/memory/entries/list', { scope_id: env.scopeId })
     assert.ok(JSON.stringify(memory).includes(CANARY))
+    const manifest = await env.api('/v1/recall/manifest', { scope_id: env.scopeId })
+    assert.deepEqual(manifest.items.map(item => item.description), [CANARY_DESCRIPTION])
     const diagnosedAt = env.calls.length
     const firstStatus = await status(first.sessionId)
     assert.equal(firstStatus.freshness, 'current')
@@ -142,6 +144,42 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     assert.deepEqual(persisted?.data, message)
   } finally { await env.close() }
 })
+
+test('real DSH correlates native PowerContext calls with the injected snapshot without retaining content',
+  { timeout: 120000 }, async () => {
+    const env = await environment()
+    try {
+      await env.api('/v1/memory/remember', { scope_id: env.scopeId, kind: 'decision', text: CANARY })
+      const { instance, contextTraces } = env.harness({}, { contextObserver: true })
+      const prompt = 'RUN_PC_SEARCH: What is the aurora deployment color?'
+      const run = await instance.run(prompt)
+      assert.ok(run.finalResponse)
+      const snapshot = run.events.find(event => event.type === 'user/message'
+        && event.data?.source?.sections?.some(section => section.name === 'PowerContext'))
+      const toolCall = run.events.find(event => event.type === 'tool/call'
+        && event.data.name === 'mcp__powercontext__search_memory')
+      const toolResult = run.events.find(event => event.type === 'tool/result'
+        && event.data.message?.source?.callId === toolCall?.data.callId)
+      assert.ok(snapshot)
+      assert.ok(toolCall)
+      assert.ok(toolResult)
+      assert.deepEqual(contextTraces(), [{
+        schema: 'powercontext.dsh.context-observation.v1',
+        session_id_hash: createHash('sha256').update(run.sessionId).digest('hex'),
+        turn_id: toolCall.data.turn,
+        step_id: toolCall.data.step,
+        call_id: toolCall.data.callId,
+        tool: toolCall.data.name,
+        snapshot_injection: { event_seq: snapshot.seq },
+        tool_call: { event_seq: toolCall.seq },
+        tool_result: { event_seq: toolResult.seq, is_error: false },
+      }])
+      const serialized = JSON.stringify(contextTraces())
+      for (const privateValue of [run.sessionId, env.scopeId, CANARY, prompt]) {
+        assert.ok(!serialized.includes(privateValue))
+      }
+    } finally { await env.close() }
+  })
 
 test('real DSH rejects secret native writes including nested work, candidate and Handoff content before approval or MCP dispatch', { timeout: 120000 }, async () => {
   const env = await environment()

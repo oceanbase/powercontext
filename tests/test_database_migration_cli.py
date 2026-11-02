@@ -19,6 +19,7 @@ import json
 import os
 import socket
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -29,10 +30,11 @@ from typer.testing import CliRunner
 
 from powercontext.builtin.persistence.migrations.connections import BackendIdentity, MaintenanceConnections
 from powercontext.builtin.persistence.migrations.deployment import production_bundle
-from powercontext.builtin.persistence.migrations.models import MigrationResult
+from powercontext.builtin.persistence.migrations.models import MigrationError, MigrationResult
 from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.persistence.topic_memory_recovery_schema import recovery_statements
 from powercontext.cli.app import create_cli
 from powercontext.server import database_migration
 from powercontext.server.cli import app
@@ -47,14 +49,14 @@ def _configure(
     database = tmp_path / "database" / "server.db"
     environment = tmp_path / "deployment.env"
     environment.write_text(
-        f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database}\n",
+        f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database.as_posix()}\n",
         encoding="utf-8",
     )
     if existing:
         database.parent.mkdir(parents=True)
         bundle = production_bundle()
         schema = json.loads((bundle.snapshot_directory / "schemas/pre_dream.json").read_text())
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             for statement in schema["sqlite"]:
                 connection.execute(statement)
     if complete:
@@ -70,7 +72,7 @@ def _configure(
 def _invoke(command: list[str], action: str, tmp_path: Path, *options: str, prompt_input: str | None = None):
     return CliRunner().invoke(
         create_cli([app]),
-        [*command, action, "--env-file", str(tmp_path / "deployment.env"), *options],
+        [*command, action, "--bundle", "artifacts", "--env-file", str(tmp_path / "deployment.env"), *options],
         input=prompt_input,
     )
 
@@ -109,6 +111,42 @@ def _record_pending_run(path: Path, token: str) -> None:
     )
 
 
+def test_registered_topic_bundle_uses_the_same_plan_apply_verify_entry_point(tmp_path, monkeypatch):
+    database, command = _configure(tmp_path, monkeypatch)
+    database.parent.mkdir(parents=True)
+    with sqlite3.connect(database) as connection:
+        connection.execute(recovery_statements("budget_v0", "sqlite")[0])
+        connection.execute(
+            "INSERT INTO pc_topic_memory_work_budgets VALUES ('scope','topic-memory-source-window',0,2,'old',3,9,1000,'')"
+        )
+    options = ["--bundle", "topic-memory-recovery"]
+    planned = _invoke(command, "plan", tmp_path, *options)
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["state"] == "migration_required" and plan["server_ready"] is False
+    applied = _invoke(
+        command,
+        "apply",
+        tmp_path,
+        *options,
+        "--backup",
+        "auto",
+        "--plan-id",
+        plan["plan_id"],
+        "--yes",
+        "--maintenance-confirmed",
+    )
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output)["backup_state"] == "completed"
+    verified = _invoke(command, "verify", tmp_path, *options)
+    assert verified.exit_code == 0, verified.output
+    assert json.loads(verified.output)["state"] == "ready"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT attempts,requests,tokens,attempt_source_through FROM pc_topic_memory_work_budgets"
+        ).fetchone() == (3, 9, 1000, None)
+
+
 def test_read_only_commands_never_create_missing_target(tmp_path, monkeypatch):
     database, command = _configure(tmp_path, monkeypatch)
     for action in ("status", "plan", "verify"):
@@ -121,6 +159,41 @@ def test_read_only_commands_never_create_missing_target(tmp_path, monkeypatch):
             assert result.exit_code == 0, result.output
             assert payload["state"] == "uninitialized"
         assert not database.parent.exists()
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        """POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES='["memory"]'""",
+        "POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_SUPERVISOR_MODE=dedicated",
+    ],
+)
+def test_processing_ownership_changes_invalidate_an_accepted_migration_plan(tmp_path, monkeypatch, declaration):
+    database, command = _configure(tmp_path, monkeypatch)
+    original = _invoke(command, "plan", tmp_path)
+    assert original.exit_code == 0, original.output
+    reviewed = json.loads(original.output)
+    environment = tmp_path / "deployment.env"
+    environment.write_text(environment.read_text(encoding="utf-8") + declaration + "\n", encoding="utf-8")
+    changed = _invoke(command, "plan", tmp_path)
+    assert changed.exit_code == 0, changed.output
+    current = json.loads(changed.output)
+    assert current["configuration_digest"] != reviewed["configuration_digest"]
+    assert current["plan_id"] != reviewed["plan_id"]
+    rejected = _invoke(
+        command,
+        "apply",
+        tmp_path,
+        "--backup",
+        "auto",
+        "--plan-id",
+        reviewed["plan_id"],
+        "--yes",
+        "--maintenance-confirmed",
+    )
+    assert rejected.exit_code == 1, rejected.output
+    assert json.loads(rejected.output)["error"] == "plan_changed"
+    assert not database.parent.exists()
 
 
 def test_sqlite_url_authority_is_rejected_without_creating_a_local_target(tmp_path, monkeypatch):
@@ -430,10 +503,10 @@ def test_remote_cli_uses_the_configured_maintenance_identity_and_coordination_sc
     tmp_path, monkeypatch, kind: Literal["seekdb", "oceanbase"]
 ):
     _database, command = _configure(tmp_path, monkeypatch)
-    database_name = "test" if kind == "seekdb" else "pc_probe"
+    database_name = "powercontext" if kind == "seekdb" else "pc_probe"
     environment = f"POWERCONTEXT_SERVER_DATABASE_KIND={kind}\n"
     if kind == "seekdb":
-        environment += f"POWERCONTEXT_SERVER_DATABASE_PATH={tmp_path / 'seekdb'}\n"
+        environment += f"POWERCONTEXT_SERVER_DATABASE_PATH={(tmp_path / 'seekdb').as_posix()}\n"
     else:
         environment += (
             "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://operator:secret@database.invalid:2881/pc_probe"
@@ -442,7 +515,7 @@ def test_remote_cli_uses_the_configured_maintenance_identity_and_coordination_sc
     (tmp_path / "deployment.env").write_text(environment, encoding="utf-8")
     identity = BackendIdentity(kind, f"simulated-{kind}-database-identity", database_name)
 
-    def inspect_empty_database(_connections, operation, *, writable=False):
+    def inspect_empty_database(_connections, operation, *, writable=False, **_options):
         assert not writable
         return operation(None, identity, lambda: None)
 
@@ -679,3 +752,25 @@ def test_no_backup_requires_separate_risk_consent_and_policy_is_plan_bound(tmp_p
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["backup_state"] == "skipped"
+
+
+@pytest.mark.parametrize("action", ["status", "plan", "verify"])
+def test_legacy_seekdb_refusal_is_the_documented_blocked_json(tmp_path, monkeypatch, action):
+    _database, command = _configure(tmp_path, monkeypatch)
+
+    class _RefusingRunner:
+        def plan(self, **_options):
+            raise MigrationError("explicit_database_required", "Existing PowerContext tables were found in 'test'")
+
+        def verify(self):
+            raise MigrationError("explicit_database_required", "Existing PowerContext tables were found in 'test'")
+
+    monkeypatch.setattr(database_migration, "deployment_runner", lambda *_args, **_options: _RefusingRunner())
+
+    result = _invoke(command, action, tmp_path)
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["state"] == "blocked"
+    assert payload["error"] == "explicit_database_required"
+    assert "Traceback" not in result.output

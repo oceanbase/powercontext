@@ -129,6 +129,11 @@ candidate_pipeline = LLMMemoryCandidatePipeline(generator)
 generator 使用 Pydantic 序列化 input model，并根据声明的 output type 校验结构化输出。generation 之后仍会执行
 Memory validation，因此 schema 有效的 candidate 不会自动获得持久化资格。
 
+如果某条规则需要结合 input 才能判断，无法写进 output schema，可以传入 `output_check`。这个 callable 接收 input 和
+已通过校验的 output，output 违反规则时抛出 `InvalidInferenceOutputError`。错误的 detail 会作为重试反馈返回给模型，
+这次重试和 schema 错误共用 `max_requests` 预算。预算用完后，`generate()` 抛出最后一次的
+`InvalidInferenceOutputError`。detail 会发送给 provider，所以只写规则本身，不要包含 input 内容。
+
 ## 直接组合 embedding
 
 ```python

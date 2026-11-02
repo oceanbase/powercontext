@@ -14,5 +14,4 @@
 
 [toolchain]
 channel = "1.95.0"
-targets = ["x86_64-pc-windows-msvc"]
 components = ["rustfmt", "clippy"]

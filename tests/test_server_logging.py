@@ -14,10 +14,12 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +28,193 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter
 from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings
+
+
+@pytest.mark.parametrize("compression", ["none", "gzip"])
+@pytest.mark.parametrize("log_format", ["console", "json"])
+def test_file_logging_rotates_and_limits_readable_archives(tmp_path: Path, compression: str, log_format: str) -> None:
+    script = """
+import logging
+import sys
+from pathlib import Path
+from powercontext.server.logging import configure_server_logging, shutdown_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+
+config = ServerLoggingConfig(
+    file=True, directory=Path(sys.argv[1]), format=sys.argv[3],
+    max_bytes=2048, backup_count=2, compression=sys.argv[2],
+)
+configure_server_logging(config)
+logger = logging.getLogger("powercontext.file")
+for index in range(100):
+    logger.info("record %s", index, extra={"source_body": lambda: None})
+logger.info("private-message-sentinel", extra={"operation": object()})
+logger.info("final record", extra={"event": "probe.completed", "outcome": "success"})
+shutdown_server_logging()
+configure_server_logging(config)
+logging.getLogger("uvicorn.error").info("reopened record")
+shutdown_server_logging()
+"""
+    directory = tmp_path / "nested" / "logs"
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(directory), compression, log_format],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    archives = sorted(directory.glob("server.log.[0-9]*"))
+    assert len(archives) == 2
+    counts = {"final record": 0, "reopened record": 0}
+    for path in [directory / "server.log", *archives]:
+        assert (path.suffix == ".gz") == (compression == "gzip" and path in archives)
+        open_log = gzip.open if path.suffix == ".gz" else open
+        with open_log(path, "rt", encoding="utf-8") as stream:
+            for line in stream:
+                assert "private-message-sentinel" not in line and "source_body" not in line
+                assert "record 0 " not in line
+                for message in counts:
+                    counts[message] += line.count(message)
+                if log_format == "json":
+                    record = json.loads(line)
+                    if record["message"] == "reopened record":
+                        assert record["logger"] == "uvicorn"
+    assert counts == {"final record": 1, "reopened record": 1}
+    assert result.stderr.splitlines() == ['{"event":"observability.log_failed","outcome":"failure"}']
+    assert result.stdout == ""
+
+
+def test_file_logging_flushes_on_normal_process_exit(tmp_path: Path) -> None:
+    script = """
+import logging
+import sys
+from pathlib import Path
+from powercontext.server.logging import configure_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+configure_server_logging(ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format="json"))
+logging.getLogger("powercontext.file").info("last record")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)], check=True, capture_output=True, text=True, timeout=60
+    )
+    assert result.stderr == ""
+    assert result.stdout == ""
+    assert json.loads((tmp_path / "server.log").read_text(encoding="utf-8"))["message"] == "last record"
+
+
+@pytest.mark.skipif(not Path("/dev/full").exists(), reason="Requires the OS disk-full device")
+def test_full_disk_does_not_dump_records_or_interrupt_processing(tmp_path: Path) -> None:
+    (tmp_path / "server.log").symlink_to("/dev/full")
+    script = """
+import logging
+import sys
+from pathlib import Path
+from powercontext.server.logging import configure_server_logging, shutdown_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+
+configure_server_logging(ServerLoggingConfig(
+    file=True, directory=Path(sys.argv[1]), format="json",
+))
+for index in range(10):
+    logging.getLogger("powercontext.file").info("private-message-sentinel %s", index)
+shutdown_server_logging()
+print("processing continues")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.stdout == "processing continues\n"
+    assert set(result.stderr.splitlines()) == {'{"event":"observability.log_failed","outcome":"failure"}'}
+
+
+def test_file_logging_rejects_a_second_writer_until_the_owner_closes(tmp_path: Path) -> None:
+    script = """
+import logging
+import subprocess
+import sys
+from pathlib import Path
+from powercontext.server.logging import configure_server_logging, shutdown_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+
+child = '''
+import logging
+import sys
+from pathlib import Path
+from powercontext.server.logging import configure_server_logging, shutdown_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+try:
+    configure_server_logging(ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format="json"))
+except ValueError:
+    sys.exit(7)
+logging.getLogger("powercontext.file").info("second writer")
+shutdown_server_logging()
+'''
+configure_server_logging(ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format="json"))
+logging.getLogger("powercontext.file").info("first writer")
+result = subprocess.run([sys.executable, "-c", child, sys.argv[1]], capture_output=True, text=True, timeout=30)
+assert result.returncode == 7
+assert result.stdout == result.stderr == ""
+shutdown_server_logging()
+subprocess.run([sys.executable, "-c", child, sys.argv[1]], check=True, timeout=30)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)], check=True, capture_output=True, text=True, timeout=90
+    )
+    assert result.stdout == result.stderr == ""
+    records = [json.loads(line) for line in (tmp_path / "server.log").read_text(encoding="utf-8").splitlines()]
+    assert [record["message"] for record in records] == ["first writer", "second writer"]
+
+
+def test_file_logging_does_not_start_auxiliary_processes(tmp_path) -> None:
+    script = """
+import logging
+import multiprocessing
+import sys
+from pathlib import Path
+from powercontext.server.logging import configure_server_logging, shutdown_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+
+config = ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format="json")
+configure_server_logging(config)
+assert multiprocessing.active_children() == []
+logging.getLogger("powercontext.file").info("first record")
+shutdown_server_logging()
+configure_server_logging(config)
+logging.getLogger("powercontext.file").info("reopened record")
+shutdown_server_logging()
+assert multiprocessing.active_children() == []
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)], check=True, capture_output=True, text=True, timeout=60
+    )
+    assert result.stdout == "" and result.stderr == ""
+    records = [json.loads(line) for line in (tmp_path / "server.log").read_text(encoding="utf-8").splitlines()]
+    assert [record["message"] for record in records] == ["first record", "reopened record"]
+
+
+def test_logging_file_settings_use_environment_and_user_data_directory(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_LOGGING_FILE", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_LOGGING_DIRECTORY", str(tmp_path / "custom-logs"))
+    assert ServerSettings().logging.directory == tmp_path / "custom-logs"
+    monkeypatch.delenv("POWERCONTEXT_SERVER_LOGGING_DIRECTORY")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_LOGGING_MAX_BYTES", "4096")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_LOGGING_BACKUP_COUNT", "3")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_LOGGING_COMPRESSION", "none")
+    config = ServerSettings().logging
+    assert config.file
+    assert config.directory == tmp_path / "logs"
+    assert config.max_bytes == 4096 and config.backup_count == 3 and config.compression == "none"
+
+
+@pytest.mark.parametrize("values", [{"max_bytes": 0}, {"backup_count": 0}, {"compression": "zip"}])
+def test_logging_rejects_unbounded_rotation_and_unsupported_compression(values) -> None:
+    with pytest.raises(ValueError):
+        ServerLoggingConfig(**values)
 
 
 def test_operational_filter_uses_bound_request_id_without_overwriting_an_explicit_id() -> None:
@@ -54,6 +243,8 @@ def test_operational_filter_uses_bound_request_id_without_overwriting_an_explici
         ("model_unavailable", "dependency"),
         # Docs: inference failures retain their timeout, configuration, or dependency classification.
         ("invalid_model_output", "dependency"),
+        ("invalid_topic_placeholder", "dependency"),
+        ("invalid_topic_coordination_content", "dependency"),
     ],
 )
 def test_inference_failure_codes_keep_their_documented_category(code, category) -> None:
@@ -180,7 +371,35 @@ logging.getLogger("powercontext.server.app").warning(
             assert f" {field}={json.dumps(value)}" in result.stdout
 
 
-def _run_configured_logging_probe(log_format: str, *, processing: bool = False) -> list[str]:
+@pytest.mark.parametrize("log_format", ["json", "console"])
+def test_receipt_correlation_is_visible_without_query_or_content(log_format) -> None:
+    script = f"""
+import logging
+from powercontext.server.logging import configure_server_logging
+from powercontext.server.settings import ServerLoggingConfig
+configure_server_logging(ServerLoggingConfig(format={log_format!r}))
+logging.getLogger("powercontext.builtin.runtime.application").info(
+    "PreparedContext Receipt built",
+    extra={{
+        "event": "context.receipt.built", "operation": "prepare_context", "outcome": "success", "unit": "context",
+        "receipt_id": "00000000-0000-0000-0000-000000000001",
+        "query": "private-query-sentinel", "content": "private-content-sentinel",
+    }},
+)
+"""
+    result = subprocess.run([sys.executable, "-c", script], check=True, capture_output=True, text=True, timeout=120)
+    assert "private-query-sentinel" not in result.stdout + result.stderr
+    assert "private-content-sentinel" not in result.stdout + result.stderr
+    if log_format == "json":
+        payload = json.loads(result.stdout)
+        assert payload["receipt_id"] == "00000000-0000-0000-0000-000000000001"
+        assert payload["operation"] == "prepare_context"
+    else:
+        assert ' receipt_id="00000000-0000-0000-0000-000000000001"' in result.stdout
+        assert ' operation="prepare_context"' in result.stdout
+
+
+def _run_configured_logging_probe(log_format: str, *, processing: bool = False, range_known: bool = True) -> list[str]:
     script = f"""
 import logging
 
@@ -206,6 +425,8 @@ logging.getLogger("powercontext.builtin.runtime.artifact_processing").warning(
     },
 )
 """
+    if not range_known:
+        script = script.replace('"source_through": 1, ', "")
     result = subprocess.run(
         [sys.executable, "-c", script],
         check=True,
@@ -240,8 +461,9 @@ def test_configured_json_logging_uses_uvicorn_display_name() -> None:
 
 
 @pytest.mark.parametrize("log_format", ["console", "json"])
-def test_configured_logging_preserves_processing_diagnostics_without_private_extras(log_format) -> None:
-    lines = _run_configured_logging_probe(log_format, processing=True)
+@pytest.mark.parametrize("range_known", [True, False])
+def test_configured_logging_preserves_processing_diagnostics_without_private_extras(log_format, range_known) -> None:
+    lines = _run_configured_logging_probe(log_format, processing=True, range_known=range_known)
     assert len(lines) == 4
     rendered = lines[-1]
     assert "private source sentinel" not in rendered and "private traceback sentinel" not in rendered
@@ -250,13 +472,18 @@ def test_configured_logging_preserves_processing_diagnostics_without_private_ext
         assert payload["error_code"] == "window_attempt_limit"
         assert payload["stage"] == "topic_memory" and payload["family"] == "topic-memory"
         assert payload["scope"] == "scope-a\nforged log"
-        assert (payload["source_after"], payload["source_through"], payload["attempts"]) == (0, 1, 3)
+        assert (payload["source_after"], payload["attempts"]) == (0, 3)
+        if range_known:
+            assert payload["source_through"] == 1
+        else:
+            assert "source_through" not in payload
         assert (payload["requests"], payload["tokens"], payload["retry_delay_seconds"]) == (9, 1000, 300)
     else:
         assert 'error_code="window_attempt_limit"' in rendered
         assert 'stage="topic_memory"' in rendered and 'family="topic-memory"' in rendered
         assert 'scope="scope-a\\nforged log"' in rendered
-        assert "source_after=0" in rendered and "source_through=1" in rendered and "attempts=3" in rendered
+        assert "source_after=0" in rendered and "attempts=3" in rendered
+        assert ("source_through=1" in rendered) is range_known
 
 
 def test_json_formatter_emits_stable_operational_fields() -> None:

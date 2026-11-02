@@ -85,15 +85,18 @@ def save_receipt(session_id: str | None, scope_id: str, receipt_id: str) -> None
             flags |= os.O_NOFOLLOW
         descriptor = os.open(temporary, flags, 0o600)
         try:
-            with os.fdopen(descriptor, "wb", closefd=False) as output:
-                output.write(payload)
-                output.flush()
-                os.fsync(output.fileno())
+            try:
+                with os.fdopen(descriptor, "wb", closefd=False) as output:
+                    output.write(payload)
+                    output.flush()
+                    os.fsync(output.fileno())
+            finally:
+                # Windows cannot replace the temporary file while its descriptor is open.
+                os.close(descriptor)
             os.replace(temporary, path)
             if os.name != "nt":
                 path.chmod(0o600)
         finally:
-            os.close(descriptor)
             with suppress(FileNotFoundError):
                 temporary.unlink()
 

@@ -17,17 +17,18 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, RootModel
 from sqlalchemy import case, insert, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.evidence.models import content_digest
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
-from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
+from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError, InvalidStoredPayloadError
 from powercontext.builtin.persistence.tables import (
     CANDIDATE_HEADS_TABLE,
     CANDIDATE_VERSIONS_TABLE,
@@ -95,20 +96,48 @@ class CandidateRepository:
             target=target,
             reason=reason,
         )
-        existing = await self._find_head(connection, scope_id, candidate_id)
-        if existing is not None:
-            raise CandidateConflictError(candidate_id, 1, int(existing["version"]))
-        await self._insert_version(connection, scope_id, candidate)
-        await connection.execute(
-            insert(CANDIDATE_HEADS_TABLE).values(
-                scope_id=scope_id,
-                candidate_id=candidate_id,
-                family=family,
-                version=1,
-                status=CandidateStatus.PENDING.value,
-            )
-        )
-        return candidate
+        return (await self.create_many(connection, scope_id, (candidate,)))[0]
+
+    async def create_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        candidates: Sequence[Candidate[Any]],
+        /,
+    ) -> tuple[Candidate[Any], ...]:
+        """Persist independent pending proposals from one operation by table."""
+
+        _require_scope(scope_id)
+        if not candidates:
+            return ()
+        versions = []
+        heads = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            self._require_proposal(candidate.family, candidate.proposal)
+            if candidate.version != 1 or candidate.status is not CandidateStatus.PENDING:
+                raise InvalidCandidateError("candidate", "bulk creation requires pending first versions")
+            if candidate.candidate_id in seen:
+                raise CandidateConflictError(candidate.candidate_id, 1, 1)
+            seen.add(candidate.candidate_id)
+            versions.append(self._version_row(scope_id, candidate))
+            heads.append({
+                "scope_id": scope_id,
+                "candidate_id": candidate.candidate_id,
+                "family": candidate.family,
+                "version": 1,
+                "status": CandidateStatus.PENDING.value,
+            })
+        try:
+            await connection.execute(insert(CANDIDATE_VERSIONS_TABLE), versions)
+            await connection.execute(insert(CANDIDATE_HEADS_TABLE), heads)
+        except IntegrityError:
+            for candidate in candidates:
+                existing = await self._find_head(connection, scope_id, candidate.candidate_id)
+                if existing is not None:
+                    raise CandidateConflictError(candidate.candidate_id, 1, int(existing["version"])) from None
+            raise
+        return tuple(candidates)
 
     async def get(
         self,
@@ -125,7 +154,7 @@ class CandidateRepository:
         row = await self._find_current(connection, scope_id, candidate_id, current=current)
         if row is None:
             raise CandidateNotFoundError(candidate_id)
-        return self._decode_row(row)
+        return self.decode_candidate(row)
 
     async def page(self, connection, scope_id, *, status, family, candidate_kind, cursor, limit, metadata_only=False):
         """Read a stable bounded window; Tag proposals retain their required target basis."""
@@ -170,7 +199,7 @@ class CandidateRepository:
             if row["candidate_kind"] == "tag"
             else CandidateCatalogItem.model_validate(row)
             if metadata_only
-            else self._decode_row(row)
+            else self.decode_candidate(row)
             for row in rows[:limit]
         )
         return items, rows[limit - 1]["candidate_id"] if len(rows) > limit else None
@@ -331,22 +360,24 @@ class CandidateRepository:
         scope_id: str,
         candidate: Candidate[Any],
     ) -> None:
+        await connection.execute(insert(CANDIDATE_VERSIONS_TABLE).values(**self._version_row(scope_id, candidate)))
+
+    @staticmethod
+    def _version_row(scope_id: str, candidate: Candidate[Any]) -> dict[str, Any]:
         target = candidate.target
-        await connection.execute(
-            insert(CANDIDATE_VERSIONS_TABLE).values(
-                scope_id=scope_id,
-                candidate_id=candidate.candidate_id,
-                version=candidate.version,
-                family=candidate.family,
-                proposal=_encode_proposal(candidate),
-                source_refs=dump_model(_SourceRefs(candidate.sources), kind="candidate", name="source-refs"),
-                artifact_refs=dump_model(_ArtifactRefs(candidate.artifacts), kind="candidate", name="artifact-refs"),
-                target_family=None if target is None else target.family,
-                target_artifact_id=None if target is None else target.artifact_id,
-                target_revision=None if target is None else target.revision,
-                reason=candidate.reason,
-            )
-        )
+        return {
+            "scope_id": scope_id,
+            "candidate_id": candidate.candidate_id,
+            "version": candidate.version,
+            "family": candidate.family,
+            "proposal": _encode_proposal(candidate),
+            "source_refs": dump_model(_SourceRefs(candidate.sources), kind="candidate", name="source-refs"),
+            "artifact_refs": dump_model(_ArtifactRefs(candidate.artifacts), kind="candidate", name="artifact-refs"),
+            "target_family": None if target is None else target.family,
+            "target_artifact_id": None if target is None else target.artifact_id,
+            "target_revision": None if target is None else target.revision,
+            "reason": candidate.reason,
+        }
 
     async def _find_head(
         self,
@@ -393,25 +424,23 @@ class CandidateRepository:
             statement = statement.with_for_update()
         return (await connection.execute(statement)).mappings().one_or_none()
 
-    def _decode_row(self, row: Mapping[Any, Any]) -> Candidate[Any]:
+    def decode_candidate(self, row: Mapping[Any, Any], /) -> Candidate[Any]:
+        """Decode and validate the complete stored Candidate using its public read contract."""
+
         family = str(row["family"])
         proposal_type = self._proposal_types.get(family)
         if proposal_type is None:
             raise InvalidCandidateError("family", family)
         target_family = row["target_family"]
         result_family = row["result_family"]
-        proposal_payload, audit = _decode_proposal(row["proposal"])
+        proposal_payload, audit = decode_candidate_proposal_envelope(stored_bytes(row["proposal"], column="proposal"))
+        proposal = load_model(proposal_type, proposal_payload, kind="candidate-proposal", name=family)
         return Candidate(
             candidate_id=str(row["candidate_id"]),
             version=int(row["version"]),
             family=family,
             status=CandidateStatus(str(row["status"])),
-            proposal=load_model(
-                proposal_type,
-                proposal_payload,
-                kind="candidate-proposal",
-                name=family,
-            ),
+            proposal=proposal,
             sources=load_model(
                 _SourceRefs,
                 stored_bytes(row["source_refs"], column="source_refs"),
@@ -478,13 +507,17 @@ def _encode_proposal(candidate: Candidate[Any]) -> bytes:
     ).encode()
 
 
-def _decode_proposal(value: object) -> tuple[bytes, CandidateAudit | None]:
-    payload = stored_bytes(value, column="proposal")
-    decoded = json.loads(payload)
-    if isinstance(decoded, dict) and decoded.get("candidate_payload_version") == 1:
-        return json.dumps(decoded["proposal"], ensure_ascii=False).encode(), CandidateAudit.model_validate(
-            decoded["audit"]
-        )
+def decode_candidate_proposal_envelope(payload: bytes, /) -> tuple[bytes, CandidateAudit | None]:
+    """Unwrap persisted proposal provenance without changing the family-owned payload."""
+
+    try:
+        decoded = json.loads(payload)
+        if isinstance(decoded, dict) and decoded.get("candidate_payload_version") == 1:
+            return json.dumps(decoded["proposal"], ensure_ascii=False).encode(), CandidateAudit.model_validate(
+                decoded["audit"]
+            )
+    except (KeyError, ValueError, TypeError) as error:
+        raise InvalidStoredPayloadError("candidate-proposal", "envelope", "invalid proposal envelope") from error
     return payload, None
 
 
@@ -515,4 +548,4 @@ def _require_scope(scope_id: object) -> None:
         )
 
 
-__all__ = ["CandidateRepository"]
+__all__ = ["CandidateRepository", "decode_candidate_proposal_envelope"]

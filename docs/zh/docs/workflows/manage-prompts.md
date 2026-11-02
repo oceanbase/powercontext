@@ -11,6 +11,11 @@ Prompt 自定义功能位于当前 `master`。它修改一个 Scope 内的操作
 `profile.generate` 用于自定义自动或手动 flush 时的画像生成指令。自定义内容只影响后续处理窗口；
 画像的证据边界、人物归属、敏感属性禁止推断和输出契约仍由服务端固定。
 
+`atomic_memory.reconcile` 用于自定义提取出的 Memory 候选与相关记忆及同一窗口内先前候选的比较方式。
+`atomic_memory.extract` 与 `atomic_memory.reconcile` 都为 Auto 时，没有可比较对象的候选按提取结果保留，不发起
+reconcile 请求；任一 Prompt 为 Custom 时，每个候选都会经过 reconcile。哪些事实值得保留由提取决定。内置 reconcile
+也可能丢弃它认为不值得保留的候选，但只发生在比较过程中；因此窗口内第一个候选在没有相关记忆时不会经过这第二次判断。
+
 ## 编辑与验证
 
 1. 通过 `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` 读取当前配置、内置指令及操作状态。
@@ -66,3 +71,13 @@ Scope 角色被撤销后，拥有 Prompt Artifact 也不能继续修改它。
 
 应用可通过 `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` 读取生效配置，再使用带条件写入的
 [Artifact API](artifacts.md)保存版本。支持的 key、请求结构和示例生成见 [HTTP API](../develop/http-api.md)。
+
+## Topic Memory 内容要求
+
+Topic Memory 内置阶段指令使用 `v2`。Auto 和自定义生成都必须基于所提供材料输出具体业务内容，在更新时保留仍然有效的历史信息，
+并将不透明 ID 限于路由字段。数量为上限，无需凑满。Probe/global 可以返回空结果，evolve 可以返回 `proposal: null`；
+temporary 和 reduction 阶段仍需遵守现有的非空及证据保留契约。
+
+包含可识别占位模板或纯协调说明输出的自定义示例会以 `prompt_definition_incompatible` 被拒绝，
+包括在推理前解析已有自定义 revision 的场景。持久化 Prompt revision 不会被改写。
+自定义 Prompt 不能关闭运行时内容准入。仅提供指令的自定义 Prompt 仍受支持，其生成结果需通过与 Auto 相同的准入检查。

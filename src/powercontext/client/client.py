@@ -212,8 +212,14 @@ from powercontext.http._generated import operations as atomic_operations
 from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
+    GetTopicMemoryProcessingBlockRequest,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
+    RetryTopicMemoryProcessingRequest,
+    RetryTopicMemoryProcessingResponse,
+    TopicMemoryProcessingBlock,
+    TopicMemoryProcessingStatus,
+    TopicMemoryProcessingStatusRequest,
 )
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
@@ -271,6 +277,8 @@ from powercontext.http._generated.operations import (
     GET_SOURCE,
     GET_STATS,
     GET_TOPIC_MEMORY,
+    GET_TOPIC_MEMORY_PROCESSING_BLOCK,
+    GET_TOPIC_MEMORY_PROCESSING_STATUS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ACCESS_AUDIT,
@@ -318,6 +326,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
+    RETRY_TOPIC_MEMORY_PROCESSING,
     REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_ACCESS_BINDING,
@@ -961,12 +970,36 @@ class PowerContextClient:
 
         return await self._request(FLUSH_TOPIC_MEMORY, request)
 
+    async def get_topic_memory_processing_status(
+        self, request: TopicMemoryProcessingStatusRequest
+    ) -> TopicMemoryProcessingStatus:
+        """Inspect a frontier without granting another attempt."""
+        return await self._request(GET_TOPIC_MEMORY_PROCESSING_STATUS, request)
+
+    async def get_topic_memory_processing_block(
+        self, request: GetTopicMemoryProcessingBlockRequest
+    ) -> TopicMemoryProcessingBlock:
+        """Read the exact retained diagnostics, including a prior accepted retry."""
+        return await self._request(GET_TOPIC_MEMORY_PROCESSING_BLOCK, request)
+
+    async def retry_topic_memory_processing(
+        self, request: RetryTopicMemoryProcessingRequest
+    ) -> RetryTopicMemoryProcessingResponse:
+        """Idempotently request one fresh bounded allowance for an observed block."""
+        return await self._request(RETRY_TOPIC_MEMORY_PROCESSING, request)
+
     async def get_atomic_memory_state(self, scope_id: str, artifact_id: str) -> atomic_models.AtomicMemoryStateResponse:
         """Read current state independently of an immutable content revision."""
         return await self._request(
             atomic_operations.GET_ATOMIC_MEMORY_STATE,
             path_parameters={"scope_id": scope_id, "artifact_id": artifact_id},
         )
+
+    async def get_recall_manifest(
+        self, request: atomic_models.RecallManifestRequest
+    ) -> atomic_models.RecallManifestResponse:
+        """Read bounded Atomic Memory metadata before fetching selected exact revisions."""
+        return await self._request(atomic_operations.GET_RECALL_MANIFEST, request)
 
     async def list_atomic_memories(
         self, request: atomic_models.ListAtomicMemoryRequest
@@ -1385,6 +1418,17 @@ def _prepare_request(
             and "assembly" not in request.model_fields_set
         ):
             payload.pop("assembly", None)
+        if (
+            operation is PREPARE_CONTEXT
+            and isinstance(request, PrepareContextRequest)
+            and not payload.get("include_receipt", False)
+        ):
+            # ``PREPARE_CONTEXT`` serializes its defaults because an older Server needs the fields
+            # it already knows about. ``include_receipt`` is not one of them: an older Server
+            # rejects the key with ``422 invalid_request``, so a client upgraded ahead of its
+            # Server must not volunteer a flag whose default means "say nothing extra". ``false``
+            # and absence are the same request.
+            payload.pop("include_receipt", None)
         if operation.request_location == "query":
             request_query.update({key: value for key, value in payload.items() if value is not None})
         else:

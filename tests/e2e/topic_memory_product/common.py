@@ -348,7 +348,7 @@ class FakeInference:
             rendered = json.dumps(payload, sort_keys=True, ensure_ascii=False)
             started = time.monotonic()
             stage = "readiness"
-            if "Identify up to 20 durable topic probes" in rendered:
+            if "TopicMemoryProbeOutput" in rendered:
                 stage = "topic_probe"
                 content = json.dumps({
                     "probes": [
@@ -359,7 +359,7 @@ class FakeInference:
                         }
                     ]
                 })
-            elif "Evolve the whole Window into at most 20 topics" in rendered:
+            elif "TopicMemoryGlobalOutput" in rendered:
                 stage = "topic_global"
                 content = json.dumps({
                     "ambiguous": False,

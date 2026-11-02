@@ -51,11 +51,13 @@ class RelationalHandoffBackend:
         scope_id: str,
         artifacts: ArtifactRepository,
         connection: AsyncConnection | None = None,
+        on_commit=None,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
         self._artifacts = artifacts
         self._bound_connection = connection
+        self._on_commit = on_commit
 
     async def create(self, artifact_id: str, draft: HandoffArtifactDraft, /) -> Handoff:
         async with self._database.connection(self._bound_connection) as connection:
@@ -66,6 +68,8 @@ class RelationalHandoffBackend:
                 draft,
                 allow_working_notes=True,
             )
+            if self._on_commit is not None:
+                await self._on_commit(connection, artifact)
         return cast(Handoff, artifact)
 
     async def revise(self, base: Handoff, draft: HandoffArtifactDraft, /) -> Handoff:
@@ -77,6 +81,8 @@ class RelationalHandoffBackend:
                 draft,
                 allow_working_notes=True,
             )
+            if self._on_commit is not None:
+                await self._on_commit(connection, artifact)
         return cast(Handoff, artifact)
 
     async def get(self, reference: ArtifactRef, /) -> Handoff:

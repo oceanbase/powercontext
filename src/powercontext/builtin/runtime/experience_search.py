@@ -24,11 +24,10 @@ from powercontext.artifacts.search import (
     ArtifactSearchUnsupported,
 )
 from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchOutcome, ExperienceSearchRequest
-from powercontext.builtin.artifacts.search import InvalidSearchScore
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
-from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
+from powercontext.builtin.persistence.experience_index import ExperienceIndex, experience_search_hits
 from powercontext.builtin.sources import validate_scope_id
 
 
@@ -51,31 +50,38 @@ class ExperienceArtifactSearcher:
         *,
         execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> ExperienceSearchOutcome:
-        if isinstance(self._index, NoExperienceIndex):
+        if self.family not in self._index.families:
             raise ArtifactSearchUnsupported(self.family, field="mode")
         scope = validate_scope_id(scope_id)
         async with self._database.transaction(consistent_snapshot=True) as connection:
-            outcome = await self._index.search(
-                connection,
-                scope,
-                request.query,
-                request.limit,
-                admission=request.admission.as_floor(),
-                min_score=request.min_score,
-                require_scores=True,
+            rows = await self._index.search(
+                connection, scope, "experience", request.query, request.limit, admission=request.admission.as_floor()
             )
-            matches: list[ArtifactSearchMatch] = []
-            for hit in outcome.hits:
-                if hit.retrieval_score is None or hit.channel_scores is None or "text" not in hit.channel_scores:
-                    raise InvalidSearchScore("public Experience search requires true text scoring metadata")  # noqa: TRY003
-                matches.append(ArtifactSearchMatch(hit.artifact_ref, hit.retrieval_score, hit.channel_scores))
             try:
-                artifacts = await self._artifacts.get_many(
-                    connection, scope, tuple(hit.artifact_ref for hit in outcome.hits)
+                outcome = experience_search_hits(
+                    rows,
+                    request.query,
+                    request.limit,
+                    scope,
+                    admission=request.admission.as_floor(),
+                    min_score=request.min_score,
+                    require_scores=True,
+                )
+                by_ref = {
+                    (str(row["artifact_id"]), int(row["revision"])): row for row in rows if not row.get("is_rejected")
+                }
+                artifacts = await self._artifacts.decode_many(
+                    connection,
+                    scope,
+                    tuple(by_ref[(hit.artifact_ref.artifact_id, hit.artifact_ref.revision)] for hit in outcome.hits),
                 )
             except RepositoryNotFoundError as error:
                 raise ArtifactSearchContractError(self.family, "selected exact Artifact revision is missing") from error
-            return replace(outcome, matches=tuple(matches), artifacts=cast(tuple[Experience, ...], artifacts))
+            matches = tuple(
+                ArtifactSearchMatch(hit.artifact_ref, cast(float, hit.retrieval_score), hit.channel_scores)
+                for hit in outcome.hits
+            )
+            return replace(outcome, matches=matches, artifacts=cast(tuple[Experience, ...], artifacts))
 
 
 __all__ = ["ExperienceArtifactSearcher"]

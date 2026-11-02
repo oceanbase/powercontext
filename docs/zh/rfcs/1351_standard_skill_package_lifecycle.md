@@ -922,6 +922,10 @@ Receipt 不能覆盖较新的 observed state；如果部署启用审计，可以
 action；重试不会增加 publication generation。只有新的 Dashboard intent 才推进 desired `generation`，后续成功
 Receipt 会清除 `last_error_code` 并替换失败状态。
 
+使用当前 expected generation 重复发布相同的 desired Revision 和 tree digest 不产生变更，保留投递状态、
+观测结果、错误和时间戳。过期的 expected generation 仍返回冲突。取消发布后重新发布或选择不同 Revision
+才会创建新的 generation。
+
 ### Receiver 安装与 Receipt
 
 对于 `install`，Receiver 必须按下列顺序执行：

@@ -22,6 +22,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import SecretStr
 
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.runtime.composition import BuiltinConfigurationError
 from powercontext.builtin.runtime.config import InferenceConfig
@@ -81,28 +82,33 @@ def test_authorization_subclass_is_not_silently_replaced_by_builtin_provider(tmp
     asyncio.run(scenario())
 
 
-def test_server_rejects_injected_authorization_before_registering_actual_background_workers(tmp_path):
+@pytest.mark.parametrize("generation_model", ["test", None])
+def test_server_rejects_injected_authorization_before_registering_actual_background_workers(tmp_path, generation_model):
     async def scenario():
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'server.db'}")
         settings = ServerSettings(
             database=config,
             auth=BearerAuthConfig(token=SecretStr("test-token")),
             access=AccessControlConfig(mode="enforced", background_principal_id="worker"),
-            inference=InferenceConfig(generation_model="test"),
+            inference=InferenceConfig(generation_model=generation_model),
         )
+        runner = deployment_runner(settings)
+        plan = await asyncio.to_thread(runner.plan)
+        result = await asyncio.to_thread(runner.apply, plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+        assert result.state == "ready"
         async with SQLiteProfile.open(config, tables=ACCESS_TABLES) as profile:
             repository = RelationalAccessRepository(profile.database)
             access = AccessControlService(
                 BuiltinAuthorizationProvider(repository), relationships=repository, audit=repository
             )
             app = create_server_app(settings=settings, access_control=access)
-            with pytest.raises(BuiltinConfigurationError, match="reconstructible Authorization Provider"):
+            if generation_model is not None:
+                with pytest.raises(BuiltinConfigurationError, match="reconstructible Authorization Provider"):
+                    async with app.router.lifespan_context(app):
+                        pass
+            else:
                 async with app.router.lifespan_context(app):
-                    pass
-            settings = settings.model_copy(update={"inference": InferenceConfig()})
-            app = create_server_app(settings=settings, access_control=access)
-            async with app.router.lifespan_context(app):
-                assert app.state.application.artifact_processing_supervisor is None
+                    assert app.state.application.artifact_processing_supervisor is None
 
     asyncio.run(scenario())
 
@@ -110,9 +116,10 @@ def test_server_rejects_injected_authorization_before_registering_actual_backgro
 def test_background_cli_preserves_deployment_identity_when_building_the_worker_spec(monkeypatch):
     async def scenario():
         settings = ServerSettings(
+            database=SQLiteConfig(),
             access=AccessControlConfig(
                 mode="enforced", background_principal_id="background-worker", deployment_id="test"
-            )
+            ),
         )
         observed = {}
         stop_callbacks = []

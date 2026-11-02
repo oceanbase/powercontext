@@ -33,6 +33,7 @@ from powercontext.server.authz import (
     AccessAction,
     AccessAuditContext,
     AccessControlService,
+    CandidateOwnerAttestation,
     PrincipalRef,
     ResourceRef,
 )
@@ -108,15 +109,19 @@ class WorkerSecurity:
 
     async def experience_commit(self, connection: AsyncConnection, candidates: Sequence[Any], *, scope_id: str) -> None:
         bound = self.access.with_connection(connection)
-        for candidate in candidates:
-            await bound.attest_candidate_owner(
-                scope_id=scope_id,
-                candidate_id=candidate.candidate_id,
-                family="experience",
-                proposed_owner=self.principal,
-                target=None,
-                idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+        await bound.attest_candidate_owners(
+            tuple(
+                CandidateOwnerAttestation(
+                    scope_id=scope_id,
+                    candidate_id=candidate.candidate_id,
+                    family="experience",
+                    proposed_owner=self.principal,
+                    target=None,
+                    idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+                )
+                for candidate in candidates
             )
+        )
 
     async def authorize_profile(self, scope_id: str, current: Any) -> None:
         if current is not None:

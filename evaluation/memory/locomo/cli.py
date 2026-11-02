@@ -25,6 +25,7 @@ from pathlib import Path
 from powercontext.builtin.artifacts.memory import MemoryRerankMode
 from powercontext.builtin.runtime import MemoryExtractionProfile
 
+from .compare_rerank import compare_rerank_runs
 from .prompts import JudgeProfile
 from .runner import (
     evaluate_dataset,
@@ -73,12 +74,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="maximum memories sent to the answer model; defaults to --top-k",
     )
+    run.add_argument("--answer-max-bytes", type=_positive_int, help="UTF-8 bound for the answer input")
     run.add_argument(
         "--rerank-mode",
-        type=MemoryRerankMode,
-        choices=tuple(MemoryRerankMode),
+        choices=(*MemoryRerankMode, "jev"),
         default=MemoryRerankMode.NONE,
-        help="PowerContext Memory search policy; llm enables the runtime listwise reranker",
+        help="Memory search policy; jev uses dedicated JEV_API_KEY and a pinned JEV_MODEL",
     )
     run.add_argument(
         "--answer-source-content",
@@ -152,7 +153,61 @@ def _parser() -> argparse.ArgumentParser:
         help="do not retry failed judge observations already present in the JSONL checkpoint",
     )
     rejudge.set_defaults(handler=_rejudge)
+    compare = commands.add_parser("compare-rerank", help="compare matched, named reranker runs")
+    compare.add_argument(
+        "--run",
+        action="append",
+        nargs=4,
+        metavar=("NAME", "DIRECTORY", "INPUT_PRICE", "OUTPUT_PRICE"),
+        required=True,
+        help="repeat for each run; rerank prices are USD per million tokens",
+    )
+    compare.add_argument("--baseline", required=True, help="run name used for cost and latency comparison")
+    compare.add_argument("--candidate", required=True, help="run name evaluated against all other runs' quality")
+    compare.add_argument("--generation-input-price", type=float, required=True, help="answer and judge input price")
+    compare.add_argument("--generation-output-price", type=float, required=True, help="answer and judge output price")
+    compare.add_argument(
+        "--retrieval-cost-usd",
+        action="append",
+        nargs=2,
+        metavar=("NAME", "COST"),
+        help="repeat measured retrieval cost in USD for every run when embeddings are used",
+    )
+    compare.add_argument("--output", type=Path, required=True)
+    compare.set_defaults(handler=_compare_rerank)
     return parser
+
+
+def _compare_rerank(arguments: argparse.Namespace) -> int:
+    runs: dict[str, Path] = {}
+    input_prices: dict[str, float] = {}
+    output_prices: dict[str, float] = {}
+    for name, directory, input_price, output_price in arguments.run:
+        if name in runs:
+            raise ValueError(f"duplicate run name: {name}")  # noqa: TRY003
+        runs[name] = Path(directory)
+        input_prices[name] = float(input_price)
+        output_prices[name] = float(output_price)
+    retrieval_costs: dict[str, float] | None = None
+    if arguments.retrieval_cost_usd is not None:
+        retrieval_costs = {}
+        for name, cost in arguments.retrieval_cost_usd:
+            if name in retrieval_costs:
+                raise ValueError(f"duplicate retrieval cost for run: {name}")  # noqa: TRY003
+            retrieval_costs[name] = float(cost)
+    result = compare_rerank_runs(
+        runs,
+        baseline=arguments.baseline,
+        candidate=arguments.candidate,
+        input_prices=input_prices,
+        output_prices=output_prices,
+        generation_input_price=arguments.generation_input_price,
+        generation_output_price=arguments.generation_output_price,
+        retrieval_costs_usd=retrieval_costs,
+    )
+    arguments.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def _inspect(arguments: argparse.Namespace) -> int:
@@ -202,26 +257,27 @@ def _run(arguments: argparse.Namespace) -> int:
         if arguments.output_directory is None
         else arguments.output_directory.resolve()
     )
-    manifest = prepare_run(
-        dataset=dataset,
-        settings=settings,
-        run_id=run_id,
-        output_directory=output_directory,
-        top_k=arguments.top_k,
-        answer_k=arguments.answer_k,
-        rerank_mode=arguments.rerank_mode,
-        answer_source_content=arguments.answer_source_content,
-        answer_inference_aware=arguments.answer_inference_aware,
-        answer_unknown_fallback_inference=arguments.answer_unknown_fallback_inference,
-        judge_profile=arguments.judge_profile,
-        categories=arguments.categories,
-        conversation_limit=arguments.conversation_limit,
-        question_limit=arguments.question_limit,
-        operation_retries=arguments.operation_retries,
-    )
-    print(json.dumps({"run": manifest, "output_directory": str(output_directory)}, ensure_ascii=False, indent=2))
 
     async def scenario() -> None:
+        manifest = await prepare_run(
+            dataset=dataset,
+            settings=settings,
+            run_id=run_id,
+            output_directory=output_directory,
+            top_k=arguments.top_k,
+            answer_k=arguments.answer_k,
+            answer_max_bytes=arguments.answer_max_bytes,
+            rerank_mode=arguments.rerank_mode,
+            answer_source_content=arguments.answer_source_content,
+            answer_inference_aware=arguments.answer_inference_aware,
+            answer_unknown_fallback_inference=arguments.answer_unknown_fallback_inference,
+            judge_profile=arguments.judge_profile,
+            categories=arguments.categories,
+            conversation_limit=arguments.conversation_limit,
+            question_limit=arguments.question_limit,
+            operation_retries=arguments.operation_retries,
+        )
+        print(json.dumps({"run": manifest, "output_directory": str(output_directory)}, ensure_ascii=False, indent=2))
         if not arguments.skip_ingestion:
             result = await ingest_dataset(
                 dataset,
@@ -241,6 +297,7 @@ def _run(arguments: argparse.Namespace) -> int:
                 output_directory=output_directory,
                 top_k=arguments.top_k,
                 answer_k=arguments.answer_k,
+                answer_max_bytes=arguments.answer_max_bytes,
                 rerank_mode=arguments.rerank_mode,
                 answer_source_content=arguments.answer_source_content,
                 answer_inference_aware=arguments.answer_inference_aware,

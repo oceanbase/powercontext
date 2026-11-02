@@ -49,7 +49,18 @@ export function loadSettings({ credentials = true } = {}) {
   if (!(value.scope_id === null || isScopeId(value.scope_id)) ||
       typeof value.capture_prompts !== 'boolean' || typeof value.use_token !== 'boolean') throw new Failure('invalid_settings')
   return { serverUrl: url.origin, scopeId: value.scope_id, capturePrompts: value.capture_prompts,
-    useToken: value.use_token, authorization: credentials ? authorization(value.use_token) : undefined }
+    profile: value.profile ?? 'minimal', useToken: value.use_token,
+    authorization: credentials ? authorization(value.use_token) : undefined }
+}
+
+export function profileTools(profile) {
+  try {
+    const value = JSON.parse(readFileSync(fileURLToPath(new URL('../profiles.json', import.meta.url)), 'utf8'))
+    const tools = Object.hasOwn(value.profiles, profile) ? value.profiles[profile] : undefined
+    if (value.schema !== 'powercontext.kimi-code.profiles.v1' || !Array.isArray(tools) || !tools.length ||
+        tools.some(tool => typeof tool !== 'string' || !tool) || new Set(tools).size !== tools.length) throw new Error()
+    return tools
+  } catch { throw new Failure('invalid_settings') }
 }
 
 export function authorization(useToken) {

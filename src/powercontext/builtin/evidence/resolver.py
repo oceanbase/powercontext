@@ -415,7 +415,12 @@ class EvidenceResolver:
 
     async def _read_atomic(self, connection, ref, artifact, *, locked, history_owner):
         current = await self.artifacts.latest(
-            connection, self.scope_id, "atomic-memory", ref.artifact_id, for_update=locked
+            connection,
+            self.scope_id,
+            "atomic-memory",
+            ref.artifact_id,
+            for_update=locked,
+            known=None if locked else artifact,
         )
         state = await AtomicMemoryStateRepository().get(connection, self.scope_id, ref.artifact_id, for_update=locked)
         if state.state is not AtomicMemoryStateValue.ACTIVE:

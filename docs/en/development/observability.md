@@ -9,6 +9,9 @@ Before adding a log, metric, or span, identify the question it answers and the b
 Use the [operational field contract](../docs/operate/observability.md) for names, units, outcomes, error categories,
 and correlation semantics. [RFC 0046](../rfcs/0046_observability_foundations.md) defines privacy and signal ownership.
 
+For the Desktop host's process-local measurements and native safe export, use the separate
+[Desktop session observation contract](desktop-session-observations.md). It does not configure Server logging or tracing.
+
 ## Add an operational event
 
 Use a module logger and `powercontext._logging.log_safely`. Keep the message fixed and put approved diagnostic values
@@ -74,6 +77,9 @@ JSON formatting deliberately ignores unknown extras. When a new field is require
 4. Update the operational field contract in both locales and add a focused observable-output regression test.
    Review compatibility before renaming or removing published fields or event names.
 
+See [Processing failure diagnostics](processing-failures.md) for the shared failure vocabulary and the
+per-Family coverage matrix.
+
 Service identity comes from `src/powercontext/server/telemetry.py`; logs and traces use the same resource identity.
 Error classification comes from `powercontext._logging.error_category`, with domain-owned categories such as `blocked`
 set at their owning boundary. Do not create independent vocabularies in each adapter.
@@ -85,14 +91,11 @@ full database URLs, or sensitive filesystem paths. An allowed field still requir
 a redaction engine. Do not interpolate those values into the message or include them in a raw provider exception.
 Use `exc_info` only after reviewing the error's values and attached context for sensitive data.
 
-The Server configures handlers and format. It injects the picklable `WorkerLogging` bootstrap into automatically
-composed spawn workers through `worker_initializer`. Custom bindings own their launcher initialization.
-Importing or running the Runtime as an SDK must not configure global logging. Keep Runtime observations independent
-of Server settings, Prometheus, and OTel implementation types.
+The Server configures handlers and format. It supplies `worker_initializer` for automatically composed spawn workers; file output prepares a picklable `WorkerLogging` bootstrap for each launch. Custom bindings own their launcher initialization. Importing or running the Runtime as an SDK must not configure global logging. Keep Runtime observations independent of Server settings, Prometheus, and OTel implementation types.
 
-Operational logs are best-effort. The Server handler isolates filter/formatter/write failures and emits one
-content-free failure notification per handler. Do not use logs or sampled traces as a durable audit, billing,
-or commit ledger. Request/trace/scope/source/worker identities do not belong in metric labels.
+Operational logs are best-effort. The Server handler isolates filter/formatter/write failures and emits one content-free failure notification per handler. File output uses `RotatingFileHandler` for rotation and retention, with `namer`/`rotator` and `gzip` for compression. The `worker_logging` context reuses the configured Server receiver or owns a worker-only sink for an embedded Server; it must outlive Runtime worker cleanup. Workers apply the field allowlist, identity binding, and formatting before sending. Only rendered UTF-8 output crosses the process boundary; the receiver must not rebind parent identity or serialize original extras. Before each spawn, the bootstrap's `prepare()` context creates a dedicated socketpair and yields the picklable child initializer. The launcher closes its sending end after spawn succeeds or cancellation cleanup completes; the receiver keeps reading until EOF. JSON-line envelopes preserve multiline console output. Malformed or incomplete records retire only their stream and are never echoed. Send waits are bounded. The receiver multiplexes streams into a bounded in-process queue feeding the native handlers. A full queue drops the record and reports a content-free failure. The Server stops Runtime and tracing before draining streams and calling the public `QueueListener.stop()` to finish queued output. The drain deadline bounds Worker-channel cleanup; file writes, compression, and close follow the native logging lifecycle without a separate deadline. Confirmed receiver discards increase the process-local drop counter independently of the once-only notification; clean EOF/reset does not. Logging starts no Manager or other helper process.
+
+Do not use logs or sampled traces as a durable audit, billing, or commit ledger. Request/trace/scope/source/worker identities do not belong in metric labels.
 
 ## Verify the behavior
 
@@ -136,10 +139,16 @@ These checks exercise real spawn, OTLP/HTTP, a local model fixture, Pydantic AI 
 surface. They prove local reception, not storage/query acceptance by an external backend.
 
 The background CLI listener lifecycle requires a disposable OceanBase instance and
-`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`. The `E2E harness` workflow's `atomic-memory-clean-oceanbase` job runs
-`tests/e2e/test_background_metrics.py` through the clean migration acceptance runner, which rejects skipped tests.
-The test initializes its fresh database before starting the real background CLI, then checks listener startup,
-authorized metrics, absence of business routes and clean SIGTERM shutdown. The listener startup budget excludes
-first-run schema and index creation. CI retains `background-metrics/background.log` with the migration reports;
-startup failures include the child return code and a bounded log tail. Backend acceptance requires this step to pass.
-Without the backend setting, default test runs skip that lifecycle test.
+`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`. The `E2E harness` workflow's
+`atomic-memory-clean-oceanbase-shards` matrix runs
+`tests/e2e/test_background_metrics.py` through the clean migration acceptance runner
+on three runners, and rejects skipped tests. The legacy-named
+`atomic-memory-clean-oceanbase` job only downloads the three shard artifacts and
+checks their complete, exactly-once coverage. The test initializes its fresh database
+before starting the real background CLI, then checks listener startup, authorized
+metrics, absence of business routes and clean SIGTERM shutdown. The listener startup
+budget excludes first-run schema and index creation. CI retains
+`background-metrics/background.log` in the shard artifact; this group has one node,
+so the log is in shard `0`. Startup failures include the child return code and a
+bounded log tail. Backend acceptance requires this step to pass. Without the backend
+setting, default test runs skip that lifecycle test.

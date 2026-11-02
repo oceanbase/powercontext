@@ -6,10 +6,11 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
+        exclude: ^deploy/helm/powercontext/templates/
       - id: check-json
         exclude: ^.devcontainer/devcontainer.json
       - id: pretty-format-json
-        exclude: ^(?:\.devcontainer/devcontainer\.json|evaluation/memory/locomo/dataset/locomo10\.json)$
+        exclude: ^(?:\.devcontainer/devcontainer\.json|evaluation/memory/atomic_extraction/cases/atomic-extraction-v1\.json|evaluation/memory/locomo/dataset/locomo10\.json)$
         args: [--autofix, --no-sort-keys, --no-ensure-ascii]
       - id: end-of-file-fixer
         exclude: ^evaluation/memory/locomo/dataset/locomo10\.json$

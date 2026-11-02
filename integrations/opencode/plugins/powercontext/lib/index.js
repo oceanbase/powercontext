@@ -452,6 +452,28 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	prepare_bootstrap_context: {
+		method: "POST",
+		path: "/v1/context/bootstrap",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	record_bootstrap_delivery: {
+		method: "POST",
+		path: "/v1/context/bootstrap/receipts",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	create_work_contract: {
 		method: "POST",
 		path: "/v1/work/contracts/create",
@@ -579,6 +601,39 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "none",
 		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory_processing_status: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/status",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory_processing_block: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/blocks/get",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	retry_topic_memory_processing: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/retry",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1177,6 +1232,36 @@ const OPERATIONS = {
 			"limit",
 			"cursor"
 		],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	resolve_artifact_handle: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifact-handles/{family}/{key}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"key"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	bind_artifact_handle: {
+		method: "PUT",
+		path: "/v1/scopes/{scope_id}/artifact-handles/{family}/{key}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"key"
+		],
+		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
@@ -1879,15 +1964,18 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 //#region src/secrets.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
-	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?key|client[_ -]?secret|secret(?:[_ -]?key)?|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
+	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
 	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
 	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
-function scrubSecrets(text) {
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
 	return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, "[REDACTED]"), text);
 }
-function containsSecret(text) {
-	return scrubSecrets(text) !== text;
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
 }
 
 //#endregion
@@ -2017,6 +2105,25 @@ function validatePreparedContext(value, maxBytes) {
 		content_bytes: Number(record.content_bytes)
 	};
 }
+const MAX_QUERY_CHARACTERS = 8192;
+const MAX_QUERY_BYTES = 8192;
+/**
+* Reduce a prompt to the recall query. A prompt within both bounds is sent as submitted, trimmed.
+* A longer prompt keeps its most recent text, which holds the turn in hand, cut between characters
+* so that the query fits both bounds and splits no character.
+*/
+function boundedRecallQuery(prompt) {
+	const characters = Array.from(prompt.trim());
+	let start = characters.length;
+	let bytes = 0;
+	while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+		const size = Buffer.byteLength(characters[start - 1], "utf8");
+		if (bytes + size > MAX_QUERY_BYTES) break;
+		bytes += size;
+		start -= 1;
+	}
+	return characters.slice(start).join("").trim();
+}
 
 //#endregion
 //#region src/scope.ts
@@ -2135,7 +2242,15 @@ async function flushThrough(runtime, scopeId, position, signal) {
 	} catch {}
 }
 async function capturePrompt(runtime, input) {
-	if (!runtime.config.capturePrompts || Buffer.byteLength(input.prompt, "utf8") > MAX_SOURCE_BYTES || containsSecret(input.prompt)) return;
+	const reason = !runtime.config.capturePrompts ? "capture_disabled" : Buffer.byteLength(input.prompt, "utf8") > MAX_SOURCE_BYTES ? "source_too_long" : containsSecret(input.prompt, runtime.config.authorization) ? "sensitive_content" : void 0;
+	if (reason) {
+		await runtime.log({
+			event: "capture_content_source",
+			outcome: "skipped",
+			reason
+		});
+		return;
+	}
 	try {
 		const position = sourcePosition((await runtime.client.request("capture_content_source", {
 			scope_id: input.scopeId,
@@ -2166,7 +2281,7 @@ async function prepareTurn(runtime, input) {
 		try {
 			const prepared = validatePreparedContext((await runtime.client.request("prepare_context", {
 				scope_id: context.scopeId,
-				query: input.prompt,
+				query: boundedRecallQuery(scrubSecrets(input.prompt, runtime.config.authorization)),
 				max_bytes: runtime.config.maxBytes,
 				...runtime.config.contextAssembly === void 0 ? {} : { assembly: runtime.config.contextAssembly }
 			}, signal)).value, runtime.config.maxBytes);

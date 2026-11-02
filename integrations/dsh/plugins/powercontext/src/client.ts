@@ -43,6 +43,7 @@ export type ClientSuccess =
 
 export interface ClientOptions {
   baseUrl: string
+  userAgent?: string
   allowInsecureHttp?: boolean
   authorization?: string
   requestTimeoutMs: number
@@ -204,12 +205,14 @@ function isRedirect(status: number): boolean {
 
 export class PowerContextClient {
   private readonly baseUrl: string
+  private readonly userAgent: string
   private readonly authorization: string | undefined
   private readonly requestTimeoutMs: number
   private readonly fetchImpl: FetchFn
 
   constructor(options: ClientOptions) {
     this.baseUrl = normalizeServerUrl(options.baseUrl, options.allowInsecureHttp)
+    this.userAgent = options.userAgent ?? PLUGIN_USER_AGENT
     this.authorization = options.authorization
     this.requestTimeoutMs = options.requestTimeoutMs
     this.fetchImpl = options.fetch ?? fetch
@@ -261,7 +264,7 @@ export class PowerContextClient {
     const headers: Record<string, string> = {
       'X-PowerContext-Dream-Contract': '2',
       Accept: 'application/json',
-      'User-Agent': PLUGIN_USER_AGENT,
+      'User-Agent': this.userAgent,
       ...request.headers,
     }
     if (this.authorization) headers.Authorization = this.authorization

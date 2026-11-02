@@ -16,7 +16,12 @@ run setup:
 ```bash
 powercontext --version
 claude --version
+python3 --version
 ```
+
+Claude Code runs the plugin's Hooks and status line with the `python3` found on `PATH`, not with the PowerContext
+installation's Python. They need Python 3.9 or newer and use only the standard library, so the macOS system Python
+works.
 
 Use the same PowerContext repository ref for the Python package and plugin. The Hook validates a versioned Prepared
 Context contract, so mixing an older Server with a newer plugin can disable recall without blocking Claude Code.
@@ -274,3 +279,7 @@ Authorization is environment-only and must not be added to the Server URL or plu
 The outer `UserPromptSubmit` Hook timeout is ten seconds. Recall and capture use one shared wall-clock budget but fail
 independently. HTTPS certificate validation remains enabled when HTTP is explicitly permitted. Restart Claude Code
 after changing its environment.
+
+## Automatic input privacy
+
+See [Automatic prompt privacy](index.md#automatic-prompt-privacy) for this host's capture default, disable control, credential recognition limits and independent read-only query handling. Recognized inputs are skipped for capture; accepted Source content and event identity are not rewritten.

@@ -46,8 +46,6 @@ KIMI_HOME = '"${KIMI_CODE_HOME:-$HOME/.kimi-code}"'
 # Kimi Code keeps sessions, the files they edited, a search cache, and logs in its home, and nothing else clears them
 # between the steps of a trial. A new session needs only the configuration and the installed plugin.
 KIMI_HOME_KEPT = ("config.toml", "plugins")
-# What `powercontext setup kimi-code` writes into the copy it installs; a test compares the two installations.
-MEMORY_TOOLS = ("search_memory", "remember_memory", "get_artifact_revision")
 OWNER_MARKER = ".powercontext-owned"
 # The plugin accepts plain HTTP only on loopback, so the ON arm reaches a plain-HTTP Server through a relay that listens
 # here. The port is one a workload is unlikely to use, as the relay holds it in the ON arm only.
@@ -72,14 +70,14 @@ const [home, plugin, source, serverUrl, scopeId, useToken] = process.argv.slice(
 const write = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\\n')
 const useTokenValue = useToken === 'true'
 write(path.join(plugin, 'powercontext.json'), {{
-  server_url: serverUrl, scope_id: scopeId, capture_prompts: true, use_token: useTokenValue,
+  server_url: serverUrl, scope_id: scopeId, capture_prompts: true, use_token: useTokenValue, profile: 'minimal',
 }})
 const manifestPath = path.join(plugin, 'kimi.plugin.json')
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
 manifest.mcpServers = {{ powercontext: {{
   url: serverUrl + '/mcp',
   ...(useTokenValue ? {{ bearerTokenEnvVar: '{KIMI_TOKEN}' }} : {{}}),
-  enabledTools: {json.dumps(list(MEMORY_TOOLS))},
+  enabledTools: JSON.parse(fs.readFileSync(path.join(plugin, 'profiles.json'), 'utf8')).profiles.minimal,
   startupTimeoutMs: 10000,
   toolTimeoutMs: 10000,
 }} }}
@@ -88,7 +86,9 @@ const skill = path.join(plugin, 'skills/powercontext-project-context/SKILL.md')
 const guidance = fs.readFileSync(skill, 'utf8')
 fs.writeFileSync(skill, guidance
   .replaceAll('__POWERCONTEXT_SCOPE_JSON__', () => JSON.stringify(scopeId))
-  .replaceAll('__POWERCONTEXT_SCOPE_SCRIPT_JSON__', () => JSON.stringify(path.join(plugin, 'scripts/scope.mjs'))))
+  .replaceAll('__POWERCONTEXT_SCOPE_SCRIPT_JSON__', () => JSON.stringify(path.join(plugin, 'scripts/scope.mjs')))
+  .replaceAll('__POWERCONTEXT_PROFILE_JSON__', () => JSON.stringify('minimal'))
+  .replaceAll('__POWERCONTEXT_WORKFLOWS__', ''))
 const now = new Date().toISOString()
 write(path.join(home, 'plugins/installed.json'), {{ version: 1, plugins: [{{
   id: 'powercontext', root: plugin, source: 'local-path', enabled: true,

@@ -49,7 +49,7 @@ source "$HOME/.local/bin/env"
 Install the PowerContext CLI and local Server:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
+uv tool install --force "powercontext[cli,server]==1.4.1"
 powercontext --version
 powercontext --help
 ```
@@ -179,7 +179,7 @@ Use the Python Client to call the Server and create a Scope manually. Keep the S
 ```bash
 cd ~/powercontext-manual
 POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:18080 \
-uv run --with "powercontext[client]==1.4.0" python - <<'PY'
+uv run --with "powercontext[client]==1.4.1" python - <<'PY'
 import asyncio
 import os
 from powercontext.client import PowerContextClient
@@ -214,7 +214,7 @@ Install the Codex plugin matching the Server version and point it to the manuall
 
 ```bash
 powercontext setup codex \
-  --ref powercontext-v1.4.0 \
+  --ref powercontext-v1.4.1 \
   --server-url http://127.0.0.1:18080
 powercontext doctor codex
 ```

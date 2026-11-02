@@ -320,7 +320,8 @@ def _assert_first_snapshot(
         ("project_note", 1, 1),
     ]
 
-    assert statistics.usage.totals.generation.requests == 2
+    # One extraction; its only candidate has nothing to reconcile against.
+    assert statistics.usage.totals.generation.requests == 1
     assert statistics.usage.totals.generation.input_tokens is not None
     assert statistics.usage.totals.generation.output_tokens is not None
     assert statistics.usage.totals.embedding.requests == 0

@@ -38,6 +38,8 @@ from powercontext.server.context import current_principal
 from powercontext.server.dashboard.errors import ReadError as ReadError
 from powercontext.server.dashboard.session import authentication_headers
 
+SEARCH_LIMIT = 200
+
 
 def segment(value: str) -> str:
     return quote(value, safe="")
@@ -248,6 +250,22 @@ class DashboardAPI:
             "artifacts": value["artifact_refs"],
         }
 
+    @staticmethod
+    def search_record(item: dict[str, Any]) -> dict[str, Any]:
+        """Adapt one family-scoped search hit to the Dashboard record shape."""
+
+        lineage = item["lineage"]
+        return {
+            **item["content"],
+            "artifact_id": item["artifact_id"],
+            "revision": item["revision"],
+            "sources": [
+                {"source_type": source["source_type"], "source_id": source["source_id"]}
+                for source in lineage["sources"]
+            ],
+            "artifacts": lineage["artifacts"],
+        }
+
     async def authorize_scope(self, scope: str, operation: str) -> None:
         from powercontext.server.app import _authorize_checks
 
@@ -267,12 +285,22 @@ class DashboardAPI:
         self, scope: str, family: str, *, cursor: str | None = None, limit: int = 12, query: str | None = None
     ) -> dict[str, Any]:
         if family == "skill":
-            maximum = 1 if limit == 1 else 200
+            maximum = 1 if limit == 1 else SEARCH_LIMIT
             result = await self.read("/v1/skill/library", {"scope_id": scope, "limit": maximum, "query": query})
             return {
                 "items": [self.skill_record(item) for item in result["skills"]],
                 "next_cursor": None,
-                "search_limited": maximum == 200 and len(result["skills"]) == maximum,
+                "search_limited": maximum == SEARCH_LIMIT and len(result["skills"]) == maximum,
+            }
+        if family == "experience" and query:
+            result = await self.read(
+                f"/v1/scopes/{segment(scope)}/artifacts/{segment(family)}/search",
+                {"query": query, "limit": SEARCH_LIMIT},
+            )
+            return {
+                "items": [self.search_record(item) for item in result["results"]],
+                "next_cursor": None,
+                "search_limited": len(result["results"]) == SEARCH_LIMIT,
             }
         if self.builtin is None:
             url = httpx.URL(f"/v1/scopes/{segment(scope)}/artifacts/{family}", params={"limit": limit})

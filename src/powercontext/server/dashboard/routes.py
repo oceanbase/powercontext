@@ -34,6 +34,7 @@ from powercontext.server.dashboard.navigation import (
     directory_context,
     positive_revision,
     request_reading_return,
+    with_language,
 )
 from powercontext.server.dashboard.page import load_builtin_page
 from powercontext.server.dashboard.pagination import PAGE_SIZE
@@ -130,6 +131,7 @@ def links(request: Request, ctx: dict[str, Any]):
                     "notes_history",
                     "note_state",
                     "skill_page",
+                    "experience_page",
                     "experience_history",
                     "handoff_history",
                     "resource_type",
@@ -221,6 +223,7 @@ def reading_link_context(
 
 def initial_context(request: Request, page: str) -> dict[str, Any]:
     method_kind = request.query_params.get("kind", "experience")
+    return_page = "profile" if page == "profile" else "methods" if page in {"experience", "skill"} else "handoff"
     ctx: dict[str, Any] = {
         **presentation(request),
         "page": page,
@@ -279,10 +282,12 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "return_to": collection_return(
             request.query_params.get("return_to"),
             request.query_params.get("scope", ""),
-            page="profile" if page == "profile" else "handoff",
+            page=return_page,
         ),
         "reading_return": request_reading_return(request),
     }
+    if ctx["return_to"]:
+        ctx["return_to"] = with_language(ctx["return_to"], ctx["language"])
     ctx["link"] = links(request, ctx)
     return ctx
 
@@ -469,6 +474,17 @@ async def rollback_revision(request: Request) -> Response:
     family = str(form.get("family") or "")
     artifact_id = str(form.get("artifact_id") or "")
     reason = str(form.get("reason") or "")
+    return_page = {
+        "experience": "methods",
+        "skill": "methods",
+        "handoff": "handoff",
+        "profile": "profile",
+    }.get(family)
+    return_to = (
+        collection_return(str(form.get("return_to") or "") or None, scope, page=return_page)
+        if return_page is not None
+        else None
+    )
     try:
         source_revision = positive_revision(str(form.get("source_revision") or ""))
         expected_revision = positive_revision(str(form.get("expected_revision") or ""))
@@ -487,7 +503,9 @@ async def rollback_revision(request: Request) -> Response:
         )
     except ReadError as error:
         code = "forbidden" if error.status == 403 else "rejected"
-        return RedirectResponse(_rollback_return(scope, family, artifact_id, source_revision, code), status_code=303)
+        return RedirectResponse(
+            _rollback_return(scope, family, artifact_id, source_revision, code, return_to), status_code=303
+        )
     finally:
         await api.client.aclose()
     if response.status_code == 412:
@@ -498,12 +516,21 @@ async def rollback_revision(request: Request) -> Response:
         code = "rejected"
     else:
         created = response.json()["revision"]
-        return RedirectResponse(_rollback_return(scope, family, artifact_id, created, None), status_code=303)
-    return RedirectResponse(_rollback_return(scope, family, artifact_id, source_revision, code), status_code=303)
+        return RedirectResponse(_rollback_return(scope, family, artifact_id, created, None, return_to), status_code=303)
+    return RedirectResponse(
+        _rollback_return(scope, family, artifact_id, source_revision, code, return_to), status_code=303
+    )
 
 
-def _rollback_return(scope: str, family: str, artifact_id: str, revision: int, error: str | None) -> str:
-    params: dict[str, Any] = {"scope": scope, "rollback_error": error}
+def _rollback_return(
+    scope: str,
+    family: str,
+    artifact_id: str,
+    revision: int,
+    error: str | None,
+    return_to: str | None = None,
+) -> str:
+    params: dict[str, Any] = {"scope": scope, "rollback_error": error, "return_to": return_to}
     if family == "profile":
         page = "profile"
         params["revision"] = revision

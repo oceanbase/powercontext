@@ -180,6 +180,12 @@ class RuntimeConfig(BaseModel):
     recall_gate_allow_with_rerank: bool = False
     recall_fts_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
     recall_vector_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
+    # Budget for waiting on query embeddings in one context preparation. The Atomic Memory searches of the Scope and
+    # each context reference and the Topic Memory search share it, and only their waits are charged, so database reads
+    # and reranking in between do not take a later search's share; a search that finds it spent continues with lexical
+    # matching only. The default covers a typical remote embedding round trip and leaves the rest of a one-second Hook
+    # request to the other work.
+    recall_embedding_timeout_seconds: float = Field(default=0.5, gt=0.0, le=60.0, allow_inf_nan=False)
     profile_schedule_enabled: bool = False
     profile_cron: str = "0 2 * * *"
     profile_timezone: str = "Asia/Shanghai"
@@ -208,6 +214,13 @@ class RuntimeConfig(BaseModel):
         if self.recall_gate_round2_min_semantic_similarity > self.recall_gate_round1_min_semantic_similarity:
             raise ValueError(_RECALL_GATE_ROUND2_ORDER_ERROR)
         return self
+
+    @field_validator("recall_embedding_timeout_seconds", mode="before")
+    @classmethod
+    def reject_boolean_recall_embedding_timeout(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("recall embedding timeout must be a number")  # noqa: TRY003, TRY004 - Pydantic validation
+        return value
 
     @field_validator("recall_fts_weight", "recall_vector_weight", mode="before")
     @classmethod
@@ -302,6 +315,8 @@ class InferenceConfig(BaseModel):
     generation_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     generation_timeout_seconds: float = Field(default=30.0, gt=0)
     generation_max_requests: int = Field(default=2, ge=1)
+    generation_streaming: Literal["auto", "disabled"] = "disabled"
+    generation_stream_idle_timeout_seconds: float = Field(default=60.0, gt=0)
     generation_model_context_window_tokens: int = Field(default=125_000, ge=1)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None

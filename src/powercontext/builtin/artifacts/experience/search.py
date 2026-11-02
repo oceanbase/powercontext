@@ -38,21 +38,18 @@ class ExperienceSearchRequest(ArtifactSearchQuery):
 
 @dataclass(frozen=True)
 class ExperienceSearchOutcome:
-    """Experience hits plus the admission accounting for the search that produced them.
+    """Experience hits and bounded admission observations for Recall recovery planning.
 
-    It replaces the bare ``tuple[ExperienceSearchHit, ...]`` the ``experience_recall`` callback
-    used to return, because the Runtime's recall gate needs the retrieved/admitted pair and the
-    callback signature is part of the Runtime's construction surface.
-
-    ``admission`` is ``None`` when the search did not measure — for example a configured index
-    with nothing to report — rather than a fabricated ``(0, 0)``. The counters are aggregates
-    with no hit identity, so carrying them costs nothing the callback did not already compute.
+    ``admission`` is ``None`` when the index did not measure candidates. Built-in
+    indexes observe selected qualified matches and at most one ranked-prefix rejection witness;
+    these counters do not represent the whole matching collection.
     """
 
     hits: tuple[ExperienceSearchHit, ...] = ()
     admission: AdmissionCounts | None = None
     matches: tuple[ArtifactSearchMatch, ...] = ()
-    artifacts: tuple[Experience, ...] | None = None
+    artifacts: tuple[Experience, ...] = ()
+    mode: Literal["fts", "vector", "hybrid"] | None = None
 
 
 class ExperienceSearchHit(BaseModel):

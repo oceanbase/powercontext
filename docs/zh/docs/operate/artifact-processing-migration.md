@@ -8,6 +8,15 @@ Artifact Processing Supervisor。全新的空数据库自动初始化。已有�
 
 ## 查看计划并执行
 
+含有 `pc_schema_revision` 的受管数据库会转发到登记的
+[Processing 配置维护](database-migrations.md#processing-配置维护)操作，plan/apply/verify 使用统一迁移响应格式。
+自动化 apply 还须提供审阅后的 `--plan-id`、明确的 `--backup` 策略和 `--yes`，
+并遵守 `db-migrate` 的备份声明及 OceanBase 协调选项。先完成尚未结束的整库升级。
+已有 Server 身份标记但尚未登记 revision 的数据库必须先完成整库升级。
+以下领域独立流程仅适用于不含这两种归属标记的未受管 SDK 存储。
+与 `db-migrate` 一样，显式环境文件具有最高优先级；未指定时，先查找当前目录的 `.env`，
+并在所有权检查和实际执行中使用同一份配置。
+
 使用迁移后部署所采用的配置查看只读计划：
 
 ```shell

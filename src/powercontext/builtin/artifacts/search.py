@@ -34,6 +34,9 @@ from powercontext.artifacts.search import ChannelScore
 if TYPE_CHECKING:
     import jieba
 
+# Bump when document segmentation or token encoding changes; query stopwords do not affect projections.
+TEXT_ANALYZER_VERSION = "jieba-0.42.1-words-v1"
+
 _FTS_MIN_QUERY_COVERAGE = 0.25
 _FTS_MIN_MATCHED_TERMS = 2
 _FTS_SHORT_QUERY_MAX_TERMS = 2
@@ -271,12 +274,13 @@ DEFAULT_RECALL_CHANNEL_WEIGHTS = RecallChannelWeights()
 class AdmissionCounts:
     """Per-family, per-scope admission accounting for one search.
 
-    ``retrieved`` is what the backend returned *before* the admission floor was applied;
-    ``admitted`` is what survived it. A family may also provide ``rejected`` when those two
-    counts are not measured on a comparable basis, for example when the trace keeps an
-    unbounded pre-admission count but the delivered candidate pool is capped. ``rejected``
-    is the number of same-search candidates rejected by the admission floor, excluding
-    candidate-pool truncation.
+    ``retrieved`` counts candidates actually observed by this search, including
+    any bounded rejection evidence. ``admitted`` counts observed candidates that
+    pass the floor. These are not collection totals. A Family may provide
+    ``rejected`` when the two observations use different bounded pools; it counts
+    actual rejection evidence, excluding candidate-pool truncation. Topic FTS
+    observes at most one rejected Topic per channel; Experience observes at most
+    one rejected match in its ranked prefix. Both support recovery planning without collection counts.
 
     These are plain aggregate integers with no candidate identity, no query text and no
     per-entry attribution, so the value is safe to carry in a trace and safe to hand to the
@@ -417,6 +421,7 @@ def admits_fts_projection(query: str, projection: str, /, *, floor: AdmissionFlo
 
 __all__ = [
     "DEFAULT_ADMISSION_FLOOR",
+    "TEXT_ANALYZER_VERSION",
     "AdmissionCounts",
     "AdmissionFloor",
     "EmptyFilters",

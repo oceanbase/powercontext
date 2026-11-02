@@ -43,6 +43,8 @@ Scope
 └── Topic Memory      # extracted in the background from eligible Sources
 ```
 
+For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
+
 *The Dashboard screenshots below use synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
@@ -85,6 +87,8 @@ only the approved current head takes part in recall — pending, rejected, and h
 A managed Skill holds a name, a discovery description, instructions, validation checks, and lineage. Approval does not
 install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the
 host-local projection.
+
+[Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 
 ## Why PowerContext?
 
@@ -158,7 +162,7 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.4.0 includes an interactive setup wizard. You need Python 3.11+, Git, and
+PowerContext 1.4.1 includes an interactive setup wizard. You need Python 3.11+, Git, and
 [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent,
 also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory
 requires separate Generation and Embedding API credentials. For a local Server without model APIs, see
@@ -176,7 +180,7 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
+uv tool install --force "powercontext[cli,server]==1.4.1"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 powercontext config validate --env-file .env
@@ -205,7 +209,7 @@ Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable accep
 Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.4.0
+powercontext setup codex --ref powercontext-v1.4.1
 powercontext doctor codex
 ```
 

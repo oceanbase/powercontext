@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import update
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
-from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft, ExperienceSearchOutcome
+from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.errors import InvalidPublicationLineageError, RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import NoExperienceIndex
@@ -42,7 +42,7 @@ class _IndexUnavailableError(RuntimeError):
     pass
 
 
-class _FailingExperienceIndex:
+class _FailingExperienceIndex(NoExperienceIndex):
     async def initialize(self, _connection, /) -> None:
         pass
 
@@ -52,18 +52,8 @@ class _FailingExperienceIndex:
     async def replace(self, _connection, _scope_id, _experience, /) -> None:
         raise _IndexUnavailableError
 
-    async def search(
-        self, _connection, _scope_id, _query, _limit, /, *, admission=None, min_score=None, require_scores=False
-    ):
-        return ExperienceSearchOutcome()
-
     async def replace_skill(self, _connection, _scope_id, _skill, _package, /) -> None:
         pass
-
-    async def search_skills(
-        self, _connection, _scope_id, _query, _limit, /, *, admission=None, min_score=None, require_scores=False
-    ):
-        return ()
 
 
 def test_publication_copies_one_exact_revision_with_original_provenance(tmp_path) -> None:

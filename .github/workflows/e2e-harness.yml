@@ -1,11 +1,15 @@
 name: E2E harness
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+      suite:
+        type: string
+        default: all
   workflow_dispatch:
     inputs:
       suite:
@@ -17,6 +21,7 @@ on:
           - recall-effort
 
 permissions:
+  actions: read
   contents: read
 
 env:
@@ -24,18 +29,21 @@ env:
   UV_VERSION: "0.10.12"
 
 concurrency:
-  group: e2e-harness-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: e2e-harness-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   changes:
+    if: ${{ inputs.suites == '' }}
     uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: e2e-harness.yml
 
   validate:
     needs: changes
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
-          (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').harness) }}
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -46,7 +54,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
 
@@ -65,10 +73,10 @@ jobs:
 
   recall-effort:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').database) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       POWERCONTEXT_TEST_OCEANBASE_URL: >-
@@ -98,10 +106,37 @@ jobs:
             if docker exec recall-effort-oceanbase \
               obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
               -Dpowercontext_test -e 'SELECT 1' >/dev/null 2>&1; then
+              # The slim image's default 1 GB maximum is too small for the
+              # indexes created across the full Server recovery scenarios.
+              docker exec recall-effort-oceanbase \
+                obclient -h127.0.0.1 -P2881 -uroot@sys \
+                -e "ALTER SYSTEM SET datafile_maxsize='8G'; ALTER SYSTEM SET datafile_next='512M'; ALTER SYSTEM SET datafile_size='4G';"
+              datafile_ready=false
+              for config_attempt in $(seq 1 30); do
+                docker exec recall-effort-oceanbase \
+                  obclient -h127.0.0.1 -P2881 -uroot@sys --batch --skip-column-names \
+                  -e "SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_maxsize', 'datafile_next');" \
+                  > "$RUNNER_TEMP/recall-effort-datafile.tsv"
+                if awk '
+                  $5 == "datafile_size" && $7 == "4G" { size = 1 }
+                  $5 == "datafile_maxsize" && $7 == "8G" { maximum = 1 }
+                  $5 == "datafile_next" && $7 == "512M" { increment = 1 }
+                  END { exit !(size && maximum && increment) }
+                ' "$RUNNER_TEMP/recall-effort-datafile.tsv"; then
+                  datafile_ready=true
+                  break
+                fi
+                sleep 2
+              done
+              cat "$RUNNER_TEMP/recall-effort-datafile.tsv"
+              if [ "$datafile_ready" != true ]; then
+                echo 'OceanBase datafile configuration did not become effective within one minute.' >&2
+                exit 1
+              fi
               docker exec recall-effort-oceanbase \
                 obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
                 -Dpowercontext_test \
-                -e "SELECT VERSION(); SHOW VARIABLES LIKE 'ob_compatibility_mode';"
+                -e "SET GLOBAL recyclebin=OFF; SELECT VERSION(); SHOW VARIABLES LIKE 'ob_compatibility_mode'; SHOW GLOBAL VARIABLES LIKE 'recyclebin';"
               exit 0
             fi
             if [ "$(docker inspect --format '{{.State.Running}}' recall-effort-oceanbase)" != true ]; then
@@ -128,13 +163,33 @@ jobs:
           uv lock --check
           uv run --locked prek run -a
 
-      - name: Run the real OceanBase contract without skips
+      - name: Run real OceanBase database bootstrap without skips
+        timeout-minutes: 5
+        env:
+          POWERCONTEXT_TEST_BOOTSTRAP_OCEANBASE_URL: ${{ env.POWERCONTEXT_TEST_OCEANBASE_URL }}
+          POWERCONTEXT_TEST_BOOTSTRAP_OCEANBASE_DEFAULT: "1"
+          POWERCONTEXT_TEST_BOOTSTRAP_PRIVILEGES: "1"
+        run: |
+          mkdir -p .powercontext/recall-effort-ci
+          uv run --locked python -m pytest tests/e2e/test_database_bootstrap.py -k oceanbase -q -rs \
+            --junitxml=.powercontext/recall-effort-ci/bootstrap.xml
+          uv run --locked python - <<'PYCODE'
+          from xml.etree import ElementTree
+
+          suites = ElementTree.parse(".powercontext/recall-effort-ci/bootstrap.xml").getroot()
+          cases = list(suites.iter("testcase"))
+          if not cases or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("Real OceanBase bootstrap contracts must execute; skipped tests are not acceptance.")
+          PYCODE
+
+      - name: Run OceanBase contracts and Jev integration without skips
         run: |
           mkdir -p .powercontext/recall-effort-ci
           uv run --locked pytest \
             tests/builtin/persistence/test_oceanbase_profile.py::test_live_oceanbase_profile_smoke \
             'tests/builtin/persistence/test_recall_effort_statistics.py::test_recall_effort_schema_upgrade_and_atomic_daily_scope_accounting[oceanbase]' \
             tests/builtin/persistence/test_oceanbase_profile.py::test_live_oceanbase_profile_rejects_old_schema_collation \
+            tests/e2e/test_jev_memory_reranking.py \
             --junitxml=.powercontext/recall-effort-ci/oceanbase.xml -q -rs
           uv run --locked python - <<'PY'
           from pathlib import Path
@@ -142,8 +197,22 @@ jobs:
 
           suites = ElementTree.parse(Path(".powercontext/recall-effort-ci/oceanbase.xml")).getroot()
           cases = list(suites.iter("testcase"))
-          if len(cases) != 3 or any(case.find("skipped") is not None for case in cases):
-              raise SystemExit("All three live OceanBase contracts must execute; skipped tests are not acceptance.")
+          if len(cases) != 9 or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("All nine database contracts must execute; skipped tests are not acceptance.")
+          PY
+
+      - name: Run the real OceanBase recovery upgrade without skips
+        run: |
+          uv run --locked pytest tests/e2e/test_topic_memory_recovery_migration.py -k oceanbase \
+            --junitxml=.powercontext/recall-effort-ci/topic-recovery.xml -q -rs
+          uv run --locked python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          suites = ElementTree.parse(Path(".powercontext/recall-effort-ci/topic-recovery.xml")).getroot()
+          cases = list(suites.iter("testcase"))
+          if len(cases) != 2 or any(case.find("skipped") is not None for case in cases):
+              raise SystemExit("Both live OceanBase recovery upgrades must execute; skipped tests are not acceptance.")
           PY
 
       - name: Run recall, statistics and prepared-context regressions
@@ -161,11 +230,85 @@ jobs:
             tests/builtin/persistence/test_database_snapshots.py \
             --junitxml=.powercontext/recall-effort-ci/regressions.xml -q -rs
 
+      - name: Recover interrupted Server initialization on real OceanBase without skips
+        env:
+          POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
+            mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
+        run: |
+          docker exec recall-effort-oceanbase \
+            obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
+            -Dpowercontext_test -e 'CREATE DATABASE pc_migration_probe_server_recovery'
+          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_full_server_resumes_interrupted_initialization_before_manifest_seed \
+            -o faulthandler_timeout=180 --durations=0 \
+            -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-initialization.xml
+
+      # Each group keeps a hard deadline. The six independent recovery scenarios
+      # must not consume a single shared deadline before client-exit recovery runs.
+      - name: Recover committed Server DDL and domain checkpoints on real OceanBase without skips
+        env:
+          POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
+            mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
+        run: |
+          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_full_server_interruption_preserves_history_and_original_maintenance \
+            -o faulthandler_timeout=180 --durations=0 \
+            -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-checkpoints.xml
+
+      - name: Recover an exited Server migration client on real OceanBase without skips
+        env:
+          POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
+            mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
+        run: |
+          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_oceanbase_full_server_client_exit_requires_acknowledgement_and_preserves_recovery \
+            -o faulthandler_timeout=180 --durations=0 \
+            -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-client-exit.xml
+
+      - name: Maintain the registered Server chain on real OceanBase without skips
+        env:
+          POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
+            mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
+        run: |
+          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_processing_mode_switch_preserves_revision_and_history \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_atomic_compatibility_command_uses_shared_server_upgrade \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_projection_repair_preserves_authority_and_revision \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_topic_bundle_refuses_managed_server_storage \
+            tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_managed_identity_initialization_requires_no_ddl \
+            -o faulthandler_timeout=180 --durations=0 \
+            -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-maintenance.xml
+          uv run --locked python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          reports = (
+              Path(".powercontext/recall-effort-ci/full-server-initialization.xml"),
+              Path(".powercontext/recall-effort-ci/full-server-checkpoints.xml"),
+              Path(".powercontext/recall-effort-ci/full-server-client-exit.xml"),
+              Path(".powercontext/recall-effort-ci/full-server-maintenance.xml"),
+          )
+          cases = [case for report in reports for case in ElementTree.parse(report).iter("testcase")]
+          if len(cases) != 11 or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
+              raise SystemExit("All eleven native full Server recovery and maintenance scenarios must pass without skips.")
+          PY
+
       - name: Collect the database log
         if: always()
         run: |
           mkdir -p .powercontext/recall-effort-ci
           docker logs recall-effort-oceanbase > .powercontext/recall-effort-ci/oceanbase.log 2>&1 || true
+          for logfile in observer.log observer.log.wf; do
+            docker exec recall-effort-oceanbase tail -n 20000 "/root/demo/log/$logfile" \
+              > ".powercontext/recall-effort-ci/$logfile" 2>&1 || true
+          done
+          df -h / > .powercontext/recall-effort-ci/runner-disk.txt 2>&1 || true
+          docker exec recall-effort-oceanbase df -h /root/demo \
+            > .powercontext/recall-effort-ci/container-disk.txt 2>&1 || true
+          docker exec recall-effort-oceanbase \
+            obclient -h127.0.0.1 -P2881 -uroot@sys \
+            -e "SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_maxsize', 'datafile_next'); SELECT data_disk_allocated, data_disk_capacity, data_disk_in_use FROM oceanbase.GV\$OB_SERVERS;" \
+            > .powercontext/recall-effort-ci/database-disk.txt 2>&1 || true
 
       - name: Save validation reports
         if: always()
@@ -181,20 +324,25 @@ jobs:
         if: always()
         run: docker rm --force recall-effort-oceanbase || true
 
-  atomic-memory-clean-oceanbase:
-    name: Atomic Memory clean migration (OceanBase)
+  atomic-memory-clean-oceanbase-shards:
+    name: Atomic Memory clean migration (OceanBase shard ${{ matrix.shard }}/3)
     needs: changes
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
-          (needs.changes.result != 'success' || fromJSON(needs.changes.outputs.suites || '{}').database) }}
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 145
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
         mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/powercontext_test?charset=utf8mb4
       PYTHONUNBUFFERED: "1"
-      MIGRATION_REPORTS: ${{ github.workspace }}/.powercontext/atomic-memory-clean-oceanbase
+      MIGRATION_REPORTS: ${{ github.workspace }}/.powercontext/atomic-memory-clean-oceanbase-shard-${{ matrix.shard }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -261,24 +409,41 @@ jobs:
           echo 'OceanBase did not become ready within 10 minutes.' >&2
           exit 1
 
+      - name: Test interrupted Scope search migrations without skips
+        timeout-minutes: 10
+        run: |
+          uv run --locked python scripts/run_atomic_memory_clean_migration.py \
+            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/scope-search" --tests \
+            tests/e2e/test_scope_search_migration.py
+
       - name: Test background listener lifecycle without skips
         timeout-minutes: 5
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
-        timeout-minutes: 45
+        timeout-minutes: 60
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --output "$MIGRATION_REPORTS/clean-migration"
+            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/clean-migration"
+
+      - name: Test concurrent managed startup without skips
+        # Collection and three isolated cases retain their 180s process deadlines.
+        timeout-minutes: 15
+        run: |
+          uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
+            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
+            tests/e2e/test_managed_startup_read_consistency.py
+          test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
       - name: Test long-query retrieval and admission without skips
-        timeout-minutes: 10
+        # Eight isolated cases include full Server setup and retain 180s deadlines.
+        timeout-minutes: 30
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --output "$MIGRATION_REPORTS/long-query" --tests \
+            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py
 
@@ -310,7 +475,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: atomic-memory-clean-oceanbase-${{ github.sha }}
+          name: atomic-memory-clean-oceanbase-${{ github.sha }}-shard-${{ matrix.shard }}
           path: ${{ env.MIGRATION_REPORTS }}/
           include-hidden-files: true
           if-no-files-found: error
@@ -320,10 +485,53 @@ jobs:
         if: always()
         run: docker rm --force atomic-memory-clean-oceanbase || true
 
+  atomic-memory-clean-oceanbase:
+    name: Atomic Memory clean migration (OceanBase)
+    needs: [changes, atomic-memory-clean-oceanbase-shards]
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every shard to succeed
+        env:
+          SHARD_RESULT: ${{ needs.atomic-memory-clean-oceanbase-shards.result }}
+        run: |
+          if [ "$SHARD_RESULT" != success ]; then
+            echo "OceanBase migration shards did not all succeed: $SHARD_RESULT" >&2
+            exit 1
+          fi
+
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Download shard reports into separate directories
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: atomic-memory-clean-oceanbase-${{ github.sha }}-shard-*
+          path: ${{ runner.temp }}/atomic-memory-clean-oceanbase-shards
+          merge-multiple: false
+
+      - name: Verify complete execution coverage
+        run: >-
+          python scripts/check_atomic_memory_migration_shards.py
+          --reports "${{ runner.temp }}/atomic-memory-clean-oceanbase-shards" --shards 3
+
   acceptance:
     needs: validate
+    # Main supplies scope, so the detector ancestor is intentionally skipped.
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # OceanBase regressions can take 32 minutes before the separate replay scenarios.
+    timeout-minutes: ${{ matrix.database == 'oceanbase' && 60 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -337,11 +545,12 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
 
-      - name: Verify OceanBase Atomic Memory and HTTP regressions
+      - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
+        timeout-minutes: 40
         if: matrix.database == 'oceanbase'
         env:
           COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
@@ -406,7 +615,10 @@ jobs:
           uv run --locked --extra server python -m pytest -vv -ra \
             tests/e2e/test_atomic_memory_search_authorization_snapshot.py \
             tests/e2e/test_atomic_memory_read_snapshot.py \
-            tests/e2e/test_runtime_server.py -k oceanbase \
+            tests/e2e/test_server_metrics_oceanbase.py \
+            tests/e2e/test_runtime_server.py \
+            'tests/e2e/test_portable_archive.py::test_archive_batches_validation_and_rechecks_after_dry_run[server]' \
+            -k 'oceanbase or archive_batches' \
             --junitxml="$RUNNER_TEMP/atomic-memory-oceanbase-snapshots.xml"
           uv run --locked --extra server python - <<'PY'
           import json
@@ -419,12 +631,13 @@ jobs:
           for suite in suites:
               for key in counts:
                   counts[key] += int(suite.get(key, "0"))
-          print("OceanBase Atomic Memory and HTTP results:", json.dumps(counts))
+          print("OceanBase Atomic Memory, HTTP and archive results:", json.dumps(counts))
           if not counts["tests"] or any(counts[key] for key in ("failures", "errors", "skipped")):
-              raise SystemExit("OceanBase Atomic Memory and HTTP regressions must execute without failures, errors, or skips")
+              raise SystemExit("OceanBase Atomic Memory, HTTP and archive regressions must execute without failures, errors, or skips")
           PY
 
       - name: Run deterministic scenarios
+        timeout-minutes: ${{ matrix.database == 'oceanbase' && 15 || 40 }}
         id: acceptance_scenarios
         env:
           POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}

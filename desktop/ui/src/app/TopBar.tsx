@@ -14,21 +14,26 @@
  * limitations under the License.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopState } from "../generated/ipc";
 import { messages, type Language } from "./messages";
-import { connectionMessages } from "./connection-messages";
+import { connectionError, connectionMessages } from "./connection-messages";
+import { activeCheckReport } from "./context";
 
 type Props = {
   state: DesktopState | null;
   language: Language;
-  onManageConnections: () => void;
-  onOpenScopes: () => void;
+  loading?: boolean;
+  contextPending?: boolean;
+  onManageConnections: (profileId?: string) => void;
+  onOpenScopes: (trigger: HTMLElement) => void;
   onDisconnect: () => void;
 };
 export function TopBar({
   state,
   language,
+  loading = false,
+  contextPending = false,
   onManageConnections,
   onOpenScopes,
   onDisconnect,
@@ -37,6 +42,26 @@ export function TopBar({
   const ct = connectionMessages[language];
   const [open, setOpen] = useState<"connection" | "identity" | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
+  const connectionTrigger = useRef<HTMLButtonElement>(null);
+  const identityTrigger = useRef<HTMLButtonElement>(null);
+  const connectionMenu = useRef<HTMLDivElement>(null);
+  const menuStart = useRef(0);
+  const connectionMenuId = useId();
+  const identityId = useId();
+  function closePopup() {
+    (open === "connection"
+      ? connectionTrigger
+      : identityTrigger
+    ).current?.focus();
+    setOpen(null);
+  }
+  useLayoutEffect(() => {
+    if (open !== "connection") return;
+    const items = connectionMenu.current?.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"]:not(:disabled)',
+    );
+    items?.[menuStart.current === -1 ? items.length - 1 : 0]?.focus();
+  }, [open]);
   useEffect(() => {
     const bar = wrap.current;
     if (!bar) return;
@@ -62,7 +87,10 @@ export function TopBar({
         setOpen(null);
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(null);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePopup();
+      }
     }
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -72,7 +100,7 @@ export function TopBar({
     };
   }, [open]);
   const active = state?.active;
-  const report = active?.report;
+  const report = activeCheckReport(state);
   const activeProfile = state?.profiles.find(
     (p) => p.id === active?.connectionId,
   );
@@ -86,6 +114,13 @@ export function TopBar({
       : principal
         ? (principal.description ?? `${principal.type}: ${principal.id}`)
         : t.identityUnverified;
+  const connectionText = active
+    ? t.activeContext
+    : state
+      ? t.notConnected
+      : loading
+        ? t.loadingState
+        : t.stateUnavailable;
   return (
     <div className="topbar" ref={wrap}>
       <div className="menu-wrap">
@@ -93,21 +128,78 @@ export function TopBar({
           className="menu-trigger"
           aria-expanded={open === "connection"}
           aria-haspopup="menu"
-          onClick={() => setOpen(open === "connection" ? null : "connection")}
+          aria-controls={connectionMenuId}
+          aria-label={`${t.current}: ${activeProfile?.name ?? connectionText}`}
+          ref={connectionTrigger}
+          onClick={() => {
+            menuStart.current = 0;
+            setOpen(open === "connection" ? null : "connection");
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+            event.preventDefault();
+            menuStart.current = event.key === "ArrowUp" ? -1 : 0;
+            setOpen("connection");
+          }}
         >
-          <span className="label">{activeProfile?.name ?? t.notConnected}</span>
+          <span className="label">{activeProfile?.name ?? connectionText}</span>
           <span aria-hidden="true">▾</span>
         </button>
         {open === "connection" && (
-          <div className="menu" role="menu">
+          <div
+            className="menu"
+            role="menu"
+            aria-label={t.manageConnections}
+            id={connectionMenuId}
+            ref={connectionMenu}
+            onBlur={(event) => {
+              if (
+                event.relatedTarget instanceof Node &&
+                !connectionMenu.current?.contains(event.relatedTarget) &&
+                event.relatedTarget !== connectionTrigger.current
+              )
+                setOpen(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                event.preventDefault();
+                closePopup();
+                return;
+              }
+              if (event.key === "Tab") {
+                closePopup();
+                return;
+              }
+              const items = Array.from(
+                connectionMenu.current?.querySelectorAll<HTMLButtonElement>(
+                  '[role="menuitem"]:not(:disabled)',
+                ) ?? [],
+              );
+              const current = items.indexOf(
+                document.activeElement as HTMLButtonElement,
+              );
+              let index: number;
+              if (event.key === "ArrowDown")
+                index = (current + 1) % items.length;
+              else if (event.key === "ArrowUp")
+                index = (current + items.length - 1) % items.length;
+              else if (event.key === "Home") index = 0;
+              else if (event.key === "End") index = items.length - 1;
+              else return;
+              event.preventDefault();
+              items[index]?.focus();
+            }}
+          >
             {state?.profiles.map((p) => (
               <button
                 key={p.id}
                 className="menu-item"
                 role="menuitem"
+                tabIndex={-1}
                 onClick={() => {
-                  setOpen(null);
-                  onManageConnections();
+                  closePopup();
+                  onManageConnections(p.id);
                 }}
               >
                 <span>
@@ -123,8 +215,9 @@ export function TopBar({
             <button
               className="menu-item"
               role="menuitem"
+              tabIndex={-1}
               onClick={() => {
-                setOpen(null);
+                closePopup();
                 onManageConnections();
               }}
             >
@@ -136,8 +229,10 @@ export function TopBar({
                 <button
                   className="menu-item"
                   role="menuitem"
+                  tabIndex={-1}
+                  disabled={contextPending}
                   onClick={() => {
-                    setOpen(null);
+                    closePopup();
                     onDisconnect();
                   }}
                 >
@@ -149,16 +244,22 @@ export function TopBar({
           </div>
         )}
       </div>
-      <span className={active ? "status-pill ok" : "status-pill"} role="status">
-        <span aria-hidden="true" className={active ? "dot ok" : "dot"} />
-        {active ? t.connected : t.notConnected}
+      <span className="status-pill" role="status">
+        <span aria-hidden="true" className="dot" />
+        {connectionText}
       </span>
       <span aria-hidden="true" className="divider" />
       <div className="topbar-group">
         <span className="topbar-label">{t.scopeLabel}</span>
-        <button className="menu-trigger" onClick={onOpenScopes}>
-          <span className="label">
+        <button
+          className="menu-trigger scope-trigger"
+          onClick={(event) => onOpenScopes(event.currentTarget)}
+          disabled={!state || contextPending}
+          aria-haspopup="dialog"
+        >
+          <span className="scope-label">
             {active?.scope?.title ?? t.noScopeSelected}
+            {active?.scope && <code>{active.scope.scope_id}</code>}
           </span>
           <span aria-hidden="true">▾</span>
         </button>
@@ -168,14 +269,20 @@ export function TopBar({
         <button
           className="menu-trigger"
           aria-expanded={open === "identity"}
-          aria-haspopup="menu"
+          aria-controls={identityId}
+          ref={identityTrigger}
           onClick={() => setOpen(open === "identity" ? null : "identity")}
         >
           <span className="label">{identityText}</span>
           <span aria-hidden="true">▾</span>
         </button>
         {open === "identity" && (
-          <div className="menu right" role="menu">
+          <div
+            className="menu right"
+            role="region"
+            aria-label={t.identityDetails}
+            id={identityId}
+          >
             <p className="menu-note">
               <strong>{t.identityDetails}</strong>
             </p>
@@ -192,6 +299,9 @@ export function TopBar({
             ) : (
               <p className="menu-note">
                 {report?.anonymousAccess ? ct.noIdentity : t.identityUnverified}
+                {report?.identity.error && (
+                  <> {connectionError(report.identity.error, language)}</>
+                )}
               </p>
             )}
           </div>
@@ -200,6 +310,59 @@ export function TopBar({
       <span aria-hidden="true" className="avatar">
         {identityText.charAt(0).toUpperCase()}
       </span>
+      {active && (
+        <div
+          className="global-context"
+          role="group"
+          aria-label={t.globalContext}
+        >
+          {activeProfile && (
+            <p className="context-endpoint">{activeProfile.endpoint}</p>
+          )}
+          <dl className="context-facts">
+            <div>
+              <dt>{t.compatibility}</dt>
+              <dd>
+                {report?.compatibilityVerified
+                  ? t.compatibilityVerified
+                  : t.unverified}
+              </dd>
+            </div>
+            <div>
+              <dt>{t.liveness}</dt>
+              <dd>
+                {report?.liveness.error
+                  ? connectionError(report.liveness.error, language)
+                  : (report?.liveness.value?.status ?? t.unverified)}
+              </dd>
+            </div>
+            <div>
+              <dt>{t.readiness}</dt>
+              <dd>
+                {report?.readiness.error
+                  ? connectionError(report.readiness.error, language)
+                  : report?.readiness.value?.status === "ready"
+                    ? t.serviceReady
+                    : report?.readiness.value
+                      ? t.serviceNotReady
+                      : t.unverified}
+              </dd>
+            </div>
+          </dl>
+          <p className="small">
+            {report && (
+              <>
+                {t.lastChecked}:{" "}
+                {new Date(report.checkedAt * 1000).toLocaleString(
+                  language === "zh" ? "zh-CN" : "en-US",
+                )}
+                .{" "}
+              </>
+            )}
+            {t.readinessNote}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

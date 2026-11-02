@@ -22,10 +22,12 @@ import pytest
 
 from powercontext.artifacts import ArtifactLineage
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import SHARED_TABLES
 from powercontext.builtin.sources.content import CONTENT_SOURCE_ADAPTER
+from powercontext.errors import RevisionConflictError
 from tests.builtin.persistence.contract import (
     ARTIFACT_TYPES,
     HandoffContent,
@@ -47,7 +49,11 @@ class _LocalSecurity:
     async def authorize_sources(self, connection, scope_id, context, sources):
         pass
 
-    async def establish_owner(self, connection, scope_id, artifact_id, context):
+    async def authorize_creates(self, connection, scope_id, context, refs):
+        for ref in refs:
+            await self.authorize(connection, scope_id, context, "create", ref)
+
+    async def establish_owners(self, connection, scope_id, artifact_ids, context):
         pass
 
 
@@ -68,12 +74,44 @@ class _HandoffAdapter:
     async def publish(self, connection, scope_id, record, prepared, execution_context):
         pass
 
+    async def publish_many(self, connection, scope_id, records, execution_context):
+        pass
+
     async def remove(self, connection, scope_id, artifact_id):
         pass
 
 
 async def _merge_tags(connection, scope_id, artifact_id, inputs):
     pass
+
+
+def test_new_identity_collision_is_reported_by_atomic_commit() -> None:
+    async def scenario() -> None:
+        from powercontext.builtin.artifacts.merge import ArtifactMergeService
+
+        async with repository_profile() as (profile, repositories):
+            service = ArtifactMergeService(
+                artifacts=repositories.artifacts,
+                adapter=_HandoffAdapter(),
+                security=_LocalSecurity(),
+                merge_tags=_merge_tags,
+            )
+            async with profile.database.transaction() as connection:
+                winner = await repositories.artifacts.create(
+                    connection, "project", "collision", HandoffDraft(content=HandoffContent(summary="winner"))
+                )
+                plan = await service.inspect_change(
+                    connection, "project", "collision", HandoffContent(summary="loser"), "owner"
+                )
+            prepared = await service.prepare_change(plan)
+            with pytest.raises(RevisionConflictError) as error:
+                async with profile.database.transaction() as connection:
+                    await service.commit(connection, prepared, "owner")
+            assert error.value.current == winner
+            async with profile.database.transaction() as connection:
+                assert await repositories.artifacts.latest(connection, "project", "handoff", "collision") == winner
+
+    asyncio.run(scenario())
 
 
 def test_shared_family_cascade_restores_selected_inputs_and_preserves_ordinary_references() -> None:
@@ -304,6 +342,45 @@ class _Revoked(RuntimeError):
     """Stands in for the fresh denial a revoked reader must receive."""
 
 
+def test_target_specific_create_denial_is_rechecked_before_publication() -> None:
+    async def scenario() -> None:
+        from powercontext.builtin.artifacts.merge import ArtifactMergeService
+        from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess
+
+        class TargetPolicy(ArtifactMergeAccess):
+            def __init__(self):
+                super().__init__("handoff")
+                self.denied = False
+
+            async def authorize(self, connection, scope_id, context, action, ref=None):
+                if self.denied and action == "create" and ref is not None and ref.artifact_id == "target":
+                    raise _Revoked
+                await super().authorize(connection, scope_id, context, action, ref)
+
+        async with repository_profile() as (profile, repositories):
+            policy = TargetPolicy()
+            service = ArtifactMergeService(
+                artifacts=repositories.artifacts,
+                adapter=_HandoffAdapter(),
+                security=policy,
+                merge_tags=_merge_tags,
+            )
+            async with profile.database.transaction() as connection:
+                plan = await service.inspect_change(
+                    connection, "project", "target", HandoffContent(summary="Protected result"), None
+                )
+            prepared = await service.prepare_change(plan)
+            policy.denied = True
+            with pytest.raises(_Revoked):
+                async with profile.database.transaction() as connection:
+                    await service.commit(connection, prepared, None)
+            async with profile.database.transaction() as connection:
+                with pytest.raises(RepositoryNotFoundError):
+                    await repositories.artifacts.latest(connection, "project", "handoff", "target")
+
+    asyncio.run(scenario())
+
+
 class _RevokingProvider:
     """A custom provider that never reads the caller's content connection.
 
@@ -330,7 +407,11 @@ class _RevokingProvider:
     async def authorize_sources(self, connection, scope_id, context, sources) -> None:
         pass
 
-    async def establish_owner(self, connection, scope_id, artifact_id, context) -> None:
+    async def authorize_creates(self, connection, scope_id, context, refs) -> None:
+        for ref in refs:
+            await self.authorize(connection, scope_id, context, "create", ref)
+
+    async def establish_owners(self, connection, scope_id, artifact_ids, context) -> None:
         pass
 
     async def authorize(self, connection, scope_id, context, action, ref=None) -> None:

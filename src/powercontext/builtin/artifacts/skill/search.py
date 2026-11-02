@@ -51,11 +51,11 @@ class SkillSearchHit(BaseModel):
 
 @dataclass(frozen=True)
 class SkillSearchOutcome:
-    """Managed Skill hits and their optional exact Artifact materialization."""
+    """Managed Skill hits and their exact Artifact materialization for public search."""
 
     hits: tuple[SkillSearchHit, ...] = ()
     matches: tuple[ArtifactSearchMatch, ...] = ()
-    artifacts: tuple[Skill, ...] | None = None
+    artifacts: tuple[Skill, ...] = ()
 
 
 def skill_search_text(content: SkillContent, package: SkillPackageSnapshot | None = None, /) -> str:

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 import pytest
 
@@ -25,6 +26,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.review import InvalidCandidateError
 from powercontext.builtin.review.generation import GenerationCapabilityUnavailableError
+from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime import (
     ApproveCandidateRequest,
     BuiltinConfig,
@@ -33,6 +35,7 @@ from powercontext.builtin.runtime import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     ListCandidatesRequest,
+    ProposeExperienceRequest,
     SkillGenerationOrigin,
     open_builtin_runtime,
 )
@@ -104,6 +107,57 @@ def test_generation_without_model_fails_before_candidate_persistence() -> None:
             assert inbox.candidates == ()
             assert capabilities.experience_generation is False
             assert capabilities.managed_skill_generation is False
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("generated", [False, True])
+def test_review_adapter_without_commit_hook_preserves_existing_proposal_signature(monkeypatch, generated):
+    class ReviewAdapter:
+        def __init__(self, delegate):
+            self.delegate = delegate
+
+        async def propose_experience(self, proposal, /, *, sources, artifacts, target, reason):
+            return await self.delegate.propose_experience(
+                proposal, sources=sources, artifacts=artifacts, target=target, reason=reason
+            )
+
+    async def scenario():
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()), experience_generator=_ExperienceGenerator(_experience())
+        ) as runtime:
+            scope_id = await _create_scope(runtime)
+            captured = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(
+                    source_id="adapter-evidence", content="The adapter supports reviewed proposals.", metadata={}
+                )
+            )
+            review_factory = runtime._review_service
+            generation_factory = runtime._generation_service
+            assert review_factory is not None and generation_factory is not None
+
+            def review_adapter(scope):
+                return cast(ReviewService, ReviewAdapter(review_factory(scope)))
+
+            def generation_adapter(scope):
+                service = generation_factory(scope)
+                service._review = review_adapter(scope)
+                return service
+
+            monkeypatch.setattr(runtime, "_review_service", review_adapter)
+            monkeypatch.setattr(runtime, "_generation_service", generation_adapter)
+            if generated:
+                result = await runtime.experience.for_scope(scope_id).generate(
+                    GenerateExperienceRequest(sources=(captured.source_ref,))
+                )
+                candidate = result.candidate
+            else:
+                candidate = await runtime.experience.for_scope(scope_id).propose(
+                    ProposeExperienceRequest(proposal=_experience(), sources=(captured.source_ref,))
+                )
+            assert candidate is not None
+            assert candidate.sources == (captured.source_ref,)
+            assert candidate.status.value == "pending"
 
     asyncio.run(scenario())
 

@@ -35,7 +35,7 @@ async def open_code_service(
     from powercontext.builtin.code.seekdb import SeekDBGraphStore
 
     async with SeekDBProfile.open(database, tables=()) as profile:
-        store = SeekDBGraphStore(database.path, profile.connection_options)
+        store = SeekDBGraphStore(database.path, profile.connection_options, database=database.database)
         try:
             await asyncio.to_thread(store.initialize, time.monotonic() + config.limits.build_seconds)
             yield CodeService(config, store=store)

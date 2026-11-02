@@ -88,7 +88,10 @@ async function main() {
     // A Stop Hook never blocks or continues the model turn.
     outputSent = true
     await new Promise(resolve => process.stdout.write('{}\n', resolve))
+    await new Promise(resolve => process.stderr.write('', resolve))
     clearTimeout(deadline)
+    // Completed state and output must not wait for a cancelled transport's remaining handles.
+    process.exit(0)
   }
 }
 await main()

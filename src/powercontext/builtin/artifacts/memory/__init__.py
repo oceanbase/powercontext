@@ -38,6 +38,11 @@ from powercontext.builtin.artifacts.memory.extraction import (
     MemoryExtractionIntent,
     MemoryExtractionOutput,
 )
+from powercontext.builtin.artifacts.memory.jev_reranking import (
+    JEV_MEMORY_RERANK_POLICY,
+    JevMemoryReranker,
+    JevRerankConfig,
+)
 from powercontext.builtin.artifacts.memory.models import (
     EmbeddingProfile,
     MemoryCapabilities,
@@ -93,6 +98,7 @@ from powercontext.builtin.artifacts.memory.reranking import (
 __all__ = [
     "CONVERSATION_MEMORY_EXTRACTION_INSTRUCTIONS",
     "CONVERSATION_MEMORY_EXTRACTION_INSTRUCTIONS_VERSION",
+    "JEV_MEMORY_RERANK_POLICY",
     "MEMORY_EXTRACTION_INSTRUCTIONS",
     "MEMORY_EXTRACTION_INSTRUCTIONS_VERSION",
     "MEMORY_RERANK_INSTRUCTIONS",
@@ -104,6 +110,8 @@ __all__ = [
     "InvalidEmbeddingError",
     "InvalidMemoryCandidateError",
     "InvalidMemoryEvidenceError",
+    "JevMemoryReranker",
+    "JevRerankConfig",
     "KnownMemoryEntryKind",
     "LLMMemoryCandidatePipeline",
     "LLMMemoryReranker",

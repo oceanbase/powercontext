@@ -17,6 +17,8 @@
 import { createHash } from 'node:crypto'
 import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
+import { InvalidResponseError } from './errors.ts'
+import { flushProgress } from './flush.ts'
 import { containsSecret } from './secrets.ts'
 
 export { containsSecret }
@@ -41,21 +43,23 @@ export function buildSourceId(scopeId: string, sessionId: string, turnId: string
   return `pi-user-prompt:${createHash('sha256').update(identity).digest('hex')}`
 }
 
-function sourcePosition(value: unknown): number | undefined {
-  if (!value || typeof value !== 'object') return undefined
+function sourcePosition(value: unknown): number {
+  if (!value || typeof value !== 'object') throw new InvalidResponseError('/v1/sources/content')
   const position = (value as { position?: unknown }).position
-  if (typeof position !== 'number' || !Number.isInteger(position) || position < 1) return undefined
+  if (typeof position !== 'number' || !Number.isInteger(position) || position < 1) {
+    throw new InvalidResponseError('/v1/sources/content')
+  }
   return position
 }
 
 async function flushThrough(input: CaptureInput, position: number): Promise<boolean> {
+  let acknowledged = false
   for (let index = 0; index < input.config.flushMaxCalls; index += 1) {
     try {
       const result = await input.client.request('flush_memory', { scope_id: input.scopeId }, input.signal)
-      const cursor = result.kind === 'json' && result.value && typeof result.value === 'object'
-        ? (result.value as { current_cursor?: unknown }).current_cursor
-        : undefined
-      if (typeof cursor === 'number' && cursor >= position) return true
+      const progress = flushProgress(result.kind === 'json' ? result.value : undefined)
+      acknowledged ||= progress.currentCursor >= position
+      if (acknowledged && !progress.remainingWork) return true
     } catch (error) {
       // A transient flush failure should not discard the captured position.
       try {
@@ -63,16 +67,17 @@ async function flushThrough(input: CaptureInput, position: number): Promise<bool
       } catch {
         // Diagnostics are best effort and must not affect the turn.
       }
+      if (acknowledged) break
     }
   }
-  return false
+  return acknowledged
 }
 
 export async function captureUserPrompt(input: CaptureInput): Promise<number | undefined> {
   if (
     !input.config.capturePrompts
     || Buffer.byteLength(input.prompt, 'utf8') > MAX_SOURCE_BYTES
-    || containsSecret(input.prompt)
+    || containsSecret(input.prompt, input.config.authorization)
   ) {
     return undefined
   }
@@ -89,8 +94,8 @@ export async function captureUserPrompt(input: CaptureInput): Promise<number | u
         turn_id: input.turnId,
       },
     }, input.signal)
-    const position = result.kind === 'json' ? sourcePosition(result.value) : undefined
-    if (input.config.flushOnCapture && position !== undefined && !(await flushThrough(input, position))) {
+    const position = sourcePosition(result.kind === 'json' ? result.value : undefined)
+    if (input.config.flushOnCapture && !(await flushThrough(input, position))) {
       try {
         input.onFlushFailure?.(position)
       } catch {

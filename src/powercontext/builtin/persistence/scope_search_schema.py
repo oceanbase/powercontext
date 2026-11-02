@@ -39,11 +39,13 @@ async def ensure_scope_search_schema(connection: AsyncConnection, /) -> None:
     if dialect not in {"sqlite", "mysql"}:
         raise ValueError(f"unsupported Scope discovery migration dialect: {dialect}")  # noqa: TRY003
 
-    added: list[tuple[str, str]] = []
+    nullable: list[tuple[str, str]] = []
     for table_name, columns in _SEARCH_COLUMNS.items():
-        existing = await _column_names(connection, table_name)
+        existing = await _column_nullability(connection, table_name)
         for column in columns:
             if column in existing:
+                if existing[column]:
+                    nullable.append((table_name, column))
                 continue
             if dialect == "sqlite":
                 await connection.exec_driver_sql(
@@ -51,31 +53,32 @@ async def ensure_scope_search_schema(connection: AsyncConnection, /) -> None:
                 )
             else:
                 await connection.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column} MEDIUMTEXT NULL")
-            added.append((table_name, column))
+                nullable.append((table_name, column))
 
     await _backfill_scopes(connection)
     await _backfill_external_references(connection)
     await _backfill_bindings(connection)
 
     if dialect == "mysql":
-        for table_name, column in added:
+        # MySQL DDL commits independently; recover columns added by an interrupted startup too.
+        for table_name, column in nullable:
             await connection.exec_driver_sql(f"ALTER TABLE {table_name} MODIFY COLUMN {column} MEDIUMTEXT NOT NULL")
 
 
-async def _column_names(connection: AsyncConnection, table_name: str) -> set[str]:
+async def _column_nullability(connection: AsyncConnection, table_name: str) -> dict[str, bool]:
     if connection.dialect.name == "sqlite":
         rows = (await connection.exec_driver_sql(f"PRAGMA table_info('{table_name}')")).mappings()
-        return {str(row["name"]) for row in rows}
+        return {str(row["name"]): not bool(row["notnull"]) for row in rows}
     rows = (
         await connection.execute(
             text(
-                "SELECT column_name FROM information_schema.columns "
+                "SELECT column_name, is_nullable FROM information_schema.columns "
                 "WHERE table_schema = DATABASE() AND table_name = :table_name"
             ),
             {"table_name": table_name},
         )
     ).mappings()
-    return {str(row["column_name"]) for row in rows}
+    return {str(row["column_name"]): str(row["is_nullable"]).upper() == "YES" for row in rows}
 
 
 async def _backfill_scopes(connection: AsyncConnection) -> None:

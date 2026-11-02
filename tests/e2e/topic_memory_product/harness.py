@@ -357,15 +357,15 @@ def _generation_schema(payload: Mapping[str, object]) -> Mapping[str, object]:
                 return cast(Mapping[str, object], parameters)
     rendered_messages = json.dumps(payload.get("messages"), ensure_ascii=False)
     stage_schemas = (
-        ("Identify up to 20 durable topic probes", TopicMemoryProbeOutput),
-        ("Evolve the whole Window into at most 20 topics", TopicMemoryGlobalOutput),
-        ("Plan historical matches for each Topic probe", TopicMemoryPlannerOutput),
-        ("Evolve one Topic probe against its candidate set", TopicMemoryEvolveOutput),
-        ("Draft temporary Topics for unresolved evidence", TopicMemoryTemporaryOutput),
-        ("Reconcile Topic proposals into one publication set", TopicMemoryReconcileOutput),
+        TopicMemoryProbeOutput,
+        TopicMemoryGlobalOutput,
+        TopicMemoryPlannerOutput,
+        TopicMemoryEvolveOutput,
+        TopicMemoryTemporaryOutput,
+        TopicMemoryReconcileOutput,
     )
-    for marker, output_type in stage_schemas:
-        if marker in rendered_messages:
+    for output_type in stage_schemas:
+        if output_type.__name__ in rendered_messages:
             return cast(Mapping[str, object], output_type.model_json_schema())
     raise ValueError("generation request omitted a machine-readable output schema")
 

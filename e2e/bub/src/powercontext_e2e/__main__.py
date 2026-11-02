@@ -131,7 +131,8 @@ def main() -> None:
             run_paired(selected, output_dir=args.output, settings=settings, trials=args.trials, host=args.host)
         )
         # The run is valid when every arm produced a measurement; the task outcome itself is the result.
-        unscored = report.total.off.errors + report.total.on.errors + report.total.on.integration_failures
+        on = report.total.on
+        unscored = report.total.off.errors + on.errors + on.integration_failures + on.cross_scope_accesses
         passed = unscored == 0
     else:
         from .catalog import load_tasks, select_tasks

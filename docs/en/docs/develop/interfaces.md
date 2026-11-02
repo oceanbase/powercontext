@@ -222,6 +222,17 @@ Experience revisions remain excluded.
 For the relationship between evidence, Candidate versions, approved Revisions, recall, and export, see
 [Experience and Skill lifecycle](../workflows/experience-and-skill-lifecycle.md).
 
+## Scheduled Atomic Memory processing
+
+The built-in Source-window schedule compares journal positions with its own persisted consumption cursor before
+activating a Scope. Fully consumed journals skip scoped processing, while buffered windows remain eligible on later
+ticks without requiring another captured Source. Discovery is advisory: authorization and cursor/window checks
+still run in the selected Scope's processing operation, and captures committed after discovery remain visible to
+subsequent ticks.
+
+This selection applies to the built-in Source-window policy. A directly assembled Runtime with a custom Scope
+selector retains that selector, and Experience incubation uses its independent cursor and schedule.
+
 ## Scheduled Experience incubation
 
 An integration can capture a completed task as a Content Source with metadata `"kind": "task-outcome"`. When the
@@ -305,6 +316,12 @@ fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependen
 `timeout`, or `misconfigured`; an intentionally unbound Runtime reports `not_ready` for the `runtime` check.
 Experience and Skill generation, exact reads, external Registry operations, and low-level proposal operations remain
 HTTP-only.
+
+MCP uses stateless Streamable HTTP and does not issue MCP session IDs. When authentication is enabled, each
+request uses its own verified identity and current group membership. Scopes, Memory, and Handoffs remain
+persisted in the Runtime. Reconnect MCP clients after upgrading; cross-request SSE stream resumption is
+unavailable.
+
 `POST /v1/context/prepare` and the matching Python Client method expose final ephemeral `PreparedContext` over HTTP;
 the Runtime recalls active Memory and approved Experience heads, owns their shared selection and total output budget,
 and intentionally does not project the operation as an MCP tool. The public schema remains

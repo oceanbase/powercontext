@@ -17,11 +17,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
+from powercontext.builtin.processing_diagnostics import ProcessingDiagnostics
 
 
 class ArtifactProcessingWorkerOutcome(StrEnum):
@@ -100,6 +102,7 @@ class ArtifactProcessingWorkerFailure:
     block: ArtifactProcessingBlock | None = None
     cancelled: bool = False
     model_usage: ArtifactProcessingModelUsageDelta | None = None
+    diagnostics: ProcessingDiagnostics | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +113,7 @@ class ArtifactProcessingWorkerCompletion:
     held_count: int = 0
     hold_codes: tuple[str, ...] = ()
     model_usage: ArtifactProcessingModelUsageDelta | None = None
+    noop: bool = False
 
 
 class ArtifactProcessingWorkerHandle(Protocol):
@@ -127,6 +131,16 @@ class ArtifactProcessingWorkerLauncher(Protocol):
 
 
 WorkerEntrypoint = Callable[[ArtifactProcessingWorkAssignment], ArtifactProcessingWorkerCompletion | None]
+
+
+@runtime_checkable
+class WorkerInitializerPreparation(Protocol):
+    """Own per-launch resources through spawn or cancellation cleanup.
+
+    The context yields a picklable callable that runs inside the new child.
+    """
+
+    def prepare(self) -> AbstractContextManager[Callable[[], None]]: ...
 
 
 def processing_error_code(exception_type: type[BaseException] | str, error_code: str = "") -> str:
@@ -148,6 +162,8 @@ def processing_error_code(exception_type: type[BaseException] | str, error_code:
         "worker_crash",
         "invalid_worker_result",
         "missing_durable_acknowledgement",
+        "invalid_topic_placeholder",
+        "invalid_topic_coordination_content",
     }:
         return error_code
     return "processing_failed"
@@ -164,5 +180,6 @@ __all__ = [
     "ArtifactProcessingWorkerLauncher",
     "ArtifactProcessingWorkerOutcome",
     "WorkerEntrypoint",
+    "WorkerInitializerPreparation",
     "processing_error_code",
 ]

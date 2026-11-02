@@ -14,21 +14,40 @@
 
 """Memory extraction window reductions retained until the backlog is consumed."""
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.persistence.tables import MEMORY_SOURCE_WINDOWS_TABLE
+from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
+from powercontext.builtin.persistence.tables import MEMORY_SOURCE_WINDOWS_TABLE, SOURCES_TABLE
+from powercontext.limits import MAX_SCOPE_ID_LENGTH
 
 
 class MemorySourceWindowRepository:
     """Keep one bounded recovery hint per Scope, serialized by the Memory cursor CAS."""
 
-    async def limit(self, connection: AsyncConnection, scope_id: str, after: int, configured_limit: int) -> int:
+    async def signal(
+        self, connection: AsyncConnection, scope_id: str, after: int, configured_limit: int
+    ) -> tuple[int, int]:
+        """Read the journal watermark and recovery limit for one window decision."""
+
+        if not isinstance(scope_id, str) or not scope_id.strip() or scope_id != scope_id.strip():
+            raise InvalidRepositoryArgumentError("scope_id", "must be a non-empty trimmed string")
+        if len(scope_id) > MAX_SCOPE_ID_LENGTH:
+            raise InvalidRepositoryArgumentError("scope_id", f"must not exceed {MAX_SCOPE_ID_LENGTH} characters")
         table = MEMORY_SOURCE_WINDOWS_TABLE
-        limit = await connection.scalar(
-            select(table.c.window_limit).where(table.c.scope_id == scope_id, table.c.source_through > after)
+        reduction = (
+            select(table.c.window_limit)
+            .where(table.c.scope_id == scope_id, table.c.source_through > after)
+            .scalar_subquery()
         )
-        return configured_limit if limit is None else min(configured_limit, int(limit))
+        position, limit = (
+            await connection.execute(
+                select(func.coalesce(func.max(SOURCES_TABLE.c.journal_position), 0), reduction).where(
+                    SOURCES_TABLE.c.scope_id == scope_id
+                )
+            )
+        ).one()
+        return int(position), configured_limit if limit is None else min(configured_limit, int(limit))
 
     async def reduce(
         self, connection: AsyncConnection, scope_id: str, *, source_through: int, window_limit: int

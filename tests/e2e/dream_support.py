@@ -59,7 +59,9 @@ class _IndependentMemoryReconciler:
             output=AtomicMemoryReconciliationOutput(
                 action="create",
                 compared_ids=tuple(item.item_id for item in request.related),
-                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                content=AtomicMemoryReconciliationContent(
+                    kind=request.proposal.kind, text=request.proposal.text, description="Independent fixture fact"
+                ),
                 evidence_ids=request.proposal.evidence_ids,
                 reason="Preserve each independent fixture fact and its exact Source evidence.",
             )

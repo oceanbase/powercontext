@@ -960,6 +960,10 @@ state. A failed receipt writes the current `observed_generation`, preserves the 
 digest, and sets `delivery_failed`. Reconciliation retries the same generation while desired state remains unsatisfied;
 only new operator intent advances `generation`. A later success clears `last_error_code`.
 
+Publishing the same desired Revision and tree digest with the current expected generation is a no-op, preserving
+delivery state, observations, errors, and timestamps. A stale expected generation still conflicts. Publishing after
+unpublication or selecting a different Revision creates a new generation.
+
 ### Receiver installation and receipt
 
 For `install`, the Receiver performs these steps in order:

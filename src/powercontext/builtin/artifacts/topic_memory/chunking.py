@@ -34,10 +34,9 @@ TOPIC_MEMORY_CHUNK_TARGET_CHARACTERS = 1_200
 TOPIC_MEMORY_CHUNK_MAX_CHARACTERS = 1_800
 TOPIC_MEMORY_CHUNK_MIN_TAIL_CHARACTERS = 300
 TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS = 160
-# The first-release search contract admits at most 20 Topics per channel.
-# Keeping each Topic at or below 200 chunks therefore bounds sqlite-vec k at
-# 4,000, below its 4,096-neighbor ceiling. Pathological Markdown that would
-# exceed this limit uses the deterministic fixed-window fallback below.
+# Bound per-Topic projection and inference work. Retrieval must independently
+# handle distinct Topics and native neighbor limits; many close sibling chunks
+# can exhaust a raw neighbor pool. Oversized Markdown uses fixed windows below.
 TOPIC_MEMORY_CHUNK_MAX_COUNT = 200
 
 _BLOCK_BOUNDARY = re.compile(r"(?:\n[ \t]*\n+)|(?=^#{1,6}[ \t]+)|(?=^[ \t]*(?:[-*+] |\d+[.)] ))", re.MULTILINE)

@@ -77,6 +77,7 @@ limitations under the License.
   {% if history.selected != history.head %}
     <form class="card-body border-top" method="get" action="/dashboard/{{ page }}">
       <input type="hidden" name="scope" value="{{ scope }}">
+      {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
       {% if history.family == "profile" %}<input type="hidden" name="revision" value="{{ history.selected }}">{% endif %}
       {% if history.family not in ["profile", "prompt", "topic-memory"] %}
         <input type="hidden" name="artifact" value="{{ history.artifact_id }}">
@@ -98,6 +99,7 @@ limitations under the License.
   {% if history.can_rollback and history.selected != history.head and not history.same_content %}
     <form class="card-body border-top" method="post" action="/dashboard/rollback">
       <input type="hidden" name="scope" value="{{ scope }}">
+      {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
       <input type="hidden" name="family" value="{{ history.family }}">
       <input type="hidden" name="artifact_id" value="{{ history.artifact_id }}">
       <input type="hidden" name="source_revision" value="{{ history.selected }}">

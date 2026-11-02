@@ -319,7 +319,7 @@ KIMI_CODE = KimiCodeHost(
     setting_prefix="POWERCONTEXT_E2E_KIMI_CODE_",
     plugin_paths=tuple(
         f"integrations/kimi-code/plugins/powercontext/{name}"
-        for name in ("kimi.plugin.json", "hooks", "scripts", "shared", "skills")
+        for name in ("kimi.plugin.json", "profiles.json", "hooks", "scripts", "shared", "skills")
     ),
 )
 

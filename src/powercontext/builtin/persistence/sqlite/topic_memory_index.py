@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
 
@@ -43,7 +43,6 @@ from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.search import analyze_text, fts_match_query, fts_query_requirements
 from powercontext.builtin.artifacts.topic_memory import (
-    TOPIC_MEMORY_CHUNK_MAX_COUNT,
     TopicMemoryCapabilities,
     TopicMemoryCapabilityError,
     TopicMemoryChannelHit,
@@ -107,7 +106,6 @@ SQLITE_TOPIC_MEMORY_VECTOR_TABLES = (
     SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE,
     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE,
 )
-_SQLITE_VEC_MAX_K = 4096
 
 _CREATE_TOPIC_FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS pc_topic_memory_topic_fts USING fts5(
@@ -148,89 +146,65 @@ _INSERT_CHUNK_FTS_SQL = text(
     """
 )
 _SEARCH_TOPIC_FTS_SQL = """
-    WITH scored AS (
-        SELECT artifact_id, revision, title, summary,
-               bm25(pc_topic_memory_topic_fts) AS score, ({coverage}) AS coverage
-        FROM pc_topic_memory_topic_fts
-        WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
-    )
-    SELECT artifact_id, revision, title, summary, score AS raw_score
-    FROM scored
-    WHERE coverage >= :required_matches
-    ORDER BY score, artifact_id, revision DESC
-    LIMIT :candidate_limit
-    """
-_COUNT_TOPIC_FTS_SQL = """
-    SELECT count(*)
+WITH scored AS MATERIALIZED (
+    SELECT rowid, artifact_id, revision,
+           bm25(pc_topic_memory_topic_fts) AS raw_score,
+           ({coverage}) AS coverage
     FROM pc_topic_memory_topic_fts
     WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
-    """
-_COUNT_TOPIC_FTS_ELIGIBLE_SQL = """
-    WITH scored AS (
-        SELECT ({coverage}) AS coverage
-        FROM pc_topic_memory_topic_fts
-        WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
-    )
-    SELECT count(*)
+), candidates AS (
+    SELECT rowid, artifact_id, revision, raw_score
     FROM scored
     WHERE coverage >= :required_matches
-    """
-_SEARCH_CHUNK_FTS_SQL = """
-    WITH scored AS (
-        SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text,
-               bm25(pc_topic_memory_chunk_fts) AS score, ({coverage}) AS coverage
-        FROM pc_topic_memory_chunk_fts
-        WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
-    ), ranked AS (
-        SELECT scored.*,
-               row_number() OVER (
-                   PARTITION BY artifact_id, revision
-                    ORDER BY coverage DESC, score, chunk_ordinal
-               ) AS topic_rank
-        FROM scored
-    )
-    SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text, score AS raw_score
-    FROM ranked
-    WHERE topic_rank = 1 AND coverage >= :required_matches
-    ORDER BY score, artifact_id, revision DESC, chunk_ordinal
+    ORDER BY raw_score, artifact_id, revision DESC
     LIMIT :candidate_limit
-    """
-_COUNT_CHUNK_FTS_SQL = """
-    WITH scored AS (
-        SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text,
-               bm25(pc_topic_memory_chunk_fts) AS score, ({coverage}) AS coverage
-        FROM pc_topic_memory_chunk_fts
-        WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
-    ), ranked AS (
-        SELECT scored.*,
-               row_number() OVER (
-                   PARTITION BY artifact_id, revision
-                    ORDER BY coverage DESC, score, chunk_ordinal
-               ) AS topic_rank
-        FROM scored
-    )
-    SELECT count(*)
+), rejected AS (
+    SELECT 1 FROM scored WHERE coverage < :required_matches LIMIT 1
+)
+SELECT c.artifact_id AS artifact_id, c.revision AS revision, f.title, f.summary,
+       c.raw_score AS raw_score, 0 AS is_rejected
+FROM candidates AS c
+JOIN pc_topic_memory_topic_fts AS f ON f.rowid = c.rowid
+UNION ALL
+SELECT NULL, NULL, NULL, NULL, NULL, 1 FROM rejected
+ORDER BY is_rejected, raw_score, artifact_id, revision DESC
+"""
+_SEARCH_CHUNK_FTS_SQL = """
+WITH scored AS MATERIALIZED (
+    SELECT rowid, artifact_id, revision, chunk_ordinal,
+           bm25(pc_topic_memory_chunk_fts) AS raw_score,
+           ({coverage}) AS coverage
+    FROM pc_topic_memory_chunk_fts
+    WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
+), ranked AS (
+    SELECT scored.*,
+           row_number() OVER (
+               PARTITION BY artifact_id, revision
+               ORDER BY coverage DESC, raw_score, chunk_ordinal
+           ) AS topic_rank
+    FROM scored
+), matched AS MATERIALIZED (
+    SELECT rowid, artifact_id, revision, chunk_ordinal, raw_score, coverage
     FROM ranked
     WHERE topic_rank = 1
-    """
-_COUNT_CHUNK_FTS_ELIGIBLE_SQL = """
-    WITH scored AS (
-        SELECT artifact_id, revision, chunk_ordinal,
-               bm25(pc_topic_memory_chunk_fts) AS score, ({coverage}) AS coverage
-        FROM pc_topic_memory_chunk_fts
-        WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
-    ), ranked AS (
-        SELECT scored.*,
-               row_number() OVER (
-                   PARTITION BY artifact_id, revision
-                    ORDER BY coverage DESC, score, chunk_ordinal
-               ) AS topic_rank
-        FROM scored
-    )
-    SELECT count(*)
-    FROM ranked
-    WHERE topic_rank = 1 AND coverage >= :required_matches
-    """
+), candidates AS (
+    SELECT rowid, artifact_id, revision, chunk_ordinal, raw_score
+    FROM matched
+    WHERE coverage >= :required_matches
+    ORDER BY raw_score, artifact_id, revision DESC, chunk_ordinal
+    LIMIT :candidate_limit
+), rejected AS (
+    SELECT 1 FROM matched WHERE coverage < :required_matches LIMIT 1
+)
+SELECT c.artifact_id AS artifact_id, c.revision AS revision, f.title, f.summary,
+       c.chunk_ordinal AS chunk_ordinal, f.start_offset, f.chunk_text,
+       c.raw_score AS raw_score, 0 AS is_rejected
+FROM candidates AS c
+JOIN pc_topic_memory_chunk_fts AS f ON f.rowid = c.rowid
+UNION ALL
+SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1 FROM rejected
+ORDER BY is_rejected, raw_score, artifact_id, revision DESC, chunk_ordinal
+"""
 
 _DELETE_TOPIC_VECTOR_SQL = text("DELETE FROM pc_topic_memory_topic_vec WHERE rowid = :vector_id")
 _DELETE_CHUNK_VECTOR_SQL = text("DELETE FROM pc_topic_memory_chunk_vec WHERE rowid = :vector_id")
@@ -246,59 +220,65 @@ _PROBE_TOPIC_VECTOR_SQL = (
 _PROBE_CHUNK_VECTOR_SQL = (
     "SELECT rowid FROM pc_topic_memory_chunk_vec WHERE scope_id = ? AND embedding MATCH ? AND k = 1"
 )
-_TOPIC_VECTOR_SEARCH_SQL = text(
-    """
-    WITH nearest AS (
-        SELECT rowid, distance FROM pc_topic_memory_topic_vec
-        WHERE scope_id = :scope_id AND embedding MATCH :query_vector AND k = :neighbor_limit
-          AND rowid IN (
-              SELECT vector_id FROM pc_topic_memory_vector_topics
-              WHERE scope_id = :scope_id AND profile_fingerprint = :profile_fingerprint
-          )
+
+
+def _vector_search_sql(*, detail: bool, exact: bool = False) -> str:
+    """Rank vector identities first; hydrate only the selected exact Topics/chunks."""
+    channel = "chunk" if detail else "topic"
+    metadata = f"pc_topic_memory_vector_{'chunks' if detail else 'topics'}"
+    vectors = f"pc_topic_memory_{channel}_vec"
+    # Startup validates each metadata ID's native Scope; publication maintains
+    # that mapping atomically. Exact point reads need only the scoped metadata.
+    nearest = (
+        f"SELECT v.vector_id AS rowid, vec_distance_l2(r.embedding, :query_vector) AS distance "  # noqa: S608
+        f"FROM {metadata} AS v JOIN {vectors} AS r ON r.rowid=v.vector_id "
+        "WHERE v.scope_id=:scope_id AND v.profile_fingerprint=:profile_fingerprint"
+        if exact
+        else f"SELECT rowid, distance FROM {vectors} "  # noqa: S608
+        "WHERE scope_id=:scope_id AND embedding MATCH :query_vector AND k=:neighbor_limit "
+        f"AND rowid IN (SELECT vector_id FROM {metadata} "
+        "WHERE scope_id=:scope_id AND profile_fingerprint=:profile_fingerprint)"
     )
-    SELECT a.artifact_id, a.revision, a.title, a.summary, nearest.distance
-    FROM nearest
-    JOIN pc_topic_memory_vector_topics AS v ON v.vector_id = nearest.rowid
-    JOIN pc_topic_memory_active_topics AS a
-      ON a.scope_id = v.scope_id AND a.artifact_id = v.artifact_id AND a.revision = v.revision
-    WHERE v.scope_id = :scope_id
-    ORDER BY nearest.distance, a.artifact_id, a.revision DESC
-    LIMIT :candidate_limit
-    """
-)
-_CHUNK_VECTOR_SEARCH_SQL = text(
-    """
-    WITH nearest AS (
-        SELECT rowid, distance FROM pc_topic_memory_chunk_vec
-        WHERE scope_id = :scope_id AND embedding MATCH :query_vector AND k = :neighbor_limit
-          AND rowid IN (
-              SELECT vector_id FROM pc_topic_memory_vector_chunks
-              WHERE scope_id = :scope_id AND profile_fingerprint = :profile_fingerprint
-          )
-    ), ranked AS (
-        SELECT a.artifact_id, a.revision, a.title, a.summary,
-               c.chunk_ordinal, c.start_offset, c.chunk_text, nearest.distance,
-               row_number() OVER (
-                   PARTITION BY a.artifact_id, a.revision
-                   ORDER BY nearest.distance, c.chunk_ordinal
-               ) AS topic_rank
-        FROM nearest
-        JOIN pc_topic_memory_vector_chunks AS v ON v.vector_id = nearest.rowid
-        JOIN pc_topic_memory_active_topics AS a
-          ON a.scope_id = v.scope_id AND a.artifact_id = v.artifact_id AND a.revision = v.revision
-        JOIN pc_topic_memory_active_chunks AS c
-          ON c.scope_id = v.scope_id AND c.artifact_id = v.artifact_id
-         AND c.revision = v.revision AND c.chunk_ordinal = v.chunk_ordinal
-        WHERE v.scope_id = :scope_id
+    observations = "0 AS neighbor_count" if exact else "COUNT(*) OVER () AS neighbor_count"
+    ordinal = ", v.chunk_ordinal" if detail else ""
+    rank = (
+        ", row_number() OVER (PARTITION BY v.artifact_id, v.revision "
+        "ORDER BY n.distance, v.chunk_ordinal) AS topic_rank"
+        if detail
+        else ""
     )
-    SELECT artifact_id, revision, title, summary,
-           chunk_ordinal, start_offset, chunk_text, distance
-    FROM ranked
-    WHERE topic_rank = 1
-    ORDER BY distance, artifact_id, revision DESC, chunk_ordinal
-    LIMIT :candidate_limit
-    """
-)
+    order = "distance, artifact_id, revision DESC" + (", chunk_ordinal" if detail else "")
+    chunk_columns = ", c.chunk_ordinal, c.start_offset, c.chunk_text" if detail else ""
+    chunk_join = (
+        "JOIN pc_topic_memory_active_chunks AS c ON c.scope_id=:scope_id "
+        "AND c.artifact_id=s.artifact_id AND c.revision=s.revision AND c.chunk_ordinal=s.chunk_ordinal "
+        if detail
+        else ""
+    )
+    eligible_chunks = chunk_join.replace("s.", "v.")
+    representative = "WHERE topic_rank=1" if detail else ""
+    final_order = "s.distance, s.artifact_id, s.revision DESC" + (", s.chunk_ordinal" if detail else "")
+    return (
+        f"WITH nearest AS MATERIALIZED ({nearest}), "  # noqa: S608
+        f"observed AS (SELECT rowid, distance, {observations} FROM nearest), "
+        f"ranked AS (SELECT v.artifact_id, v.revision{ordinal}, n.distance, "
+        f"n.neighbor_count{rank} FROM observed AS n "
+        f"JOIN {metadata} AS v ON v.vector_id=n.rowid "
+        "JOIN pc_topic_memory_active_topics AS a ON a.scope_id=v.scope_id "
+        "AND a.artifact_id=v.artifact_id AND a.revision=v.revision "
+        f"{eligible_chunks}WHERE v.scope_id=:scope_id), "
+        f"selected AS (SELECT * FROM ranked {representative} ORDER BY {order} LIMIT :candidate_limit) "
+        f"SELECT s.artifact_id, s.revision, a.title, a.summary{chunk_columns}, "
+        "s.distance, s.neighbor_count FROM selected AS s "
+        "JOIN pc_topic_memory_active_topics AS a ON a.scope_id=:scope_id "
+        f"AND a.artifact_id=s.artifact_id AND a.revision=s.revision {chunk_join}ORDER BY {final_order}"
+    )
+
+
+_TOPIC_VECTOR_SEARCH_SQL = text(_vector_search_sql(detail=False))
+_CHUNK_VECTOR_SEARCH_SQL = text(_vector_search_sql(detail=True))
+_TOPIC_VECTOR_EXACT_SQL = text(_vector_search_sql(detail=False, exact=True))
+_CHUNK_VECTOR_EXACT_SQL = text(_vector_search_sql(detail=True, exact=True))
 
 
 class SQLiteTopicMemoryFTSIndex:
@@ -361,28 +341,44 @@ class SQLiteTopicMemoryFTSIndex:
         projection: TopicMemoryProjection,
         /,
     ) -> None:
-        identity = {"scope_id": scope_id, "artifact_id": topic_ref.artifact_id}
-        await connection.execute(_DELETE_TOPIC_FTS_SQL, identity)
-        await connection.execute(_DELETE_CHUNK_FTS_SQL, identity)
-        topic_values = {
-            **identity,
-            "revision": topic_ref.revision,
-            "title": projection.content.title,
-            "summary": projection.content.summary,
-            "searchable_text": projection.topic_searchable_text,
-        }
-        await connection.execute(_INSERT_TOPIC_FTS_SQL, topic_values)
-        for chunk in projection.chunks:
-            await connection.execute(
-                _INSERT_CHUNK_FTS_SQL,
+        await self.replace_many(connection, scope_id, ((topic_ref, projection),))
+
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
+        if not items:
+            return
+        identities = [{"scope_id": scope_id, "artifact_id": ref.artifact_id} for ref, _ in items]
+        await connection.execute(_DELETE_TOPIC_FTS_SQL, identities)
+        await connection.execute(_DELETE_CHUNK_FTS_SQL, identities)
+        topics = []
+        chunks = []
+        for (ref, projection), identity in zip(items, identities, strict=True):
+            values = {
+                **identity,
+                "revision": ref.revision,
+                "title": projection.content.title,
+                "summary": projection.content.summary,
+                "searchable_text": projection.topic_searchable_text,
+            }
+            topics.append(values)
+            chunks.extend(
                 {
-                    **topic_values,
+                    **values,
                     "chunk_ordinal": chunk.ordinal,
                     "start_offset": chunk.start_offset,
                     "chunk_text": chunk.text,
                     "searchable_text": analyze_text(chunk.text),
-                },
+                }
+                for chunk in projection.chunks
             )
+        await connection.execute(_INSERT_TOPIC_FTS_SQL, topics)
+        if chunks:
+            await connection.execute(_INSERT_CHUNK_FTS_SQL, chunks)
 
     async def search(
         self,
@@ -410,39 +406,22 @@ class SQLiteTopicMemoryFTSIndex:
             "required_matches": required_matches,
             **{f"coverage_term_{position}": f" {term} " for position, term in enumerate(query_terms)},
         }
-        topic_retrieved = await connection.scalar(text(_COUNT_TOPIC_FTS_SQL), parameters)
-        topic_eligible = await connection.scalar(
-            text(_COUNT_TOPIC_FTS_ELIGIBLE_SQL.format(coverage=coverage)),
-            parameters,
+        topic_rows = tuple(
+            (await connection.execute(text(_SEARCH_TOPIC_FTS_SQL.format(coverage=coverage)), parameters)).mappings()
         )
-        topic_rows = (
-            await connection.execute(text(_SEARCH_TOPIC_FTS_SQL.format(coverage=coverage)), parameters)
-        ).mappings()
-        detail_retrieved = await connection.scalar(text(_COUNT_CHUNK_FTS_SQL.format(coverage=coverage)), parameters)
-        detail_eligible = await connection.scalar(
-            text(_COUNT_CHUNK_FTS_ELIGIBLE_SQL.format(coverage=coverage)),
-            parameters,
+        chunk_rows = tuple(
+            (await connection.execute(text(_SEARCH_CHUNK_FTS_SQL.format(coverage=coverage)), parameters)).mappings()
         )
-        chunk_rows = (
-            await connection.execute(text(_SEARCH_CHUNK_FTS_SQL.format(coverage=coverage)), parameters)
-        ).mappings()
+        topic_hits = tuple(_channel_hit(row, "topic_fts") for row in topic_rows if not row["is_rejected"])
+        chunk_hits = tuple(_channel_hit(row, "detail_fts") for row in chunk_rows if not row["is_rejected"])
         return TopicMemorySearchChannels(
-            topic_fts=tuple(_channel_hit(row, "topic_fts") for row in topic_rows),
-            detail_fts=tuple(_channel_hit(row, "detail_fts") for row in chunk_rows),
-            topic_fts_retrieved=int(topic_retrieved or 0),
-            detail_fts_retrieved=int(detail_retrieved or 0),
-            topic_fts_eligible=int(topic_eligible or 0),
-            detail_fts_eligible=int(detail_eligible or 0),
+            topic_fts=topic_hits,
+            detail_fts=chunk_hits,
+            topic_fts_retrieved=len(topic_rows),
+            detail_fts_retrieved=len(chunk_rows),
+            topic_fts_eligible=len(topic_hits),
+            detail_fts_eligible=len(chunk_hits),
         )
-
-    async def vector_complete(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        _topic_ref: ArtifactRef,
-        /,
-    ) -> bool:
-        return False
 
 
 class SQLiteTopicMemoryVectorIndex:
@@ -558,7 +537,6 @@ class SQLiteTopicMemoryVectorIndex:
                 profile_fingerprint=self._fingerprint,
             )
         )
-        # SQLite before 3.35 supports lastrowid, but not INSERT ... RETURNING.
         topic_id = inserted.lastrowid
         await connection.execute(
             _INSERT_TOPIC_VECTOR_SQL,
@@ -600,6 +578,16 @@ class SQLiteTopicMemoryVectorIndex:
                 },
             )
 
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
+        for ref, projection in items:
+            await self.replace(connection, scope_id, ref, projection)
+
     async def search(
         self,
         connection: AsyncConnection,
@@ -624,96 +612,26 @@ class SQLiteTopicMemoryVectorIndex:
             "profile_fingerprint": self._fingerprint,
             "candidate_limit": request.candidate_limit,
         }
-        topic_rows = (
-            await connection.execute(
-                _TOPIC_VECTOR_SEARCH_SQL,
-                {**parameters, "neighbor_limit": request.candidate_limit},
-            )
-        ).mappings()
-        chunk_rows = (
-            await connection.execute(
-                _CHUNK_VECTOR_SEARCH_SQL,
-                {
-                    **parameters,
-                    "neighbor_limit": min(
-                        request.candidate_limit * TOPIC_MEMORY_CHUNK_MAX_COUNT,
-                        _SQLITE_VEC_MAX_K,
-                    ),
-                },
-            )
-        ).mappings()
         return TopicMemorySearchChannels(
-            topic_vector=tuple(_channel_hit(row, "topic_vector") for row in topic_rows),
-            detail_vector=tuple(_channel_hit(row, "detail_vector") for row in chunk_rows),
+            topic_vector=await self._vector_hits(connection, parameters, detail=False),
+            detail_vector=await self._vector_hits(connection, parameters, detail=True),
         )
 
-    async def vector_complete(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        topic_ref: ArtifactRef,
-        /,
-    ) -> bool:
-        topic = (
-            await connection.execute(
-                select(
-                    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE.c.vector_id,
-                    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE.c.profile_fingerprint,
-                ).where(
-                    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE.c.scope_id == scope_id,
-                    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE.c.artifact_id == topic_ref.artifact_id,
-                    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE.c.revision == topic_ref.revision,
-                )
+    async def _vector_hits(
+        self, connection: AsyncConnection, parameters: Mapping[str, Any], *, detail: bool
+    ) -> tuple[TopicMemoryChannelHit, ...]:
+        limit = parameters["candidate_limit"]
+        neighbor_limit = limit * 4 if detail else limit
+        statement = _CHUNK_VECTOR_SEARCH_SQL if detail else _TOPIC_VECTOR_SEARCH_SQL
+        rows = tuple((await connection.execute(statement, {**parameters, "neighbor_limit": neighbor_limit})).mappings())
+        if rows and rows[0]["neighbor_count"] == neighbor_limit and len(rows) < limit:
+            rows = tuple(
+                (
+                    await connection.execute(_CHUNK_VECTOR_EXACT_SQL if detail else _TOPIC_VECTOR_EXACT_SQL, parameters)
+                ).mappings()
             )
-        ).one_or_none()
-        if topic is None or str(topic[1]) != self._fingerprint:
-            return False
-        expected_ordinals = set(
-            (
-                await connection.execute(
-                    select(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal).where(
-                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
-                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == topic_ref.artifact_id,
-                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == topic_ref.revision,
-                    )
-                )
-            ).scalars()
-        )
-        chunks = (
-            await connection.execute(
-                select(
-                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.vector_id,
-                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.profile_fingerprint,
-                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.chunk_ordinal,
-                ).where(
-                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.scope_id == scope_id,
-                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.artifact_id == topic_ref.artifact_id,
-                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.revision == topic_ref.revision,
-                )
-            )
-        ).all()
-        if not expected_ordinals or {int(row[2]) for row in chunks} != expected_ordinals:
-            return False
-        if str(topic[1]) != self._fingerprint or any(str(row[1]) != self._fingerprint for row in chunks):
-            return False
-        topic_vector = await connection.scalar(
-            text("SELECT rowid FROM pc_topic_memory_topic_vec WHERE rowid = :vector_id AND scope_id = :scope_id"),
-            {"vector_id": int(topic[0]), "scope_id": scope_id},
-        )
-        if topic_vector is None:
-            return False
-        for row in chunks:
-            if (
-                await connection.scalar(
-                    text(
-                        "SELECT rowid FROM pc_topic_memory_chunk_vec WHERE rowid = :vector_id AND scope_id = :scope_id"
-                    ),
-                    {"vector_id": int(row[0]), "scope_id": scope_id},
-                )
-                is None
-            ):
-                return False
-        return True
+        channel = "detail_vector" if detail else "topic_vector"
+        return tuple(_channel_hit(row, channel) for row in rows)
 
     async def _delete_existing(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None:
         topics = (

@@ -24,6 +24,9 @@ Experience 或 Skill 操作会创建 `pending` Candidate。Candidate 有当前 h
 Reviewer 只能操作自己检查过的 version。`expected_version` 防止 Candidate 被其他写入者修改后，批准、拒绝或修订仍静默
 作用于旧内容。批准和拒绝都是终态。
 
+授权检查通过后，批准已被拒绝的 Candidate 会直接返回终态错误，不再校验 target、evidence 或请求 embedding。
+对已批准的 Candidate 使用相同 version 重复批准会返回已保存的结果。如果拒绝与准备过程并发发生，提交阶段仍会阻止发布。
+
 Candidate 不是 Artifact Revision：
 
 - `pending` 内容没有 `result_artifact`；

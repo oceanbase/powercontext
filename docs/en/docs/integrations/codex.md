@@ -29,6 +29,18 @@ client settings and the previously installed MCP URL. Without a new declaration,
 Conflicting file and process declarations still require an explicit choice; use `--server-url` and align or unset
 runtime URL overrides before rerunning setup. `--source` selects plugin code, not the Server endpoint.
 
+On Windows, setup and diagnostics resolve the Codex executable on PATH, including npm `.cmd` launchers.
+A launcher found in the working directory is not preferred over PATH: discovery enumerates PATH directories
+directly, while explicit entries - including `.` and empty entries - keep their usual position and meaning.
+An empty `PATH` value means no search at all, and an unset `PATH` falls back to the standard system search
+roots, matching `shutil.which` in both cases.
+For `.cmd` / `.bat` launchers, PowerContext rejects shell metacharacters (`& | < > ( ) ^ % ! "`) and ASCII control characters
+in the executable path or command arguments before starting that command. Spaces and Unicode are supported.
+This avoids silently changing a source or ref through batch interpretation; use a native executable or a launcher path
+and arguments without these characters. The restriction does not apply to native executables or other platforms.
+Unsupported source/ref arguments are rejected before marketplace registration. If a later command is rejected because
+of a returned marketplace name, registration may already have completed; this does not roll back the installation.
+
 ### First-session Hook trust
 
 Open a new Codex session after setup. Before sending the first message, use `/hooks` to inspect PowerContext's hooks
@@ -124,7 +136,7 @@ a few Memory entries. Read [Memory and Handoff](../workflows/memory-and-handoff.
 ## Opt in to Session bootstrap context
 
 Bootstrap context is off by default. To load a small, deterministic package before Codex's first prompt on
-`startup`, `resume`, `clear`, or `compact`, start Codex with:
+`startup`, `resume`, `clear`, `compact`, or `fork`, start Codex with:
 
 ```bash
 export POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=true
@@ -362,3 +374,7 @@ The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail ind
 the Server is unavailable or rejects authentication. Without an explicit Scope, the plugin resolves the Session
 binding, workspace binding, then Server default. Process-level settings must be present in the environment that starts
 Codex. Windows setup writes authorization to the user environment, but Desktop must be restarted to inherit it.
+
+## Automatic input privacy
+
+See [Automatic prompt privacy](index.md#automatic-prompt-privacy) for this host's capture default, disable control, credential recognition limits and independent read-only query handling. Recognized inputs are skipped for capture; accepted Source content and event identity are not rewritten.

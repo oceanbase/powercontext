@@ -5,8 +5,8 @@ This plugin is a thin DeepSeek Harness integration for a running PowerContext Se
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.4.0
+uv tool install --force "powercontext[cli,server]==1.4.1"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.4.1
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.

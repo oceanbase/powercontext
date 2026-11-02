@@ -173,10 +173,9 @@ class RecallSufficiencyPolicy:
     means "use this module's historical constants" and is therefore bit-identical to a
     disabled lookup; a separate ``base_admission`` field would only duplicate that default.
 
-    ``rerank_enabled`` is read from Runtime configuration, not from whether a reranker
-    instance exists, because the gate must decide *before* searching whether expansion is
-    allowed at all. If configuration and reality ever diverge, the cost column stays honest
-    separately: ``added_generation_calls`` is filled from the search-reported rerank counts.
+    Runtime assembly supplies the effective rerank strategy, including injected rerankers,
+    so the gate decides before searching whether expansion is allowed. Cost accounting
+    uses the search-reported rerank counts independently.
     """
 
     policy_id: str = POLICY_ID

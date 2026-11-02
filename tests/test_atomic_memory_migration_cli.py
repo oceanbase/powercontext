@@ -24,9 +24,12 @@ import pytest
 from click import unstyle
 from typer.testing import CliRunner
 
+from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
+from powercontext.builtin.persistence.seekdb import LegacySeekDBDatabaseError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.cli.app import create_cli
+from powercontext.server import cli as server_cli
 from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.cli import app
@@ -39,6 +42,67 @@ def maintenance_cli(monkeypatch):
             monkeypatch.delenv(key)
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "sqlite")
     return create_cli([app])
+
+
+@pytest.mark.parametrize("action", ["plan", "apply", "verify"])
+@pytest.mark.parametrize("uri", [False, True])
+@pytest.mark.parametrize("access_mode", ["disabled", "enforced"])
+def test_snapshot_budget_rejection_preserves_existing_database(
+    tmp_path, monkeypatch, maintenance_cli, action, uri, access_mode
+):
+    from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+    from powercontext.builtin.sources.content import ContentSource
+    from powercontext.sources import SourceMaterialization
+
+    database = tmp_path / "snapshot budget%.db"
+
+    async def seed():
+        async with open_builtin_contexts(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"))
+        ) as contexts:
+            await contexts.get("scope")
+            async with contexts.database.transaction() as connection:
+                for index in range(8):
+                    await contexts.repositories.sources.add(
+                        connection,
+                        "scope",
+                        ContentSource(
+                            name=f"source-{index}",
+                            content="x" * 65536,
+                            materialization=SourceMaterialization.CAPTURED,
+                        ),
+                    )
+
+    asyncio.run(seed())
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        assert connection.execute("PRAGMA journal_mode = DELETE").fetchone()[0] == "delete"
+    original = database.read_bytes()
+    url = f"sqlite+aiosqlite:///{database.as_uri()}?mode=rw&uri=true" if uri else f"sqlite+aiosqlite:///{database}"
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_URL", url)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ACCESS_MODE", access_mode)
+    arguments = ["server", "atomic-memory-migrate", "--action", action]
+    if action == "apply":
+        arguments.append("--maintenance-confirmed")
+
+    result = CliRunner().invoke(maintenance_cli, [*arguments, "--snapshot-budget-mib", "1"])
+
+    assert result.exit_code == 1, result.output
+    report = json.loads(result.output)
+    assert report["ready"] is False
+    assert report["processing_snapshot_hash"] is None
+    assert any("snapshot" in error and "budget" in error for error in report["errors"])
+    assert database.read_bytes() == original
+    assert set(tmp_path.iterdir()) == {database}
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert connection.execute("SELECT COUNT(*) FROM pc_sources").fetchone()[0] == 8
+
+    retried = CliRunner().invoke(maintenance_cli, [*arguments, "--snapshot-budget-mib", "8"])
+    assert retried.exit_code == 0, retried.output
+    accepted = json.loads(retried.output)
+    assert accepted["ready"] is True
+    assert accepted["processing_snapshot_hash"] is not None
 
 
 @pytest.mark.parametrize("action", ["plan", "verify"])
@@ -165,6 +229,38 @@ def test_apply_and_rebuild_retain_writable_sqlite_initialization(tmp_path, monke
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert {"pc_atomic_memory_current", "pc_atomic_memory_current_fts"} <= tables
         assert "pc_atomic_memory_states" not in tables
+
+
+def test_owner_decision_file_is_loaded_and_unknown_entry_is_rejected(tmp_path, monkeypatch, maintenance_cli):
+    database = tmp_path / "maintenance.db"
+    with closing(sqlite3.connect(database)):
+        pass
+    decisions = tmp_path / "owners.json"
+    decisions.write_text(
+        json.dumps({
+            "format": "powercontext.atomic-memory-owner-decisions.v1",
+            "decisions": [
+                {
+                    "scope_id": "scope-a",
+                    "memory_id": "memory-a",
+                    "entry_id": "entry-a",
+                    "action": "establish",
+                    "owner": {"type": "user", "id": "owner-a"},
+                    "idempotency_key": "recover-owner:entry-a",
+                }
+            ],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_URL", f"sqlite+aiosqlite:///{database}")
+
+    result = CliRunner().invoke(
+        maintenance_cli,
+        ["server", "atomic-memory-migrate", "--action", "plan", "--owner-decisions", str(decisions)],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "owner decision targets unknown legacy entry scope-a/memory-a/entry-a" in result.output
 
 
 def test_rebuild_upgrades_old_revision_schema_without_backfilling_history(tmp_path, monkeypatch, maintenance_cli):
@@ -324,3 +420,111 @@ def test_obsolete_development_projection_requires_explicit_rebuild(tmp_path, mon
             assert [hit.hit.artifact_ref.artifact_id for hit in result.hits] == [created.artifact_id]
 
     asyncio.run(read_and_write())
+
+
+class _ReadOnlyInspection:
+    """A backend profile whose read-only opener refuses to provision the database."""
+
+    @classmethod
+    def open(cls, config, *, tables):
+        raise AssertionError("read-only inspection must not use the provisioning opener")  # noqa: TRY003
+
+    @classmethod
+    def open_existing(cls, config, *, tables):
+        raise MissingDatabaseError("configured_db")
+
+
+@pytest.mark.parametrize("action", ["plan", "verify"])
+@pytest.mark.parametrize("backend", ["oceanbase", "seekdb"])
+def test_inspection_never_provisions_the_configured_database(tmp_path, monkeypatch, maintenance_cli, action, backend):
+    # Exercise SDK upkeep after the separate Server ownership check.
+    monkeypatch.setattr(server_cli, "_managed_storage", lambda _database, **_kwargs: False)
+    monkeypatch.setattr(server_cli, "OceanBaseProfile", _ReadOnlyInspection)
+    monkeypatch.setattr(server_cli, "SeekDBProfile", _ReadOnlyInspection)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", backend)
+    if backend == "oceanbase":
+        monkeypatch.setenv(
+            "POWERCONTEXT_SERVER_DATABASE_URL",
+            "mysql+aoceanbase://user:password@host:2881/configured_db?charset=utf8mb4",
+        )
+    else:
+        monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
+
+    result = CliRunner().invoke(maintenance_cli, ["server", "atomic-memory-migrate", "--action", action])
+
+    assert result.exit_code == 2, result.output
+    assert "require an existing database" in unstyle(result.output)
+    assert "configured_db" in unstyle(result.output)
+
+
+@pytest.mark.parametrize("action", ["plan", "verify"])
+@pytest.mark.parametrize("target_state", ["missing", "empty", "file", "unrecognized"])
+def test_inspection_preserves_uninitialized_seekdb_target(tmp_path, monkeypatch, maintenance_cli, action, target_state):
+    path = tmp_path / "missing-parent" / "seekdb"
+    if target_state == "empty":
+        path.mkdir(parents=True)
+    elif target_state == "file":
+        path.parent.mkdir()
+        path.write_bytes(b"retained evidence")
+    elif target_state == "unrecognized":
+        path.mkdir(parents=True)
+        (path / "user-content.txt").write_bytes(b"retained evidence")
+    original = {
+        item.relative_to(tmp_path): item.read_bytes() if item.is_file() else None for item in tmp_path.rglob("*")
+    }
+
+    def unexpected_binding():
+        pytest.fail("inspection must reject an uninitialized target before starting the native engine")
+
+    monkeypatch.setattr("powercontext.builtin.persistence.seekdb.profile._load_binding", unexpected_binding)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(path))
+    result = CliRunner().invoke(maintenance_cli, ["server", "atomic-memory-migrate", "--action", action])
+
+    if target_state in {"file", "unrecognized"}:
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.output)["error"] == "unsupported_target"
+    else:
+        assert result.exit_code == 2, result.output
+        assert "existing seekdb instance" in unstyle(result.output)
+    # Shared admission retains its coordination lock beside the target. It must
+    # not initialize native storage or change any existing target contents.
+    lock = path.with_name(path.name + ".pc-migration.lock")
+    assert {
+        item.relative_to(tmp_path): item.read_bytes() if item.is_file() else None
+        for item in tmp_path.rglob("*")
+        if item != lock
+    } == original
+
+
+@pytest.mark.parametrize(
+    ("command", "action"),
+    [
+        ("atomic-memory-migrate", "plan"),
+        ("atomic-memory-migrate", "verify"),
+        ("atomic-memory-migrate", "apply"),
+        ("atomic-memory-rebuild-projection", None),
+    ],
+)
+def test_legacy_seekdb_requires_an_explicit_database_choice(tmp_path, monkeypatch, maintenance_cli, command, action):
+    class _LegacyRefusal:
+        @classmethod
+        def open(cls, config, *, tables):
+            raise LegacySeekDBDatabaseError(config.path)
+
+        @classmethod
+        def open_existing(cls, config, *, tables):
+            raise LegacySeekDBDatabaseError(config.path)
+
+    monkeypatch.setattr(server_cli, "SeekDBProfile", _LegacyRefusal)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
+
+    arguments = ["server", command, "--maintenance-confirmed"]
+    if action is not None:
+        arguments.extend(["--action", action])
+    result = CliRunner().invoke(maintenance_cli, arguments)
+
+    assert result.exit_code == 2, result.output
+    assert "POWERCONTEXT_SERVER_DATABASE_DATABASE" in unstyle(result.output)
+    assert "Traceback" not in result.output

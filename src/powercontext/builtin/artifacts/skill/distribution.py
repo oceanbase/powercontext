@@ -447,6 +447,12 @@ class RemoteSkillDistributionService:
                 )
                 return await self._publications.create(connection, publication)
             self._require_publication_generation(current, expected_generation)
+            if (
+                current.desired_state is SkillPublicationDesiredState.PUBLISHED
+                and current.desired_revision == skill.revision
+                and current.desired_tree_digest == package.reference.tree_digest
+            ):
+                return current
             desired = current.model_copy(
                 update={
                     "desired_state": SkillPublicationDesiredState.PUBLISHED,
@@ -457,8 +463,6 @@ class RemoteSkillDistributionService:
                     "last_error_code": None,
                 }
             )
-            if _same_publication_payload(desired, current):
-                return current
             return await self._publications.replace(connection, desired, current.generation)
 
     async def unpublish(

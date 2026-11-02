@@ -18,7 +18,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -133,6 +133,10 @@ def test_legacy_migration_preserves_targets_untracked_calls_cursor_and_remaining
                 intents = {
                     row.scope_id: row for row in await ArtifactProcessingIntentRepository().scan(connection, BINDING)
                 }
+                observation = await ArtifactProcessingIntentRepository().pending_observation(connection, BINDING)
+                assert observation.pending_count == 3
+                table_names = await connection.run_sync(lambda sync: inspect(sync).get_table_names())
+                assert "pc_artifact_processing_requests" not in table_names
                 assert intents["flush"].requested_generation == 1
                 assert intents["untracked"].requested_generation == 1
                 assert intents["frozen"].requested_generation == 1

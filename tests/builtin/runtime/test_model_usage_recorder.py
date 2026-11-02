@@ -102,7 +102,11 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
                 usage.requests = 900
                 usage.output_tokens = 900
                 _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
-                await recorder.flush()
+                # flush is best-effort; wait for this prefix before reading its usage.
+                target = recorder.checkpoint()
+                async with asyncio.timeout(5.0):
+                    while recorder._settled < target:
+                        await recorder.flush(target)
                 rows = await _rows(database)
                 assert len(rows) == 1
                 assert rows[0].usage_date == _DAY
@@ -155,7 +159,10 @@ def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCa
 def test_in_memory_usage_does_not_join_outer_rollback() -> None:
     async def scenario() -> None:
         async with _database() as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository())
+            # Verify rollback isolation after settlement, not the short best-effort flush deadline.
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
+            )
             try:
                 with pytest.raises(ValueError, match="business rollback"):
                     async with database.transaction() as connection:
@@ -727,13 +734,14 @@ def test_commit_lock_rolls_back_usage_and_restores_connection(tmp_path: Path, mo
         path = tmp_path / "commit-locked.db"
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{path}", journal_mode="DELETE")
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, StatisticsRepository())
+            # Recovery requires settlement beyond the default one-second write budget.
+            recorder = _ModelUsageRecorder(database, StatisticsRepository(), flush_timeout_seconds=2.0)
             reader = sqlite3.connect(path)
             try:
                 reader.execute("BEGIN")
                 reader.execute("SELECT * FROM pc_scopes").fetchall()
                 # Only the blocked write needs a tiny budget. Check recovery on
-                # the same recorder with its normal write allowance afterwards.
+                # the same recorder with a separate recovery budget afterwards.
                 with monkeypatch.context() as constrained:
                     constrained.setattr(recorder, "_write_timeout_seconds", 0.04)
                     start = asyncio.get_running_loop().time()
@@ -744,9 +752,16 @@ def test_commit_lock_rolls_back_usage_and_restores_connection(tmp_path: Path, mo
                 reader.rollback()
                 assert await _rows(database) == ()
                 await _assert_connection_restored(database)
+                recorder._write_timeout_seconds = 5.0
                 _offer(recorder)
-                await recorder.flush()
-                assert (await _rows(database))[0].requests == 1
+                target = recorder.checkpoint()
+                # A best-effort flush can time out before the recovery write settles.
+                async with asyncio.timeout(6.0):
+                    while recorder._settled < target:
+                        await recorder.flush(target)
+                rows = await _rows(database)
+                assert len(rows) == 1
+                assert rows[0].requests == 1
             finally:
                 reader.close()
                 await recorder.close()
@@ -838,17 +853,22 @@ def test_an_interrupted_commit_reply_does_not_repeat_applied_usage(caplog: pytes
         async with _database() as database:
 
             def lost_reply(connection) -> None:
-                # Commit for real, then let the native deadline expire before
-                # reporting an interrupted reply. Repeating this outcome would
-                # increment an already committed record a second time.
+                # Commit for real, then report an interrupted reply. Repeating
+                # this unknown outcome would increment an already committed
+                # record a second time.
                 connection.connection.commit()
-                await_only(asyncio.sleep(0.12))
                 original = sqlite3.OperationalError("secret commit reply")
                 original.sqlite_errorcode = sqlite3.SQLITE_INTERRUPT
                 raise OperationalError("COMMIT", None, original)
 
-            event.listen(database.engine.sync_engine, "commit", lost_reply, once=True)
-            recorder = _ModelUsageRecorder(database, StatisticsRepository(), write_timeout_seconds=0.4)
+            engine = database.engine.sync_engine
+            event.listen(engine, "commit", lost_reply, once=True)
+            recorder = _ModelUsageRecorder(
+                database,
+                StatisticsRepository(),
+                write_timeout_seconds=5.0,
+                flush_timeout_seconds=5.0,
+            )
             try:
                 _offer(recorder)
                 await recorder.flush()
@@ -858,6 +878,7 @@ def test_an_interrupted_commit_reply_does_not_repeat_applied_usage(caplog: pytes
                 await _assert_connection_restored(database)
             finally:
                 await recorder.close()
+                event.remove(engine, "commit", lost_reply)
 
     with caplog.at_level(logging.WARNING):
         asyncio.run(scenario())

@@ -21,12 +21,15 @@ use powercontext_desktop::{
         profiles::ProfileRepository,
         session::{ConnectionManager, WriteStatus},
     },
-    credentials::WindowsVault,
+    credentials::NativeVault,
     error::SafeError,
+    session_observations::{
+        ObservationOutcome, ObservationUnit, ObservedOperation, SessionObservation, SessionSummary,
+    },
 };
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU16, Ordering},
+    atomic::{AtomicU16, AtomicUsize, Ordering},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -41,6 +44,7 @@ struct Fixture {
     release: Arc<Notify>,
     requests: Arc<Mutex<Vec<serde_json::Value>>>,
     fail: Arc<AtomicU16>,
+    http_requests: Arc<AtomicUsize>,
     task: tokio::task::JoinHandle<()>,
     _dir: tempfile::TempDir,
 }
@@ -60,6 +64,8 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
     let release = Arc::new(Notify::new());
     let fail = Arc::new(AtomicU16::new(200));
     let requests = Arc::new(Mutex::new(vec![]));
+    let http_requests = Arc::new(AtomicUsize::new(0));
+    let received = http_requests.clone();
     let (start, finish, bodies, failure) = (
         started.clone(),
         release.clone(),
@@ -69,6 +75,7 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
     let task = tokio::spawn(async move {
         loop {
             let (mut socket, _) = listener.accept().await.unwrap();
+            let received = received.clone();
             let (start, finish, bodies, failure) = (
                 start.clone(),
                 finish.clone(),
@@ -106,7 +113,9 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
                     .nth(1)
                     .unwrap()
                     .to_owned();
+                received.fetch_add(1, Ordering::Relaxed);
                 let (status, value) = match path.as_str() {
+                    "/v1/server-info" => (404, serde_json::json!({})),
                     "/v1/access/me" => (
                         503,
                         serde_json::json!({"error":{"code":"runtime_not_ready"}}),
@@ -151,7 +160,7 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
     });
     let dir = tempfile::tempdir().unwrap();
     let manager = Arc::new(common::connection_manager(
-        ProfileRepository::open(dir.path().join("profiles.json"), Arc::new(WindowsVault)).unwrap(),
+        ProfileRepository::open(dir.path().join("profiles.json"), Arc::new(NativeVault)).unwrap(),
     ));
     let compatibility = common::PROFILE_ID;
     let mut ids = vec![];
@@ -177,6 +186,7 @@ async fn setup_response(response: serde_json::Value) -> Fixture {
         release,
         requests,
         fail,
+        http_requests,
         task,
         _dir: dir,
     }
@@ -221,6 +231,7 @@ async fn dispatched_write_keeps_its_original_target_and_rejects_duplicate_clicks
 #[tokio::test]
 async fn dispatched_server_failure_is_unknown_and_is_never_replayed() {
     let fixture = setup().await;
+    fixture.manager.observations().reset().unwrap();
     fixture.fail.store(500, Ordering::Relaxed);
     fixture.release.notify_one();
     let outcome = fixture
@@ -233,6 +244,40 @@ async fn dispatched_server_failure_is_unknown_and_is_never_replayed() {
     assert_eq!(fixture.requests.lock().unwrap().len(), 1);
     let stored = fixture.manager.state().unwrap().last_write.unwrap();
     assert_eq!(stored.status, WriteStatus::Unknown);
+    let summary = fixture.manager.observations().summary().unwrap();
+    assert_eq!(
+        memory_observation(&summary, ObservationUnit::HttpRequest).outcome,
+        ObservationOutcome::Failure
+    );
+    assert_eq!(
+        memory_observation(&summary, ObservationUnit::UserOperation).outcome,
+        ObservationOutcome::Unknown
+    );
+    assert_eq!(
+        summary
+            .recent
+            .iter()
+            .filter(|r| r.unit == ObservationUnit::UserOperation)
+            .count(),
+        1
+    );
+    assert!(
+        summary
+            .recent
+            .iter()
+            .any(|r| r.operation == ObservedOperation::GetAccessPrincipal
+                && r.unit == ObservationUnit::HttpRequest)
+    );
+    let text = fixture.manager.observations().diagnostic_text().unwrap();
+    for private in [
+        "test note",
+        "scope-a",
+        &fixture.a,
+        "127.0.0.1",
+        "must not leak",
+    ] {
+        assert!(!text.contains(private), "{private}");
+    }
     assert!(
         !serde_json::to_string(&stored)
             .unwrap()
@@ -242,6 +287,7 @@ async fn dispatched_server_failure_is_unknown_and_is_never_replayed() {
 #[tokio::test]
 async fn success_without_records_does_not_invent_a_reference() {
     let fixture = setup().await;
+    fixture.manager.observations().reset().unwrap();
     fixture.release.notify_one();
     let result = fixture
         .manager
@@ -277,6 +323,11 @@ async fn atomic_write_retains_every_exact_reference_after_context_changes() {
         fixture.release.notify_one();
         let outcome = write.await.unwrap().unwrap();
         assert_eq!(outcome.record.status, WriteStatus::Succeeded);
+        let summary = fixture.manager.observations().summary().unwrap();
+        assert_eq!(
+            memory_observation(&summary, ObservationUnit::UserOperation).outcome,
+            ObservationOutcome::Success
+        );
         assert_eq!(outcome.record.context.connection_id, fixture.a);
         if change_context {
             assert!(outcome.result.is_none());
@@ -313,6 +364,7 @@ async fn atomic_write_retains_every_exact_reference_after_context_changes() {
 #[tokio::test]
 async fn dropping_a_dispatched_write_preserves_unknown_metadata_without_body() {
     let fixture = setup().await;
+    fixture.manager.observations().reset().unwrap();
     let generation = fixture.manager.state().unwrap().generation;
     let manager = fixture.manager.clone();
     let write =
@@ -327,6 +379,15 @@ async fn dropping_a_dispatched_write_preserves_unknown_metadata_without_body() {
     assert!(write.await.err().unwrap().is_cancelled());
     let record = fixture.manager.state().unwrap().last_write.unwrap();
     assert_eq!(record.status, WriteStatus::Unknown);
+    let summary = fixture.manager.observations().summary().unwrap();
+    assert_eq!(
+        memory_observation(&summary, ObservationUnit::HttpRequest).outcome,
+        ObservationOutcome::Cancelled
+    );
+    assert_eq!(
+        memory_observation(&summary, ObservationUnit::UserOperation).outcome,
+        ObservationOutcome::Unknown
+    );
     assert!(
         !serde_json::to_string(&record)
             .unwrap()
@@ -360,6 +421,7 @@ async fn absent_scope_never_uses_the_server_default_for_writing() {
 async fn explicit_write_rejections_are_failures_without_replay() {
     for (status, code) in [(409, SafeError::Conflict), (422, SafeError::InvalidInput)] {
         let fixture = setup().await;
+        fixture.manager.observations().reset().unwrap();
         fixture.fail.store(status, Ordering::Relaxed);
         fixture.release.notify_one();
         let result = fixture
@@ -371,6 +433,11 @@ async fn explicit_write_rejections_are_failures_without_replay() {
             .await
             .unwrap();
         assert_eq!(result.record.status, WriteStatus::Failed);
+        let summary = fixture.manager.observations().summary().unwrap();
+        assert_eq!(
+            memory_observation(&summary, ObservationUnit::UserOperation).outcome,
+            ObservationOutcome::Failure
+        );
         assert_eq!(result.record.error.unwrap().code, code);
         assert!(result.result.is_none());
         assert_eq!(fixture.requests.lock().unwrap().len(), 1);
@@ -395,4 +462,144 @@ async fn accepted_write_with_lost_response_remains_unknown_without_replay() {
     let accepted = fixture.requests.lock().unwrap();
     assert_eq!(accepted.len(), 1);
     assert_eq!(accepted[0]["text"], "synthetic accepted");
+}
+
+fn memory_observation(summary: &SessionSummary, unit: ObservationUnit) -> &SessionObservation {
+    let mut records = summary.recent.iter().filter(|record| {
+        record.unit == unit && record.operation == ObservedOperation::RememberMemory
+    });
+    let record = records.next().expect("observed memory operation");
+    assert!(records.next().is_none());
+    record
+}
+
+#[tokio::test]
+async fn reset_excludes_in_flight_observations_without_cancelling_the_write() {
+    let fixture = setup().await;
+    let generation = fixture.manager.state().unwrap().generation;
+    let manager = fixture.manager.clone();
+    let write =
+        tokio::spawn(async move { manager.remember(generation, "private in-flight note").await });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        fixture.started.notified(),
+    )
+    .await
+    .unwrap();
+    fixture.manager.observations().reset().unwrap();
+    fixture.release.notify_one();
+    let outcome = write.await.unwrap().unwrap();
+    assert_eq!(outcome.record.status, WriteStatus::Succeeded);
+    let summary = fixture.manager.observations().summary().unwrap();
+    // New post-write identity requests belong to the new window; the dispatched
+    // write and its original user operation must not repopulate it.
+    assert!(
+        summary
+            .recent
+            .iter()
+            .all(|record| record.operation != ObservedOperation::RememberMemory)
+    );
+    assert!(
+        summary
+            .operations
+            .iter()
+            .all(|record| record.operation != ObservedOperation::RememberMemory)
+    );
+    assert_eq!(summary.evicted, 0);
+    // Both the HTTP request and its user operation completed outside their reset window.
+    assert_eq!(summary.dropped_since_start, 2);
+    let preview: serde_json::Value =
+        serde_json::from_str(&fixture.manager.observations().diagnostic_text().unwrap()).unwrap();
+    assert_eq!(preview["droppedSinceStart"], 2);
+    fixture.manager.observations().reset().unwrap();
+    assert_eq!(
+        fixture
+            .manager
+            .observations()
+            .summary()
+            .unwrap()
+            .dropped_since_start,
+        2
+    );
+    assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn successful_http_with_an_invalid_write_receipt_keeps_the_user_outcome_unknown() {
+    let fixture = setup_response(serde_json::json!({"changed":true,"records":[{
+        "artifact":{"family":"atomic-memory","artifact_id":"private-artifact","revision":0},
+        "kind":"note","text":"private returned text","state":"active","state_version":0,"merged_into_id":null
+    }]})).await;
+    fixture.manager.observations().reset().unwrap();
+    fixture.release.notify_one();
+    let outcome = fixture
+        .manager
+        .remember(fixture.manager.state().unwrap().generation, "private input")
+        .await
+        .unwrap();
+    assert_eq!(outcome.record.status, WriteStatus::Unknown);
+    let summary = fixture.manager.observations().summary().unwrap();
+    assert_eq!(
+        memory_observation(&summary, ObservationUnit::HttpRequest).outcome,
+        ObservationOutcome::Success
+    );
+    assert_eq!(
+        memory_observation(&summary, ObservationUnit::UserOperation).outcome,
+        ObservationOutcome::Unknown
+    );
+    assert!(
+        !fixture
+            .manager
+            .observations()
+            .diagnostic_text()
+            .unwrap()
+            .contains("private")
+    );
+}
+
+#[tokio::test]
+async fn request_and_action_latency_use_milliseconds_with_distinct_sample_counts() {
+    let fixture = setup().await;
+    fixture.manager.observations().reset().unwrap();
+    let before_requests = fixture.http_requests.load(Ordering::Relaxed);
+    let generation = fixture.manager.state().unwrap().generation;
+    let manager = fixture.manager.clone();
+    let started = std::time::Instant::now();
+    let write =
+        tokio::spawn(async move { manager.remember(generation, "synthetic timing note").await });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        fixture.started.notified(),
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    fixture.release.notify_one();
+    assert_eq!(
+        write.await.unwrap().unwrap().record.status,
+        WriteStatus::Succeeded
+    );
+    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let summary = fixture.manager.observations().summary().unwrap();
+    let request = memory_observation(&summary, ObservationUnit::HttpRequest);
+    let action = memory_observation(&summary, ObservationUnit::UserOperation);
+    assert!(request.duration_ms >= 20.0);
+    assert!(action.duration_ms >= request.duration_ms);
+    assert!(action.duration_ms <= elapsed_ms);
+    assert_eq!(
+        summary
+            .recent
+            .iter()
+            .filter(|r| r.unit == ObservationUnit::UserOperation)
+            .count(),
+        1
+    );
+    assert_eq!(
+        summary
+            .recent
+            .iter()
+            .filter(|r| r.unit == ObservationUnit::HttpRequest)
+            .count(),
+        fixture.http_requests.load(Ordering::Relaxed) - before_requests
+    );
 }

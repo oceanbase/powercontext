@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SQLite Atomic Memory: one current row, an FTS5 helper and exact L2."""
+"""SQLite Atomic Memory: transactional FTS5 and partitioned sqlite-vec KNN helpers."""
 
 from __future__ import annotations
 
+import re
 import struct
+from dataclasses import replace
 
+import sqlite_vec
 from aiosqlite import Connection as SQLiteConnection
 from sqlalchemy import text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
@@ -62,6 +66,10 @@ _FTS_COLUMNS = (
 )
 _HIT_COLUMNS = "artifact_id, revision, state_version, kind, text"
 _FTS_IDENTITY_SQL = "'i' || lower(hex(scope_id)) || 'x' || lower(hex(artifact_id))"
+_VECTOR_TABLE = "pc_atomic_memory_current_vec"
+# Avoid reserving 1024 vector slots for every small Scope.
+_VECTOR_CHUNK_SIZE = 128
+_VECTOR_COLUMNS = "identity, scope_id, kind, embedding, artifact_id, revision, state_version, text"
 
 
 class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
@@ -72,7 +80,8 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
     neither a business JOIN nor post-limit authorization. Its indexed identity
     token encodes the exact Scope/Artifact pair independently of SQLite rowids,
     which VACUUM may change on current's composite-primary-key table. Vectors
-    stay in current.
+    use a Scope-partitioned vec0 helper with the same stable identity. Current
+    remains the rebuild source; helper writes and rollback share its transaction.
     """
 
     def __init__(self, profile: EmbeddingProfile | None = None) -> None:
@@ -105,6 +114,116 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                     "sqlite-vector", "SQLite Atomic Memory vectors require loaded sqlite-vec"
                 ) from error
         await self._initialize_fts(connection)
+        await self._initialize_vectors(connection, driver)
+
+    def _invalid_vectors_sql(self) -> str:
+        profile = self.profile
+        if profile is None:
+            raise AtomicMemoryIndexError("embedding-profile", "Vector profile is unavailable")
+        # Constants are owned schema/profile values, never request input.
+        # Only usable current vectors are copied into the native helper.
+        return (
+            "(embedding IS NULL OR embedding_input_hash IS NULL OR profile_fingerprint IS NULL "
+            f"OR profile_fingerprint <> '{atomic_memory_profile_fingerprint(profile)}' "
+            f"OR projection_format <> '{ATOMIC_MEMORY_PROJECTION_FORMAT}' "
+            f"OR LENGTH(embedding) <> {profile.dimension * 4})"
+        )
+
+    async def _initialize_vectors(self, connection: AsyncConnection, driver: SQLiteConnection) -> None:
+        existing = await connection.scalar(
+            text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"), {"name": _VECTOR_TABLE}
+        )
+        profile = self.profile
+        definition = (
+            None
+            if profile is None
+            else (
+                f"CREATE VIRTUAL TABLE {_VECTOR_TABLE} USING vec0("
+                "identity TEXT PRIMARY KEY, scope_id TEXT PARTITION KEY, kind TEXT, "
+                f"embedding float[{profile.dimension}], +artifact_id TEXT, +revision INTEGER, "
+                f"+state_version INTEGER, +text TEXT, chunk_size={_VECTOR_CHUNK_SIZE} "
+                f"/* {atomic_memory_profile_fingerprint(profile)} */)"
+            )
+        )
+        if existing and existing != definition:
+            # Disabling embeddings must also remove persisted vector triggers.
+            # Load only on this connection to drop the old virtual helper safely.
+            if profile is None:
+                await driver.enable_load_extension(True)
+                try:
+                    await driver.load_extension(sqlite_vec.loadable_path())
+                finally:
+                    await driver.enable_load_extension(False)
+            for event in ("insert", "update", "delete"):
+                await connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS pc_atomic_memory_vec_{event}")
+            await connection.exec_driver_sql(f"DROP TABLE {_VECTOR_TABLE}")
+            existing = None
+        if definition is None:
+            return
+        invalid = self._invalid_vectors_sql()
+        if not existing:
+            await connection.exec_driver_sql(definition)
+            await connection.exec_driver_sql(
+                f"INSERT INTO {_VECTOR_TABLE} ({_VECTOR_COLUMNS}) "  # noqa: S608
+                f"SELECT {_FTS_IDENTITY_SQL}, scope_id, kind, embedding, artifact_id, revision, state_version, text "
+                f"FROM pc_atomic_memory_current WHERE NOT {invalid}"
+            )
+        await self._initialize_vector_triggers(connection, invalid)
+
+    async def _initialize_vector_triggers(self, connection: AsyncConnection, invalid: str) -> None:
+        new_identity = _FTS_IDENTITY_SQL.replace("scope_id", "new.scope_id").replace("artifact_id", "new.artifact_id")
+        old_identity = _FTS_IDENTITY_SQL.replace("scope_id", "old.scope_id").replace("artifact_id", "old.artifact_id")
+        new_values = ", ".join(
+            new_identity if name == "identity" else f"new.{name}" for name in _VECTOR_COLUMNS.split(", ")
+        )
+        for event in ("INSERT", "UPDATE", "DELETE"):
+            statements = []
+            if event in {"UPDATE", "DELETE"}:
+                statements.append(f"DELETE FROM {_VECTOR_TABLE} WHERE identity = ({old_identity});")  # noqa: S608
+            if event in {"INSERT", "UPDATE"}:
+                valid_new = re.sub(
+                    r"\b(embedding_input_hash|profile_fingerprint|projection_format|embedding)\b", r"new.\1", invalid
+                )
+                statements.append(
+                    f"INSERT INTO {_VECTOR_TABLE} ({_VECTOR_COLUMNS}) SELECT {new_values} WHERE NOT {valid_new};"
+                )
+            name = f"pc_atomic_memory_vec_{event.lower()}"
+            if event == "UPDATE":
+                dependencies = (
+                    "scope_id, artifact_id, kind, embedding, revision, state_version, text, "
+                    "embedding_input_hash, profile_fingerprint, projection_format"
+                )
+                changed = " OR ".join(f"old.{column} IS NOT new.{column}" for column in dependencies.split(", "))
+                definition = (
+                    f"CREATE TRIGGER {name} AFTER UPDATE OF {dependencies} ON pc_atomic_memory_current "
+                    f"WHEN {changed} BEGIN {' '.join(statements)} END"
+                )
+                existing_trigger = await connection.scalar(
+                    text("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = :name"), {"name": name}
+                )
+                if existing_trigger == definition:
+                    continue
+                await connection.exec_driver_sql(f"DROP TRIGGER IF EXISTS {name}")
+                await connection.exec_driver_sql(definition)
+            else:
+                await connection.exec_driver_sql(
+                    f"CREATE TRIGGER IF NOT EXISTS {name} "
+                    f"AFTER {event} ON pc_atomic_memory_current BEGIN {' '.join(statements)} END"
+                )
+
+    def _knn_sql(self, request: AtomicMemorySearchRequest | AtomicMemoryRelatedRequest, eligibility: str) -> str:
+        filters = " AND kind = :kind_filter" if request.filters.kind is not None else ""
+        if request.filters.tag_filter is not None:
+            filters += (
+                f" AND identity IN (SELECT {_FTS_IDENTITY_SQL} FROM pc_atomic_memory_current "  # noqa: S608
+                f"WHERE scope_id = :scope_id AND ({eligibility}))"
+            )
+        return (
+            f"SELECT {_HIT_COLUMNS}, distance, 0 AS invalid_vectors FROM {_VECTOR_TABLE} "  # noqa: S608
+            f"WHERE embedding MATCH :query_vector AND k = :neighbor_limit AND scope_id = :scope_id{filters} "
+            "AND max(-1.0, min(1.0, 1.0 - distance * distance / 2.0)) >= :min_semantic_similarity "
+            "ORDER BY distance"
+        )
 
     async def _initialize_fts(self, connection: AsyncConnection) -> None:
         existing = await connection.scalar(
@@ -164,33 +283,139 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             f"INSERT INTO {_FTS_TABLE} ({names}) SELECT {values} FROM pc_atomic_memory_current"  # noqa: S608
         )
 
+    async def fts_matches_current(self, connection: AsyncConnection, /) -> bool:
+        """Compare all helper values and multiplicities, including stable identity tokens."""
+        names = ", ".join(_FTS_COLUMNS)
+        values = ", ".join(_FTS_IDENTITY_SQL if name == "identity_token" else name for name in _FTS_COLUMNS)
+        expected = f"SELECT {values}, COUNT(*) FROM pc_atomic_memory_current GROUP BY {values}"  # noqa: S608
+        actual = f"SELECT {names}, COUNT(*) FROM {_FTS_TABLE} GROUP BY {names}"  # noqa: S608
+        for left, right in ((expected, actual), (actual, expected)):
+            if (await connection.exec_driver_sql(f"SELECT 1 FROM ({left} EXCEPT {right}) LIMIT 1")).first():  # noqa: S608
+                return False
+        return True
+
     async def search(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemorySearchRequest, /
     ) -> AtomicMemorySearchChannels:
         self.validate_request(request)
         return await self._channels(connection, scope_id, request, limit=request.limit)
 
-    async def enumerate_related(
+    async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
-    ) -> tuple[AtomicMemoryIndexHit, ...]:
+    ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
+        """Return related hits and authoritative heads from one SQLite statement."""
         self.validate_request(request)
-        return combine_atomic_memory_channels(await self._channels(connection, scope_id, request, limit=None))
+        eligibility, parameters = atomic_memory_filter_sql(request.filters, "sqlite")
+        parameters["scope_id"] = scope_id
+        if request.mode != "hybrid":
+            return await self._related_single(connection, scope_id, request, eligibility, parameters)
+        result = await self._related_hybrid_channels(connection, scope_id, request, eligibility, parameters)
+        if result is None:
+            return await self._related_single(
+                connection, scope_id, replace(request, mode="vector"), eligibility, parameters
+            )
+        channels, heads = result
+        return combine_atomic_memory_channels(channels), heads
+
+    async def _related_single(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        request: AtomicMemoryRelatedRequest,
+        eligibility: str,
+        parameters: dict[str, object],
+    ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
+        if request.mode == "fts":
+            match_query = fts_match_query(request.query)
+            if match_query is None:
+                return (), {}
+            terms, required = fts_query_requirements(request.query, floor=request.admission)
+            coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
+            parameters.update(coverage_parameters)
+            grouped = f"searchable_text:({match_query})"
+            parameters.update(
+                fts_query=grouped,
+                fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
+                fts_required=required,
+            )
+            rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
+            query_sql = (
+                f"SELECT {_HIT_COLUMNS}, -{rank} AS score, {rank} AS raw_score, "  # noqa: S608
+                f"'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
+                f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
+                "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
+                "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
+                f"AND ({eligibility}) AND {coverage} >= :fts_required"
+            )
+            rows, heads = await self._related_rows(connection, query_sql, parameters)
+            sorted_rows = sorted(rows, key=lambda row: (-row["score"], row["artifact_id"]))
+            return atomic_memory_channel_hits(sorted_rows), heads
+        query_vector = self._require_vectors(request)
+        profile = self.profile
+        if profile is None:
+            raise AtomicMemoryIndexError("embedding-profile", "Vector profile is unavailable")
+        parameters.update(
+            query_vector=self._encode_embedding(query_vector),
+            profile=atomic_memory_profile_fingerprint(profile),
+            projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
+            embedding_bytes=profile.dimension * 4,
+            max_distance=request.max_distance,
+            min_semantic_similarity=(
+                DEFAULT_ADMISSION_FLOOR if request.admission is None else request.admission
+            ).min_semantic_similarity,
+        )
+        query_sql = atomic_memory_vector_sql(eligibility, "sqlite", bounded=False, threshold=True)
+        rows, heads = await self._related_rows(connection, query_sql, parameters)
+        sorted_rows = sorted(
+            rows, key=lambda row: (-row["invalid_vectors"], row["distance"] or 0, row["artifact_id"] or "")
+        )
+        return atomic_memory_channel_hits(sorted_rows, vector=True), heads
+
+    async def _related_rows(
+        self, connection: AsyncConnection, query_sql: str, parameters: dict[str, object]
+    ) -> tuple[tuple[RowMapping, ...], dict[str, dict[str, object]]]:
+        columns = (
+            "scope_id",
+            "family",
+            "artifact_id",
+            "revision",
+            "lifecycle_state",
+            "replacement_artifact_id",
+            "merged_into_id",
+            "governance_generation",
+        )
+        authority = ", ".join(f"head.{name} AS authority_{name}" for name in columns)
+        joined_sql = (
+            f"SELECT hits.*, {authority}, body.content AS authority_content "  # noqa: S608
+            f"FROM ({query_sql}) AS hits "
+            "LEFT JOIN pc_artifact_heads AS head ON head.scope_id = :scope_id "
+            "AND head.family = 'atomic-memory' AND head.artifact_id = hits.artifact_id "
+            "LEFT JOIN pc_artifacts AS body ON body.scope_id = head.scope_id "
+            "AND body.family = head.family AND body.artifact_id = head.artifact_id "
+            "AND body.revision = head.revision"
+        )
+        rows = tuple((await connection.execute(text(joined_sql), parameters)).mappings())
+        heads = {
+            str(row["artifact_id"]): {name: row[f"authority_{name}"] for name in (*columns, "content")}
+            for row in rows
+            if row["authority_artifact_id"] is not None
+        }
+        return rows, heads
 
     async def _channels(
         self,
         connection: AsyncConnection,
         scope_id: str,
-        request: AtomicMemorySearchRequest | AtomicMemoryRelatedRequest,
+        request: AtomicMemorySearchRequest,
         *,
-        limit: int | None,
+        limit: int,
     ) -> AtomicMemorySearchChannels:
         if connection.dialect.name != "sqlite":
             raise AtomicMemoryIndexError("sqlite", "SQLite Atomic Memory index requires SQLite")
         eligibility, parameters = atomic_memory_filter_sql(request.filters, "sqlite")
         parameters["scope_id"] = scope_id
-        limit_sql = "" if limit is None else " LIMIT :result_limit"
-        if limit is not None:
-            parameters["result_limit"] = limit
+        limit_sql = " LIMIT :result_limit"
+        parameters["result_limit"] = limit
         fts: tuple[AtomicMemoryIndexHit, ...] = ()
         vector: tuple[AtomicMemoryIndexHit, ...] = ()
         if request.mode in {"fts", "hybrid"}:
@@ -199,13 +424,23 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             if match_query is not None:
                 coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
                 parameters.update(coverage_parameters)
-                parameters.update(fts_query=match_query, fts_required=required)
+                grouped = f"searchable_text:({match_query})"
+                parameters.update(
+                    fts_query=grouped,
+                    fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
+                    fts_required=required,
+                )
+                # Prefix expansion is cheap only for a small Scope. The PK probe
+                # reads at most 65 identities; both branches have identical ranks.
+                rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
                 rows = (
                     await connection.execute(
                         text(
-                            f"SELECT {_HIT_COLUMNS}, -bm25({_FTS_TABLE}) AS score, "  # noqa: S608
-                            f"bm25({_FTS_TABLE}) AS raw_score, 'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
-                            "WHERE searchable_text MATCH :fts_query AND scope_id = :scope_id "
+                            f"SELECT {_HIT_COLUMNS}, -{rank} AS score, "  # noqa: S608
+                            f"{rank} AS raw_score, 'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
+                            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
+                            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
+                            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
                             f"AND ({eligibility}) AND {coverage} >= :fts_required "
                             f"ORDER BY score DESC, artifact_id{limit_sql}"
                         ),
@@ -223,26 +458,107 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                 profile=atomic_memory_profile_fingerprint(profile),
                 projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
                 embedding_bytes=profile.dimension * 4,
-                max_distance=request.max_distance if isinstance(request, AtomicMemoryRelatedRequest) else None,
+                max_distance=None,
                 min_semantic_similarity=(
                     DEFAULT_ADMISSION_FLOOR if request.admission is None else request.admission
                 ).min_semantic_similarity,
             )
-            rows = (
-                await connection.execute(
-                    text(
-                        atomic_memory_vector_sql(
-                            eligibility,
-                            "sqlite",
-                            bounded=limit is not None,
-                            threshold=isinstance(request, AtomicMemoryRelatedRequest),
-                        )
-                    ),
-                    parameters,
-                )
-            ).mappings()
-            vector = atomic_memory_channel_hits(rows, vector=True)
+            vector = await self._vector_hits(connection, request, eligibility, parameters, limit)
         return AtomicMemorySearchChannels(fts=fts, vector=vector)
+
+    async def _related_hybrid_channels(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        request: AtomicMemoryRelatedRequest,
+        eligibility: str,
+        parameters: dict[str, object],
+    ) -> tuple[AtomicMemorySearchChannels, dict[str, dict[str, object]]] | None:
+        """Return both complete channels from one snapshot query, before Python fusion."""
+        match_query = fts_match_query(request.query)
+        if match_query is None:
+            return None
+        terms, required = fts_query_requirements(request.query, floor=request.admission)
+        coverage, coverage_parameters = sqlite_fts_coverage_sql(terms)
+        parameters.update(coverage_parameters)
+        grouped = f"searchable_text:({match_query})"
+        parameters.update(
+            fts_query=grouped,
+            fts_scope_query=f'({grouped}) AND identity_token:"i{scope_id.encode("utf-8").hex()}x"*',
+            fts_required=required,
+        )
+        query_vector = self._require_vectors(request)
+        profile = self.profile
+        if profile is None:
+            raise AtomicMemoryIndexError("embedding-profile", "Vector profile is unavailable")
+        parameters.update(
+            query_vector=self._encode_embedding(query_vector),
+            profile=atomic_memory_profile_fingerprint(profile),
+            projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
+            embedding_bytes=profile.dimension * 4,
+            max_distance=request.max_distance,
+            min_semantic_similarity=(
+                DEFAULT_ADMISSION_FLOOR if request.admission is None else request.admission
+            ).min_semantic_similarity,
+        )
+        rank = f"bm25({_FTS_TABLE}, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0)"
+        fts_sql = (
+            f"SELECT {_HIT_COLUMNS}, -{rank} AS score, {rank} AS raw_score, "  # noqa: S608
+            f"'sqlite_bm25' AS score_metric FROM {_FTS_TABLE} "
+            f"WHERE {_FTS_TABLE} MATCH (CASE WHEN EXISTS (SELECT 1 "
+            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id LIMIT 1 OFFSET 64) "
+            "THEN :fts_query ELSE :fts_scope_query END) AND scope_id = :scope_id "
+            f"AND ({eligibility}) AND {coverage} >= :fts_required"
+        )
+        vector_sql = atomic_memory_vector_sql(eligibility, "sqlite", bounded=False, threshold=True)
+        channel_sql = (
+            "SELECT 'fts' AS channel, f.*, NULL AS distance, 0 AS invalid_vectors "  # noqa: S608
+            f"FROM ({fts_sql}) AS f UNION ALL "
+            "SELECT 'vector' AS channel, v.artifact_id, v.revision, v.state_version, "
+            "v.kind, v.text, NULL AS score, NULL AS raw_score, NULL AS score_metric, "
+            f"v.distance, v.invalid_vectors FROM ({vector_sql}) AS v"
+        )
+        rows, heads = await self._related_rows(connection, channel_sql, parameters)
+        fts_rows = sorted(
+            (row for row in rows if row["channel"] == "fts"),
+            key=lambda row: (-row["score"], row["artifact_id"]),
+        )
+        vector_rows = sorted(
+            (row for row in rows if row["channel"] == "vector"),
+            key=lambda row: (-row["invalid_vectors"], row["distance"] or 0, row["artifact_id"] or ""),
+        )
+        # Decode vector first so the readiness sentinel retains its original error.
+        vector = atomic_memory_channel_hits(vector_rows, vector=True)
+        return AtomicMemorySearchChannels(fts=atomic_memory_channel_hits(fts_rows), vector=vector), heads
+
+    async def _vector_hits(
+        self,
+        connection: AsyncConnection,
+        request: AtomicMemorySearchRequest,
+        eligibility: str,
+        parameters: dict[str, object],
+        limit: int,
+    ) -> tuple[AtomicMemoryIndexHit, ...]:
+        """Use native KNN, with one exact fallback when boundary ties affect Top-K."""
+        exact_sql = atomic_memory_vector_sql(
+            eligibility,
+            "sqlite",
+            bounded=True,
+            threshold=False,
+        )
+        # vec0's native k ceiling is 4096. One extra neighbor detects boundary ties.
+        knn = limit < 4096
+        neighbor_limit = limit + 1
+        if knn:
+            parameters["neighbor_limit"] = neighbor_limit
+        sql = self._knn_sql(request, eligibility) if knn else exact_sql
+        rows = tuple((await connection.execute(text(sql), parameters)).mappings())
+        if knn:
+            if len(rows) == neighbor_limit and rows[limit - 1]["distance"] == rows[-1]["distance"]:
+                # Avoid repeatedly scanning vectors when a large tie group needs the ID tie break.
+                rows = tuple((await connection.execute(text(exact_sql), parameters)).mappings())
+            rows = tuple(sorted(rows, key=lambda row: (row["distance"], row["artifact_id"])))[:limit]
+        return atomic_memory_channel_hits(rows, vector=True)
 
 
 __all__ = ["SQLiteAtomicMemoryIndex"]

@@ -27,6 +27,53 @@ import { promisify } from 'node:util'
 
 const plugin = fileURLToPath(new URL('..', import.meta.url))
 const prompt = 'The deployment color is teal-731.'
+const { cases: privacyCases } = JSON.parse(await readFile(
+  new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',
+))
+const { cases: queryBoundCases } = JSON.parse(await readFile(
+  new URL('../../../../../tests/fixtures/recall_query_bound.json', import.meta.url), 'utf8',
+))
+const expand = segments => segments.map(({ text, repeat = 1 }) => text.repeat(repeat)).join('')
+
+test('automatic prompt privacy preserves preparation and original accepted events', async t => {
+  const scenarios = [
+    ...privacyCases.map(sample => ({ sample, capture: true })),
+    ...privacyCases.filter(sample => sample.id.endsWith('-header')).map(sample => ({ sample, capture: false })),
+  ]
+  for (const { sample, capture } of scenarios) {
+    await t.test(`${sample.id}-capture-${capture}`, async t => {
+      const state = await fixture(t, {}, { use_token: Boolean(sample.authorization), capture_prompts: capture })
+      const result = await state.invoke({
+        hook_event_name: 'UserPromptSubmit', cwd: state.workspace,
+        session_id: `privacy-${sample.id}`, prompt: sample.prompt,
+      }, sample.authorization ? { POWERCONTEXT_KIMI_TOKEN: sample.authorization.slice(7) } : {})
+      const prepares = state.requests.filter(item => item.path === '/v1/context/prepare')
+      assert.equal(prepares.length, 1, result.stderr)
+      assert.equal(state.captures.length, sample.sensitive || !capture ? 0 : 1)
+      if (sample.sensitive) {
+        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]value[-_]2084/)
+        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]value[-_]2084/)
+      } else {
+        assert.equal(state.captures[0].content, sample.prompt)
+        assert.equal(prepares[0].body.query, sample.prompt)
+      }
+    })
+  }
+})
+test('the recall query keeps the end of a long prompt', async t => {
+  for (const sample of queryBoundCases) {
+    await t.test(sample.id, async t => {
+      const state = await fixture(t)
+      const result = await state.invoke({
+        hook_event_name: 'UserPromptSubmit', cwd: state.workspace,
+        session_id: `query-${sample.id}`, prompt: expand(sample.prompt),
+      })
+      const prepares = state.requests.filter(item => item.path === '/v1/context/prepare')
+      assert.equal(prepares.length, 1, result.stderr)
+      assert.equal(prepares[0].body.query, expand(sample.query))
+    })
+  }
+})
 async function fixture(t, overrides = {}, settings = {}, listenHost = '127.0.0.1') {
   const root = await mkdtemp(join(tmpdir(), 'pc-kimi-'))
   const installed = join(root, 'plugin')
@@ -88,8 +135,8 @@ async function fixture(t, overrides = {}, settings = {}, listenHost = '127.0.0.1
       { env: { ...process.env, KIMI_CODE_HOME: home }, windowsHide: true }).catch(error => error)
     return { exit_code: result.code ?? 0, ...JSON.parse(result.stdout) }
   }
-  async function doctor(cwd = workspace) {
-    const result = await promisify(execFile)(process.execPath, [join(installed, 'scripts/doctor.mjs'), '--cwd', cwd],
+  async function doctor(cwd = workspace, mcp = false) {
+    const result = await promisify(execFile)(process.execPath, [join(installed, 'scripts/doctor.mjs'), '--cwd', cwd, ...(mcp ? ['--mcp'] : [])],
       { env: { ...process.env, KIMI_CODE_HOME: home }, windowsHide: true })
     return JSON.parse(result.stdout)
   }
@@ -142,6 +189,36 @@ test('Scope script resolves explicit Scope without a workspace but binding opera
 test('disabled capture still supplies context', async t => {
   const f = await fixture(t, {}, { capture_prompts: false })
   assert.match((await f.invoke()).output.message, /Historical context/)
+  assert.deepEqual(f.captures, [])
+})
+
+test('doctor discovers paginated MCP tools without domain operations and reports missing tools', async t => {
+  let missing = false
+  const f = await fixture(t, { '/mcp/': (req, res, body) => {
+    if (req.method === 'DELETE') { res.writeHead(204); res.end(); return }
+    if (body.method === 'notifications/initialized') { res.writeHead(202); res.end(); return }
+    let result
+    if (body.method === 'initialize') {
+      result = { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } }
+      res.setHeader('mcp-session-id', 'fixture-session')
+    } else {
+      assert.equal(body.method, 'tools/list')
+      assert.equal(req.headers['mcp-session-id'], 'fixture-session')
+      result = body.params.cursor ? { tools: missing ? [] : [{ name: 'remember_memory' }, { name: 'get_artifact_revision' }] } :
+        { tools: [{ name: 'search_memory' }], nextCursor: 'rest' }
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.end('event: message\ndata: ' + JSON.stringify({ jsonrpc: '2.0', id: body.id, result }) + '\n\n')
+  } })
+  const discovered = (await f.doctor(f.workspace, true)).checks.mcp_discovery
+  assert.equal(discovered.status, 'ok')
+  assert.equal(discovered.checks.expected_tools, '3')
+  assert.match(discovered.detail, /operations are not verified/)
+  missing = true
+  const failed = (await f.doctor(f.workspace, true)).checks.mcp_discovery
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.checks.missing_tools, 'remember_memory, get_artifact_revision')
+  assert.ok(f.requests.every(item => !item.body?.method || ['initialize', 'notifications/initialized', 'tools/list'].includes(item.body.method)))
   assert.deepEqual(f.captures, [])
 })
 

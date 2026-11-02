@@ -3,9 +3,13 @@
   "pages": [
     "index",
     "deploy-server",
+    "kubernetes",
+    "local-server-ops",
+    "managed-local-server",
     "connect-remote-server",
     "database-migrations",
     "artifact-processing-migration",
+    "portable-archive",
     "atomic-memory-migration",
     "observability",
     "trace-with-phoenix",

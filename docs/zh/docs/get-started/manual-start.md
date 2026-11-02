@@ -49,7 +49,7 @@ source "$HOME/.local/bin/env"
 安装 PowerContext CLI 和本地 Server：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
+uv tool install --force "powercontext[cli,server]==1.4.1"
 powercontext --version
 powercontext --help
 ```
@@ -179,7 +179,7 @@ Scope 是项目上下文数据的隔离空间，用于隔离 Source、Memory、T
 ```bash
 cd ~/powercontext-manual
 POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:18080 \
-uv run --with "powercontext[client]==1.4.0" python - <<'PY'
+uv run --with "powercontext[client]==1.4.1" python - <<'PY'
 import asyncio
 import os
 from powercontext.client import PowerContextClient
@@ -214,7 +214,7 @@ export POWERCONTEXT_CODEX_SCOPE_ID=替换为Server返回的真实scope_id
 
 ```bash
 powercontext setup codex \
-  --ref powercontext-v1.4.0 \
+  --ref powercontext-v1.4.1 \
   --server-url http://127.0.0.1:18080
 powercontext doctor codex
 ```

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,13 @@ from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import Handoff
 from powercontext.builtin.artifacts.skill import Skill
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
-from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
+from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
+from powercontext.builtin.persistence.experience_index import (
+    ExperienceIndex,
+    NoExperienceIndex,
+    experience_search_hits,
+    skill_search_hits,
+)
 from powercontext.builtin.persistence.family_management import (
     ExperienceManagementWriter,
     FamilyManagementWriterRegistry,
@@ -39,6 +46,7 @@ from powercontext.builtin.persistence.family_management import (
 )
 from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
+from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
@@ -55,6 +63,7 @@ from powercontext.builtin.records import (
     ArtifactWrite,
     BaseOperationNotSupportedError,
     BaseValueConflictError,
+    CursorExpiredError,
     InvalidBaseAccessRequestError,
     InvalidCursorError,
 )
@@ -64,6 +73,13 @@ from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentSource
 from powercontext.builtin.tags import ArtifactTagTarget, TagFilter, TagPreconditionError, TagQuery
+from powercontext.sources import (
+    SourceDefinitionRegistry,
+    SourceMaterialization,
+    manifest_for_definition,
+    project_source_for_transport,
+)
+from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
 
 
 class _FailingExperienceIndex(NoExperienceIndex):
@@ -455,6 +471,139 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
     asyncio.run(scenario())
 
 
+def test_source_list_continues_the_signed_type_selection() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, sources = _services(profile)
+            registry = SourceDefinitionRegistry.from_adapters(SOURCE_ADAPTERS)
+            manifest = manifest_for_definition(registry.definition_for_name("note"))
+            async with profile.database.transaction() as connection:
+                await SourceDefinitionManifestRepository().register(connection, manifest)
+            contents = []
+            for index in range(3):
+                contents.append(await records.create_source("scope-a", "content", str(index)))
+                if index < 2:
+                    note = NoteSource(
+                        name=f"note-{index}", materialization=SourceMaterialization.CAPTURED, body=str(index)
+                    )
+                    async with profile.database.transaction() as connection:
+                        await sources.add(connection, "scope-a", project_source_for_transport(registry, note))
+
+            codec = SignedCursorCodec(secret=b"record-test-secret")
+            context = {
+                "version": 1,
+                "endpoint": "list_sources",
+                "scope_id": "scope-a",
+                "authorization": "scope_read",
+                "caller": "user:one",
+                "limit": 1,
+                "order": "journal_position:asc",
+            }
+            # This is the signed wire format issued by master, before Observation reads.
+            cursor = codec.encode({**context, "source_types": ["content"]}, "5:1")
+            page = await records.list_sources("scope-a", limit=1, cursor=cursor, caller="user:one")
+            assert page.items == (contents[1],)
+            assert page.next_cursor is not None
+            late = await records.create_source("scope-a", "content", "outside the snapshot")
+            page = await records.list_sources("scope-a", limit=1, cursor=page.next_cursor, caller="user:one")
+            assert page.items == (contents[2],)
+            assert page.next_cursor is None
+
+            page = await records.list_sources("scope-a", limit=1, cursor=None, caller="user:one")
+            found = list(page.items)
+            while page.next_cursor is not None:
+                page = await records.list_sources("scope-a", limit=1, cursor=page.next_cursor, caller="user:one")
+                found.extend(page.items)
+            assert [(item.source_type, item.position) for item in found] == [
+                ("content", 1),
+                ("note", 2),
+                ("content", 3),
+                ("note", 4),
+                ("content", 5),
+                ("content", late.position),
+            ]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("source_types", [[], ["missing"], ["content", "missing"], [1], ["content", "content"]])
+def test_source_list_rejects_invalid_signed_type_selections(source_types) -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            cursor = SignedCursorCodec(secret=b"record-test-secret").encode(
+                {
+                    "version": 1,
+                    "endpoint": "list_sources",
+                    "scope_id": "scope-a",
+                    "source_types": source_types,
+                    "authorization": "scope_read",
+                    "caller": "user:one",
+                    "limit": 1,
+                    "order": "journal_position:asc",
+                },
+                "0:0",
+            )
+            with pytest.raises(InvalidCursorError):
+                await records.list_sources("scope-a", limit=1, cursor=cursor, caller="user:one")
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("source_types", [["content"], "content-and-observations"])
+def test_source_list_type_selection_preserves_cursor_security_checks(source_types) -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            context = {
+                "version": 1,
+                "endpoint": "list_sources",
+                "scope_id": "scope-a",
+                "source_types": source_types,
+                "authorization": "scope_read",
+                "caller": "user:one",
+                "limit": 1,
+                "order": "journal_position:asc",
+            }
+            cursor = SignedCursorCodec(secret=b"record-test-secret").encode(context, "0:0")
+            for scope, limit, caller in (
+                ("scope-b", 1, "user:one"),
+                ("scope-a", 2, "user:one"),
+                ("scope-a", 1, "user:two"),
+            ):
+                with pytest.raises(InvalidCursorError):
+                    await records.list_sources(scope, limit=limit, cursor=cursor, caller=caller)
+            forged = SignedCursorCodec(secret=b"another-secret").encode(context, "0:0")
+            with pytest.raises(InvalidCursorError):
+                await records.list_sources("scope-a", limit=1, cursor=forged, caller="user:one")
+            expired = SignedCursorCodec(
+                secret=b"record-test-secret",
+                clock=lambda: datetime.now(UTC) - timedelta(hours=2),
+            ).encode(context, "0:0")
+            with pytest.raises(CursorExpiredError):
+                await records.list_sources("scope-a", limit=1, cursor=expired, caller="user:one")
+
+    asyncio.run(scenario())
+
+
+def test_source_create_rejects_blank_text_content() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            for blank in ("", "   "):
+                with pytest.raises(InvalidBaseAccessRequestError) as raised:
+                    await records.create_source("scope-a", "content", blank)
+                assert raised.value.field == "content"
+                assert raised.value.reason == "content text must not be blank"
+
+            created = await records.create_source("scope-a", "content", None)
+            assert created.content is None
+            page = await records.list_sources("scope-a", limit=100, cursor=None, caller="user:one")
+            assert [item.source_id for item in page.items] == [created.source_id]
+
+    asyncio.run(scenario())
+
+
 def test_source_list_stops_decoding_when_the_response_budget_is_full(monkeypatch) -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
@@ -463,14 +612,14 @@ def test_source_list_stops_decoding_when_the_response_budget_is_full(monkeypatch
                 await records.create_source("scope-a", "content", f"{index}:" + "x" * 1_100_000)
 
             decoded = 0
-            original_decode = sources._decode_row
+            original_decode = sources.decode_source
 
             def counting_decode(row):
                 nonlocal decoded
                 decoded += 1
                 return original_decode(row)
 
-            monkeypatch.setattr(sources, "_decode_row", counting_decode)
+            monkeypatch.setattr(sources, "decode_source", counting_decode)
             first = await records.list_sources("scope-a", limit=8, cursor=None, caller="user:one")
 
             assert len(first.items) == 3
@@ -740,8 +889,10 @@ def test_experience_and_skill_writers_update_owned_search_projections() -> None:
             )
 
             async with profile.database.transaction() as connection:
-                experience_hits = await index.search(connection, "scope-a", "rollback", 10)
-                skill_hits = await index.search_skills(connection, "scope-a", "matrix", 10)
+                experience_rows = await index.search(connection, "scope-a", "experience", "rollback", 10)
+                skill_rows = await index.search(connection, "scope-a", "skill", "matrix", 10)
+                experience_hits = experience_search_hits(experience_rows, "rollback", 10, "scope-a")
+                skill_hits = skill_search_hits(skill_rows, "matrix", 10)
                 package_count = await connection.scalar(select(func.count()).select_from(SKILL_PACKAGES_TABLE))
             assert [hit.artifact_ref for hit in experience_hits.hits] == [
                 ArtifactRef(

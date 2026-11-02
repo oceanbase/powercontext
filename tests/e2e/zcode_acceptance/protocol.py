@@ -50,7 +50,7 @@ def decode_response(raw: bytes) -> dict[str, Any]:
                     value = json.loads(line[6:])
                 except ValueError:
                     continue
-                if isinstance(value, dict) and "result" in value:
+                if isinstance(value, dict) and ("result" in value or "error" in value):
                     return value
     return {}
 
@@ -64,10 +64,16 @@ class WireEvidence:
         self.arrivals: list[dict[str, Any]] = []
 
     def calls(self, name: str, start: int = 0) -> list[dict[str, Any]]:
+        # Body-reading middleware exposes tools/call payloads on redirects too.
+        # Count only correlated JSON-RPC responses, including failures.
         return [
             item
             for item in self.records[start:]
-            if item["request"].get("method") == "tools/call" and item["request"].get("params", {}).get("name") == name
+            if item["request"].get("method") == "tools/call"
+            and item["request"].get("params", {}).get("name") == name
+            and "id" in item["request"]
+            and item["response"].get("id") == item["request"]["id"]
+            and ("result" in item["response"] or "error" in item["response"])
         ]
 
     def result(self, name: str, start: int = 0) -> dict[str, Any]:
@@ -308,7 +314,13 @@ class HostModelFixture:
                 "action": "noop" if duplicate else "create",
                 "compared_ids": [item["item_id"] for item in related],
                 "target_ids": [duplicate["item_id"]] if duplicate else [],
-                "content": None if duplicate else {"kind": proposal["kind"], "text": proposal["text"]},
+                "content": None
+                if duplicate
+                else {
+                    "kind": proposal["kind"],
+                    "text": proposal["text"],
+                    "description": "Synthetic project verification color",
+                },
                 "evidence_ids": [] if duplicate else proposal["evidence_ids"],
                 "reason": "Already represented" if duplicate else "Independent synthetic source evidence",
             }
@@ -320,7 +332,12 @@ class HostModelFixture:
                     "\n".join(strings(item["content"])),
                 )
                 if match:
-                    candidates.append({"kind": "fact", "text": match[0], "evidence_ids": [item["evidence_id"]]})
+                    candidates.append({
+                        "kind": "fact",
+                        "text": match[0],
+                        "description": f"{match[1]} project verification color",
+                        "evidence_ids": [item["evidence_id"]],
+                    })
             value = {"candidates": candidates}
         output = json.dumps(value)
         tools = body.get("tools", [])

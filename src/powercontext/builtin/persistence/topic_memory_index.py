@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from typing import Protocol
 
 from sqlalchemy import Table, and_, or_, select, true
@@ -55,6 +56,14 @@ class TopicMemoryIndex(Protocol):
         /,
     ) -> None: ...
 
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None: ...
+
     async def search(
         self,
         connection: AsyncConnection,
@@ -62,14 +71,6 @@ class TopicMemoryIndex(Protocol):
         request: TopicMemorySearchRequest,
         /,
     ) -> TopicMemorySearchChannels: ...
-
-    async def vector_complete(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        topic_ref: ArtifactRef,
-        /,
-    ) -> bool: ...
 
 
 class NoTopicMemoryIndex:
@@ -94,6 +95,15 @@ class NoTopicMemoryIndex:
     ) -> None:
         pass
 
+    async def replace_many(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
+        pass
+
     async def search(
         self,
         _connection: AsyncConnection,
@@ -103,20 +113,13 @@ class NoTopicMemoryIndex:
     ) -> TopicMemorySearchChannels:
         return TopicMemorySearchChannels()
 
-    async def vector_complete(
-        self,
-        _connection: AsyncConnection,
-        _scope_id: str,
-        _topic_ref: ArtifactRef,
-        /,
-    ) -> bool:
-        return False
-
 
 class CompositeTopicMemoryIndex:
     """Compose one FTS adapter and an optional matching vector adapter."""
 
     def __init__(self, *indexes: TopicMemoryIndex) -> None:
+        if any(not callable(getattr(index, "replace_many", None)) for index in indexes):
+            raise ValueError("Topic Memory indexes must implement replace_many")  # noqa: TRY003
         self.indexes = indexes
         fts_indexes = tuple(index for index in indexes if index.capabilities.fts)
         vector_indexes = tuple(index for index in indexes if index.capabilities.vector)
@@ -147,8 +150,17 @@ class CompositeTopicMemoryIndex:
         projection: TopicMemoryProjection,
         /,
     ) -> None:
+        await self.replace_many(connection, scope_id, ((topic_ref, projection),))
+
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
         for index in self.indexes:
-            await index.replace(connection, scope_id, topic_ref, projection)
+            await index.replace_many(connection, scope_id, items)
 
     async def search(
         self,
@@ -187,21 +199,6 @@ class CompositeTopicMemoryIndex:
                 ),
             )
         return channels
-
-    async def vector_complete(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        topic_ref: ArtifactRef,
-        /,
-    ) -> bool:
-        vector_indexes = tuple(index for index in self.indexes if index.capabilities.vector)
-        if not vector_indexes:
-            return False
-        for index in vector_indexes:
-            if not await index.vector_complete(connection, scope_id, topic_ref):
-                return False
-        return True
 
 
 def _combine_retrieved(left: int | None, right: int | None) -> int | None:

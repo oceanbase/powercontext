@@ -14,8 +14,8 @@
 
 """Server-owned authentication and authorization building blocks."""
 
-from powercontext.server.authz.authzen import AuthZenAuthorizationProvider
-from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+from typing import TYPE_CHECKING
+
 from powercontext.server.authz.errors import (
     AccessBindingNotFoundError,
     AccessConflictError,
@@ -63,6 +63,7 @@ from powercontext.server.authz.service import (
     BindingSearchRequest,
     BuiltinAuthorizationProvider,
     CreateBinding,
+    IdempotentAccessAuditStore,
     RelationshipReader,
     RelationshipStore,
     RelationshipWriter,
@@ -70,6 +71,25 @@ from powercontext.server.authz.service import (
     ResourceSearchRequest,
     access_control_for_mode,
 )
+
+if TYPE_CHECKING:
+    from powercontext.server.authz.authzen import AuthZenAuthorizationProvider
+    from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+
+
+def __getattr__(name: str) -> object:
+    # Runtime consumers use the shared Access contract without selecting a Server provider.
+    if name == "AuthZenAuthorizationProvider":
+        from powercontext.server.authz.authzen import AuthZenAuthorizationProvider
+
+        return AuthZenAuthorizationProvider
+    if name == "CasbinAuthorizationProvider":
+        from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+
+        return CasbinAuthorizationProvider
+    message = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(message)
+
 
 __all__ = (
     "DEFAULT_DEPLOYMENT_ID",
@@ -113,6 +133,7 @@ __all__ = (
     "CreateBinding",
     "GroupRef",
     "HandoffReceiptIdentity",
+    "IdempotentAccessAuditStore",
     "MemoryEntrySelector",
     "PrincipalRef",
     "RelationshipReader",

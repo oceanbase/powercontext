@@ -19,7 +19,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.artifacts.search import analyze_text
+from powercontext.builtin.artifacts.search import TEXT_ANALYZER_VERSION, analyze_text
 from powercontext.builtin.persistence.tables import (
     LEXICAL_PROJECTION_VERSIONS_TABLE,
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
@@ -27,7 +27,7 @@ from powercontext.builtin.persistence.tables import (
 )
 
 # Bump when document segmentation or token encoding changes; query stopwords do not affect projections.
-_ANALYZER_VERSION = "jieba-0.42.1-words-v1"
+LEXICAL_ANALYZER_VERSION = TEXT_ANALYZER_VERSION
 
 
 async def refresh_lexical_projections(connection: AsyncConnection, atomic_table: Table | None) -> None:
@@ -41,28 +41,42 @@ async def refresh_lexical_projections(connection: AsyncConnection, atomic_table:
         projections.append((atomic_table, ("kind", "text")))
     topic_changed = False
     for table, fields in projections:
-        if versions.get(table.name) == _ANALYZER_VERSION:
+        if versions.get(table.name) == LEXICAL_ANALYZER_VERSION:
             continue
         changed = await _refresh_projection(connection, table, fields)
         topic_changed |= changed and table is not atomic_table
-        values = {"projection": table.name, "analyzer_version": _ANALYZER_VERSION}
-        if connection.dialect.name == "sqlite":
-            marker = (
-                sqlite_insert(LEXICAL_PROJECTION_VERSIONS_TABLE)
-                .values(values)
-                .on_conflict_do_update(index_elements=["projection"], set_={"analyzer_version": _ANALYZER_VERSION})
-            )
-        else:
-            marker = (
-                mysql_insert(LEXICAL_PROJECTION_VERSIONS_TABLE)
-                .values(values)
-                .on_duplicate_key_update(analyzer_version=_ANALYZER_VERSION)
-            )
-        await connection.execute(marker)
+        await record_lexical_projection_version(connection, table.name)
     if topic_changed and connection.dialect.name == "sqlite":
         from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE
 
         await connection.execute(SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE.delete())
+
+
+async def lexical_projection_is_current(
+    connection: AsyncConnection, projection: str, *, version: str = LEXICAL_ANALYZER_VERSION
+) -> bool:
+    table = LEXICAL_PROJECTION_VERSIONS_TABLE
+    return await connection.scalar(select(table.c.analyzer_version).where(table.c.projection == projection)) == version
+
+
+async def record_lexical_projection_version(
+    connection: AsyncConnection, projection: str, *, version: str = LEXICAL_ANALYZER_VERSION
+) -> None:
+    """Record a completed refresh in the same transaction as its derived data."""
+    values = {"projection": projection, "analyzer_version": version}
+    if connection.dialect.name == "sqlite":
+        statement = (
+            sqlite_insert(LEXICAL_PROJECTION_VERSIONS_TABLE)
+            .values(values)
+            .on_conflict_do_update(index_elements=["projection"], set_={"analyzer_version": version})
+        )
+    else:
+        statement = (
+            mysql_insert(LEXICAL_PROJECTION_VERSIONS_TABLE)
+            .values(values)
+            .on_duplicate_key_update(analyzer_version=version)
+        )
+    await connection.execute(statement)
 
 
 async def _refresh_projection(connection: AsyncConnection, table: Table, fields: tuple[str, ...]) -> bool:

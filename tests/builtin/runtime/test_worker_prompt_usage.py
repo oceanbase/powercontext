@@ -91,6 +91,7 @@ class _InferenceHandler(BaseHTTPRequestHandler):
                         "content": {
                             "kind": request["proposal"]["kind"],
                             "text": request["proposal"]["text"],
+                            "description": "Spawned Worker validation preference",
                         },
                         "evidence_ids": request["proposal"]["evidence_ids"],
                         "reason": "Retain this independent fixture preference.",
@@ -101,6 +102,7 @@ class _InferenceHandler(BaseHTTPRequestHandler):
                             {
                                 "kind": "preference",
                                 "text": "The user requires spawned Worker validation.",
+                                "description": "Spawned Worker validation preference",
                                 "evidence_ids": [item["evidence_id"] for item in request["evidence"]],
                             }
                         ]
@@ -143,8 +145,18 @@ class _InferenceHandler(BaseHTTPRequestHandler):
         pass
 
 
-@pytest.mark.parametrize("family", ["memory", "experience", "profile"])
-def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(tmp_path, monkeypatch, family):
+@pytest.mark.parametrize(
+    ("family", "prompt_key"),
+    [
+        ("memory", "atomic_memory.extract"),
+        ("memory", "atomic_memory.reconcile"),
+        ("experience", "experience.incubate"),
+        ("profile", "profile.generate"),
+    ],
+)
+def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(
+    tmp_path, monkeypatch, family, prompt_key
+):
     # A configured loopback provider crosses the real spawn/serialization boundary:
     # no injected pipeline, model monkeypatch, or preconstructed PromptRegistry reaches the child.
     monkeypatch.setenv("OPENAI_API_KEY", "hermetic-worker-key")
@@ -171,11 +183,6 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(t
                 memory_extraction_profile=MemoryExtractionProfile.CONVERSATION,
             ),
         )
-        prompt_key = {
-            "memory": "atomic_memory.extract",
-            "experience": "experience.incubate",
-            "profile": "profile.generate",
-        }[family]
         marker = f"PERSISTED_CUSTOM_{family.upper()}_GUIDANCE"
         async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None
@@ -265,6 +272,8 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(t
                         "profile": "profile_generation",
                     }[family]
                 )
+                # A custom extraction or reconciliation Prompt keeps the comparison of a candidate with nothing to
+                # compare, so each memory case makes two requests.
                 requests = 2 if family == "memory" else 1
                 assert generation[0]["requests"] == requests
                 assert generation[0]["input_tokens"] == 11 * requests
@@ -281,8 +290,8 @@ def test_spawned_worker_restores_custom_prompt_and_counts_actual_requests_once(t
                 else:
                     assert embedding == []
                 calls = [payload for path, payload in server.requests if path == "/v1/chat/completions"]
-                assert len(calls) == (2 if family == "memory" else 1)
-                assert marker in json.dumps(calls[0])
+                assert len(calls) == requests
+                assert marker in json.dumps(calls[1 if prompt_key == "atomic_memory.reconcile" else 0])
                 assert len([path for path, _ in server.requests if path == "/v1/embeddings"]) == (
                     2 if family == "memory" else 0
                 )

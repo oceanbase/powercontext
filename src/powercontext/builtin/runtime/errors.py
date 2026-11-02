@@ -24,6 +24,8 @@ class InvalidRuntimeRequestError(PowerContextError, ValueError):
         self.code = code
         messages = {
             "since-revision": "since_revision is newer than the current Memory Revision",
+            "working-note-expiry-timezone": "expires_at must include a time zone",
+            "working-note-expiry-past": "expires_at must be in the future",
         }
         super().__init__(messages.get(code, f"invalid Runtime request: {code}"))
 

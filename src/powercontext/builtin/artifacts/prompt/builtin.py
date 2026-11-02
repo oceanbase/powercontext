@@ -20,6 +20,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionInput,
     AtomicMemoryExtractionOutput,
     atomic_memory_extraction_instructions,
+    atomic_memory_extraction_instructions_version,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -63,6 +64,7 @@ from powercontext.builtin.artifacts.skill import (
     SkillGenerationOutput,
 )
 from powercontext.builtin.artifacts.topic_memory.generation import (
+    TOPIC_MEMORY_CONTENT_INSTRUCTIONS,
     TOPIC_MEMORY_EVOLVE_INSTRUCTIONS,
     TOPIC_MEMORY_GLOBAL_INSTRUCTIONS,
     TOPIC_MEMORY_PLANNER_INSTRUCTIONS,
@@ -103,10 +105,10 @@ def builtin_prompt_definitions(
     return (
         PromptDefinition(
             key="atomic_memory.extract",
-            definition_version="powercontext.prompt.atomic-memory.extract.v1",
+            definition_version="powercontext.prompt.atomic-memory.extract.v2",
             input_type=AtomicMemoryExtractionInput,
             output_type=AtomicMemoryExtractionOutput,
-            builtin_version=f"powercontext.atomic-memory.extract.{profile.value}.v1",
+            builtin_version=atomic_memory_extraction_instructions_version(profile),
             invariant_instructions=atomic_memory_extraction_instructions(profile),
             default_instructions=atomic_memory_extraction_instructions(profile),
             builtin_profile=profile.value,
@@ -114,10 +116,10 @@ def builtin_prompt_definitions(
         ),
         PromptDefinition(
             key="atomic_memory.reconcile",
-            definition_version="powercontext.prompt.atomic-memory.reconcile.v1",
+            definition_version="powercontext.prompt.atomic-memory.reconcile.v2",
             input_type=AtomicMemoryReconciliationInput,
             output_type=AtomicMemoryReconciliationOutput,
-            builtin_version="powercontext.atomic-memory.reconcile.v1",
+            builtin_version="powercontext.atomic-memory.reconcile.v2",
             invariant_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
             default_instructions=ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
         ),
@@ -295,9 +297,11 @@ def _topic_memory_prompt_definitions() -> tuple[PromptDefinition, ...]:
             definition_version=f"powercontext.prompt.topic_memory.{name}.v1",
             input_type=input_type,
             output_type=output_type,
-            builtin_version=f"powercontext.topic_memory.{name}.v1",
+            builtin_version=f"powercontext.topic_memory.{name}.v2",
             invariant_instructions=(
                 _COMMON_INVARIANTS
+                + "\n"
+                + TOPIC_MEMORY_CONTENT_INSTRUCTIONS
                 + "\nCite only supplied opaque evidence and historical IDs; never invent persistence identities or revisions."
                 + f"\n{stage_contracts[name]}"
             ),

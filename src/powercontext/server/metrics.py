@@ -21,8 +21,9 @@ import math
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import suppress
+from threading import RLock
 from time import perf_counter, time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from prometheus_client import (
@@ -43,6 +44,10 @@ from typing_extensions import override
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingModelUsageDelta
 from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH
 from powercontext.server.context import is_internal_bridge
+from powercontext.server.operational_metrics import OperationalMetricsCollector
+
+if TYPE_CHECKING:
+    from powercontext.builtin.runtime.application import BuiltinRuntime
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -67,6 +72,7 @@ _DEPENDENCY_NAMES = frozenset({
 })
 # Access and supervisor checks share the Runtime vocabulary plus their bounded policy states.
 _DEPENDENCY_STATES = (
+    "unobserved",
     "ready",
     "unavailable",
     "timeout",
@@ -110,7 +116,7 @@ _PROCESSING_INSTRUMENTS = (
     ("retry_wait", "Scope invocations retained in this Artifact Family's bounded retry cache.", False),
     (
         "unacknowledged_requests",
-        "Snapshot of Scopes with unacknowledged requests at the latest requested-work discovery pass.",
+        "Snapshot of Scopes with unacknowledged requests at the latest background pending observation.",
         False,
     ),
     ("discovery_seconds", "Duration in seconds of this Artifact Family's most recent discovery pass.", False),
@@ -193,8 +199,10 @@ class _ModelUsageMetricsCollector:
 class ServerMetrics:
     """Own one Server instance's Prometheus registry and instruments."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, role: str = "server") -> None:
         self.registry = CollectorRegistry()
+        self.operational = OperationalMetricsCollector(role=role)
+        self._snapshot_lock = RLock()
         ProcessCollector(registry=self.registry)
         PlatformCollector(registry=self.registry)
         GCCollector(registry=self.registry)
@@ -260,7 +268,9 @@ class ServerMetrics:
             "powercontext_server_dependency_state",
             "Latest evaluated state for exposed dependency checks; missing means not configured or not state-shaped.",
             ("dependency", "state"),
-            registry=self.registry,
+            # The passive collector owns the same metric family for dependency
+            # probes. Merge both views in collect() instead of registering twice.
+            registry=None,
         )
         self.processing_duration = Histogram(
             "powercontext_server_artifact_processing_invocation_duration_seconds",
@@ -279,11 +289,11 @@ class ServerMetrics:
         )
         self.collection_failures = Counter(
             "powercontext_server_metrics_collection_failures_total",
-            "Failed processing snapshot refreshes.",
+            "Failed passive Runtime snapshot refreshes.",
             registry=self.registry,
         )
         self._processing = _ProcessingMetricsCollector()
-        self.registry.register(self._processing)
+        self.registry.register(self)
         self.set_runtime_scopes(0, 0)
 
     def start_transport(self, transport: str, operation: str) -> float:
@@ -339,7 +349,7 @@ class ServerMetrics:
 
     def observe_readiness(self, state: str, checks: Mapping[str, str]) -> None:
         """Publish the last evaluation without executing dependency probes at scrape time."""
-        with suppress(Exception):
+        with self._snapshot_lock, suppress(Exception):
             for candidate in ("ready", "degraded", "not_ready"):
                 self.readiness_states.labels(state=candidate).set(int(state == candidate))
             self.dependency_states.clear()
@@ -367,15 +377,71 @@ class ServerMetrics:
             with suppress(Exception):
                 self.runtime_scopes.labels(state=state).set(value)
 
-    def set_processing_families(self, supervisor: ArtifactProcessingSnapshotSource | None) -> None:
-        """Refresh bounded scheduler observations; supervisor evaluation stays inside the protected path."""
+    def set_processing_families(
+        self,
+        supervisor: ArtifactProcessingSnapshotSource | Mapping[str, Mapping[str, int | float | str]] | None,
+    ) -> None:
+        """Refresh a bounded snapshot or source without changing the last good observation on failure."""
 
-        try:
-            families = {} if supervisor is None else supervisor.family_status
-            self._processing.replace(families)
-        except Exception:
-            with suppress(Exception):
-                self.collection_failures.inc()
+        with self._snapshot_lock:
+            try:
+                if supervisor is None:
+                    families: Mapping[str, Mapping[str, int | float | str]] = {}
+                elif isinstance(supervisor, Mapping):
+                    families = cast(Mapping[str, Mapping[str, int | float | str]], supervisor)
+                else:
+                    families = supervisor.family_status
+                self._processing.replace(families)
+            except Exception:
+                with suppress(Exception):
+                    self.collection_failures.inc()
+
+    def refresh_runtime(self, runtime: BuiltinRuntime | None) -> None:
+        """Stage counts and freshness together; retain both on collection failure."""
+        with self._snapshot_lock:
+            try:
+                supervisor = None if runtime is None else runtime.artifact_processing_supervisor
+                families = {} if supervisor is None else supervisor.family_status
+                processing = _ProcessingMetricsCollector()
+                processing.replace(families)
+                operational = self.operational.prepare(runtime, families=families)
+            except Exception:
+                self.operational.collection_failed()
+                with suppress(Exception):
+                    self.collection_failures.inc()
+                return
+            self._processing = processing
+            self.operational.publish(operational)
+
+    def collect(self) -> Iterator[Metric]:
+        # Capture the pair before yielding: registry readers in other threads must
+        # never combine processing counts with a different freshness observation.
+        with self._snapshot_lock:
+            operational = tuple(self.operational.collect())
+            # Actual dependency probes own their passive states and freshness;
+            # the Server evaluation adds access/authentication and supervisor
+            # checks without emitting duplicate series for shared dependencies.
+            dependency_name = "powercontext_server_dependency_state"
+            states: dict[str, str] = {}
+            for metric in (*self.dependency_states.collect(), *operational):
+                if metric.name == dependency_name:
+                    for sample in metric.samples:
+                        if sample.value == 1:
+                            states[sample.labels["dependency"]] = sample.labels["state"]
+            dependencies = GaugeMetricFamily(
+                dependency_name,
+                "Latest observed dependency state; probe freshness is reported separately.",
+                labels=["dependency", "state"],
+            )
+            for dependency, state in states.items():
+                for candidate in _DEPENDENCY_STATES:
+                    dependencies.add_metric([dependency, candidate], float(state == candidate))
+            snapshot = (
+                *(metric for metric in operational if metric.name != dependency_name),
+                dependencies,
+                *self._processing.collect(),
+            )
+        yield from snapshot
 
     def render(self) -> bytes:
         return generate_latest(self.registry)

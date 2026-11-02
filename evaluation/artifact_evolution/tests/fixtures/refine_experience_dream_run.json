@@ -1,0 +1,79 @@
+{
+  "scope_id": "scope-1",
+  "run_id": "dream-run-1",
+  "operation": "refine_experience",
+  "status": "succeeded",
+  "outcome": "proposed",
+  "target": {
+    "family": "experience",
+    "artifact_id": "exp-1",
+    "revision": 3
+  },
+  "tag_target": null,
+  "candidate": {
+    "kind": "artifact",
+    "candidate_id": "candidate-1",
+    "version": 2
+  },
+  "reason": "Generated a reusable experience.",
+  "error": null,
+  "accepted_at": "2026-10-17T12:00:00Z",
+  "started_at": "2026-10-17T12:00:00Z",
+  "completed_at": "2026-10-17T12:00:01.500000Z",
+  "attempt_count": 2,
+  "input_manifest": {
+    "transform_version": "powercontext.dream.evidence.v1",
+    "artifacts": [
+      {
+        "family": "experience",
+        "artifact_id": "exp-1",
+        "revision": 3
+      }
+    ],
+    "sources": [
+      {
+        "source_type": "message",
+        "source_id": "source-1"
+      }
+    ],
+    "nodes": [
+      {
+        "evidence_id": "evidence-1",
+        "kind": "experience",
+        "digest": "sha256:evidence-1",
+        "source": null,
+        "artifact": {
+          "family": "experience",
+          "artifact_id": "exp-1",
+          "revision": 3
+        },
+        "role": "target",
+        "historical": false
+      }
+    ],
+    "edges": [],
+    "root_groups": [],
+    "projection_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "projection_bytes": 128,
+    "incomplete": false
+  },
+  "usage": {
+    "model_calls": 2,
+    "input_tokens": 100,
+    "output_tokens": 20
+  },
+  "budget": {
+    "max_items": 32,
+    "max_bytes": 65536,
+    "max_nodes": 128,
+    "max_edges": 256,
+    "max_depth": 8,
+    "max_output_tokens": 4096,
+    "max_model_calls": 2,
+    "timeout_seconds": 120
+  },
+  "prompt_version": "powercontext.dream.v1.4",
+  "model_config_id": "model-1",
+  "reused": false,
+  "historical_data": null
+}

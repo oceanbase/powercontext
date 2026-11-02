@@ -425,6 +425,11 @@ Worker 保留自己的领域检查；准入后遇到持久拒绝时，通过脱�
 普通唤醒不能反复绕过间隔，更新的显式请求仍可及时重新检查。probe 自身抛出的超时与共享额度耗尽区分，按实际检查
 错误处理。
 
+binding 还可注册仅记录 metadata 的 `work_failure` 回调。失败 Worker 已停止后，当前任期内的 Supervisor 校验 fencing，
+将 Scope、binding 和错误类别交给领域保存 crash/timeout 诊断，不改变额度。该回调具有有界 I/O 超时；记录失败时输出
+warning，仍保留原处理错误并让其他键继续运行。Topic 领域保留带索引的尝试/阻塞记录，通过自身 API 提供具有 Scope
+权限的查询和显式 retry；Supervisor 不负责重置预算。
+
 Memory 在生成超时后按 Scope 持久化缩窗上限。失败的提取可以将下一次窗口减半，但不推进 Source 游标，
 也不确认调用；缩窗上限跨 Worker 更换保留，在已观察到的积压消费完成时清除。该更新受游标 CAS 和当前
 任期 fencing 保护。它是输入大小提示，不代表处理成功的 checkpoint，也不是 Supervisor 的失败任务状态。

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from functools import partial
 from threading import Event as ThreadEvent
 from typing import cast
@@ -30,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from sqlalchemy.pool import QueuePool
 
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite import profile as sqlite_profile
 from powercontext.builtin.persistence.tables import (
@@ -37,6 +39,29 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACTS_TABLE,
     SHARED_TABLES,
 )
+
+
+@pytest.mark.parametrize("existing", (False, True))
+@pytest.mark.parametrize("version", ((3, 34, 1), (3, 37, 2)))
+def test_unsupported_sqlite_is_rejected_without_changing_storage(tmp_path, monkeypatch, existing, version) -> None:
+    database = tmp_path / "legacy.db"
+    if existing:
+        with sqlite3.connect(database) as connection:
+            connection.execute("CREATE TABLE preserved (value TEXT)")
+            connection.execute("INSERT INTO preserved VALUES ('keep')")
+    before = database.read_bytes() if existing else None
+    # Simulate the linked-library version; the test host still runs its installed SQLite.
+    monkeypatch.setattr(sqlite3, "sqlite_version_info", version)
+    monkeypatch.setattr(sqlite3, "sqlite_version", ".".join(map(str, version)))
+
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{database}")
+        with pytest.raises(PersistenceError, match=r"SQLite 3\.38\.0.*this Python uses SQLite"):
+            async with SQLiteProfile.open(config, tables=SHARED_TABLES):
+                pytest.fail("Unsupported SQLite must not accept database operations")
+
+    asyncio.run(scenario())
+    assert (database.read_bytes() if database.exists() else None) == before
 
 
 def test_sqlite_stop_waiters_finish_when_another_waiter_is_cancelled(tmp_path) -> None:

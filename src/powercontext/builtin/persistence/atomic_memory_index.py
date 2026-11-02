@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
-from sqlalchemy import Table, bindparam, delete, insert, inspect, select, text, update
+from sqlalchemy import Table, bindparam, delete, func, inspect, or_, select, text, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef, ChannelScore
@@ -51,6 +54,17 @@ _OBSOLETE_PROJECTION_COLUMNS = frozenset({"read_grants", "owner_type", "owner_id
 
 
 async def _projection_columns(connection: AsyncConnection, table: Table) -> set[str]:
+    if connection.dialect.name == "mysql":
+        return set(
+            await connection.scalars(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = DATABASE() AND table_name = :table_name"
+                ),
+                {"table_name": table.name},
+            )
+        )
+
     def read(sync: Any) -> set[str]:
         inspector = inspect(sync)
         if not inspector.has_table(table.name):
@@ -102,6 +116,7 @@ class PreparedAtomicMemoryProjection:
     text: str
     searchable_text: str
     content_hash: str
+    description: str | None = None
     embedding: tuple[float, ...] | None = None
     embedding_profile: EmbeddingProfile | None = None
     profile_fingerprint: str | None = None
@@ -159,14 +174,18 @@ class AtomicMemoryRelatedRequest:
 
 
 class AtomicMemoryIndex(Protocol):
+    """Caller-owned projection transactions, including initialization and current-row validation."""
+
     table: Table
     tables: tuple[Table, ...]
     capabilities: AtomicMemoryIndexCapabilities
 
     async def initialize(self, connection: AsyncConnection, /) -> None: ...
 
-    async def replace(
-        self, connection: AsyncConnection, scope_id: str, projection: AtomicMemoryProjection, /
+    async def validate_current(self, connection: AsyncConnection, /) -> None: ...
+
+    async def replace_many(
+        self, connection: AsyncConnection, scope_id: str, projections: Sequence[AtomicMemoryProjection], /
     ) -> None: ...
 
     async def delete(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None: ...
@@ -179,9 +198,9 @@ class AtomicMemoryIndex(Protocol):
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemorySearchRequest, floor: AdmissionFloor, /
     ) -> bool: ...
 
-    async def enumerate_related(
+    async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
-    ) -> tuple[AtomicMemoryIndexHit, ...]: ...
+    ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]: ...
 
     async def refresh_tags(
         self, connection: AsyncConnection, scope_id: str, artifact_id: str, tag_keys: tuple[str, ...], /
@@ -197,6 +216,8 @@ class AtomicMemoryProjectionPublisher:
         *,
         embedding_model: EmbeddingModel | None = None,
     ) -> None:
+        if not callable(getattr(index, "replace_many", None)):
+            raise AtomicMemoryIndexError("publication", "Atomic Memory index must publish complete projection sets")
         self.index = index
         self._embedding_model = embedding_model
 
@@ -240,6 +261,7 @@ class AtomicMemoryProjectionPublisher:
         return PreparedAtomicMemoryProjection(
             kind=kind,
             text=body,
+            description=payload.get("description"),
             searchable_text=analyze_text(input_text),
             content_hash=sha256(canonical_json(payload)).hexdigest(),
             embedding=vector,
@@ -259,20 +281,37 @@ class AtomicMemoryProjectionPublisher:
         if record.state.state != "active":
             await self.remove(connection, scope_id, artifact.artifact_id)
             return
+        tags = await load_atomic_memory_tags(connection, scope_id, artifact.artifact_id)
+        await self.index.replace_many(connection, scope_id, (self._projection(record, prepared, tags),))
+
+    async def publish_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        records: Sequence[tuple[Any, PreparedAtomicMemoryProjection]],
+    ) -> None:
+        """Publish independent, newly created and untagged revisions in one transaction."""
+        await self.index.replace_many(
+            connection,
+            scope_id,
+            tuple(self._projection(record, prepared, ()) for record, prepared in records),
+        )
+
+    def _projection(
+        self, record: Any, prepared: PreparedAtomicMemoryProjection, tags: tuple[str, ...]
+    ) -> AtomicMemoryProjection:
+        artifact = record.artifact
+        if record.state.state != "active":
+            raise AtomicMemoryIndexError("state", "Bulk projection requires active Atomic Memory")
         content_hash = sha256(canonical_json(artifact.content.model_dump(mode="json", by_alias=True))).hexdigest()
         if content_hash != prepared.content_hash:
             raise AtomicMemoryIndexError("prepared-content", "Prepared projection does not match the committed content")
         self.validate_prepared(prepared)
-        tags = await load_atomic_memory_tags(connection, scope_id, artifact.artifact_id)
-        await self.index.replace(
-            connection,
-            scope_id,
-            AtomicMemoryProjection(
-                artifact_ref=artifact.as_ref(),
-                state_version=record.state.state_version,
-                prepared=prepared,
-                tag_keys=tags,
-            ),
+        return AtomicMemoryProjection(
+            artifact_ref=artifact.as_ref(),
+            state_version=record.state.state_version,
+            prepared=prepared,
+            tag_keys=tags,
         )
 
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None:
@@ -368,13 +407,11 @@ def atomic_memory_filter_sql(
 def atomic_memory_vector_sql(
     eligibility: str, dialect: Literal["sqlite", "mysql"], /, *, bounded: bool, threshold: bool
 ) -> str:
-    """One statement checks readiness and retrieves matches at one channel snapshot.
+    """Exact Top-K over usable rows, or complete enumeration with a readiness sentinel.
 
-    The sentinel reports any incomplete eligible row even when no vector meets
-    the threshold. Bounded results limit only after same-row eligibility and exact
-    scoring. Explicit L2 thresholds belong to complete related enumeration;
-    ordinary search uses cosine admission on unit-normalized L2 vectors.
-    There is no business-table join, ANN or enumeration result cap.
+    Bounded search is not a collection audit. Complete related enumeration rejects
+    incomplete eligible vectors and has no result cap. Both apply same-row filters
+    before truncation and keep business-table joins out of candidate scoring.
     """
 
     distance = "vec_distance_l2" if dialect == "sqlite" else "l2_distance"
@@ -388,6 +425,17 @@ def atomic_memory_vector_sql(
         " AND distance <= :max_distance" if threshold else f" AND {clamped_similarity} >= :min_semantic_similarity"
     )
     limit_sql = " LIMIT :result_limit" if bounded else ""
+    if bounded and not threshold:
+        return (
+            "WITH scored AS (SELECT artifact_id, revision, state_version, kind, text, "  # noqa: S608
+            f"{distance}(embedding, :query_vector) AS distance FROM pc_atomic_memory_current "
+            f"WHERE scope_id = :scope_id AND ({eligibility}) "
+            "AND embedding IS NOT NULL AND profile_fingerprint = :profile AND embedding_input_hash IS NOT NULL "
+            f"AND projection_format = :projection_format{valid_length}) "
+            "SELECT artifact_id, revision, state_version, kind, text, distance, 0 AS invalid_vectors "
+            f"FROM scored WHERE {clamped_similarity} >= :min_semantic_similarity "
+            "ORDER BY distance, artifact_id LIMIT :result_limit"
+        )
     # eligibility is built by atomic_memory_filter_sql from fixed grammar.
     return (
         "WITH eligible AS (SELECT artifact_id, revision, state_version, kind, text, embedding, "  # noqa: S608
@@ -521,10 +569,38 @@ class RelationalAtomicMemoryIndex:
             vector=profile is not None, hybrid=profile is not None, embedding_profile=profile
         )
 
+    async def validate_current(self, connection: AsyncConnection, /) -> None:
+        """Audit vector deployment readiness at startup, outside ordinary bounded search."""
+        profile = self.capabilities.embedding_profile
+        if profile is None:
+            return
+        table = self.table
+        invalid = [
+            table.c.embedding.is_(None),
+            table.c.embedding_input_hash.is_(None),
+            table.c.profile_fingerprint.is_(None),
+            table.c.profile_fingerprint != atomic_memory_profile_fingerprint(profile),
+            table.c.projection_format != ATOMIC_MEMORY_PROJECTION_FORMAT,
+        ]
+        if connection.dialect.name == "sqlite":
+            invalid.append(func.length(table.c.embedding) != profile.dimension * 4)
+        if await connection.scalar(select(table.c.artifact_id).where(or_(*invalid)).limit(1)) is not None:
+            raise AtomicMemoryIndexError(
+                "incomplete-vector",
+                "Current Atomic Memory vectors are incomplete or use another profile. Stop writers and run "
+                "powercontext server atomic-memory-rebuild-projection --maintenance-confirmed.",
+            )
+
     def _encode_embedding(self, vector: tuple[float, ...]) -> object:
         return vector
 
     async def require_current_schema(self, connection: AsyncConnection) -> None:
+        # Add only the new nullable projection metadata. Never read bodies or call inference at startup.
+        columns = await _projection_columns(connection, self.table)
+        if columns and "description" not in columns:
+            await connection.exec_driver_sql(
+                "ALTER TABLE pc_atomic_memory_current ADD COLUMN description VARCHAR(200) NULL"
+            )
         if await _projection_columns(connection, self.table) & _OBSOLETE_PROJECTION_COLUMNS:
             raise AtomicMemoryIndexError(
                 "current-schema",
@@ -532,7 +608,32 @@ class RelationalAtomicMemoryIndex:
                 "powercontext server atomic-memory-rebuild-projection --maintenance-confirmed.",
             )
 
-    async def replace(self, connection: AsyncConnection, scope_id: str, projection: AtomicMemoryProjection, /) -> None:
+    async def replace_many(
+        self, connection: AsyncConnection, scope_id: str, projections: Sequence[AtomicMemoryProjection], /
+    ) -> None:
+        if not projections:
+            return
+        values = [self._projection_values(scope_id, projection) for projection in projections]
+        if connection.dialect.name == "sqlite":
+            statement = sqlite_insert(self.table)
+            statement = statement.on_conflict_do_update(
+                index_elements=("scope_id", "artifact_id"),
+                set_={
+                    name: getattr(statement.excluded, name)
+                    for name in values[0]
+                    if name not in {"scope_id", "artifact_id"}
+                },
+            )
+        elif connection.dialect.name == "mysql":
+            statement = mysql_insert(self.table)
+            statement = statement.on_duplicate_key_update(**{
+                name: getattr(statement.inserted, name) for name in values[0] if name not in {"scope_id", "artifact_id"}
+            })
+        else:
+            raise AtomicMemoryIndexError("dialect", "Atomic Memory projection needs SQLite or MySQL")
+        await connection.execute(statement, values)
+
+    def _projection_values(self, scope_id: str, projection: AtomicMemoryProjection) -> dict[str, object]:
         if projection.artifact_ref.family != "atomic-memory":
             raise AtomicMemoryIndexError("family", "Atomic Memory index only accepts atomic-memory artifacts")
         prepared = projection.prepared
@@ -557,24 +658,22 @@ class RelationalAtomicMemoryIndex:
                 )
             )
             fingerprint = atomic_memory_profile_fingerprint(self.profile)
-        await self.delete(connection, scope_id, projection.artifact_ref.artifact_id)
-        await connection.execute(
-            insert(self.table).values(
-                scope_id=scope_id,
-                artifact_id=projection.artifact_ref.artifact_id,
-                revision=projection.artifact_ref.revision,
-                state_version=projection.state_version,
-                content_hash=prepared.content_hash,
-                projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
-                kind=prepared.kind,
-                text=prepared.text,
-                searchable_text=prepared.searchable_text,
-                tag_keys=json.dumps(sorted(set(projection.tag_keys)), ensure_ascii=False),
-                embedding=embedding,
-                profile_fingerprint=fingerprint,
-                embedding_input_hash=input_hash,
-            )
-        )
+        return {
+            "scope_id": scope_id,
+            "artifact_id": projection.artifact_ref.artifact_id,
+            "revision": projection.artifact_ref.revision,
+            "state_version": projection.state_version,
+            "content_hash": prepared.content_hash,
+            "projection_format": ATOMIC_MEMORY_PROJECTION_FORMAT,
+            "kind": prepared.kind,
+            "text": prepared.text,
+            "description": prepared.description,
+            "searchable_text": prepared.searchable_text,
+            "tag_keys": json.dumps(sorted(set(projection.tag_keys)), ensure_ascii=False),
+            "embedding": embedding,
+            "profile_fingerprint": fingerprint,
+            "embedding_input_hash": input_hash,
+        }
 
     async def delete(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None:
         await connection.execute(
@@ -636,19 +735,42 @@ class RelationalAtomicMemoryIndex:
                 probe_lower_similarity=floor.min_semantic_similarity,
             )
             distance = "vec_distance_l2" if dialect == "sqlite" else "l2_distance"
-            similarity = f"(1.0 - POWER({distance}(embedding, :probe_vector), 2) / 2.0)"
+            distance_sql = f"{distance}(embedding, :probe_vector)"
+            squared = f"({distance_sql} * {distance_sql})" if dialect == "sqlite" else f"POWER({distance_sql}, 2)"
+            similarity = f"(1.0 - {squared} / 2.0)"
             current.append(f"({similarity} >= :probe_similarity)")
             recoverable.append(f"({similarity} >= :probe_lower_similarity)")
         if not recoverable:
             return False
         new_channels = [f"({lower} AND NOT {admitted})" for admitted, lower in zip(current, recoverable, strict=True)]
-        statement = text(
+        probe = (
             "SELECT 1 FROM pc_atomic_memory_current WHERE scope_id = :scope_id "  # noqa: S608
             f"AND ({eligibility}) AND ({' OR '.join(new_channels)}) LIMIT 1"
         )
+        invalid = "0 = 1"
+        profile = self.profile
+        if request.mode in {"vector", "hybrid"} and profile is not None:
+            parameters.update(
+                profile=atomic_memory_profile_fingerprint(profile),
+                projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
+                embedding_bytes=profile.dimension * 4,
+            )
+            length = " OR LENGTH(embedding) <> :embedding_bytes" if dialect == "sqlite" else ""
+            invalid = (
+                "EXISTS (SELECT 1 FROM pc_atomic_memory_current WHERE scope_id = :scope_id "  # noqa: S608
+                f"AND ({eligibility}) AND (embedding IS NULL OR embedding_input_hash IS NULL "
+                "OR profile_fingerprint IS NULL OR profile_fingerprint <> :profile "
+                f"OR projection_format <> :projection_format{length}) LIMIT 1)"
+            )
+        statement = text(f"SELECT CASE WHEN {invalid} THEN -1 ELSE EXISTS ({probe}) END")
         if request.mode in {"vector", "hybrid"} and dialect == "mysql":
             statement = statement.bindparams(bindparam("probe_vector", type_=self.table.c.embedding.type))
-        return await connection.scalar(statement, parameters) is not None
+        result = await connection.scalar(statement, parameters)
+        if result == -1:
+            raise AtomicMemoryIndexError(
+                "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
+            )
+        return bool(result)
 
     def _require_vectors(
         self,

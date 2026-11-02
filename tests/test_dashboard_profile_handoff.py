@@ -23,12 +23,17 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
+from alembic import command
 from fastapi.testclient import TestClient
 from markdown_it import MarkdownIt
+from sqlalchemy import create_engine
 
 from powercontext.builtin.artifacts.prompt import PROMPT_KEYS, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner, server_bundle
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.server.dashboard.api import DashboardAPI
 from powercontext.server.dashboard.pagination import PAGE_SIZE
 from powercontext.server.factory import create_server_app
@@ -194,27 +199,60 @@ def test_rollback_is_offered_when_access_control_is_disabled(tmp_path: Path) -> 
 
 
 def test_existing_database_without_revision_metadata_columns_keeps_working(tmp_path: Path) -> None:
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/existing.db"),
+        dashboard=DashboardConfig(enabled=True),
+        mcp=McpConfig(enabled=False),
+    )
+
     def open_app():
         return create_server_app(
-            settings=ServerSettings(
-                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/existing.db"),
-                dashboard=DashboardConfig(enabled=True),
-                mcp=McpConfig(enabled=False),
-            ),
+            settings=settings,
             scheduler_path=tmp_path / "scheduler.db",
         )
 
-    with TestClient(open_app()) as client:
-        scope = create_scope(client, "Existing database")["scope_id"]
-        _profile(client, scope, "# First profile\n\nOriginal preference.")
-    # A database written before revision metadata existed has none of these columns.
-    with sqlite3.connect(tmp_path / "existing.db") as connection:
-        for column in ("created_at", "created_by", "restored_from_revision", "rollback_reason"):
-            connection.execute(f"ALTER TABLE pc_artifacts DROP COLUMN {column}")
+    # Use the registered release layout, then migrate before normal admission.
+    scope = "existing"
+    content = json.dumps({
+        "schema": "powercontext.profile.v1",
+        "media_type": "text/markdown",
+        "content": "# First profile\n\nOriginal preference.\n",
+        "generation": {"mode": "manual_create", "created_at": "2026-01-01T00:00:00Z"},
+    }).encode()
+    engine = create_engine(f"sqlite:///{tmp_path}/existing.db")
+    bundle = server_bundle()
+    try:
+        with engine.begin() as connection:
+            config = bundle.config(connection)
+            config.attributes["configuration"] = {"processing_manifest": canonical_processing_manifest(BuiltinConfig())}
+            command.upgrade(config, "s1300")
+            connection.exec_driver_sql("DROP TABLE pc_schema_revision")
+            connection.exec_driver_sql(
+                "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
+                "VALUES (?, 'Existing database', '', ?, 'existing database', '', 1)",
+                (scope, scope),
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO pc_artifacts (scope_id,family,artifact_id,revision,content) VALUES (?, 'profile', 'profile', 1, ?)",
+                (scope, content),
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO pc_artifact_heads (scope_id,family,artifact_id,revision) VALUES (?, 'profile', 'profile', 1)",
+                (scope,),
+            )
+            columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(pc_artifacts)")}
+            assert not columns & {"created_at", "created_by", "restored_from_revision", "rollback_reason"}
+    finally:
+        engine.dispose()
+    runner = deployment_runner(settings)
+    plan = runner.plan()
+    assert plan.source_revision == "s1300"
+    assert runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).state == "ready"
     with TestClient(open_app()) as client:
         path = f"/v1/scopes/{scope}/artifacts/profile/profile"
         current = client.get(path)
         assert current.status_code == 200, current.text
+        assert current.json()["content"]["content"] == "# First profile\n\nOriginal preference.\n"
         assert current.json()["created_at"] is None
         changed = client.put(
             path,

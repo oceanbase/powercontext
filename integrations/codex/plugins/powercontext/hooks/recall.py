@@ -38,6 +38,7 @@ sys.path.insert(0, str(_SCRIPTS_ROOT))
 from bootstrap_state import clear_receipt, load_receipt  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
+from hooks.prompt_privacy import scrub_secrets  # noqa: E402
 from plugin_version import PLUGIN_VERSION  # noqa: E402
 from scope_binding import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
@@ -151,7 +152,9 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         )
         bootstrap_receipt_id = load_receipt(session_id, scope_id)
         clear_receipt(session_id)
-        query = _bounded_recall_query(prompt)
+        authorization = settings.authorization.get_secret_value() if settings.authorization is not None else None
+        safe_prompt = scrub_secrets(prompt, authorization)
+        query = _bounded_recall_query(safe_prompt)
         context = _recall_context(
             query,
             scope_id,
@@ -161,21 +164,25 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             emitted_diagnostics=emitted_diagnostics,
             diagnostic_events=diagnostic_events,
         )
-        _capture_and_flush(
-            payload,
-            prompt=prompt,
-            cwd=cwd,
-            scope_id=scope_id,
-            settings=settings,
-            deadline=http_deadline,
-            emitted_diagnostics=emitted_diagnostics,
-            diagnostic_events=diagnostic_events,
-        )
+        if safe_prompt != prompt:
+            with suppress(Exception):
+                _emit_context_event("skipped", event_name="capture_source", reason="sensitive_content")
+        else:
+            _capture_and_flush(
+                payload,
+                prompt=prompt,
+                cwd=cwd,
+                scope_id=scope_id,
+                settings=settings,
+                deadline=http_deadline,
+                emitted_diagnostics=emitted_diagnostics,
+                diagnostic_events=diagnostic_events,
+            )
         if context:
             with suppress(Exception):
                 _record_evaluation_trace(
                     payload,
-                    query=prompt,
+                    query=safe_prompt,
                     injected_text=context,
                     scope_id=scope_id,
                 )
@@ -538,6 +545,7 @@ def _emit_context_event(
     context_status: str | None = None,
     content_bytes: int | None = None,
     recovery: str | None = None,
+    reason: str | None = None,
     emitted_diagnostics: set[str] | None = None,
     diagnostic_events: list[dict[str, object]] | None = None,
 ) -> None:
@@ -561,8 +569,7 @@ def _emit_context_event(
         event["context_status"] = context_status
     if content_bytes is not None:
         event["content_bytes"] = content_bytes
-    if recovery is not None:
-        event["recovery"] = recovery
+    event.update({key: value for key, value in (("recovery", recovery), ("reason", reason)) if value is not None})
     if diagnostic_events is None or outcome not in _FAILURE_OUTCOMES:
         sys.stderr.write(json.dumps(event, separators=(",", ":")) + "\n")
     else:

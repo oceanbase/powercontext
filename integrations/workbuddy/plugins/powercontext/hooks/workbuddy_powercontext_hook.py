@@ -39,12 +39,29 @@ sys.path.insert(0, str(_HOOKS_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 import prepared_context as _prepared_context  # noqa: E402
+from prompt_privacy import scrub_secrets  # noqa: E402
 from workbuddy_settings import WorkBuddyPluginSettings  # noqa: E402
 
 if (_HOOKS_ROOT / "powercontext_scope_binding.py").is_file():
-    from powercontext_scope_binding import bind_response_deadline, open_bounded, resolve_scope_id
+    from powercontext_scope_binding import (
+        ScopeBindingError,
+        ScopeBindingRejectedError,
+        ScopeBindingStatusError,
+        ScopeBindingUnavailableError,
+        bind_response_deadline,
+        open_bounded,
+        resolve_scope_id,
+    )
 else:
-    from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id
+    from workspace_scope import (
+        ScopeBindingError,
+        ScopeBindingRejectedError,
+        ScopeBindingStatusError,
+        ScopeBindingUnavailableError,
+        bind_response_deadline,
+        open_bounded,
+        resolve_scope_id,
+    )
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -61,11 +78,6 @@ _HOST_BLOCK_OPEN_PREFIXES = (
     "<system-reminder",
     "<task-notification",
 )
-# The request contract bounds a query in characters. The byte bound is the hook's own
-# margin, so a query stays acceptable to a server that still measures the storage layer's
-# limit as well.
-_MAX_QUERY_CHARACTERS = 8192
-_MAX_QUERY_BYTES = 8192
 _REQUEST_HEADERS = {
     "X-PowerContext-Dream-Contract": "2",
     "Accept": "application/json",
@@ -106,17 +118,15 @@ def main(settings: WorkBuddyPluginSettings | None = None) -> int:
         cwd = payload.get("cwd")
         context = None
         if prompt is not None and prompt.strip() and isinstance(cwd, str):
-            query = _recall_query(prompt)
+            safe_prompt = scrub_secrets(prompt, settings.authorization)
+            query = _recall_query(safe_prompt)
             http_deadline = monotonic() + settings.http_budget_seconds
-            try:
-                scope_id = resolve_scope_id(
-                    cwd,
-                    session_id=_payload_identifier(payload, "session_id"),
-                    settings=settings,
-                    deadline=http_deadline,
-                )
-            except Exception:
-                scope_id = None
+            scope_id = _resolve_scope(
+                cwd,
+                session_id=_payload_identifier(payload, "session_id"),
+                settings=settings,
+                deadline=http_deadline,
+            )
             if scope_id:
                 # Only the recall depends on a usable query. The request contract requires a
                 # query of at least one non-whitespace character, so a turn that reduces to
@@ -131,7 +141,10 @@ def main(settings: WorkBuddyPluginSettings | None = None) -> int:
                             deadline=http_deadline,
                         )
 
-                if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
+                if safe_prompt != prompt:
+                    with suppress(Exception):
+                        _emit_context_event("skipped", event_name="capture_source", reason="sensitive_content")
+                elif settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
                     with suppress(Exception):
                         captured = _capture_prompt(
                             payload,
@@ -172,6 +185,29 @@ def _read_payload() -> dict[str, Any]:
     return cast(dict[str, Any], json.load(stdin))
 
 
+def _resolve_scope(
+    cwd: str,
+    *,
+    session_id: str | None,
+    settings: WorkBuddyPluginSettings,
+    deadline: float,
+) -> str | None:
+    try:
+        return resolve_scope_id(cwd, session_id=session_id, settings=settings, deadline=deadline)
+    except ScopeBindingRejectedError:
+        _emit_context_event("authentication_failed")
+    except ScopeBindingUnavailableError:
+        _emit_context_event("server_unavailable")
+    except ScopeBindingStatusError as error:
+        outcome = "version_mismatch" if error.status == 404 else "invalid_response"
+        _emit_context_event(outcome, http_status=error.status)
+    except ScopeBindingError:
+        _emit_context_event("invalid_response")
+    except Exception:
+        return None
+    return None
+
+
 def _prompt(payload: Mapping[str, object]) -> str | None:
     prompt = payload.get("prompt")
     if isinstance(prompt, str):
@@ -191,13 +227,15 @@ def _recall_query(prompt: str) -> str:
 
     The element is only trusted where its boundaries match the host's wrapper, because the
     same tags appear verbatim wherever a user or a host-written summary quotes this code. A
-    prompt no verified element can be read from falls back to the joined text, trimmed to the
-    bounds above so the request stays acceptable to any server version.
+    prompt no verified element can be read from falls back to the joined text. Either query is
+    bounded the way the other prompt hooks bound theirs, so the request stays acceptable to any
+    server version.
     """
 
     extracted = _last_user_query(prompt)
-    query = prompt if extracted is None else extracted
-    bounded, truncated = _query_within_bounds(query.strip())
+    query = (prompt if extracted is None else extracted).strip()
+    bounded = _prepared_context.bounded_recall_query(query)
+    truncated = bounded != query
     if extracted is not None or truncated:
         _emit_query_event(
             source="user_query" if extracted is not None else "joined_prompt",
@@ -316,18 +354,6 @@ def _ends_at_host_boundary(prompt: str, closed: int) -> bool:
     if prompt.startswith(_CLOSING_TAG_PREFIX, index):
         return False
     return any(prompt.startswith(prefix, index) for prefix in _HOST_BLOCK_OPEN_PREFIXES)
-
-
-def _query_within_bounds(query: str) -> tuple[str, bool]:
-    """Trim a query to the request bounds, keeping the most recent text."""
-
-    if len(query) <= _MAX_QUERY_CHARACTERS and len(query.encode("utf-8")) <= _MAX_QUERY_BYTES:
-        return query, False
-    retained = query[-_MAX_QUERY_CHARACTERS:]
-    encoded = retained.encode("utf-8")
-    if len(encoded) > _MAX_QUERY_BYTES:
-        retained = encoded[-_MAX_QUERY_BYTES:].decode("utf-8", errors="ignore")
-    return retained, True
 
 
 def _emit_query_event(*, source: str, truncated: bool, characters: int, utf8_bytes: int) -> None:
@@ -549,13 +575,15 @@ def _recall_context(
 def _emit_context_event(
     outcome: str,
     *,
+    event_name: str = "context_prepare",
+    reason: str | None = None,
     http_status: int | None = None,
     context_status: str | None = None,
     content_bytes: int | None = None,
 ) -> None:
     event: dict[str, object] = {
         "component": "powercontext.workbuddy.recall",
-        "event": "context_prepare",
+        "event": event_name,
         "outcome": outcome,
     }
     if http_status is not None:
@@ -564,6 +592,8 @@ def _emit_context_event(
         event["context_status"] = context_status
     if content_bytes is not None:
         event["content_bytes"] = content_bytes
+    if reason is not None:
+        event["reason"] = reason
     sys.stderr.write(json.dumps(event, separators=(",", ":")) + "\n")
 
 

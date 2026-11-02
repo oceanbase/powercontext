@@ -17,11 +17,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from hashlib import sha256
 from time import perf_counter
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, exists, func, inspect, select, tuple_
+from sqlalchemy import and_, exists, func, inspect, literal, select, tuple_
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -116,11 +117,17 @@ async def _identity_batch(
 
 
 async def _record(
-    connection: AsyncConnection, artifacts: ArtifactRepository, scope_id: str, artifact_id: str
+    connection: AsyncConnection,
+    artifacts: ArtifactRepository,
+    scope_id: str,
+    artifact_id: str,
+    *,
+    for_update: bool,
 ) -> AtomicMemoryRecord:
     state_repository = AtomicMemoryStateRepository()
     state = await state_repository.get(connection, scope_id, artifact_id)
-    await state_repository.require_summary(connection, scope_id, artifact_id, state)
+    if for_update:
+        await state_repository.require_summary(connection, scope_id, artifact_id, state)
     artifact = await artifacts.latest(connection, scope_id, AtomicMemory.family, artifact_id)
     if not isinstance(artifact, AtomicMemory):
         raise AtomicMemoryIndexError("authority-content", "Atomic Memory has an unsupported authoritative content type")
@@ -159,6 +166,7 @@ async def _projection_differences(
         "projection_format": ATOMIC_MEMORY_PROJECTION_FORMAT,
         "kind": content.kind,
         "text": content.text,
+        "description": content.description,
         "searchable_text": analyze_text(atomic_memory_embedding_input(content.kind, content.text)),
         "profile_fingerprint": fingerprint,
         "embedding_input_hash": None
@@ -178,18 +186,31 @@ async def _projection_differences(
 async def verify_atomic_memory_current(
     connection: AsyncConnection, index: AtomicMemoryIndex, /, *, batch_size: int = 100
 ) -> AtomicMemoryProjectionRebuildReport:
-    """Check every current identity against authority, including post-migration creations."""
+    """Check current identities without taking business row locks.
+
+    The caller owns a consistent read snapshot or an exclusive maintenance
+    transaction, including for identities created after migration.
+    """
 
     await _require_authority(connection)
     artifacts = ArtifactRepository((AtomicMemory,))
     profile = index.capabilities.embedding_profile
     fingerprint = None if profile is None else atomic_memory_profile_fingerprint(profile)
+    columns = await connection.run_sync(
+        lambda sync: {column["name"] for column in inspect(sync).get_columns(index.table.name)}
+    )
+    # Intermediate registered revisions predate the nullable description column.
+    # Compare absent metadata as null without selecting a column not yet added.
+    projection_columns = [
+        literal(None).label("description") if column.name == "description" and column.name not in columns else column
+        for column in index.table.c
+    ]
     errors: list[str] = []
     after = None
     active = 0
     while batch := await _identity_batch(connection, after, batch_size):
         for scope_id, artifact_id in batch:
-            record = await _record(connection, artifacts, scope_id, artifact_id)
+            record = await _record(connection, artifacts, scope_id, artifact_id, for_update=False)
             after = scope_id, artifact_id
             if record.state.state is not AtomicMemoryStateValue.ACTIVE:
                 continue
@@ -197,7 +218,7 @@ async def verify_atomic_memory_current(
             row = (
                 (
                     await connection.execute(
-                        select(index.table).where(
+                        select(*projection_columns).where(
                             index.table.c.scope_id == scope_id, index.table.c.artifact_id == artifact_id
                         )
                     )
@@ -234,6 +255,37 @@ async def _initialize_rebuild(connection: AsyncConnection, index: AtomicMemoryIn
         if error.code != "vector-schema" or not isinstance(index, OceanBaseAtomicMemoryIndex):
             raise
         await index.reconfigure_vector_column(connection)
+
+
+async def rebuild_atomic_memory_current(
+    connection: AsyncConnection,
+    index: AtomicMemoryIndex,
+    *,
+    batch_size: int = 100,
+    guard: Callable[[], None] = lambda: None,
+) -> AtomicMemoryProjectionRebuildReport:
+    """Repair registered no-vector rows inside the maintenance owner's transaction.
+
+    The caller validates the existing schema, owns backup/recovery and commits
+    only after full Server validation. No initialization or external I/O occurs.
+    """
+    if index.capabilities.embedding_profile is not None:
+        raise AtomicMemoryIndexError("embedding-profile", "Registered repair requires a no-vector profile")
+    await _require_authority(connection)
+    artifacts = ArtifactRepository((AtomicMemory,))
+    publisher = AtomicMemoryProjectionPublisher(index)
+    after = None
+    while batch := await _identity_batch(connection, after, batch_size):
+        guard()
+        for scope_id, artifact_id in batch:
+            record = await _record(connection, artifacts, scope_id, artifact_id, for_update=True)
+            if record.state.state is AtomicMemoryStateValue.ACTIVE:
+                await publisher.publish(connection, scope_id, record, await publisher.prepare(record.artifact.content))
+            else:
+                await publisher.remove(connection, scope_id, artifact_id)
+            after = scope_id, artifact_id
+    await connection.execute(index.table.delete().where(_obsolete_current(index)))
+    return await verify_atomic_memory_current(connection, index, batch_size=batch_size)
 
 
 async def rebuild_atomic_memory_projection(
@@ -279,7 +331,7 @@ async def rebuild_atomic_memory_projection(
             break
         for scope_id, artifact_id in batch:
             async with database.transaction() as connection:
-                before = await _record(connection, artifacts, scope_id, artifact_id)
+                before = await _record(connection, artifacts, scope_id, artifact_id, for_update=True)
             prepared = (
                 await publisher.prepare(before.artifact.content)
                 if before.state.state is AtomicMemoryStateValue.ACTIVE
@@ -287,7 +339,7 @@ async def rebuild_atomic_memory_projection(
             )
             async with database.transaction() as connection:
                 await artifacts.lock_heads(connection, scope_id, (before.ref,))
-                current = await _record(connection, artifacts, scope_id, artifact_id)
+                current = await _record(connection, artifacts, scope_id, artifact_id, for_update=True)
                 if current.as_read() != before.as_read():
                     raise AtomicMemoryIndexError(
                         "rebuild-conflict", "Atomic Memory authority changed during projection preparation"
@@ -325,4 +377,9 @@ async def rebuild_atomic_memory_projection(
     )
 
 
-__all__ = ["AtomicMemoryProjectionRebuildReport", "rebuild_atomic_memory_projection", "verify_atomic_memory_current"]
+__all__ = [
+    "AtomicMemoryProjectionRebuildReport",
+    "rebuild_atomic_memory_current",
+    "rebuild_atomic_memory_projection",
+    "verify_atomic_memory_current",
+]

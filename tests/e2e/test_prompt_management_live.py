@@ -24,11 +24,8 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import delete, select, text
-from sqlalchemy.sql.ddl import sort_tables
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime import CaptureSource
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.client import PowerContextClient, ServerResponseError
@@ -50,10 +47,10 @@ from powercontext.http import (
     ReplaceArtifactRequest,
     SearchMemoryRequest,
 )
-from powercontext.server.authz.repository import ACCESS_TABLES
 from powercontext.server.configuration import server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig
+from tests.e2e.scope_cleanup import cleanup_scopes
 
 pytestmark = pytest.mark.real_e2e
 
@@ -93,30 +90,7 @@ async def _write_prompt(client: PowerContextClient, scope: str, key: str, instru
 
 async def _cleanup(contexts: RelationalContexts, scopes: list[str]) -> None:
     """Delete only the Scopes minted by this acceptance run, including derived indexes."""
-    if not scopes:
-        return
-    async with contexts.database.transaction() as connection:
-        tables = sort_tables((
-            *BUILTIN_TABLES,
-            *ACCESS_TABLES,
-            *contexts.atomic_memory.index.tables,
-        ))
-        scoped_tables = [table for table in tables if "scope_id" in table.c]
-        if connection.dialect.name == "sqlite":
-            for scope in scopes:
-                await connection.execute(text("DELETE FROM pc_artifact_fts WHERE scope_id = :scope"), {"scope": scope})
-        for table in reversed(scoped_tables):
-            await connection.execute(delete(table).where(table.c.scope_id.in_(scopes)))
-        for table in scoped_tables:
-            remaining = await connection.scalar(select(table.c.scope_id).where(table.c.scope_id.in_(scopes)).limit(1))
-            assert remaining is None, f"test Scope cleanup left rows in {table.name}"
-        if connection.dialect.name == "sqlite":
-            for scope in scopes:
-                remaining = await connection.scalar(
-                    text("SELECT scope_id FROM pc_atomic_memory_current_fts WHERE scope_id = :scope LIMIT 1"),
-                    {"scope": scope},
-                )
-                assert remaining is None, "test Scope cleanup left Atomic Memory FTS rows"
+    await cleanup_scopes(contexts.database, scopes)
 
 
 @pytest.mark.parametrize("backend", ("sqlite", "configured"))

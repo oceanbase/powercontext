@@ -47,7 +47,7 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE, AsyncDatabase
 from powercontext.builtin.persistence.tables import identity_string
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
@@ -419,34 +419,55 @@ class RelationalAccessRepository:
         relation: ArtifactOwnerRelation,
         /,
     ) -> ArtifactOwnerRelation:
-        if relation.resource.type is not AccessResourceType.ARTIFACT:
+        return (await self.establish_artifact_owners((relation,)))[0]
+
+    async def establish_artifact_owners(
+        self, relations: Sequence[ArtifactOwnerRelation], /
+    ) -> tuple[ArtifactOwnerRelation, ...]:
+        """Establish independent owners with ordered revisions in one policy write."""
+        if not relations:
+            return ()
+        keys = tuple(_digest(relation.resource.key) for relation in relations)
+        if any(relation.resource.type is not AccessResourceType.ARTIFACT for relation in relations):
             raise AccessInvalidRequestError("artifact-identity")
-        resource_hash = _digest(relation.resource.key)
+        if len(set(keys)) != len(keys):
+            raise AccessConflictError("artifact-owner")
         async with self._database.connection(self._bound_connection) as connection:
-            existing = (
-                (
+            existing = {}
+            for offset in range(0, len(keys), SELECTION_BATCH_SIZE):
+                rows = (
                     await connection.execute(
                         select(ACCESS_OWNERS_TABLE).where(
                             ACCESS_OWNERS_TABLE.c.owner_kind == "artifact",
-                            ACCESS_OWNERS_TABLE.c.object_key_hash == resource_hash,
+                            ACCESS_OWNERS_TABLE.c.object_key_hash.in_(keys[offset : offset + SELECTION_BATCH_SIZE]),
                         )
                     )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if existing is not None:
-                owner = _decode_owner(existing)
-                if owner.owner == relation.owner and owner.idempotency_key == relation.idempotency_key:
-                    return owner
-                raise AccessConflictError("artifact-owner")
-            revision = await self._increment_policy_revision(connection)
-            established = replace(relation, policy_revision=str(revision))
-            try:
-                await connection.execute(insert(ACCESS_OWNERS_TABLE).values(_owner_row(established)))
-            except IntegrityError as error:
-                raise AccessConflictError("artifact-owner") from error
-        return established
+                ).mappings()
+                existing.update({str(row["object_key_hash"]): _decode_owner(row) for row in rows})
+            missing = []
+            results: list[ArtifactOwnerRelation | None] = []
+            for key, relation in zip(keys, relations, strict=True):
+                owner = existing.get(key)
+                if owner is None:
+                    missing.append(relation)
+                    results.append(None)
+                elif owner.owner == relation.owner and owner.idempotency_key == relation.idempotency_key:
+                    results.append(owner)
+                else:
+                    raise AccessConflictError("artifact-owner")
+            if missing:
+                last_revision = await self._increment_policy_revision(connection, amount=len(missing))
+                revisions = iter(range(last_revision - len(missing) + 1, last_revision + 1))
+                established = tuple(replace(relation, policy_revision=str(next(revisions))) for relation in missing)
+                try:
+                    await connection.execute(
+                        insert(ACCESS_OWNERS_TABLE), [_owner_row(relation) for relation in established]
+                    )
+                except IntegrityError as error:
+                    raise AccessConflictError("artifact-owner") from error
+                created = iter(established)
+                results = [next(created) if result is None else result for result in results]
+        return tuple(result for result in results if result is not None)
 
     async def get_artifact_owner(self, resource: ResourceRef, /) -> ArtifactOwnerRelation | None:
         if resource.type is not AccessResourceType.ARTIFACT:
@@ -471,30 +492,48 @@ class RelationalAccessRepository:
         attestation: CandidateOwnerAttestation,
         /,
     ) -> CandidateOwnerAttestation:
+        return (await self.attest_candidate_owners((attestation,)))[0]
+
+    async def attest_candidate_owners(
+        self, attestations: Sequence[CandidateOwnerAttestation], /
+    ) -> tuple[CandidateOwnerAttestation, ...]:
+        """Classify a candidate window once and insert its missing attestations together."""
+        if not attestations:
+            return ()
+        unique = {}
+        for item in attestations:
+            key = _candidate_owner_key(item.scope_id, item.candidate_id)
+            previous = unique.setdefault(key, item)
+            if previous != item:
+                raise AccessConflictError("candidate-owner")
+        keys = tuple(unique)
         async with self._database.connection(self._bound_connection) as connection:
-            existing = (
-                (
+            existing = {}
+            for offset in range(0, len(keys), SELECTION_BATCH_SIZE):
+                rows = (
                     await connection.execute(
                         select(ACCESS_OWNERS_TABLE).where(
                             ACCESS_OWNERS_TABLE.c.owner_kind == "candidate",
-                            ACCESS_OWNERS_TABLE.c.object_key_hash
-                            == _candidate_owner_key(attestation.scope_id, attestation.candidate_id),
+                            ACCESS_OWNERS_TABLE.c.object_key_hash.in_(keys[offset : offset + SELECTION_BATCH_SIZE]),
                         )
                     )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if existing is not None:
-                decoded = _decode_candidate_owner(existing)
-                if decoded == attestation:
-                    return decoded
-                raise AccessConflictError("candidate-owner")
-            try:
-                await connection.execute(insert(ACCESS_OWNERS_TABLE).values(_candidate_owner_row(attestation)))
-            except IntegrityError as error:
-                raise AccessConflictError("candidate-owner") from error
-        return attestation
+                ).mappings()
+                existing.update({str(row["object_key_hash"]): _decode_candidate_owner(row) for row in rows})
+            missing = []
+            for key, attestation in unique.items():
+                previous = existing.get(key)
+                if previous is None:
+                    missing.append(attestation)
+                elif previous != attestation:
+                    raise AccessConflictError("candidate-owner")
+            if missing:
+                try:
+                    await connection.execute(
+                        insert(ACCESS_OWNERS_TABLE), [_candidate_owner_row(item) for item in missing]
+                    )
+                except IntegrityError as error:
+                    raise AccessConflictError("candidate-owner") from error
+        return tuple(attestations)
 
     async def get_candidate_owner(
         self,
@@ -897,6 +936,42 @@ class RelationalAccessRepository:
             async with self._database.connection(self._bound_connection) as connection:
                 await connection.execute(insert(ACCESS_AUDIT_EVENTS_TABLE), [_audit_row(event) for event in events])
 
+    async def append_audit_once(self, event: AccessAuditEvent, /) -> AccessAuditEvent:
+        """Keep a recovery event idempotent across a lost acknowledgement."""
+        async with self._database.connection(self._bound_connection) as connection:
+            if connection.dialect.name == "sqlite":
+                # A released first SAVEPOINT must not commit a caller's transaction.
+                await connection.execute(
+                    update(ACCESS_AUDIT_EVENTS_TABLE)
+                    .where(ACCESS_AUDIT_EVENTS_TABLE.c.event_id == event.event_id)
+                    .values(event_id=ACCESS_AUDIT_EVENTS_TABLE.c.event_id)
+                )
+            try:
+                async with connection.begin_nested():
+                    result = await connection.execute(insert(ACCESS_AUDIT_EVENTS_TABLE).values(_audit_row(event)))
+                    key = result.inserted_primary_key
+                    if key is None or key[0] is None:
+                        raise RuntimeError("Access audit insert did not return a cursor")  # noqa: TRY003
+                    return replace(event, cursor=int(key[0]))
+            except IntegrityError:
+                row = (
+                    (
+                        await connection.execute(
+                            select(ACCESS_AUDIT_EVENTS_TABLE)
+                            .where(ACCESS_AUDIT_EVENTS_TABLE.c.event_id == event.event_id)
+                            .with_for_update()
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if row is None:
+                    raise
+                existing = _decode_audit(row)
+                if replace(existing, cursor=None) != replace(event, cursor=None):
+                    raise AccessConflictError("owner-recovery-audit") from None
+                return existing
+
     async def list_audit(
         self,
         *,
@@ -931,7 +1006,7 @@ class RelationalAccessRepository:
         return tuple(_decode_audit(row) for row in rows)
 
     @staticmethod
-    async def _increment_policy_revision(connection: Any) -> int:
+    async def _increment_policy_revision(connection: Any, *, amount: int = 1) -> int:
         # All Binding mutations acquire this row before locking Binding rows.
         # Keeping one lock order also covers expiration and replacement races.
         current = await connection.scalar(
@@ -941,21 +1016,21 @@ class RelationalAccessRepository:
         )
         if current is None:
             try:
-                await connection.execute(insert(ACCESS_POLICY_HEADS_TABLE).values(name=_POLICY_HEAD, revision=1))
+                await connection.execute(insert(ACCESS_POLICY_HEADS_TABLE).values(name=_POLICY_HEAD, revision=amount))
             except IntegrityError as error:
                 raise AccessConflictError("binding-version") from error
-            return 1
+            return amount
         result = await connection.execute(
             update(ACCESS_POLICY_HEADS_TABLE)
             .where(
                 ACCESS_POLICY_HEADS_TABLE.c.name == _POLICY_HEAD,
                 ACCESS_POLICY_HEADS_TABLE.c.revision == current,
             )
-            .values(revision=int(current) + 1)
+            .values(revision=int(current) + amount)
         )
         if result.rowcount != 1:
             raise AccessConflictError("binding-version")
-        return int(current) + 1
+        return int(current) + amount
 
 
 def _receipt_identity_event_id(scope_id: str, source_id: str, *, operation: str) -> str:

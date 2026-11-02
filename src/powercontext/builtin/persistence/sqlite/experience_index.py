@@ -12,34 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SQLite FTS5 projection for approved Experience heads."""
+"""SQLite FTS5 projection shared by approved Experience and Skill heads."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
+from aiosqlite import Connection as SQLiteConnection
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.artifacts.experience import (
     Experience,
-    ExperienceSearchOutcome,
     experience_searchable_text,
 )
 from powercontext.builtin.artifacts.memory import CapabilityNotSupportedError
-from powercontext.builtin.artifacts.search import AdmissionFloor, fts_match_query
-from powercontext.builtin.artifacts.skill import Skill, SkillPackageSnapshot, SkillSearchHit, skill_searchable_text
+from powercontext.builtin.artifacts.search import AdmissionFloor
+from powercontext.builtin.artifacts.skill import Skill, SkillPackageSnapshot, skill_searchable_text
 from powercontext.builtin.persistence.experience_index import (
+    APPROVED_ARTIFACT_PROJECTION_VERSION,
     ensure_artifact_head_searchable_text,
-    experience_search_hits,
     rebuild_experience_projections,
     rebuild_skill_projections,
     remove_experience_projection,
     replace_experience_projection,
     replace_skill_projection,
-    skill_search_hits,
+    search_approved_artifact_rows,
 )
+from powercontext.builtin.persistence.lexical_projection import (
+    lexical_projection_is_current,
+    record_lexical_projection_version,
+)
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
 
 _CREATE_FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS pc_artifact_fts USING fts5(
@@ -51,30 +56,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS pc_artifact_fts USING fts5(
     tokenize='unicode61'
 )
 """
-_RECONCILE_DELETE_FTS_SQL = """
-DELETE FROM pc_artifact_fts
-WHERE NOT EXISTS (
-    SELECT 1 FROM pc_artifact_heads AS h
-    WHERE h.scope_id = pc_artifact_fts.scope_id AND h.family = pc_artifact_fts.family
-      AND h.artifact_id = pc_artifact_fts.artifact_id AND h.revision = pc_artifact_fts.revision
-      AND h.family IN ('experience', 'skill') AND h.lifecycle_state = 'active'
-      AND h.searchable_text = pc_artifact_fts.searchable_text
-)
-OR rowid NOT IN (
-    SELECT min(rowid) FROM pc_artifact_fts GROUP BY scope_id, family, artifact_id
-)
-"""
-_RECONCILE_INSERT_FTS_SQL = """
+_BACKFILL_FTS_SQL = """
 INSERT INTO pc_artifact_fts (scope_id, family, artifact_id, revision, searchable_text)
 SELECT h.scope_id, h.family, h.artifact_id, h.revision, h.searchable_text
 FROM pc_artifact_heads AS h
-WHERE h.family IN ('experience', 'skill') AND h.lifecycle_state = 'active'
+WHERE h.family IN ('experience', 'skill')
   AND h.searchable_text IS NOT NULL
-EXCEPT
-SELECT scope_id, family, artifact_id, revision, searchable_text
-FROM pc_artifact_fts
 """
-_PROBE_FTS_SQL = "SELECT rowid FROM pc_artifact_fts WHERE pc_artifact_fts MATCH 'powercontext'"
+_PROBE_FTS_SQL = "SELECT rowid FROM pc_artifact_fts WHERE pc_artifact_fts MATCH 'powercontext' LIMIT 1"
 _DELETE_FTS_SQL = text(
     "DELETE FROM pc_artifact_fts WHERE scope_id = :scope_id AND family = :family AND artifact_id = :artifact_id"
 )
@@ -84,44 +73,42 @@ _INSERT_FTS_SQL = text(
     VALUES (:scope_id, :family, :artifact_id, :revision, :searchable_text)
     """
 )
-_SEARCH_FTS_SQL = text(
-    """
-    SELECT f.artifact_id, f.revision, f.searchable_text, a.content,
-           bm25(pc_artifact_fts) AS raw_score, 'sqlite_bm25' AS score_metric
-    FROM pc_artifact_fts AS f
-    JOIN pc_artifacts AS a
-      ON a.scope_id = f.scope_id
-     AND a.family = f.family
-     AND a.artifact_id = f.artifact_id
-     AND a.revision = f.revision
-    JOIN pc_artifact_heads AS h
-      ON h.scope_id = f.scope_id
-     AND h.family = f.family
-     AND h.artifact_id = f.artifact_id
-     AND h.revision = f.revision
-    WHERE pc_artifact_fts MATCH :query
-      AND f.scope_id = :scope_id
-      AND f.family = :family
-      AND h.lifecycle_state = 'active'
-    ORDER BY bm25(pc_artifact_fts), f.artifact_id, f.revision
-    LIMIT :candidate_limit
-    """
-)
 
 
 class SQLiteExperienceFTSIndex:
-    """Maintain and query approved Experience heads with SQLite FTS5."""
+    """Maintain and query approved Experience and Skill heads with SQLite FTS5."""
+
+    families: frozenset[str] = frozenset({Experience.family, Skill.family})
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "sqlite":
             raise CapabilityNotSupportedError("sqlite-experience-fts")
+        driver = (await connection.get_raw_connection()).driver_connection
+        if isinstance(driver, SQLiteConnection) and not driver.in_transaction:
+            await connection.exec_driver_sql("BEGIN")
         await ensure_artifact_head_searchable_text(connection)
+        existing = await connection.scalar(
+            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pc_artifact_fts'")
+        )
+        if not existing:
+            await connection.exec_driver_sql(_CREATE_FTS_SQL)
+        if not await lexical_projection_is_current(
+            connection, ARTIFACT_HEADS_TABLE.name, version=APPROVED_ARTIFACT_PROJECTION_VERSION
+        ):
+            await self.rebuild(connection)
+        elif not existing:
+            # A missing helper can be restored from heads without decoding packages.
+            await connection.exec_driver_sql(_BACKFILL_FTS_SQL)
+        await connection.exec_driver_sql(_PROBE_FTS_SQL)
+
+    async def rebuild(self, connection: AsyncConnection, /) -> None:
         await rebuild_experience_projections(connection)
         await rebuild_skill_projections(connection)
-        await connection.exec_driver_sql(_CREATE_FTS_SQL)
-        await connection.exec_driver_sql(_RECONCILE_DELETE_FTS_SQL)
-        await connection.exec_driver_sql(_RECONCILE_INSERT_FTS_SQL)
-        await connection.exec_driver_sql(_PROBE_FTS_SQL)
+        await connection.exec_driver_sql("DELETE FROM pc_artifact_fts")
+        await connection.exec_driver_sql(_BACKFILL_FTS_SQL)
+        await record_lexical_projection_version(
+            connection, ARTIFACT_HEADS_TABLE.name, version=APPROVED_ARTIFACT_PROJECTION_VERSION
+        )
 
     async def replace(
         self,
@@ -150,31 +137,14 @@ class SQLiteExperienceFTSIndex:
         self,
         connection: AsyncConnection,
         scope_id: str,
+        family: Literal["experience", "skill"],
         query: str,
         limit: int,
         /,
         *,
         admission: AdmissionFloor | None = None,
-        min_score: float | None = None,
-        require_scores: bool = False,
-    ) -> ExperienceSearchOutcome:
-        match_query = fts_match_query(query)
-        if match_query is None:
-            return ExperienceSearchOutcome()
-        rows = (
-            await connection.execute(
-                _SEARCH_FTS_SQL,
-                {
-                    "query": match_query,
-                    "scope_id": scope_id,
-                    "family": Experience.family,
-                    "candidate_limit": limit * 4,
-                },
-            )
-        ).mappings()
-        return experience_search_hits(
-            rows, query, limit, scope_id, admission=admission, min_score=min_score, require_scores=require_scores
-        )
+    ) -> tuple[Mapping[Any, Any], ...]:
+        return await search_approved_artifact_rows(connection, scope_id, family, query, limit, admission=admission)
 
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None:
         await remove_experience_projection(connection, scope_id, artifact_id)
@@ -205,36 +175,6 @@ class SQLiteExperienceFTSIndex:
                 "revision": skill.revision,
                 "searchable_text": skill_searchable_text(skill.content, package),
             },
-        )
-
-    async def search_skills(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        query: str,
-        limit: int,
-        /,
-        *,
-        admission: AdmissionFloor | None = None,
-        min_score: float | None = None,
-        require_scores: bool = False,
-    ) -> tuple[SkillSearchHit, ...]:
-        match_query = fts_match_query(query)
-        if match_query is None:
-            return ()
-        rows = (
-            await connection.execute(
-                _SEARCH_FTS_SQL,
-                {
-                    "query": match_query,
-                    "scope_id": scope_id,
-                    "family": Skill.family,
-                    "candidate_limit": limit * 4,
-                },
-            )
-        ).mappings()
-        return skill_search_hits(
-            rows, query, limit, admission=admission, min_score=min_score, require_scores=require_scores
         )
 
     @staticmethod

@@ -222,14 +222,14 @@ def definition_state(
     return DefinitionState.CURRENT
 
 
-def service_python_executable() -> str:
+def service_python_executable(*, require_exists: bool = True) -> str:
     """Return the Python executable suitable for a native personal service."""
 
     executable = os.path.abspath(sys.executable)
     if sys.platform != "win32":
         return executable
     pythonw = Path(executable).with_name("pythonw.exe")
-    if not pythonw.is_file():
+    if require_exists and not pythonw.is_file():
         raise ServiceError(  # noqa: TRY003
             f"Windows personal services require pythonw.exe beside the active Python executable: {pythonw}",
             exit_code=2,

@@ -1,0 +1,29 @@
+{
+  "source": "c34bfa1c4a7be094d645a4c94dfd9c127d9e37aa",
+  "generation_model": "openai-chat:MiniMax-M3",
+  "host_model": "MiniMax-M3",
+  "host_response_models": [
+    "MiniMax-M3"
+  ],
+  "host_version": "Kimi Code 2.1.1",
+  "model_mode": "live",
+  "case_count": 6,
+  "source_class_semantics": "advisory metadata, no authority declaration",
+  "limitations": "One configured model deployment and one publication sequence per fixture, followed by two host reads. Small conspicuous synthetic corpus; no security guarantee or authority-declaration acceptance.",
+  "date": "2026-10-22",
+  "source_tree": "2c8dfa198b858cc94995748dd930cd1354f452aa",
+  "base": "c0c38dea5178679c6bca95381a1008e8df1826e2",
+  "host_node": "24.13.1",
+  "python": "3.14.3",
+  "generation_timeout_seconds": 60,
+  "generation_max_requests": 2,
+  "host_output_cap": 4096,
+  "host_tool_permission": "deny all",
+  "host_capture_prompts": false,
+  "publication_runs_per_fixture": 1,
+  "host_reads_per_fixture": 2,
+  "fixtures_sha256": "574d1391cffd18cbfd331cc34029bbf32a14350c35dd33bd3568e88f04781867",
+  "fixtures_newlines": "CRLF",
+  "checked_in_fixtures_sha256": "865c9a0a75b80364e0a8e00e48cc33e028240f18de26b176a35cde5c260ef6b4",
+  "checked_in_fixtures_newlines": "LF"
+}

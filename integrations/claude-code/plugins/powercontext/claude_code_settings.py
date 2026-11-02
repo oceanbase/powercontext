@@ -45,7 +45,7 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class BootstrapHandoff:
     """One explicitly selected exact committed Handoff."""
 
@@ -71,7 +71,7 @@ class BootstrapHandoff:
         return {"family": self.family, "artifact_id": self.artifact_id, "revision": self.revision}
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ClaudeCodePluginSettings:
     """Configuration loaded once by a plugin entry point."""
 

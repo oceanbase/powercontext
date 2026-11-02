@@ -19,6 +19,7 @@ import pytest
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.skill import SkillContent, build_instruction_skill_package
 from powercontext.builtin.artifacts.skill.distribution import (
+    RemotePublicationGenerationError,
     RemoteSkillLifecycleError,
     RemoteSkillObservation,
     RemoteSkillOperation,
@@ -152,6 +153,10 @@ def test_remote_publish_reconcile_download_receipt_and_safe_unpublish_converge()
             assert publication.generation == 0
             assert publication.state is AgentSkillProjectionState.PENDING
             statuses = await service.list_targets(scope_id, target_id=target.target_id)
+            assert (
+                await service.publish(scope_id, target.target_id, artifact, publication.generation)
+                == (statuses[0].publications[0])
+            )
             assert len(statuses) == 1
             assert statuses[0].target.target_id == target.target_id
             assert len(statuses[0].publications) == 1
@@ -194,6 +199,13 @@ def test_remote_publish_reconcile_download_receipt_and_safe_unpublish_converge()
             )
             assert (await service.reconcile(credential, (observation,), "0.1.0", "e" * 64)).actions == ()
 
+            before_repeat = (await service.list_targets(scope_id, target_id=target.target_id))[0].publications[0]
+            repeated = await service.publish(scope_id, target.target_id, artifact, installed.publication.generation)
+            assert repeated == before_repeat
+            assert (await service.reconcile(credential, (observation,), "0.1.0", "e" * 64)).actions == ()
+            statuses = await service.list_targets(scope_id, target_id=target.target_id)
+            assert statuses[0].publications[0] == before_repeat
+
             unpublished = await service.unpublish(scope_id, target.target_id, artifact.artifact_id, 0)
             assert unpublished.generation == 1
             assert unpublished.desired_state is SkillPublicationDesiredState.UNPUBLISHED
@@ -218,6 +230,12 @@ def test_remote_publish_reconcile_download_receipt_and_safe_unpublish_converge()
             assert (await service.reconcile(credential, (), "0.1.0", "e" * 64)).actions == ()
             with pytest.raises(RemoteTargetAuthenticationError):
                 await service.download(credential, remove.generation, artifact, package.reference)
+
+            republished = await service.publish(scope_id, target.target_id, artifact, unpublished.generation)
+            assert republished.generation == unpublished.generation + 1
+            assert republished.state is AgentSkillProjectionState.PENDING
+            with pytest.raises(RemotePublicationGenerationError):
+                await service.publish(scope_id, target.target_id, artifact, unpublished.generation)
 
     asyncio.run(exercise())
 
@@ -300,6 +318,12 @@ def test_remote_receipt_loss_and_failure_retry_do_not_advance_or_regress_desired
             failed = await service.receipt(credential, failed_receipt)
             assert failed.publication.generation == publication.generation
             assert failed.publication.state is AgentSkillProjectionState.DELIVERY_FAILED
+            before_repeat = (await service.list_targets(scope_id, target_id=target.target_id))[0].publications[0]
+            repeated = await service.publish(scope_id, target.target_id, artifact, failed.publication.generation)
+            assert repeated == before_repeat
+            retry = await service.reconcile(credential, (), "0.1.0", None)
+            assert retry.actions[0].operation is RemoteSkillOperation.INSTALL
+            assert retry.actions[0].generation == publication.generation
 
             success_receipt = failed_receipt.model_copy(
                 update={

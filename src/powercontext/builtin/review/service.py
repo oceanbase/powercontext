@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from typing import Any, TypeAlias, cast
 
@@ -30,7 +30,12 @@ from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryStateValue,
 )
 from powercontext.builtin.artifacts.atomic_memory.service import AtomicMemoryService
-from powercontext.builtin.artifacts.experience import Experience, ExperienceContent, ExperienceDraft
+from powercontext.builtin.artifacts.experience import (
+    Experience,
+    ExperienceCandidateInput,
+    ExperienceContent,
+    ExperienceDraft,
+)
 from powercontext.builtin.artifacts.experience.recurrence import (
     failure_item_text,
     failure_refs,
@@ -54,7 +59,7 @@ from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream import DreamRepository
-from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.errors import RepositoryError, RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.family_management import HandoffManagementWriter, PromptManagementWriter
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
@@ -94,6 +99,7 @@ ReviewedProposal: TypeAlias = (
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
 ReviewedCandidate: TypeAlias = Candidate[ReviewedProposal]
+CandidateCommitHook = Callable[[AsyncConnection, Candidate[Any]], Awaitable[None]]
 
 
 class ReviewService:
@@ -160,6 +166,7 @@ class ReviewService:
         target: ArtifactRef | None,
         reason: str | None,
         candidate_id: str | None = None,
+        on_commit: CandidateCommitHook | None = None,
     ) -> Candidate[ExperienceContent]:
         """Persist a human or integration supplied Experience proposal."""
 
@@ -171,8 +178,37 @@ class ReviewService:
             target=target,
             reason=reason,
             candidate_id=candidate_id,
+            on_commit=on_commit,
         )
         return _experience_candidate(candidate)
+
+    async def propose_experience_batch(
+        self,
+        plans: Sequence[ExperienceCandidateInput],
+        /,
+        *,
+        artifacts: tuple[ArtifactRef, ...] = (),
+    ) -> tuple[Candidate[ExperienceContent], ...]:
+        """Validate one generated window, then publish its independent proposals together."""
+
+        if not plans:
+            return ()
+        candidates = []
+        async with self._connection() as connection:
+            for plan in plans:
+                candidates.append(
+                    await self._prepare_proposal(
+                        connection,
+                        Experience.family,
+                        plan.proposal,
+                        sources=plan.sources,
+                        artifacts=artifacts,
+                        target=None,
+                        reason=plan.reason,
+                    )
+                )
+            stored = await self._candidates.create_many(connection, self._scope_id, candidates)
+        return tuple(_experience_candidate(_reviewed_candidate(candidate)) for candidate in stored)
 
     async def propose_skill(
         self,
@@ -184,12 +220,10 @@ class ReviewService:
         target: ArtifactRef | None,
         reason: str | None,
         candidate_id: str | None = None,
+        on_commit: CandidateCommitHook | None = None,
     ) -> Candidate[SkillContent]:
         """Persist a human or integration supplied managed Skill proposal."""
 
-        canonical_sources = _unique_sources(sources)
-        canonical_artifacts = _unique_artifacts(artifacts)
-        _validate_reason(reason)
         async with self._connection() as connection:
             proposal = await self._canonical_skill_proposal(connection, proposal)
             if target is not None and candidate_id is not None and candidate_id.startswith("cand_dream_"):
@@ -198,11 +232,12 @@ class ReviewService:
                 connection,
                 Skill.family,
                 proposal,
-                sources=canonical_sources,
-                artifacts=canonical_artifacts,
+                sources=sources,
+                artifacts=artifacts,
                 target=target,
                 reason=reason,
                 candidate_id=candidate_id,
+                on_commit=on_commit,
             )
         return _skill_candidate(candidate)
 
@@ -310,6 +345,7 @@ class ReviewService:
         target: ArtifactRef | None,
         reason: str | None,
         candidate_id: str | None = None,
+        on_commit: CandidateCommitHook | None = None,
     ) -> ReviewedCandidate:
         canonical_sources = _unique_sources(sources)
         canonical_artifacts = _unique_artifacts(artifacts)
@@ -324,6 +360,7 @@ class ReviewService:
                 target=target,
                 reason=reason,
                 candidate_id=candidate_id,
+                on_commit=on_commit,
             )
         return _reviewed_candidate(candidate)
 
@@ -339,10 +376,40 @@ class ReviewService:
         target: ArtifactRef | None,
         reason: str | None,
         candidate_id: str | None = None,
+        on_commit: CandidateCommitHook | None = None,
     ) -> ReviewedCandidate:
+        candidate = await self._prepare_proposal(
+            connection,
+            family,
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            target=target,
+            reason=reason,
+            candidate_id=candidate_id,
+        )
+        candidate = (await self._candidates.create_many(connection, self._scope_id, (candidate,)))[0]
+        if on_commit is not None:
+            await on_commit(connection, candidate)
+        return _reviewed_candidate(candidate)
+
+    async def _prepare_proposal(
+        self,
+        connection: AsyncConnection,
+        family: str,
+        proposal: ReviewedProposal,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        target: ArtifactRef | None,
+        reason: str | None,
+        candidate_id: str | None = None,
+    ) -> Candidate[Any]:
+        _validate_reason(reason)
+        artifacts = _unique_artifacts(artifacts)
         sources = await self._validate_evidence(
             connection,
-            sources,
+            _unique_sources(sources),
             artifacts,
             proposal=proposal,
             target=target,
@@ -350,18 +417,17 @@ class ReviewService:
         )
         await self._validate_handoff_objective(connection, proposal, target)
         await self._validate_target(connection, family, target, artifacts)
-        candidate = await self._candidates.create(
-            connection,
-            self._scope_id,
-            candidate_id or self._id_factory("candidate"),
-            family,
-            proposal,
+        return Candidate(
+            candidate_id=candidate_id or self._id_factory("candidate"),
+            version=1,
+            family=family,
+            status=CandidateStatus.PENDING,
+            proposal=proposal,
             sources=sources,
             artifacts=artifacts,
             target=target,
             reason=reason,
         )
-        return _reviewed_candidate(candidate)
 
     async def candidate_page(self, request, *, metadata_only=False, connection=None):
         async with self._database.connection(
@@ -394,7 +460,7 @@ class ReviewService:
                 )
             ).mappings()
             return tuple(
-                self._candidates._decode_row({
+                self._candidates.decode_candidate({
                     **row,
                     "status": "pending",
                     "result_family": None,
@@ -601,6 +667,8 @@ class ReviewService:
             async with self._connection() as connection:
                 current = await self._candidates.get(connection, self._scope_id, candidate_id, current=True)
                 await self._authorize_decision("approve", current)
+                if current.status is CandidateStatus.REJECTED:
+                    raise CandidateTerminalError(candidate_id, current.status) from None
                 if current.status is CandidateStatus.APPROVED and current.version == expected_version:
                     return _reviewed_candidate(current)
             raise
@@ -616,6 +684,8 @@ class ReviewService:
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
         await self._authorize_decision("approve", current)
+        if current.status is CandidateStatus.REJECTED:
+            raise CandidateTerminalError(candidate_id, current.status)
         if current.status is CandidateStatus.APPROVED:
             if current.version != expected_version:
                 raise CandidateConflictError(candidate_id, expected_version, current.version)
@@ -630,6 +700,8 @@ class ReviewService:
             return await self._approve_prompt_dream(candidate_id, expected_version)
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if current.status is CandidateStatus.REJECTED:
+                raise CandidateTerminalError(candidate_id, current.status)
             if current.family == "profile":
                 return _reviewed_candidate(await decide_profile(self, connection, candidate_id, expected_version))
             if current.version != expected_version:
@@ -825,6 +897,8 @@ class ReviewService:
     async def _approve_prompt_dream(self, candidate_id: str, expected_version: int) -> ReviewedCandidate:
         async with self._connection() as connection:
             preview = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if preview.status is CandidateStatus.REJECTED:
+                raise CandidateTerminalError(candidate_id, preview.status)
             if preview.target is None:
                 raise InvalidCandidateError("target", "Dream Prompt requires an existing target")
             current = await self._artifacts.latest(
@@ -861,6 +935,8 @@ class ReviewService:
             raise InvalidCandidateError("family", "Memory Dream writer is unavailable")
         async with self._connection() as connection:
             preview = _reviewed_candidate(await self._candidates.get(connection, self._scope_id, candidate_id))
+            if preview.status is CandidateStatus.REJECTED:
+                raise CandidateTerminalError(candidate_id, preview.status)
             if preview.version != expected_version:
                 raise CandidateConflictError(candidate_id, expected_version, preview.version)
             if not isinstance(preview.proposal, AtomicMemoryContent) or preview.target is None:
@@ -909,6 +985,8 @@ class ReviewService:
             raise InvalidCandidateError("family", "Topic Memory Dream writer is unavailable")
         async with self._connection() as connection:
             preview = _reviewed_candidate(await self._candidates.get(connection, self._scope_id, candidate_id))
+        if preview.status is CandidateStatus.REJECTED:
+            raise CandidateTerminalError(candidate_id, preview.status)
         if preview.version != expected_version:
             raise CandidateConflictError(candidate_id, expected_version, preview.version)
         if not isinstance(preview.proposal, TopicMemoryContent) or preview.target is None:
@@ -953,6 +1031,8 @@ class ReviewService:
             raise InvalidCandidateError("family", "Handoff Dream writer is unavailable")
         async with self._connection() as connection:
             preview = _reviewed_candidate(await self._candidates.get(connection, self._scope_id, candidate_id))
+            if preview.status is CandidateStatus.REJECTED:
+                raise CandidateTerminalError(candidate_id, preview.status)
             if preview.target is None:
                 raise InvalidCandidateError("target", "Handoff Dream requires an existing target")
             current = await self._artifacts.latest(
@@ -1265,8 +1345,12 @@ async def _has_resolved_failure_evidence(
             )
             try:
                 await sources.require_for_generation(connection, scope_id, source_refs)
-                for artifact_ref in artifact_refs:
-                    await artifacts.get(connection, scope_id, artifact_ref)
+                try:
+                    await artifacts.get_many(connection, scope_id, artifact_refs)
+                except RepositoryError:
+                    # Batch validation can reorder errors; preserve the original first failure.
+                    for artifact_ref in artifact_refs:
+                        await artifacts.get(connection, scope_id, artifact_ref)
             except (EvidenceResolutionError, RepositoryNotFoundError):
                 continue
             return True

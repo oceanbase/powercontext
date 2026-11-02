@@ -75,6 +75,11 @@ A test observer subscribes to the real Cordis logger's public exporter API and w
 to the isolated home. This verifies native logging without replacing the logger. Default host profiles need an
 exporter with warning level enabled before these records appear in a terminal.
 
+An opt-in `dsh-context` test observer subscribes to the public `session/event` stream. It correlates a native
+PowerContext tool call and result with the snapshot injected into the same DSH step, while recording only a hashed
+session identifier, turn/step/call identifiers, tool name, event sequence numbers, and the result error flag.
+Arguments, results, snapshot content, Scope IDs, and prompts are deliberately excluded from the trace.
+
 The scenarios cover:
 
 - automatic Source capture, Server processing into Memory, fresh-session recall, model input, and durable snapshot metadata;
@@ -85,6 +90,7 @@ The scenarios cover:
 - secret-content rejection before native write approval/dispatch, including Work Contracts, task outcomes, candidate
   proposals/revisions, and nested Handoff state, Drafts and prepared carriers;
 - native MCP HTTP failure redaction in the next model request, controlled status/code information and subsequent recovery;
+- content-free correlation of native MCP calls/results with snapshot injection and session/turn/step/call identity;
 - independent prepare/capture/flush failure, recovery, host restart, and configured Scope isolation.
 
 The registered-entry unit tests in `../automatic-path.spec.ts` cover cancellation, deadlines, writer failures

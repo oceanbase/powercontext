@@ -25,7 +25,6 @@ from powercontext.artifacts.search import (
     ArtifactSearchMatch,
     ArtifactSearchUnsupported,
 )
-from powercontext.builtin.artifacts.search import InvalidSearchScore
 from powercontext.builtin.artifacts.skill import Skill, SkillSearchHit, SkillSearchOutcome, SkillSearchRequest
 from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
@@ -35,7 +34,7 @@ from powercontext.builtin.persistence.artifact_governance import (
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, with_artifact_content
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
-from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
+from powercontext.builtin.persistence.experience_index import ExperienceIndex, skill_search_hits
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
 from powercontext.builtin.runtime.models import GetSkillRequest
 from powercontext.builtin.sources import validate_scope_id
@@ -119,13 +118,21 @@ class SkillArtifactSearcher:
         async with self._database.transaction(consistent_snapshot=bool(query)) as connection:
             values: list[tuple[Skill, ArtifactGovernance]] = []
             if query:
-                hits = await self._index.search_skills(connection, scope, query, limit)
+                rows = await self._index.search(connection, scope, "skill", query, limit)
+                hits = skill_search_hits(rows, query, limit)
                 refs = tuple(hit.artifact_ref for hit in hits)
                 invalid_ref = next((ref for ref in refs if ref.family != Skill.family), None)
                 if invalid_ref is not None:
                     raise ArtifactNotFoundError(invalid_ref)
                 try:
-                    skills = await self._artifacts.get_many(connection, scope, refs)
+                    by_ref = {
+                        (str(row["artifact_id"]), int(row["revision"])): row
+                        for row in rows
+                        if not row.get("is_rejected")
+                    }
+                    skills = await self._artifacts.decode_many(
+                        connection, scope, tuple(by_ref[(ref.artifact_id, ref.revision)] for ref in refs)
+                    )
                 except RepositoryNotFoundError as error:
                     raise ArtifactNotFoundError(cast(tuple[str, ArtifactRef], error.identity)[1]) from None
                 governance = {}
@@ -181,29 +188,37 @@ class SkillArtifactSearcher:
         *,
         execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> SkillSearchOutcome:
-        if isinstance(self._index, NoExperienceIndex):
+        if self.family not in self._index.families:
             raise ArtifactSearchUnsupported(self.family, field="mode")
         scope = validate_scope_id(scope_id)
         async with self._database.transaction(consistent_snapshot=True) as connection:
-            hits = await self._index.search_skills(
-                connection,
-                scope,
-                request.query,
-                request.limit,
-                admission=request.admission.as_floor(),
-                min_score=request.min_score,
-                require_scores=True,
+            rows = await self._index.search(
+                connection, scope, "skill", request.query, request.limit, admission=request.admission.as_floor()
             )
-            matches: list[ArtifactSearchMatch] = []
-            for hit in hits:
-                if hit.retrieval_score is None or hit.channel_scores is None or "text" not in hit.channel_scores:
-                    raise InvalidSearchScore("public Skill search requires true text scoring metadata")  # noqa: TRY003
-                matches.append(ArtifactSearchMatch(hit.artifact_ref, hit.retrieval_score, hit.channel_scores))
             try:
-                artifacts = await self._artifacts.get_many(connection, scope, tuple(hit.artifact_ref for hit in hits))
+                hits = skill_search_hits(
+                    rows,
+                    request.query,
+                    request.limit,
+                    admission=request.admission.as_floor(),
+                    min_score=request.min_score,
+                    require_scores=True,
+                )
+                by_ref = {
+                    (str(row["artifact_id"]), int(row["revision"])): row for row in rows if not row.get("is_rejected")
+                }
+                artifacts = await self._artifacts.decode_many(
+                    connection,
+                    scope,
+                    tuple(by_ref[(hit.artifact_ref.artifact_id, hit.artifact_ref.revision)] for hit in hits),
+                )
             except RepositoryNotFoundError as error:
                 raise ArtifactSearchContractError(self.family, "selected exact Artifact revision is missing") from error
-            return SkillSearchOutcome(hits=hits, matches=tuple(matches), artifacts=cast(tuple[Skill, ...], artifacts))
+            matches = tuple(
+                ArtifactSearchMatch(hit.artifact_ref, cast(float, hit.retrieval_score), hit.channel_scores)
+                for hit in hits
+            )
+            return SkillSearchOutcome(hits=hits, matches=matches, artifacts=cast(tuple[Skill, ...], artifacts))
 
 
 __all__ = ["SkillArtifactSearcher", "search_skill_library"]

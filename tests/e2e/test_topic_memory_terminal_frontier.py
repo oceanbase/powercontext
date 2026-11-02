@@ -25,18 +25,27 @@ from typing import cast
 
 import httpx
 from pydantic import AnyHttpUrl
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select
 
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING as BINDING
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.processing_migration import apply_processing_migration
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.persistence.tables import TOPIC_MEMORY_WORK_BUDGETS_TABLE as BUDGETS
 from powercontext.builtin.runtime.artifact_processing import SpawnArtifactProcessingWorkerLauncher
-from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.client import PowerContextClient
-from powercontext.http import CaptureContentSourceRequest, FlushTopicMemoryRequest
+from powercontext.http import (
+    CaptureContentSourceRequest,
+    FlushTopicMemoryRequest,
+    GetTopicMemoryProcessingBlockRequest,
+    RetryTopicMemoryProcessingRequest,
+    TopicMemoryProcessingStatusRequest,
+)
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
@@ -97,7 +106,22 @@ async def _snapshot(database, scope):
     return None if budget is None else dict(budget), 0 if cursor is None else cursor.cursor.sequence, pending, intent
 
 
-def test_http_flush_restart_and_model_change_preserve_terminal_budget_until_operator_repair(
+async def _disable_processing(database: SQLiteConfig):
+    manifest = canonical_processing_manifest(
+        BuiltinConfig(database=database, runtime=RuntimeConfig(artifact_processing_families=()))
+    )
+    async with SQLiteProfile.open(database, tables=BUILTIN_TABLES) as profile:
+        for _ in range(10):
+            async with profile.database.transaction() as connection:
+                progress = await apply_processing_migration(
+                    connection, config_manifest=manifest, migration_id="disable-processing"
+                )
+            if progress.complete:
+                break
+        assert progress.complete
+
+
+def test_http_recovery_preserves_blocks_across_restart_and_processing_mode_changes(  # noqa: C901 - one recovery lifecycle
     tmp_path, monkeypatch, caplog
 ):
     caplog.set_level(logging.WARNING, logger="powercontext.builtin.runtime.artifact_processing")
@@ -117,17 +141,27 @@ def test_http_flush_restart_and_model_change_preserve_terminal_budget_until_oper
     async def scenario():
         scope = None
         retained = None
-        for model in ("before-restart", "after-restart"):
-            app = create_server_app(
-                settings=ServerSettings(
-                    database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'terminal.db'}"),
-                    inference=InferenceConfig(
-                        generation_model=f"openai-chat:{model}",
-                        generation_base_url=AnyHttpUrl(f"http://127.0.0.1:{provider.server_port}/v1"),
-                    ),
-                    runtime=RuntimeConfig(artifact_processing_families=("topic-memory",)),
-                    mcp=McpConfig(enabled=False),
+        retained_block = None
+        accepted = None
+        retry_request = None
+        database_config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'terminal.db'}")
+        for model in ("before-restart", "after-restart", None):
+            settings = ServerSettings(
+                database=database_config,
+                inference=InferenceConfig()
+                if model is None
+                else InferenceConfig(
+                    generation_model=f"openai-chat:{model}",
+                    generation_base_url=AnyHttpUrl(f"http://127.0.0.1:{provider.server_port}/v1"),
                 ),
+                runtime=RuntimeConfig(artifact_processing_families=() if model is None else ("topic-memory",)),
+                mcp=McpConfig(enabled=False),
+            )
+            if model is None:
+                # Use the supported offline mode switch before disabling processing.
+                await _disable_processing(database_config)
+            app = create_server_app(
+                settings=settings,
                 scheduler_path=tmp_path / "scheduler.db",
             )
             warnings_before = len([
@@ -140,6 +174,19 @@ def test_http_flush_restart_and_model_change_preserve_terminal_budget_until_oper
                 client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
                 database = app.state.application._provider.database
                 supervisor = app.state.application.artifact_processing_supervisor
+                if model is None:
+                    assert scope is not None and accepted is not None and retry_request is not None
+                    before = await _snapshot(database, scope)
+                    calls_before = provider.calls
+                    assert await client.retry_topic_memory_processing(retry_request) == accepted
+                    assert (
+                        await client.get_topic_memory_processing_block(
+                            GetTopicMemoryProcessingBlockRequest(scope_id=scope, block_id=accepted.block.block_id)
+                        )
+                    ) == accepted.block
+                    assert await _snapshot(database, scope) == before
+                    assert len(launches) == 1 and provider.calls == calls_before
+                    continue
                 if scope is None:
                     scope = (await client.get_default_scope()).scope_id
                     for number in range(2):
@@ -186,10 +233,33 @@ def test_http_flush_restart_and_model_change_preserve_terminal_budget_until_oper
                     len([r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked"])
                     == warnings_before + 1
                 )
+                status = await client.get_topic_memory_processing_status(
+                    TopicMemoryProcessingStatusRequest(scope_id=scope)
+                )
+                assert status.state.value == "blocked"
+                assert (status.source_cursor, status.source_head) == (0, 2)
+                assert status.block is not None
+                assert status.block.error_code == "window_attempt_limit"
+                assert status.block.last_error_code is None
+                assert (status.block.attempts, status.block.requests, status.block.tokens) == (3, 9, 1000)
+                if retained_block is None:
+                    retained_block = status.block
+                assert status.block == retained_block
+                assert (
+                    await client.get_topic_memory_processing_block(
+                        GetTopicMemoryProcessingBlockRequest(scope_id=scope, block_id=status.block.block_id)
+                    )
+                    == retained_block
+                )
                 if model == "after-restart":
-                    async with database.transaction() as connection:
-                        await connection.execute(update(BUDGETS).values(attempts=1))
-                    await client.flush_topic_memory(FlushTopicMemoryRequest(scope_id=scope))
+                    retry_request = RetryTopicMemoryProcessingRequest(scope_id=scope, block_id=status.block.block_id)
+                    accepted, repeated = await asyncio.gather(
+                        client.retry_topic_memory_processing(retry_request),
+                        client.retry_topic_memory_processing(retry_request),
+                    )
+                    assert accepted == repeated
+                    assert accepted.block.blocked_at == retained_block.blocked_at
+                    assert accepted.block.retried_at is not None
                     await _wait(
                         lambda supervisor=supervisor: supervisor.family_status["topic-memory"]["completed"] == 1
                     )
@@ -198,6 +268,18 @@ def test_http_flush_restart_and_model_change_preserve_terminal_budget_until_oper
                     assert intent.requested_generation == intent.handled_generation
                     assert len(launches) == 1 and provider.calls == calls_before_flush + 1
                     assert supervisor.family_status["topic-memory"]["failed"] == 0
+                    assert await client.retry_topic_memory_processing(retry_request) == accepted
+                    assert (
+                        await client.get_topic_memory_processing_block(
+                            GetTopicMemoryProcessingBlockRequest(scope_id=scope, block_id=retained_block.block_id)
+                        )
+                        == accepted.block
+                    )
+                    assert (
+                        await client.get_topic_memory_processing_status(
+                            TopicMemoryProcessingStatusRequest(scope_id=scope)
+                        )
+                    ).state.value == "idle"
         assert "private source sentinel" not in caplog.text
 
     try:

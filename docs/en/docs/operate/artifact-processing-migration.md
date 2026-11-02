@@ -9,6 +9,16 @@ marker is rejected before background processing starts.
 
 ## Plan and apply
 
+For databases managed by `pc_schema_revision`, this command delegates to the registered
+[Processing configuration maintenance](database-migrations.md#processing-configuration-maintenance) operation.
+Its plan/apply/verify responses use the unified migration format. Apply additionally requires the reviewed
+`--plan-id`, explicit `--backup` choice and `--yes` for automation, with the same backup declarations and
+OceanBase coordination options as `db-migrate`. Complete any pending full Server upgrade first.
+A Server database with an identity marker but no registered revision must complete the full upgrade first.
+The domain-only procedure below applies only to unmanaged SDK storage without either ownership marker.
+As with `db-migrate`, an explicit environment file is authoritative; otherwise the command discovers `.env` in the
+current directory before inspecting ownership and executing the selected path.
+
 Inspect the plan with the deployment configuration that will run after migration:
 
 ```shell

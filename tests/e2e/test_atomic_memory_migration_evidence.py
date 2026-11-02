@@ -68,8 +68,11 @@ from powercontext.builtin.persistence.migrations.atomic_memory_references import
     table_names,
 )
 from powercontext.builtin.persistence.migrations.atomic_memory_v1 import (
+    OWNER_DECISIONS_FORMAT,
     AtomicMemoryMigrationError,
     apply_atomic_memory_migration,
+    load_owner_decisions,
+    plan_atomic_memory_migration,
     verify_atomic_memory_migration,
 )
 from powercontext.builtin.persistence.recurrence import RecurrenceRepository
@@ -93,6 +96,7 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_me
 from powercontext.builtin.runtime.config import DatabaseConfig
 from powercontext.builtin.sources.content import ContentSource, ContentSourceTarget
 from powercontext.builtin.work.models import HandoffReceipt, TaskOutcome
+from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.sources import SourceMaterialization, SourceRef
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
 from tests.e2e.atomic_memory_migration_fixture import (
@@ -141,6 +145,48 @@ def sqlite_like_does_not_match_blobs() -> Iterator[None]:
 def migrated(migration_backend: MigrationBackend) -> tuple[DatabaseConfig, bytes]:
     config = migration_backend.config
     return config, asyncio.run(_seed_and_migrate(config))
+
+
+@pytest.mark.parametrize("failure", ["memory", "cancel"])
+def test_snapshot_read_failure_preserves_authority_and_allows_restart(
+    migration_backend: MigrationBackend, failure: str
+) -> None:
+    config = migration_backend.config
+
+    async def scenario():
+        await _seed(config)
+        async with migration_profile(config) as profile:
+            async with profile.database.transaction() as connection:
+                original = await _imported_snapshot(connection)
+            interrupted = False
+
+            def interrupt_snapshot(_connection, _cursor, statement, _parameters, _context, _executemany):
+                nonlocal interrupted
+                if interrupted or not statement.startswith("SELECT * FROM pc_sources"):
+                    return
+                interrupted = True
+                if failure == "memory":
+                    raise MemoryError
+                task = asyncio.current_task()
+                assert task is not None
+                task.cancel()
+
+            event.listen(profile.database.engine.sync_engine, "before_cursor_execute", interrupt_snapshot)
+            try:
+                with pytest.raises(MemoryError if failure == "memory" else asyncio.CancelledError):
+                    await apply_atomic_memory_migration(
+                        profile.database, migration_index(config), maintenance_confirmed=True
+                    )
+            finally:
+                event.remove(profile.database.engine.sync_engine, "before_cursor_execute", interrupt_snapshot)
+            assert interrupted
+            async with profile.database.transaction() as connection:
+                assert await _imported_snapshot(connection) == original
+                assert ARCHIVE_TABLE.name not in await table_names(connection)
+        retried = await _migrate(config)
+        assert retried.ready, retried.errors
+
+    asyncio.run(scenario())
 
 
 async def _public_collection_rows(connection) -> list[Any]:
@@ -277,11 +323,12 @@ def test_merge_keeps_migrated_input_history_without_unrelated_collection_sources
             memory = contexts.atomic_memory.for_scope(SCOPE)
             alpha = await memory.get(_atomic("alpha", 2).artifact_id)
             (created,) = await contexts.records.create_atomic_memories(
-                SCOPE, ({"kind": "fact", "text": "Another standalone fact."},)
+                SCOPE, ({"kind": "fact", "text": "Another standalone fact.", "description": "Explicit fixture memory"},)
             )
             other = await memory.get(created.artifact_id)
             merged = await memory.merge(
-                (alpha.as_read(), other.as_read()), AtomicMemoryContent(kind="fact", text="Merged task evidence.")
+                (alpha.as_read(), other.as_read()),
+                AtomicMemoryContent(kind="fact", text="Merged task evidence.", description="Explicit fixture memory"),
             )
             async with contexts.database.transaction() as connection:
                 resolved = await _resolver(contexts).resolve(connection, artifacts=(merged.primary.ref,))
@@ -371,7 +418,8 @@ def test_undo_merge_preserves_each_migrated_entry_evidence(migrated) -> None:
             alpha = await memory.get(_atomic("alpha", 2).artifact_id)
             beta = await memory.get(_atomic("beta", 1).artifact_id)
             merged = await memory.merge(
-                (alpha.as_read(), beta.as_read()), AtomicMemoryContent(kind="fact", text="Both task facts.")
+                (alpha.as_read(), beta.as_read()),
+                AtomicMemoryContent(kind="fact", text="Both task facts.", description="Explicit fixture memory"),
             )
             await memory.restore(merged.primary.ref.artifact_id, operation="undo_merge")
             async with contexts.database.transaction() as connection:
@@ -437,13 +485,181 @@ def test_migrated_collection_leaves_public_artifact_reads(migrated) -> None:
     asyncio.run(scenario())
 
 
+def test_enforced_migration_repairs_ownerless_entry_from_explicit_decision(
+    migration_backend: MigrationBackend,
+) -> None:
+    config = migration_backend.config
+
+    async def remove_owner(_contexts, connection) -> None:
+        await connection.execute(
+            text(
+                "DELETE FROM pc_access_owners WHERE owner_kind = 'artifact' AND scope_id = :scope "
+                "AND family = 'memory' AND artifact_id = :memory AND selector_entry_id = 'alpha'"
+            ),
+            {"scope": SCOPE, "memory": COLLECTION},
+        )
+
+    decisions = load_owner_decisions({
+        "format": OWNER_DECISIONS_FORMAT,
+        "decisions": [
+            {
+                "scope_id": SCOPE,
+                "memory_id": COLLECTION,
+                "entry_id": "alpha",
+                "action": "establish",
+                "owner": {"type": "user", "id": "recovered-owner"},
+                "idempotency_key": "recover-owner:alpha",
+            }
+        ],
+    })
+
+    async def scenario() -> None:
+        await _seed(config, remove_owner)
+        refused = await _migrate(config, require_owners=True)
+        assert not refused.ready
+        assert any("alpha" in error and "owner decision" in error for error in refused.errors)
+
+        applied = await _migrate(config, owner_decisions=decisions, require_owners=True)
+        assert applied.ready, applied.errors
+        async with migration_profile(config) as profile, profile.database.transaction() as connection:
+            owner = (
+                await connection.execute(
+                    text(
+                        "SELECT owner_type, owner_id, idempotency_key FROM pc_access_owners "
+                        "WHERE owner_kind = 'artifact' AND scope_id = :scope AND family = 'atomic-memory' "
+                        "AND artifact_id = :artifact"
+                    ),
+                    {"scope": SCOPE, "artifact": _atomic("alpha", 2).artifact_id},
+                )
+            ).one()
+            assert tuple(owner) == ("user", "recovered-owner", "recover-owner:alpha")
+            verified = await verify_atomic_memory_migration(
+                connection,
+                index=migration_index(config),
+                owner_decisions=decisions,
+                require_owners=True,
+            )
+            assert verified.ready, verified.errors
+            assert verified.counts["completed_owner_repairs"] == 1
+
+        repeated = await _migrate(config, owner_decisions=decisions, require_owners=True)
+        assert repeated.ready, repeated.errors
+        repeated_without_file = await _migrate(config, require_owners=True)
+        assert repeated_without_file.ready, repeated_without_file.errors
+
+    asyncio.run(scenario())
+
+
+def test_pending_owner_repair_blocks_plan_and_verify(migration_backend: MigrationBackend) -> None:
+    config = migration_backend.config
+
+    async def remove_owner(_contexts, connection) -> None:
+        await connection.execute(
+            text(
+                "DELETE FROM pc_access_owners WHERE owner_kind = 'artifact' AND scope_id = :scope "
+                "AND family = 'memory' AND artifact_id = :memory AND selector_entry_id = 'alpha'"
+            ),
+            {"scope": SCOPE, "memory": COLLECTION},
+        )
+
+    decisions = load_owner_decisions({
+        "format": OWNER_DECISIONS_FORMAT,
+        "decisions": [
+            {
+                "scope_id": SCOPE,
+                "memory_id": COLLECTION,
+                "entry_id": "alpha",
+                "action": "establish",
+                "owner": {"type": "user", "id": "recovered-owner"},
+                "idempotency_key": "recover-owner:alpha",
+            }
+        ],
+    })
+
+    async def scenario() -> None:
+        await _seed(config, remove_owner)
+        migrated = await _migrate(config)
+        assert migrated.ready, migrated.errors
+        async with migration_profile(config) as profile, profile.database.transaction() as connection:
+            reports = (
+                await plan_atomic_memory_migration(
+                    connection, index=migration_index(config), owner_decisions=decisions, require_owners=True
+                ),
+                await verify_atomic_memory_migration(
+                    connection, index=migration_index(config), owner_decisions=decisions, require_owners=True
+                ),
+            )
+        for report in reports:
+            assert not report.ready
+            assert report.counts["pending_owner_repairs"] == 1
+            assert report.counts["completed_owner_repairs"] == 0
+
+    asyncio.run(scenario())
+
+
+def test_owner_repair_failure_rolls_back_entry_import(
+    migration_backend: MigrationBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = migration_backend.config
+
+    async def remove_owner(_contexts, connection) -> None:
+        await connection.execute(
+            text(
+                "DELETE FROM pc_access_owners WHERE owner_kind = 'artifact' AND scope_id = :scope "
+                "AND family = 'memory' AND artifact_id = :memory AND selector_entry_id = 'alpha'"
+            ),
+            {"scope": SCOPE, "memory": COLLECTION},
+        )
+
+    decisions = load_owner_decisions({
+        "format": OWNER_DECISIONS_FORMAT,
+        "decisions": [
+            {
+                "scope_id": SCOPE,
+                "memory_id": COLLECTION,
+                "entry_id": "alpha",
+                "action": "establish",
+                "owner": {"type": "user", "id": "recovered-owner"},
+                "idempotency_key": "recover-owner:alpha",
+            }
+        ],
+    })
+
+    async def scenario() -> None:
+        await _seed(config, remove_owner)
+        with monkeypatch.context() as patcher:
+
+            async def fail_owner(*_args, **_kwargs):
+                raise RuntimeError("injected owner failure")  # noqa: TRY003 - explicit transactional failure injection.
+
+            patcher.setattr(RelationalAccessRepository, "establish_artifact_owner", fail_owner)
+            with pytest.raises(RuntimeError, match="injected owner failure"):
+                await _migrate(config, owner_decisions=decisions, require_owners=True)
+        async with migration_profile(config) as profile, profile.database.transaction() as connection:
+            count = await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM pc_artifact_heads WHERE scope_id = :scope "
+                    "AND family = 'atomic-memory' AND artifact_id = :artifact"
+                ),
+                {"scope": SCOPE, "artifact": _atomic("alpha", 2).artifact_id},
+            )
+            assert count == 0
+        repaired = await _migrate(config, owner_decisions=decisions, require_owners=True)
+        assert repaired.ready, repaired.errors
+
+    asyncio.run(scenario())
+
+
 class _TriggerExtractor:
     async def generate(self, request):
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
                     AtomicMemoryCandidate(
-                        kind="fact", text="Tasks A and C were completed.", evidence_ids=(item.evidence_id,)
+                        kind="fact",
+                        text="Tasks A and C were completed.",
+                        evidence_ids=(item.evidence_id,),
+                        description="Extracted fixture fact",
                     )
                     for item in request.evidence
                     if item.source_ref.source_id == "migration-trigger"
@@ -472,7 +688,9 @@ class _CaptureReconciler:
                 compared_ids=tuple(item.item_id for item in request.related),
                 target_ids=() if related is None else (related.item_id,),
                 content=(
-                    AtomicMemoryReconciliationContent(kind="fact", text=request.proposal.text)
+                    AtomicMemoryReconciliationContent(
+                        kind="fact", text=request.proposal.text, description="Reconciled fixture fact"
+                    )
                     if related is None
                     else None
                 ),

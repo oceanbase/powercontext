@@ -14,8 +14,19 @@
  * limitations under the License.
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import {
+  access,
+  readFile,
+  writeFile,
+  mkdir,
+  mkdtemp,
+  rm,
+} from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import openapiTS, { astToString } from "openapi-typescript";
@@ -25,6 +36,7 @@ const contractUrl = new URL("../openapi/powercontext.yaml", root);
 const raw = await readFile(contractUrl, "utf8");
 const contract = YAML.parse(raw);
 const wanted = [
+  "get_server_info",
   "get_liveness",
   "get_readiness",
   "get_capabilities",
@@ -37,16 +49,24 @@ const wanted = [
   "get_artifact_revision",
 ];
 const operations = {};
+const operationFeatures = {};
 for (const [path, item] of Object.entries(contract.paths)) {
   for (const [method, op] of Object.entries(item)) {
     if (wanted.includes(op?.operationId)) {
       if (operations[op.operationId]) throw new Error("Duplicate operation");
       operations[op.operationId] = { method: method.toUpperCase(), path };
+      operationFeatures[op.operationId] =
+        op["x-powercontext-feature-contracts"] ?? [];
     }
   }
 }
 if (Object.keys(operations).length !== wanted.length)
   throw new Error("Missing public operation");
+const discovery = {
+  apiMajor: Number(contract.info.version.split(".")[0]),
+  features: contract["x-powercontext-feature-contracts"],
+  operationFeatures,
+};
 const digest = createHash("sha256")
   .update(raw.replaceAll("\r\n", "\n"))
   .digest("hex");
@@ -71,84 +91,185 @@ function collectSchemas(value) {
 for (const item of Object.values(contract.paths))
   for (const op of Object.values(item))
     if (wanted.includes(op?.operationId)) collectSchemas(op);
-function rustType(schema) {
-  if (schema.$ref) return schema.$ref.split("/").at(-1);
-  // A single-member allOf is how the contract annotates a nullable or described reference.
-  if (schema.allOf?.length === 1) return rustType(schema.allOf[0]);
-  switch (schema.type) {
-    case "string":
-      return "String";
-    case "integer":
-      return "i64";
-    case "number":
-      return "f64";
-    case "boolean":
-      return "bool";
-    case "array":
-      return `Vec<${rustType(schema.items)}>`;
-    case "object":
-      if (schema.additionalProperties === true) return "serde_json::Value";
-      if (
-        schema.additionalProperties &&
-        typeof schema.additionalProperties === "object"
-      )
-        return `std::collections::BTreeMap<String, ${rustType(schema.additionalProperties)}>`;
-      throw new Error("Unsupported inline object in Desktop wire model");
-    default:
-      throw new Error(`Unsupported wire schema ${JSON.stringify(schema)}`);
+// OpenAPI Generator inlines plain string aliases instead of emitting model files.
+const stringAliases = new Set(
+  [...schemaNames].filter((name) => {
+    const schema = contract.components.schemas[name];
+    return schema.type === "string" && !schema.enum;
+  }),
+);
+function snakeCase(name) {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase();
+}
+function normalizeNullableReceiptRefs(value) {
+  const normalized = structuredClone(value);
+  for (const [schemaName, propertyName] of [
+    ["PreparedContextRerankConfig", "prompt"],
+    ["PreparedContextPromptIdentity", "artifact_address"],
+  ]) {
+    const property =
+      normalized.components.schemas[schemaName].properties[propertyName];
+    if (property.$ref && property.nullable === true) {
+      const { $ref, ...rest } = property;
+      normalized.components.schemas[schemaName].properties[propertyName] = {
+        allOf: [{ $ref }],
+        ...rest,
+      };
+    }
+  }
+  return normalized;
+}
+function run(command, args, cwd) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0
+        ? resolve(stdout)
+        : reject(
+            new Error(
+              `${command} ${args.join(" ")} failed (${code})\n${stdout}\n${stderr}`,
+            ),
+          ),
+    );
+  });
+}
+async function generateRustModels() {
+  const temporary = await mkdtemp(
+    join(tmpdir(), "powercontext-desktop-openapi-"),
+  );
+  const output = join(temporary, "generated");
+  const modelNames = [...schemaNames]
+    .filter((name) => !stringAliases.has(name))
+    .sort();
+  const generatorCli = createRequire(import.meta.url).resolve(
+    "@openapitools/openapi-generator-cli/main.js",
+  );
+  try {
+    const generatorConfig = JSON.parse(
+      await readFile(new URL("openapitools.json", root), "utf8"),
+    );
+    const jar = join(
+      dirname(generatorCli),
+      "versions",
+      `${generatorConfig["generator-cli"].version}.jar`,
+    );
+    try {
+      await access(jar);
+    } catch {
+      await run(
+        process.execPath,
+        [generatorCli, "version"],
+        fileURLToPath(root),
+      );
+    }
+    // Discovery minor versions may add optional fields, including in nested contracts.
+    const input = structuredClone(contract);
+    for (const name of ["ServerInfo", "ContractVersion", "FeatureContract"]) {
+      input.components.schemas[name]["x-rust-allow-unknown-fields"] = true;
+    }
+    const inputPath = join(temporary, "openapi.yaml");
+    await writeFile(inputPath, YAML.stringify(input));
+    await run(
+      "java",
+      [
+        "-jar",
+        jar,
+        "generate",
+        "-i",
+        inputPath,
+        "-g",
+        "rust",
+        "-t",
+        fileURLToPath(new URL("./openapi-generator/rust/", import.meta.url)),
+        "-o",
+        output,
+        "--global-property",
+        `models=${modelNames.join(":")},modelDocs=false,modelTests=false`,
+        "--additional-properties",
+        "packageName=powercontext_wire,packageVersion=0.1.0,hideGenerationTimestamp=true,useChrono=false,avoidBoxedModels=true",
+      ],
+      fileURLToPath(root),
+    );
+    const imports = new Set();
+    const sources = [];
+    for (const name of modelNames) {
+      const source = await readFile(
+        join(output, "src", "models", `${snakeCase(name)}.rs`),
+        "utf8",
+      );
+      sources.push({ name, source });
+    }
+    const declarationCounts = new Map();
+    for (const { source } of sources) {
+      for (const match of source.matchAll(/pub (?:struct|enum) (\w+)/gu)) {
+        declarationCounts.set(
+          match[1],
+          (declarationCounts.get(match[1]) ?? 0) + 1,
+        );
+      }
+    }
+    const bodies = [];
+    for (const { name, source: originalSource } of sources) {
+      let source = originalSource;
+      for (const match of source.matchAll(/pub (?:struct|enum) (\w+)/gu)) {
+        const declaration = match[1];
+        if (
+          declarationCounts.get(declaration) > 1 &&
+          !modelNames.includes(declaration)
+        ) {
+          const renamed = `${name}${declaration}`;
+          source = source.replace(
+            new RegExp(`\\b${declaration}\\b`, "gu"),
+            renamed,
+          );
+        }
+      }
+      let body = source.replace(/^(?:\/\*[\s\S]*?\*\/\s*)+/u, "");
+      body = body.replace(/^use crate::models;\s*$/gmu, "");
+      body = body.replace(/^use .+;\s*$/gmu, (line) => {
+        imports.add(line.trim());
+        return "";
+      });
+      body = body.replaceAll("models::", "").trim();
+      bodies.push(body);
+    }
+    const unformatted =
+      [...imports].sort().join("\n") + "\n\n" + bodies.join("\n\n") + "\n";
+    const wirePath = join(temporary, "wire.rs");
+    await writeFile(wirePath, unformatted);
+    await run("rustfmt", ["--edition", "2024", wirePath], fileURLToPath(root));
+    return await readFile(wirePath, "utf8");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
   }
 }
-const rustModels = [...schemaNames]
-  .sort()
-  .map((name) => {
-    const schema = contract.components.schemas[name];
-    const derive =
-      "#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize, ts_rs::TS)]";
-    if (schema.$ref) return `pub type ${name} = ${rustType(schema)};\n`;
-    if (schema.enum) {
-      const values = schema.enum.filter((v) => v !== null);
-      const members = values.map(
-        (value) =>
-          `    #[serde(rename = ${JSON.stringify(value)})]\n    ${value
-            .split(/[^a-zA-Z0-9]+/)
-            .map((part) => part[0].toUpperCase() + part.slice(1))
-            .join("")},`,
-      );
-      return `${derive}\npub enum ${name} {\n${members.join("\n")}\n}\n`;
-    }
-    if (schema.oneOf && !schema.type) {
-      const members = schema.oneOf.map((variant) => {
-        if (!variant.$ref) throw new Error("Unsupported inline wire union");
-        const type = rustType(variant);
-        return `    ${type}(${type}),`;
-      });
-      return `${derive}\n#[serde(untagged)]\npub enum ${name} {\n${members.join("\n")}\n}\n`;
-    }
-    if (schema.type !== "object")
-      return `pub type ${name} = ${rustType(schema)};\n`;
-    const fields = Object.entries(schema.properties).map(([field, value]) => {
-      let type = rustType(value);
-      if (value.nullable || !schema.required?.includes(field))
-        type = `Option<${type}>`;
-      const opaque =
-        value.type === "object" && value.additionalProperties === true
-          ? '    #[ts(type = "Record<string, unknown>")]\n'
-          : "";
-      return `${!schema.required?.includes(field) ? '    #[serde(skip_serializing_if = "Option::is_none")]\n    #[ts(optional = nullable)]\n' : ""}${opaque}    pub r#${field}: ${type},`;
-    });
-    return `${derive}\n#[serde(deny_unknown_fields)]\npub struct ${name} {\n${fields.join("\n")}\n}\n`;
-  })
-  .join("\n");
+const rustModels = await generateRustModels();
+// OpenAPI Generator also emits inline enums and helper models that are not
+// component schemas. Include every generated Rust declaration in the ts-rs
+// export list so referenced TypeScript names are emitted as well.
+const rustModelNames = [
+  ...rustModels.matchAll(/pub (?:struct|enum) (\w+)/gu),
+].map(([, name]) => name);
 const rustDeclarations = `\n#[rustfmt::skip]\npub fn declarations(config: &ts_rs::Config) -> Vec<String> {\n    vec![\n${[
-  ...schemaNames,
+  ...new Set([...schemaNames, ...rustModelNames]),
 ]
   .sort()
-  .map((name) => {
-    const schema = contract.components.schemas[name];
-    return schema.$ref
-      ? `        format!("type ${name} = {};", <${rustType(schema)} as ts_rs::TS>::name(config)),`
-      : `        <${name} as ts_rs::TS>::decl(config),`;
-  })
+  .map((name) =>
+    stringAliases.has(name)
+      ? `        format!("type ${name} = {};", <String as ts_rs::TS>::name(config)),`
+      : `        <${name} as ts_rs::TS>::decl(config),`,
+  )
   .join("\n")}\n    ]\n}\n`;
 const outputs = {
   "src-tauri/src/transport/wire.rs":
@@ -156,7 +277,9 @@ const outputs = {
     "// rustfmt uses this generated layout verbatim.\n" +
     rustModels +
     rustDeclarations,
-  "ui/src/generated/api.d.ts": header + astToString(await openapiTS(contract)),
+  "ui/src/generated/api.d.ts":
+    header +
+    astToString(await openapiTS(normalizeNullableReceiptRefs(contract))),
   "ui/src/generated/operations.ts":
     header +
     "export const contractSha256 = " +
@@ -165,7 +288,8 @@ const outputs = {
     JSON.stringify(operations, null, 2) +
     " as const;\n",
   "src-tauri/src/transport/operations.json":
-    JSON.stringify({ contractSha256: digest, operations }, null, 2) + "\n",
+    JSON.stringify({ contractSha256: digest, operations, discovery }, null, 2) +
+    "\n",
 };
 for (const [name, text] of Object.entries(outputs)) {
   const target = new URL(name, root);

@@ -17,14 +17,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
-from contextlib import nullcontext
+import logging
+from collections.abc import Callable, Sequence
+from contextlib import AsyncExitStack, nullcontext
 from copy import copy
-from typing import Generic, Literal, Self, TypeVar, cast
+from typing import Any, Generic, Literal, Self, TypeVar, cast
 
 from pydantic import BaseModel, Field
 from typing_extensions import override
 
+from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
 from powercontext.builtin.artifacts.prompt.service import current_prompt
@@ -39,6 +41,13 @@ from powercontext.builtin.inference.models import (
     EmbeddingResult,
     GenerationResult,
     InferenceUsage,
+)
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+    stage_for_operation,
 )
 
 
@@ -72,7 +81,7 @@ class PydanticAIConfigurationError(InferenceConfigurationError):
 
 try:
     from pydantic import PydanticSchemaGenerationError, PydanticUserError, TypeAdapter, ValidationError
-    from pydantic_ai import Agent, Embedder, PromptedOutput
+    from pydantic_ai import Agent, Embedder, ModelRetry, PromptedOutput, RunContext
     from pydantic_ai.embeddings import EmbeddingModel as PydanticAIEmbeddingModelBase
     from pydantic_ai.exceptions import (
         ConcurrencyLimitExceeded,
@@ -82,9 +91,15 @@ try:
         UsageLimitExceeded,
         UserError,
     )
-    from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, UserPromptPart
+    from pydantic_ai.messages import (
+        ModelMessage,
+        ModelRequest,
+        ModelResponse,
+        UserPromptPart,
+    )
     from pydantic_ai.models import Model, ModelRequestParameters
     from pydantic_ai.models.wrapper import WrapperModel
+    from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
     from pydantic_ai.usage import RunUsage, UsageLimits
     from pydantic_core import PydanticSerializationError
@@ -95,6 +110,30 @@ except ModuleNotFoundError as error:  # pragma: no cover - exercised in a depend
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
+
+logger = logging.getLogger(__name__)
+
+
+def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dict[str, object]:
+    """Return settings that the pinned provider will pass to its request builder."""
+
+    effective = dict(settings or {})
+    profile = getattr(model, "profile", None)
+    if not hasattr(profile, "get") or not profile.get("openai_supports_reasoning", False):
+        return effective
+
+    reasoning_effort = effective.get("openai_reasoning_effort")
+    if reasoning_effort is not None:
+        reasoning_active = reasoning_effort != "none"
+    elif (thinking := effective.get("thinking")) is not None and profile.get("supports_thinking", False):
+        reasoning_active = thinking is not False
+    else:
+        reasoning_active = bool(profile.get("openai_reasoning_enabled_by_default", False))
+    if profile.get("openai_supports_reasoning_effort_none", False) and not reasoning_active:
+        return effective
+    for setting in SAMPLING_PARAMS:
+        effective.pop(setting, None)
+    return effective
 
 
 class InferenceLimits(BaseModel):
@@ -119,7 +158,108 @@ class _CompleteResponseModel(WrapperModel):
     ) -> ModelResponse:
         response = await self.wrapped.request(messages, model_settings, model_request_parameters)
         if response.state != "complete":
-            raise InvalidInferenceOutputError("generate", "provider continuation is not allowed")
+            finish_reason = getattr(response, "finish_reason", None)
+            truncated = str(finish_reason or "").lower() in {"length", "max_tokens"}
+            raise attach_diagnostics(
+                InvalidInferenceOutputError("generate", "provider continuation is not allowed"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.GENERATION,
+                    reason=ProcessingFailureReason.OUTPUT_TRUNCATED if truncated else None,
+                    provider_request_id=getattr(response, "provider_response_id", None),
+                    finish_reason=finish_reason,
+                    failure_location="provider-response",
+                ),
+            ) from None
+        return response
+
+
+class StreamingAggregateModel(WrapperModel):
+    """Stream one request and aggregate the chunks into a complete response.
+
+    Gateways in front of non-streaming inference endpoints may drop an idle
+    HTTP exchange long before the configured generation timeout. Streaming the
+    same request keeps the connection active. The watchdog bounds both opening
+    the stream (sending the request and waiting for its first chunk) and the
+    gap between model events (text, thinking, or tool-call parts). Provider
+    heartbeat frames that are not yielded as model events do not reset it.
+    The wall-clock budget stays owned by the calling generator.
+
+    The aggregate is read from the drained stream, so parts whose deltas
+    interleave keep every update. A provider stream is accepted only when it
+    reports a finish reason: one that ends without its terminal event (for
+    example a gateway that drops the connection before the final chunk) is
+    rejected instead of being returned truncated. Streams without a provider
+    behind them end when their event iterator ends and are accepted without a
+    finish reason. The complete-state guard rejects provider continuations
+    (separately billed follow-up requests) and streams the provider left
+    unfinished.
+    """
+
+    def __init__(self, wrapped: Model, *, idle_timeout_seconds: float = 60.0) -> None:
+        if idle_timeout_seconds <= 0:
+            raise InferenceConfigurationError("stream-idle-timeout-seconds")
+        super().__init__(wrapped)
+        self._idle_timeout_seconds = idle_timeout_seconds
+
+    @override
+    async def request(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> ModelResponse:
+        async with AsyncExitStack() as stack:
+            # Entering the stream context sends the provider request and waits for
+            # its first chunk, so the watchdog bounds that phase too, not just the
+            # gaps between later events.
+            stream = await asyncio.wait_for(
+                stack.enter_async_context(
+                    self.wrapped.request_stream(messages, model_settings, model_request_parameters)
+                ),
+                timeout=self._idle_timeout_seconds,
+            )
+            events = stream.__aiter__()
+            while True:
+                try:
+                    # Watch the gap between model events instead of the whole exchange.
+                    await asyncio.wait_for(anext(events), timeout=self._idle_timeout_seconds)
+                except StopAsyncIteration:
+                    break
+            # The parts manager kept applying every delta, including to parts whose
+            # updates interleave with other parts, so the drained stream is the
+            # authority for the aggregated response.
+            response = stream.get()
+        if response.state != "complete":
+            raise InvalidInferenceOutputError(
+                "generate",
+                "provider continuation is not allowed"
+                if response.state == "suspended"
+                else "provider stream ended before completion",
+            )
+        if (
+            stream.provider_name is not None
+            and response.finish_reason is None
+            and not (response.provider_details or {}).get("finish_reason")
+        ):
+            # A provider stream can end cleanly without its terminal event, for
+            # example when a gateway drops the connection before the final chunk.
+            # The accumulated content is then truncated even though the stream
+            # state defaults to complete, so a missing finish reason is rejected.
+            raise InvalidInferenceOutputError("generate", "provider stream ended without a completion signal")
+        if response.usage.input_tokens == 0 and response.usage.output_tokens == 0:
+            # Some gateways stream the response without a final usage chunk; usage
+            # statistics for this request will be missing. Warn without failing: the
+            # aggregated response itself is valid.
+            log_safely(
+                logger,
+                logging.WARNING,
+                "Streamed generation completed without provider usage; usage statistics will be incomplete",
+                extra={
+                    "event": "inference.generation.usage_missing",
+                    "operation": "generate",
+                    "unit": "inference",
+                },
+            )
         return response
 
 
@@ -137,12 +277,14 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         model_settings: ModelSettings | None = None,
         name: str | None = None,
         prompt_key: str | None = None,
+        output_check: Callable[[InputT, OutputT], None] | None = None,
     ) -> None:
         if isinstance(model, str) or not isinstance(model, Model):
             raise PydanticAIConfigurationError("model-instance")
         if not instructions.strip():
             raise PydanticAIConfigurationError("instructions")
         self._limits = InferenceLimits() if limits is None else limits
+        self._receipt_model = model
         self._input_type = input_type
         self._prompt_key = prompt_key
         try:
@@ -153,8 +295,13 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                     model_settings,
                     ModelSettings(max_tokens=self._limits.max_output_tokens_per_request),
                 )
+            self._receipt_settings = _receipt_model_settings(
+                model,
+                merge_model_settings(model.settings, bounded_settings),
+            )
             self._agent = Agent(
                 model if self._limits.allow_continuations else _CompleteResponseModel(model),
+                deps_type=input_type,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,
                 model_settings=bounded_settings,
@@ -163,6 +310,39 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
             )
         except (PydanticSchemaGenerationError, PydanticUserError, UserError) as error:
             raise PydanticAIConfigurationError("schema") from error
+        if output_check is not None:
+            # A rule relating output to input is returned to the model like a schema error, within the same budget.
+            # The InvalidInferenceOutputError detail is sent to the provider, so it must name the rule, not content.
+
+            def check(context: RunContext[InputT], output: Any) -> Any:
+                try:
+                    output_check(context.deps, cast(OutputT, output))
+                except InvalidInferenceOutputError as error:
+                    raise ModelRetry(error.detail) from error
+                return output
+
+            self._agent.output_validator(check)
+
+    def receipt_configuration(self) -> dict[str, object]:
+        """Report the bound model and effective non-content controls for receipt validation."""
+        model_name = getattr(self._receipt_model, "model_name", None)
+        system = getattr(self._receipt_model, "system", None)
+        if not isinstance(model_name, str) or not isinstance(system, str):
+            raise TypeError("rerank model identity unavailable")  # noqa: TRY003
+        return {
+            "model": f"{system}:{model_name}",
+            "effective_settings": {
+                **(self._receipt_settings or {}),
+                "allow_continuations": self._limits.allow_continuations,
+                **(
+                    {"output_tokens_limit": self._limits.output_tokens_limit}
+                    if self._limits.output_tokens_limit is not None
+                    else {}
+                ),
+            },
+            "timeout_seconds": self._limits.timeout_seconds,
+            "max_requests": self._limits.max_requests,
+        }
 
     async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
         """Generate one structured value within the configured request and time limits."""
@@ -186,6 +366,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 result = await asyncio.wait_for(
                     self._agent.run(
                         prompt,
+                        deps=value,
                         usage_limits=UsageLimits(
                             request_limit=self._limits.max_requests,
                             output_tokens_limit=self._limits.output_tokens_limit,
@@ -197,6 +378,10 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         except asyncio.CancelledError:
             raise
         except Exception as error:
+            # An exhausted retry budget reports the rule the last response broke, not a generic failure.
+            rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
+            if rejected is not None:
+                raise rejected from error
             mapped = _map_error(error, operation="generate", timeout_seconds=self._limits.timeout_seconds)
             if mapped is None:
                 raise
@@ -266,6 +451,13 @@ class PydanticAIEmbeddingModel:
             raise
         except InvalidInferenceOutputError:
             raise
+        except ValidationError as error:
+            # Malformed provider output is an invalid-output failure, not a
+            # transient availability failure; match the structured mapping.
+            mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
+            if mapped is None:
+                raise
+            raise mapped from error
         except ValueError as error:
             raise InferenceUnavailableError("embed") from error
         except Exception as error:
@@ -368,7 +560,16 @@ def _generation_usage(value: RunUsage) -> InferenceUsage:
     )
 
 
-def _map_error(
+def _checked_rule(error: BaseException) -> InvalidInferenceOutputError | None:
+    cause = error.__cause__
+    while cause is not None:
+        if isinstance(cause, InvalidInferenceOutputError):
+            return cause
+        cause = cause.__cause__
+    return None
+
+
+def _map_error(  # noqa: C901 - bounded mapping across status codes and provider exception classes
     error: Exception,
     *,
     operation: str,
@@ -376,21 +577,120 @@ def _map_error(
 ) -> InferenceError | None:
     if isinstance(error, InferenceError):
         return error
+    stage = stage_for_operation(operation)
+    cause_type = type(error).__name__
     if isinstance(error, TimeoutError):
-        return InferenceTimeoutError(operation, timeout_seconds)
+        return attach_diagnostics(
+            InferenceTimeoutError(operation, timeout_seconds),
+            ProcessingDiagnostics(stage=stage, reason=ProcessingFailureReason.TIMEOUT, cause_exception_type=cause_type),
+        )
     if isinstance(error, ModelHTTPError):
         if error.status_code in {408, 504}:
-            return InferenceTimeoutError(operation, timeout_seconds)
-        if error.status_code in {409, 425, 429} or error.status_code >= 500:
-            return InferenceUnavailableError(operation)
-        return PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}")
+            return attach_diagnostics(
+                InferenceTimeoutError(operation, timeout_seconds),
+                ProcessingDiagnostics(
+                    stage=stage,
+                    reason=ProcessingFailureReason.TIMEOUT,
+                    cause_exception_type=cause_type,
+                ),
+            )
+        if error.status_code in {409, 425, 429}:
+            return attach_diagnostics(
+                InferenceUnavailableError(operation),
+                ProcessingDiagnostics(
+                    stage=stage,
+                    reason=(
+                        ProcessingFailureReason.RATE_LIMIT
+                        if error.status_code == 429
+                        else ProcessingFailureReason.PROVIDER_UNAVAILABLE
+                    ),
+                    cause_exception_type=cause_type,
+                ),
+            )
+        if error.status_code >= 500:
+            return attach_diagnostics(
+                InferenceUnavailableError(operation),
+                ProcessingDiagnostics(
+                    stage=stage,
+                    reason=ProcessingFailureReason.PROVIDER_UNAVAILABLE,
+                    cause_exception_type=cause_type,
+                ),
+            )
+        reason = (
+            ProcessingFailureReason.CONTEXT_OVERFLOW
+            if _looks_like_context_overflow(error)
+            else ProcessingFailureReason.CONFIGURATION
+        )
+        return attach_diagnostics(
+            PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}"),
+            ProcessingDiagnostics(
+                stage=stage,
+                reason=reason,
+                failure_location="provider-response",
+                cause_exception_type=cause_type,
+            ),
+        )
     if isinstance(error, (ModelAPIError, ConcurrencyLimitExceeded, OSError)):
-        return InferenceUnavailableError(operation)
-    if isinstance(error, (UnexpectedModelBehavior, UsageLimitExceeded, ValidationError)):
-        return InvalidInferenceOutputError(operation, "provider did not return a valid result")
+        return attach_diagnostics(
+            InferenceUnavailableError(operation),
+            ProcessingDiagnostics(
+                stage=stage,
+                reason=ProcessingFailureReason.PROVIDER_UNAVAILABLE,
+                cause_exception_type=cause_type,
+            ),
+        )
+    if isinstance(error, UsageLimitExceeded):
+        return attach_diagnostics(
+            InvalidInferenceOutputError(operation, "provider did not return a valid result"),
+            ProcessingDiagnostics(
+                stage=stage or ProcessingStage.GENERATION,
+                reason=ProcessingFailureReason.USAGE_LIMIT,
+                failure_location="inference-limits",
+                cause_exception_type=cause_type,
+            ),
+        )
+    if isinstance(error, (UnexpectedModelBehavior, ValidationError)):
+        embedding = stage is ProcessingStage.EMBEDDING
+        return attach_diagnostics(
+            InvalidInferenceOutputError(operation, "provider did not return a valid result"),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.EMBEDDING if embedding else ProcessingStage.OUTPUT_PARSING,
+                reason=(
+                    ProcessingFailureReason.INVALID_OUTPUT if embedding else ProcessingFailureReason.SCHEMA_INVALID
+                ),
+                failure_location="provider-output",
+                cause_exception_type=cause_type,
+            ),
+        )
     if isinstance(error, (PydanticSchemaGenerationError, PydanticUserError, UserError)):
-        return PydanticAIConfigurationError("pydantic-rejected")
+        return attach_diagnostics(
+            PydanticAIConfigurationError("pydantic-rejected"),
+            ProcessingDiagnostics(
+                stage=stage,
+                reason=ProcessingFailureReason.CONFIGURATION,
+                cause_exception_type=cause_type,
+            ),
+        )
     return None
+
+
+def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
+    """Classify only when the provider's own response names a context limit."""
+
+    body = getattr(error, "body", None)
+    text = str(body if isinstance(body, (str, bytes)) else body or "").lower()
+    return any(
+        term in text
+        for term in (
+            "context length",
+            "context window",
+            "maximum context",
+            "too many tokens",
+            "prompt is too long",
+            "input is too long",
+            "token limit",
+        )
+    )
 
 
 __all__ = [
@@ -398,5 +698,6 @@ __all__ = [
     "PydanticAIConfigurationError",
     "PydanticAIEmbeddingModel",
     "PydanticAIStructuredGenerator",
+    "StreamingAggregateModel",
     "probe_pydantic_ai_model",
 ]

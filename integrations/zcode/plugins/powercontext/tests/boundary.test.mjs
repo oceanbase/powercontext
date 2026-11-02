@@ -362,7 +362,7 @@ test('pending bounds tracking capacity and keeps persisted receipts content-free
   }
 })
 
-test('real Stop process observes a slow unknown flush and exits without continuing the turn', { timeout: 10000 }, async () => {
+async function checkStopProcess(delayedCleanup) {
   const root = await mkdtemp(join(tmpdir(), 'pc-zcode-stop-'))
   let flushes = 0
   const server = createServer(async (req, res) => {
@@ -387,11 +387,23 @@ test('real Stop process observes a slow unknown flush and exits without continui
     const tracking = await beginCaptureTracking(input, settings, keys, 'scope-boundary', data)
     await tracking.accepted(1)
     await leaseWindow()
+    const preload = join(root, 'transport-cleanup.mjs')
+    if (delayedCleanup) {
+      // Simulate a transport that retains a cleanup handle after an aborted real HTTP request.
+      await writeFile(preload, `
+        const originalFetch = globalThis.fetch
+        globalThis.fetch = async (...args) => {
+          try { return await originalFetch(...args) }
+          catch (error) { setTimeout(() => {}, 2500); throw error }
+        }
+      `)
+    }
     const before = performance.now()
     const result = await new Promise((resolve, reject) => {
       const env = { ...process.env, ZCODE_PLUGIN_DATA: data }
       for (const key of Object.keys(env)) if (key.startsWith('POWERCONTEXT_ZCODE_') || key === 'ZCODE_SESSION_ID') delete env[key]
-      const child = spawn(process.execPath, [join(installed, 'hooks/stop.mjs')], { env, stdio: ['pipe', 'pipe', 'pipe'] })
+      const args = [...(delayedCleanup ? ['--import', pathToFileURL(preload).href] : []), join(installed, 'hooks/stop.mjs')]
+      const child = spawn(process.execPath, args, { env, stdio: ['pipe', 'pipe', 'pipe'] })
       let stdout = '', stderr = ''
       child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk })
       child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
@@ -412,4 +424,10 @@ test('real Stop process observes a slow unknown flush and exits without continui
     await new Promise(resolve => server.close(resolve))
     await rm(root, { recursive: true, force: true })
   }
-})
+}
+
+for (const delayedCleanup of [false, true]) {
+  const suffix = delayedCleanup ? ' with delayed transport cleanup' : ''
+  test(`real Stop process observes a slow unknown flush and exits without continuing the turn${suffix}`,
+    { timeout: 10000 }, () => checkStopProcess(delayedCleanup))
+}

@@ -69,7 +69,9 @@ class EchoCandidatePipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(source.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="fact", text=text, evidence_ids=(source.evidence_id,), description="Fixture memory summary"
+                    )
                     for source in request.evidence
                     if (text := memory_source_text(source)) is not None
                 )
@@ -124,7 +126,9 @@ def test_lineage_only_source_remains_readable_but_is_skipped_by_memory_flush() -
             created = await contexts.records.create_artifact(
                 "project",
                 "atomic-memory",
-                ArtifactWrite(content={"kind": "fact", "text": "Directly managed."}),
+                ArtifactWrite(
+                    content={"kind": "fact", "text": "Directly managed.", "description": "Fixture memory summary"}
+                ),
             )
             async with contexts.database.transaction() as connection:
                 stored = await contexts.repositories.sources.get(connection, "project", created.sources[0])

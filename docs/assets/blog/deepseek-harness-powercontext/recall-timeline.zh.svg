@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="837" viewBox="0 0 1000 837" lang="zh" role="img" aria-labelledby="title"><title id="title">每轮模型调用前的召回与采集</title><rect width="1000" height="837" rx="18" fill="#f7f5ef"/><style>text{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#14213a}</style>
+<text x="48" y="43" font-size="18" font-weight="700" style="fill:#1769d2">PowerContext</text>
+<text x="48" y="88" font-size="30" font-weight="700" style="fill:#14213a">每轮模型调用前的召回与采集</text>
+<rect x="48.0" y="156" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="198" font-size="22" font-weight="700" style="fill:#1769d2">01 用户输入</text>
+<text x="72.0" y="250" font-size="20" font-weight="400" style="fill:#14213a">用户消息进入 Harness。</text>
+<rect x="512.0" y="156" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="536.0" y="198" font-size="22" font-weight="700" style="fill:#1769d2">02 prepare_context</text>
+<text x="536.0" y="250" font-size="20" font-weight="400" style="fill:#14213a">从 Server 获取有预算边界的上下文。</text>
+<rect x="48.0" y="348" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="390" font-size="22" font-weight="700" style="fill:#1769d2">03 注入证据</text>
+<text x="72.0" y="442" font-size="20" font-weight="400" style="fill:#14213a">将召回内容作为不可信历史，不作为指</text>
+<text x="72.0" y="471" font-size="20" font-weight="400" style="fill:#14213a">令。</text>
+<rect x="512.0" y="348" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="536.0" y="390" font-size="22" font-weight="700" style="fill:#1769d2">04 capture_source</text>
+<text x="536.0" y="442" font-size="20" font-weight="400" style="fill:#14213a">将用户输入作为 Source 保存。</text>
+<rect x="48.0" y="540" width="440.0" height="197" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="582" font-size="22" font-weight="700" style="fill:#1769d2">05 按需使用记忆</text>
+<text x="72.0" y="634" font-size="20" font-weight="400" style="fill:#14213a">模型通过 pc_remember / pc_search 显</text>
+<text x="72.0" y="663" font-size="20" font-weight="400" style="fill:#14213a">式读写。</text>
+</svg>

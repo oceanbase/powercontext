@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tomllib
 from email.message import Message
@@ -30,8 +31,9 @@ from typer.testing import CliRunner
 import powercontext.cli.authorization as authorization_cli
 import powercontext.cli.system as system_cli
 from powercontext.cli.app import create_cli
+from powercontext.cli.installation import PluginSource
 from powercontext.cli.installation import setup as install_plugin
-from powercontext.cli.system import Diagnostic, DiagnosticStatus, doctor_app, setup_app
+from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError, doctor_app, setup_app
 from powercontext.paths import default_scheduler_path
 from powercontext.server.settings import ServerSettings
 from powercontext.service.model import (
@@ -45,6 +47,7 @@ from powercontext.service.model import (
 )
 
 _probe_codex_mcp_status = system_cli._probe_codex_mcp_status
+_run_codex_mcp_list = system_cli._run_codex_mcp_list
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +111,7 @@ def test_setup_codex_installs_or_preserves_native_disablement(
     data_dir = tmp_path / "data"
     monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     record = {
         "name": "powercontext",
         "installed": True,
@@ -156,6 +160,7 @@ def test_setup_codex_installs_or_preserves_native_disablement(
 
 def test_codex_diagnostics_verify_native_mcp_tools_without_process_authorization(monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -199,6 +204,7 @@ def test_codex_diagnostics_recognize_full_tools_from_the_server(monkeypatch) -> 
 
     tools = asyncio.run(catalog())
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -243,6 +249,7 @@ def test_doctor_codex_requires_every_declared_capability_tool(monkeypatch, missi
     if missing is not None:
         tools.pop(missing)
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -270,6 +277,7 @@ def test_doctor_codex_requires_every_declared_capability_tool(monkeypatch, missi
 
 def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -297,6 +305,7 @@ def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypat
 
 def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -342,6 +351,7 @@ def test_codex_diagnostics_probe_without_url_mismatched_stored_authorization(
 ) -> None:
     """A previous endpoint's token stays private while the new Server verifies access."""
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -425,6 +435,7 @@ def test_codex_app_server_probe_clears_process_authorization(monkeypatch) -> Non
     popen = Mock(return_value=Process())
     monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer process-token")
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(system_cli.subprocess, "Popen", popen)
 
     status = _probe_codex_mcp_status()
@@ -465,6 +476,7 @@ def test_codex_app_server_probe_uses_resolved_authorization(monkeypatch) -> None
 
     popen = Mock(return_value=Process())
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(system_cli.subprocess, "Popen", popen)
 
     _probe_codex_mcp_status(authorization="Bearer resolved-token")
@@ -479,6 +491,7 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "setup-token")
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     configure_desktop = Mock(return_value=True)
     monkeypatch.setattr(authorization_cli, "configure_codex_desktop_authorization", configure_desktop)
     monkeypatch.setattr(
@@ -522,6 +535,7 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
 
 def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -564,6 +578,7 @@ def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_creden
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -607,6 +622,7 @@ def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_creden
 
 def test_codex_diagnostics_reject_bare_process_token_without_repairing_it(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -653,6 +669,7 @@ def test_codex_diagnostics_reject_bare_process_token_without_repairing_it(tmp_pa
 
 def test_codex_diagnostics_probe_lowercase_bearer_header_without_rewriting_it(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -699,6 +716,7 @@ def test_codex_diagnostics_do_not_replace_process_authorization_with_windows_use
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -741,6 +759,7 @@ def test_codex_diagnostics_report_matching_desktop_override_separately_from_stal
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -783,6 +802,7 @@ def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_
     tmp_path: Path, monkeypatch, process_override: bool
 ) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -829,6 +849,7 @@ def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_
 
 def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",
@@ -862,6 +883,430 @@ def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp
     probe.assert_not_called()
 
 
+# npm installs the Codex CLI as codex.cmd without a codex.exe; the shim below answers both
+# runner surfaces with the minimal JSON their callers expect.
+CODEX_CMD_SHIM = (
+    "@echo off\r\n"
+    'if "%1" == "mcp" (\r\n'
+    '  echo [{"name": "powercontext", "enabled": true, "auth_status": "unsupported",'
+    ' "transport": {"type": "streamable_http", "url": "http://127.0.0.1:8000/mcp",'
+    ' "env_http_headers": {"Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"}}}]\r\n'
+    "  exit /b 0\r\n"
+    ")\r\n"
+    'if "%1" == "plugin" (\r\n'
+    '  echo {"installed": [{"name": "powercontext", "pluginId": "powercontext@powercontext",'
+    ' "installed": true, "enabled": true, "marketplaceName": "powercontext", "version": "0.1.0"}]}\r\n'
+    "  exit /b 0\r\n"
+    ")\r\n"
+    'echo {"ok": true}\r\n'
+    "exit /b 0\r\n"
+)
+
+
+@pytest.fixture
+def codex_cmd_shim(tmp_path: Path, monkeypatch) -> Path:
+    bin_dir = tmp_path / "bin with spaces 中文"
+    bin_dir.mkdir()
+    shim = bin_dir / "codex.cmd"
+    shim.write_text(CODEX_CMD_SHIM, encoding="ascii")
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    monkeypatch.setenv("PC_TEST_PYTHON", sys.executable)
+    monkeypatch.setenv("PC_TEST_BIN", str(bin_dir))
+    return shim
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="npm-style codex.cmd shims without codex.exe are Windows-specific")
+def test_codex_json_runner_launches_the_resolved_cmd_shim(codex_cmd_shim: Path) -> None:
+    result = system_cli._run_codex_json("plugin", "list")
+
+    assert result["installed"][0]["name"] == "powercontext"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="npm-style codex.cmd shims without codex.exe are Windows-specific")
+def test_codex_mcp_list_runner_launches_the_resolved_cmd_shim(codex_cmd_shim: Path) -> None:
+    servers = _run_codex_mcp_list()
+
+    assert servers[0]["name"] == "powercontext"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="npm-style codex.cmd shims without codex.exe are Windows-specific")
+def test_codex_diagnostics_run_through_the_resolved_cmd_shim(codex_cmd_shim: Path, monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "_run_codex_mcp_list", _run_codex_mcp_list)
+
+    diagnostics = system_cli.CodexInstaller().verify()
+
+    assert diagnostics["codex"].ok
+    assert diagnostics["codex"].detail.casefold() == str(codex_cmd_shim).casefold()
+    assert diagnostics["plugin"].ok
+    assert diagnostics["mcp_configuration"].ok
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd shim output decoding is Windows-specific")
+@pytest.mark.parametrize("runner", ["_run_codex_json", "_run_codex_mcp_list"])
+def test_codex_runners_report_non_utf8_cmd_errors(codex_cmd_shim: Path, runner: str) -> None:
+    emitter = codex_cmd_shim.parent / "failure.py"
+    emitter.write_text(
+        "import sys\nsys.stderr.buffer.write(b'cmd startup diagnostic\\ncodex failure: "
+        "\\xd6\\xd0\\xce\\xc4\\n')\nsys.exit(7)\n",
+        encoding="ascii",
+    )
+    codex_cmd_shim.write_text(
+        '@echo off\n"%PC_TEST_PYTHON%" "%PC_TEST_BIN%\\failure.py"\nexit /b 7\n', encoding="ascii"
+    )
+    probe = (
+        "import sys\n"
+        "from powercontext.cli import system\n"
+        "assert sys.flags.utf8_mode == 1\n"
+        "try:\n"
+        f"    system.{runner}(*(('plugin', 'list') if {runner!r} == '_run_codex_json' else ()))\n"
+        "except system.SetupError as error:\n"
+        "    print(error)\n"
+        "else:\n"
+        "    raise AssertionError('expected SetupError for a failed Codex command')\n"
+    )
+
+    completed = system_cli.subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", probe],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "failed:" in completed.stdout
+    assert "cmd startup diagnostic" in completed.stdout
+    assert "codex failure:" in completed.stdout
+    assert completed.stderr == ""
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd shim output decoding is Windows-specific")
+@pytest.mark.parametrize("runner", ["json", "mcp"])
+@pytest.mark.parametrize("valid_utf8", [False, True])
+def test_codex_runners_preserve_json_output(codex_cmd_shim: Path, runner: str, valid_utf8: bool) -> None:
+    # A literal replacement character is valid data; an invalid byte must not become one.
+    name = "中文�".encode() if valid_utf8 else b"\xff"
+    output = b'{"name":"' + name + b'"}'
+    if runner == "mcp":
+        output = b"[" + output + b"]"
+    emitter = codex_cmd_shim.parent / "output.py"
+    emitter.write_text(
+        f"import sys\nsys.stdout.buffer.write({output!r})\nsys.stderr.buffer.write(b'\\xff')\n",
+        encoding="ascii",
+    )
+    codex_cmd_shim.write_text('@echo off\n"%PC_TEST_PYTHON%" "%PC_TEST_BIN%\\output.py"\n', encoding="ascii")
+
+    def read():
+        return system_cli._run_codex_json("plugin", "list") if runner == "json" else _run_codex_mcp_list()
+
+    if valid_utf8:
+        result = read()
+        assert (result if runner == "json" else result[0])["name"] == "中文�"
+    else:
+        with pytest.raises(SetupError, match="invalid JSON"):
+            read()
+
+
+def test_codex_runners_report_a_missing_executable(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+
+    with pytest.raises(SetupError, match="Codex CLI is not installed or is not on PATH"):
+        system_cli._run_codex_json("plugin", "list")
+    with pytest.raises(SetupError, match="Codex CLI is not installed or is not on PATH"):
+        _run_codex_mcp_list()
+
+
+@pytest.fixture
+def recording_codex_cmd(codex_cmd_shim: Path, monkeypatch) -> tuple[Path, Path]:
+    received = codex_cmd_shim.parent / "received.jsonl"
+    emitter = codex_cmd_shim.parent / "record.py"
+    emitter.write_text(
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        f"with Path({str(received)!r}).open('a', encoding='utf-8') as stream:\n"
+        "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "print(json.dumps({'marketplaceName': os.environ.get('CODEX_TEST_MARKETPLACE', 'powercontext'), "
+        "'installed': [], 'name': 'powercontext', 'version': '0.1.0'}))\n",
+        encoding="utf-8",
+    )
+    codex_cmd_shim.write_text('@echo off\n"%PC_TEST_PYTHON%" "%PC_TEST_BIN%\\record.py" %*\n', encoding="ascii")
+    monkeypatch.setenv("CODEX_TEST_VALUE", "expanded")
+    monkeypatch.delenv("CODEX_TEST_MARKETPLACE", raising=False)
+    return codex_cmd_shim, received
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows batch argument handling")
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source", "source^directory"),
+        ("source", "source&directory"),
+        ("source", "source %CODEX_TEST_VALUE% directory"),
+        *[
+            ("ref", value)
+            for value in (
+                "a&b",
+                "a^b",
+                "a%b",
+                "a!b",
+                "a|b",
+                "a<b",
+                "a>b",
+                "a(b)",
+                'a"b',
+                "a\nb",
+                "a\rb",
+                "a\tb",
+                "a\0b",
+                "a\x7fb",
+            )
+        ],
+    ],
+)
+def test_codex_batch_install_rejects_unsafe_input_before_launch(
+    recording_codex_cmd: tuple[Path, Path], tmp_path: Path, field: str, value: str
+) -> None:
+    _, received = recording_codex_cmd
+    source = "oceanbase/powercontext"
+    ref = "master"
+    if field == "source":
+        directory = tmp_path / value
+        directory.mkdir()
+        source = str(directory)
+    else:
+        ref = value
+
+    with pytest.raises(SetupError, match="Windows batch"):
+        system_cli.CodexInstaller().install(PluginSource(source, ref))
+
+    assert not received.exists(), "unsupported input must be rejected before marketplace registration"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PATHEXT batch aliases")
+@pytest.mark.parametrize("extension", [".CMD", ".BAT"])
+def test_codex_batch_alias_with_trailing_space_still_rejects_unsafe_arguments(
+    recording_codex_cmd: tuple[Path, Path], monkeypatch, extension: str
+) -> None:
+    shim, received = recording_codex_cmd
+    if extension == ".BAT":
+        shim.with_suffix(".bat").write_bytes(shim.read_bytes())
+    monkeypatch.setenv("PATHEXT", f".COM;.EXE;{extension} ")
+    resolved = system_cli.which("codex")
+    assert resolved is not None and resolved.endswith(" ")
+
+    with pytest.raises(SetupError, match="Windows batch"):
+        system_cli.CodexInstaller().install(PluginSource("oceanbase/powercontext", "x^y"))
+
+    assert not received.exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the implicit current-directory preference is Windows-specific")
+@pytest.mark.parametrize("runner", ["json", "mcp"])
+def test_codex_runners_prefer_path_over_the_current_directory(tmp_path: Path, monkeypatch, runner: str) -> None:
+    current = tmp_path / "cwd-shim"
+    current.mkdir()
+    payload = '{"marker": "CURRENT_DIRECTORY_SHIM"}'
+    path_payload = '{"marker": "PATH_EXECUTABLE_SHIM"}'
+    if runner == "mcp":
+        payload = "[" + payload + "]"
+        path_payload = "[" + path_payload + "]"
+    (current / "codex.cmd").write_text(f"@echo off\r\necho {payload}\r\nexit /b 0\r\n", encoding="ascii")
+    bin_dir = tmp_path / "path-bin"
+    bin_dir.mkdir()
+    (bin_dir / "codex.cmd").write_text(f"@echo off\r\necho {path_payload}\r\nexit /b 0\r\n", encoding="ascii")
+    monkeypatch.chdir(current)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+    result = system_cli._run_codex_json("plugin", "list") if runner == "json" else _run_codex_mcp_list()[0]
+
+    assert result["marker"] == "PATH_EXECUTABLE_SHIM"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="explicit PATH entries keep Windows-specific semantics")
+def test_codex_runners_honor_an_explicit_dot_path_entry(tmp_path: Path, monkeypatch) -> None:
+    current = tmp_path / "cwd-shim"
+    current.mkdir()
+    (current / "codex.cmd").write_text(
+        '@echo off\r\necho {"marker": "CURRENT_DIRECTORY_SHIM"}\r\nexit /b 0\r\n', encoding="ascii"
+    )
+    bin_dir = tmp_path / "path-bin"
+    bin_dir.mkdir()
+    (bin_dir / "codex.cmd").write_text(
+        '@echo off\r\necho {"marker": "PATH_EXECUTABLE_SHIM"}\r\nexit /b 0\r\n', encoding="ascii"
+    )
+    monkeypatch.chdir(current)
+    monkeypatch.setenv("PATH", f".;{bin_dir}")
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+    result = system_cli._run_codex_json("plugin", "list")
+
+    # An explicit "." entry is a user decision and keeps its position in PATH order;
+    # only the implicit current-directory preference is removed.
+    assert result["marker"] == "CURRENT_DIRECTORY_SHIM"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PATHEXT candidate order is Windows-specific")
+def test_codex_path_executable_prefers_earlier_pathext_entries(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "codex.bat").write_text("@echo off\r\nexit /b 0\r\n", encoding="ascii")
+    (tmp_path / "codex.cmd").write_text("@echo off\r\nexit /b 0\r\n", encoding="ascii")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+    resolved = system_cli._codex_path_executable()
+
+    assert resolved is not None and resolved.casefold().endswith("codex.bat")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX executable discovery has no PATHEXT")
+def test_codex_path_executable_finds_a_posix_executable(tmp_path: Path, monkeypatch) -> None:
+    # The autouse CODEX_HOME fixture reserves tmp_path/"codex" as a directory.
+    directory = tmp_path / "discovery"
+    directory.mkdir()
+    executable = directory / "codex"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(directory))
+
+    assert system_cli._codex_path_executable() == str(executable)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX discovery requires the executable bit")
+def test_codex_path_executable_skips_files_without_the_executable_bit(tmp_path: Path, monkeypatch) -> None:
+    directory = tmp_path / "discovery"
+    directory.mkdir()
+    plain = directory / "codex"
+    plain.write_text("not executable\n", encoding="ascii")
+    plain.chmod(0o644)
+    monkeypatch.setenv("PATH", str(directory))
+
+    assert system_cli._codex_path_executable() is None
+
+
+def _write_platform_codex_launcher(directory: Path) -> Path:
+    """Create the launcher name Codex discovery looks for on this platform."""
+    if sys.platform == "win32":
+        launcher = directory / "codex.CMD"
+        launcher.write_text("@echo off\r\nexit /b 0\r\n", encoding="ascii")
+        return launcher
+    launcher = directory / "codex"
+    launcher.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+    launcher.chmod(0o755)
+    return launcher
+
+
+def test_codex_path_executable_treats_an_empty_path_value_as_no_search(tmp_path: Path, monkeypatch) -> None:
+    # Parity with which() (bpo-35755): an empty PATH value must not fall back to the working directory.
+    # The autouse CODEX_HOME fixture reserves tmp_path/"codex" as a directory, so use a subdirectory.
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    _write_platform_codex_launcher(cwd)
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("PATH", "")
+
+    assert system_cli._codex_path_executable() is None
+
+
+def test_codex_path_executable_resolves_empty_path_entries_in_the_working_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Empty entries inside a non-empty PATH keep their usual cwd meaning, like which().
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    launcher = _write_platform_codex_launcher(cwd)
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(cwd / "absent-a"), "", str(cwd / "absent-b")]))
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+    resolved = system_cli._codex_path_executable()
+
+    assert resolved is not None and not Path(resolved).is_absolute()
+    assert cwd / Path(resolved).name == launcher
+
+
+def test_codex_path_executable_falls_back_to_confstr_when_path_is_unset(tmp_path: Path, monkeypatch) -> None:
+    directory = tmp_path / "discovery"
+    directory.mkdir()
+    launcher = _write_platform_codex_launcher(directory)
+    monkeypatch.delenv("PATH", raising=False)
+    monkeypatch.setattr(os, "confstr", lambda name: str(directory), raising=False)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+    assert system_cli._codex_path_executable() == str(launcher)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows batch argument handling")
+@pytest.mark.parametrize("local", [True, False])
+def test_codex_batch_install_preserves_supported_input(
+    recording_codex_cmd: tuple[Path, Path], tmp_path: Path, local: bool
+) -> None:
+    _, received = recording_codex_cmd
+    directory = tmp_path / "local marketplace 中文"
+    directory.mkdir()
+
+    source = (
+        PluginSource(str(directory), "ignored^local%ref")
+        if local
+        else PluginSource("oceanbase/powercontext", "feature/中文")
+    )
+    report = system_cli.CodexInstaller().install(source)
+    calls = [json.loads(line) for line in received.read_text(encoding="utf-8").splitlines()]
+
+    assert report["plugin"] == "powercontext"
+    expected = [str(directory.resolve())] if local else [source.location, "--ref", source.ref]
+    assert calls[0] == ["plugin", "marketplace", "add", *expected, "--json"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows batch argument handling")
+def test_codex_batch_install_rejects_unsafe_returned_marketplace(
+    recording_codex_cmd: tuple[Path, Path], monkeypatch
+) -> None:
+    _, received = recording_codex_cmd
+    monkeypatch.setenv("CODEX_TEST_MARKETPLACE", "marketplace^name")
+
+    with pytest.raises(SetupError, match="Windows batch"):
+        system_cli.CodexInstaller().install(PluginSource("oceanbase/powercontext"))
+
+    calls = [json.loads(line) for line in received.read_text(encoding="utf-8").splitlines()]
+    assert all(call[:2] != ["plugin", "add"] for call in calls)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows batch executable paths")
+@pytest.mark.parametrize("runner", ["json", "mcp", "app_server"])
+@pytest.mark.parametrize("suffix", [".cmd", ".bat"])
+def test_codex_batch_runners_reject_unsafe_executable_path(
+    tmp_path: Path, monkeypatch, runner: str, suffix: str
+) -> None:
+    directory = tmp_path / "bin&directory"
+    directory.mkdir()
+    marker = tmp_path / "launched.txt"
+    shim = directory / ("codex" + suffix)
+    shim.write_text(f'@echo off\necho launched>"{marker}"\n', encoding="utf-8")
+    monkeypatch.setenv("PATH", str(directory))
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+    with pytest.raises(SetupError, match="Windows batch"):
+        if runner == "json":
+            system_cli._run_codex_json("plugin", "list")
+        elif runner == "mcp":
+            _run_codex_mcp_list()
+        else:
+            _probe_codex_mcp_status()
+
+    assert not marker.exists()
+
+
+def test_codex_native_executable_preserves_arguments(monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: sys.executable)
+    value = 'source^&%!()<>|"\nvalue'
+
+    result = system_cli._run_codex_json("-c", "import json,sys; print(json.dumps({'received': sys.argv[1:]}))", value)
+
+    assert result["received"] == [value, "--json"]
+
+
 def test_setup_codex_uses_an_absolute_local_marketplace_without_a_ref(
     tmp_path: Path, monkeypatch, installed_agent_checks
 ) -> None:
@@ -869,6 +1314,7 @@ def test_setup_codex_uses_an_absolute_local_marketplace_without_a_ref(
     marketplace.mkdir()
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     run_codex = Mock(
         side_effect=lambda *args: (
             {"marketplaceName": "powercontext-local"}
@@ -1708,7 +2154,7 @@ def _mock_optional_personal_service(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_doctor_codex_reports_missing_cli_and_skipped_plugin(tmp_path, monkeypatch, server_checks) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    monkeypatch.setattr(system_cli, "which", lambda _name: None)
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: None)
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "codex", "--json"])
 
@@ -1719,7 +2165,7 @@ def test_doctor_codex_reports_missing_cli_and_skipped_plugin(tmp_path, monkeypat
 
 
 def test_doctor_codex_requires_an_enabled_powercontext_plugin(monkeypatch, server_checks) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(system_cli, "_run_codex_json", lambda *_args: {"installed": []})
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "codex"])
@@ -1849,6 +2295,7 @@ def test_doctor_dsh_requires_the_installed_plugin(monkeypatch, server_checks) ->
 
 def test_codex_configuration_and_doctor_follow_the_native_installation_not_old_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(system_cli, "_codex_path_executable", lambda: "/usr/bin/codex")
     monkeypatch.setattr(
         system_cli,
         "_run_codex_json",

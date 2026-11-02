@@ -21,7 +21,7 @@ Handoff 批准即发布新版本，后续显式 Continue 按既有 latest 规则
 
 停止全部写入前，先停止新增 Dream 请求，并由旧程序将 queued/running Dream Run 处理到终态。未完成任务会使迁移返回 `dream_tasks_require_drain`；迁移不改写冻结的提示词、模型配置、重试预算或截止时间。已完成 Run 和 pending Candidate 保留，升级后可继续读取与审核。Handoff/Prompt 的 Processing 绑定也由显式迁移更新，普通启动不修补 manifest；不支持的 manifest 返回 `unknown_processing_manifest` 并阻止迁移。
 
-Dream 提供的变更资源本身不启用生产升级。[PR #1772](https://github.com/oceanbase/powercontext/pull/1772) 还需完成完整 Server 基线、revision 链登记、历史任务检查与后端验收，其四表 SQLite 原型不代表 Server 就绪。在完整框架就绪检查接入前，本分支对旧 Dream 结构返回 `migration_required`，对已登记 revision 的数据库返回 `migration_framework_not_ready`；不能通过手工 stamp 或创建空替代表绕过。已登记旧表与恢复对象按统一框架的保留策略管理。
+[完整 Server 迁移 bundle](../operate/database-migrations.md) 为无向量、Code 关闭的配置登记了完整 1.3.0 基线、revision 链和历史任务检查。维护前须停止写入，并排空 queued 或 running 的旧 Dream 任务。启动时校验完整受管数据库，对未完成的 revision 返回 `migration_required`；手工 stamp 或创建空替代表不能建立就绪状态。局部 Artifact bundle 仍返回 `server_ready=false`。具体版本已验证的升级支持范围以安装指南为准。已登记旧表与恢复对象按统一框架的保留策略管理。
 
 ## Prompt 配置
 

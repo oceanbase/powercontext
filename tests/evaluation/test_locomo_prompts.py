@@ -17,6 +17,7 @@
 import pytest
 
 from evaluation.memory.locomo.prompts import (
+    ABSTENTION_JUDGE_INSTRUCTIONS_VERSION,
     ANSWER_SOURCE_INFERENCE_INSTRUCTIONS_VERSION,
     ANSWER_SOURCE_UNKNOWN_FALLBACK_INSTRUCTIONS_VERSION,
     JUDGE_INSTRUCTIONS_VERSION,
@@ -58,3 +59,14 @@ def test_judge_profiles_keep_strict_and_topical_contracts_distinct() -> None:
     assert "unsupported additions" in strict_prompt
     assert "touches on the same answer topic" in topical_prompt
     assert strict_prompt != topical_prompt
+
+
+def test_explicit_abstention_profile_keeps_legacy_grading_unchanged() -> None:
+    legacy, legacy_version = judge_instructions(JudgeProfile.STRICT)
+    prompt, version = judge_instructions(JudgeProfile.STRICT_ABSTENTION)
+
+    assert legacy_version == JUDGE_INSTRUCTIONS_VERSION
+    assert '"Unknown", or a missing answer' in legacy
+    assert version == ABSTENTION_JUDGE_INSTRUCTIONS_VERSION
+    assert 'When the gold answer is "Unknown", return CORRECT only for an explicit abstention' in prompt
+    assert 'When the gold answer supplies a fact, return WRONG for "Unknown"' in prompt

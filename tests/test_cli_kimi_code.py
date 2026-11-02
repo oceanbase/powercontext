@@ -113,6 +113,7 @@ def test_cli_installs_repeatably_and_preserves_configuration(kimi_home, installe
         "scope_id": "scope-中文",
         "capture_prompts": False,
         "use_token": False,
+        "profile": "minimal",
     }
     manifest = json.loads((installed / "kimi.plugin.json").read_text(encoding="utf-8"))
     assert manifest["mcpServers"]["powercontext"]["url"] == settings["server_url"] + "/mcp"
@@ -345,3 +346,124 @@ def test_workspace_mode_rejects_an_ambiguous_explicit_scope_before_writing(kimi_
     with pytest.raises(SetupError, match="mutually exclusive"):
         install_plugin("kimi-code", source=str(REPOSITORY), workspace_scope=True, scope_id="scope-conflict")
     assert not (kimi_home / "plugins/installed.json").exists()
+
+
+def test_profile_updates_preserve_settings_and_minimal_legacy_installations(
+    kimi_home, monkeypatch, installed_agent_checks
+):
+    monkeypatch.setenv("POWERCONTEXT_KIMI_TOKEN", "synthetic-only")
+    installed = Path(install(capture_prompts=False)["plugin_path"])
+    settings_path = installed / "powercontext.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    del settings["profile"]
+    settings_path.write_text(json.dumps(settings), encoding="utf-8")
+    install_plugin("kimi-code", source=str(REPOSITORY))
+    manifest_path = installed / "kimi.plugin.json"
+    minimal = json.loads(manifest_path.read_text(encoding="utf-8"))["mcpServers"]["powercontext"]["enabledTools"]
+    assert set(minimal) == {"search_memory", "remember_memory", "get_artifact_revision"}
+    registry_path = kimi_home / "plugins/installed.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    registry["plugins"][0].update(enabled=False, capabilities={"mcpServers": {"powercontext": {"enabled": False}}})
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+    for profile, required, absent in (
+        ("recommended", "handoff_current_work", "approve_candidate"),
+        ("full", "approve_candidate", "query_code"),
+        ("minimal", "search_memory", "handoff_current_work"),
+    ):
+        result = CliRunner().invoke(
+            create_cli([setup_app]),
+            ["setup", "kimi-code", "--source", str(REPOSITORY), "--profile", profile, "--json"],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["hosts"]["kimi-code"]["result"]["profile"] == profile
+        install_plugin("kimi-code", source=str(REPOSITORY))
+        current = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert current == {**settings, "profile": profile}
+        record = json.loads(registry_path.read_text(encoding="utf-8"))["plugins"][0]
+        assert record["enabled"] is False
+        assert record["capabilities"]["mcpServers"]["powercontext"]["enabled"] is False
+        tools = json.loads(manifest_path.read_text(encoding="utf-8"))["mcpServers"]["powercontext"]["enabledTools"]
+        assert required in tools and absent not in tools
+        skill = (installed / "skills/powercontext-project-context/SKILL.md").read_text(encoding="utf-8")
+        assert "__POWERCONTEXT_" not in skill
+        assert f'profile is "{profile}"' in skill
+
+
+def test_invalid_profile_does_not_replace_installation(kimi_home):
+    installed = Path(install()["plugin_path"])
+    before = (installed / "powercontext.json").read_bytes()
+    result = CliRunner().invoke(
+        create_cli([setup_app]), ["setup", "kimi-code", "--source", str(REPOSITORY), "--profile", "everything"]
+    )
+    assert result.exit_code == 2
+    assert (installed / "powercontext.json").read_bytes() == before
+
+
+def test_configure_switches_profiles_without_reinstalling_or_replacing_personal_guidance(kimi_home):
+    installed = Path(install()["plugin_path"])
+    hook = installed / "hooks/user_prompt_submit.mjs"
+    original_hook = hook.read_bytes()
+    skill = installed / "skills/powercontext-project-context/SKILL.md"
+    skill.write_text(skill.read_text(encoding="utf-8") + "\nPersonal project instruction.\n", encoding="utf-8")
+    for profile, tool, absent in (
+        ("recommended", "handoff_current_work", "approve_candidate"),
+        ("full", "approve_candidate", "query_code"),
+        ("minimal", "search_memory", "handoff_current_work"),
+    ):
+        result = CliRunner().invoke(create_cli(), ["config", "agent", "kimi-code", "--profile", profile, "--json"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["hosts"]["kimi-code"]["result"]["profile"] == profile
+        tools = json.loads((installed / "kimi.plugin.json").read_text())["mcpServers"]["powercontext"]["enabledTools"]
+        assert tool in tools and absent not in tools
+        content = skill.read_text(encoding="utf-8")
+        assert f'profile is "{profile}".' in content
+        assert content.endswith("Personal project instruction.\n")
+        assert ("[Work Handoff]" in content) is (profile != "minimal")
+        assert ("[Experience and Skill]" in content) is (profile == "full")
+        assert hook.read_bytes() == original_hook
+
+
+@pytest.mark.parametrize("command", [["setup"], ["config", "agent"]], ids=["setup", "configure"])
+def test_incompatible_batch_profile_is_rejected_before_any_agent_writes(kimi_home, command):
+    result = CliRunner().invoke(
+        create_cli(), [*command, "kimi-code", "dsh", "--scope-id", "scope-test", "--profile", "full"]
+    )
+    assert result.exit_code == 2, result.output
+    assert "dsh profile must be one of" in unstyle(result.output)
+    assert not (kimi_home / "plugins/installed.json").exists()
+
+
+@pytest.mark.parametrize("profile", ["web", "desktop"])
+def test_mixed_doctor_scopes_profile_to_dsh_and_preserves_saved_kimi_profile(
+    kimi_home, monkeypatch, server_checks, profile
+):
+    from subprocess import CompletedProcess
+
+    from powercontext.cli import dsh, dsh_runtime, native_transport
+    from powercontext.cli.system import Diagnostic, DiagnosticStatus
+
+    install(profile="full")
+    original = {path: path.read_bytes() for path in kimi_home.rglob("*") if path.is_file()}
+    monkeypatch.setattr(dsh_runtime, "resolve_dsh_target", lambda selected, command: dsh_runtime.DshTarget(selected))
+    monkeypatch.setattr(
+        dsh.DshInstaller,
+        "verify",
+        lambda self: {"profile": Diagnostic(DiagnosticStatus.OK, self.dsh_target.profile.value)},
+    )
+    monkeypatch.setattr(
+        native_transport, "resolve_host_transport", lambda host, **options: ("https://memory.example.test", False)
+    )
+    # Native probes are controlled; Kimi's installed declarations and saved profile are checked by the real adapter.
+    monkeypatch.setattr(
+        kimi_code.subprocess,
+        "run",
+        lambda *args, **kwargs: CompletedProcess(
+            args[0], 0, stdout=json.dumps({"schema": "powercontext.kimi-code.diagnostics.v2", "checks": {}})
+        ),
+    )
+    result = CliRunner().invoke(create_cli(), ["doctor", "dsh", "kimi-code", "--profile", profile, "--json"])
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)["hosts"]
+    assert rows["dsh"]["checks"]["profile"]["detail"] == profile
+    assert rows["kimi-code"]["checks"]["profile"]["detail"] == "full"
+    assert {path: path.read_bytes() for path in kimi_home.rglob("*") if path.is_file()} == original

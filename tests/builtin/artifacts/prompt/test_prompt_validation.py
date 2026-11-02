@@ -53,7 +53,12 @@ def _case(key: str) -> dict[str, Any]:  # noqa: C901 - one branch per prompt key
             "content": "Prefers Chinese.",
             "source_metadata": {},
         }
-        candidate = {"kind": "preference", "text": "Prefers Chinese.", "evidence_ids": [evidence["evidence_id"]]}
+        candidate = {
+            "kind": "preference",
+            "text": "Prefers Chinese.",
+            "description": "Chinese preference",
+            "evidence_ids": [evidence["evidence_id"]],
+        }
         if key == "atomic_memory.extract":
             return {"input": {"evidence": [evidence]}, "expected_output": {"candidates": [candidate]}}
         return {
@@ -65,7 +70,7 @@ def _case(key: str) -> dict[str, Any]:  # noqa: C901 - one branch per prompt key
             "expected_output": {
                 "action": "create",
                 "compared_ids": [],
-                "content": {"kind": "preference", "text": "Prefers Chinese."},
+                "content": {"kind": "preference", "text": "Prefers Chinese.", "description": "Chinese preference"},
                 "evidence_ids": [evidence["evidence_id"]],
                 "reason": "The supplied Source supports this independent preference.",
             },

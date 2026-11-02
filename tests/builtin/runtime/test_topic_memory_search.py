@@ -43,17 +43,15 @@ class Embedding:
         return EmbeddingResult(vectors=((1.0, 0.0),))
 
 
-def _service(*, embedding=None, capabilities=None, browse=None, calls=None, observer=None):
+def _service(*, embedding=None, capabilities=None, calls=None, observer=None):
     from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 
     async def search(scope_id, query, /, **kwargs):
         if calls is not None:
             calls.append(kwargs)
-        return TopicMemorySearchResult(mode=kwargs["mode"], artifacts=() if "artifact_request" in kwargs else None)
+        return TopicMemorySearchResult(mode=kwargs["mode"], artifacts=())
 
-    return TopicMemorySearcher(
-        search=search, get=None, browse=browse, embedding_model=embedding, capabilities=capabilities, observer=observer
-    )
+    return TopicMemorySearcher(search=search, embedding_model=embedding, capabilities=capabilities, observer=observer)
 
 
 @pytest.mark.parametrize("mode", ["text", "vector", "hybrid"])
@@ -81,10 +79,7 @@ def test_topic_service_dispatches_explicit_modes(mode):
 def test_topic_service_validates_vector_requirements_before_empty_scope(fields):
     calls = []
 
-    async def browse(scope_id, *, limit, after):
-        raise AssertionError("invalid request must fail before browsing")  # noqa: TRY003
-
-    service = _service(capabilities=TopicMemoryCapabilities(fts=True), browse=browse, calls=calls)
+    service = _service(capabilities=TopicMemoryCapabilities(fts=True), calls=calls)
     with pytest.raises(ValidationError):
         asyncio.run(service.search("scope", TopicArtifactSearchRequest.model_validate({"query": "needle", **fields})))
     assert calls == []
@@ -136,7 +131,7 @@ def test_topic_service_legacy_profile_reuse_has_no_new_callback_keywords():
 
     from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 
-    service = TopicMemorySearcher(search=legacy, get=None, embedding_model=embedding)
+    service = TopicMemorySearcher(search=legacy, embedding_model=embedding)
     result = asyncio.run(
         service.search_legacy(
             "scope",
@@ -146,7 +141,6 @@ def test_topic_service_legacy_profile_reuse_has_no_new_callback_keywords():
         )
     )
     assert result.embedding_calls == 0
-    assert result.artifacts is None
     assert embedding.calls == 0
     assert calls[0][2] == (1.0, 0.0)
 
@@ -179,7 +173,6 @@ def test_topic_empty_scope_rejects_a_supplied_context_without_authority(mode):
         async with open_builtin_contexts(BuiltinConfig(), embedding_model=embedding) as contexts:
             service = TopicMemorySearcher(
                 search=contexts.search_topic_memories,
-                browse=contexts.browse_topic_memories,
                 embedding_model=embedding,
                 capabilities=contexts.topic_memory_index.capabilities,
             )
@@ -208,13 +201,9 @@ def test_topic_service_rejects_mismatched_embedding_profile_before_empty_scope()
     embedding = Embedding()
     profile = EmbeddingProfile(profile_id="other", model="other", dimension=2)
 
-    async def browse(scope, *, limit, after):
-        return ()
-
     service = _service(
         embedding=embedding,
         capabilities=TopicMemoryCapabilities(fts=True, vector=True, hybrid=True, embedding_profile=profile),
-        browse=browse,
     )
     with pytest.raises(ValidationError):
         asyncio.run(service.search("scope", TopicArtifactSearchRequest(query="needle")))
@@ -233,7 +222,7 @@ def test_topic_service_rejects_mismatched_embedding_profile_before_empty_scope()
         ({"fusion": {"method": "unknown"}}, ("fusion", "method")),
     ],
 )
-def test_topic_service_reports_mode_parameter_conflicts_before_browsing(fields, path):
+def test_topic_service_reports_mode_parameter_conflicts_before_inference(fields, path):
     embedding = Embedding()
     capabilities = TopicMemoryCapabilities(fts=True, vector=True, hybrid=True, embedding_profile=embedding.profile)
     service = _service(embedding=embedding, capabilities=capabilities)
@@ -242,18 +231,14 @@ def test_topic_service_reports_mode_parameter_conflicts_before_browsing(fields, 
     assert error.value.errors()[0]["loc"] == path
 
 
-def test_topic_service_default_empty_scope_skips_embedding_but_validates_explicit_parameters():
+def test_topic_service_empty_results_use_the_requested_mode_and_validate_parameters():
     embedding = Embedding()
     calls = []
 
-    async def browse(scope, *, limit, after):
-        return ()
-
     capabilities = TopicMemoryCapabilities(fts=True, vector=True, hybrid=True, embedding_profile=embedding.profile)
-    service = _service(embedding=embedding, capabilities=capabilities, browse=browse, calls=calls)
+    service = _service(embedding=embedding, capabilities=capabilities, calls=calls)
     result = asyncio.run(service.search("scope", TopicArtifactSearchRequest(query="needle")))
-    assert result.mode == "fts"
-    assert embedding.calls == 0
+    assert result.mode == "hybrid"
     with pytest.raises(ValidationError):
         asyncio.run(
             service.search(
@@ -305,7 +290,6 @@ def test_topic_service_missing_selected_exact_revision_is_a_contract_failure():
     from powercontext.artifacts import ArtifactRef
     from powercontext.artifacts.search import ArtifactSearchContractError, ArtifactSearchMatch
     from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
-    from powercontext.builtin.persistence.errors import RepositoryNotFoundError
     from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
 
     ref = ArtifactRef(family="topic-memory", artifact_id="selected", revision=1)
@@ -321,9 +305,6 @@ def test_topic_service_missing_selected_exact_revision_is_a_contract_failure():
             matches=(ArtifactSearchMatch(ref, 0.5),),
         )
 
-    async def get(scope, artifact_ref):
-        raise RepositoryNotFoundError("artifact", artifact_ref)
-
-    service = TopicMemorySearcher(search=search, get=get, capabilities=TopicMemoryCapabilities(fts=True))
+    service = TopicMemorySearcher(search=search, capabilities=TopicMemoryCapabilities(fts=True))
     with pytest.raises(ArtifactSearchContractError):
         asyncio.run(service.search("scope", TopicArtifactSearchRequest(query="needle", mode="text")))

@@ -29,6 +29,7 @@ from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 
 def test_capacity_and_refusal_through_server_and_client(tmp_path):
@@ -95,13 +96,15 @@ def test_legacy_capacity_authentication_and_explicit_refusal(tmp_path):
 
     async def scenario():
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'access.db'}")
+        settings = ServerSettings(
+            database=database,
+            access=AccessControlConfig(mode="enforced"),
+            mcp=McpConfig(enabled=False),
+        )
+        await asyncio.to_thread(prepare_server_database, settings)
         async with open_builtin_access_control(database) as access:
             app = create_server_app(
-                settings=ServerSettings(
-                    database=database,
-                    access=AccessControlConfig(mode="enforced"),
-                    mcp=McpConfig(enabled=False),
-                ),
+                settings=settings,
                 access_control=access,
                 authentication_provider=StaticBearerAuthenticationProvider(
                     "test-token", PrincipalRef(type="user", id="outsider")

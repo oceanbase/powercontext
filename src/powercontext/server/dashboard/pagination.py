@@ -46,8 +46,10 @@ def list_links(ctx: dict[str, Any], family: str, window: dict[str, Any]) -> dict
     params: dict[str, Any] = {}
     if family == "notes":
         params.update(artifact=None, revision=None, notes_cursor=None, notes_history=None)
-    if family == "skill":
-        params["kind"] = "skill"
+    if family in {"skill", "experience"}:
+        params["kind"] = family
+    if family == "experience":
+        params.update(experience_cursor=None, experience_history=None)
     return {
         "page": window["page"],
         **{

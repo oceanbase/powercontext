@@ -17,19 +17,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from collections.abc import Sequence
 from contextlib import asynccontextmanager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from time import perf_counter
 from typing import cast
 from uuid import uuid4
 
-from sqlalchemy import Text, and_, func, or_, select
+import rfc8785
+from sqlalchemy import LargeBinary, Text, and_, func, literal, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
-from powercontext.artifacts import ArtifactRef, ArtifactSearchContractError, ArtifactSearchMatch
+from powercontext._logging import log_safely
+from powercontext.artifacts import ArtifactLineage, ArtifactRef, ArtifactSearchContractError, ArtifactSearchMatch
 from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.atomic_memory.errors import (
     AtomicMemoryConflictError,
@@ -42,6 +46,8 @@ from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryRead,
     AtomicMemoryRecord,
     AtomicMemoryStateValue,
+    RecallManifestEntry,
+    RecallManifestPage,
 )
 from powercontext.builtin.artifacts.atomic_memory.restoration import AtomicMemoryPreviewSigner
 from powercontext.builtin.artifacts.atomic_memory.search import AtomicArtifactSearchRequest, plan_atomic_search
@@ -81,18 +87,57 @@ from powercontext.builtin.persistence.atomic_memory_index import (
 )
 from powercontext.builtin.persistence.atomic_memory_index_schema import ATOMIC_MEMORY_PROJECTION_FORMAT
 from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
-from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE, AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE, MYSQL_IDENTITY_COLLATION
 from powercontext.builtin.persistence.tags import tag_predicate
 from powercontext.builtin.records import BaseOperationNotSupportedError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess, merge_artifact_tags
+from powercontext.builtin.runtime.receipt_capture import current_receipt_evidence
 from powercontext.builtin.tags import TagFilter
+
+logger = logging.getLogger(__name__)
+
+
+def _fallback_reason(error: Exception) -> str:
+    """Why an abandoned query embedding gave way to lexical retrieval.
+
+    This is RFC 1435's ``fallback_reason`` vocabulary and the ``memory.search.embedding_fallback``
+    ``error_code`` at once: one classification, one spelling, so the event and the response cannot
+    describe the same lost channel differently.
+    """
+
+    return "inference_timeout" if isinstance(error, (InferenceTimeoutError, TimeoutError)) else "inference_unavailable"
+
+
+def _log_embedding_fallback(error: Exception) -> None:
+    """Record that a bounded query embedding gave way to lexical retrieval; the query itself is never logged."""
+
+    log_safely(
+        logger,
+        logging.WARNING,
+        "Memory search fell back to lexical retrieval",
+        extra={
+            "event": "memory.search.embedding_fallback",
+            "outcome": "fallback",
+            "mode": "text",
+            "error_code": _fallback_reason(error),
+            "unit": "memory",
+        },
+    )
 
 
 class AtomicMemoryAccess(ArtifactMergeAccess):
     def __init__(self) -> None:
         super().__init__("atomic-memory")
+
+    @override
+    async def authorize_creates(self, connection, scope_id, context, refs) -> None:
+        if type(self) is AtomicMemoryAccess:
+            if refs:
+                await super().authorize(connection, scope_id, context, "create")
+            return
+        await super().authorize_creates(connection, scope_id, context, refs)
 
     @override
     async def authorize(
@@ -153,6 +198,7 @@ class AtomicMemorySearchHit:
     hit: AtomicMemoryIndexHit
     matched_by: tuple[str, ...]
     score_upper_bound: float | None = None
+    lineage: ArtifactLineage | None = None
 
     @property
     def text(self) -> str:
@@ -191,7 +237,12 @@ class AtomicMemorySearchPage:
     rerank: AtomicMemoryRerankTrace | None = None
     recoverable: bool = False
     matches: tuple[ArtifactSearchMatch, ...] = ()
-    artifacts: tuple[AtomicMemory, ...] | None = None
+    artifacts: tuple[AtomicMemory, ...] = ()
+    #: Set only when the query embedding was abandoned for lexical retrieval, so a
+    #: caller can tell "no vector channel was ever wanted" apart from "it was lost".
+    embedding_fallback: str | None = None
+    #: Seconds spent waiting for the query embedding, so a context preparation can share one budget across searches.
+    embedding_wait_seconds: float = field(default=0.0, compare=False)
 
 
 class AtomicMemoryApplication:
@@ -278,6 +329,153 @@ class ScopedAtomicMemory:
                 connection, self.scope_id, artifact_id, context, revision=revision
             )
 
+    async def get_many(self, artifact_ids: Sequence[str], *, context=None) -> tuple[AtomicMemoryRecord, ...]:
+        """Read a caller's exact results in one snapshot after checking each resource."""
+
+        if not artifact_ids:
+            return ()
+        async with self._read(context) as connection:
+            identities = tuple(dict.fromkeys(artifact_ids))
+            if context is not None and context.access is not None:
+                from powercontext.server.authz import ResourceRef
+
+                access = context.access.for_read(connection)
+                policy = access.prefetch_point_decisions(
+                    connection,
+                    context.principal,
+                    tuple(
+                        ResourceRef.artifact(self.scope_id, family="atomic-memory", artifact_id=artifact_id)
+                        for artifact_id in identities
+                    ),
+                    context=context.audit,
+                )
+            else:
+                policy = nullcontext()
+            async with policy:
+                for artifact_id in identities:
+                    await self.application.security.authorize(
+                        connection,
+                        self.scope_id,
+                        context,
+                        "read",
+                        ArtifactRef(family="atomic-memory", artifact_id=artifact_id, revision=1),
+                    )
+            rows = []
+            for offset in range(0, len(artifact_ids), SELECTION_BATCH_SIZE):
+                statement = with_artifact_content(
+                    select(ARTIFACT_HEADS_TABLE).where(
+                        ARTIFACT_HEADS_TABLE.c.scope_id == self.scope_id,
+                        ARTIFACT_HEADS_TABLE.c.family == "atomic-memory",
+                        ARTIFACT_HEADS_TABLE.c.artifact_id.in_(artifact_ids[offset : offset + SELECTION_BATCH_SIZE]),
+                    )
+                )
+                rows.extend((await connection.execute(statement)).mappings().all())
+            records = await self.application.service.read_many(connection, self.scope_id, rows)
+        by_id = {record.artifact.artifact_id: record for record in records}
+        if (
+            missing := next((artifact_id for artifact_id in artifact_ids if artifact_id not in by_id), None)
+        ) is not None:
+            raise RepositoryNotFoundError("artifact", (self.scope_id, "atomic-memory", missing))
+        return tuple(by_id[artifact_id] for artifact_id in artifact_ids)
+
+    async def manifest(
+        self,
+        *,
+        kind: str | None = None,
+        tag_filter: TagFilter | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        context=None,
+    ) -> RecallManifestPage:
+        """Read only current metadata; never assemble content or infer summaries."""
+        _validate_limit(limit)
+        if kind is not None:
+            AtomicMemoryContent(kind=kind, text="validation", description="validation")
+        # Hash the complete binding so accepted Unicode filters cannot inflate the
+        # signed cursor beyond the transport's 4096-character request limit.
+        # Preserve exact strings: the query does not apply Unicode normalization.
+        bound = {
+            "endpoint": "recall_manifest",
+            "version": 3,
+            "binding_hash": sha256(
+                rfc8785.dumps({
+                    "scope_id": self.scope_id,
+                    "subject": self.application.security.subject(context),
+                    "kind": kind,
+                    "tags": None if tag_filter is None else list(tag_filter.keys),
+                    "tag_match": None if tag_filter is None else tag_filter.match,
+                })
+            ).hexdigest(),
+        }
+        after = self.application.cursor.after_text(cursor, bound)
+        async with self._read(context) as connection:
+            await self.application.security.filters(connection, self.scope_id, context, tags=tag_filter)
+            current = self.application.index.table
+            heads = ARTIFACT_HEADS_TABLE
+            statement = (
+                select(
+                    current.c.artifact_id,
+                    current.c.revision,
+                    current.c.state_version,
+                    current.c.kind,
+                    current.c.description,
+                )
+                .select_from(
+                    current.join(
+                        heads,
+                        and_(
+                            current.c.scope_id == heads.c.scope_id,
+                            current.c.artifact_id == heads.c.artifact_id,
+                            current.c.revision == heads.c.revision,
+                            current.c.state_version == heads.c.governance_generation,
+                            heads.c.family == "atomic-memory",
+                        ),
+                    )
+                )
+                .where(
+                    current.c.scope_id == self.scope_id,
+                    current.c.artifact_id > after,
+                    heads.c.lifecycle_state == "active",
+                    heads.c.merged_into_id.is_(None),
+                    current.c.projection_format == ATOMIC_MEMORY_PROJECTION_FORMAT,
+                )
+                .order_by(current.c.artifact_id)
+                .limit(limit + 1)
+            )
+            if kind is not None:
+                if connection.dialect.name == "mysql":
+                    # Binary strings preserve trailing spaces as well as case.
+                    predicate = sql_cast(current.c.kind, LargeBinary) == sql_cast(literal(kind), LargeBinary)
+                else:
+                    predicate = current.c.kind.collate("BINARY") == kind
+                statement = statement.where(predicate)
+            if tag_filter is not None:
+                statement = statement.where(
+                    tag_predicate(
+                        self.scope_id,
+                        "atomic-memory",
+                        current.c.artifact_id,
+                        "artifact",
+                        current.c.artifact_id,
+                        tag_filter,
+                    )
+                )
+            rows = (await connection.execute(statement)).mappings().all()
+        items = tuple(
+            RecallManifestEntry(
+                ref=ArtifactRef(family="atomic-memory", artifact_id=row["artifact_id"], revision=row["revision"]),
+                kind=row["kind"],
+                description=row["description"],
+                state_version=row["state_version"],
+            )
+            for row in rows[:limit]
+        )
+        return RecallManifestPage(
+            items=items,
+            code="page" if items else "empty_inventory",
+            next_cursor=self.application.cursor.encode(bound, items[-1].ref.artifact_id) if len(rows) > limit else None,
+        )
+
     def list_query(
         self,
         connection: AsyncConnection,
@@ -295,7 +493,11 @@ class ScopedAtomicMemory:
             raise InvalidBaseAccessRequestError("states", "must contain distinct lifecycle values")
         states = tuple(AtomicMemoryStateValue(state).value for state in states)
         if kind is not None:
-            AtomicMemoryContent(kind=kind, text="validation")
+            AtomicMemoryContent(
+                kind=kind,
+                text="validation",
+                description="validation",
+            )
         bound = {
             "endpoint": "atomic_memory_list",
             "version": 1,
@@ -446,8 +648,13 @@ class ScopedAtomicMemory:
         if mode not in {"auto", "text", "vector", "hybrid"}:
             raise InvalidBaseAccessRequestError("mode", "must be auto, text, vector, or hybrid")
         if kind is not None:
-            AtomicMemoryContent(kind=kind, text="validation")
-        mode, vector, query_embedding, embedding_calls = await self._resolve_query_embedding(
+            AtomicMemoryContent(
+                kind=kind,
+                text="validation",
+                description="validation",
+            )
+        started = asyncio.get_running_loop().time()
+        mode, vector, query_embedding, embedding_calls, embedding_fallback = await self._resolve_query_embedding(
             query,
             mode,
             query_embedding,
@@ -455,6 +662,7 @@ class ScopedAtomicMemory:
             allow_embedding,
             public_search=artifact_request is not None,
         )
+        embedding_wait_seconds = asyncio.get_running_loop().time() - started
         channel_weights = application.recall_channel_weights if mode == "hybrid" else None
         profile = application.index.capabilities.embedding_profile if vector is not None else None
         # Inference finishes before the business snapshot opens. Builtin policy
@@ -491,7 +699,7 @@ class ScopedAtomicMemory:
                 if artifact_request is None:
                     raise
                 raise ArtifactSearchContractError("atomic-memory", "Selected exact revision is unavailable") from exc
-            artifacts = validated if artifact_request is not None else None
+            artifacts = validated if artifact_request is not None else ()
             recoverable = recovery_admission is not None and await application.index.probe_recoverable(
                 connection, self.scope_id, request, recovery_admission
             )
@@ -504,7 +712,7 @@ class ScopedAtomicMemory:
         if plan is not None:
             weights = {name: plan.fusion.weights.get(name, 1.0) for name in weights}
         candidates: list[AtomicMemorySearchHit] = []
-        for hit in hits:
+        for hit, artifact in zip(hits, validated, strict=True):
             matched_by = tuple(
                 channel
                 for channel, refs in (("text", fts), ("vector", vectors))
@@ -514,6 +722,7 @@ class ScopedAtomicMemory:
                 AtomicMemorySearchHit(
                     hit,
                     matched_by,
+                    lineage=artifact.lineage,
                     score_upper_bound=(
                         sum(weights[channel] for channel in matched_by) / (ATOMIC_MEMORY_RRF_CONSTANT + 1)
                         if plan is None
@@ -531,6 +740,7 @@ class ScopedAtomicMemory:
             context,
             artifact_request=artifact_request,
             artifacts=artifacts,
+            embedding_fallback=embedding_fallback,
         )
         if artifact_request is not None:
             matches = []
@@ -545,7 +755,7 @@ class ScopedAtomicMemory:
                     )
                 )
             page = replace(page, matches=tuple(matches))
-        return replace(page, recoverable=recoverable)
+        return replace(page, recoverable=recoverable, embedding_wait_seconds=embedding_wait_seconds)
 
     async def _validate_search_hits(self, connection, hits, *, verify_vectors) -> tuple[AtomicMemory, ...]:
         """Verify only returned candidates against one bounded authority snapshot.
@@ -571,34 +781,34 @@ class ScopedAtomicMemory:
             "profile_fingerprint",
             "projection_format",
         )
-        projected = {
-            row["artifact_id"]: row
+        heads = ARTIFACT_HEADS_TABLE
+        rows = {
+            row["projection_artifact_id"]: row
             for row in (
                 await connection.execute(
-                    select(*(table.c[name] for name in columns)).where(
-                        table.c.scope_id == self.scope_id, table.c.artifact_id.in_(ids)
-                    )
+                    with_artifact_content(
+                        select(heads, *(table.c[name].label(f"projection_{name}") for name in columns)).select_from(
+                            table.outerjoin(
+                                heads,
+                                and_(
+                                    heads.c.scope_id == table.c.scope_id,
+                                    heads.c.family == "atomic-memory",
+                                    heads.c.artifact_id == table.c.artifact_id,
+                                ),
+                            )
+                        )
+                    ).where(table.c.scope_id == self.scope_id, table.c.artifact_id.in_(ids))
                 )
             ).mappings()
         }
-        heads = {
-            row["artifact_id"]: row
-            for row in (
-                await connection.execute(
-                    select(ARTIFACT_HEADS_TABLE).where(
-                        ARTIFACT_HEADS_TABLE.c.scope_id == self.scope_id,
-                        ARTIFACT_HEADS_TABLE.c.family == "atomic-memory",
-                        ARTIFACT_HEADS_TABLE.c.artifact_id.in_(ids),
-                    )
-                )
-            ).mappings()
-        }
+        projected = {identity: {name: row[f"projection_{name}"] for name in columns} for identity, row in rows.items()}
         for hit in hits:
             identity = hit.artifact_ref.artifact_id
-            projection, head = projected.get(identity), heads.get(identity)
+            projection, head = projected.get(identity), rows.get(identity)
             if (
                 projection is None
                 or head is None
+                or head["artifact_id"] is None
                 or hit.artifact_ref.family != "atomic-memory"
                 or head["revision"] != hit.artifact_ref.revision
                 or projection["revision"] != hit.artifact_ref.revision
@@ -609,8 +819,8 @@ class ScopedAtomicMemory:
                 or head["governance_generation"] != hit.state_version
             ):
                 raise AtomicMemoryIndexError("stale-projection", "Atomic Memory projection identity is inconsistent")
-        artifacts = await application.artifacts.get_many(
-            connection, self.scope_id, tuple(hit.artifact_ref for hit in hits)
+        artifacts = await application.artifacts.decode_many(
+            connection, self.scope_id, tuple(rows[hit.artifact_ref.artifact_id] for hit in hits)
         )
         for hit, artifact in zip(hits, artifacts, strict=True):
             if not isinstance(artifact, AtomicMemory):
@@ -646,17 +856,19 @@ class ScopedAtomicMemory:
         capabilities = application.index.capabilities
         profile = capabilities.embedding_profile
         requested_mode = mode
+        reusable = reuse is not None and reuse.embedding_profile == profile
         if mode == "auto":
             mode = "hybrid" if profile is not None else "text"
-            if not allow_embedding and capabilities.fts:
-                return "text", None, None, 0
+            # Disallowing embedding stops new provider requests; a matching cached vector needs none.
+            if not allow_embedding and capabilities.fts and not reusable:
+                return "text", None, None, 0, None
         if mode not in {"vector", "hybrid"}:
-            return mode, None, None, 0
+            return mode, None, None, 0, None
         model = application.embedding_model
         if profile is None or model is None or model.profile != profile:
             raise AtomicMemoryIndexError("embedding-profile", "Requested vector retrieval is unavailable")
-        if reuse is not None and reuse.embedding_profile == profile:
-            return mode, reuse.query_vector, reuse, 0
+        if reuse is not None and reusable:
+            return mode, reuse.query_vector, reuse, 0, None
         try:
             async with asyncio.timeout(embedding_timeout_seconds):
                 result = await embed_query(model, (query,))
@@ -665,13 +877,14 @@ class ScopedAtomicMemory:
                 raise InferenceUnavailableError("embedding", "Atomic query embedding timed out") from exc
             if requested_mode != "auto" or not capabilities.fts:
                 raise
-            return "text", None, None, 1
+            _log_embedding_fallback(exc)
+            return "text", None, None, 1, _fallback_reason(exc)
         if len(result.vectors) != 1:
             raise AtomicMemoryIndexError("embedding-result", "Expected one query vector")
         vector = canonical_embedding(
             result.vectors[0], dimension=profile.dimension, normalization=profile.normalization
         )
-        return mode, vector, MemoryQueryEmbedding(vector, profile), 1
+        return mode, vector, MemoryQueryEmbedding(vector, profile), 1, None
 
     async def _filter_current_candidates(
         self,
@@ -725,7 +938,8 @@ class ScopedAtomicMemory:
         context,
         *,
         artifact_request=None,
-        artifacts=None,
+        artifacts=(),
+        embedding_fallback: str | None = None,
     ):
         application = self.application
         reranker = application.reranker
@@ -735,7 +949,8 @@ class ScopedAtomicMemory:
                 candidates[:limit],
                 query_embedding,
                 embedding_calls,
-                artifacts=(() if artifacts is None else artifacts) if artifact_request is not None else None,
+                artifacts=artifacts,
+                embedding_fallback=embedding_fallback,
             )
         # Reauthorize the exact candidate bodies immediately before an external rank model.
         try:
@@ -750,12 +965,10 @@ class ScopedAtomicMemory:
                 (),
                 query_embedding,
                 embedding_calls,
-                artifacts=() if artifact_request is not None else None,
+                embedding_fallback=embedding_fallback,
             )
         complete_artifacts = []
         if artifact_request is not None:
-            if artifacts is None:
-                raise ArtifactSearchContractError("atomic-memory", "Selected exact Artifacts are unavailable")
             artifacts_by_ref = {_artifact_key(artifact.as_ref()): artifact for artifact in artifacts}
             complete_artifacts = [
                 artifacts_by_ref[_artifact_key(candidate.hit.artifact_ref)] for candidate in candidates
@@ -765,15 +978,24 @@ class ScopedAtomicMemory:
         )
         binding = nullcontext() if prompt is None else prompt.service.bind(self.scope_id, "memory.rerank")
         started = perf_counter()
-        async with binding:
-            decision = await reranker.rerank(query, candidates, min(limit, len(candidates)))
-        ranks = decision.selected_ranks
-        if (
-            len(ranks) > limit
-            or len(set(ranks)) != len(ranks)
-            or any(rank < 1 or rank > len(candidates) for rank in ranks)
-        ):
-            raise InvalidInferenceOutputError("atomic-memory-rerank", "Reranker returned invalid candidate ranks")
+        evidence = current_receipt_evidence()
+        async with binding as selected_prompt:
+            try:
+                decision = await reranker.rerank(query, candidates, min(limit, len(candidates)))
+                ranks = decision.selected_ranks
+                _validate_rerank_ranks(ranks, limit, len(candidates))
+            except Exception as error:
+                if evidence is not None:
+                    evidence.rerank(
+                        configuration=_rerank_receipt_configuration(reranker, evidence),
+                        prompt=selected_prompt,
+                        outcome="failed",
+                        fallback=_rerank_receipt_failure(error),
+                    )
+                raise
+            else:
+                if evidence is not None:
+                    _record_rerank_decision(evidence, reranker, selected_prompt, decision, len(candidates))
         trace = AtomicMemoryRerankTrace(
             reranker.policy_id,
             candidates,
@@ -790,7 +1012,8 @@ class ScopedAtomicMemory:
             embedding_calls,
             1,
             rerank=trace,
-            artifacts=tuple(complete_artifacts[rank - 1] for rank in ranks) if artifact_request is not None else None,
+            artifacts=tuple(complete_artifacts[rank - 1] for rank in ranks) if artifact_request is not None else (),
+            embedding_fallback=embedding_fallback,
         )
 
     async def merge(
@@ -867,6 +1090,43 @@ class ScopedAtomicMemory:
                 if attempt == application.restore_retry_budget:
                     raise
         raise AssertionError("restoration retry loop ended without a result")  # noqa: TRY003
+
+
+def _validate_rerank_ranks(ranks, limit: int, candidate_count: int) -> None:
+    if len(ranks) > limit or len(set(ranks)) != len(ranks) or any(rank < 1 or rank > candidate_count for rank in ranks):
+        raise InvalidInferenceOutputError("atomic-memory-rerank", "Reranker returned invalid candidate ranks")
+
+
+def _rerank_receipt_configuration(reranker, evidence):
+    reader = getattr(reranker, "receipt_configuration", None)
+    if not callable(reader):
+        return None
+    try:
+        return reader()
+    except Exception as error:
+        evidence.incomplete = type(error).__name__
+        return None
+
+
+def _record_rerank_decision(evidence, reranker, prompt, decision, candidate_count: int) -> None:
+    if decision.used_fallback and decision.fallback_reason is None:
+        evidence.incomplete = "rerank-fallback-reason-missing"
+        return
+    evidence.rerank(
+        configuration=_rerank_receipt_configuration(reranker, evidence),
+        prompt=prompt,
+        outcome="fallback" if decision.used_fallback else "selected",
+        fallback=(decision.fallback_reason or "none") if decision.used_fallback else "none",
+        omitted_count=candidate_count - len(decision.selected_ranks),
+    )
+
+
+def _rerank_receipt_failure(error: Exception) -> str:
+    if isinstance(error, InferenceTimeoutError):
+        return "inference_timeout"
+    if isinstance(error, InferenceUnavailableError):
+        return "inference_unavailable"
+    return "invalid_output"
 
 
 def _validate_limit(limit: int) -> None:

@@ -26,6 +26,7 @@ from typing import TextIO
 from urllib.parse import urlsplit
 
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
+from powercontext.server.settings import ServerLoggingConfig
 from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
 from powercontext.service.model import EnvironmentFileIdentity, ProbeState
 from powercontext.service.probe import probe_server
@@ -89,6 +90,7 @@ def main(arguments: list[str] | None = None) -> int:
                 # Help and preflight exits do not need the Server runtime dependencies.
                 from powercontext.server import cli as server_cli
 
+                settings.logging = _service_logging(settings.logging, redirected=options.stdout is not None)
                 server_cli._run_configured_server(settings)
                 return 0
     except (ProtectedEnvironmentFileError, ServerConfigurationError) as error:
@@ -102,6 +104,14 @@ def main(arguments: list[str] | None = None) -> int:
     except Exception:
         logger.exception("PowerContext personal service failed")
         return 1
+
+
+def _service_logging(config: ServerLoggingConfig, *, redirected: bool) -> ServerLoggingConfig:
+    """Give file-backed native services bounded logs without duplicating stdout."""
+
+    if not redirected and sys.platform != "darwin":
+        return config
+    return config if "file" in config.model_fields_set else config.model_copy(update={"file": True})
 
 
 def _environment_identity(options: argparse.Namespace) -> EnvironmentFileIdentity:

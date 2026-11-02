@@ -520,6 +520,12 @@ The attempted request generation is remembered even when the check fails, so ord
 the interval, while a newer explicit request can still recheck promptly. A probe's own timeout, distinct from shared
 allowance expiry, remains a genuine probe error.
 
+A binding may also register a metadata-only `work_failure` callback. After a failed Worker is stopped, the current
+fenced Supervisor calls it with the Scope, binding and error category, so a domain can retain crash/timeout diagnostics
+without changing allowance. The callback has a bounded I/O timeout; recording failure is warned about without losing
+the original failure or stopping other keys. Topic processing retains an indexed attempt/block record and exposes
+Scope-authorized inspection and explicit retry through its domain APIs; the Supervisor does not reset budgets.
+
 Memory owns a persisted per-Scope window reduction for generation timeouts. A failed extraction can
 halve the next window without advancing its Source cursor or acknowledging the invocation; the
 reduction survives Worker replacement and is cleared when the observed backlog is consumed.

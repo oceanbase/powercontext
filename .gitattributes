@@ -1,4 +1,8 @@
 evaluation/memory/locomo/dataset/locomo10.json text eol=lf
+evaluation/memory/atomic_extraction/cases/*.json text eol=lf
+evaluation/memory/source_poisoning/cases.json text eol=lf
+evaluation/memory/source_poisoning/collection_cases.json text eol=lf
+evaluation/memory/source_poisoning/collect.py text eol=lf
 e2e/bub/harbor-tasks/** text eol=lf
 e2e/bub/tasks/*.yaml text eol=lf
 integrations/dsh/plugins/powercontext/src/operations.generated.ts text eol=lf
@@ -6,3 +10,8 @@ integrations/dsh/plugins/powercontext/lib/*.js text eol=lf
 integrations/dsh/plugins/powercontext/lib/*.d.ts text eol=lf
 # Generated guidance compares canonical bytes; keep user notes outside its markers untouched.
 integrations/**/skills/powercontext-project-context/** text eol=lf
+# Migration evidence hashes exact resource bytes on every platform.
+src/powercontext/builtin/persistence/migrations/resources/** text eol=lf
+src/powercontext/builtin/persistence/migrations/mysql_resources/** text eol=lf
+src/powercontext/builtin/persistence/migrations/server_resources/** text eol=lf
+src/powercontext/builtin/persistence/migration_resources/** text eol=lf

@@ -17,10 +17,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from importlib.metadata import entry_points, version
+from importlib.metadata import PackageNotFoundError, entry_points, requires, version
 from typing import Annotated
 
 import typer
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from powercontext.client.cli import configure_client, register_commands
 
@@ -28,12 +30,69 @@ COMMAND_PROVIDER_GROUP = "powercontext.cli"
 HELP_OPTION_NAMES = ("-h", "--help")
 DOCUMENTATION_URL = "https://github.com/oceanbase/powercontext/tree/master/docs/en/docs"
 ISSUES_URL = "https://github.com/oceanbase/powercontext/issues"
+# Extras are not recorded as installed. Check their declared requirements before
+# loading these providers; unrelated packages must not enable an incomplete role.
+_OPTIONAL_COMMAND_ROLES = {
+    "powercontext.builtin.code.cli:app": "builtin",
+    "powercontext.server.cli:app": "server",
+    "powercontext.service.cli:app": "server",
+}
+
+
+def _role_available(extra: str, requirements: tuple[Requirement, ...]) -> bool:
+    pending = {extra}
+    checked: set[str] = set()
+    while pending:
+        selected = pending.pop()
+        checked.add(selected)
+        for requirement in requirements:
+            if requirement.marker is not None and not requirement.marker.evaluate({"extra": selected}):
+                continue
+            if canonicalize_name(requirement.name) == "powercontext":
+                pending.update(requirement.extras - checked)
+                continue
+            try:
+                installed = version(requirement.name)
+            except PackageNotFoundError:
+                return False
+            if not requirement.specifier.contains(installed, prereleases=True):
+                return False
+    return True
 
 
 def _show_version(value: bool) -> None:
     if value:
         typer.echo(version("powercontext"))
         raise typer.Exit()
+
+
+def _load_command_providers() -> list[typer.Typer]:
+    try:
+        requirements = tuple(Requirement(value) for value in requires("powercontext") or ())
+    except PackageNotFoundError:
+        requirements = None
+    available_roles = {
+        role: requirements is not None and _role_available(role, requirements)
+        for role in set(_OPTIONAL_COMMAND_ROLES.values())
+    }
+    commands: list[typer.Typer] = []
+    for entry_point in sorted(entry_points(group=COMMAND_PROVIDER_GROUP), key=lambda item: item.name):
+        role = _OPTIONAL_COMMAND_ROLES.get(entry_point.value)
+        if role is not None and not available_roles[role]:
+            continue
+        try:
+            command = entry_point.load()
+        except ModuleNotFoundError as error:
+            raise RuntimeError(  # noqa: TRY003
+                f"Cannot load CLI command provider {entry_point.name!r}: missing module {error.name!r}. "
+                "Repair the provider's installation and its dependencies."
+            ) from error
+        if not isinstance(command, typer.Typer):
+            raise TypeError(  # noqa: TRY003
+                f"CLI command provider {entry_point.name!r} did not load a Typer application"
+            )
+        commands.append(command)
+    return commands
 
 
 def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
@@ -88,20 +147,12 @@ def create_cli(commands: Iterable[typer.Typer] | None = None) -> typer.Typer:
         )
 
     registered_names = register_commands(cli)
+    from powercontext.source_management.cli import register_commands as register_source_commands
+
+    registered_names.update(register_source_commands(cli))
 
     if commands is None:
-        installed_commands: list[typer.Typer] = []
-        for entry_point in sorted(entry_points(group=COMMAND_PROVIDER_GROUP), key=lambda item: item.name):
-            try:
-                command = entry_point.load()
-            except ModuleNotFoundError:
-                continue
-            if not isinstance(command, typer.Typer):
-                raise TypeError(  # noqa: TRY003
-                    f"CLI command provider {entry_point.name!r} did not load a Typer application"
-                )
-            installed_commands.append(command)
-        commands = installed_commands
+        commands = _load_command_providers()
 
     for command in commands:
         name = command.info.name

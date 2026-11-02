@@ -1,12 +1,12 @@
 ---
 title: Kimi Code
-description: 通过原生插件、HTTP MCP 和提示词 Hook 为 Kimi Code 接入最小项目记忆。
+description: 通过 Kimi Code 原生 MCP 接入项目记忆、任务交接和经过审核的 Experience/Skill 工作流。
 status: community
 ---
 
 # Kimi Code
 
-本接入为 experimental，支持 minimal profile：记忆读写、自动 Source 采集和上下文注入。可以显式共用一个 Scope，也可以通过工作区绑定为不同工作目录选择各自的 Scope。
+本接入为 experimental，支持 minimal、recommended 和 full profile。默认 minimal 提供记忆读写、自动 Source 采集和上下文注入。可以显式共用一个 Scope，也可以通过工作区绑定为不同工作目录选择各自的 Scope。
 
 ## 安装
 
@@ -78,9 +78,39 @@ bind/unbind 只修改该工作区在 Server 上的绑定。JSON 将 `binding` �
 
 原生 MCP 操作使用本轮 Hook 的 binding metadata，或实际工作区的 Scope 脚本只读解析结果，不从历史内容推断 Scope。doctor 显示当前 Scope ID 与解析策略（`explicit` 或 `workspace_or_default`），后者不表示已确认具体命中了工作区绑定还是默认值。
 
+## 选择工作流 profile
+
+高级工具需要显式启用。首次安装默认 `minimal`；更新时省略 profile 保留已有选择，旧安装未保存该字段时按 minimal 处理。切换 profile 保留 endpoint、鉴权模式、Scope、采集偏好、其他 Kimi 插件和已有禁用状态。
+
+```text
+powercontext setup kimi-code --source /path/to/powercontext --profile recommended
+powercontext setup kimi-code --source /path/to/powercontext --profile full
+powercontext doctor kimi-code --mcp --json
+```
+
+只修改已安装的 profile、不替换插件文件时，运行 `powercontext config agent kimi-code --profile full`。仅更新连接或 Scope 时省略 `--profile`，保留当前原生工具选择。
+
+更新后开启新会话。profile 控制原生 MCP 工具注册：
+
+| Profile | 工具数 | 工作流 |
+| --- | --- | --- |
+| `minimal` | 3 | 搜索、显式保存和精确 Artifact 读回。 |
+| `recommended` | 27 | 记忆盘点/修改、Source 操作、Work Contract、交接、接续、确认接收和任务结果。 |
+| `full` | 44 | recommended 工作流，以及 Experience、托管/外部 Skill、候选检查和决策。 |
+
+工具清单从 Server MCP 目录和能力契约生成并检入仓库。较大的 profile 会增加每次模型调用的工具 schema 开销，请按实际工作流启用。这些 profile 不启用可选 Handoff 报告、自动 flush、Scope 管理或 Artifact 发布。需要 Server Generation 或外部 Skill registry 的操作仍依赖相应 Server 能力；选择 profile 不会配置模型或授予执行权限。
+
+路由 Skill 按当前 profile 按需加载工作流参考。用户要求 Work Contract 时，先核对目标、事实、范围和完成条件再写入。普通交接只准备临时 carrier；明确要求持久里程碑才 commit。接续时使用精确 prepared carrier 或已提交 Revision，检查实际状态、能力和授权后确认同一目标，并在 Task Outcome 中保留返回的 Receipt SourceRef。准备/提交的部分失败不算完成交接，也不授权另写一次边界。
+
+full 模式下，按请求提出或生成 Experience/Skill，检查候选，并对已授权的批准/拒绝/修订传入当前 `expected_version`。冲突后先重读变化后的提案，再重新判断授权。pending 候选不等于已批准 Artifact；批准后通过精确 ArtifactRef 读回。外部 Skill 解析/导入使用已检查的 `external_skill_id`、`fingerprint`；导入不授权批准、安装或执行。外部注册由 Server 管理，不表示发现了 Kimi 本地 Skill。
+
+所有操作使用当前 Scope，并以 Kimi 实际原生工具目录中的名称为准；Kimi 可能缩短较长的限定名称。工具缺失、被拒绝或失败时保持未完成，不使用 HTTP/shell 领域写入代替。setup 和 profile 选择不绕过宿主审批。
+
 ## 诊断与移除
 
 doctor 只读检查注册/启用状态、Node、MCP/Hook 声明、Server readiness 和 Scope 可访问性，不证明真实 MCP 调用或模型注入已成功。缺失/错误 token 显示 authentication_failed，已禁用的插件/MCP 不会被 setup 自动开启。错误 endpoint 或不可访问的 Scope 需显式修正后开启新会话。
+
+`--mcp` 额外建立有界 MCP transport session，发现 Server 工具（包含分页），核对所选 profile 后关闭 session。`mcp` 表示已安装声明，`mcp_discovery` 表示当前 Server 发现结果；两者均不证明当前 Kimi 窗口已加载工具，也不证明领域操作成功。发现检查不执行领域工具、不采集、不 flush。
 
 使用 Kimi 的 /plugins remove powercontext 移除注册。宿主保留受管理副本；确认注册已移除并检查 .powercontext-owned 标记后，才删除 PowerContext 管理目录。接入不添加全局 Hook 或项目配置。
 
@@ -110,9 +140,11 @@ node "<Kimi home>/plugins/managed/powercontext/scripts/status.mjs" --cwd /path/t
 
 ## 验证
 
+固定 Kimi 2.1.1、Node 24.21.0 已在 Windows 和 Linux 验证 minimal/recommended/full 原生 MCP 注册、临时和持久跨会话交接、精确接续/Receipt/Task Outcome 读回、Experience 和托管 Skill 提案/批准/读回、候选版本冲突、外部 Skill 指纹解析/导入、工具缺失、宿主 Hook 拒绝，以及 full profile 工作区隔离和显式覆盖。测试使用真实 CLI、Server 和 SQLite，agent 推理由本地模型服务控制，不证明线上模型的工作流路由能力。
+
 Windows 上 Kimi 2.1.1（npm CLI）、Node 24.15.0 已通过真实 CLI + 真实 Server + SQLite 验收，覆盖原生 MCP 保存/读回/搜索、实际模型请求注入、后台 Worker 生成记忆及精确 Source 证据、关闭采集、错误 token 和 Server 停机。该可重复验收的两处推理服务均为受控模型边界。
 
-同一 Windows、Kimi 2.1.1 和 Node 24.15.0 环境还通过了 DeepSeek 官方 OpenAI Chat Completions 接口的人工在线验收（model = deepseek-v4-flash）：真实模型调用原生 MCP 保存、精确读回及新会话搜索；真实 Generation 从 Hook 采集的 Source 生成记忆并保留来源证据；新会话在不调用工具的情况下使用自动注入的记忆回答。测试使用独立 Kimi home、Scope 和 SQLite 数据库。该单次在线验收不属于自动化测试，也不证明模型在任意提示词下都能正确选择工具。其他版本/平台、HTTPS 入口和 TUI reload 尚未验证。
+同一 Windows、Kimi 2.1.1 和 Node 24.15.0 环境还通过了 DeepSeek 官方 OpenAI Chat Completions 接口的人工在线验收（model = deepseek-v4-flash）：真实模型调用原生 MCP 保存、精确读回及新会话搜索；真实 Generation 从 Hook 采集的 Source 生成记忆并保留来源证据；新会话在不调用工具的情况下使用自动注入的记忆回答。测试使用独立 Kimi home、Scope 和 SQLite 数据库。该单次在线验收不属于自动化测试，也不证明模型在任意提示词下都能正确选择工具。该次线上模型验收不覆盖其他版本/平台、HTTPS 入口或 TUI reload。
 
 在 checkout 执行：
 
@@ -121,6 +153,10 @@ node --test integrations/kimi-code/plugins/powercontext/tests/plugin.test.mjs
 uv run pytest tests/test_cli_kimi_code.py
 ```
 
-设置 KIMI_CLI_BIN 指向真实二进制或构建后的 main.mjs，再运行 uv run pytest tests/e2e/test_kimi_code_host.py。该 opt-in 验收使用隔离 Kimi home、workspace、Server 数据库与本地推理，不需要线上模型 key，也不修改用户宿主配置。未设置变量时跳过宿主验收，跳过不代表通过。
+设置 KIMI_CLI_BIN 指向真实二进制或构建后的 main.mjs，再运行 uv run pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py。该 opt-in 验收使用隔离 Kimi home、workspace、Server 数据库与本地推理，不需要线上模型 key，也不修改用户宿主配置。未设置变量时跳过宿主验收，跳过不代表通过。
 
 [Kimi Code acceptance 工作流](https://github.com/oceanbase/powercontext/actions/workflows/kimi-code-acceptance.yml) 固定 Kimi 2.1.1 和 Node 24.21.0，在 PR 和 master 更新时于 Linux、Windows 执行 Hook 测试与真实宿主验收。两处推理服务均受控，不需要线上模型 Key；宿主测试被跳过时 CI 失败。产物仅保留 CLI 版本来源、JUnit 结果和验收摘要，不上传 Kimi profile 或数据库。
+
+## 自动输入隐私
+
+本宿主的捕获默认值、关闭方式、凭据识别局限及独立只读查询行为见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。识别到凭据的输入会跳过捕获，已接受的 Source 正文和事件身份不被改写。

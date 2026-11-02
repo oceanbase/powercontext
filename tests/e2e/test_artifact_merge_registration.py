@@ -42,7 +42,11 @@ class _LocalSecurity:
     async def authorize_sources(self, connection, scope_id, context, sources):
         pass
 
-    async def establish_owner(self, connection, scope_id, artifact_id, context):
+    async def authorize_creates(self, connection, scope_id, context, refs):
+        for ref in refs:
+            await self.authorize(connection, scope_id, context, "create", ref)
+
+    async def establish_owners(self, connection, scope_id, artifact_ids, context):
         pass
 
 
@@ -61,6 +65,9 @@ class _TestFamilyAdapter:
         pass
 
     async def publish(self, connection, scope_id, record, prepared, execution_context):
+        pass
+
+    async def publish_many(self, connection, scope_id, records, execution_context):
         pass
 
     async def remove(self, connection, scope_id, artifact_id):

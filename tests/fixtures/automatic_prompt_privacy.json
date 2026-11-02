@@ -1,0 +1,116 @@
+{
+  "schema": "powercontext.automatic-prompt-privacy.v1",
+  "cases": [
+    {
+      "id": "ordinary",
+      "prompt": "Use immutable citations and keep the current Scope.",
+      "sensitive": false
+    },
+    {
+      "id": "ordinary-marker-words",
+      "prompt": "Explain token budgets, password hashing, and secret rotation.",
+      "sensitive": false
+    },
+    {
+      "id": "identifier-substrings",
+      "prompt": "The tokenizer and my_secret_helper need a regression test.",
+      "sensitive": false
+    },
+    {
+      "id": "assignment",
+      "prompt": "Configure api_key=synthetic-value-2084 for this test.",
+      "sensitive": true
+    },
+    {
+      "id": "quoted-json",
+      "prompt": "Use {\"password\":\"synthetic-value-2084\"} for the test.",
+      "sensitive": true
+    },
+    {
+      "id": "access-token",
+      "prompt": "Configure access_token=synthetic-value-2084 for this test.",
+      "sensitive": true
+    },
+    {
+      "id": "cookie",
+      "prompt": "Cookie: synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "authorization-header",
+      "prompt": "Authorization: Bearer synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "cookie-header",
+      "prompt": "Cookie: theme=light; session=synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "proxy-authorization-header",
+      "prompt": "Proxy-Authorization: Basic synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "set-cookie-header",
+      "prompt": "Set-Cookie: session=synthetic-value-2084; Secure; HttpOnly",
+      "sensitive": true
+    },
+    {
+      "id": "folded-authorization-header",
+      "prompt": "Authorization: Bearer\r\n synthetic-value-2084\r\nAccept: application/json",
+      "sensitive": true
+    },
+    {
+      "id": "bearer",
+      "prompt": "Use Bearer synthetic-value-2084 for the request.",
+      "sensitive": true
+    },
+    {
+      "id": "provider-token",
+      "prompt": "Use sk-synthetic-value-2084 for the request.",
+      "sensitive": true
+    },
+    {
+      "id": "github-token",
+      "prompt": "Use github_pat_synthetic_value_2084 for the request.",
+      "sensitive": true
+    },
+    {
+      "id": "private-key",
+      "prompt": "Inspect this:\n-----BEGIN PRIVATE KEY-----\nsynthetic-value-2084\n-----END PRIVATE KEY-----",
+      "sensitive": true
+    },
+    {
+      "id": "unfinished-private-key",
+      "prompt": "Inspect this:\n-----BEGIN PRIVATE KEY-----\nsynthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "assigned-private-key",
+      "prompt": "private_key=\"-----BEGIN PRIVATE KEY-----\nsynthetic-value-2084\n-----END PRIVATE KEY-----\"",
+      "sensitive": true
+    },
+    {
+      "id": "unfinished-assigned-private-key",
+      "prompt": "private_key='-----BEGIN RSA PRIVATE KEY-----\r\nsynthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "pem-authorization-header",
+      "prompt": "Authorization: -----BEGIN PRIVATE KEY-----\nsynthetic-value-2084\n-----END PRIVATE KEY-----",
+      "sensitive": true
+    },
+    {
+      "id": "known-server-token",
+      "prompt": "Use this opaque synthetic-value-2084 in the request.",
+      "authorization": "Bearer synthetic-value-2084",
+      "sensitive": true
+    },
+    {
+      "id": "conservative-placeholder",
+      "prompt": "Example password=synthetic-value-2084 is deliberately skipped.",
+      "sensitive": true
+    }
+  ]
+}

@@ -25,6 +25,35 @@ The manifest registers exact business fingerprints, alternate released shapes, r
 
 Plans bind the canonical target, actual schema, immutable resource snapshot, configuration digest and maintenance choices. Alembic executes the reviewed snapshot even if installed resources change; changes detected during backup stop before migration DDL.
 
+## Historical CHECK reflection fixture
+
+`schemas/seekdb_v1_3_0_checks.json` records actual `SHOW CREATE TABLE` output for
+`pc_recall_effort_daily`, `pc_recall_token_daily`, and `pc_model_usage_daily`. The input DDL was compiled
+from `powercontext-v1.3.0` (`95bfbc9e0b59f58aee119c750c69a448b7666d0c`), using that tag's
+`tables.py` and `limits.py`, then executed in a fresh disposable embedded seekdb database on macOS.
+The fixture records both source blob IDs, the compiler/binding versions, and the engine's `SELECT VERSION()` result.
+It was captured with `pylibseekdb 1.4.0.post1` on engine `seekdb-v1.4.0.0`; it is not a copy of a customer's database
+or a claim that the original 1.3.0 deployment used this engine version.
+
+To recapture, load both historical Python sources from the tag, compile each selected table with SQLAlchemy's
+MySQL `CreateTable` (and its named indexes with `CreateIndex`), execute them in a new embedded instance, and save
+`SHOW CREATE TABLE` without rewriting its expressions. In particular, retain seekdb's nested parentheses,
+backticks, literal introducers, and promotion of inline column CHECKs to named table constraints.
+
+The fixture reproduces #2160 on the original parser. It exercises arithmetic, comparisons, `IN`, and backend formatting;
+it is a parser regression input, not a registered migration baseline. Successful reflection must still reject these
+unregistered tables during layout identification, verification, and recovery. The opt-in real backend test re-creates
+the historical tables and executes the rendered drop-total CHECK against matching and mismatching values:
+
+```bash
+POWERCONTEXT_TEST_MIGRATION_SEEKDB=1 uv run --locked --extra seekdb pytest -q tests/builtin/persistence/test_mysql_migration_checks.py
+```
+
+The same test module extends a disposable bundle with remainder and percent-literal CHECKs and exercises
+`MySQLSchema.validate_data()` and `MySQLMigrationRunner.plan()` through the official aiomysql bridge.
+Valid and NULL rows pass; stored violations of the fixture's `NOT ENFORCED` constraints fail with
+`data_integrity_error`. These synthetic constraints are not added to the shipped migration layouts.
+
 ## Explicit maintenance
 
 Repository-only scratch commands:

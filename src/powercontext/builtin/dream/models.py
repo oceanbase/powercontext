@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
@@ -67,8 +68,8 @@ class CreateDreamRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operation: DreamOperation
-    artifacts: tuple[ArtifactRef, ...] = ()
-    sources: tuple[SourceRef, ...] = ()
+    artifacts: tuple[ArtifactRef, ...] = Field(default=(), validate_default=True)
+    sources: tuple[SourceRef, ...] = Field(default=(), validate_default=True)
     target: ArtifactRef | None = None
     tag_target: TagDreamTarget | None = None
     idempotency_key: str = Field(min_length=1, max_length=128)
@@ -85,20 +86,47 @@ class CreateDreamRunRequest(BaseModel):
     def normalize_references(cls, value):
         return tuple(sorted(unique_references(value), key=reference_key))
 
+    @field_validator("artifacts")
+    @classmethod
+    def validate_artifact_selection(cls, value, info):
+        if info.data.get("operation") == "revise_tags":
+            return value
+        if not value:
+            raise PydanticCustomError(
+                "evidence_selection_required",
+                "artifacts must select at least 1 Artifact (1 to 20 Artifacts, at most 32 references with Sources)",
+            )
+        if len(value) > 20:
+            raise PydanticCustomError(
+                "evidence_limit_exceeded",
+                "artifacts must select at most 20 Artifacts (1 to 20 Artifacts, at most 32 references with Sources)",
+            )
+        return value
+
+    @field_validator("sources")
+    @classmethod
+    def validate_source_selection(cls, value, info):
+        artifacts = info.data.get("artifacts", ())
+        if info.data.get("operation") == "revise_tags" and not artifacts and not value:
+            raise PydanticCustomError(
+                "evidence_selection_required",
+                "sources or artifacts must select at least 1 reference (at most 32 references in total)",
+            )
+        if len(artifacts) + len(value) > 32:
+            message = "artifacts and sources must select at most 32 references in total"
+            if info.data.get("operation") != "revise_tags":
+                message += " (1 to 20 Artifacts, at most 32 references with Sources)"
+            raise PydanticCustomError("evidence_limit_exceeded", message)
+        return value
+
     @model_validator(mode="after")
     def validate_selection(self):  # noqa: C901 - bounded validation for each registered operation
         if self.operation == "revise_tags":
             if self.target is not None or self.tag_target is None:
                 raise DreamError("invalid_target")
-            if not 1 <= len(self.sources) + len(self.artifacts) <= 32:
-                raise DreamError("evidence_limit_exceeded")
             return self
         if self.tag_target is not None:
             raise DreamError("invalid_target")
-        selected = len(self.artifacts)
-        selected_limit = 20
-        if not 1 <= selected <= selected_limit or selected + len(self.sources) > 32:
-            raise DreamError("evidence_limit_exceeded")
         allowed_families = {
             "refine_experience": {"experience"},
             "derive_skill": {"experience"},
