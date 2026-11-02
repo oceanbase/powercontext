@@ -771,6 +771,8 @@ def _arm_report(arm: Arm, evaluation: OfficialEvaluation, outcome: SutOutcome, p
         metrics=MetricSet(
             patch_bytes=patch_bytes,
             input_tokens=None if usage is None else usage.get("input_tokens"),
+            cached_input_tokens=None if usage is None else usage.get("cached_input_tokens"),
             output_tokens=None if usage is None else usage.get("output_tokens"),
+            reasoning_output_tokens=None if usage is None else usage.get("reasoning_output_tokens"),
         ),
     )
