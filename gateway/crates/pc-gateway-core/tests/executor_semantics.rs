@@ -82,6 +82,10 @@ struct FakeGate {
     captured: Mutex<Vec<(String, String)>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
     prepare_barrier: Mutex<Option<Arc<tokio::sync::Barrier>>>,
+    /// 依次给出的 prepare 结果，先于 `prepare_result` 使用。
+    prepare_queue: Mutex<VecDeque<Result<PrepareContextResult, GateError>>>,
+    /// 依次对应每次 prepare：`Some` 时等通知后才返回，用于控制完成顺序。
+    prepare_holds: Mutex<VecDeque<Option<Arc<tokio::sync::Notify>>>>,
 }
 
 impl GateClient for FakeGate {
@@ -118,21 +122,28 @@ impl GateClient for FakeGate {
         request: PrepareContextRequest,
     ) -> impl Future<Output = Result<PrepareContextResult, GateError>> + Send {
         self.prepare_queries.lock().unwrap().push(request.query);
+        let queued = self.prepare_queue.lock().unwrap().pop_front();
+        let hold = self.prepare_holds.lock().unwrap().pop_front().flatten();
         let step =
-            self.prepare_result
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap_or(Ok(PrepareContextResult::Plain(PreparedContext {
-                    schema: "powercontext.prepared-context.v1".into(),
-                    status: "empty".into(),
-                    content: None,
-                    content_bytes: 0,
-                })));
+            if let Some(queued) = queued {
+                queued
+            } else {
+                self.prepare_result.lock().unwrap().take().unwrap_or(Ok(
+                    PrepareContextResult::Plain(PreparedContext {
+                        schema: "powercontext.prepared-context.v1".into(),
+                        status: "empty".into(),
+                        content: None,
+                        content_bytes: 0,
+                    }),
+                ))
+            };
         let barrier = self.prepare_barrier.lock().unwrap().clone();
         async move {
             if let Some(barrier) = barrier {
                 barrier.wait().await;
+            }
+            if let Some(hold) = hold {
+                hold.notified().await;
             }
             step
         }
@@ -314,6 +325,8 @@ fn harness(
         prepared_seen: Mutex::new(Vec::new()),
         prepare_result: Mutex::new(None),
         prepare_barrier: Mutex::new(None),
+        prepare_queue: Mutex::new(VecDeque::new()),
+        prepare_holds: Mutex::new(VecDeque::new()),
         prepare_queries: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
     });
@@ -1813,4 +1826,56 @@ async fn concurrent_requests_of_a_turn_commit_one_prepared_value() {
     // 三个请求注入同一个值（同为同一个块，或同为不注入）。
     assert_eq!(injected(&sent[0]), injected(&sent[1]));
     assert_eq!(injected(&sent[1]), injected(&sent[2]));
+}
+
+#[tokio::test]
+async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_turn() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(3), (0..3).map(|_| raw_response()).collect(), 2);
+    for snapshot in [
+        "memory-snapshot-1",
+        "memory-snapshot-2",
+        "memory-snapshot-3",
+    ] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(snapshot)));
+    }
+    let earlier = Arc::new(tokio::sync::Notify::new());
+    gate.prepare_holds
+        .lock()
+        .unwrap()
+        .extend([Some(earlier.clone()), None, None]);
+    let r = RendererRef(renderer.clone());
+    // 上一回合的请求先开始准备、最后才完成；用户在此期间发了新消息，新回合先准备并提交。
+    let current_turn = async {
+        let outcome = executor
+            .run(tool_loop_call("second", 0, false), &r, &NoopEvidenceSink)
+            .await;
+        earlier.notify_one();
+        outcome
+    };
+    let (late, current) = tokio::join!(
+        executor.run(tool_loop_call("first", 0, false), &r, &NoopEvidenceSink),
+        current_turn,
+    );
+    assert!(matches!(late, ManagedOutcome::Released { .. }));
+    assert!(matches!(current, ManagedOutcome::Released { .. }));
+    // 当前回合的续写仍重放它已提交的内容，不再准备。
+    executor
+        .run(tool_loop_call("second", 1, false), &r, &NoopEvidenceSink)
+        .await;
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    let current_turn_sends: Vec<_> = sends(&gate)
+        .into_iter()
+        .filter(|(body, _)| body.contains("second"))
+        .collect();
+    assert_eq!(current_turn_sends.len(), 2);
+    assert!(
+        current_turn_sends
+            .iter()
+            .all(|(body, _)| body.contains("memory-snapshot-2")
+                && !body.contains("memory-snapshot-3"))
+    );
 }

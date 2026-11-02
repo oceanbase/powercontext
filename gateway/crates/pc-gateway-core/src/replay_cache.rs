@@ -25,8 +25,9 @@ use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
-/// 会话条目上限：超出后淘汰最旧的会话。
-const MAX_CONVERSATIONS: usize = 1024;
+/// 条目总上限与每个会话的锚点上限：超出后按写入顺序淘汰最旧的条目。
+const MAX_ENTRIES: usize = 1024;
+const MAX_ANCHORS_PER_CONVERSATION: usize = 8;
 /// 单个准备结果的最长保留时间；复用绑定更早到期时以绑定为准。
 pub(crate) const MAX_REPLAY_MS: u64 = 5 * 60 * 1000;
 
@@ -82,8 +83,8 @@ impl ReplayCache {
             .map(|e| e.prepared.clone())
     }
 
-    /// 写入一个会话当前锚点的结果（put-if-absent）：并发请求已写入同一锚点时保留先写入的值并返回它，
-    /// 保证同一锚点只有一种注入内容。新锚点替换该会话的旧锚点。
+    /// 写入一个锚点的结果（put-if-absent）：已有同一锚点时保留先写入的值并返回它，保证同一锚点只有
+    /// 一种注入内容。同一会话的不同锚点并存、不互相替换，上一回合迟到完成的准备不会挤掉当前回合。
     pub(crate) fn put_if_absent(
         &self,
         scope_id: &str,
@@ -98,8 +99,14 @@ impl ReplayCache {
         }) {
             return existing.prepared.clone();
         }
-        entries.retain(|e| !(e.scope_id == scope_id && e.conversation_id == conversation_id));
-        if entries.len() >= MAX_CONVERSATIONS {
+        let same_conversation =
+            |e: &Entry| e.scope_id == scope_id && e.conversation_id == conversation_id;
+        if entries.iter().filter(|e| same_conversation(e)).count() >= MAX_ANCHORS_PER_CONVERSATION {
+            if let Some(oldest) = entries.iter().position(same_conversation) {
+                entries.remove(oldest);
+            }
+        }
+        if entries.len() >= MAX_ENTRIES {
             entries.pop_front();
         }
         entries.push_back(Entry {
@@ -134,18 +141,15 @@ mod tests {
         cache.put_if_absent("s", "c", 1, block("x"), 100);
         assert_eq!(cache.get("s", "c", 1, 50), Some(block("x")));
         assert_eq!(cache.get("s", "c", 1, 100), None);
-        for i in 0..=MAX_CONVERSATIONS {
+        for i in 0..=MAX_ENTRIES {
             cache.put_if_absent("s", &format!("c{i}"), 1, None, 1_000);
         }
         assert_eq!(
             cache.get("s", "c0", 1, 0),
             None,
-            "the oldest conversation is evicted"
+            "the oldest entry is evicted"
         );
-        assert_eq!(
-            cache.get("s", &format!("c{MAX_CONVERSATIONS}"), 1, 0),
-            Some(None)
-        );
+        assert_eq!(cache.get("s", &format!("c{MAX_ENTRIES}"), 1, 0), Some(None));
     }
 
     #[test]
@@ -170,11 +174,20 @@ mod tests {
     }
 
     #[test]
-    fn a_new_anchor_replaces_the_conversation_entry() {
+    fn anchors_of_one_conversation_coexist_within_a_bound() {
         let cache = ReplayCache::default();
-        cache.put_if_absent("s", "c", 1, block("old"), 1_000);
-        cache.put_if_absent("s", "c", 2, block("new"), 1_000);
-        assert_eq!(cache.get("s", "c", 1, 0), None);
-        assert_eq!(cache.get("s", "c", 2, 0), Some(block("new")));
+        cache.put_if_absent("s", "c", 2, block("current"), 1_000);
+        // A late completion for an earlier anchor must not replace the current one.
+        cache.put_if_absent("s", "c", 1, block("late"), 1_000);
+        assert_eq!(cache.get("s", "c", 2, 0), Some(block("current")));
+        assert_eq!(cache.get("s", "c", 1, 0), Some(block("late")));
+        for anchor in 10..(10 + MAX_ANCHORS_PER_CONVERSATION as u64) {
+            cache.put_if_absent("s", "c", anchor, None, 1_000);
+        }
+        assert_eq!(
+            cache.get("s", "c", 2, 0),
+            None,
+            "the conversation keeps its newest anchors"
+        );
     }
 }
