@@ -284,6 +284,8 @@ struct VerifiedExecutable {
 fn open_verified_executable(config: &CliRegistration) -> Result<VerifiedExecutable, SafeError> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
     #[cfg(windows)]
     use std::os::windows::fs::OpenOptionsExt;
 
@@ -304,14 +306,25 @@ fn open_verified_executable(config: &CliRegistration) -> Result<VerifiedExecutab
         return Err(SafeError::CompatibilityUnverified);
     }
 
+    let metadata = std::fs::metadata(&config.executable).map_err(|_| SafeError::NotFound)?;
+    if !metadata.is_file() {
+        return Err(SafeError::CompatibilityUnverified);
+    }
+
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NONBLOCK);
     #[cfg(windows)]
     options.share_mode(1);
     let executable = options
         .open(&config.executable)
         .map_err(|_| SafeError::NotFound)?;
-    if executable.metadata().map_err(|_| SafeError::Storage)?.len() > 64 * 1024 * 1024 {
+    let metadata = executable.metadata().map_err(|_| SafeError::Storage)?;
+    if !metadata.is_file() {
+        return Err(SafeError::CompatibilityUnverified);
+    }
+    if metadata.len() > 64 * 1024 * 1024 {
         return Err(SafeError::InvalidInput);
     }
 

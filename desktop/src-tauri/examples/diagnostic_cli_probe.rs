@@ -21,13 +21,18 @@ async fn main() {
         diagnostics::{DiagnosticKind, LocalDiagnostics},
         error::SafeError,
     };
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     use sha2::{Digest, Sha256};
     #[cfg(windows)]
     {
         // A copied probe is a synthetic CLI whose diagnostic protocol works without --version.
         let probe = std::env::current_exe().unwrap();
-        if probe.file_name().and_then(|name| name.to_str()) == Some("powercontext.exe") {
+        let expected_name = if cfg!(windows) {
+            "powercontext.exe"
+        } else {
+            "powercontext"
+        };
+        if probe.file_name().and_then(|name| name.to_str()) == Some(expected_name) {
             if std::env::args().skip(1).collect::<Vec<_>>() == ["service", "status", "--json"] {
                 println!(
                     "{}",
@@ -150,11 +155,32 @@ async fn main() {
     assert_eq!(legacy_service.items, service.items);
     assert_eq!(legacy_service.cli_version, service.cli_version);
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
-        let probe = std::env::current_exe().unwrap();
-        let synthetic_executable = invalid_directory.path().join("powercontext.exe");
-        std::fs::copy(probe, &synthetic_executable).unwrap();
+        let synthetic_executable = invalid_directory.path().join(if cfg!(windows) {
+            "powercontext.exe"
+        } else {
+            "powercontext"
+        });
+        #[cfg(windows)]
+        {
+            let probe = std::env::current_exe().unwrap();
+            std::fs::copy(probe, &synthetic_executable).unwrap();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(
+                &synthetic_executable,
+                "#!/bin/sh\nif [ \"$1\" = service ] && [ \"$2\" = status ] && [ \"$3\" = --json ]; then\nprintf '%s\\n' '{\"support\":\"supported\",\"registration\":\"not_installed\",\"definition\":\"unknown\",\"manager_ownership\":\"unknown\",\"manager\":\"unknown\",\"server_liveness\":\"unknown\"}'\nelse\nexit 1\nfi\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(
+                &synthetic_executable,
+                std::fs::Permissions::from_mode(0o700),
+            )
+            .unwrap();
+        }
         let synthetic_registration = invalid_directory.path().join("unavailable-version.json");
         std::fs::write(
             &synthetic_registration,

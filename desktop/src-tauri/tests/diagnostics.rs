@@ -66,7 +66,7 @@ fn malformed_unknown_and_oversized_diagnostics_are_rejected() {
     );
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[tokio::test]
 async fn missing_or_mismatched_cli_registration_never_runs_a_program() {
     use powercontext_desktop::diagnostics::LocalDiagnostics;
@@ -77,7 +77,11 @@ async fn missing_or_mismatched_cli_registration_never_runs_a_program() {
         diagnostics.run(DiagnosticKind::Service).await.unwrap_err(),
         SafeError::NotFound
     );
-    let executable = directory.path().join("powercontext.exe");
+    let executable = directory.path().join(if cfg!(windows) {
+        "powercontext.exe"
+    } else {
+        "powercontext"
+    });
     std::fs::write(&executable, b"not executable").unwrap();
     let value = serde_json::json!({"executable":executable,"sha256":"0".repeat(64),"source":"explicit_local_installation"});
     std::fs::write(&registration, serde_json::to_vec(&value).unwrap()).unwrap();
@@ -85,4 +89,38 @@ async fn missing_or_mismatched_cli_registration_never_runs_a_program() {
         diagnostics.run(DiagnosticKind::Service).await.unwrap_err(),
         SafeError::CompatibilityUnverified
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn non_regular_registered_executable_is_rejected_without_blocking_shutdown() {
+    use powercontext_desktop::diagnostics::LocalDiagnostics;
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, time::Duration};
+
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("powercontext");
+    let executable_name = CString::new(executable.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(executable_name.as_ptr(), 0o600) }, 0);
+
+    let registration = directory.path().join("diagnostic-cli.json");
+    std::fs::write(
+        &registration,
+        serde_json::to_vec(&serde_json::json!({
+            "executable": executable,
+            "sha256": "0".repeat(64),
+            "source": "explicit_local_installation"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let diagnostics = LocalDiagnostics::new(registration);
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        diagnostics.run(DiagnosticKind::Service),
+    )
+    .await
+    .expect("FIFO registration must not block executable verification");
+    assert_eq!(result.unwrap_err(), SafeError::CompatibilityUnverified);
+    diagnostics.shutdown();
 }
