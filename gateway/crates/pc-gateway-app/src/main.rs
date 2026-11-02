@@ -28,6 +28,7 @@ mod ingress;
 mod link;
 mod middleware;
 mod proxy;
+mod steering;
 
 use crate::link::CoreLink;
 use axum::routing::{get, post};
@@ -60,6 +61,8 @@ pub struct AppState {
     pub inject_responses: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
+    /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
+    pub steering: Option<String>,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
     /// Request body byte limit (also enforced when consuming chunked bodies).
@@ -97,6 +100,15 @@ async fn main() {
         _ => pc_gateway_core::DegradePolicy::Pause,
     };
 
+    // 指令文件只在启动时读取；配置了但无效时拒绝启动，而不是不带指令运行。
+    let steering = match steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref()) {
+        Ok(steering) => steering,
+        Err(reason) => {
+            tracing::error!("PC_GATEWAY_STEERING_FILE: {reason}");
+            std::process::exit(2);
+        }
+    };
+
     let state = Arc::new(AppState {
         executor: Arc::new(Executor::new(
             core_link.clone(),
@@ -129,6 +141,7 @@ async fn main() {
             Ok("off")
         ),
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
+        steering,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes,

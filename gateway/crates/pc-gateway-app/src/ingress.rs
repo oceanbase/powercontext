@@ -179,7 +179,7 @@ async fn ingress_common(
             }
         }
         Format::Responses => {
-            let r: OpenAiResponsesRequest = match serde_json::from_slice(&body) {
+            let mut r: OpenAiResponsesRequest = match serde_json::from_slice(&body) {
                 Ok(c) => c,
                 Err(e) => {
                     return (
@@ -190,6 +190,9 @@ async fn ingress_common(
                 }
             };
             client_stream = r.stream.unwrap_or(false);
+            if let Some(text) = &state.steering {
+                crate::steering::insert(&mut r.input, text);
+            }
             match to_canonical_responses(r) {
                 Ok(c) => c,
                 Err(msg) => {
@@ -726,6 +729,33 @@ mod tests {
             .render(&canonical, None)
             .unwrap();
         serde_json::from_slice(&payload.bytes).unwrap()
+    }
+
+    #[test]
+    fn steering_is_rendered_after_the_base_prompt_and_nothing_else_changes() {
+        let client = codex_request(false);
+        let mut steered = client.clone();
+        let mut input: Vec<serde_json::Value> =
+            serde_json::from_value(steered["input"].take()).unwrap();
+        crate::steering::insert(&mut input, "Plan before acting.");
+        steered["input"] = input.into();
+        let upstream = render_responses(&steered);
+        let plain = render_responses(&client);
+        let sent = upstream["input"].as_array().unwrap();
+        let before = plain["input"].as_array().unwrap();
+        // 基础提示后面是 Codex 的简写 developer 消息（字符串内容），所以插入一条新的 developer 消息。
+        assert_eq!(
+            sent[2],
+            serde_json::json!({"type": "message", "role": "developer",
+                "content": [{"type": "input_text", "text": "Plan before acting."}]})
+        );
+        assert_eq!(sent[..2], before[..2]);
+        assert_eq!(sent[3..], before[2..]);
+        let mut rest = upstream.clone();
+        rest.as_object_mut().unwrap().remove("input");
+        let mut plain_rest = plain.clone();
+        plain_rest.as_object_mut().unwrap().remove("input");
+        assert_eq!(rest, plain_rest);
     }
 
     #[test]
