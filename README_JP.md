@@ -50,8 +50,6 @@ Memory は、再利用可能な判断・制約・事実・状態・次の手順�
 
 ![ダークテーマの Dashboard：プロジェクトの記憶を検索し、保存済みリビジョンを開く](docs/assets/readme-dashboard-demo.gif)
 
-[撮影情報](desktop/SCREENSHOTS.md)
-
 ### Handoff — 全文ではなく現在の状態
 
 Handoff は作業の継続を、4 ステップのループとして記録します。
@@ -78,8 +76,6 @@ Server に接続して正確な Scope を選択すると、その記憶を検索
 [デスクトッププレビュー](desktop/README.md)は内部検証用です。署名付き配布と各プラットフォームのリリース認定は、別途検証が必要です。
 
 ![ダークテーマのネイティブデスクトップ：プロジェクトの記憶を検索して保存済みの特定リビジョンを読む](docs/assets/readme-desktop-demo.gif)
-
-[撮影情報](desktop/SCREENSHOTS.md)
 
 ## なぜ PowerContext なのか？
 

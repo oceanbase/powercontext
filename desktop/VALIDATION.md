@@ -160,8 +160,7 @@ sources still matched the qualified source commit.
 
 This record qualifies the listed SQLite protocol operations. Context preparation, receipts,
 plugin operations, model quality, and database upgrades are outside its operation set. Windows/macOS
-packaging, signing, and native credential persistence remain separate checks. The real Linux
-Desktop captures in [README screenshots](SCREENSHOTS.md) document the development UI separately.
+packaging, signing, and native credential persistence remain separate checks.
 
 本记录绑定上述源码、契约和 wheel，679 个运行时文件逐一核对一致，四种真实 SQLite／HTTP 模式全部通过。
 未修改验收断言或超时；通过 CPU 亲和性避开已观测到的虚拟机调度等待。该记录不替代数据库升级、

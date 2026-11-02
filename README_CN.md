@@ -52,8 +52,6 @@ Memory 是一个带版本的 Artifact 家族，存放可以复用的决定、约
 
 ![暗色 Dashboard 操作录屏：搜索项目记忆并查看已保存版本](docs/assets/readme-dashboard-demo-zh.gif)
 
-[录制说明](desktop/SCREENSHOTS.md)
-
 ### Handoff —— 当前状态，不是整段对话记录
 
 Handoff 用一个四步循环记录工作接续：
@@ -80,8 +78,6 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 [桌面预览](desktop/README.zh.md)用于内部验证；签名分发和各平台的发行验收仍需单独完成。
 
 ![暗色原生桌面端操作录屏：搜索项目记忆并读取已保存的精确版本](docs/assets/readme-desktop-demo-zh.gif)
-
-[录制说明](desktop/SCREENSHOTS.md)
 
 [运行指标](docs/zh/docs/operate/observability.md)提供依赖状态观察、处理进度新鲜度和执行尝试延迟；独立后台部署也可使用受保护的专用指标端点。
 

@@ -59,8 +59,6 @@ Explicit Memory writes need no model at all; extraction from captured Sources ne
 
 ![Dashboard in dark mode: search project memories and inspect a saved revision](docs/assets/readme-dashboard-demo.gif)
 
-[Capture details](desktop/SCREENSHOTS.md)
-
 ### Handoff — the current state, not the whole transcript
 
 Handoff records work continuity as a four-step loop:
@@ -97,8 +95,6 @@ or save a note for the next session. The [Desktop preview](desktop/README.md) is
 signed distribution and platform release qualification remain separate work.
 
 ![Native Desktop in dark mode: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
-
-[Capture details](desktop/SCREENSHOTS.md)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 
