@@ -331,6 +331,21 @@ def test_judge_uses_configured_streaming_for_real_provider_requests(tmp_path, mo
     )
     try:
         asyncio.run(judging.judge(args))
+        (tmp_path / "judge/manifest.json").unlink()
+        environment.write_text(environment.read_text().replace("openai-chat:example", "openai-chat:changed"))
+        before = {
+            str(path.relative_to(tmp_path / "judge")): path.read_bytes()
+            for path in (tmp_path / "judge").rglob("*")
+            if path.is_file()
+        }
+        with pytest.raises(ConfigurationIdentityError, match="original manifest"):
+            asyncio.run(judging.judge(args))
+        assert {
+            str(path.relative_to(tmp_path / "judge")): path.read_bytes()
+            for path in (tmp_path / "judge").rglob("*")
+            if path.is_file()
+        } == before
+        assert not (tmp_path / "judge/manifest.json").exists()
     finally:
         server.shutdown()
         server.server_close()

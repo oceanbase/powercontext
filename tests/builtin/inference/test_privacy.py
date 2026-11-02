@@ -1009,6 +1009,76 @@ def test_native_stream_rejects_split_secret_despite_extra_metadata(metadata_at: 
         asyncio.run(scenario(endpoint))
 
 
+@pytest.mark.parametrize("initialization", ["together", "empty_preamble", "incremental"])
+def test_native_stream_allows_tool_updates_in_different_order(initialization: str) -> None:
+    calls = [
+        {
+            "index": index,
+            "id": "call_",
+            "type": "function",
+            "function": {"name": name, "arguments": '{"value":'},
+        }
+        for index, name in enumerate(("synthetic-forbidden-", "safe"))
+    ]
+    deltas: list[dict[str, Any]] = []
+    if initialization == "incremental":
+        deltas.extend({"tool_calls": [call]} for call in calls)
+    else:
+        deltas.append({"tool_calls": calls})
+        if initialization == "empty_preamble":
+            deltas.insert(0, {"tool_calls": []})
+    deltas[0]["role"] = "assistant"
+    deltas.extend([
+        {
+            "tool_calls": [
+                {"index": 1, "id": "second", "function": {"name": "secret", "arguments": "2}"}},
+                {"index": 0, "id": "first", "function": {"name": "safe", "arguments": "1}"}},
+            ]
+        },
+        {},
+    ])
+    events = [
+        {
+            "id": "synthetic-forbidden-" if index == 0 else "secret",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "test-model",
+            "choices": [
+                {"index": 0, "delta": delta, "finish_reason": "tool_calls" if index == len(deltas) - 1 else None}
+            ],
+        }
+        for index, delta in enumerate(deltas)
+    ]
+    payload = ("".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n").encode()
+
+    async def scenario(endpoint: str) -> None:
+        async with (
+            httpx.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
+            AsyncOpenAI(
+                base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
+            ) as sdk,
+            sdk.chat.completions.stream(
+                model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+            ) as stream,
+        ):
+            completion = await stream.get_final_completion()
+        assert completion.id == "synthetic-forbidden-"
+        tools = completion.choices[0].message.tool_calls
+        assert tools is not None and all(tool.type == "function" for tool in tools)
+        assert [tool.id for tool in tools] == ["call_first", "call_second"]
+        assert [tool.function.name for tool in tools if tool.type == "function"] == [
+            "synthetic-forbidden-safe",
+            "safesecret",
+        ]
+        assert [json.loads(tool.function.arguments) for tool in tools if tool.type == "function"] == [
+            {"value": 1},
+            {"value": 2},
+        ]
+
+    with server([(200, "text/event-stream", payload)]) as (_upstream, endpoint):
+        asyncio.run(scenario(endpoint))
+
+
 @pytest.mark.parametrize("extension", ["message", "response"])
 def test_native_stream_checks_root_model_despite_unrelated_extension_fields(extension: str) -> None:
     def payload(model: str, nested: dict[str, str]) -> bytes:
@@ -1071,3 +1141,79 @@ def test_native_stream_checks_root_model_despite_unrelated_extension_fields(exte
     with server(responses) as (upstream, endpoint):
         asyncio.run(scenario(endpoint))
         assert len(upstream.requests) == len(responses)
+
+
+@pytest.mark.parametrize("carrier", ["reordered_name", "duplicate_name", "id"])
+@pytest.mark.parametrize("preamble", [False, True])
+def test_native_stream_rejects_tool_text_assembled_by_sdk(carrier: str, preamble: bool) -> None:
+    first_call = {
+        "index": 1 if carrier == "reordered_name" else 0,
+        "id": "synthetic-forbidden-" if carrier == "id" else "call_first",
+        "type": "function",
+        "function": {"name": "safe" if carrier == "id" else "synthetic-forbidden-", "arguments": "{}"},
+    }
+    initial = [first_call]
+    if carrier != "id":
+        initial.append({
+            "index": 0,
+            "id": "call_second",
+            "type": "function",
+            "function": {"name": "safe", "arguments": "" if carrier == "duplicate_name" else "{}"},
+        })
+    continued = (
+        {"index": 0, "function": {"name": "secret"}}
+        if carrier != "id"
+        else {"index": 0, "id": "secret", "function": {}}
+    )
+    deltas = ([{"role": "assistant"}] if preamble else []) + [
+        {"tool_calls": initial},
+        {"tool_calls": [continued]},
+        {},
+    ]
+    deltas[0]["role"] = "assistant"
+    events = [
+        {
+            "id": "test",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "test-model",
+            "choices": [
+                {"index": 0, "delta": delta, "finish_reason": "tool_calls" if index == len(deltas) - 1 else None}
+            ],
+        }
+        for index, delta in enumerate(deltas)
+    ]
+    payload = ("".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n").encode()
+
+    async def scenario(endpoint: str) -> None:
+        async with (
+            AsyncOpenAI(base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0) as sdk,
+            sdk.chat.completions.stream(
+                model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+            ) as stream,
+        ):
+            completion = await stream.get_final_completion()
+        calls = completion.choices[0].message.tool_calls
+        assert calls is not None and calls[0].type == "function"
+        assert (calls[0].id if carrier == "id" else calls[0].function.name) == SECRET
+
+        released = []
+        async with (
+            httpx.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
+            AsyncOpenAI(
+                base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
+            ) as sdk,
+        ):
+            with pytest.raises(APIConnectionError) as caught:
+                async with sdk.chat.completions.stream(
+                    model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+                ) as stream:
+                    released.extend([event async for event in stream])
+            refusal = find_privacy_error(caught.value)
+            assert refusal is not None and refusal.phase == "before_release"
+            expected = "forbidden_content" if carrier == "id" else "tool_identity_unsupported"
+            assert refusal.reason_codes == (expected,)
+            assert released == []
+
+    with server([(200, "text/event-stream", payload)]) as (_upstream, endpoint):
+        asyncio.run(scenario(endpoint))

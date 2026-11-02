@@ -98,6 +98,17 @@ def require_private_identity_support() -> None:
         )
 
 
+def require_original_manifest(directory: Path, *, execution_patterns: tuple[str, ...]) -> None:
+    """Reject orphaned execution state before accepting a new configuration identity."""
+    if (directory / "manifest.json").exists():
+        return
+    key = directory / KEY_FILENAME
+    if key.exists() or key.is_symlink() or any(any(directory.glob(pattern)) for pattern in execution_patterns):
+        raise ConfigurationIdentityError(  # noqa: TRY003
+            "Saved evaluation state requires its original manifest; use a new output directory"
+        )
+
+
 def _canonical(value: Any, *, private: bool) -> Any:
     if isinstance(value, (SecretStr, SecretBytes)):
         return _canonical(value.get_secret_value(), private=True) if private else "**********"

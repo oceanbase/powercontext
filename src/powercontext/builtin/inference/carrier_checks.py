@@ -35,18 +35,22 @@ def _stream_fragments(value: object, parts: dict[tuple[str, ...], list[str]], pa
     if isinstance(value, dict):
         for key, child in value.items():
             key = cast(str, key)
-            if key in {
-                "content",
-                "text",
-                "name",
-                "arguments",
-                "partial_json",
-                "refusal",
-                "thinking",
-                "reasoning",
-                "reasoning_content",
-                "delta",
-            } and isinstance(child, str):
+            if (
+                key
+                in {
+                    "content",
+                    "text",
+                    "name",
+                    "arguments",
+                    "partial_json",
+                    "refusal",
+                    "thinking",
+                    "reasoning",
+                    "reasoning_content",
+                    "delta",
+                }
+                or (key == "id" and path[:4] == ("choices", "0", "delta", "tool_calls"))
+            ) and isinstance(child, str):
                 parts[(*path, key)].append(child)
             elif isinstance(child, (dict, list)):
                 _stream_fragments(child, parts, (*path, key))
@@ -82,6 +86,7 @@ def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyD
     parts: dict[tuple[str, ...], list[str]] = defaultdict(list)
     terminal = False
     finished = False
+    tool_count = 0
     data_lines: list[str] = []
     events: list[str] = []
     # Only blank-line-terminated events are complete. EOF inside a frame with
@@ -129,13 +134,24 @@ def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyD
                     delta = choice.get("delta")
                     if isinstance(delta, dict) and delta.get("tool_calls") is not None:
                         calls = delta.get("tool_calls")
-                        # Only unsigned JSON integers have an unambiguous identity
-                        # across the retained lexical parser and native SDKs.
-                        if not isinstance(calls, list) or any(
-                            not isinstance(call, dict) or json_unsigned_integer(call.get("index")) is None
-                            for call in calls
-                        ):
+                        if not isinstance(calls, list):
                             return policy.decision(phase, "withhold", "tool_identity_unsupported")
+                        # SDKs preserve the initial array order, then update by
+                        # list position. Require canonical initialization/append
+                        # while allowing existing tools' deltas in any order.
+                        initial_tools = tool_count == 0
+                        seen: set[int] = set()
+                        for position, call in enumerate(calls):
+                            index = json_unsigned_integer(call.get("index")) if isinstance(call, dict) else None
+                            if (
+                                index is None
+                                or index in seen
+                                or index > tool_count
+                                or (initial_tools and index != position)
+                            ):
+                                return policy.decision(phase, "withhold", "tool_identity_unsupported")
+                            seen.add(index)
+                            tool_count = max(tool_count, index + 1)
                     if finished:
                         return policy.decision(phase, "withhold", "sse_data_after_finish")
                     if choice.get("finish_reason") is not None:

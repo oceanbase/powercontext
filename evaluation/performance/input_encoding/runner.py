@@ -56,7 +56,7 @@ from .dataset import (
     stability_ids,
     write_json,
 )
-from .identity import prepare_configuration_identity, require_private_identity_support
+from .identity import prepare_configuration_identity, require_original_manifest, require_private_identity_support
 
 _USAGE: ContextVar[list[dict[str, Any]] | None] = ContextVar("input_encoding_eval_usage", default=None)
 
@@ -327,6 +327,7 @@ def select_cases(catalog, case_file: Path | None, limit: int) -> tuple[str, ...]
 
 async def run(args) -> None:
     require_private_identity_support()
+    require_original_manifest(args.output, execution_patterns=("attempts/*", "segments/*"))
     catalog = load_catalog(args.dataset)
     selected = select_cases(catalog, args.case_ids, args.limit)
     jobs = plan_jobs(selected, args.repeats, args.seed)

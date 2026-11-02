@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from evaluation.performance.input_encoding import runner
+from evaluation.performance.input_encoding import judging, runner
 from evaluation.performance.input_encoding.identity import ConfigurationIdentityError, supports_private_identity
 
 pytestmark = pytest.mark.skipif(
@@ -157,4 +157,33 @@ def test_run_rejects_changed_evidence_parser_without_touching_saved_attempts(tmp
         asyncio.run(runner.run(args))
     assert {
         str(path.relative_to(args.output)): path.read_bytes() for path in args.output.rglob("*") if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize(
+    ("operation", "record"),
+    [
+        ("run", "attempts/completed.json"),
+        ("run", "attempts/started.json.partial"),
+        ("run", "segments/session.json"),
+        ("run", ".config-identity.key"),
+        ("judge", "questions/completed.json"),
+        ("judge", "answers/started.json.partial"),
+        ("judge", "assessments/completed.json"),
+        ("judge", "reference-questions.json.partial"),
+        ("judge", ".config-identity.key"),
+    ],
+)
+def test_orphaned_execution_state_is_rejected_before_private_settings(tmp_path, operation, record):
+    directory = tmp_path / "judge" if operation == "judge" else tmp_path
+    path = directory / record
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"preserved execution evidence")
+    before = {str(path.relative_to(tmp_path)): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    execute = judging.judge if operation == "judge" else runner.run
+    # No dataset or private settings are available: orphan detection must happen first.
+    with pytest.raises(ConfigurationIdentityError, match="original manifest"):
+        asyncio.run(execute(SimpleNamespace(output=tmp_path)))
+    assert {
+        str(path.relative_to(tmp_path)): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()
     } == before
