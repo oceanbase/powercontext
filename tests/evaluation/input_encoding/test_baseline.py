@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -24,6 +25,8 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy.exc import OperationalError
 
+from evaluation.performance.input_encoding import runner
+from evaluation.performance.input_encoding.dataset import digest, write_json
 from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.oceanbase import profile as oceanbase
@@ -38,6 +41,7 @@ class _DatabaseEngine:
         self.name = name
         self.databases = databases
         self.statements = statements
+        self.closed = False
 
     @asynccontextmanager
     async def connect(self):
@@ -62,7 +66,7 @@ class _DatabaseEngine:
         return ["pc_scopes", "pc_sources", "pc_artifacts", "pc_artifact_heads"]
 
     async def dispose(self):
-        pass
+        self.closed = True
 
 
 @pytest.mark.parametrize("exists", [False, True])
@@ -94,3 +98,91 @@ def test_baseline_database_inspection_never_provisions_a_database(monkeypatch, e
             asyncio.run(inspect_database(settings))
     assert databases == ({"existing"} if exists else set())
     assert not any(statement.startswith("CREATE") for statement in statements)
+
+
+@pytest.mark.parametrize("state", ["missing", "existing", "removed_before_reopen"])
+@pytest.mark.parametrize("override", [False, True])
+def test_run_never_provisions_external_databases(tmp_path, monkeypatch, state, override):
+    databases = set() if state == "missing" else {"evaluation"}
+    statements = []
+    engines = []
+    completed = []
+    environment = tmp_path / "fixture.env"
+    database = {
+        "kind": "oceanbase",
+        "url": "mysql+aoceanbase://user:private-fixture-password@localhost:2881/evaluation?charset=utf8mb4",
+    }
+    environment.write_text(
+        "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-chat:fixture\nOPENAI_API_KEY=private-fixture-key\n"
+        + (
+            ""
+            if override
+            else f"POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase\nPOWERCONTEXT_SERVER_DATABASE_URL={database['url']}\n"
+        )
+    )
+    database_file = tmp_path / "database.json"
+    database_file.write_text(json.dumps(database))
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps(["fixture-case"]))
+    args = SimpleNamespace(
+        dataset=tmp_path / "unused-dataset",
+        case_ids=cases,
+        limit=1,
+        repeats=1,
+        seed=2086,
+        output=tmp_path / "run",
+        env_file=environment,
+        database_config=database_file if override else None,
+        protection_config=None,
+        max_output_tokens=4096,
+        cohort="existing-database-fixture",
+        concurrency=1,
+        timeout=10,
+    )
+
+    def create_engine(config, url):
+        engine = _DatabaseEngine(url.database, databases, statements)
+        engines.append(engine)
+        return engine
+
+    @asynccontextmanager
+    async def initialized(profile, **kwargs):
+        # Keep the real connection/provisioning path; isolate schema and model execution.
+        yield profile
+
+    @asynccontextmanager
+    async def open_runtime(config, **kwargs):
+        async with oceanbase.OceanBaseProfile.open(config.database, tables=()):
+            yield object()
+
+    async def attempt(runtime, instance, job, directory, *args, **kwargs):
+        completed.append(job)
+        write_json(directory / "attempts" / f"{digest(job)[:24]}.json", {**job, "status": "succeeded"})
+        if state == "removed_before_reopen" and len(completed) == 3:
+            databases.remove("evaluation")
+
+    monkeypatch.setattr(oceanbase, "_create_engine", create_engine)
+    monkeypatch.setattr(oceanbase, "_initialized_profile", initialized)
+    monkeypatch.setattr(runner, "load_catalog", lambda path: SimpleNamespace(require=lambda name: object()))
+    monkeypatch.setattr(runner, "open_builtin_runtime", open_runtime)
+    monkeypatch.setattr(runner, "_attempt", attempt)
+    failure = None
+    try:
+        asyncio.run(runner.run(args))
+    except MissingDatabaseError as error:
+        failure = error
+
+    assert databases == ({"evaluation"} if state == "existing" else set())
+    assert not any(statement.startswith("CREATE") for statement in statements)
+    assert engines and all(engine.closed for engine in engines)
+    segments = [json.loads(path.read_text()) for path in (args.output / "segments").glob("*.json")]
+    if state == "existing":
+        assert failure is None
+        assert {job["mode"] for job in completed} == {"off", "shadow", "active"}
+        assert segments[0]["status"] == "completed"
+    else:
+        assert isinstance(failure, MissingDatabaseError)
+        assert segments[0]["status"] == "failed"
+        assert len(completed) == (0 if state == "missing" else 3)
+    for path in args.output.rglob("*.json"):
+        assert "private-fixture" not in path.read_text()

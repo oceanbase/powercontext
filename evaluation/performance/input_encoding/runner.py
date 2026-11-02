@@ -22,7 +22,7 @@ import json
 import random
 import re
 import time
-from contextlib import AsyncExitStack, contextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict
 from pathlib import Path
@@ -31,6 +31,7 @@ from typing import Any
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.inference.errors import find_privacy_error
 from powercontext.builtin.inference.usage import collect_input_encodings
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     ApproveCandidateRequest,
@@ -281,9 +282,19 @@ async def _attempt(
             print(json.dumps({"attempt_id": key, "mode": job["mode"], "status": result["status"]}), flush=True)
 
 
+@asynccontextmanager
+async def _open_runtime(config: BuiltinConfig, *, scheduler_path: Path):
+    """Reject absent external databases before each evaluation or readback opening."""
+    if isinstance(config.database, OceanBaseConfig):
+        async with OceanBaseProfile.open_existing(config.database, tables=()):
+            pass
+    async with open_builtin_runtime(config, scheduler_path=scheduler_path) as runtime:
+        yield runtime
+
+
 async def _reopen(configs, args) -> None:
     for mode, config in configs.items():
-        async with open_builtin_runtime(config, scheduler_path=args.output / f"scheduler-{mode}.db") as runtime:
+        async with _open_runtime(config, scheduler_path=args.output / f"scheduler-{mode}.db") as runtime:
             for path in sorted((args.output / "attempts").glob("*.json")):
                 result = json.loads(path.read_text())
                 if result["mode"] != mode or "artifact_ref" not in result:
@@ -379,7 +390,7 @@ async def run(args) -> None:
                 async with AsyncExitStack() as stack:
                     runtimes = {
                         mode: await stack.enter_async_context(
-                            open_builtin_runtime(config, scheduler_path=args.output / f"scheduler-{mode}.db")
+                            _open_runtime(config, scheduler_path=args.output / f"scheduler-{mode}.db")
                         )
                         for mode, config in configs.items()
                     }

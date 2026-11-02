@@ -61,6 +61,8 @@ export TMPDIR=/data/codex-tmp
 
 OceanBase 使用 `artifact_processing_role=api`，保留原部署能力清单及调度声明，但本评测进程不创建后台 worker 或 supervisor；SQLite/seekdb 使用空处理能力清单。已有数据库的向量索引维度和类型也必须匹配配置。独立评测数据库可以避免其他已有后台进程消费新增 Source。
 
+三个模式启动及结果重开验证之前，都会通过非建库连接检查配置的 OceanBase 数据库；缺库时拒绝运行，不尝试创建数据库。检查使用最终生效的数据库配置，包括 `--database-config` 覆盖。此约束适用于 `oceanbase` 配置及其支持的 MySQL 兼容 OceanBase/独立 SeekDB 服务；不新增通用 MySQL 支持。SQLite 和嵌入式 `seekdb` 仍按原有本地初始化流程处理。
+
 用 `--protection-config /private/protection.json` 对三个模式统一应用现有保护配置，用 `--max-output-tokens 4096` 统一设置输出上限，两者都进入实验身份。保护配置必须对应实际协议、endpoint、模型响应别名和部署预算；套件不会自行声称某个 tokenizer 上界已获验证。需要更换 SDK 的明确协议前缀时，可用私密 `.env` 副本，报告应披露最终模型和协议。主实验与评分应使用同一份副本。
 
 额外适用性切片可以通过 `--case-ids /path/to/public-ids.json --cohort conditional-applicable-v1` 指定固定公开 ID 数组。ID 必须属于同一验证过的 731 条原件且不能重复；实际选择及摘要写入 manifest。主切片始终保留原来的 24 条；额外挑选可压缩任务的结果仅表示条件适用性，不能替代全量覆盖率或主切片结论。

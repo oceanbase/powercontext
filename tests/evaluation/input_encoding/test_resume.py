@@ -69,6 +69,7 @@ def test_run_rejects_changed_private_identity_before_creating_execution_artifact
 
     monkeypatch.setattr(runner, "load_catalog", lambda path: SimpleNamespace(require=lambda name: object()))
     monkeypatch.setattr(runner, "open_builtin_runtime", stop_before_services)
+    monkeypatch.setattr(runner.OceanBaseProfile, "open_existing", stop_before_services)
     with pytest.raises(RuntimeBoundaryReached):
         asyncio.run(runner.run(args))
     manifest = args.output / "manifest.json"
