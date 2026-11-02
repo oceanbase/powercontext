@@ -214,6 +214,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
             store: None,
             previous_response_id: None,
             conversation: None,
+            passthrough_fields: None,
             token_limit_field: None,
         },
         target_url: "http://upstream.invalid/v1/chat/completions".into(),

@@ -52,6 +52,10 @@ pub struct CanonicalRequest {
     /// Responses 的会话标识（conversation 参数），原样透传。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
+    /// 入口未建模的其余顶层请求字段（如 reasoning、include、prompt_cache_key），原样透传。
+    /// 是否允许发送由 Core 的请求字段白名单裁决：被拒是显式 withhold，而不是静默丢弃。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passthrough_fields: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
