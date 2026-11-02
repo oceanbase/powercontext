@@ -28,6 +28,7 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::{GateClient, GateError};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
@@ -58,6 +59,8 @@ pub struct ManagedCall {
     pub headers: Vec<(String, String)>,
     pub degrade_policy: DegradePolicy,
     pub inject_context: bool,
+    /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
+    pub conversation_id: Option<String>,
     pub sediment: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
@@ -95,6 +98,8 @@ pub struct Executor<G, T> {
     gate: G,
     transport: T,
     max_attempts: NonZeroU32,
+    /// 会话内按消息锚点重放的准备结果（RFC 2199）。
+    replays: ReplayCache,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -115,6 +120,7 @@ where
             gate,
             transport,
             max_attempts,
+            replays: ReplayCache::default(),
         }
     }
 
@@ -131,7 +137,8 @@ where
         let pristine_user_text = last_user_text(&pristine_request).unwrap_or_default();
 
         if call.inject_context {
-            self.enrich(&mut call, renderer.message_list_key(), evidence)
+            let anchor = message_anchor(&pristine_request);
+            self.enrich(&mut call, anchor, renderer.message_list_key(), evidence)
                 .await;
         }
 
@@ -176,6 +183,7 @@ where
                             headers: call.headers.clone(),
                             degrade_policy: DegradePolicy::Pause,
                             inject_context: false,
+                            conversation_id: None,
                             sediment: false,
                             prepared_contexts: Vec::new(),
                         };
@@ -372,10 +380,60 @@ where
         }
     }
 
-    async fn enrich(&self, call: &mut ManagedCall, list_key: &str, evidence: &dyn EvidenceSink) {
-        let Some(query) = last_user_text(&call.request) else {
+    /// 有可信会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
+    /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
+    /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
+    async fn enrich(
+        &self,
+        call: &mut ManagedCall,
+        anchor: Option<u64>,
+        list_key: &str,
+        evidence: &dyn EvidenceSink,
+    ) {
+        let replay = call.conversation_id.clone().zip(anchor);
+        let cached = replay.as_ref().and_then(|(conversation, anchor)| {
+            self.replays
+                .get(&call.scope_id, conversation, *anchor, now_ms())
+        });
+        let prepared = match cached {
+            Some(prepared) => prepared,
+            None => {
+                let Some((prepared, expires_at)) = self.prepare_turn(call, evidence).await else {
+                    return;
+                };
+                match &replay {
+                    Some((conversation, anchor)) => {
+                        let now = now_ms();
+                        let expires = expires_at
+                            .as_deref()
+                            .and_then(parse_rfc3339_ms)
+                            .map_or(now + MAX_REPLAY_MS, |at| at.min(now + MAX_REPLAY_MS));
+                        self.replays.put_if_absent(
+                            &call.scope_id,
+                            conversation,
+                            *anchor,
+                            prepared,
+                            expires,
+                        )
+                    }
+                    None => prepared,
+                }
+            }
+        };
+        let Some(PreparedBlock { block, binding }) = prepared else {
             return;
         };
+        self.inject(call, &block, &binding, list_key);
+    }
+
+    /// 调用 prepare：失败返回 None（不缓存、不阻塞主请求）；
+    /// 成功返回（可注入的块，复用绑定到期时间）。
+    async fn prepare_turn(
+        &self,
+        call: &ManagedCall,
+        evidence: &dyn EvidenceSink,
+    ) -> Option<(Option<PreparedBlock>, Option<String>)> {
+        let query = last_user_text(&call.request)?;
         let prepared = match self
             .gate
             .prepare(PrepareContextRequest {
@@ -393,16 +451,22 @@ where
             Err(e) => {
                 evidence.record_not_sent(0, &format!("prepare_failed:{e}"));
                 tracing::warn!(error = %e, "prepare failed; injecting nothing");
-                return;
+                return None;
             }
         };
-        let (Some(content), Some(binding)) = (prepared.content(), prepared.binding()) else {
-            return;
+        let expires_at = prepared.expires_at().map(str::to_owned);
+        let block = match (prepared.content(), prepared.binding()) {
+            (Some(content), Some(binding)) if !content.is_empty() => Some(PreparedBlock {
+                block: content.to_owned(),
+                binding: binding.to_owned(),
+            }),
+            _ => None,
         };
-        if content.is_empty() {
-            return;
-        }
-        let block = content.to_string();
+        Some((block, expires_at))
+    }
+
+    /// 把准备好的块注入最后一条用户消息，并声明它在渲染后请求体中的位置。
+    fn inject(&self, call: &mut ManagedCall, block: &str, binding: &str, list_key: &str) {
         let Some(index) = last_user_index(&call.request) else {
             return;
         };

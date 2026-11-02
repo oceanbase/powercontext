@@ -28,6 +28,7 @@
 mod executor;
 mod gate_client;
 mod http_gate_client;
+mod replay_cache;
 mod uds_gate_client;
 
 pub use executor::*;

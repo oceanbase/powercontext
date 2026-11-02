@@ -126,6 +126,14 @@ impl PrepareContextResult {
             PrepareContextResult::Plain(_) => None,
         }
     }
+
+    /// 复用绑定的到期时间（RFC3339）；无复用元数据时为 None。
+    pub fn expires_at(&self) -> Option<&str> {
+        match self {
+            PrepareContextResult::WithReuse { reuse, .. } => Some(&reuse.expires_at),
+            PrepareContextResult::Plain(_) => None,
+        }
+    }
 }
 
 /// 标准注入块：与 PC 的 `_MARKERS`/摘要校验对齐。

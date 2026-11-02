@@ -239,6 +239,7 @@ async fn ingress_common(
             pc_gateway_core::DegradePolicy::Pause
         },
         inject_context: injects(&format, state.inject_context, state.inject_responses),
+        conversation_id: conversation_id(&headers),
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
@@ -408,6 +409,17 @@ fn responses_sse(resp: &serde_json::Value) -> String {
 fn injects(format: &Format, injection: bool, responses: bool) -> bool {
     injection && (matches!(format, Format::Chat) || responses)
 }
+
+/// 宿主提供的会话 ID（RFC 2199 `X-PowerContext-Conversation-ID`）：1～256 个可见 ASCII 字符。
+/// 缺失或不合规时按没有会话处理：不在请求之间重放准备结果，请求照常处理。
+fn conversation_id(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(CONVERSATION_ID_HEADER)?.to_str().ok()?;
+    let valid =
+        !value.is_empty() && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic());
+    valid.then(|| value.to_owned())
+}
+
+const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
     if key.is_empty() {
@@ -944,6 +956,21 @@ mod tests {
         assert!(injects(&Format::Responses, true, true));
         assert!(!injects(&Format::Responses, false, true));
         assert!(!injects(&Format::Chat, false, true));
+    }
+
+    #[test]
+    fn conversation_id_comes_only_from_a_valid_header() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(conversation_id(&headers), None);
+        headers.insert(CONVERSATION_ID_HEADER, "coding-client-001".parse().unwrap());
+        assert_eq!(
+            conversation_id(&headers).as_deref(),
+            Some("coding-client-001")
+        );
+        headers.insert(CONVERSATION_ID_HEADER, "has space".parse().unwrap());
+        assert_eq!(conversation_id(&headers), None);
+        headers.insert(CONVERSATION_ID_HEADER, "x".repeat(257).parse().unwrap());
+        assert_eq!(conversation_id(&headers), None);
     }
 
     #[test]

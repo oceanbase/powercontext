@@ -221,6 +221,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         headers: vec![("authorization".into(), "Bearer secret".into())],
         degrade_policy: degrade,
         inject_context: false,
+        conversation_id: None,
         sediment: false,
         prepared_contexts: Vec::new(),
     }
@@ -1529,4 +1530,229 @@ async fn typed_parts_pointer_targets_text_field() {
         loc.location.pointer, "/messages/0/content/0/text",
         "精确指针格式"
     );
+}
+
+// ---------- 回合内复用（RFC 2199：新用户消息才触发一次准备） ----------
+
+/// 工具循环的第 `step` 个请求：同一条用户消息之后跟着 `step` 轮工具调用与输出。
+fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall {
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.conversation_id = Some("conversation-a".into());
+    let user = if responses {
+        serde_json::json!({"type": "input_text", "text": user_text})
+    } else {
+        serde_json::json!(user_text)
+    };
+    c.request.messages = vec![CanonicalMessage {
+        role: Role::User,
+        content: vec![user],
+        content_null: false,
+        tool_calls: None,
+        tool_call_id: None,
+    }];
+    for i in 0..step {
+        let id = format!("call_{i}");
+        if responses {
+            for item in [
+                serde_json::json!({"type": "function_call", "call_id": id, "name": "run", "arguments": "{}"}),
+                serde_json::json!({"type": "function_call_output", "call_id": id, "output": "ok"}),
+            ] {
+                c.request.messages.push(CanonicalMessage {
+                    role: Role::Tool,
+                    content: vec![item],
+                    content_null: false,
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+            }
+        } else {
+            c.request.messages.push(CanonicalMessage {
+                role: Role::Assistant,
+                content: vec![],
+                content_null: true,
+                tool_calls: Some(vec![serde_json::json!({
+                    "id": id, "type": "function", "function": {"name": "run", "arguments": "{}"}
+                })]),
+                tool_call_id: None,
+            });
+            c.request.messages.push(CanonicalMessage {
+                role: Role::Tool,
+                content: vec![serde_json::json!("ok")],
+                content_null: false,
+                tool_calls: None,
+                tool_call_id: Some(id),
+            });
+        }
+    }
+    c
+}
+
+fn allow_runs(n: usize) -> Vec<Result<ContextCheckResult, GateError>> {
+    (0..n)
+        .flat_map(|_| {
+            [
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+            ]
+        })
+        .collect()
+}
+
+/// before_send 送检的请求体与声明（每个请求一条）。
+fn sends(gate: &FakeGate) -> Vec<(String, Vec<PreparedContextLocation>)> {
+    let seen = gate.seen.lock().unwrap().clone();
+    let declared = gate.prepared_seen.lock().unwrap().clone();
+    seen.into_iter()
+        .zip(declared)
+        .filter(|((phase, _), _)| *phase == CheckPhase::BeforeSend)
+        .map(|((_, body), declared)| (body, declared))
+        .collect()
+}
+
+async fn run_tool_loop(responses: bool) {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, transport, gate) =
+        harness(allow_runs(4), (0..4).map(|_| raw_response()).collect(), 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    for step in 0..3 {
+        let c = tool_loop_call("hello", step, responses);
+        let outcome = if responses {
+            executor
+                .run(
+                    c,
+                    &pc_gateway_protocol::OpenAiResponsesRenderer,
+                    &NoopEvidenceSink,
+                )
+                .await
+        } else {
+            executor
+                .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+                .await
+        };
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    // 一个回合只准备一次；每一步注入同一个块、声明同一个绑定和位置。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    let sent = sends(&gate);
+    assert_eq!(sent.len(), 3);
+    for (body, declared) in &sent {
+        assert_eq!(declared.len(), 1);
+        assert_eq!(declared[0].binding, "opaque-binding");
+        assert_eq!(declared[0].location.pointer, sent[0].1[0].location.pointer);
+        assert_eq!(
+            declared[0].location.end_byte,
+            sent[0].1[0].location.end_byte
+        );
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        let text = body
+            .pointer(&declared[0].location.pointer)
+            .unwrap()
+            .as_str()
+            .unwrap();
+        assert!(text.starts_with(block));
+    }
+    // 新的用户消息开始新回合：重新准备一次。
+    let c = tool_loop_call("next question", 0, responses);
+    if responses {
+        executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+    } else {
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(transport.sends.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn chat_tool_loop_prepares_once_per_user_message() {
+    run_tool_loop(false).await;
+}
+
+#[tokio::test]
+async fn responses_tool_loop_prepares_once_per_user_message() {
+    run_tool_loop(true).await;
+}
+
+#[tokio::test]
+async fn empty_preparation_is_reused_within_the_turn() {
+    let (executor, renderer, transport, gate) =
+        harness(allow_runs(3), (0..3).map(|_| raw_response()).collect(), 2);
+    for step in 0..3 {
+        let outcome = executor
+            .run(
+                tool_loop_call("hello", step, false),
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    assert!(sends(&gate).iter().all(|(_, declared)| declared.is_empty()));
+    assert_eq!(transport.sends.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn failed_preparation_is_retried_on_the_next_step_without_blocking() {
+    let (executor, renderer, transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    *gate.prepare_result.lock().unwrap() = Some(Err(GateError::GateUnavailable("down".into())));
+    for step in 0..2 {
+        let outcome = executor
+            .run(
+                tool_loop_call("hello", step, false),
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "prepare 失败不阻塞主链路"
+        );
+    }
+    // 失败不缓存：第二步重新准备（这次得到空结果）。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(transport.sends.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn conversations_with_identical_messages_prepare_separately() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    for conversation in ["conversation-a", "conversation-b"] {
+        let mut c = tool_loop_call("hello", 0, false);
+        c.conversation_id = Some(conversation.into());
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn requests_without_a_conversation_id_never_inherit_an_injection() {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    for step in 0..2 {
+        let mut c = tool_loop_call("hello", step, false);
+        c.conversation_id = None;
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    // 每个请求各自准备；第二次准备返回空，第二个请求不得沿用第一个请求的块。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    let sent = sends(&gate);
+    assert_eq!(sent[0].1.len(), 1);
+    assert!(sent[1].1.is_empty());
 }
