@@ -124,14 +124,14 @@ seekdb_lock = [
 ]
 skill_guidance = [
   "evaluation/skills/skill-up/**",
-  "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**",
+  "integrations/agent-plugin/powercontext/skills/powercontext-project-context/**",
   ".github/workflows/skill-guidance.yml",
 ]
 
 # Packaged guidance and its generators are inputs to the native host tests.
 [shared.guidance]
 patterns = [
-  "scripts/integration_guidance*", "scripts/evaluate_integration_guidance.py", "scripts/guidance_templates/**",
+  "scripts/integration_guidance*", "scripts/evaluate_integration_guidance.py", "integrations/agent-plugin/**",
   "tests/test_integration_guidance*", "tests/test_guidance*", "tests/test_setup_rollback.py",
 ]
 suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"]

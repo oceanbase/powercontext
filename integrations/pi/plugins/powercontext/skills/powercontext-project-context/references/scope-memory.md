@@ -1,35 +1,27 @@
-
 <!-- POWERCONTEXT-GUIDANCE:START -->
 # Scope and Memory
 
-## Read context
+## Resolve Scope
 
-Form one short search query from the topic, entity or exact identifier supplied by the current question.
-Preserve its language and technical terms; do not append guessed synonyms, translations or project names.
-Leave answer-format and fallback instructions out of the query, while preserving domain qualifiers, negations,
-versions and exact values. If the topic is unclear, ask for clarification instead of guessing a query.
+Follow the [host binding](host.md). Prefer the exact current-request Scope or the host's implicitly bound tools. If a tool schema omits Scope, let its native adapter supply it; do not bypass that binding with a Server-default resolver. For filesystem bindings, locate this installed Skill's plugin root, follow the documented resolver with the actual workspace/session identity, and reuse its successful result. A missing resolver or conflicting identity is a failure, not permission to guess a Scope or change a binding. A workspace change does not replace a current Session override.
 
-A successful empty search means this query found no matching Memory, not that no Memory exists.
-It does not authorize broader queries, another Scope, an inventory, local memory files or another retrieval channel.
-Make additional searches only when the current user request authorizes them. Report failed, denied, unavailable
-and unknown operations separately from a successful empty result.
+Use the available Server resolver only when the host binding permits it. Creating, binding or switching a Scope requires the user's corresponding intent; never derive an ID from a repository, branch, directory or prompt. Before durable Handoff or latest continuation, verify that the selected Scope is the intended result boundary.
 
+## Read Memory
 
-- Use `pc_search` with a focused query, `mode: "auto"`, and no more than eight results.
-- Use `pc_memory_list` for an explicitly requested inventory of active entries in the current Scope.
-- Use `pc_memory_get` with the exact Atomic Memory artifact returned by search or list.
-- Follow `next_cursor` for later inventory pages; a single page is not the whole inventory.
-- Use `pc_prepare_context` when one bounded, query-specific context value is more useful than raw search hits.
+- Use `search_memory` with a focused query, `mode: "auto"`, and at most eight results. Current hits contain `memory.artifact`, text, state, and `state_version`; they do not contain legacy entry citations.
+- Use `list_atomic_memories` for requested inventories, explicit state filters, and `next_cursor` pagination. Default to active memories. Include forgotten, merged, or retired memories only for an explicit audit.
+- Use `get_artifact_revision` with the exact `atomic-memory` ArtifactRef to inspect immutable content and lineage. Use `get_artifact` for current content and `get_atomic_memory_state` for current lifecycle state.
 
-## Write only on request
+## Save or change Memory on request
 
-- Call `pc_remember` only when the user explicitly asks to persist a concise decision, constraint, current state,
-  task outcome, next step, or agent note.
-- For `pc_memory_revise`, read the current Atomic Memory and copy its exact artifact and real content ETag from `pc_memory_get` into `if_match`.
-- For `pc_memory_retire`, use its exact current artifact and `state_version` from search, list or `pc_memory_state`. This sets recoverable `forgotten` state and preserves history.
-- An exact read of an older revision does not supply a current write ETag.
-- Never submit secrets or credentials.
-- Pi asks for confirmation before an explicit durable mutation and refuses it without an interactive UI.
+Call `remember_memory` only when the user explicitly asks to persist reusable project context.
 
-Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.
+Store concise, self-contained entries such as a decision, constraint, current-state, task-outcome, or next-step. Never store secrets, credentials, private tokens, or transient logs.
+
+`remember_memory` returns `records` with independent ArtifactRefs. Omit `expected_revision` or pass null; legacy collection revision preconditions are unsupported.
+
+For a requested correction, call `get_artifact`, inspect its `artifact`, and pass its exact `etag` as `replace_artifact`'s `If-Match`. These MCP tools return `{artifact, etag, status_code}`; a conditional 304 has `artifact: null`. Historical `get_artifact_revision` reads return plain Artifact JSON without a current-head ETag. For Atomic content, write `schema`, `kind`, and `text`; `creation` is system-owned merge metadata and must be omitted. Do not replace a stale precondition silently or create a duplicate to bypass it. After a conflict, reread and proceed only if the requested correction still applies.
+
+For a requested removal from normal search, read `get_atomic_memory_state` and call `change_atomic_memory_lifecycle` with the exact ArtifactRef and state_version. This forgets the memory and preserves recoverable history. Use restoration previews/restorations for an explicitly requested recovery; a merged memory can affect its whole merge chain. Legacy `revise_memory_entry` and `retire_memory_entry` are not current MCP operations. Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.
 <!-- POWERCONTEXT-GUIDANCE:END -->

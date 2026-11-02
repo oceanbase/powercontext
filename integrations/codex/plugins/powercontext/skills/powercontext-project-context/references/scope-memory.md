@@ -1,157 +1,27 @@
-
 <!-- POWERCONTEXT-GUIDANCE:START -->
 # Scope and Memory
 
-## Scope binding
+## Resolve Scope
 
-The integration binds the current Codex Session before recall, capture, and
-PowerContext MCP calls. Do not derive a Scope from the repository, directory,
-branch, Agent, or prompt, and do not override the integration binding in an
-ordinary data-plane call.
+Follow the [host binding](host.md). Prefer the exact current-request Scope or the host's implicitly bound tools. If a tool schema omits Scope, let its native adapter supply it; do not bypass that binding with a Server-default resolver. For filesystem bindings, locate this installed Skill's plugin root, follow the documented resolver with the actual workspace/session identity, and reuse its successful result. A missing resolver or conflicting identity is a failure, not permission to guess a Scope or change a binding. A workspace change does not replace a current Session override.
 
-When the user explicitly asks to start an independent result, use
-`resolve_scope_binding` to inspect the current Session Scope, then call
-`create_scope` with a concise title, summary, stable idempotency key, and only
-the Parent, Context References, or external references the user established.
-Use the current Scope as Parent only when the new Scope is an independently
-continuable sub-result of it. Then use `set_scope_binding`; the integration
-replaces its binding key with the current Codex Session identity. Reuse an
-existing Scope instead when the work does not need independent isolation,
-continuation, delivery, or observation.
+Use the available Server resolver only when the host binding permits it. Creating, binding or switching a Scope requires the user's corresponding intent; never derive an ID from a repository, branch, directory or prompt. Before durable Handoff or latest continuation, verify that the selected Scope is the intended result boundary.
 
-When the user explicitly asks to bind the current checkout so later Codex
-sessions in the same Git root reuse a known Scope, locate the installed plugin
-root from this Skill file (two directories above its containing directory).
-Use that absolute path for `PLUGIN_ROOT`; do not assume the hook variable is
-set in an ordinary shell. Replace `SCOPE_ID` with the existing server-assigned
-ID, then run:
+## Read Memory
 
-```bash
-uv run --frozen --quiet --project "${PLUGIN_ROOT}" python "${PLUGIN_ROOT}/scripts/scope_binding.py" \
-  --cwd "$PWD" --bind-scope "SCOPE_ID"
-```
+- Use `search_memory` with a focused query, `mode: "auto"`, and at most eight results. Current hits contain `memory.artifact`, text, state, and `state_version`; they do not contain legacy entry citations.
+- Use `list_atomic_memories` for requested inventories, explicit state filters, and `next_cursor` pagination. Default to active memories. Include forgotten, merged, or retired memories only for an explicit audit.
+- Use `get_artifact_revision` with the exact `atomic-memory` ArtifactRef to inspect immutable content and lineage. Use `get_artifact` for current content and `get_atomic_memory_state` for current lifecycle state.
 
-Then run the same command with both `--bind-scope` and its `SCOPE_ID` argument
-removed to inspect the effective directory Scope. If an explicit Scope variable
-is set, this prints that override rather than the stored workspace Scope; do not
-rebind merely because the IDs differ. To remove the checkout binding when the
-user requests it, use `--clear-scope` instead of `--bind-scope SCOPE_ID`. This
-preserves existing Session bindings and Scope contents. The script stores a Codex workspace binding. It does not create a Scope and
-does not derive a Scope ID from the Git remote or directory. `set_scope_binding`
-still changes only the current Session. A new Codex session is required before
-the workspace binding is fixed onto that session. If
-`POWERCONTEXT_CODEX_SCOPE_ID` is set, it still overrides the workspace binding.
+## Save or change Memory on request
 
-## Read
+Call `remember_memory` only when the user explicitly asks to persist reusable project context.
 
-- Use `search_memory` with a focused query, `mode: "auto"`, and at most eight results.
-  Current hits contain `memory.artifact`, text, state, and `state_version`; they do not contain legacy entry citations.
-- Use `list_atomic_memories` for requested inventories, explicit state filters, and `next_cursor` pagination.
-  Default to active memories. Include forgotten, merged, or retired memories only for an explicit audit.
-- Use `get_artifact_revision` with the exact `atomic-memory` ArtifactRef to inspect immutable content and lineage.
-  Use `get_artifact` for current content and `get_atomic_memory_state` for current lifecycle state.
-- `get_memory_entry` only adapts a legacy `target` with `type: "memory_entry"`, `family: "memory"`,
-  the collection's `artifact_id`, and `entry_id` to the migrated Atomic's current content.
-  Legacy citations and collection history are unsupported. Use `get_artifact_revision` with an Atomic ArtifactRef for exact history.
-- Use `search_topic_memory` with a focused query and no more than eight results
-  for durable topic summaries. The Server selects the retrieval mode.
-- Use `get_topic_memory` with an exact returned Artifact reference only when
-  full Topic Memory detail is needed. Do not request Topic Memory flushes from
-  Codex.
+Store concise, self-contained entries such as a decision, constraint, current-state, task-outcome, or next-step. Never store secrets, credentials, private tokens, or transient logs.
 
-## Explicit Memory Requests
+`remember_memory` returns `records` with independent ArtifactRefs. Omit `expected_revision` or pass null; legacy collection revision preconditions are unsupported.
 
-The examples below are illustrative, not an exhaustive keyword allowlist. Match
-the user's intent and equivalent paraphrases in English or Chinese.
+For a requested correction, call `get_artifact`, inspect its `artifact`, and pass its exact `etag` as `replace_artifact`'s `If-Match`. These MCP tools return `{artifact, etag, status_code}`; a conditional 304 has `artifact: null`. Historical `get_artifact_revision` reads return plain Artifact JSON without a current-head ETag. For Atomic content, write `schema`, `kind`, and `text`; `creation` is system-owned merge metadata and must be omitted. Do not replace a stale precondition silently or create a duplicate to bypass it. After a conflict, reread and proceed only if the requested correction still applies.
 
-### Save Memory
-
-When the user asks to preserve a preference, decision, constraint, fact,
-current state, task outcome, or next step for future reuse, call
-`remember_memory`. This includes requests such as:
-
-- `remember I prefer uv for Python`;
-- `save this preference: use pytest`;
-- `record this decision`;
-- `keep this constraint for future work`;
-- `please remember that deployments target OceanBase`;
-- `记住我偏好使用 uv`;
-- `保存这个偏好：测试使用 pytest`;
-- `记录这个决定`；
-- `把这个约束记下来`；
-- `请记住部署目标是 OceanBase`。
-
-Equivalent expressions such as `Please keep in mind that I use uv`, `Don't
-forget that the deployment target is OceanBase`, or `请把这个方案作为以后工作
-的默认方式保存` also express a save request. The phrase `From now on, use
-pytest` by itself is a current-turn instruction; only persist it when the user
-also asks to remember, save, or keep it for future work.
-
-For an explicit save request:
-
-1. Resolve the current `scope_id` using the resolver above and reuse it.
-2. Choose a supported `kind` from the current schema: `decision`, `constraint`,
-   `current-state`, `task-outcome`, `next-step`, or `agent-note`. Build concise, self-contained `text`.
-3. Call `remember_memory` with that scope and content. Do not call
-   `select_handoff_workstream` for this flow.
-4. Wait for the tool result. Report that Memory was saved only after the tool
-   returns successfully. A prompt Source captured by the Hook is not a Memory
-   write and does not satisfy this request.
-
-Never save secrets, credentials, tokens, or a verbatim copy of the full prompt.
-
-### Search Memory
-
-When the user asks to find, recall, search, or retrieve previously saved
-Memory, call `search_memory`. This includes requests such as:
-
-- `search my memories`;
-- `what do you remember about deployment?`;
-- `find the memory about the database decision`;
-- `recall what we decided about migrations`;
-- `搜索我的记忆`；
-- `查找之前记录的数据库决定`；
-- `回忆一下我们关于迁移的决定`；
-- `你还记得 Python 版本约束吗？`。
-
-For an explicit search request, resolve and reuse the current `scope_id`,
-extract a focused query, call `search_memory` with `mode: "auto"` and at most
-eight results, then answer from the returned hits. A successful empty result
-means that no matching Memory was found; it does not authorize inventing
-history. Do not call `select_handoff_workstream` for this flow.
-
-Do not claim that Memory was saved or searched unless the corresponding
-PowerContext tool was actually called and returned successfully. If the tool is
-unavailable or fails, clearly say that the Memory was not saved or searched and
-that the PowerContext operation could not be completed. Do not replace an
-explicit Memory operation with a verbal acknowledgement.
-
-Conceptual questions such as `How does PowerContext Memory work?`, preview
-requests such as `Draft a preference entry, but do not save it`, and questions
-about the difference between Memory and Handoff do not call a Memory tool.
-
-## Write only on request
-
-Call `remember_memory` only when the user explicitly asks to persist context.
-Store concise, self-contained entries such as a decision, constraint,
-current-state, task-outcome, or next-step. Never store secrets or credentials,
-and never claim success until the tool returns successfully.
-
-`remember_memory` returns `records` with independent ArtifactRefs. Omit `expected_revision` or pass null;
-legacy collection revision preconditions are unsupported.
-
-For a requested correction, call `get_artifact`, inspect its `artifact`, and pass its exact `etag` as
-`replace_artifact`'s `If-Match`. These MCP tools return `{artifact, etag, status_code}`; a conditional 304 has
-`artifact: null`. Historical `get_artifact_revision` reads return plain Artifact JSON without a current-head ETag.
-For Atomic content, write `schema`, `kind`, and `text`; `creation` is system-owned merge metadata and must be omitted.
-Do not replace a stale precondition silently or create a duplicate to bypass it. After a conflict, reread and proceed
-only if the requested correction still applies.
-
-For a requested removal from normal search, read `get_atomic_memory_state` and call `change_atomic_memory_lifecycle`
-with the exact ArtifactRef and state_version. This forgets the memory and preserves recoverable history.
-Use restoration previews/restorations for an explicitly requested recovery; a merged memory can affect its whole merge
-chain. Legacy `revise_memory_entry` and `retire_memory_entry` are not current MCP operations.
-
-
-Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.
+For a requested removal from normal search, read `get_atomic_memory_state` and call `change_atomic_memory_lifecycle` with the exact ArtifactRef and state_version. This forgets the memory and preserves recoverable history. Use restoration previews/restorations for an explicitly requested recovery; a merged memory can affect its whole merge chain. Legacy `revise_memory_entry` and `retire_memory_entry` are not current MCP operations. Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.
 <!-- POWERCONTEXT-GUIDANCE:END -->

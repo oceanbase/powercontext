@@ -215,10 +215,10 @@ jobs:
             else
               build_status=$?
             fi
-            if [ "$attempt" -eq 3 ] || ! grep -Fq 'hdiutil: create failed - Resource busy' "$attempt_log"; then
+            if [ "$attempt" -eq 3 ] || ! grep -Eq "hdiutil: (create failed|couldn't eject).*Resource busy" "$attempt_log"; then
               exit "$build_status"
             fi
-            echo "::warning::DMG creation found a busy resource; retrying after $((attempt * 5)) seconds (attempt $attempt of 3)."
+            echo "::warning::DMG creation or unmount found a busy resource; retrying after $((attempt * 5)) seconds (attempt $attempt of 3)."
             sleep "$((attempt * 5))"
           done
       - name: Upload failed macOS build diagnostics

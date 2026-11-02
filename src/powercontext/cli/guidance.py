@@ -20,7 +20,7 @@ import json
 import re
 import shutil
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 ENTRY_NAME = "powercontext-project-context"
@@ -29,7 +29,6 @@ SKILL_FILE = SKILL_DIRECTORY / "SKILL.md"
 START = "<!-- POWERCONTEXT-GUIDANCE:START -->"
 YAML_START = "# POWERCONTEXT-GUIDANCE:START"
 END = "<!-- POWERCONTEXT-GUIDANCE:END -->"
-RESOURCE_MANIFEST = ".powercontext-guidance.json"
 
 
 @dataclass(frozen=True)
@@ -39,8 +38,6 @@ class HostGuidance:
     plugin: str
     source_files: tuple[str, ...] = ("package.json",)
     package_name: str | None = None
-    variables: tuple[str, ...] = ()
-    script_evidence: tuple[str, ...] = ()
 
     def recognizes(self, path: Path) -> bool:
         """Identify a host package without requiring optional build output."""
@@ -62,13 +59,9 @@ class HostGuidance:
 HOST_GUIDANCE = {
     "codex": HostGuidance(
         "integrations/codex/plugins/powercontext",
-        variables=("PLUGIN_ROOT",),
-        script_evidence=("scripts/scope_binding.py",),
     ),
     "claude-code": HostGuidance(
         "integrations/claude-code/plugins/powercontext",
-        variables=("PLUGIN_ROOT",),
-        script_evidence=("scripts/workspace_scope.py",),
     ),
     "dsh": HostGuidance(
         "integrations/dsh/plugins/powercontext",
@@ -92,65 +85,27 @@ HOST_GUIDANCE = {
     ),
     "workbuddy": HostGuidance(
         "integrations/workbuddy/plugins/powercontext",
-        variables=("POWERCONTEXT_PYTHON", "POWERCONTEXT_SCOPE_BINDING_SCRIPT"),
-        script_evidence=("scripts/workspace_scope.py",),
         source_files=("hooks/workbuddy_powercontext_hook.py", "scripts/workspace_scope.py"),
     ),
     "zcode": HostGuidance(
         "integrations/zcode/plugins/powercontext",
-        script_evidence=("scripts/scope.mjs",),
         source_files=(".zcode-plugin/plugin.json", "hooks/user_prompt_submit.mjs"),
         package_name="powercontext",
     ),
     "kimi-code": HostGuidance(
         "integrations/kimi-code/plugins/powercontext",
-        script_evidence=("scripts/scope.mjs",),
         source_files=("kimi.plugin.json",),
         package_name="powercontext",
     ),
     "agent-plugin": HostGuidance("integrations/agent-plugin/powercontext"),
-    "minimax": HostGuidance("integrations/minimax/plugins/powercontext"),
+    "minimax": HostGuidance(
+        "integrations/minimax/plugins/powercontext",
+    ),
 }
 
 
 class GuidanceError(ValueError):
     """A refresh cannot safely identify its managed region."""
-
-
-def _resource_name(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or "\\" in value
-        or ":" in value
-        or PurePosixPath(value).is_absolute()
-        or ".." in PurePosixPath(value).parts
-        or PurePosixPath(value).as_posix() != value
-        or value in {".", RESOURCE_MANIFEST}
-    ):
-        raise GuidanceError("invalid guidance resource path in manifest")  # noqa: TRY003
-    return value
-
-
-def _resource_inventory(directory: Path) -> set[str] | None:
-    manifest = directory / RESOURCE_MANIFEST
-    if not manifest.exists():
-        return None
-    if not manifest.resolve().is_relative_to(directory.resolve()):
-        raise GuidanceError("guidance manifest escapes its package")  # noqa: TRY003
-    try:
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-    except (ValueError, UnicodeError) as error:
-        raise GuidanceError("invalid guidance manifest") from error  # noqa: TRY003
-    if not isinstance(payload, dict):
-        raise GuidanceError("invalid guidance manifest")  # noqa: TRY003
-    resources = payload.get("resources")
-    if payload.get("schema_version") != 1 or not isinstance(resources, list):
-        raise GuidanceError("unsupported guidance manifest schema")  # noqa: TRY003
-    names = {_resource_name(name) for name in resources}
-    if "SKILL.md" not in names or len(names) != len(resources):
-        raise GuidanceError("guidance manifest needs a unique resource inventory including SKILL.md")  # noqa: TRY003
-    return names
 
 
 def _linked_resources(directory: Path, *, require_files: bool) -> set[str]:
@@ -183,27 +138,15 @@ def _linked_resources(directory: Path, *, require_files: bool) -> set[str]:
 
 
 def _package_resources(directory: Path) -> set[str]:
-    inventory = _resource_inventory(directory)
-    linked = _linked_resources(directory, require_files=True)
-    if inventory is None:
-        for path in directory.rglob("*.md"):
-            if guidance_region(path.read_text(encoding="utf-8")) is not None:
-                raise GuidanceError("managed guidance is missing its resource manifest")  # noqa: TRY003
-        return linked
-    names = inventory
-    packaged = {
-        path.relative_to(directory).as_posix()
-        for path in directory.rglob("*")
-        if path.is_file() and path.relative_to(directory).as_posix() != RESOURCE_MANIFEST
-    }
-    if packaged - names:
-        raise GuidanceError("unlisted guidance resource in package manifest")  # noqa: TRY003
-    if linked - names:
-        raise GuidanceError("linked guidance resource is absent from the manifest")  # noqa: TRY003
-    for name in names:
-        path = directory / name
-        if not path.is_file() or not path.resolve().is_relative_to(directory.resolve()):
-            raise GuidanceError(f"missing or out-of-package guidance resource: {name}")  # noqa: TRY003
+    _linked_resources(directory, require_files=True)
+    names = set()
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        name = path.relative_to(directory).as_posix()
+        if not path.resolve().is_relative_to(directory.resolve()):
+            raise GuidanceError(f"out-of-package guidance resource: {name}")  # noqa: TRY003
+        names.add(name)
     return names
 
 
@@ -266,8 +209,7 @@ def _render_installed_markdown(
 def _validate_resource_transition(source: Path, previous: Path, resources: set[str]) -> None:
     """Do not promote retired or ambiguously owned package files into user content."""
     if previous.is_dir():
-        prior = _resource_inventory(previous)
-        owned = prior if prior is not None else _linked_resources(previous, require_files=False)
+        owned = _linked_resources(previous, require_files=False)
         removed = {name for name in owned - resources if (previous / name).is_file()}
         if removed:
             message = f"removing owned guidance requires an explicit migration: {sorted(removed)}"
@@ -278,7 +220,7 @@ def _validate_resource_transition(source: Path, previous: Path, resources: set[s
             if not path.resolve().is_relative_to(previous.resolve()):
                 raise GuidanceError("user Skill resource escapes its package")  # noqa: TRY003
             if path.suffix == ".md" and guidance_region(path.read_text(encoding="utf-8")) is not None:
-                raise GuidanceError("unlisted owned guidance requires an explicit migration")  # noqa: TRY003
+                raise GuidanceError("retired managed guidance requires an explicit migration")  # noqa: TRY003
 
 
 def refresh_skill(
@@ -297,10 +239,9 @@ def refresh_skill(
     writes: dict[Path, bytes] = {}
     previous = previous or target
     _validate_resource_transition(source, previous, resources)
-    for path in source.rglob("*"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(source)
+    for name in sorted(resources):
+        relative = Path(name)
+        path = source / relative
         destination = target / relative
         current = previous / relative
         if (

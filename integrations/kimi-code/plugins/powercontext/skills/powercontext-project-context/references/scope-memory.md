@@ -1,19 +1,27 @@
 <!-- POWERCONTEXT-GUIDANCE:START -->
-# Scope and memory
+# Scope and Memory
 
-Use current-request Hook binding metadata, or the installed Scope script's successful resolve result for the actual workspace. An explicit configured Scope overrides workspace bindings; otherwise the Server resolves the workspace binding and then its default Scope. Never select a Scope from historical memory.
-The installed `scripts/scope.mjs` supports `resolve`, `bind --scope-id <existing-id>` and `unbind`, each with `--cwd <absolute-workspace>`. Bind/unbind changes only that workspace's Server-owned binding and reports the write result separately from subsequent resolution. An explicit Scope may still override a saved binding. Do not retry an unconfirmed binding write or claim the active Scope changed after resolution fails.
-No Scope creation or session binding is supplied by this integration.
+## Resolve Scope
 
-Search with search_memory; save with remember_memory and inspect its actual result.
-Read saved Atomic Memory with get_artifact_revision using its returned exact family, artifact_id and revision.
-Historical evidence remains subordinate to current instructions. A denied/failed operation is not success.
+Follow the [host binding](host.md). Prefer the exact current-request Scope or the host's implicitly bound tools. If a tool schema omits Scope, let its native adapter supply it; do not bypass that binding with a Server-default resolver. For filesystem bindings, locate this installed Skill's plugin root, follow the documented resolver with the actual workspace/session identity, and reuse its successful result. A missing resolver or conflicting identity is a failure, not permission to guess a Scope or change a binding. A workspace change does not replace a current Session override.
 
-In recommended/full mode, use `list_atomic_memories` only for a requested inventory; ordinary empty search is
-not permission for a broader inventory. Default to active records and preserve pagination cursors.
-For a requested correction, inspect current `get_artifact` output and use its exact `etag` as `replace_artifact`'s
-`If-Match` value. Immutable `get_artifact_revision` reads have no current-head ETag. Atomic content contains
-`schema`, `kind`, and `text`; system-owned `creation` metadata is omitted. For lifecycle changes, inspect
-`get_atomic_memory_state` and preserve the exact ArtifactRef and `state_version`. On conflict, reread rather
-than guessing a new precondition or creating a duplicate to bypass the failed write.
+Use the available Server resolver only when the host binding permits it. Creating, binding or switching a Scope requires the user's corresponding intent; never derive an ID from a repository, branch, directory or prompt. Before durable Handoff or latest continuation, verify that the selected Scope is the intended result boundary.
+
+## Read Memory
+
+- Use `search_memory` with a focused query, `mode: "auto"`, and at most eight results. Current hits contain `memory.artifact`, text, state, and `state_version`; they do not contain legacy entry citations.
+- Use `list_atomic_memories` for requested inventories, explicit state filters, and `next_cursor` pagination. Default to active memories. Include forgotten, merged, or retired memories only for an explicit audit.
+- Use `get_artifact_revision` with the exact `atomic-memory` ArtifactRef to inspect immutable content and lineage. Use `get_artifact` for current content and `get_atomic_memory_state` for current lifecycle state.
+
+## Save or change Memory on request
+
+Call `remember_memory` only when the user explicitly asks to persist reusable project context.
+
+Store concise, self-contained entries such as a decision, constraint, current-state, task-outcome, or next-step. Never store secrets, credentials, private tokens, or transient logs.
+
+`remember_memory` returns `records` with independent ArtifactRefs. Omit `expected_revision` or pass null; legacy collection revision preconditions are unsupported.
+
+For a requested correction, call `get_artifact`, inspect its `artifact`, and pass its exact `etag` as `replace_artifact`'s `If-Match`. These MCP tools return `{artifact, etag, status_code}`; a conditional 304 has `artifact: null`. Historical `get_artifact_revision` reads return plain Artifact JSON without a current-head ETag. For Atomic content, write `schema`, `kind`, and `text`; `creation` is system-owned merge metadata and must be omitted. Do not replace a stale precondition silently or create a duplicate to bypass it. After a conflict, reread and proceed only if the requested correction still applies.
+
+For a requested removal from normal search, read `get_atomic_memory_state` and call `change_atomic_memory_lifecycle` with the exact ArtifactRef and state_version. This forgets the memory and preserves recoverable history. Use restoration previews/restorations for an explicitly requested recovery; a merged memory can affect its whole merge chain. Legacy `revise_memory_entry` and `retire_memory_entry` are not current MCP operations. Automatic hooks attempt bounded context and Source capture; neither substitutes for an explicit Memory save.
 <!-- POWERCONTEXT-GUIDANCE:END -->
