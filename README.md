@@ -45,7 +45,7 @@ Scope
 
 For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
 
-*Screenshots and recordings show the running Dashboard and native Desktop preview with synthetic demonstration records.*
+*Recordings show the running Dashboard and native Desktop preview in their dark themes, using synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
 
@@ -57,9 +57,9 @@ Explicit Memory writes need no model at all; extraction from captured Sources ne
 > "Don't refactor the old auth module — mobile is still using it."
 > Context this expensive shouldn't depend on someone repeating it in every session.
 
-![Dashboard recording: search project memories, inspect a saved revision, and open a Handoff](docs/assets/readme-dashboard-demo.gif)
+![Dashboard in dark mode: search project memories and inspect a saved revision](docs/assets/readme-dashboard-demo.gif)
 
-[Still image](docs/assets/readme-dashboard-memories.png) · [Capture details](desktop/SCREENSHOTS.md)
+[Capture details](desktop/SCREENSHOTS.md)
 
 ### Handoff — the current state, not the whole transcript
 
@@ -75,7 +75,7 @@ a Task Outcome preserves the final status and checks as Source evidence. The
 [Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) projects the latest Revision in
 each selected Scope — read-only, and it never rewrites Memory.
 
-![Dashboard showing a committed Handoff Revision with recorded progress, next action, and linked source evidence](docs/assets/readme-dashboard-handoff.png)
+![Dashboard in dark mode: open a Handoff and inspect its saved revision](docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — what worked, reviewed before it is reused
 
@@ -96,9 +96,9 @@ Connect to a Server, select an exact Scope, and search its memories. Open a resu
 or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation;
 signed distribution and platform release qualification remain separate work.
 
-![Native Desktop recording: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
+![Native Desktop in dark mode: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
 
-[Still image](docs/assets/readme-desktop-memories.png) · [Capture details](desktop/SCREENSHOTS.md)
+[Capture details](desktop/SCREENSHOTS.md)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 

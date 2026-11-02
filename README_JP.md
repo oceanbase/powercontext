@@ -39,7 +39,7 @@ Scope
 └── Topic Memory      # 対象となる Source からバックグラウンドで抽出
 ```
 
-*以下のスクリーンショットと録画は、実際に動作する Dashboard とネイティブのデスクトッププレビューで、合成のデモ記録を表示しています。*
+*以下の録画は、実際に動作する Dashboard とネイティブのデスクトッププレビューをダークテーマに設定し、合成のデモ記録を表示しています。*
 
 ### Memory — セッションを超えて残る判断と制約
 
@@ -48,9 +48,9 @@ Memory は、再利用可能な判断・制約・事実・状態・次の手順�
 > 「古い auth モジュールはリファクタリングしないで。モバイル側がまだ使っているから。」
 > これほど価値のある文脈を、毎セッション誰かが言い直すことに依存させるべきではありません。
 
-![Dashboard の操作録画：プロジェクトの記憶を検索し、保存済みリビジョンと Handoff を開く](docs/assets/readme-dashboard-demo.gif)
+![ダークテーマの Dashboard：プロジェクトの記憶を検索し、保存済みリビジョンを開く](docs/assets/readme-dashboard-demo.gif)
 
-[静止画](docs/assets/readme-dashboard-memories.png) · [撮影情報](desktop/SCREENSHOTS.md)
+[撮影情報](desktop/SCREENSHOTS.md)
 
 ### Handoff — 全文ではなく現在の状態
 
@@ -62,7 +62,7 @@ Work Contract → Prepared Handoff → Acknowledgement → Task Outcome
 
 `handoff_current_work` は検査済みの境界を取り込み、一時的な Prepared Handoff を返します。コミットして永続的なリビジョンになるのは、マイルストーンとして残したいとユーザーが判断した場合だけです。受け手は Handoff を解決して Acknowledgement を記録し、Task Outcome が最終状態とチェック内容を Source の根拠として保存します。[Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) は、選択した各 Scope の最新 Handoff リビジョンを投影して閲覧・エクスポートできます。読み取り専用で、Memory を書き換えることはありません。
 
-![記録済みの進捗、次の行動、関連 Source の根拠を含むコミット済み Handoff Revision を示す Dashboard](docs/assets/readme-dashboard-handoff.png)
+![ダークテーマの Dashboard：Handoff を開き、保存済みリビジョンを確認する](docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — レビューを経て再利用される知見
 
@@ -77,9 +77,9 @@ Experience は、状況・行動・観察された結果・再利用可能な教
 Server に接続して正確な Scope を選択すると、その記憶を検索できます。検索結果を開いて保存済みの特定リビジョンを読み、次のセッションに向けたメモも保存できます。
 [デスクトッププレビュー](desktop/README.md)は内部検証用です。署名付き配布と各プラットフォームのリリース認定は、別途検証が必要です。
 
-![ネイティブデスクトップの操作録画：プロジェクトの記憶を検索して保存済みの特定リビジョンを読む](docs/assets/readme-desktop-demo.gif)
+![ダークテーマのネイティブデスクトップ：プロジェクトの記憶を検索して保存済みの特定リビジョンを読む](docs/assets/readme-desktop-demo.gif)
 
-[静止画](docs/assets/readme-desktop-memories.png) · [撮影情報](desktop/SCREENSHOTS.md)
+[撮影情報](desktop/SCREENSHOTS.md)
 
 ## なぜ PowerContext なのか？
 
