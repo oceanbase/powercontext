@@ -45,7 +45,7 @@ Scope
 
 For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
 
-*Screenshots show the Dashboard and Desktop preview with synthetic demonstration records.*
+*Screenshots and recordings show the running Dashboard and native Desktop preview with synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
 
@@ -57,7 +57,9 @@ Explicit Memory writes need no model at all; extraction from captured Sources ne
 > "Don't refactor the old auth module — mobile is still using it."
 > Context this expensive shouldn't depend on someone repeating it in every session.
 
-![Dashboard showing active decisions and constraints for one Scope with their Artifact and Source references](docs/assets/readme-dashboard-memories.png)
+![Dashboard recording: search project memories, inspect a saved revision, and open a Handoff](docs/assets/readme-dashboard-demo.gif)
+
+[Still image](docs/assets/readme-dashboard-memories.png) · [Capture details](desktop/SCREENSHOTS.md)
 
 ### Handoff — the current state, not the whole transcript
 
@@ -94,7 +96,9 @@ Connect to a Server, select an exact Scope, and search its memories. Open a resu
 or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation;
 signed distribution and platform release qualification remain separate work.
 
-![Desktop preview showing project memory search results and an exact saved revision](docs/assets/readme-desktop-memories.png)
+![Native Desktop recording: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
+
+[Still image](docs/assets/readme-desktop-memories.png) · [Capture details](desktop/SCREENSHOTS.md)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 

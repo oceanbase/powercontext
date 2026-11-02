@@ -39,7 +39,7 @@ Scope
 └── Topic Memory      # 対象となる Source からバックグラウンドで抽出
 ```
 
-*以下の Dashboard とデスクトッププレビューの画面は、合成のデモ記録を使用しています。*
+*以下のスクリーンショットと録画は、実際に動作する Dashboard とネイティブのデスクトッププレビューで、合成のデモ記録を表示しています。*
 
 ### Memory — セッションを超えて残る判断と制約
 
@@ -48,7 +48,9 @@ Memory は、再利用可能な判断・制約・事実・状態・次の手順�
 > 「古い auth モジュールはリファクタリングしないで。モバイル側がまだ使っているから。」
 > これほど価値のある文脈を、毎セッション誰かが言い直すことに依存させるべきではありません。
 
-![1 つの Scope のアクティブな判断と制約、および対応する Artifact と Source 参照を示す Dashboard](docs/assets/readme-dashboard-memories.png)
+![Dashboard の操作録画：プロジェクトの記憶を検索し、保存済みリビジョンと Handoff を開く](docs/assets/readme-dashboard-demo.gif)
+
+[静止画](docs/assets/readme-dashboard-memories.png) · [撮影情報](desktop/SCREENSHOTS.md)
 
 ### Handoff — 全文ではなく現在の状態
 
@@ -75,7 +77,9 @@ Experience は、状況・行動・観察された結果・再利用可能な教
 Server に接続して正確な Scope を選択すると、その記憶を検索できます。検索結果を開いて保存済みの特定リビジョンを読み、次のセッションに向けたメモも保存できます。
 [デスクトッププレビュー](desktop/README.md)は内部検証用です。署名付き配布と各プラットフォームのリリース認定は、別途検証が必要です。
 
-![プロジェクトの記憶の検索結果と保存済みの特定リビジョンを表示するデスクトッププレビュー](docs/assets/readme-desktop-memories.png)
+![ネイティブデスクトップの操作録画：プロジェクトの記憶を検索して保存済みの特定リビジョンを読む](docs/assets/readme-desktop-demo.gif)
+
+[静止画](docs/assets/readme-desktop-memories.png) · [撮影情報](desktop/SCREENSHOTS.md)
 
 ## なぜ PowerContext なのか？
 

@@ -38,7 +38,7 @@ Scope
 └── Topic Memory      # 由符合条件的 Source 后台提取
 ```
 
-*下方 Dashboard 与桌面预览截图均使用合成演示记录。*
+*下方截图与录屏来自实际运行的 Dashboard 和原生桌面预览，使用合成演示记录。*
 
 ### Memory —— 活得比会话更久的决定与约束
 
@@ -50,7 +50,9 @@ Memory 是一个带版本的 Artifact 家族，存放可以复用的决定、约
 > "别重构老的 auth 模块 —— 移动端还在用。"
 > 这么贵的上下文，不应该依赖有人每个会话都重讲一遍。
 
-![Dashboard 展示一个 Scope 中活跃的决定和约束，以及对应的 Artifact 与 Source 引用](docs/assets/readme-dashboard-memories-zh.png)
+![Dashboard 操作录屏：搜索项目记忆、查看已保存版本，再打开交接记录](docs/assets/readme-dashboard-demo-zh.gif)
+
+[查看静态截图](docs/assets/readme-dashboard-memories-zh.png) · [录制说明](desktop/SCREENSHOTS.md)
 
 ### Handoff —— 当前状态，不是整段对话记录
 
@@ -77,7 +79,9 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 连接 Server、选择精确的 Scope 后，即可搜索其中的记忆，打开结果读取已保存的具体版本，或为下次会话记录便签。
 [桌面预览](desktop/README.zh.md)用于内部验证；签名分发和各平台的发行验收仍需单独完成。
 
-![桌面预览展示项目记忆搜索结果与已保存的精确版本](docs/assets/readme-desktop-memories-zh.png)
+![原生桌面端操作录屏：搜索项目记忆并读取已保存的精确版本](docs/assets/readme-desktop-demo-zh.gif)
+
+[查看静态截图](docs/assets/readme-desktop-memories-zh.png) · [录制说明](desktop/SCREENSHOTS.md)
 
 [运行指标](docs/zh/docs/operate/observability.md)提供依赖状态观察、处理进度新鲜度和执行尝试延迟；独立后台部署也可使用受保护的专用指标端点。
 
