@@ -352,6 +352,9 @@ fn responses_sse(resp: &serde_json::Value) -> String {
                     if empty.get("annotations").is_some() {
                         empty["annotations"] = json!([]);
                     }
+                    if empty.get("logprobs").is_some() {
+                        empty["logprobs"] = json!([]);
+                    }
                     Some(("text", "response.output_text"))
                 }
                 Some("refusal") => {
@@ -366,11 +369,13 @@ fn responses_sse(resp: &serde_json::Value) -> String {
             );
             if let Some((field, prefix)) = text_kind {
                 let text = part.get(field).cloned().unwrap_or(json!(""));
-                let logprobs = json!({"logprobs": []});
                 let is_text = field == "text";
                 let mut delta = with(at.clone(), json!({"delta": text}));
                 let mut done = with(at.clone(), json!({ field: text }));
                 if is_text {
+                    let logprobs = json!({
+                        "logprobs": part.get("logprobs").filter(|value| !value.is_null()).cloned().unwrap_or(json!([]))
+                    });
                     delta = with(delta, logprobs.clone());
                     done = with(done, logprobs);
                 }
@@ -826,6 +831,71 @@ mod tests {
         });
         let events = sse_events(&responses_sse(&incomplete));
         assert_eq!(event_types(&events).last(), Some(&"response.incomplete"));
+    }
+
+    #[tokio::test]
+    async fn replayed_text_events_preserve_logprobs() {
+        let logprobs = serde_json::json!([{
+            "token": "hello", "logprob": -0.125, "bytes": [104, 101, 108, 108, 111],
+            "top_logprobs": [{"token": "hi", "logprob": -2.5, "bytes": [104, 105]}]
+        }]);
+        let resp = serde_json::json!({
+            "id": "resp_1", "object": "response", "status": "completed",
+            "output": [{
+                "id": "msg_1", "type": "message", "role": "assistant", "status": "completed",
+                "content": [
+                    {"type": "output_text", "text": "hello", "annotations": [], "logprobs": logprobs},
+                    {"type": "output_text", "text": " world", "annotations": [], "logprobs": null},
+                    {"type": "output_text", "text": "!", "annotations": []}
+                ]
+            }]
+        });
+        for degraded in [false, true] {
+            let body = bytes::Bytes::from(serde_json::to_vec(&resp).unwrap());
+            let outcome = if degraded {
+                ManagedOutcome::Degraded {
+                    status: 200,
+                    content_type: "application/json".into(),
+                    body,
+                }
+            } else {
+                ManagedOutcome::Released {
+                    binding: None,
+                    status: 200,
+                    content_type: "application/json".into(),
+                    body,
+                }
+            };
+            let response = respond_responses_sse(outcome);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let events = sse_events(std::str::from_utf8(&body).unwrap());
+            let added = events
+                .iter()
+                .find(|e| e["type"] == "response.content_part.added" && e["content_index"] == 0)
+                .unwrap();
+            assert_eq!(added["part"]["logprobs"], serde_json::json!([]));
+            for (content_index, expected) in [
+                (0, logprobs.clone()),
+                (1, serde_json::json!([])),
+                (2, serde_json::json!([])),
+            ] {
+                for kind in ["response.output_text.delta", "response.output_text.done"] {
+                    let event = events
+                        .iter()
+                        .find(|e| e["type"] == kind && e["content_index"] == content_index)
+                        .unwrap();
+                    assert_eq!(event["logprobs"], expected);
+                }
+            }
+            let done = events
+                .iter()
+                .find(|e| e["type"] == "response.content_part.done" && e["content_index"] == 0)
+                .unwrap();
+            assert_eq!(done["part"], resp["output"][0]["content"][0]);
+            assert_eq!(events.last().unwrap()["response"], resp);
+        }
     }
 
     #[test]
