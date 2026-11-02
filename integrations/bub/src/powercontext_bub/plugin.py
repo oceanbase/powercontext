@@ -24,7 +24,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import httpx
 from bub import Settings, config, ensure_config, hookimpl
@@ -36,7 +36,7 @@ from pydantic_settings import SettingsConfigDict
 from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
 from powercontext.client.capture import render_capture_event
 from powercontext.client.transport_policy import ClientTransportSettings
-from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest
+from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest, PreparedContext
 
 try:
     from powercontext.http import ContextAssembly
@@ -296,7 +296,7 @@ class PowerContextPlugin:
         )
         try:
             async with self._client() as client:
-                prepared = await client.prepare_context(request)
+                prepared = cast(PreparedContext, await client.prepare_context(request))
         except CLIENT_ERRORS as exc:
             state[STATE_KEY]["prepare_error"] = type(exc).__name__
             self._write_capture_record(

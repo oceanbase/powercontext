@@ -40,7 +40,7 @@ Scope
 
 For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
 
-*The Dashboard screenshots below use synthetic demonstration records.*
+*Recordings show the running Dashboard and native Desktop preview in their dark themes, using synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
 
@@ -49,7 +49,7 @@ Memory is a revisioned Artifact family for reusable decisions, constraints, fact
 > "Don't refactor the old auth module — mobile is still using it."
 > Context this expensive shouldn't depend on someone repeating it in every session.
 
-![Dashboard showing active decisions and constraints for one Scope with their Artifact and Source references](docs/assets/readme-dashboard-memories.png)
+![Dashboard in dark mode: search project memories and inspect a saved revision](docs/assets/readme-dashboard-demo.gif)
 
 ### Handoff — the current state, not the whole transcript
 
@@ -61,7 +61,7 @@ Work Contract → Prepared Handoff → Acknowledgement → Task Outcome
 
 `handoff_current_work` captures an inspected boundary and returns a temporary Prepared Handoff. Committing it creates a durable Revision only when the user wants a milestone. The receiver resolves the Handoff and records an Acknowledgement; a Task Outcome preserves the final status and checks as Source evidence. The [Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) projects the latest Revision in each selected Scope — read-only, and it never rewrites Memory.
 
-![Dashboard showing a committed Handoff Revision with recorded progress, next action, and linked source evidence](docs/assets/readme-dashboard-handoff.png)
+![Dashboard in dark mode: open a Handoff and inspect its saved revision](docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — what worked, reviewed before it is reused
 
@@ -70,6 +70,12 @@ An Experience records a situation, an action, an observed outcome, and a reusabl
 ### Skill — a reviewed procedure, exported on purpose
 
 A managed Skill holds a name, a discovery description, instructions, validation checks, and lineage. Approval does not install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the host-local projection.
+
+### Desktop — inspect project memory from a connected workspace
+
+Connect to a Server, select an exact Scope, and search its memories. Open a result to read its saved revision, or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation; signed distribution and platform release qualification remain separate work.
+
+![Native Desktop in dark mode: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 
@@ -123,7 +129,7 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.4.1 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](docs/en/docs/get-started/install-and-run.md). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](docs/en/docs/get-started/install-and-run.md#install-with-the-recommended-script).
+PowerContext 1.5.0 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](docs/en/docs/get-started/install-and-run.md). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](docs/en/docs/get-started/install-and-run.md#install-with-the-recommended-script).
 
 Choose the path that matches your goal:
 
@@ -136,7 +142,7 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.1"
+uv tool install --force "powercontext[cli,server]==1.5.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 ```
@@ -166,7 +172,7 @@ powercontext capabilities
 Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the same Server and Scope in the Dashboard and Agent. After editing `.env`, rerun `powercontext service install --env-file .env` to apply the updated settings. Then install the matching plugins and launch a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.4.1
+powercontext setup codex --ref powercontext-v1.5.0
 powercontext doctor codex
 ```
 

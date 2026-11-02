@@ -1,6 +1,6 @@
 ---
 title: 安装和运行
-description: 安装 PowerContext 1.4.1，并运行本地 Server。
+description: 安装 PowerContext 1.5.0，并运行本地 Server。
 ---
 
 # 安装和运行
@@ -82,15 +82,15 @@ powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 
 ## 选择脚本安装版本
 
-默认的 `--version latest` 安装或升级到所选索引中兼容的最新稳定版。安装 PowerContext 1.4.1 时，选择对应平台的命令：
+默认的 `--version latest` 安装或升级到所选索引中兼容的最新稳定版。安装 PowerContext 1.5.0 时，选择对应平台的命令：
 
 ```bash tab="macOS / Linux"
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.4.1
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.0
 ```
 
 ```powershell tab="Windows"
 irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.4.1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.5.0
 ```
 
 也可以指定预发布版，例如 `1.3.0rc1`。所选索引缺少该版本时，安装失败并保留原工具；`latest` 则排除预发布版。镜像同步可能滞后，其最新版本可能与 PyPI 不同。
@@ -144,11 +144,11 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
 
 ### 选择版本
 
-本页使用 PowerContext 1.4.1。包与 Agent 集成保持版本一致：Python 包版本为 `1.4.1`，对应 Git tag 为 `powercontext-v1.4.1`。
+本页使用 PowerContext 1.5.0。包与 Agent 集成保持版本一致：Python 包版本为 `1.5.0`，对应 Git tag 为 `powercontext-v1.5.0`。
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.1"
-powercontext setup codex --ref powercontext-v1.4.1
+uv tool install --force "powercontext[cli,server]==1.5.0"
+powercontext setup codex --ref powercontext-v1.5.0
 ```
 
 宿主支持范围和维护状态见[能力矩阵](../integrations/capabilities.md)。标为 `experimental` 的能力在此版本中仍属于试验性能力。
@@ -158,13 +158,13 @@ powercontext setup codex --ref powercontext-v1.4.1
 需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和 [`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.1"
+uv tool install --force "powercontext[cli,server]==1.5.0"
 ```
 
 如需从源码安装同一版本：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.4.1"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.0"
 ```
 
 只连接远程 Server 的机器安装 `cli` extra 即可使用 `setup`、`doctor` 和远程内容命令。运行本地 Server 或使用 `service` 命令时，还需安装 `server`。如果命令 provider 缺少依赖，CLI 会报告 provider 和缺失模块，便于修复安装。
@@ -222,7 +222,7 @@ powercontext server run --env-file /path/to/powercontext.env
 在有兼容 `pylibseekdb` wheel 的 Linux 和 macOS 系统上可以使用嵌入式 seekDB；Windows 不支持该嵌入式后端。安装或替换工具时加入可选的 seekDB extra：
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.4.1"
+uv tool install --force "powercontext[cli,server,seekdb]==1.5.0"
 ```
 
 从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的 SQLAlchemy 数据库 URL。然后选择 seekDB 后端并启动 Server：
@@ -315,11 +315,17 @@ powercontext capabilities
 
 升级已有数据库前，请先检查 [Dream 协调升级要求](../workflows/review-dream-revisions.md#协调升级)。统一 Candidate 路由将 `/v1/artifact-candidates/*` 替换为 `/v1/candidates/*`，不提供别名，Dream 客户端要求契约 2。已有 Dream 存储需排空未完成任务后显式迁移。[完整 Server 迁移](../operate/database-migrations.md)要求 `state=ready` 和 `server_ready=true`；局部 Artifact 或 Atomic Memory 验证不能替代它。不要绕过迁移门禁。
 
-安装 1.4.1 到独立环境以试用新建部署：
+带有[上下文复用与最终准入](../operate/context-protection.md)的 Server 构建始终在 `/v1/capabilities` 中返回
+`context_protection`，关闭保护后也一样。旧版 Python SDK 会拒绝这个未知字段：`get_capabilities()` 抛出
+`InvalidResponseError`，`powercontext client capabilities` 也会失败。升级 Server 时，应一并协调连接它的
+Python SDK 环境和 CLI 安装，使用匹配的发布版本或 Git ref，再恢复能力查询。此端点不会协商旧版响应格式；
+关闭保护不能恢复兼容性。客户端升级要求不能替代上述数据库升级门禁。
+
+安装 1.5.0 到独立环境以试用新建部署：
 
 ```bash
 uv venv /path/to/powercontext-preview
-uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.4.1"
+uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[cli,server]==1.5.0"
 ```
 
 在独立环境安装其他 Git ref：
@@ -335,7 +341,7 @@ uv pip install --python /path/to/powercontext-preview/bin/python "powercontext[c
 如果应用需要导入异步 Client SDK，应把它加入该应用自己的环境：
 
 ```bash
-uv add "powercontext[client]==1.4.1"
+uv add "powercontext[client]==1.5.0"
 ```
 
 进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用 `cli`。只安装在 `uv tool` 隔离环境中的 extra 不能被另一个 Python 项目直接导入。

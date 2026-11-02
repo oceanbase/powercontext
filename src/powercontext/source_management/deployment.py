@@ -102,7 +102,14 @@ class DeploymentAuthentication(MultiBearerAuthenticationProvider):
 def deployment_root(settings):
     from powercontext.paths import powercontext_data_dir
 
-    address = settings.public_url or f"http://127.0.0.1:{settings.http.port}"
+    address = settings.public_url
+    if address is None:
+        if settings.http.uds is not None:
+            raise ManagementError(
+                "server-url-required",
+                "UDS Source deployment requires POWERCONTEXT_SERVER_PUBLIC_URL pointing to an HTTP(S) proxy",
+            )
+        address = f"http://127.0.0.1:{settings.http.port}"
     key = hashlib.sha256((address + "\0" + settings.access.deployment_id).encode()).hexdigest()[:24]
     return (
         (settings.source_management.state_dir or powercontext_data_dir() / "source-deployments" / key)
