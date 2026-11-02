@@ -1295,3 +1295,39 @@ async fn typed_content_parts_preserved_in_query_and_transcript() {
         "transcript user 必须是 typed text 而非空串"
     );
 }
+
+#[tokio::test]
+async fn mixed_content_preserves_non_text_parts_during_injection() {
+    // hidb4ai P2：text + image_url 混合内容注入时，image 部件不得被丢弃。
+    // 丢弃 = Core 看不到不支持的内容 → 本该拒绝的请求变成 allow。
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("RECALLED_MEMORY_42")));
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    // 混合内容：text + image_url
+    c.request.messages[0].content = vec![
+        serde_json::json!({"type": "text", "text": "看这张图"}),
+        serde_json::json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,xxx"}}),
+    ];
+    executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+
+    // 上游收到的载荷必须同时包含注入的 text 和原始的 image_url
+    let sent = &transport.sends.lock().unwrap()[0];
+    let sent_str = String::from_utf8(sent.to_vec()).unwrap();
+    assert!(sent_str.contains("RECALLED_MEMORY_42"), "注入的记忆必须在");
+    assert!(sent_str.contains("看这张图"), "原始文本必须在");
+    assert!(
+        sent_str.contains("image_url"),
+        "image_url 部件必须在（不得被丢弃）"
+    );
+    assert!(sent_str.contains("data:image/png"), "图片数据必须在");
+}

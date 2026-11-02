@@ -408,24 +408,38 @@ where
         let Some(message) = call.request.messages.get_mut(index) else {
             return;
         };
-        let original = match message.content.as_slice() {
-            [serde_json::Value::String(s)] => s.clone(),
-            // typed parts：提取文本注入，保留原有 typed 结构。
+        match message.content.as_slice() {
+            [serde_json::Value::String(s)] => {
+                let new_text = format!("{block}\n\n{s}");
+                message.content = vec![serde_json::Value::String(new_text)];
+            }
+            // typed parts：只修改第一个 text 部件注入记忆，保留所有非文本部件
+            // （image_url 等）——移除非文本部件会让 Core 看不到不支持的内容，
+            // 从而把本该被拒绝的请求变成 allow（P2 review 发现的安全缺陷）。
             parts if !parts.is_empty() => {
-                let texts: Vec<String> = parts
+                let has_text = parts
                     .iter()
-                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()).map(String::from))
-                    .collect();
-                if texts.is_empty() {
+                    .any(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"));
+                if !has_text {
                     return;
                 }
-                texts.join("\n")
+                let new_parts: Vec<serde_json::Value> = parts
+                    .iter()
+                    .map(|p| {
+                        if p.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                            let mut np = p.clone();
+                            np["text"] = serde_json::json!(format!("{block}\n\n{text}"));
+                            np
+                        } else {
+                            p.clone() // 非文本部件原样保留
+                        }
+                    })
+                    .collect();
+                message.content = new_parts;
             }
             _ => return,
-        };
-        // 注入后恢复为单字符串（与 typed parts 请求兼容的线格式）
-        let new_text = format!("{block}\n\n{original}");
-        message.content = vec![serde_json::Value::String(new_text)];
+        }
         call.prepared_contexts.push(PreparedContextLocation {
             binding: binding.to_string(),
             location: ModelJsonTextLocation {
