@@ -506,6 +506,9 @@ mod tests {
             "1.2.0",
             "1.3.1",
             "1.3.1.dev2+g338dfa00d",
+            "1.3.1.dev7+gfe12467a5",
+            "1.4.1",
+            "1.4.1.dev1+build_1",
             "2.0.0",
             "2.0.0rc1",
             "2.0.0.post1",
@@ -525,6 +528,7 @@ mod tests {
             "not-a-version",
             "+1.3.1",
             "1.2.1.dev86 with spaces",
+            "1.4.1;unexpected-command",
             "1.2.1.dev86+未知",
         ] {
             assert_eq!(cli_version_from_output(version.as_bytes(), 0), None);
