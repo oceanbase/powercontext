@@ -20,6 +20,73 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 
 [Desktop CI](../.github/workflows/desktop.yml) also builds a Server wheel, runs real Server and CLI tests, checks Windows credentials and process containment, builds the installer, and exercises installation, the installed UI and uninstallation. Consult the PR checks for the exact commit being reviewed. Reports, logs and screenshots are generated under ignored `.artifacts/` and uploaded as Actions artifacts; do not copy them into the repository.
 
+## Deployment context validation
+
+On 2026-10-28, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 ran the deployment-identity
+working tree based on `aedf7beb1ecff2ea1fade6ccdd8e4bf6a298f799`.
+All 70 native tests and 117 frontend tests passed, together with Clippy, Rust formatting,
+IPC drift, TypeScript, frontend lint and the production build. Nine native HTTP regression tests
+cover deployment replacement with an unchanged Principal, late Scope/Memory results, activation
+races, Principal changes during reads, qualified legacy transitions and dispatched writes.
+Replacement scenarios use synthetic TCP responses; they do not establish real deployment replacement
+or installed-platform acceptance. The bilingual unknown-write regression checks the original Server ID,
+preserved draft and explicit retry confirmation.
+
+The real SQLite Server harness passed anonymous loopback, static Bearer, HTTPS with an explicit CA
+and base path, and an enforced Provider. It exercised native save/search/exact reads, original write
+deployment metadata, uncertain writes without replay, Principal changes/revocation and independent
+Server survival. Exact inputs:
+
+- Server sources: `aedf7beb1ecff2ea1fade6ccdd8e4bf6a298f799`.
+- Wheel: `powercontext-1.4.2.dev36+gaedf7beb1.d20261028-py3-none-any.whl`;
+  SHA-256 `fde108a81a872a6228aad54832f2cd8f899a53bb4a7ff5c321871891fdbc5b68`.
+- Normalized OpenAPI SHA-256: `c12901b88b8e958c9cd63469298b9a04b9d5e2b0b4564d83b50f7ae95542519a`.
+- Debug `server_probe.exe` SHA-256: `a56d4db19650459c53094cd1a09fddfc40b6daa98f90dcf5f7d0c5514481390a`.
+
+This run used the explicit disposable `desktop-ci-fixture` qualification, not a new production
+catalog record. The report records a dirty Desktop working tree; historical qualification records
+are unchanged. Native Manager p95 round trips on these small local fixtures were 24.86–53.66 ms for
+save, 19.77–37.51 ms for search and 17.64–36.04 ms for exact reads, including identity revalidation.
+These are observations, not approved budgets, UI measurements or remote-network guarantees.
+Readiness separation, signed Windows 11/macOS packages and installed acceptance remain open.
+Repository file hooks passed; default Windows `ty check` reports existing POSIX-only attributes in
+unchanged Python files. `ty check --python-platform linux` passed.
+
+## Submission recovery checks
+
+On 2026-10-30, Windows 10 x64 / Rust 1.95.0 checks against baseline `90355b8e` cover
+retry discovery failure with the original unknown receipt retained, and concurrent read disconnection
+while a dispatched write is paused. Loopback TCP fixtures verify only the original mutation reaches
+the Server, and that the pending receipt becomes unknown under its original operation identity.
+All 89 native suite cases pass; proxy isolation additionally reruns its case in a spawned process.
+All 146 frontend cases, TypeScript, lint, formatting, production build, Clippy and IPC drift checks pass.
+Full App tests in English and Chinese verify retained original and edited retry inputs, recovery before
+the write finishes, individual discard, late unknown receipts after discard, and conclusive late success
+without restoring private results. TCP fixtures exercise the native Manager; jsdom tests mock IPC.
+These checks do not establish installed WebView or live external Server acceptance of the new paths.
+
+## Rejected submission recovery and Python CI checks
+
+On 2026-10-31, Windows 10 x64 checks reproduce a paused save returning 403 after a concurrent
+read disconnects the context. The native Manager retains the failed receipt and original target
+without replay; the application keeps the rejected text available for explicit copy/discard.
+English and Chinese App regressions verify copy, cancelled discard and explicit discard of rejected input.
+All 90 native suite cases and 148 frontend tests pass, together with TypeScript, lint, production build,
+Rust formatting, Clippy and IPC drift. Proxy isolation also reruns in a spawned process.
+All 14 deployment-identity cases pass with real loopback sockets and synthetic HTTP responses;
+App state-refresh tests use mocked IPC and do not qualify installed WebView behavior.
+
+Python 3.11.15 checks pass 38 cases across the affected MySQL admission/runner, worker logging
+and ZCode service-chain modules; 57 runner cases are skipped by their platform/backend guards.
+The admission fixture accepts the maintenance connection's missing-database keyword while
+retaining its read-only assertion. The real worker test waits for a completion observation
+before consuming captured descriptors. ZCode checks use Node 24.22.1 with a real HTTP Server
+and SQLite, including a response deliberately delayed past Stop's unchanged 800 ms request
+budget: the result remains unknown, another Stop does not replay the mutation, and independent
+reads verify committed memory, exact provenance and recall in a new session. A normal response
+also exercised the cursor-reached path. These local checks do not establish Linux/Python matrix
+success; consult the new CI run for those results.
+
 ## Native session observation checks
 
 Windows x64 checks for the native session collector use Rust 1.95.0, Node 24.14.1 and pnpm 11.13.1.
