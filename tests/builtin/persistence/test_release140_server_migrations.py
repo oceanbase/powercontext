@@ -164,15 +164,19 @@ def test_release140_four_sqlite_configurations_preserve_candidates_and_serve(tmp
     assert _candidate_rows(runner.database) == before
 
 
-def test_release140_extra_object_blocks_before_any_write(tmp_path):
+def test_release140_unrelated_object_survives_readonly_plan_and_upgrade(tmp_path):
     _settings, _embedding, runner = _source(tmp_path)
     with closing(sqlite3.connect(runner.database)) as connection, connection:
         connection.execute("CREATE TABLE unexpected (value TEXT)")
+        connection.execute("INSERT INTO unexpected VALUES ('preserve')")
     before = runner.database.read_bytes()
-    with pytest.raises(MigrationError, match="unknown_baseline"):
-        runner.plan()
+    assert runner.plan().source_revision == "r1400"
     assert runner.database.read_bytes() == before
     assert not runner.evidence_path.exists()
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT value FROM unexpected").fetchall() == [("preserve",)]
 
 
 @pytest.mark.parametrize("operation", ["server", "processing", "atomic-projection"])

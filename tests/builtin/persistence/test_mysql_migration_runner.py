@@ -438,6 +438,97 @@ def _full_server_runner(
 
 
 @pytest.mark.parametrize(
+    ("backend", "interrupted", "encoding"),
+    [
+        ("seekdb", False, "utf8mb4"),
+        ("seekdb", True, "utf8mb4"),
+        ("oceanbase", False, "utf8mb4"),
+        ("oceanbase", True, "utf8mb4"),
+        ("oceanbase", True, "gbk"),
+    ],
+    indirect=["backend"],
+)
+def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch, interrupted, encoding):  # noqa: C901 -- Native fixture and interruption scenario.
+    fixture = "oceanbase-first-release.json" if encoding == "gbk" else "seekdb-memory-release.json"
+    capture = json.loads((Path(__file__).parent / "fixtures/historical" / fixture).read_text())
+
+    def load(connection, _identity, _guard):
+        foreign_keys = []
+        for name, table in capture["tables"].items():
+            lines = []
+            # 4.6 SHOW CREATE prints a default option that older supported
+            # servers omit. Let each test server supply its default spelling.
+            ddl = table["ddl"].replace("`test`.", "").replace(" FTS_INDEX_TYPE = PHRASE_MATCH", "")
+            for line in ddl.splitlines():
+                if "FOREIGN KEY" in line:
+                    foreign_keys.append((name, line.strip().rstrip(",")))
+                else:
+                    lines.append(line)
+            connection.exec_driver_sql("\n".join(lines).replace(",\n)", "\n)"))
+        for name, table in capture["tables"].items():
+            for row in table["rows"]:
+                values = {
+                    f"p{i}": bytes.fromhex(value["hex"])
+                    if isinstance(value, dict) and "hex" in value
+                    else datetime.fromisoformat(value["datetime"])
+                    if isinstance(value, dict)
+                    else value
+                    for i, value in enumerate(row)
+                }
+                statement = f"INSERT INTO `{name}` VALUES ("  # noqa: S608 -- checked-in fixture identifier
+                statement += ",".join(":" + key for key in values) + ")"
+                connection.execute(text(statement), values)
+        for name, clause in foreign_keys:
+            connection.exec_driver_sql(f"ALTER TABLE `{name}` ADD {clause}")
+        connection.commit()
+
+    backend.connections().run(load, writable=True)
+    runner = _full_server_runner(backend)
+    before = backend.connections().run(lambda c, *_: mysql_inventory(c))
+    plan = runner.plan(backup_policy="manual")
+    assert "historical_atomic_memory" in plan.compatibility_steps
+    assert backend.connections().run(lambda c, *_: mysql_inventory(c)) == before
+    if interrupted:
+        original = mysql_migrations._Journal.write
+
+        def interrupt_after_commit(journal, evidence):
+            previous = journal.read()
+            if (
+                previous is not None
+                and previous.compatibility_pending
+                and evidence.compatibility_pending is None
+                and (encoding != "gbk" or len(previous.compatibility_pending["changes"]) == 2)
+            ):
+                raise RuntimeError("injected after committed historical DDL")  # noqa: TRY003
+            original(journal, evidence)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(mysql_migrations._Journal, "write", interrupt_after_commit)
+            with pytest.raises(RuntimeError, match="injected after committed"):
+                _apply(runner, policy="manual")
+        plan = runner.plan(backup_policy="manual")
+        runner = _full_server_runner(backend, acknowledge_previous_run=(plan.coordination or {}).get("pending_run_id"))
+    result = _apply(runner, policy="manual")
+    assert result.state == "ready" and runner.verify().state == "ready"
+
+    def verify(connection, _identity, _guard):
+        assert connection.exec_driver_sql("SELECT COUNT(*) FROM pc_atomic_memory_current").scalar_one() == 4
+        assert connection.exec_driver_sql("SELECT COUNT(*) FROM pc_memory_artifact_archive").scalar_one() == 4
+        assert connection.exec_driver_sql("SELECT COUNT(*) FROM pc_artifacts WHERE family='memory'").scalar_one() == 0
+        assert (
+            connection.exec_driver_sql(
+                "SELECT COUNT(*) FROM pc_atomic_memory_current WHERE MATCH(searchable_text) AGAINST ('Upgrade100Alpha' IN NATURAL LANGUAGE MODE)"
+            ).scalar_one()
+            == 1
+        )
+
+    backend.connections().run(verify, writable=True)
+    # A recovery acknowledgement belongs to the interrupted operation only.
+    # A later invocation must not resend its already-consumed token.
+    assert not _apply(_full_server_runner(backend), policy="manual").changed
+
+
+@pytest.mark.parametrize(
     ("origin", "dimension", "code"),
     [("released", 3, False), ("empty", 4, True)],
 )

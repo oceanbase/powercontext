@@ -179,12 +179,18 @@ def test_incompatible_processing_declaration_blocks_before_writes(source):
     assert not source.evidence_path.exists()
 
 
-def test_unknown_database_object_is_not_ignored(source):
+def test_unrelated_database_object_and_data_survive_upgrade(source):
     with closing(sqlite3.connect(source.database)) as connection, connection:
         connection.execute("CREATE TABLE user_extension (id INTEGER PRIMARY KEY)")
-    with pytest.raises(MigrationError, match="unknown_baseline"):
-        source.plan()
+        connection.execute("INSERT INTO user_extension VALUES (42)")
+    before = dump(source.database)
+    assert source.plan().state == "migration_required"
+    assert dump(source.database) == before
     assert not source.evidence_path.exists()
+    apply(source)
+    assert source.verify().state == "ready"
+    with closing(sqlite3.connect(source.database)) as connection:
+        assert connection.execute("SELECT * FROM user_extension").fetchall() == [(42,)]
 
 
 def test_recorded_head_does_not_authorize_schema_repair_at_startup(source):

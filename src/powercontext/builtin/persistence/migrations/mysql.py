@@ -68,9 +68,48 @@ class _Evidence(BaseModel):
     manual_ref: str | None = None
     backup_history: list[dict[str, Any]] = []
     release_checksums: dict[str, str] = {}
+    compatibility_steps: tuple[str, ...] = ()
+    compatibility_checksum: str | None = None
+    compatibility_fingerprint: str | None = None
+    compatibility_pending: dict[str, Any] | None = None
+    compatibility_rebuild: dict[str, Any] | None = None
+    compatibility_complete: bool = True
 
     @model_validator(mode="after")
-    def validate_backup(self) -> _Evidence:
+    def validate_backup(self) -> _Evidence:  # noqa: C901 -- Validate the complete durable maintenance record.
+        if not self.compatibility_complete and not (
+            self.compatibility_steps and self.compatibility_checksum and self.compatibility_fingerprint
+        ):
+            raise ValueError("Historical conversion requires its original definitions and checkpoint")  # noqa: TRY003
+        if self.compatibility_pending is not None:
+            pending = self.compatibility_pending
+            if (
+                self.compatibility_complete
+                or set(pending) != {"changes", "operation"}
+                or not isinstance(pending["operation"], str)
+                or not isinstance(pending["changes"], dict)
+                or not pending["changes"]
+                or any(
+                    not isinstance(name, str)
+                    or not isinstance(change, dict)
+                    or set(change) != {"before", "after"}
+                    or any(value is not None and not isinstance(value, dict) for value in change.values())
+                    for name, change in pending["changes"].items()
+                )
+            ):
+                raise ValueError("Historical DDL intent is incomplete or inconsistent")  # noqa: TRY003
+        if self.compatibility_rebuild is not None:
+            rebuild = self.compatibility_rebuild
+            if (
+                self.compatibility_complete
+                or set(rebuild) != {"table", "temporary", "original", "ddl", "source", "checks", "rows"}
+                or any(not isinstance(rebuild[key], str) for key in ("table", "temporary", "original", "ddl"))
+                or not isinstance(rebuild["source"], dict)
+                or not isinstance(rebuild["checks"], dict)
+                or not isinstance(rebuild["rows"], int)
+                or rebuild["rows"] < 0
+            ):
+                raise ValueError("Historical table rebuild intent is incomplete or inconsistent")  # noqa: TRY003
         if self.backup_state == "not_required":
             if self.source_revision is not None or self.backup is not None:
                 raise ValueError("Only an empty source needs no recovery point")  # noqa: TRY003
@@ -171,10 +210,13 @@ class MySQLMigrationRunner:
         configuration: Mapping[str, Any] | None = None,
         backup_factory: BackupFactory | None = None,
         source_bundles: tuple[MigrationBundle, ...] = (),
+        embedding_factory=None,
     ) -> None:
         self.connections = connections
         self.bundle = bundle
         self.sources = MigrationSources(bundle, source_bundles)
+        self.embedding_factory = embedding_factory
+        self._compatibility_objects: tuple[str, ...] = ()
         self.evidence_directory = evidence_directory.expanduser().resolve()
         self.configuration = json.loads(json.dumps(configuration or {}))
         embedded_code = self.configuration.get("embedded_code_enabled", False)
@@ -381,7 +423,7 @@ class MySQLMigrationRunner:
         if initial.backup_policy == "auto" and not initial.backup_available:
             raise MigrationError("backup_unsupported", "; ".join(initial.backup_reason))
 
-    def _apply_locked(
+    def _apply_locked(  # noqa: C901 -- Keep backup, adoption and revision advancement in order.
         self,
         connection: Connection | None,
         identity: BackendIdentity,
@@ -421,6 +463,23 @@ class MySQLMigrationRunner:
         self._assert_unchanged()
         if self.schema.fingerprint(mysql_inventory(connection)) != initial.schema_fingerprint:
             raise MigrationError("plan_changed", "The source schema changed during backup.")
+        if initial.compatibility_steps:
+            from . import historical, mysql_compatibility
+
+            if historical.checksum() != initial.compatibility_checksum:
+                raise MigrationError("plan_changed", "The historical conversion definitions changed.")
+            mysql_compatibility.apply(
+                connection,
+                self.schema,
+                self.configuration,
+                journal,
+                evidence,
+                guard,
+                embedding_factory=self.embedding_factory,
+            )
+            evidence.compatibility_complete = True
+            evidence.compatibility_pending = None
+            journal.write(evidence)
         if not self._initializing(initial.source_revision, evidence):
             self.bundle.domains.preflight(
                 connection, initial.source_revision, backend=identity.product, configuration=self.configuration
@@ -554,6 +613,8 @@ class MySQLMigrationRunner:
             require_completed_domain_maintenance(self.evidence_directory, identity)
         journal = _Journal(self.evidence_directory, identity)
         evidence = journal.read()
+        compatibility_steps: tuple[str, ...] = ()
+        self._compatibility_objects = ()
         inventory = (
             mysql_inventory(connection) if connection is not None else {"tables": {}, "views": [], "triggers": []}
         )
@@ -596,11 +657,48 @@ class MySQLMigrationRunner:
                     f"The complete {source.release} Server schema is recognized, but its full upgrade is unavailable.",
                 )
         self.schema.allow_declared_spaces = allow_declared_spaces and current == self.bundle.head
-        current, adopt = self._recognize_source(inventory, initialized, current, evidence)
+        if evidence is not None and not evidence.compatibility_complete:
+            from .mysql_compatibility import validate_resume
+
+            validate_resume(inventory, evidence, self.schema)
+            if initialized:
+                raise MigrationError("recovery_required", "Historical conversion must finish before revision adoption.")
+            current, adopt = evidence.source_revision, True
+            compatibility_steps = evidence.compatibility_steps
+        else:
+            try:
+                current, adopt = self._recognize_source(inventory, initialized, current, evidence)
+            except MigrationError as error:
+                if (
+                    error.code != "unknown_baseline"
+                    or initialized
+                    or connection is None
+                    or self.bundle.readiness_scope != "server"
+                ):
+                    raise
+                from .mysql_compatibility import select_source
+
+                selected = select_source(
+                    connection,
+                    (self.sources.default, *self.sources.sources),
+                    embedded_code=self.configuration.get("embedded_code_enabled", False),
+                )
+                if selected is None:
+                    raise
+                bundle, current = selected
+                if bundle is not self.bundle:
+                    self._load_bundle(bundle)
+                adopt = True
+            if adopt and connection is not None and self.bundle.readiness_scope == "server":
+                from .mysql_compatibility import steps
+
+                compatibility_steps = steps(connection, self.schema)
+        if compatibility_steps:
+            self._compatibility_objects = tuple(sorted(inventory["tables"]))
         if initialized and self.bundle.pending(current) and evidence is None:
             raise MigrationError("recovery_required", "The original external maintenance evidence is missing.")
         self._validate_position(evidence, current)
-        if connection is not None and current is not None:
+        if connection is not None and current is not None and not compatibility_steps:
             self.schema.validate_data(connection, current)
             if evidence is None or evidence.pending_revision is None:
                 self.bundle.domains.validate(
@@ -610,7 +708,7 @@ class MySQLMigrationRunner:
         # A recognized first-revision DDL prefix may not contain its seed data
         # yet. The revision executor checks each domain step after its registered
         # schema completes, before domain work or that revision's advancement.
-        if connection is not None and not self._initializing(current, evidence):
+        if connection is not None and not compatibility_steps and not self._initializing(current, evidence):
             self.bundle.domains.preflight(
                 connection, current, backend=identity.product, configuration=self.configuration
             )
@@ -660,6 +758,14 @@ class MySQLMigrationRunner:
             "shared_database": shared_database,
             "coordination": coordination,
         }
+        if compatibility_steps:
+            from .historical import checksum
+
+            fields["compatibility_steps"] = compatibility_steps
+            fields["compatibility_checksum"] = checksum()
+            fields["affected_objects"] = tuple(
+                sorted(set(self.bundle.affected_objects) | set(self._compatibility_objects))
+            )
         return MigrationPlan.model_validate({"plan_id": digest(fields), **fields})
 
     def _initializing(self, current: str | None, evidence: _Evidence | None) -> bool:
@@ -685,6 +791,11 @@ class MySQLMigrationRunner:
     def _validate_evidence(self, evidence: _Evidence | None) -> None:
         if evidence is None:
             return
+        if not evidence.compatibility_complete:
+            from .historical import checksum
+
+            if not evidence.compatibility_steps or evidence.compatibility_checksum != checksum():
+                raise MigrationError("recovery_required", "Keep the original historical conversion definitions.")
         verify_release_checksums(evidence.release_checksums, self.checksums)
         if evidence.state != "complete" and (
             evidence.bundle_checksum != self.checksum or evidence.configuration_digest != self.configuration_digest
@@ -779,7 +890,7 @@ class MySQLMigrationRunner:
             source_revision=revision,
             bundle_checksum=self.checksum,
             maintenance_window_id=window,
-            objects=self.schema.affected_objects,
+            objects=self._compatibility_objects or self.schema.affected_objects,
             writers_stopped=True,
         )
 
@@ -806,6 +917,10 @@ class MySQLMigrationRunner:
                 backup_policy=plan.backup_policy,
                 backup_state="pending",
                 release_checksums=previous.release_checksums.copy() if previous else {},
+                compatibility_steps=plan.compatibility_steps,
+                compatibility_checksum=plan.compatibility_checksum,
+                compatibility_fingerprint=plan.schema_fingerprint if plan.compatibility_steps else None,
+                compatibility_complete=not bool(plan.compatibility_steps),
             )
         journal.write(evidence)
         if evidence.source_revision is None:

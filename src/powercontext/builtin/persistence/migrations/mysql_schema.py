@@ -373,7 +373,9 @@ class MySQLSchema:
             expected["tables"].update(layouts)
             self.affected_objects = tuple(dict.fromkeys((*self.affected_objects, *sorted(layouts))))
         # Compare table sets after adding the exactly validated registered spaces.
-        if actual.keys() != expected.keys() or actual["tables"].keys() != expected["tables"].keys():
+        if actual.keys() != expected.keys() or (
+            self.bundle.readiness_scope != "server" and actual["tables"].keys() != expected["tables"].keys()
+        ):
             return False
         for name, options in self.optional_table_options.items():
             table = actual["tables"].get(name)
@@ -385,14 +387,23 @@ class MySQLSchema:
                     table = dict(table)
                     actual["tables"][name] = table
                     del table[option]
+        if self.bundle.readiness_scope == "server":
+            return compatible_inventory(actual, expected)
         return _matches(actual, expected)
+
+    def required(self, revision: str) -> dict[str, Any]:
+        """Return the immutable revision's semantic storage requirements."""
+        return copy.deepcopy(self._schemas[revision])
+
+    def statements(self, revision: str) -> tuple[str, ...]:
+        return self._statements[revision]
 
     def identify(self, inventory: dict[str, Any]) -> str | None:
         """Only complete known shapes may be adopted as an unversioned source."""
         inventory = _business_inventory(inventory)
         if inventory == _empty_inventory():
             return None
-        for revision, expected in self._schemas.items():
+        for revision, expected in reversed(self._schemas.items()):
             if self._matches(inventory, expected):
                 return revision
         raise MigrationError("incompatible_schema", "Actual MySQL schema is not a registered complete layout.")
@@ -415,8 +426,11 @@ class MySQLSchema:
         if not pending:
             raise MigrationError("incompatible_schema", "There is no registered next MySQL revision to recover.")
         target = pending[0]
-        for position, expected in enumerate(self._prefixes[target]):
+        for position in reversed(range(len(self._prefixes[target]))):
+            expected = self._prefixes[target][position]
             if self._matches(inventory, expected):
+                while position > 0 and self._prefixes[target][position] == self._prefixes[target][position - 1]:
+                    position -= 1
                 return MySQLRecovery(target, self._statements[target][position:])
         raise MigrationError("incompatible_schema", "Actual MySQL schema is not a controlled next-revision DDL state.")
 
@@ -951,6 +965,32 @@ def _table_matches(table: dict[str, Any], expected: dict[str, Any]) -> bool:
             del normalized["indexes"][index_name]
             automatic_keys.add(columns)
     return normalized == expected
+
+
+def compatible_inventory(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
+    """Require managed semantics while allowing independently owned objects."""
+    required = copy.deepcopy(expected)
+    observed = copy.deepcopy(actual)
+    names = set(required["tables"])
+    if not names <= observed["tables"].keys():
+        return False
+    observed["tables"] = {name: observed["tables"][name] for name in names}
+    observed["views"] = [view for view in observed["views"] if view in required["views"]]
+    observed["triggers"] = [trigger for trigger in observed["triggers"] if trigger.get("Table") in names]
+    for name, target in required["tables"].items():
+        table = observed["tables"][name]
+        for column in set(table["columns"]) - target["columns"].keys():
+            definition = table["columns"][column]
+            if not definition["nullable"] and definition["default"] is None:
+                return False
+            del table["columns"][column]
+        for index in set(table["indexes"]) - target["indexes"].keys():
+            if not table["indexes"][index]["unique"]:
+                del table["indexes"][index]
+        # Constraint labels do not affect enforcement; expression trees do.
+        for definition in (table, target):
+            definition["checks"] = {digest(value): value for value in definition["checks"].values()}
+    return _matches(observed, required)
 
 
 def _literal(lexeme: str) -> str:

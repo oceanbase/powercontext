@@ -1,0 +1,286 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Real released SQLite layouts must remain usable through the unified upgrade."""
+
+import json
+import shutil
+import sqlite3
+from contextlib import asynccontextmanager, closing
+from pathlib import Path
+
+import pytest
+from sqlalchemy import create_engine
+
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference.models import EmbeddingResult
+from powercontext.builtin.persistence.migrations import historical
+from powercontext.builtin.persistence.migrations.bundle import MigrationBundle
+from powercontext.builtin.persistence.migrations.deployment import server_bundle
+from powercontext.builtin.persistence.migrations.models import MigrationError, digest
+from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema
+from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
+from powercontext.builtin.persistence.migrations.sqlite_compatibility import layout
+from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+
+FIXTURES = Path(__file__).parent / "fixtures/historical"
+FACTS = [
+    "Upgrade100Alpha user name is Chen Chen.",
+    "Upgrade100Bravo pet cat is named Tangyuan.",
+    "Upgrade100Charlie favorite dish is West Lake vinegar fish.",
+    "Upgrade100Delta occupation is database engineer.",
+]
+ADDED = [
+    "Upgrade130Alpha hobby is skiing.",
+    "Upgrade130Bravo parking space is B-130.",
+    "Upgrade130Charlie allergy is mango.",
+]
+
+
+def source(tmp_path, name):
+    capture = json.loads((FIXTURES / f"{name}.json").read_text())
+    database = tmp_path / "historical.db"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        for kind in ("table", "index", "view", "trigger"):
+            for row_kind, object_name, _, sql in capture["schema"]:
+                if (
+                    row_kind == kind
+                    and sql
+                    and not connection.execute("SELECT 1 FROM sqlite_schema WHERE name=?", (object_name,)).fetchone()
+                ):
+                    connection.execute(sql)
+        for table, rows in capture["rows"].items():
+            for row in rows:
+                values = tuple(bytes.fromhex(value["hex"]) if isinstance(value, dict) else value for value in row)
+                connection.execute(
+                    'INSERT INTO "' + table + '" VALUES (' + ",".join("?" for _ in values) + ")",  # noqa: S608 -- checked-in fixture identifiers
+                    values,
+                )
+    return SQLiteMigrationRunner(
+        database,
+        server_bundle(),
+        source_bundles=(server_bundle(source_release="1.4.0"),),
+        configuration={
+            "processing_manifest": canonical_processing_manifest(BuiltinConfig()),
+            "embedding_enabled": False,
+        },
+    )
+
+
+def apply(runner):
+    plan = runner.plan()
+    return runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+
+
+def dump(database):
+    with closing(sqlite3.connect(database)) as connection:
+        return tuple(connection.iterdump())
+
+
+@pytest.mark.parametrize("name", ["first-release", "memory-release", "evolved-atomic"])
+def test_released_and_evolved_databases_upgrade_without_manual_repairs(tmp_path, name):
+    runner = source(tmp_path, name)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("CREATE TABLE unrelated_extension (value TEXT)")
+        connection.execute("INSERT INTO unrelated_extension VALUES ('keep')")
+        connection.execute("CREATE INDEX extension_artifact_family ON pc_artifacts(family)")
+        connection.execute("ALTER TABLE pc_artifacts ADD COLUMN extension_note TEXT")
+        connection.execute("ALTER TABLE pc_source_journal_heads ADD COLUMN extension_note TEXT DEFAULT 'keep-column'")
+        connection.execute("INSERT INTO pc_source_journal_heads(scope_id, position) VALUES ('extension-scope', 0)")
+    before = dump(runner.database)
+    plan = runner.plan()
+    assert plan.compatibility_steps
+    assert plan.compatibility_checksum
+    assert dump(runner.database) == before
+    result = apply(runner)
+    assert result.backup_ref and dump(result.backup_ref) == before
+    assert runner.verify().state == "ready"
+    expected = FACTS + (ADDED if name == "evolved-atomic" else [])
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert sorted(row[0] for row in connection.execute("SELECT text FROM pc_atomic_memory_current")) == sorted(
+            expected
+        )
+        assert connection.execute("SELECT value FROM unrelated_extension").fetchall() == [("keep",)]
+        assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='extension_artifact_family'").fetchone()
+        assert connection.execute("SELECT DISTINCT extension_note FROM pc_artifacts").fetchall() in ([], [(None,)])
+        assert connection.execute(
+            "SELECT extension_note FROM pc_source_journal_heads WHERE scope_id='extension-scope'"
+        ).fetchone() == ("keep-column",)
+        assert connection.execute("SELECT COUNT(*) FROM pc_memory_artifact_archive").fetchone() == (4,)
+        for fact in expected:
+            assert connection.execute(
+                "SELECT count(*) FROM pc_atomic_memory_current_fts WHERE pc_atomic_memory_current_fts MATCH ?",
+                (fact.split()[0],),
+            ).fetchone() == (1,)
+    engine = create_engine(f"sqlite:///{runner.database}")
+    try:
+        with engine.connect() as connection:
+            check_server_schema(connection)
+    finally:
+        engine.dispose()
+    after = dump(runner.database)
+    assert not apply(runner).changed
+    assert dump(runner.database) == after
+
+
+def test_memory_extension_values_cannot_be_silently_lost(tmp_path):
+    runner = source(tmp_path, "memory-release")
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_artifacts ADD COLUMN extension_note TEXT DEFAULT 'preserve-me'")
+    before = dump(runner.database)
+    with pytest.raises(MigrationError, match="Memory extension data needs a mapping"):
+        apply(runner)
+    assert dump(runner.database) == before
+
+
+def test_failed_historical_conversion_rolls_back_and_reuses_backup(tmp_path, monkeypatch):
+    runner = source(tmp_path, "memory-release")
+    before = dump(runner.database)
+    original = historical.apply
+
+    def fail_after_conversion(*args, **kwargs):
+        original(*args, **kwargs)
+        raise MigrationError("interrupted", "Injected interruption before adoption")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(historical, "apply", fail_after_conversion)
+        with pytest.raises(MigrationError, match="interrupted"):
+            apply(runner)
+    assert dump(runner.database) == before
+    backup = json.loads(runner.evidence_path.read_text())["backup"]["location"]
+    assert apply(runner).backup_ref == backup
+    assert runner.verify().state == "ready"
+
+
+def test_unknown_constraint_cannot_be_discarded_by_historical_adoption(tmp_path):
+    runner = source(tmp_path, "first-release")
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("CREATE UNIQUE INDEX custom_artifact_content ON pc_artifacts(content)")
+    before = dump(runner.database)
+    with pytest.raises(MigrationError, match="data_conversion_required"):
+        apply(runner)
+    assert dump(runner.database) == before
+
+
+def test_early_memory_conversion_reembeds_for_atomic_input_and_keeps_vector_search(tmp_path):
+    old = source(tmp_path, "first-release")
+    profile = EmbeddingProfile(profile_id="historical-test", model="controlled", dimension=3)
+    calls = []
+
+    class Embedding:
+        profile: EmbeddingProfile
+
+        async def embed(self, texts):
+            calls.extend(texts)
+            return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+    model = Embedding()
+    model.profile = profile
+
+    @asynccontextmanager
+    async def opened():
+        yield model
+
+    runner = SQLiteMigrationRunner(
+        old.database,
+        server_bundle(embedding_profile=profile),
+        configuration={
+            **old.configuration,
+            "embedding_enabled": True,
+            "embedding_profile": profile.model_dump(mode="json"),
+        },
+        embedding_factory=opened,
+    )
+    assert runner.plan().compatibility_steps
+    assert calls == [], "Planning must not call an embedding provider"
+    apply(runner)
+    assert sorted(calls) == sorted("fact\n" + fact for fact in FACTS)
+    assert runner.verify().state == "ready"
+    import sqlite_vec
+
+    with closing(sqlite3.connect(runner.database)) as connection:
+        connection.enable_load_extension(True)
+        sqlite_vec.load(connection)
+        connection.enable_load_extension(False)
+        assert connection.execute("SELECT count(*) FROM pc_atomic_memory_current_vec").fetchone() == (4,)
+    assert not apply(runner).changed
+    assert len(calls) == 4
+
+
+@pytest.mark.parametrize("already_managed", [False, True])
+@pytest.mark.parametrize("vector", [False, True])
+def test_future_feature_revisions_extend_the_same_upgrade_path(tmp_path, already_managed, vector):
+    old = source(tmp_path, "first-release")
+    profile = EmbeddingProfile(profile_id="future-test", model="controlled", dimension=3) if vector else None
+
+    class Embedding:
+        profile: EmbeddingProfile | None
+
+        async def embed(self, texts):
+            return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+    @asynccontextmanager
+    async def embedding():
+        model = Embedding()
+        model.profile = profile
+        yield model
+
+    old = SQLiteMigrationRunner(
+        old.database,
+        server_bundle(embedding_profile=profile),
+        configuration={
+            **old.configuration,
+            "embedding_enabled": vector,
+            "embedding_profile": profile.model_dump() if profile else None,
+        },
+        embedding_factory=embedding if vector else None,
+    )
+    if already_managed:
+        apply(old)
+    root = tmp_path / "future-bundle"
+    shutil.copytree(old.bundle.snapshot_directory, root)
+    manifest = json.loads((root / "manifest.json").read_text())
+    previous = old.bundle.head
+    rows = list(layout(server_bundle(), previous))
+    for release in ("9_8_0", "9_9_0"):
+        revision = f"v{release}_001"
+        table = f"pc_future_{release}"
+        ddl = f"CREATE TABLE {table} (value INTEGER NOT NULL)"
+        (root / "versions" / f"{revision}.py").write_text(
+            "from alembic import op\n"  # noqa: S608 -- generated test revision, fixed identifiers
+            f"revision = {revision!r}\ndown_revision = {previous!r}\n"
+            f"def upgrade():\n    op.get_bind().exec_driver_sql({ddl!r})\n"
+            f"    op.get_bind().exec_driver_sql('INSERT INTO {table} SELECT count(*) FROM pc_atomic_memory_current')\n"
+        )
+        rows.append(["table", table, table, ddl])
+        rows.sort(key=lambda row: (row[0], row[1]))
+        manifest["sqlite_fingerprints"][revision] = [digest(rows)]
+        manifest["revision_resources"][revision] = []
+        manifest["domain_readiness"][revision] = manifest["domain_readiness"][previous]
+        previous = revision
+    (root / "manifest.json").write_text(json.dumps(manifest))
+    future = SQLiteMigrationRunner(
+        old.database,
+        MigrationBundle(root, embedding_profile=profile),
+        configuration=old.configuration,
+        embedding_factory=embedding if vector else None,
+    )
+    assert future.plan().target_revision == "v9_9_0_001"
+    apply(future)
+    assert future.verify().state == "ready"
+    with closing(sqlite3.connect(old.database)) as connection:
+        assert connection.execute("SELECT value FROM pc_future_9_8_0").fetchall() == [(4,)]
+        assert connection.execute("SELECT value FROM pc_future_9_9_0").fetchall() == [(4,)]
+    assert not apply(future).changed
