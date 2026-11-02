@@ -1920,3 +1920,26 @@ The packaged runtime files match the recorded source bytes. Local evidence is re
 ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
 This record covers local SQLite protocol behavior; installed UI, native credentials,
 Windows, and external production systems require their own validation.
+
+## Managed observability with inference privacy
+
+`sqlite-observability-a9f6fd36-v1` qualifies the eleven declared Desktop protocol operations against
+Server runtime sources at `a9f6fd36a572ea33612138bf5aab99a5e032827c`.
+
+OpenAPI SHA-256: `ad6c1e7690899b3c8677ffcdfbb06e7af3122d96b85f2a63e25d89b1abb1b201`.
+Wheel: `powercontext-1.4.2.dev134+ga9f6fd36a-py3-none-any.whl`.
+Wheel SHA-256: `53e8b83243ebf8517bc69f875a3d7bf4c3d2e94816c46b13d1294f97e3409b83`.
+
+On 2026-11-02, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced access. The native
+`server_probe` was built from the matching product sources and generated contract.
+The probe verified identity, save/search/exact reads, Scope selection, lost write responses
+without replay, revocation, and Server survival after client exit.
+
+All 716 packaged runtime files match the recorded source bytes. Evidence is retained
+under ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+The separate privacy/Provider transport regression verifies admission and response-release
+behavior with a controlled HTTP transport; it is not external Provider or backend evidence.
+This record covers local SQLite protocol behavior. Installed UI, native credentials, Windows,
+and external production systems require their own validation.

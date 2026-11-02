@@ -331,6 +331,9 @@ Attempt outcome 为 `success`、`hold`、`noop`、`failure`、`cancelled`、`blo
 Readiness 探针排除。Runtime 的可选 observer 不配置 SDK 日志或 tracing；自定义推理绑定和客户端保持原行为，
 由嵌入应用接入自己的观测。
 
+启用推理隐私检查时，HTTP 观测位于隐私检查内部的实际发送边界。发送前拦截不产生 HTTP exchange；
+响应在释放前被拦截时，保留实际 HTTP 状态码，并将最终模型操作记录为失败。
+
 | 指标（前缀 `powercontext_server_provider_`） | 含义 |
 | --- | --- |
 | `http_attempts_total{provider,capability,execution,outcome,retry}` | 一次到达响应头或在头部前失败的 HTTP exchange；`execution` 为 `parent` 或已收到报告的 `worker` |

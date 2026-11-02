@@ -366,6 +366,10 @@ With Server metrics enabled, Runtime-owned inference adapters observe provider H
 operations. Readiness probes are excluded. The optional Runtime observer does not configure SDK logging or tracing.
 Custom inference bindings and clients retain their existing behavior and own their observation wiring.
 
+With inference privacy protection enabled, HTTP observations wrap the wire delegate inside the protection boundary.
+Rejections before send produce no HTTP exchange. Responses withheld before release retain their actual HTTP status,
+while the final model operation records the failure.
+
 | Metric (prefix `powercontext_server_provider_`) | Meaning |
 | --- | --- |
 | `http_attempts_total{provider,capability,execution,outcome,retry}` | An HTTP exchange that reached response headers or failed before headers; `execution` is `parent` or a received `worker` report |

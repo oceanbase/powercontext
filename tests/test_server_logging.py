@@ -254,7 +254,7 @@ def _otlp_log_receiver():
 
 
 def test_otlp_logging_exports_only_the_structured_allowlist() -> None:
-    from google.protobuf.json_format import MessageToDict
+    MessageToDict = pytest.importorskip("google.protobuf.json_format").MessageToDict
 
     with _otlp_log_receiver() as (endpoint, received):
         script = """
