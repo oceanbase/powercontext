@@ -27,15 +27,13 @@ Embedded seekDB is unavailable on Windows.
 The script installs the CLI and local Server in an isolated uv tool environment. It reuses compatible uv/Python,
 or installs uv and Python 3.12 in user-owned directories. It does not need administrator privileges.
 
-macOS or Linux (Bash; `curl` or `wget` is required):
+macOS or Linux uses Bash and requires `curl` or `wget`; Windows requires PowerShell 5.1 or newer.
 
-```bash
+```bash tab="macOS / Linux"
 curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
 ```
 
-Windows (PowerShell 5.1 or newer):
-
-```powershell
+```powershell tab="Windows"
 powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://powercontext.oceanbase.io/install.ps1)))"
 ```
 

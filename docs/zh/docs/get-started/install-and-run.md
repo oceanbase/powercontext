@@ -25,15 +25,13 @@ Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent Host 仍�
 脚本在独立的 uv tool 环境中安装 CLI 和本地 Server。已有兼容的 uv/Python 时会直接复用；缺少时在用户目录安装
 uv 和 Python 3.12，无需管理员权限。
 
-macOS 或 Linux（使用 Bash，需要 `curl` 或 `wget`）：
+macOS 或 Linux 使用 Bash，需要 `curl` 或 `wget`；Windows 需要 PowerShell 5.1 或更新版本。
 
-```bash
+```bash tab="macOS / Linux"
 curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
 ```
 
-Windows（PowerShell 5.1 或更新版本）：
-
-```powershell
+```powershell tab="Windows"
 powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://powercontext.oceanbase.io/install.ps1)))"
 ```
 
