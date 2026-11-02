@@ -257,6 +257,8 @@ def _require_bound_markers(value: object, locations: Mapping[str, list[tuple[int
         for key, child in value.items():
             if not isinstance(key, str):
                 raise InvalidRuntimeRequestError("context-payload-json")
+            # Keys can carry model-visible text but cannot be covered by a text locator.
+            _require_bound_markers(key, {})
             escaped = key.replace("~", "~0").replace("/", "~1")
             _require_bound_markers(child, locations, f"{pointer}/{escaped}")
     elif isinstance(value, list):

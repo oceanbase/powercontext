@@ -317,6 +317,62 @@ def test_public_check_rejects_missing_bindings_and_blocks_without_reflecting_sec
 
 @pytest.mark.parametrize("protocol", ["openai-chat", "openai-responses", "anthropic-messages"])
 @pytest.mark.parametrize("assembled", [False, True], ids=["context-marker", "text-marker"])
+def test_public_check_rejects_prepared_context_in_tool_schema_keys(tmp_path, protocol, assembled):
+    async def scenario():
+        inference = _inference()
+        target = inference.protection.targets["model"].model_copy(update={"protocol": protocol})
+        inference = inference.model_copy(
+            update={"protection": inference.protection.model_copy(update={"targets": {"model": target}})}
+        )
+        async with _server(tmp_path, inference=inference) as (_, client, _):
+            scope_id = await _scope(client)
+            await _remember(client, scope_id, "Alpha deployment uses port 8123.")
+            prepared = await _prepare(client, scope_id, assembled=assembled)
+            assert prepared.status_code == 200, prepared.text
+            envelope = prepared.json()
+            text = envelope["context"]["content"]
+            collection = "input" if protocol == "openai-responses" else "messages"
+            text_type = "input_text" if protocol == "openai-responses" else "text"
+
+            async def check(property_name, *, bound):
+                content = text if bound else "Continue the task."
+                schema = {"type": "object", "properties": {property_name: {"type": "string"}}}
+                if protocol == "anthropic-messages":
+                    tool = {"name": "inspect", "input_schema": schema}
+                elif protocol == "openai-responses":
+                    tool = {"type": "function", "name": "inspect", "parameters": schema}
+                else:
+                    tool = {"type": "function", "function": {"name": "inspect", "parameters": schema}}
+                body: dict[str, Any] = {
+                    "model": "test",
+                    collection: [{"role": "user", "content": [{"type": text_type, "text": content}]}],
+                    "tools": [tool],
+                }
+                if protocol == "openai-responses":
+                    body.update(max_output_tokens=64, store=False)
+                else:
+                    body["max_tokens"] = 64
+                request = _send(scope_id, content, envelope["reuse"]["binding"] if bound else None)
+                if bound:
+                    request["prepared_contexts"][0]["location"]["pointer"] = f"/{collection}/0/content/0/text"
+                request["payload"]["body"] = json.dumps(body)
+                return await client.post("/v1/context/check", json=request)
+
+            for bound in (False, True):
+                allowed = await check("input", bound=bound)
+                assert allowed.status_code == 200 and allowed.json()["decision"] == "allow", allowed.text
+                assert allowed.json()["coverage"]["complete"] and allowed.json()["binding"]
+                rejected = await check("history~/" + text, bound=bound)
+                assert rejected.status_code == 422, rejected.text
+                assert rejected.json()["error"]["code"] == "invalid_request"
+                assert "binding" not in rejected.json()
+                assert text not in rejected.text
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("protocol", ["openai-chat", "openai-responses", "anthropic-messages"])
+@pytest.mark.parametrize("assembled", [False, True], ids=["context-marker", "text-marker"])
 def test_public_check_rejects_stale_context_markers_split_between_native_blocks(tmp_path, protocol, assembled):
     async def scenario():
         inference = _inference()
