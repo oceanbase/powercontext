@@ -324,14 +324,14 @@ def test_generated_extension_columns_survive_historical_and_revision_rebuilds(tm
         heads = connection.execute("SELECT scope_id,position FROM pc_source_journal_heads").fetchall()
         connection.execute("DELETE FROM pc_source_journal_heads")
         connection.execute(
-            "ALTER TABLE pc_source_journal_heads ADD COLUMN extension_value TEXT "
+            "ALTER TABLE pc_source_journal_heads ADD COLUMN extension_value TEXT COLLATE NOCASE "
             f"GENERATED ALWAYS AS (scope_id || ':' || position) {storage}"
         )
         connection.executemany("INSERT INTO pc_source_journal_heads(scope_id,position) VALUES (?,?)", heads)
         artifacts = connection.execute("SELECT * FROM pc_artifacts").fetchall()
         connection.execute("DELETE FROM pc_artifacts")
         connection.execute(
-            "ALTER TABLE pc_artifacts ADD COLUMN extension_value TEXT "
+            "ALTER TABLE pc_artifacts ADD COLUMN extension_value TEXT COLLATE NOCASE "
             f"GENERATED ALWAYS AS (artifact_id || ':' || revision) {storage}"
         )
         connection.executemany(
@@ -355,6 +355,12 @@ def test_generated_extension_columns_survive_historical_and_revision_rebuilds(tm
             "SELECT scope_id,position,extension_value FROM pc_source_journal_heads ORDER BY scope_id"
         ).fetchall() == sorted((scope, position, f"{scope}:{position}") for scope, position in heads)
         assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='extension_generated_value'").fetchone()
+        assert connection.execute(
+            "SELECT count(*) FROM pc_artifacts INDEXED BY extension_generated_value WHERE extension_value='KEPT:1'"
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT count(*) FROM pc_source_journal_heads WHERE extension_value != upper(extension_value)"
+        ).fetchone() == (0,)
         connection.execute("UPDATE pc_source_journal_heads SET position=position+1")
         assert connection.execute(
             "SELECT scope_id,position,extension_value FROM pc_source_journal_heads ORDER BY scope_id"
@@ -387,4 +393,25 @@ def test_generated_column_copy_includes_columns_added_by_the_same_revision(tmp_p
             "SELECT scope_id,extension_value,consecutive_dream_attempts "
             "FROM pc_artifact_processing_intents ORDER BY scope_id"
         ).fetchall() == [(scope, value, 0) for scope, value in before]
+    assert not apply(runner).changed
+
+
+@pytest.mark.parametrize(
+    ("definition", "matches"),
+    [
+        ("TEXT COLLATE NOCASE DEFAULT 'MiXeD'", 1),
+        ("TEXT COLLATE NOCASE GENERATED ALWAYS AS ('MiXeD') VIRTUAL", 1),
+        ("TEXT GENERATED ALWAYS AS ('MiXeD' COLLATE NOCASE) VIRTUAL", 0),
+    ],
+)
+def test_extension_column_collation_survives_rebuild(tmp_path, definition, matches):
+    runner = source(tmp_path, "evolved-atomic")
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_source_journal_heads ADD COLUMN extension_value " + definition)
+        before = connection.execute("SELECT extension_value = 'mixed' FROM pc_source_journal_heads").fetchall()
+        assert before and all(row == (matches,) for row in before)
+    apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT extension_value = 'mixed' FROM pc_source_journal_heads").fetchall() == before
     assert not apply(runner).changed

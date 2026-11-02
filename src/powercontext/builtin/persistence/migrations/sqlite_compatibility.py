@@ -136,6 +136,29 @@ def _default(value: str | None, column_type: str) -> tuple[str, ...] | None:
     return result
 
 
+def _column_collation(clause: list[str]) -> str:
+    # COLLATE inside a generated expression or CHECK is not a column attribute.
+    depth = 0
+    collation = "binary"
+    for position, lexeme in enumerate(clause):
+        if lexeme == "(":
+            depth += 1
+        elif lexeme == ")":
+            depth -= 1
+        elif depth == 0 and lexeme == "collate":
+            name = clause[position + 1]
+            collation = name[1:-1].replace("''", "'") if name.startswith("'") else name
+    return collation.lower()
+
+
+def extension_column_ddl(connection: Connection, column, *, collation: str) -> str:
+    """Restore the column collation omitted by SQLite's SQLAlchemy reflection."""
+    definition = str(CreateColumn(column).compile(dialect=connection.dialect))
+    if collation != "binary":
+        definition += " COLLATE " + quote(collation)
+    return definition
+
+
 def table_contract(connection: Connection, name: str) -> dict[str, Any]:
     inspector = inspect(connection)
     ddl = connection.exec_driver_sql(
@@ -162,9 +185,7 @@ def table_contract(connection: Connection, name: str) -> dict[str, Any]:
             clause = []
         else:
             clause.append(lexeme)
-    collations = {
-        clause[0]: clause[clause.index("collate") + 1] for clause in clauses if clause and "collate" in clause
-    }
+    collations = {clause[0]: _column_collation(clause) for clause in clauses if clause}
     columns = {
         column["name"]: {
             "type": str(column["type"]),
@@ -301,11 +322,13 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
             if not inspect(connection).has_table(name):
                 continue
             table = Table(name, MetaData(), autoload_with=connection)
-            extra_columns[name] = [
-                str(CreateColumn(column).compile(dialect=connection.dialect))
-                for column in table.columns
-                if column.name not in contract["columns"]
-            ]
+            extensions = [column for column in table.columns if column.name not in contract["columns"]]
+            if extensions:
+                observed = table_contract(connection, name)["columns"]
+                extra_columns[name] = [
+                    extension_column_ddl(connection, column, collation=observed[column.name]["collation"])
+                    for column in extensions
+                ]
             if any(column.computed is not None for column in table.columns):
                 generated_sources["pc_full_upgrade_" + name] = name
 

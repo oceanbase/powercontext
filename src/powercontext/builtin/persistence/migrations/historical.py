@@ -34,7 +34,15 @@ from typing_extensions import override
 from .bundle import MigrationBundle
 from .models import MigrationError, digest
 from .pinned import finish, pinned
-from .sqlite_compatibility import differences, layout, quote, reference, sql_tokens, table_contract
+from .sqlite_compatibility import (
+    differences,
+    extension_column_ddl,
+    layout,
+    quote,
+    reference,
+    sql_tokens,
+    table_contract,
+)
 
 
 def checksum() -> str:
@@ -270,7 +278,10 @@ def _reconcile(connection: Connection, expected: Connection, rows: list[list[Any
         extras = set(actual_contract["columns"]) - set(target_contract["columns"])
         actual_table = Table(name, MetaData(), autoload_with=connection)
         extra_definitions = [
-            str(CreateColumn(actual_table.c[column]).compile(dialect=connection.dialect)) for column in sorted(extras)
+            extension_column_ddl(
+                connection, actual_table.c[column], collation=actual_contract["columns"][column]["collation"]
+            )
+            for column in sorted(extras)
         ]
         if extra_definitions:
             position = ddl.index("(") + 1

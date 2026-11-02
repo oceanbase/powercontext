@@ -323,3 +323,24 @@ def test_unregistered_processing_intent_blocks_before_any_upgrade(source):
         source.plan()
     assert dump(source.database) == before
     assert not source.evidence_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("definition", "matches"),
+    [
+        ("TEXT COLLATE NOCASE DEFAULT 'MiXeD'", 1),
+        ("TEXT COLLATE NOCASE GENERATED ALWAYS AS ('MiXeD') VIRTUAL", 1),
+        ("TEXT GENERATED ALWAYS AS ('MiXeD' COLLATE NOCASE) VIRTUAL", 0),
+    ],
+)
+def test_extension_column_collation_survives_rebuild(source, definition, matches):
+    runner = source
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_artifacts ADD COLUMN extension_value " + definition)
+        before = connection.execute("SELECT extension_value = 'mixed' FROM pc_artifacts").fetchall()
+        assert before and all(row == (matches,) for row in before)
+    apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT extension_value = 'mixed' FROM pc_artifacts").fetchall() == before
+    assert not apply(runner).changed
