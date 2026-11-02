@@ -1,20 +1,32 @@
 name: Script installation
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+  workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: installation-${{ github.event.pull_request.number || github.ref }}
+  group: installation-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: installation.yml
+
   installation:
+    needs: changes
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').packaging) }}
     strategy:
       fail-fast: false
       matrix:
