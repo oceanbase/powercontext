@@ -384,6 +384,27 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 
 [Desktop CI](../.github/workflows/desktop.yml) also builds a Server wheel, runs real Server and CLI tests, checks Windows credentials and process containment, builds the installer, and exercises installation, the installed UI and uninstallation. Consult the PR checks for the exact commit being reviewed. Reports, logs and screenshots are generated under ignored `.artifacts/` and uploaded as Actions artifacts; do not copy them into the repository.
 
+## Local Server validation at c256f59f
+
+On 2026-11-02, clean sources at `c256f59f3a61923289ee9da51bde558be8d62b87`, including
+master `e192e08c39b098dd56b2de342c83ff6ae86ded23`, passed 192 frontend tests and 130 native
+tests, with two native opt-ins ignored. The focused Desktop/Ops/admission, spawned-worker,
+ZCode and DMG recovery selection passed 146 Python tests with one platform skip. All 63 API
+contract checks, `make check`, `make docs-test`, frontend lint/typecheck/build, Rust formatting,
+Clippy and IPC drift checks passed. The host was macOS arm64, Python 3.12.15, Rust 1.95.0,
+Node 24.22.1, pnpm 11.13.1 and MacOSX26.5.sdk; Node differs from the 24.14.1 engine pin.
+
+The fixture-qualified native adapter and the built wheel passed all four real SQLite Server
+modes: anonymous loopback, Bearer, HTTPS with an explicit CA/base path, and an enforced Provider.
+They cover save/search/exact reads, lost-response handling without replay, identity/revocation,
+Scope pagination and Server survival after client exit. The wheel is
+`powercontext-1.4.2.dev146+gc256f59f3-py3-none-any.whl`, with SHA-256
+`bb00af89974333187e2605576da31c15b43142b9eca60c81b2e292cbc9ae071e`;
+normalized OpenAPI SHA-256 is `0f6befcd87645b83e63ea6393ba57002387302b4e53cf85fc474a218292f4104`.
+Product qualification records remain unchanged. These isolated local processes do not qualify
+external production deployments, managed installation/apply, installed Windows/macOS UI,
+login/reboot, signing or notarization. UI tests mock IPC, and native unit HTTP fixtures are synthetic.
+
 ## Deployment context validation
 
 On 2026-10-28, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 ran the deployment-identity
