@@ -410,8 +410,20 @@ where
         };
         let original = match message.content.as_slice() {
             [serde_json::Value::String(s)] => s.clone(),
+            // typed parts：提取文本注入，保留原有 typed 结构。
+            parts if !parts.is_empty() => {
+                let texts: Vec<String> = parts
+                    .iter()
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()).map(String::from))
+                    .collect();
+                if texts.is_empty() {
+                    return;
+                }
+                texts.join("\n")
+            }
             _ => return,
         };
+        // 注入后恢复为单字符串（与 typed parts 请求兼容的线格式）
         let new_text = format!("{block}\n\n{original}");
         message.content = vec![serde_json::Value::String(new_text)];
         call.prepared_contexts.push(PreparedContextLocation {

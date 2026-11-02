@@ -354,7 +354,7 @@ async fn read_with_timeout(
     chunk_size: usize,
 ) -> Result<usize, GateError> {
     // 累计预算：读取前检查，不在读满 64 MiB 后才拒绝。
-    if buf.len() >= MAX_BODY_BYTES {
+    if buf.len() > MAX_BODY_BYTES {
         return Err(GateError::Malformed("uds body too large".into()));
     }
     let mut chunk = vec![0u8; chunk_size.min(MAX_BODY_BYTES - buf.len())];
