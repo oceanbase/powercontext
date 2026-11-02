@@ -999,7 +999,9 @@ def test_report_response_nested_mappings_are_immutable() -> None:
         "passed": False,
         "treatment_valid": True,
         "input_tokens": None,
+        "cached_input_tokens": None,
         "output_tokens": None,
+        "reasoning_output_tokens": None,
         "elapsed_seconds": None,
         "patch_bytes": None,
     }
