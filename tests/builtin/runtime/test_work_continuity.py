@@ -367,3 +367,128 @@ def test_continuity_excludes_malformed_work_records_without_failing_the_report()
         assert continuity.events == ()
 
     asyncio.run(scenario())
+
+
+def test_outcome_covers_an_accepted_exact_receipt_after_a_longer_history() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope_id = await _create_scope(runtime, "outcome-exact-receipt-after-long-history")
+            work = runtime.work.for_scope(scope_id)
+            prepared = await work.handoff_current(
+                HandoffCurrentWork(
+                    source_id="handoff-1",
+                    handoff=CurrentWorkHandoff(
+                        objective="Resume one accepted attempt.",
+                        state=(WorkClaim(text="The attempt was accepted by the receiver."),),
+                        disposition="continuable",
+                    ),
+                )
+            )
+            committed = await runtime.handoff.for_scope(scope_id).commit(prepared.handoff)
+            acknowledgement = await work.acknowledge(
+                AcknowledgeHandoff(
+                    source_id="receipt-1",
+                    receiver="receiver-agent",
+                    status="accepted",
+                    selection="exact",
+                    receiver_checks=CONFIRMED_RECEIVER_CHECKS,
+                    revision=committed.as_ref(),
+                )
+            )
+            sources = runtime.sources.for_scope(scope_id)
+            for index in range(96):
+                await sources.capture(
+                    CaptureSource(
+                        source_id=f"ordinary-{index}",
+                        content=f"unrelated note {index}",
+                        metadata={"kind": "analysis-note"},
+                    )
+                )
+
+            outcome = await work.record_outcome(
+                RecordTaskOutcome(
+                    source_id="outcome-1",
+                    outcome=TaskOutcome(
+                        objective="Resume one accepted attempt.",
+                        status="succeeded",
+                        summary="The accepted attempt completed after unrelated records were appended.",
+                        handoff_receipt_ref=acknowledgement.receipt.source_ref,
+                        observations=(WorkClaim(text="The receiver reported completion."),),
+                    ),
+                )
+            )
+            covered = await work.continuity(committed.as_ref())
+
+        assert outcome.kind == "task-outcome"
+        assert outcome.position > acknowledgement.receipt.position
+        assert covered.coverage.transfer_state == "accepted"
+        assert covered.coverage.outcome_state == "covered"
+        assert covered.coverage.handoff_result_covered is True
+        assert covered.coverage.active_receipt_ref == acknowledgement.receipt.source_ref
+        assert covered.total_event_count == 3
+        assert covered.invalid_record_count == 0
+        assert covered.truncated is False
+
+    asyncio.run(scenario())
+
+
+def test_outcome_rejects_a_receipt_that_is_not_accepted_exact() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            scope_id = await _create_scope(runtime, "outcome-rejects-declined-receipt")
+            work = runtime.work.for_scope(scope_id)
+            prepared = await work.handoff_current(
+                HandoffCurrentWork(
+                    source_id="handoff-1",
+                    handoff=CurrentWorkHandoff(
+                        objective="Transfer one attempt that is not accepted.",
+                        state=(WorkClaim(text="The attempt is ready."),),
+                        disposition="continuable",
+                    ),
+                )
+            )
+            committed = await runtime.handoff.for_scope(scope_id).commit(prepared.handoff)
+            declined = await work.acknowledge(
+                AcknowledgeHandoff(
+                    source_id="receipt-declined",
+                    receiver="receiver-agent",
+                    status="declined",
+                    selection="exact",
+                    revision=committed.as_ref(),
+                    message="The receiver declined the selection.",
+                )
+            )
+            prepared_target = await work.acknowledge(
+                AcknowledgeHandoff(
+                    source_id="receipt-prepared",
+                    receiver="receiver-agent",
+                    status="accepted",
+                    selection="prepared",
+                    receiver_checks=CONFIRMED_RECEIVER_CHECKS,
+                    prepared=prepared.handoff,
+                )
+            )
+
+            for receipt_ref in (declined.receipt.source_ref, prepared_target.receipt.source_ref):
+                with pytest.raises(InvalidRuntimeRequestError) as rejection:
+                    await work.record_outcome(
+                        RecordTaskOutcome(
+                            source_id=f"outcome-{receipt_ref.source_id}",
+                            outcome=TaskOutcome(
+                                objective="Reject an unusable receipt link.",
+                                status="unknown",
+                                summary="Only an accepted exact Receipt may be referenced.",
+                                handoff_receipt_ref=receipt_ref,
+                                observations=(WorkClaim(text="The Receipt is not an accepted exact target."),),
+                            ),
+                        )
+                    )
+                assert rejection.value.code == "task-outcome-handoff-receipt"
+
+            continuity = await work.continuity(committed.as_ref())
+
+        assert continuity.coverage.transfer_state == "declined"
+        assert continuity.coverage.outcome_records == 0
+        assert continuity.coverage.handoff_result_covered is False
+
+    asyncio.run(scenario())

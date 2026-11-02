@@ -3464,14 +3464,13 @@ class ScopedWorkApplication:
 
     async def _validate_outcome_receipt(self, receipt_ref: SourceRef) -> None:
         async with self._runtime._context(self.scope_id) as context:
-            entries = await context.sources.journal.entries()
-        matching_entry = next((entry for entry in entries if entry.source_ref == receipt_ref), None)
-        if matching_entry is None or not isinstance(matching_entry.source, ContentSource):
+            entry = await context.sources.journal.entry(receipt_ref)
+        if entry is None or not isinstance(entry.source, ContentSource):
             raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
-        if matching_entry.source.metadata.get("kind") != HANDOFF_RECEIPT_SOURCE_KIND:
+        if entry.source.metadata.get("kind") != HANDOFF_RECEIPT_SOURCE_KIND:
             raise InvalidRuntimeRequestError("task-outcome-handoff-receipt")
         try:
-            receipt = HandoffReceipt.model_validate_json(matching_entry.source.content)
+            receipt = HandoffReceipt.model_validate_json(entry.source.content)
         except ValidationError as error:
             raise InvalidRuntimeRequestError("task-outcome-handoff-receipt") from error
         if receipt.status != "accepted" or receipt.selection != "exact" or receipt.selected_revision is None:
