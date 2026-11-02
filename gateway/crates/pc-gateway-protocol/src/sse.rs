@@ -63,14 +63,20 @@ impl SseFramer {
 }
 
 fn find_blank_line_with_len(buf: &[u8]) -> Option<(usize, usize)> {
-    // 完整空行分隔符：\r\n\r\n（CRLF）或 \n\n（LF）。
-    // 不能匹配单个 \r\n（那是事件内部的行终止符，不是事件分隔符）。
-    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-        return Some((pos, 4));
+    // 返回最早出现的完整分隔符（不按类型排序，按位置排序）。
+    // CRLF(\r\n\r\n) 和 LF(\n\n) 同时搜索，取位置更靠前的那个——
+    // 混合行尾流中 LF 分隔符可能出现在 CRLF 之前。
+    let crlf = buf
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|p| (p, 4));
+    let lf = buf.windows(2).position(|w| w == b"\n\n").map(|p| (p, 2));
+    match (crlf, lf) {
+        (Some(a), Some(b)) => Some(if a.0 < b.0 { a } else { b }),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
     }
-    buf.windows(2)
-        .position(|w| w == b"\n\n")
-        .map(|pos| (pos, 2))
 }
 
 fn parse_block(block: &[u8]) -> Option<RawSseEvent> {

@@ -287,6 +287,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
         tool_choice: chat.tool_choice,
         store: None,
         previous_response_id: None,
+        token_limit_field: None,
     })
 }
 
@@ -344,6 +345,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
         tool_choice: r.tool_choice,
         store: r.store,
         previous_response_id: r.previous_response_id,
+        token_limit_field: None,
     })
 }
 

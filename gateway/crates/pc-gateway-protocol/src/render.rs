@@ -96,7 +96,8 @@ impl WireRenderer for OpenAiChatRenderer {
             "stream": request.stream,
         });
         if let Some(max) = request.output_limits.max_output_tokens {
-            body["max_tokens"] = serde_json::json!(max);
+            let field = request.token_limit_field.as_deref().unwrap_or("max_tokens");
+            body[field] = serde_json::json!(max);
         }
         if !request.tools.is_empty() {
             body["tools"] = serde_json::json!(request.tools);

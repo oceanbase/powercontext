@@ -213,6 +213,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
             tool_choice: None,
             store: None,
             previous_response_id: None,
+            token_limit_field: None,
         },
         target_url: "http://upstream.invalid/v1/chat/completions".into(),
         headers: vec![("authorization".into(), "Bearer secret".into())],

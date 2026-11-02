@@ -42,6 +42,10 @@ pub struct CanonicalRequest {
     /// Responses 的保留设置（store）。#2313 要求 openai-responses 目标显式 store:false。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
+    /// 调用方使用的 token 上限字段名（"max_tokens" 或 "max_completion_tokens"），
+    /// 渲染器按原名输出——o-series 只认 max_completion_tokens。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_limit_field: Option<String>,
     /// Responses 的会话续写 ID，原样透传给上游和 Core。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,

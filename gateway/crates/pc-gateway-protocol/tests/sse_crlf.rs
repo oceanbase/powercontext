@@ -57,3 +57,22 @@ fn mixed_crlf_events() {
     assert_eq!(events[0].event.as_deref(), Some("a"));
     assert_eq!(events[1].event.as_deref(), Some("b"));
 }
+
+#[test]
+fn mixed_lf_then_crlf_events_not_merged() {
+    // P2 review：一个 LF 事件 + 一个 CRLF 事件不得合并为一个。
+    // 修复前：搜索先找 CRLF 再找 LF → LF 分隔符被跳过 → 两个事件合并。
+    let mut framer = SseFramer::default();
+    framer.push(b"event: a\ndata: one\n\nevent: b\r\ndata: two\r\n\r\n");
+    let events = framer.take_events();
+    assert_eq!(
+        events.len(),
+        2,
+        "混合行尾应得到两个事件，实际: {} 个",
+        events.len()
+    );
+    assert_eq!(events[0].event.as_deref(), Some("a"));
+    assert_eq!(events[0].data.as_ref(), &bytes::Bytes::from_static(b"one"));
+    assert_eq!(events[1].event.as_deref(), Some("b"));
+    assert_eq!(events[1].data.as_ref(), &bytes::Bytes::from_static(b"two"));
+}
