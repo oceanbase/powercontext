@@ -120,10 +120,14 @@ parse_args() {
 download() {
     local timeout=${3:-30}
     if command -v curl >/dev/null 2>&1; then
-        curl --fail --location --silent --show-error --connect-timeout 5 --max-time "$timeout" "$1" -o "$2"
+        curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error --connect-timeout 5 --max-time "$timeout" "$1" -o "$2"
     else
         timeout=${3:-15}
-        wget --quiet --timeout="$timeout" --tries=1 "$1" -O "$2"
+        # wget cannot restrict redirect protocols; reject redirects rather than allow a downgrade.
+        wget --quiet --max-redirect=0 --timeout="$timeout" --tries=1 "$1" -O "$2" || {
+            printf '%s\n' 'wget download failed. Install curl if the HTTPS source requires redirects.' >&2
+            return 1
+        }
     fi
 }
 
@@ -181,9 +185,9 @@ has_uv_configuration() {
 
 url_available() {
     if command -v curl >/dev/null 2>&1; then
-        curl --fail --location --silent --head --connect-timeout 5 --max-time 10 "$1" >/dev/null
+        curl --proto '=https' --proto-redir '=https' --fail --location --silent --head --connect-timeout 5 --max-time 10 "$1" >/dev/null
     else
-        wget --quiet --spider --timeout=10 --tries=1 "$1"
+        wget --quiet --max-redirect=0 --spider --timeout=10 --tries=1 "$1"
     fi
 }
 

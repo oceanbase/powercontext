@@ -21,6 +21,7 @@ import http.server
 import io
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import urllib.parse
@@ -56,7 +57,40 @@ def build_wheel(version: str) -> bytes:
 
 
 @pytest.fixture
-def installation(tmp_path):  # noqa: C901 - one fixture owns the server and subprocess environment
+def tls_certificate(tmp_path):
+    openssl = shutil.which("openssl")
+    if not openssl:
+        pytest.skip("HTTPS download acceptance requires openssl")
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
+            "-addext",
+            "subjectAltName=DNS:localhost",
+            "-addext",
+            "basicConstraints=critical,CA:FALSE",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return cert, key
+
+
+@pytest.fixture
+def installation(tmp_path, tls_certificate):  # noqa: C901 - one fixture owns the server and subprocess environment
     assert BASH
     bash_command: str = BASH
     wheels = {version: build_wheel(version) for version in ("1.0.0", "1.1.0", "1.2.0rc1")}
@@ -105,9 +139,13 @@ def installation(tmp_path):  # noqa: C901 - one fixture owns the server and subp
                 self.wfile.write(payload)
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Index)
+    cert, key = tls_certificate
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
     worker = Thread(target=server.serve_forever, daemon=True)
     worker.start()
-    base = f"http://127.0.0.1:{server.server_port}"
+    base = f"https://localhost:{server.server_port}"
     utilities = tmp_path / "utilities"
     utilities.mkdir()
     # Translate only distribution endpoints to fixtures; run the real downloader and uv.
@@ -142,7 +180,10 @@ def installation(tmp_path):  # noqa: C901 - one fixture owns the server and subp
         "UV_CACHE_DIR": str(tmp_path / "cache"),
         "UV_PYTHON_INSTALL_DIR": str(tmp_path / "python"),
         "UV_HTTP_RETRIES": "0",
-        "NO_PROXY": "127.0.0.1",
+        "NO_PROXY": "localhost,127.0.0.1",
+        "CURL_CA_BUNDLE": str(cert),
+        "SSL_CERT_FILE": str(cert),
+        "UV_NATIVE_TLS": "true",
     }
     Path(env["HOME"]).mkdir()
 
@@ -238,3 +279,80 @@ def test_unrelated_config_preserved_and_region_does_not_override_index(installat
     assert "Using existing uv configuration" in output
     assert config.read_bytes() == original
     assert not any(path.startswith("/cn/") for path in index.requests)
+
+
+@pytest.mark.parametrize("downloader", ["curl", "wget"])
+@pytest.mark.parametrize("route", ["direct", "https", "http"])
+def test_bootstrap_download_transport(tmp_path, tls_certificate, downloader, route):
+    executable = shutil.which(downloader)
+    if not executable:
+        pytest.skip(f"download acceptance requires {downloader}")
+    assert BASH
+    requests = []
+
+    class Installer(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            pass
+
+        def do_GET(self):
+            scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
+            requests.append((scheme, self.path))
+            if self.path != "/direct":
+                target = self.path.removeprefix("/")
+                port = secure.server_port if target == "https" else plain.server_port
+                self.send_response(302)
+                self.send_header("Location", f"{target}://localhost:{port}/direct")
+                self.end_headers()
+                return
+            # Stop before real installation; the marker proves the bootstrap executed the download.
+            payload = b'#!/bin/sh\nprintf executed > "$HOME/download-executed"\nexit 1\n'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    cert, key = tls_certificate
+    plain = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Installer)
+    secure = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Installer)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    secure.socket = context.wrap_socket(secure.socket, server_side=True)
+    workers = [Thread(target=server.serve_forever, daemon=True) for server in (plain, secure)]
+    utilities = tmp_path / "utilities"
+    utilities.mkdir()
+    for name in (downloader, "uname", "mktemp", "rm", "dirname", "cat", "sh", "readlink"):
+        tool = shutil.which(name)
+        assert tool
+        (utilities / name).symlink_to(tool)
+    wgetrc = tmp_path / "wgetrc"
+    wgetrc.write_text(f"ca_certificate = {cert}\n", encoding="utf-8")
+    for worker in workers:
+        worker.start()
+    try:
+        completed = subprocess.run(
+            [BASH, str(ROOT / "website/public/install.sh"), "--region", "global", "--no-hosts"],
+            env={
+                "PATH": str(utilities),
+                "HOME": str(tmp_path),
+                "TMPDIR": str(tmp_path),
+                "UV_INSTALL_DIR": str(tmp_path / "bin"),
+                "CURL_CA_BUNDLE": str(cert),
+                "WGETRC": str(wgetrc),
+                "POWERCONTEXT_UV_INSTALLER_URL": f"https://localhost:{secure.server_port}/{route}",
+            },
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        output = completed.stdout + completed.stderr
+        assert completed.returncode != 0, output
+        expected_execution = route == "direct" or (route == "https" and downloader == "curl")
+        assert (tmp_path / "download-executed").exists() == expected_execution, output
+        assert all(scheme == "https" for scheme, _path in requests), requests
+        if downloader == "wget" and route != "direct":
+            assert "Install curl" in output
+    finally:
+        for server, worker in zip((plain, secure), workers, strict=True):
+            server.shutdown()
+            server.server_close()
+            worker.join()
