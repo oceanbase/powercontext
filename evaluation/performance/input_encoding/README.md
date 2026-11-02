@@ -59,6 +59,8 @@ export TMPDIR=/data/codex-tmp
 
 `run` 使用 `.env` 配置的数据库与 LLM；SQLite 则使用输出目录中的独立 `experience.db`。可通过 `--database-config /private/database.json` 指向另一个已准备好的评测数据库，JSON 采用 `BuiltinConfig.database` 的现有形状。本评测进程仅执行显式操作，具体后台隔离方式见下文。数据库的处理能力清单必须与所用配置兼容；套件不创建或删除外部数据库，不修改已有业务 Scope。评测产生的专用 Scope 会保留供复查。
 
+与 `BuiltinConfig` 一致，数据库 JSON 省略 `kind` 时默认使用 SQLite，例如 `{"url":"sqlite+aiosqlite:////path/to/existing.db"}`；指定的数据库路径会保留，不会改用输出目录中的 `experience.db`。
+
 OceanBase 使用 `artifact_processing_role=api`，保留原部署能力清单及调度声明，但本评测进程不创建后台 worker 或 supervisor；SQLite/seekdb 使用空处理能力清单。已有数据库的向量索引维度和类型也必须匹配配置。独立评测数据库可以避免其他已有后台进程消费新增 Source。
 
 三个模式启动及结果重开验证之前，都会通过非建库连接检查配置的 OceanBase 数据库；缺库时拒绝运行，不尝试创建数据库。检查使用最终生效的数据库配置，包括 `--database-config` 覆盖。此约束适用于 `oceanbase` 配置及其支持的 MySQL 兼容 OceanBase/独立 SeekDB 服务；不新增通用 MySQL 支持。SQLite 和嵌入式 `seekdb` 仍按原有本地初始化流程处理。

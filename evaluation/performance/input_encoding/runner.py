@@ -161,11 +161,10 @@ def _configuration(
     runtime_values = settings.runtime.model_dump()
     database = settings.database
     if database_config is not None:
-        database = json.loads(database_config.read_text())
+        database = BuiltinConfig(database=json.loads(database_config.read_text())).database
     elif database.kind == "sqlite":
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{output.resolve() / 'experience.db'}")
-    database_kind = database["kind"] if isinstance(database, dict) else database.kind
-    if database_kind == "oceanbase":
+    if database.kind == "oceanbase":
         # API role constructs no worker/supervisor, preserving the shared DB's manifest.
         runtime_values["artifact_processing_role"] = "api"
     else:

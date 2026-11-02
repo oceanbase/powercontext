@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Controlled database-driver checks; no external OceanBase service is used."""
+"""Database admission checks with controlled OceanBase drivers and real SQLite."""
 
 from __future__ import annotations
 
@@ -26,10 +26,13 @@ from pydantic import SecretStr
 from sqlalchemy.exc import OperationalError
 
 from evaluation.performance.input_encoding import runner
+from evaluation.performance.input_encoding.__main__ import main
 from evaluation.performance.input_encoding.dataset import digest, write_json
 from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.oceanbase import profile as oceanbase
+from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.settings import ServerSettings
 from tests.e2e.rfc2086_real_acceptance import inspect_database
 
@@ -186,3 +189,74 @@ def test_run_never_provisions_external_databases(tmp_path, monkeypatch, state, o
         assert len(completed) == (0 if state == "missing" else 3)
     for path in args.output.rglob("*.json"):
         assert "private-fixture" not in path.read_text()
+
+
+@pytest.mark.parametrize("include_kind", [False, True])
+def test_run_cli_uses_existing_sqlite_override_with_optional_kind(tmp_path, monkeypatch, include_kind):
+    database = {"url": f"sqlite+aiosqlite:///{tmp_path / 'existing.db'}"}
+    if include_kind:
+        database["kind"] = "sqlite"
+    config = BuiltinConfig.model_validate({
+        "database": database,
+        "runtime": {"artifact_processing_families": (), "profile_schedule_enabled": False},
+    })
+
+    async def seed():
+        async with open_builtin_runtime(config, scheduler_path=tmp_path / "seed-scheduler.db") as runtime:
+            assert runtime.scopes is not None
+            return await runtime.scopes.create(
+                ScopeDraft(title="Existing database", summary="Keep this Scope", idempotency_key="existing")
+            )
+
+    existing = asyncio.run(seed())
+    environment = tmp_path / "fixture.env"
+    environment.write_text("POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\n")
+    database_file = tmp_path / "database.json"
+    database_file.write_text(json.dumps(database))
+    cases = tmp_path / "cases.json"
+    cases.write_text('["fixture-case"]')
+    output = tmp_path / "run"
+    completed = []
+
+    async def attempt(runtime, instance, job, directory, *args, **kwargs):
+        assert await runtime.scopes.get(existing.scope_id) == existing
+        completed.append(job["mode"])
+        key = digest(job)[:24]
+        write_json(
+            directory / "attempts" / f"{key}.json",
+            {
+                **job,
+                "attempt_id": key,
+                "segment_id": kwargs["segment_id"],
+                "status": "no_proposal",
+            },
+        )
+
+    monkeypatch.setattr(runner, "load_catalog", lambda path: SimpleNamespace(require=lambda name: object()))
+    monkeypatch.setattr(runner, "_attempt", attempt)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "input_encoding",
+            "run",
+            "--output",
+            str(output),
+            "--env-file",
+            str(environment),
+            "--database-config",
+            str(database_file),
+            "--case-ids",
+            str(cases),
+            "--repeats",
+            "1",
+        ],
+    )
+
+    main()
+
+    assert set(completed) == {"off", "shadow", "active"}
+    assert json.loads((output / "manifest.json").read_text())["database_kind"] == "sqlite"
+    assert (output / "report.md").is_file()
+    assert not (output / "experience.db").exists()
+    segments = [json.loads(path.read_text()) for path in (output / "segments").glob("*.json")]
+    assert len(segments) == 1 and segments[0]["status"] == "completed"
