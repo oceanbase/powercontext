@@ -1331,3 +1331,77 @@ async fn mixed_content_preserves_non_text_parts_during_injection() {
     );
     assert!(sent_str.contains("data:image/png"), "图片数据必须在");
 }
+
+// ---------- typed parts 注入精确性 + UDS 预算 ----------
+
+#[tokio::test]
+async fn multi_text_parts_memory_injected_only_once() {
+    // AlexStocks P2：两个 text 部件 → 记忆块只出现在第一个，不重复。
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("UNIQUE_MARKER_XYZ")));
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.request.messages[0].content = vec![
+        serde_json::json!({"type": "text", "text": "第一段"}),
+        serde_json::json!({"type": "text", "text": "第二段"}),
+        serde_json::json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}),
+    ];
+    executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+
+    // 上游载荷：记忆块只出现一次（第一个 text 部件），第二个 text 不注入
+    let sent = &transport.sends.lock().unwrap()[0];
+    let sent_str = String::from_utf8(sent.to_vec()).unwrap();
+    let count = sent_str.matches("UNIQUE_MARKER_XYZ").count();
+    assert_eq!(count, 1, "记忆块必须只出现一次，实际出现 {count} 次");
+    assert!(sent_str.contains("第一段"));
+    assert!(sent_str.contains("第二段"));
+    assert!(sent_str.contains("image_url"), "非文本部件保留");
+}
+
+#[tokio::test]
+async fn typed_parts_pointer_targets_text_field() {
+    // hidb4ai P2：typed parts 的 prepared_contexts 指针必须是 /messages/{i}/content/{j}/text。
+    let (executor, renderer, _t, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("TYPED_MEMORY")));
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.request.messages[0].content = vec![serde_json::json!({"type": "text", "text": "hello"})];
+    executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+
+    let declared = gate.prepared_seen.lock().unwrap();
+    assert_eq!(
+        declared.len(),
+        2,
+        "两次 check（before_send + before_release）"
+    );
+    assert_eq!(declared[0].len(), 1, "before_send 有 1 条 prepared_context");
+    assert_eq!(declared[1].len(), 0, "before_release 无 prepared_context");
+    let loc = &declared[0][0];
+    assert!(
+        loc.location.pointer.contains("/text"),
+        "typed parts 指针必须指向 text 字段: {}",
+        loc.location.pointer
+    );
+    assert_eq!(
+        loc.location.pointer, "/messages/0/content/0/text",
+        "精确指针格式"
+    );
+}

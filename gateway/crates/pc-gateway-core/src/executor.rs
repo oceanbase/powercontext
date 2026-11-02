@@ -413,30 +413,47 @@ where
                 let new_text = format!("{block}\n\n{s}");
                 message.content = vec![serde_json::Value::String(new_text)];
             }
-            // typed parts：只修改第一个 text 部件注入记忆，保留所有非文本部件
-            // （image_url 等）——移除非文本部件会让 Core 看不到不支持的内容，
-            // 从而把本该被拒绝的请求变成 allow（P2 review 发现的安全缺陷）。
+            // typed parts：只修改第一个 text 部件注入记忆（不重复注入），
+            // 保留所有非文本部件（image_url 等）——移除非文本部件会让 Core
+            // 看不到不支持的内容（安全缺陷），重复注入会膨胀 payload（审计缺陷）。
             parts if !parts.is_empty() => {
-                let has_text = parts
+                let first_text_idx = parts
                     .iter()
-                    .any(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"));
-                if !has_text {
+                    .position(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"));
+                let Some(text_idx) = first_text_idx else {
                     return;
-                }
+                };
+                let text = parts[text_idx]
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
                 let new_parts: Vec<serde_json::Value> = parts
                     .iter()
-                    .map(|p| {
-                        if p.get("type").and_then(|t| t.as_str()) == Some("text") {
-                            let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                    .enumerate()
+                    .map(|(j, p)| {
+                        if j == text_idx {
                             let mut np = p.clone();
                             np["text"] = serde_json::json!(format!("{block}\n\n{text}"));
                             np
                         } else {
-                            p.clone() // 非文本部件原样保留
+                            p.clone() // 其余部件（含非第一个 text）原样保留
                         }
                     })
                     .collect();
                 message.content = new_parts;
+                // typed parts 的 prepared_contexts 指针必须指向具体 text 部件
+                // （/messages/{i}/content 是纯字符串形态的指针，数组形态用
+                //  /messages/{i}/content/{j}/text——PC 契约的两种合法形态）。
+                call.prepared_contexts.push(PreparedContextLocation {
+                    binding: binding.to_string(),
+                    location: ModelJsonTextLocation {
+                        schema: pc_gateway_types::MODEL_JSON_TEXT_LOCATION_SCHEMA.to_string(),
+                        pointer: format!("/messages/{index}/content/{text_idx}/text"),
+                        start_byte: 0,
+                        end_byte: block.len() as u64,
+                    },
+                });
+                return;
             }
             _ => return,
         }

@@ -353,19 +353,12 @@ async fn read_with_timeout(
     buf: &mut Vec<u8>,
     chunk_size: usize,
 ) -> Result<usize, GateError> {
-    // 累计预算：读取前检查，不在读满 64 MiB 后才拒绝。
-    if buf.len() > MAX_BODY_BYTES {
-        return Err(GateError::Malformed("uds body too large".into()));
-    }
-    let mut chunk = vec![0u8; chunk_size.min(MAX_BODY_BYTES - buf.len())];
+    let mut chunk = vec![0u8; chunk_size];
     let n = tokio::time::timeout(READ_TIMEOUT, rd.read(&mut chunk))
         .await
         .map_err(|_| GateError::GateUnavailable("uds read timeout".into()))?
         .map_err(|e| GateError::GateUnavailable(format!("uds read: {e}")))?;
     buf.extend_from_slice(&chunk[..n]);
-    if buf.len() > MAX_BODY_BYTES {
-        return Err(GateError::Malformed("uds body too large".into()));
-    }
     Ok(n)
 }
 
