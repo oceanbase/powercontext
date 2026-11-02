@@ -141,8 +141,7 @@ class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
                                     self.policy.decision("before_release", "withhold", "payload_too_large"),
                                     usage=InferenceUsage(requests=1, incomplete=True, target_model=profile.model),
                                 )
-                                # Even observation mode keeps the buffer bounded;
-                                # these modes are not a streaming bypass promise.
+                                # Response buffering and this byte limit apply only in enforcing mode.
                                 raise InferencePrivacyError("before_release", "withhold", ("payload_too_large",))
                             chunks.append(chunk)
                         raw = b"".join(chunks)
