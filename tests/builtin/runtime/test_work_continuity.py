@@ -477,6 +477,36 @@ def test_outcome_reads_only_its_receipt_when_unrelated_history_is_unreadable() -
     asyncio.run(scenario())
 
 
+def test_outcome_rejects_a_cross_scope_receipt_link() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            receipt_scope = await _create_scope(runtime, "receipt-owner-scope")
+            _, receipt_ref = await _accept_exact_handoff(runtime, receipt_scope)
+            outcome_scope = await _create_scope(runtime, "outcome-other-scope")
+            work = runtime.work.for_scope(outcome_scope)
+
+            with pytest.raises(InvalidRuntimeRequestError) as rejection:
+                await work.record_outcome(
+                    RecordTaskOutcome(
+                        source_id="outcome-1",
+                        outcome=TaskOutcome(
+                            objective="Reject a receipt from another scope.",
+                            status="unknown",
+                            summary="An accepted exact receipt belongs to its original scope.",
+                            handoff_receipt_ref=receipt_ref,
+                            observations=(WorkClaim(text="No receipt was captured in this scope."),),
+                        ),
+                    )
+                )
+            continuity = await work.continuity()
+
+        assert rejection.value.code == "task-outcome-handoff-receipt"
+        assert continuity.total_event_count == 0
+        assert continuity.coverage.outcome_records == 0
+
+    asyncio.run(scenario())
+
+
 def test_outcome_rejects_a_receipt_whose_content_is_malformed() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
@@ -521,8 +551,7 @@ def test_outcome_rejects_a_receipt_whose_content_is_malformed() -> None:
 
             continuity = await work.continuity()
 
-        # Only a Source that declares a Work kind counts as invalid history; the unreadable
-        # non-Work body stays outside the projection even though neither could be referenced.
+        # Both Sources declare Work kinds, but neither body validates against its declared kind.
         assert continuity.invalid_record_count == 2
         assert continuity.coverage.outcome_records == 0
         assert continuity.coverage.transfer_state == "accepted"
