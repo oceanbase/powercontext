@@ -38,6 +38,7 @@ from powercontext.builtin.inference.model_payload import (
     json_unsigned_integer,
     nested_json_text,
     parse_json_evidence,
+    responses_output_text,
     tool_arguments,
 )
 
@@ -369,6 +370,8 @@ class PrivacyPolicy:
             return self.decision(phase, "block", "forbidden_content", complete=True)
         try:
             value, strings, duplicate = parse_json_evidence(text, self.config.max_json_depth)
+            if phase == "before_release" and profile.protocol == "openai-responses":
+                strings += (responses_output_text(value),)
             nested, repeated = nested_json_text(strings, self.config.max_json_depth)
             duplicate = duplicate or repeated
         except (ValueError, RecursionError, UnicodeError):
