@@ -287,7 +287,13 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
         tool_choice: chat.tool_choice,
         store: None,
         previous_response_id: None,
-        token_limit_field: None,
+        token_limit_field: if chat.max_completion_tokens.is_some() {
+            Some("max_completion_tokens".into())
+        } else if chat.max_tokens.is_some() {
+            Some("max_tokens".into())
+        } else {
+            None
+        },
     })
 }
 
