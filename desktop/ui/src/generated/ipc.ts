@@ -181,10 +181,12 @@ external_skill_registry?: boolean,
 /**
  * Whether exact evidence can be generated into an inspectable Handoff Draft.
  */
-handoff_generation: boolean, search_modes: Array<MemorySearchMode>, context_versions: Array<PreparedContextSchema>, };
+handoff_generation: boolean, search_modes: Array<MemorySearchMode>, context_versions: Array<PreparedContextSchema>, context_protection?: ContextProtectionCapabilities, };
 export type Configuration = "configured" | "unconfigured" | "unknown";
 export type ConnectionAuthentication = "disabled" | "authenticated";
 export type ConnectionIdentity = { server_id: string, authentication: ConnectionAuthentication, access_mode: AccessControlMode, principal: AccessPrincipal | null, };
+export type ContextProtectionCapabilities = { check_versions: Array<string>, payload_versions: Array<string>, reuse_versions: Array<string>, reuse_families: Array<string>, enforcing: boolean, limits: ContextProtectionCapabilitiesLimits, };
+export type ContextProtectionCapabilitiesLimits = { payload_bytes: number, binding_bytes: number, prepared_contexts: number, dependencies: number, send_seconds: number, correlate_seconds: number, };
 export type ContractVersion = { major: number, minor: number, };
 export type CustomArtifactFamilySchema = { family: string, schema_version: string, content_schema: Record<string, unknown>,
 /**

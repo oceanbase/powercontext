@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -97,6 +98,20 @@ def configured_embedding_profile(settings: ServerSettings) -> EmbeddingProfile |
         dimension=inference.embedding_dimension,
         normalization=inference.embedding_normalization,
     )
+
+
+def _historical_embedding_factory(settings: ServerSettings):
+    inference = settings.inference.model_copy(deep=True)
+
+    @asynccontextmanager
+    async def opened():
+        from powercontext.builtin.runtime.composition import _embedding_models
+
+        async with AsyncExitStack() as resources:
+            model, _readiness = await _embedding_models(inference, resources, None)
+            yield model
+
+    return opened
 
 
 def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
@@ -185,6 +200,7 @@ def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
             source_bundles=sources,
             evidence_directory=evidence_dir,
             configuration=configuration,
+            embedding_factory=_historical_embedding_factory(settings) if profile is not None else None,
         )
     if not isinstance(database, SQLiteConfig):
         raise MigrationError("unsupported_backend", "The database has no registered migration adapter.")
@@ -212,4 +228,5 @@ def deployment_runner(  # noqa: C901 -- Ordered backend admission checks.
         source_bundles=sources,
         configuration=configuration,
         evidence_directory=evidence_dir,
+        embedding_factory=_historical_embedding_factory(settings) if profile is not None else None,
     )

@@ -1,0 +1,1716 @@
+{
+  "provenance": {
+    "tag": "powercontext-v1.0.0",
+    "creation": "Released HTTP server; four Memory writes. evolved-atomic also ran 1.1.0, 1.2.0, official 1.3.0 Atomic apply/verify, then three Atomic writes. No manual schema edits."
+  },
+  "schema": [
+    [
+      "index",
+      "ix_pc_artifact_tags_family_key",
+      "pc_artifact_tags",
+      "CREATE INDEX ix_pc_artifact_tags_family_key ON pc_artifact_tags (scope_id, family, tag_key_hash, target_type, artifact_id, target_id)"
+    ],
+    [
+      "index",
+      "ix_pc_artifact_tags_key",
+      "pc_artifact_tags",
+      "CREATE INDEX ix_pc_artifact_tags_key ON pc_artifact_tags (scope_id, tag_key_hash, family, target_type, artifact_id, target_id)"
+    ],
+    [
+      "index",
+      "ix_pc_dream_dispatch",
+      "pc_dream_runs",
+      "CREATE INDEX ix_pc_dream_dispatch ON pc_dream_runs (scope_id, operation, status, request_generation)"
+    ],
+    [
+      "index",
+      "ix_pc_dream_list",
+      "pc_dream_runs",
+      "CREATE INDEX ix_pc_dream_list ON pc_dream_runs (scope_id, accepted_at, run_id)"
+    ],
+    [
+      "index",
+      "ix_pc_processing_intent_binding_sequence",
+      "pc_artifact_processing_intents",
+      "CREATE INDEX ix_pc_processing_intent_binding_sequence ON pc_artifact_processing_intents (binding_name, pending_sequence)"
+    ],
+    [
+      "table",
+      "pc_access_audit",
+      "pc_access_audit",
+      "CREATE TABLE pc_access_audit (\n\tcursor INTEGER NOT NULL, \n\tevent_id VARCHAR(64) NOT NULL, \n\toccurred_at VARCHAR(32) NOT NULL, \n\trequest_id VARCHAR(128), \n\ttransport VARCHAR(16) NOT NULL, \n\toperation VARCHAR(128) NOT NULL, \n\tprincipal_type VARCHAR(16) NOT NULL, \n\tprincipal_id VARCHAR(255) NOT NULL, \n\tprincipal_description TEXT, \n\tactor_type VARCHAR(16), \n\tactor_id VARCHAR(255), \n\tactor_description TEXT, \n\taction VARCHAR(64) NOT NULL, \n\tresource_type VARCHAR(16) NOT NULL, \n\tdeployment_id VARCHAR(128), \n\tscope_id VARCHAR(256), \n\tfamily VARCHAR(128), \n\tartifact_id VARCHAR(128), \n\tselector_type VARCHAR(32), \n\tselector_entry_id VARCHAR(128), \n\tallowed BOOLEAN NOT NULL, \n\treason_code VARCHAR(64) NOT NULL, \n\tpolicy_revision VARCHAR(64), \n\tmatched_subject_type VARCHAR(16), \n\tmatched_subject_id VARCHAR(255), \n\tmatched_subject_description TEXT, \n\tbinding_id VARCHAR(64), \n\ttarget_type VARCHAR(16), \n\ttarget_id VARCHAR(255), \n\ttarget_description TEXT, \n\trole VARCHAR(32), \n\texpected_version INTEGER, \n\tresult_version INTEGER, \n\tPRIMARY KEY (cursor), \n\tUNIQUE (event_id)\n)"
+    ],
+    [
+      "table",
+      "pc_access_idempotency",
+      "pc_access_idempotency",
+      "CREATE TABLE pc_access_idempotency (\n\tactor_id VARCHAR(255) NOT NULL, \n\tidempotency_key_hash VARCHAR(64) NOT NULL, \n\toperation VARCHAR(64) NOT NULL, \n\tpayload_hash VARCHAR(64) NOT NULL, \n\tresult_binding_id VARCHAR(64), \n\tsecondary_binding_id VARCHAR(64), \n\tPRIMARY KEY (actor_id, idempotency_key_hash), \n\tCONSTRAINT uq_pc_access_idempotency_actor_key UNIQUE (actor_id, idempotency_key_hash)\n)"
+    ],
+    [
+      "table",
+      "pc_access_owners",
+      "pc_access_owners",
+      "CREATE TABLE pc_access_owners (\n\towner_kind VARCHAR(16) NOT NULL, \n\tobject_key_hash VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128), \n\tcandidate_id VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\tselector_type VARCHAR(32), \n\tselector_entry_id VARCHAR(128), \n\towner_type VARCHAR(16) NOT NULL, \n\towner_id VARCHAR(255) NOT NULL, \n\towner_description TEXT, \n\testablished_at VARCHAR(32), \n\tpolicy_revision VARCHAR(64), \n\tidempotency_key VARCHAR(255) NOT NULL, \n\tPRIMARY KEY (owner_kind, object_key_hash), \n\tCONSTRAINT ck_pc_access_owners_kind CHECK ((owner_kind = 'artifact' AND artifact_id IS NOT NULL AND candidate_id IS NULL AND target_artifact_id IS NULL AND established_at IS NOT NULL AND policy_revision IS NOT NULL) OR (owner_kind = 'candidate' AND candidate_id IS NOT NULL AND artifact_id IS NULL AND selector_type IS NULL AND selector_entry_id IS NULL AND established_at IS NULL AND policy_revision IS NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_access_relationship_heads",
+      "pc_access_relationship_heads",
+      "CREATE TABLE pc_access_relationship_heads (\n\tname VARCHAR(32) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tPRIMARY KEY (name), \n\tCONSTRAINT ck_pc_access_relationship_heads_revision_nonnegative CHECK (revision >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_access_relationships",
+      "pc_access_relationships",
+      "CREATE TABLE pc_access_relationships (\n\tbinding_id VARCHAR(64) NOT NULL, \n\tsubject_type VARCHAR(16) NOT NULL, \n\tsubject_id VARCHAR(255) NOT NULL, \n\tsubject_description TEXT, \n\tresource_key_hash VARCHAR(64) NOT NULL, \n\tresource_type VARCHAR(16) NOT NULL, \n\tdeployment_id VARCHAR(128), \n\tscope_id VARCHAR(256), \n\tfamily VARCHAR(128), \n\tartifact_id VARCHAR(128), \n\tselector_type VARCHAR(32), \n\tselector_entry_id VARCHAR(128), \n\trole VARCHAR(32) NOT NULL, \n\tsingleton_key VARCHAR(64), \n\tgranted_by_type VARCHAR(16) NOT NULL, \n\tgranted_by_id VARCHAR(255) NOT NULL, \n\tgranted_by_description TEXT, \n\treason TEXT, \n\tcreated_at VARCHAR(32) NOT NULL, \n\texpires_at VARCHAR(32), \n\tstate VARCHAR(16) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tpolicy_revision VARCHAR(64) NOT NULL, \n\tidempotency_key VARCHAR(255) NOT NULL, \n\trevoked_at VARCHAR(32), \n\trevoked_by_type VARCHAR(16), \n\trevoked_by_id VARCHAR(255), \n\trevoked_by_description TEXT, \n\tPRIMARY KEY (binding_id), \n\tCONSTRAINT ck_pc_access_relationships_version_positive CHECK (version > 0), \n\tUNIQUE (singleton_key)\n)"
+    ],
+    [
+      "table",
+      "pc_agent_skill_targets",
+      "pc_agent_skill_targets",
+      "CREATE TABLE pc_agent_skill_targets (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttarget_id VARCHAR(64) NOT NULL, \n\tdisplay_name VARCHAR(128) NOT NULL, \n\tagent_kind VARCHAR(32) NOT NULL, \n\tinstallation_scope VARCHAR(16) NOT NULL, \n\tdelivery_mode VARCHAR(16) NOT NULL, \n\tinstallation_id VARCHAR(128), \n\tstate VARCHAR(16) NOT NULL, \n\tenrollment_token_digest VARCHAR(64), \n\tenrollment_expires_at DATETIME, \n\tcredential_subject VARCHAR(128), \n\tcredential_verifier VARCHAR(64), \n\treceiver_version VARCHAR(64), \n\tenvironment_fingerprint VARCHAR(64), \n\tmachine_hostname VARCHAR(255), \n\tworkspace_name VARCHAR(128), \n\tlast_seen_at DATETIME, \n\tgeneration BIGINT NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, target_id), \n\tCONSTRAINT uq_pc_agent_skill_targets_installation UNIQUE (scope_id, agent_kind, installation_scope, installation_id), \n\tCONSTRAINT uq_pc_agent_skill_targets_enrollment_token UNIQUE (enrollment_token_digest), \n\tCONSTRAINT uq_pc_agent_skill_targets_credential_subject UNIQUE (credential_subject), \n\tCONSTRAINT uq_pc_agent_skill_targets_credential_verifier UNIQUE (credential_verifier), \n\tCONSTRAINT ck_pc_agent_skill_targets_agent_kind CHECK (agent_kind IN ('codex', 'claude_code')), \n\tCONSTRAINT ck_pc_agent_skill_targets_installation_scope CHECK (installation_scope IN ('project')), \n\tCONSTRAINT ck_pc_agent_skill_targets_delivery_mode CHECK (delivery_mode = 'agent_pull'), \n\tCONSTRAINT ck_pc_agent_skill_targets_state CHECK (state IN ('pending', 'active', 'revoked')), \n\tCONSTRAINT ck_pc_agent_skill_targets_state_payload CHECK ((state = 'pending' AND enrollment_token_digest IS NOT NULL AND enrollment_expires_at IS NOT NULL AND installation_id IS NULL AND credential_subject IS NULL AND credential_verifier IS NULL) OR (state = 'active' AND enrollment_token_digest IS NULL AND enrollment_expires_at IS NULL AND installation_id IS NOT NULL AND credential_subject IS NOT NULL AND credential_verifier IS NOT NULL) OR (state = 'revoked' AND enrollment_token_digest IS NULL AND enrollment_expires_at IS NULL AND credential_verifier IS NULL)), \n\tCONSTRAINT ck_pc_agent_skill_targets_generation_nonnegative CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_candidate_heads",
+      "pc_artifact_candidate_heads",
+      "CREATE TABLE pc_artifact_candidate_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tresult_family VARCHAR(128), \n\tresult_artifact_id VARCHAR(128), \n\tresult_revision INTEGER, \n\tdecision_reason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tFOREIGN KEY(scope_id, candidate_id, version) REFERENCES pc_artifact_candidate_versions (scope_id, candidate_id, version) ON DELETE RESTRICT, \n\tFOREIGN KEY(scope_id, result_family, result_artifact_id, result_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_artifact_candidate_heads_terminal_result CHECK ((status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_candidate_versions",
+      "pc_artifact_candidate_versions",
+      "CREATE TABLE pc_artifact_candidate_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tproposal BLOB NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\tmemory_citations BLOB, \n\ttarget_family VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\ttarget_revision INTEGER, \n\treason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tFOREIGN KEY(scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_artifact_candidate_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts",
+      "pc_artifact_fts",
+      "CREATE VIRTUAL TABLE pc_artifact_fts USING fts5(\n    scope_id UNINDEXED,\n    family UNINDEXED,\n    artifact_id UNINDEXED,\n    revision UNINDEXED,\n    searchable_text,\n    tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_config",
+      "pc_artifact_fts_config",
+      "CREATE TABLE 'pc_artifact_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_content",
+      "pc_artifact_fts_content",
+      "CREATE TABLE 'pc_artifact_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_data",
+      "pc_artifact_fts_data",
+      "CREATE TABLE 'pc_artifact_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_docsize",
+      "pc_artifact_fts_docsize",
+      "CREATE TABLE 'pc_artifact_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_artifact_fts_idx",
+      "pc_artifact_fts_idx",
+      "CREATE TABLE 'pc_artifact_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_artifact_heads",
+      "pc_artifact_heads",
+      "CREATE TABLE pc_artifact_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tsearchable_text TEXT, \n\tlifecycle_state VARCHAR(16) DEFAULT 'active' NOT NULL, \n\treplacement_artifact_id VARCHAR(128), \n\tgovernance_generation BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_heads_revision_positive CHECK (revision > 0), \n\tCONSTRAINT ck_pc_artifact_heads_lifecycle_state CHECK (lifecycle_state IN ('active', 'deprecated', 'retired')), \n\tCONSTRAINT ck_pc_artifact_heads_governance_generation_nonnegative CHECK (governance_generation >= 0), \n\tCONSTRAINT ck_pc_artifact_heads_replacement_deprecated CHECK (replacement_artifact_id IS NULL OR lifecycle_state = 'deprecated')\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_lineage_artifacts",
+      "pc_artifact_lineage_artifacts",
+      "CREATE TABLE pc_artifact_lineage_artifacts (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tupstream_family VARCHAR(128) NOT NULL, \n\tupstream_artifact_id VARCHAR(128) NOT NULL, \n\tupstream_revision INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, upstream_family, upstream_artifact_id, upstream_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_lineage_sources",
+      "pc_artifact_lineage_sources",
+      "CREATE TABLE pc_artifact_lineage_sources (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, source_type, source_id) REFERENCES pc_sources (scope_id, source_type, source_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_auto_wave_targets",
+      "pc_artifact_processing_auto_wave_targets",
+      "CREATE TABLE pc_artifact_processing_auto_wave_targets (\n\twave_id VARCHAR(36) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tcompleted BOOLEAN DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (wave_id, binding_name, scope_id), \n\tCONSTRAINT ck_pc_artifact_processing_auto_wave_target_source_positive CHECK (source_through >= 1)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_binding_states",
+      "pc_artifact_processing_binding_states",
+      "CREATE TABLE pc_artifact_processing_binding_states (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tlast_auto_wave_completed_at DATETIME, \n\tlast_schedule_checkpoint_at DATETIME, \n\tscan_generation BIGINT DEFAULT '0' NOT NULL, \n\tscan_in_progress BOOLEAN DEFAULT '0' NOT NULL, \n\tscan_upper_pending_sequence BIGINT, \n\tPRIMARY KEY (binding_name), \n\tCONSTRAINT ck_pc_processing_scan_generation CHECK (scan_generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_intents",
+      "pc_artifact_processing_intents",
+      "CREATE TABLE pc_artifact_processing_intents (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tpending_sequence BIGINT NOT NULL, \n\tdirty_generation BIGINT DEFAULT '0' NOT NULL, \n\tclean_generation BIGINT DEFAULT '0' NOT NULL, \n\trequested_generation BIGINT DEFAULT '0' NOT NULL, \n\thandled_generation BIGINT DEFAULT '0' NOT NULL, \n\tlast_auto_scan_generation BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (binding_name, scope_id), \n\tCONSTRAINT ck_pc_processing_intent_sequence CHECK (pending_sequence > 0), \n\tCONSTRAINT ck_pc_processing_intent_dirty CHECK (clean_generation >= 0 AND clean_generation <= dirty_generation), \n\tCONSTRAINT ck_pc_processing_intent_request CHECK (handled_generation >= 0 AND handled_generation <= requested_generation), \n\tCONSTRAINT ck_pc_processing_intent_scan CHECK (last_auto_scan_generation >= 0), \n\tUNIQUE (pending_sequence)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_leases",
+      "pc_artifact_processing_leases",
+      "CREATE TABLE pc_artifact_processing_leases (\n\tsupervisor_group VARCHAR(64) NOT NULL, \n\tholder_id VARCHAR(36) NOT NULL, \n\tsupervisor_generation BIGINT NOT NULL, \n\tlease_expires_at DATETIME, \n\tPRIMARY KEY (supervisor_group), \n\tCONSTRAINT ck_pc_artifact_processing_leases_generation_positive CHECK (supervisor_generation > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_migration_receipts",
+      "pc_artifact_processing_migration_receipts",
+      "CREATE TABLE pc_artifact_processing_migration_receipts (\n\tmigration_id VARCHAR(64) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_snapshot BLOB NOT NULL, \n\trequested_generation BIGINT NOT NULL, \n\tdirty_generation BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tPRIMARY KEY (migration_id, binding_name, scope_id)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_pending",
+      "pc_artifact_processing_pending",
+      "CREATE TABLE pc_artifact_processing_pending (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tflush_generation BIGINT DEFAULT '0' NOT NULL, \n\thandled_flush_generation BIGINT DEFAULT '0' NOT NULL, \n\tPRIMARY KEY (binding_name, scope_id), \n\tCONSTRAINT ck_pc_artifact_processing_pending_source_positive CHECK (source_through >= 1), \n\tCONSTRAINT ck_pc_artifact_processing_pending_flush_nonnegative CHECK (flush_generation >= 0), \n\tCONSTRAINT ck_pc_artifact_processing_pending_handled_nonnegative CHECK (handled_flush_generation >= 0), \n\tCONSTRAINT ck_pc_artifact_processing_pending_handled_not_ahead CHECK (handled_flush_generation <= flush_generation)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_schema",
+      "pc_artifact_processing_schema",
+      "CREATE TABLE pc_artifact_processing_schema (\n\tsingleton INTEGER NOT NULL, \n\tschema_version INTEGER NOT NULL, \n\tsource_version INTEGER DEFAULT '1490' NOT NULL, \n\tphase VARCHAR(32) NOT NULL, \n\tmigration_id VARCHAR(64) NOT NULL, \n\tconfig_manifest TEXT NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_processing_schema_singleton CHECK (singleton = 1)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_processing_sequences",
+      "pc_artifact_processing_sequences",
+      "CREATE TABLE pc_artifact_processing_sequences (\n\tsingleton INTEGER NOT NULL, \n\tsequence BIGINT NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_processing_sequence CHECK (singleton = 1 AND sequence >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_publications",
+      "pc_artifact_publications",
+      "CREATE TABLE pc_artifact_publications (\n\ttarget_scope_id VARCHAR(256) NOT NULL, \n\ttarget_family VARCHAR(128) NOT NULL, \n\ttarget_artifact_id VARCHAR(128) NOT NULL, \n\ttarget_revision INTEGER NOT NULL, \n\tsource_scope_id VARCHAR(256) NOT NULL, \n\tsource_family VARCHAR(128) NOT NULL, \n\tsource_artifact_id VARCHAR(128) NOT NULL, \n\tsource_revision INTEGER NOT NULL, \n\tcontent_digest VARCHAR(64) NOT NULL, \n\tidempotency_key VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (target_scope_id, target_family, target_artifact_id, target_revision), \n\tFOREIGN KEY(target_scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tFOREIGN KEY(source_scope_id, source_family, source_artifact_id, source_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT uq_pc_artifact_publications_request UNIQUE (target_scope_id, idempotency_key)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_tags",
+      "pc_artifact_tags",
+      "CREATE TABLE pc_artifact_tags (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\ttarget_type VARCHAR(12) NOT NULL, \n\ttarget_id VARCHAR(128) NOT NULL, \n\ttag_key_hash BLOB NOT NULL, \n\ttag_key VARCHAR(128) NOT NULL, \n\ttag VARCHAR(64) NOT NULL, \n\tassigned_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, target_type, target_id, tag_key_hash), \n\tFOREIGN KEY(scope_id, family, artifact_id) REFERENCES pc_artifact_heads (scope_id, family, artifact_id) ON DELETE CASCADE, \n\tCONSTRAINT ck_pc_artifact_tags_family CHECK (family IN ('memory', 'experience', 'skill', 'handoff')), \n\tCONSTRAINT ck_pc_artifact_tags_target CHECK ((target_type = 'artifact' AND target_id = artifact_id) OR (target_type = 'memory_entry' AND family = 'memory'))\n)"
+    ],
+    [
+      "table",
+      "pc_artifacts",
+      "pc_artifacts",
+      "CREATE TABLE pc_artifacts (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent BLOB NOT NULL, \n\tmemory_citations BLOB, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+    ],
+    [
+      "table",
+      "pc_connector_checkpoints",
+      "pc_connector_checkpoints",
+      "CREATE TABLE pc_connector_checkpoints (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_id VARCHAR(256) NOT NULL, \n\tconnector_name VARCHAR(128) NOT NULL, \n\tconnector_version VARCHAR(128) NOT NULL, \n\tcheckpoint BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, binding_id)\n)"
+    ],
+    [
+      "table",
+      "pc_dream_runs",
+      "pc_dream_runs",
+      "CREATE TABLE pc_dream_runs (\n\tscope_id VARCHAR(256) NOT NULL, \n\trun_id VARCHAR(64) NOT NULL, \n\tprincipal_key VARCHAR(64) NOT NULL, \n\tidempotency_key VARCHAR(128) NOT NULL, \n\trequest_digest VARCHAR(71) NOT NULL, \n\toperation VARCHAR(32) NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\taccepted_at BIGINT NOT NULL, \n\tgeneration INTEGER NOT NULL, \n\trequest_generation BIGINT NOT NULL, \n\tpayload BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, run_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tCONSTRAINT uq_pc_dream_idempotency UNIQUE (scope_id, principal_key, idempotency_key), \n\tCONSTRAINT ck_pc_dream_generation CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_external_skill_registrations",
+      "pc_external_skill_registrations",
+      "CREATE TABLE pc_external_skill_registrations (\n\tscope_id VARCHAR(256) NOT NULL, \n\texternal_skill_id VARCHAR(128) NOT NULL, \n\tprovider VARCHAR(128) NOT NULL, \n\tagent_kind VARCHAR(128) NOT NULL, \n\thost_id VARCHAR(128) NOT NULL, \n\tinstallation_scope VARCHAR(16) NOT NULL, \n\tlocator VARCHAR(2000) NOT NULL, \n\tlocator_hash VARCHAR(64) NOT NULL, \n\tfingerprint VARCHAR(64) NOT NULL, \n\tname VARCHAR(128) NOT NULL, \n\tdescription VARCHAR(2000) NOT NULL, \n\tPRIMARY KEY (scope_id, external_skill_id), \n\tCONSTRAINT uq_pc_external_skill_registrations_binding UNIQUE (scope_id, provider, host_id, installation_scope, locator_hash), \n\tCONSTRAINT ck_pc_external_skill_registrations_scope CHECK (installation_scope IN ('user', 'project', 'plugin'))\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts",
+      "pc_memory_entry_fts",
+      "CREATE VIRTUAL TABLE pc_memory_entry_fts USING fts5(\n    scope_id UNINDEXED,\n    memory_artifact_id UNINDEXED,\n    head_revision UNINDEXED,\n    entry_id UNINDEXED,\n    entry_version_id UNINDEXED,\n    searchable_text,\n    tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_config",
+      "pc_memory_entry_fts_config",
+      "CREATE TABLE 'pc_memory_entry_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_content",
+      "pc_memory_entry_fts_content",
+      "CREATE TABLE 'pc_memory_entry_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_data",
+      "pc_memory_entry_fts_data",
+      "CREATE TABLE 'pc_memory_entry_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_docsize",
+      "pc_memory_entry_fts_docsize",
+      "CREATE TABLE 'pc_memory_entry_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_idx",
+      "pc_memory_entry_fts_idx",
+      "CREATE TABLE 'pc_memory_entry_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_memory_entry_heads",
+      "pc_memory_entry_heads",
+      "CREATE TABLE pc_memory_entry_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tmemory_artifact_id VARCHAR(128) NOT NULL, \n\thead_revision INTEGER NOT NULL, \n\tentry_id VARCHAR(128) NOT NULL, \n\tentry_version_id VARCHAR(128) NOT NULL, \n\tentry_content_hash VARCHAR(64) NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tPRIMARY KEY (scope_id, memory_artifact_id, entry_id), \n\tFOREIGN KEY(scope_id, family, memory_artifact_id, head_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tFOREIGN KEY(scope_id, memory_artifact_id, entry_id, entry_version_id) REFERENCES pc_memory_entry_versions (scope_id, memory_artifact_id, entry_id, entry_version_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_memory_entry_heads_revision_positive CHECK (head_revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_versions",
+      "pc_memory_entry_versions",
+      "CREATE TABLE pc_memory_entry_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tmemory_artifact_id VARCHAR(128) NOT NULL, \n\tentry_id VARCHAR(128) NOT NULL, \n\tentry_version_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tprevious_version_id VARCHAR(128), \n\tkind VARCHAR(128) NOT NULL, \n\ttext TEXT NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\tentry_content_hash VARCHAR(64) NOT NULL, \n\tcreated_in_revision INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, memory_artifact_id, entry_version_id), \n\tCONSTRAINT uq_pc_memory_entry_versions_logical_version UNIQUE (scope_id, memory_artifact_id, entry_id, version), \n\tCONSTRAINT uq_pc_memory_entry_versions_identity UNIQUE (scope_id, memory_artifact_id, entry_id, entry_version_id), \n\tFOREIGN KEY(scope_id, family, memory_artifact_id, created_in_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_memory_entry_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_memory_entry_versions_revision_positive CHECK (created_in_revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_fts_index",
+      "pc_memory_fts_index",
+      "CREATE TABLE pc_memory_fts_index (\n\tsingleton INTEGER NOT NULL, \n\tschema_version INTEGER NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_memory_fts_index_singleton CHECK (singleton = 1)\n)"
+    ],
+    [
+      "table",
+      "pc_model_usage_daily",
+      "pc_model_usage_daily",
+      "CREATE TABLE pc_model_usage_daily (\n\tscope_id VARCHAR(256) NOT NULL, \n\tusage_date DATE NOT NULL, \n\tpurpose VARCHAR(64) NOT NULL, \n\toperation VARCHAR(16) NOT NULL, \n\trequests BIGINT NOT NULL, \n\tinput_tokens BIGINT NOT NULL, \n\toutput_tokens BIGINT NOT NULL, \n\tinput_complete BOOLEAN NOT NULL, \n\toutput_complete BOOLEAN NOT NULL, \n\tPRIMARY KEY (scope_id, usage_date, purpose, operation), \n\tCONSTRAINT ck_pc_model_usage_daily_operation CHECK (operation IN ('generation', 'embedding')), \n\tCONSTRAINT ck_pc_model_usage_daily_requests_nonnegative CHECK (requests >= 0), \n\tCONSTRAINT ck_pc_model_usage_daily_input_nonnegative CHECK (input_tokens >= 0), \n\tCONSTRAINT ck_pc_model_usage_daily_output_nonnegative CHECK (output_tokens >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_profile_policies",
+      "pc_profile_policies",
+      "CREATE TABLE pc_profile_policies (\n\tscope_id VARCHAR(256) NOT NULL, \n\tgeneration_enabled BOOLEAN NOT NULL, \n\tactivation_mode VARCHAR(32) NOT NULL, \n\tpending_candidate_id VARCHAR(128), \n\tversion BIGINT NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, pending_candidate_id) REFERENCES pc_artifact_candidate_heads (scope_id, candidate_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_profile_policies_activation_mode CHECK (activation_mode IN ('automatic', 'review_required')), \n\tCONSTRAINT ck_pc_profile_policies_version_positive CHECK (version > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_recall_token_daily",
+      "pc_recall_token_daily",
+      "CREATE TABLE pc_recall_token_daily (\n\tscope_id VARCHAR(256) NOT NULL, \n\tusage_date DATE NOT NULL, \n\testimator_id VARCHAR(128) NOT NULL, \n\testimator_version VARCHAR(64) NOT NULL, \n\tpreparations BIGINT NOT NULL, \n\tready_preparations BIGINT NOT NULL, \n\tcomparable_preparations BIGINT NOT NULL, \n\tbaseline_tokens BIGINT NOT NULL, \n\trecalled_tokens BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, usage_date, estimator_id, estimator_version), \n\tCONSTRAINT ck_pc_recall_token_daily_preparations_nonnegative CHECK (preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_ready_nonnegative CHECK (ready_preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_comparable_nonnegative CHECK (comparable_preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_comparable_ready CHECK (comparable_preparations <= ready_preparations), \n\tCONSTRAINT ck_pc_recall_token_daily_ready_total CHECK (ready_preparations <= preparations), \n\tCONSTRAINT ck_pc_recall_token_daily_baseline_nonnegative CHECK (baseline_tokens >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_recalled_nonnegative CHECK (recalled_tokens >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_receipt_migration_review",
+      "pc_receipt_migration_review",
+      "CREATE TABLE pc_receipt_migration_review (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\treason VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (scope_id, source_id)\n)"
+    ],
+    [
+      "table",
+      "pc_scope_bindings",
+      "pc_scope_bindings",
+      "CREATE TABLE pc_scope_bindings (\n\tintegration VARCHAR(128) NOT NULL, \n\tkind VARCHAR(64) NOT NULL, \n\texternal_id VARCHAR(256) NOT NULL, \n\texternal_id_search TEXT NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (integration, kind, external_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_scope_context_references",
+      "pc_scope_context_references",
+      "CREATE TABLE pc_scope_context_references (\n\tscope_id VARCHAR(256) NOT NULL, \n\treferenced_scope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (scope_id, referenced_scope_id), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tFOREIGN KEY(referenced_scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_scope_context_references_not_self CHECK (scope_id <> referenced_scope_id)\n)"
+    ],
+    [
+      "table",
+      "pc_scope_creation_requests",
+      "pc_scope_creation_requests",
+      "CREATE TABLE pc_scope_creation_requests (\n\tidempotency_key VARCHAR(256) NOT NULL, \n\trequest_digest VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (idempotency_key), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_scope_external_references",
+      "pc_scope_external_references",
+      "CREATE TABLE pc_scope_external_references (\n\tscope_id VARCHAR(256) NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tkind VARCHAR(128) NOT NULL, \n\tvalue VARCHAR(2000) NOT NULL, \n\tvalue_search TEXT NOT NULL, \n\tvalue_digest VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (scope_id, ordinal), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE CASCADE, \n\tCONSTRAINT uq_pc_scope_external_references_value UNIQUE (scope_id, kind, value_digest), \n\tCONSTRAINT ck_pc_scope_external_references_ordinal_nonnegative CHECK (ordinal >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_scope_settings",
+      "pc_scope_settings",
+      "CREATE TABLE pc_scope_settings (\n\tname VARCHAR(64) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (name), \n\tFOREIGN KEY(scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_scopes",
+      "pc_scopes",
+      "CREATE TABLE pc_scopes (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttitle VARCHAR(256) NOT NULL, \n\tsummary VARCHAR(2000) NOT NULL, \n\tscope_id_search TEXT NOT NULL, \n\ttitle_search TEXT NOT NULL, \n\tsummary_search TEXT NOT NULL, \n\tparent_scope_id VARCHAR(256), \n\tversion INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tFOREIGN KEY(parent_scope_id) REFERENCES pc_scopes (scope_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_scopes_version_positive CHECK (version > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_skill_packages",
+      "pc_skill_packages",
+      "CREATE TABLE pc_skill_packages (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttree_digest VARCHAR(64) NOT NULL, \n\tarchive_digest VARCHAR(64) NOT NULL, \n\tarchive_bytes BLOB NOT NULL, \n\tmanifest BLOB NOT NULL, \n\tfile_count INTEGER NOT NULL, \n\tuncompressed_size BIGINT NOT NULL, \n\tarchive_size BIGINT NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, tree_digest), \n\tCONSTRAINT ck_pc_skill_packages_file_count CHECK (file_count > 0 AND file_count <= 256), \n\tCONSTRAINT ck_pc_skill_packages_uncompressed_size CHECK (uncompressed_size > 0 AND uncompressed_size <= 4194304), \n\tCONSTRAINT ck_pc_skill_packages_archive_size CHECK (archive_size > 0 AND archive_size <= 5242880)\n)"
+    ],
+    [
+      "table",
+      "pc_skill_publications",
+      "pc_skill_publications",
+      "CREATE TABLE pc_skill_publications (\n\tscope_id VARCHAR(256) NOT NULL, \n\ttarget_id VARCHAR(64) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\tdesired_state VARCHAR(16) DEFAULT 'published' NOT NULL, \n\tdesired_revision INTEGER NOT NULL, \n\tdesired_tree_digest VARCHAR(64) NOT NULL, \n\tobserved_revision INTEGER, \n\tobserved_tree_digest VARCHAR(64), \n\tobserved_generation BIGINT, \n\tdestination TEXT, \n\tstate VARCHAR(32) NOT NULL, \n\tselected_runtime_variant VARCHAR(128), \n\tenvironment_fingerprint VARCHAR(64), \n\tlast_error_code VARCHAR(128), \n\tobserved_at DATETIME, \n\tgeneration BIGINT NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, target_id, artifact_id), \n\tCONSTRAINT ck_pc_skill_publications_desired_revision_positive CHECK (desired_revision > 0), \n\tCONSTRAINT ck_pc_skill_publications_observed_revision_positive CHECK (observed_revision IS NULL OR observed_revision > 0), \n\tCONSTRAINT ck_pc_skill_publications_desired_state CHECK (desired_state IN ('published', 'unpublished')), \n\tCONSTRAINT ck_pc_skill_publications_state CHECK (state IN ('unpublished', 'pending', 'current', 'update_available', 'delivery_failed', 'conflict', 'drifted', 'incompatible')), \n\tCONSTRAINT ck_pc_skill_publications_observed_generation_nonnegative CHECK (observed_generation IS NULL OR observed_generation >= 0), \n\tCONSTRAINT ck_pc_skill_publications_generation_nonnegative CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_source_cursors",
+      "pc_source_cursors",
+      "CREATE TABLE pc_source_cursors (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tcursor BLOB NOT NULL, \n\tgeneration BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, binding_name), \n\tCONSTRAINT ck_pc_source_cursors_generation_nonnegative CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_source_definition_manifests",
+      "pc_source_definition_manifests",
+      "CREATE TABLE pc_source_definition_manifests (\n\tdefinition_name VARCHAR(128) NOT NULL, \n\tdefinition_version VARCHAR(128) NOT NULL, \n\tfingerprint VARCHAR(71) NOT NULL, \n\tmanifest BLOB NOT NULL, \n\tPRIMARY KEY (definition_name, definition_version), \n\tCONSTRAINT uq_pc_source_definition_manifest_fingerprint UNIQUE (definition_name, fingerprint)\n)"
+    ],
+    [
+      "table",
+      "pc_source_journal_heads",
+      "pc_source_journal_heads",
+      "CREATE TABLE pc_source_journal_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tposition BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tCONSTRAINT ck_pc_source_journal_heads_position_nonnegative CHECK (position >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_sources",
+      "pc_sources",
+      "CREATE TABLE pc_sources (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tpayload BLOB NOT NULL, \n\tjournal_position BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, source_type, source_id), \n\tCONSTRAINT uq_pc_sources_scope_journal_position UNIQUE (scope_id, journal_position)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_active_chunks",
+      "pc_topic_memory_active_chunks",
+      "CREATE TABLE pc_topic_memory_active_chunks (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tchunk_ordinal INTEGER NOT NULL, \n\tstart_offset INTEGER NOT NULL, \n\tend_offset INTEGER NOT NULL, \n\tchunk_text TEXT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tpolicy_version VARCHAR(32) NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, chunk_ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_topic_memory_revision_publications (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_family CHECK (family = 'topic-memory'), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_revision_positive CHECK (revision > 0), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_ordinal_nonnegative CHECK (chunk_ordinal >= 0), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_start_nonnegative CHECK (start_offset >= 0), \n\tCONSTRAINT ck_pc_topic_memory_active_chunks_offsets CHECK (end_offset > start_offset)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_active_topics",
+      "pc_topic_memory_active_topics",
+      "CREATE TABLE pc_topic_memory_active_topics (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\ttitle TEXT NOT NULL, \n\tsummary TEXT NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tsource_count INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_topic_memory_revision_publications (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_topic_memory_active_topics_family CHECK (family = 'topic-memory'), \n\tCONSTRAINT ck_pc_topic_memory_active_topics_revision_positive CHECK (revision > 0), \n\tCONSTRAINT ck_pc_topic_memory_active_topics_sources_nonnegative CHECK (source_count >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts",
+      "pc_topic_memory_chunk_fts",
+      "CREATE VIRTUAL TABLE pc_topic_memory_chunk_fts USING fts5(\n    scope_id UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED,\n    chunk_ordinal UNINDEXED, start_offset UNINDEXED,\n    title UNINDEXED, summary UNINDEXED, chunk_text UNINDEXED,\n    searchable_text, tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_config",
+      "pc_topic_memory_chunk_fts_config",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_content",
+      "pc_topic_memory_chunk_fts_content",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5, c6, c7, c8)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_data",
+      "pc_topic_memory_chunk_fts_data",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_docsize",
+      "pc_topic_memory_chunk_fts_docsize",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_chunk_fts_idx",
+      "pc_topic_memory_chunk_fts_idx",
+      "CREATE TABLE 'pc_topic_memory_chunk_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_fts_index",
+      "pc_topic_memory_fts_index",
+      "CREATE TABLE pc_topic_memory_fts_index (\n\tsingleton INTEGER NOT NULL, \n\tschema_version INTEGER NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_topic_memory_fts_index_singleton CHECK (singleton = 1)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_processing_targets",
+      "pc_topic_memory_processing_targets",
+      "CREATE TABLE pc_topic_memory_processing_targets (\n\tbinding_name VARCHAR(128) NOT NULL, \n\tscope_id VARCHAR(256) NOT NULL, \n\ttarget_request_generation BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tcaptured_flush_generation BIGINT NOT NULL, \n\tobserved_dirty_generation BIGINT NOT NULL, \n\tPRIMARY KEY (binding_name, scope_id), \n\tCONSTRAINT ck_pc_topic_processing_target CHECK (target_request_generation > 0 AND source_through >= 0 AND captured_flush_generation >= 0 AND observed_dirty_generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_retrieval_shape",
+      "pc_topic_memory_retrieval_shape",
+      "CREATE TABLE pc_topic_memory_retrieval_shape (\n\tsingleton INTEGER NOT NULL, \n\tshape VARCHAR(16) NOT NULL, \n\tprofile_fingerprint VARCHAR(64), \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_topic_memory_retrieval_shape_singleton CHECK (singleton = 1), \n\tCONSTRAINT ck_pc_topic_memory_retrieval_shape_value CHECK (shape IN ('fts', 'hybrid')), \n\tCONSTRAINT ck_pc_topic_memory_retrieval_shape_profile CHECK ((shape = 'fts' AND profile_fingerprint IS NULL) OR (shape = 'hybrid' AND profile_fingerprint IS NOT NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_revision_publications",
+      "pc_topic_memory_revision_publications",
+      "CREATE TABLE pc_topic_memory_revision_publications (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tpublished_at DATETIME NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_topic_memory_publications_family CHECK (family = 'topic-memory'), \n\tCONSTRAINT ck_pc_topic_memory_publications_revision_positive CHECK (revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts",
+      "pc_topic_memory_topic_fts",
+      "CREATE VIRTUAL TABLE pc_topic_memory_topic_fts USING fts5(\n    scope_id UNINDEXED, artifact_id UNINDEXED, revision UNINDEXED,\n    title UNINDEXED, summary UNINDEXED, searchable_text, tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_config",
+      "pc_topic_memory_topic_fts_config",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_content",
+      "pc_topic_memory_topic_fts_content",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_data",
+      "pc_topic_memory_topic_fts_data",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_docsize",
+      "pc_topic_memory_topic_fts_docsize",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_topic_memory_topic_fts_idx",
+      "pc_topic_memory_topic_fts_idx",
+      "CREATE TABLE 'pc_topic_memory_topic_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_topic_memory_work_budgets",
+      "pc_topic_memory_work_budgets",
+      "CREATE TABLE pc_topic_memory_work_budgets (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tsource_after BIGINT NOT NULL, \n\tsource_through BIGINT NOT NULL, \n\tattempt_id VARCHAR(36) NOT NULL, \n\tattempts INTEGER NOT NULL, \n\trequests BIGINT NOT NULL, \n\ttokens BIGINT NOT NULL, \n\tfailure_code VARCHAR(64) NOT NULL, \n\tPRIMARY KEY (scope_id, binding_name, source_after), \n\tCONSTRAINT ck_pc_topic_budget_window CHECK (source_after >= 0 AND source_through > source_after), \n\tCONSTRAINT ck_pc_topic_budget_usage CHECK (attempts > 0 AND requests >= 0 AND tokens >= 0)\n)"
+    ]
+  ],
+  "rows": {
+    "pc_access_audit": [
+      [
+        1,
+        "cf20b750-6515-4c63-8881-6ce213aae886",
+        "2026-10-30T07:18:01.514327+00:00",
+        "eb4bc5cd712cb818",
+        "http",
+        "create_scope",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "server.admin",
+        "server",
+        "powercontext",
+        null,
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "2",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "c4c93d10-bf47-4802-80b5-5d8bffdee160",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        2,
+        "ffe89495-c3cf-42b3-9c0d-36ff893003c0",
+        "2026-10-30T07:18:01.522378+00:00",
+        "35f3defd1f206387",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.admin",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "binding-created",
+        "3",
+        null,
+        null,
+        null,
+        "2f09c964-c018-4727-9176-203aedede908",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "scope.viewer",
+        null,
+        1
+      ],
+      [
+        3,
+        "64faad8e-938f-49fa-8b2a-e1e42444689a",
+        "2026-10-30T07:18:01.524686+00:00",
+        "35f3defd1f206387",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.admin",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "binding-created",
+        "4",
+        null,
+        null,
+        null,
+        "46eaddb2-aaca-4c4b-a519-f4c5dd5bae0c",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "scope.contributor",
+        null,
+        1
+      ],
+      [
+        4,
+        "bdc0c38b-aaaf-4749-b11d-e4fb75312f56",
+        "2026-10-30T07:18:01.526854+00:00",
+        "35f3defd1f206387",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.admin",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "binding-created",
+        "5",
+        null,
+        null,
+        null,
+        "d1c0b7a2-3d04-4180-a2ef-b201fc3a012c",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "scope.reviewer",
+        null,
+        1
+      ],
+      [
+        5,
+        "d06425f5-779a-4406-9afa-397e6834b72b",
+        "2026-10-30T07:18:01.529169+00:00",
+        "35f3defd1f206387",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.admin",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "binding-created",
+        "6",
+        null,
+        null,
+        null,
+        "57c710a5-6efc-4690-ae11-4a7f68e50724",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "scope.delegator",
+        null,
+        1
+      ],
+      [
+        6,
+        "4e5d3ddf-f8aa-425f-a40c-0e6164aa04f3",
+        "2026-10-30T07:18:01.530863+00:00",
+        "35f3defd1f206387",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.contribute",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "6",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "46eaddb2-aaca-4c4b-a519-f4c5dd5bae0c",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        7,
+        "0c531d6e-4eb1-4302-964c-df3cba92edd5",
+        "2026-10-30T07:18:01.547477+00:00",
+        "35f3defd1f206387",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "artifact.write",
+        "artifact",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "memory_entry",
+        "mem_ent_a17cd4b8326d45ce9b779315197213bd",
+        1,
+        "artifact-owner-established",
+        "7",
+        null,
+        null,
+        null,
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "artifact.owner",
+        null,
+        null
+      ],
+      [
+        8,
+        "a370d96a-d2a9-4719-9ad9-a4a294dcab2e",
+        "2026-10-30T07:18:01.553564+00:00",
+        "1e52a590fee02468",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.contribute",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "7",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "46eaddb2-aaca-4c4b-a519-f4c5dd5bae0c",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        9,
+        "55041a09-85ca-43c5-a091-bee10d0b3c59",
+        "2026-10-30T07:18:01.570220+00:00",
+        "1e52a590fee02468",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "artifact.write",
+        "artifact",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "memory_entry",
+        "mem_ent_1010140ae25747af9dfcaa7745842699",
+        1,
+        "artifact-owner-established",
+        "8",
+        null,
+        null,
+        null,
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "artifact.owner",
+        null,
+        null
+      ],
+      [
+        10,
+        "ed194ac7-35b3-4105-a16a-6f2e07ad0281",
+        "2026-10-30T07:18:01.575901+00:00",
+        "a2adcd6b0c4ea461",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.contribute",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "8",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "46eaddb2-aaca-4c4b-a519-f4c5dd5bae0c",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        11,
+        "5f538625-f6b6-4d3e-ad56-ff37d863771f",
+        "2026-10-30T07:18:01.593338+00:00",
+        "a2adcd6b0c4ea461",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "artifact.write",
+        "artifact",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "memory_entry",
+        "mem_ent_b0b0ee34fa3f47a98798ead04d5cf77d",
+        1,
+        "artifact-owner-established",
+        "9",
+        null,
+        null,
+        null,
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "artifact.owner",
+        null,
+        null
+      ],
+      [
+        12,
+        "39b7c04a-3e2a-4049-b22f-0303cee6ce9b",
+        "2026-10-30T07:18:01.599370+00:00",
+        "02bea51f5968af4c",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.contribute",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "9",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "46eaddb2-aaca-4c4b-a519-f4c5dd5bae0c",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        13,
+        "165557ab-4879-414d-8947-aefb994026f6",
+        "2026-10-30T07:18:01.615160+00:00",
+        "02bea51f5968af4c",
+        "http",
+        "remember_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "artifact.write",
+        "artifact",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "memory_entry",
+        "mem_ent_baeaa66b02a0459c9af7eea06b1dfa1a",
+        1,
+        "artifact-owner-established",
+        "10",
+        null,
+        null,
+        null,
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "artifact.owner",
+        null,
+        null
+      ],
+      [
+        14,
+        "7d16d2cc-3b50-4e6c-bd48-577aad5329ec",
+        "2026-10-30T07:18:01.621245+00:00",
+        "072c7c9ff1ecc4ba",
+        "http",
+        "list_memory_entries",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.read",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "10",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2f09c964-c018-4727-9176-203aedede908",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        15,
+        "6075cb2c-f444-4745-95e0-207c749b1397",
+        "2026-10-30T07:18:01.636260+00:00",
+        "f7b17e8f32197c82",
+        "http",
+        "search_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.read",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "10",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2f09c964-c018-4727-9176-203aedede908",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        16,
+        "2bf1e378-3402-4754-a899-58461718385a",
+        "2026-10-30T07:18:01.657193+00:00",
+        "450ed7d80b8941ad",
+        "http",
+        "search_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.read",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "10",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2f09c964-c018-4727-9176-203aedede908",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        17,
+        "f7c91960-f158-44cc-ae06-824ab1b598fe",
+        "2026-10-30T07:18:01.677459+00:00",
+        "6cbd062226e004dd",
+        "http",
+        "search_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.read",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "10",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2f09c964-c018-4727-9176-203aedede908",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        18,
+        "9396a95e-307e-49da-9d0b-6287cab581f9",
+        "2026-10-30T07:18:01.697840+00:00",
+        "3c4e0847c7af66bd",
+        "http",
+        "search_memory",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        null,
+        null,
+        null,
+        "scope.read",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        1,
+        "role-binding",
+        "10",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2f09c964-c018-4727-9176-203aedede908",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    ],
+    "pc_access_idempotency": [
+      [
+        "server-token",
+        "f5ce6695664f6feba494adcd40d50f4f3fb85a4ca12dd857437adf2b2f54fa27",
+        "binding.create",
+        "d42bf5448c4b0ab33d1a9f0e6d455760901289509b45537c70e7b383e9c5cad8",
+        "011a130b-22c2-4ce1-92b2-e618a1bead86",
+        null
+      ],
+      [
+        "server-token",
+        "60b8b5e8208bbd150f55593b877c9c801060f2aae69d075fa443da698d7aae96",
+        "binding.create",
+        "3b15899254db72e4eb08e358aaacbc0ef608d7cb67f98462b57ef4c67b9bc961",
+        "c4c93d10-bf47-4802-80b5-5d8bffdee160",
+        null
+      ],
+      [
+        "server-token",
+        "087fa87f8bc4084a0a3e581d095d1b10d2e41a4bb4913fc5b74702035f1cd8de",
+        "binding.create",
+        "a5edf39592f695378affc9bbd8b6439ef1379ba5e37960b297c5aa5e2be2be84",
+        "2f09c964-c018-4727-9176-203aedede908",
+        null
+      ],
+      [
+        "server-token",
+        "5bedacfc7ba4f7dab0fd983897f67df20c567037607f8fa91a8e29e893fea2c7",
+        "binding.create",
+        "587706f69d9f9481665609e8651f0732dd3ab241be90681caf31ce88d31ebf34",
+        "46eaddb2-aaca-4c4b-a519-f4c5dd5bae0c",
+        null
+      ],
+      [
+        "server-token",
+        "aaf94c803242d82f7c347c8c7beb072f76ed82ee28acbe9271b855d10d525d81",
+        "binding.create",
+        "1577b622a98d25a543b19b957eecccbf553ef071c9afcc19f1fe37546656d7f2",
+        "d1c0b7a2-3d04-4180-a2ef-b201fc3a012c",
+        null
+      ],
+      [
+        "server-token",
+        "124e2e33ef1e36e6af79022be86ae791f4591deeba25834552cc0a850e39bdbc",
+        "binding.create",
+        "75d5bcfd52c47047e648332663b9aac52e7962228495fdd0ab39274528dfc3a9",
+        "57c710a5-6efc-4690-ae11-4a7f68e50724",
+        null
+      ]
+    ],
+    "pc_access_owners": [
+      [
+        "artifact",
+        "2bb327b8d47a9abee9a97f6189cbe6e2a7a1c83e89ce2eb6a7023a041d221c46",
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        null,
+        null,
+        "memory_entry",
+        "mem_ent_a17cd4b8326d45ce9b779315197213bd",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2026-10-30T07:18:01.545887+00:00",
+        "7",
+        "memory-owner:scp_21qp56zx72yqgx700dqpbrj6pb:mem_ent_a17cd4b8326d45ce9b779315197213bd"
+      ],
+      [
+        "artifact",
+        "9a88f6f4ceea1feb29d4af1ba0d8ccd7ec55911737841c772baca22e087ca5d8",
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        null,
+        null,
+        "memory_entry",
+        "mem_ent_1010140ae25747af9dfcaa7745842699",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2026-10-30T07:18:01.568882+00:00",
+        "8",
+        "memory-owner:scp_21qp56zx72yqgx700dqpbrj6pb:mem_ent_1010140ae25747af9dfcaa7745842699"
+      ],
+      [
+        "artifact",
+        "71c0555894654a41d0a758e12ff7569ba7dac3afc163ec87ad013a823861686a",
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        null,
+        null,
+        "memory_entry",
+        "mem_ent_b0b0ee34fa3f47a98798ead04d5cf77d",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2026-10-30T07:18:01.591334+00:00",
+        "9",
+        "memory-owner:scp_21qp56zx72yqgx700dqpbrj6pb:mem_ent_b0b0ee34fa3f47a98798ead04d5cf77d"
+      ],
+      [
+        "artifact",
+        "d65be37e3ddbd17328cd72e1a10392403ae9d296013494b8476c4f8538c0e040",
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        null,
+        null,
+        "memory_entry",
+        "mem_ent_baeaa66b02a0459c9af7eea06b1dfa1a",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "2026-10-30T07:18:01.613899+00:00",
+        "10",
+        "memory-owner:scp_21qp56zx72yqgx700dqpbrj6pb:mem_ent_baeaa66b02a0459c9af7eea06b1dfa1a"
+      ]
+    ],
+    "pc_access_relationship_heads": [
+      [
+        "authorization",
+        10
+      ]
+    ],
+    "pc_access_relationships": [
+      [
+        "011a130b-22c2-4ce1-92b2-e618a1bead86",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "171f446fc89ece1e4fece167dbb8ef81e257bff82983424e8291daeb18989078",
+        "server",
+        "powercontext",
+        null,
+        null,
+        null,
+        null,
+        null,
+        "server.observer",
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "static bearer preset",
+        "2026-10-30T07:18:01.297073+00:00",
+        null,
+        "active",
+        1,
+        "1",
+        "static-preset:powercontext:server-token:server.observer",
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "c4c93d10-bf47-4802-80b5-5d8bffdee160",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "171f446fc89ece1e4fece167dbb8ef81e257bff82983424e8291daeb18989078",
+        "server",
+        "powercontext",
+        null,
+        null,
+        null,
+        null,
+        null,
+        "server.admin",
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "static bearer preset",
+        "2026-10-30T07:18:01.366787+00:00",
+        null,
+        "active",
+        1,
+        "2",
+        "static-preset:powercontext:server-token:server.admin",
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "2f09c964-c018-4727-9176-203aedede908",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "a50792fd7bcccca4766e0e387c81a17dbb1b1581d9b66d59dc977d9d0435186d",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        "scope.viewer",
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "static bearer preset",
+        "2026-10-30T07:18:01.520497+00:00",
+        null,
+        "active",
+        1,
+        "3",
+        "static-preset:powercontext:server-token:scp_21qp56zx72yqgx700dqpbrj6pb:scope.viewer",
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "46eaddb2-aaca-4c4b-a519-f4c5dd5bae0c",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "a50792fd7bcccca4766e0e387c81a17dbb1b1581d9b66d59dc977d9d0435186d",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        "scope.contributor",
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "static bearer preset",
+        "2026-10-30T07:18:01.520497+00:00",
+        null,
+        "active",
+        1,
+        "4",
+        "static-preset:powercontext:server-token:scp_21qp56zx72yqgx700dqpbrj6pb:scope.contributor",
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "d1c0b7a2-3d04-4180-a2ef-b201fc3a012c",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "a50792fd7bcccca4766e0e387c81a17dbb1b1581d9b66d59dc977d9d0435186d",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        "scope.reviewer",
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "static bearer preset",
+        "2026-10-30T07:18:01.520497+00:00",
+        null,
+        "active",
+        1,
+        "5",
+        "static-preset:powercontext:server-token:scp_21qp56zx72yqgx700dqpbrj6pb:scope.reviewer",
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "57c710a5-6efc-4690-ae11-4a7f68e50724",
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "a50792fd7bcccca4766e0e387c81a17dbb1b1581d9b66d59dc977d9d0435186d",
+        "scope",
+        null,
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        null,
+        null,
+        null,
+        null,
+        "scope.delegator",
+        null,
+        "service",
+        "server-token",
+        "PowerContext static bearer",
+        "static bearer preset",
+        "2026-10-30T07:18:01.520497+00:00",
+        null,
+        "active",
+        1,
+        "6",
+        "static-preset:powercontext:server-token:scp_21qp56zx72yqgx700dqpbrj6pb:scope.delegator",
+        null,
+        null,
+        null,
+        null
+      ]
+    ],
+    "pc_agent_skill_targets": [],
+    "pc_artifact_candidate_heads": [],
+    "pc_artifact_candidate_versions": [],
+    "pc_artifact_heads": [
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        4,
+        null,
+        "active",
+        null,
+        0
+      ]
+    ],
+    "pc_artifact_lineage_artifacts": [],
+    "pc_artifact_lineage_sources": [],
+    "pc_artifact_processing_auto_wave_targets": [],
+    "pc_artifact_processing_binding_states": [],
+    "pc_artifact_processing_intents": [],
+    "pc_artifact_processing_leases": [],
+    "pc_artifact_processing_migration_receipts": [],
+    "pc_artifact_processing_pending": [],
+    "pc_artifact_processing_schema": [
+      [
+        1,
+        1515,
+        1515,
+        "complete",
+        "fresh",
+        "{\"bindings\":{\"experience-incubation\":\"experience\",\"memory-source-window\":\"memory\",\"profile-source-window\":\"profile\",\"skill.dream.v1\":\"skill\",\"topic-memory-source-window\":\"topic-memory\"},\"capabilities\":[],\"legacy_automatic_bindings\":[\"topic-memory-source-window\"],\"mode\":\"global\"}"
+      ]
+    ],
+    "pc_artifact_processing_sequences": [],
+    "pc_artifact_publications": [],
+    "pc_artifact_tags": [],
+    "pc_artifacts": [
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        1,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f6131376364346238333236643435636539623737393331353139373231336264222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3762623564373230663537353433356438303564323731316464383765336534222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6131376364346238333236643435636539623737393331353139373231336264222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3762623564373230663537353433356438303564323731316464383765336534222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        },
+        {
+          "hex": "5b5d"
+        }
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        2,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f3130313031343061653235373437616639646663616137373435383432363939222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6663343131363136623636623462666162323963616666633363646261346138222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6131376364346238333236643435636539623737393331353139373231336264222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3762623564373230663537353433356438303564323731316464383765336534222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f3130313031343061653235373437616639646663616137373435383432363939222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6663343131363136623636623462666162323963616666633363646261346138222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        },
+        {
+          "hex": "5b5d"
+        }
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        3,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f3130313031343061653235373437616639646663616137373435383432363939222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6663343131363136623636623462666162323963616666633363646261346138222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6131376364346238333236643435636539623737393331353139373231336264222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3762623564373230663537353433356438303564323731316464383765336534222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6230623065653334666133663437613938373938656164303464356366373764222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6263633737396366393839393461383161653436663865616164656262336336222c22656e7472795f636f6e74656e745f68617368223a2235313837633638623036643134373339363831643763303566333863396430386437383833313464376433653262383262326538663035613164313237636362222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6230623065653334666133663437613938373938656164303464356366373764222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6263633737396366393839393461383161653436663865616164656262336336222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        },
+        {
+          "hex": "5b5d"
+        }
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        4,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f3130313031343061653235373437616639646663616137373435383432363939222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6663343131363136623636623462666162323963616666633363646261346138222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6131376364346238333236643435636539623737393331353139373231336264222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3762623564373230663537353433356438303564323731316464383765336534222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6230623065653334666133663437613938373938656164303464356366373764222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6263633737396366393839393461383161653436663865616164656262336336222c22656e7472795f636f6e74656e745f68617368223a2235313837633638623036643134373339363831643763303566333863396430386437383833313464376433653262383262326538663035613164313237636362222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6261656161363662303261303435396339616637656561303662316466613161222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3437386538613061666561343462323239653263323939393533383566356162222c22656e7472795f636f6e74656e745f68617368223a2232666630356137633137313362626166633734383464343466323964323161653233656164363866616133663561613135623836383032636661343161336439222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6261656161363662303261303435396339616637656561303662316466613161222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3437386538613061666561343462323239653263323939393533383566356162222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        },
+        {
+          "hex": "5b5d"
+        }
+      ]
+    ],
+    "pc_connector_checkpoints": [],
+    "pc_dream_runs": [],
+    "pc_external_skill_registrations": [],
+    "pc_memory_entry_heads": [
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_1010140ae25747af9dfcaa7745842699",
+        "mem_ver_fc411616b66b4bfab29caffc3cdba4a8",
+        "a9fbf45af3002f156c6f5e55423f7e891e8805d20932abbcb96791533ca20eed",
+        "upgrade100bravo pet cat is named tangyuan"
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_a17cd4b8326d45ce9b779315197213bd",
+        "mem_ver_7bb5d720f575435d805d2711dd87e3e4",
+        "ddf513955f656035914ab68270f5641faa09f29afafd701ed5e9f0a54425e6ea",
+        "upgrade100alpha user name is chen chen"
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_b0b0ee34fa3f47a98798ead04d5cf77d",
+        "mem_ver_bcc779cf98994a81ae46f8eaadebb3c6",
+        "5187c68b06d14739681d7c05f38c9d08d788314d7d3e2b82b2e8f05a1d127ccb",
+        "upgrade100charlie favorite dish is west lake vinegar fish"
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_baeaa66b02a0459c9af7eea06b1dfa1a",
+        "mem_ver_478e8a0afea44b229e2c29995385f5ab",
+        "2ff05a7c1713bbafc7484d44f29d21ae23ead68faa3f5aa15b86802cfa41a3d9",
+        "upgrade100delta occupation is database engineer"
+      ]
+    ],
+    "pc_memory_entry_versions": [
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "mem_ent_a17cd4b8326d45ce9b779315197213bd",
+        "mem_ver_7bb5d720f575435d805d2711dd87e3e4",
+        1,
+        null,
+        "fact",
+        "Upgrade100Alpha user name is Chen Chen.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "ddf513955f656035914ab68270f5641faa09f29afafd701ed5e9f0a54425e6ea",
+        1
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "mem_ent_1010140ae25747af9dfcaa7745842699",
+        "mem_ver_fc411616b66b4bfab29caffc3cdba4a8",
+        1,
+        null,
+        "fact",
+        "Upgrade100Bravo pet cat is named Tangyuan.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "a9fbf45af3002f156c6f5e55423f7e891e8805d20932abbcb96791533ca20eed",
+        2
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "mem_ent_b0b0ee34fa3f47a98798ead04d5cf77d",
+        "mem_ver_bcc779cf98994a81ae46f8eaadebb3c6",
+        1,
+        null,
+        "fact",
+        "Upgrade100Charlie favorite dish is West Lake vinegar fish.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "5187c68b06d14739681d7c05f38c9d08d788314d7d3e2b82b2e8f05a1d127ccb",
+        3
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "memory",
+        "memory",
+        "mem_ent_baeaa66b02a0459c9af7eea06b1dfa1a",
+        "mem_ver_478e8a0afea44b229e2c29995385f5ab",
+        1,
+        null,
+        "fact",
+        "Upgrade100Delta occupation is database engineer.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "2ff05a7c1713bbafc7484d44f29d21ae23ead68faa3f5aa15b86802cfa41a3d9",
+        4
+      ]
+    ],
+    "pc_memory_fts_index": [
+      [
+        1,
+        1
+      ]
+    ],
+    "pc_model_usage_daily": [],
+    "pc_profile_policies": [],
+    "pc_recall_token_daily": [],
+    "pc_receipt_migration_review": [],
+    "pc_scope_bindings": [],
+    "pc_scope_context_references": [],
+    "pc_scope_creation_requests": [
+      [
+        "powercontext.default-scope.v1",
+        "93f14e9b90e679a9ca1dc3254ee3c18aac1ddab4f468ea9b66f3ce51b27e9238",
+        "scp_22y9eneee8em72f7t4s1s0hvdk"
+      ],
+      [
+        "historical-sqlite-upgrade",
+        "5ab4b0ccd806209e7587e36a37757201899956eea0bb05153f7f84e1e440271b",
+        "scp_21qp56zx72yqgx700dqpbrj6pb"
+      ]
+    ],
+    "pc_scope_external_references": [],
+    "pc_scope_settings": [
+      [
+        "default",
+        "scp_22y9eneee8em72f7t4s1s0hvdk"
+      ]
+    ],
+    "pc_scopes": [
+      [
+        "scp_22y9eneee8em72f7t4s1s0hvdk",
+        "Default",
+        "Default context",
+        "scp_22y9eneee8em72f7t4s1s0hvdk",
+        "Default",
+        "Default context",
+        null,
+        1
+      ],
+      [
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "Historical SQLite upgrade",
+        "Disposable test",
+        "scp_21qp56zx72yqgx700dqpbrj6pb",
+        "Historical SQLite upgrade",
+        "Disposable test",
+        null,
+        1
+      ]
+    ],
+    "pc_skill_packages": [],
+    "pc_skill_publications": [],
+    "pc_source_cursors": [],
+    "pc_source_definition_manifests": [],
+    "pc_source_journal_heads": [],
+    "pc_sources": [],
+    "pc_topic_memory_active_chunks": [],
+    "pc_topic_memory_active_topics": [],
+    "pc_topic_memory_fts_index": [
+      [
+        1,
+        1
+      ]
+    ],
+    "pc_topic_memory_processing_targets": [],
+    "pc_topic_memory_retrieval_shape": [
+      [
+        1,
+        "fts",
+        null
+      ]
+    ],
+    "pc_topic_memory_revision_publications": [],
+    "pc_topic_memory_work_budgets": []
+  }
+}

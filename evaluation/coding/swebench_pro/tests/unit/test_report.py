@@ -41,7 +41,14 @@ def _valid_bundle() -> ReportBundle:
             resolved=True,
             passed=False,
             treatment_valid=True,
-            metrics=MetricSet(patch_bytes=100, input_tokens=200, output_tokens=30, elapsed_seconds=12.25),
+            metrics=MetricSet(
+                patch_bytes=100,
+                input_tokens=200,
+                cached_input_tokens=150,
+                output_tokens=30,
+                reasoning_output_tokens=10,
+                elapsed_seconds=12.25,
+            ),
         ),
         on=ArmReport(
             arm="on",
@@ -49,7 +56,14 @@ def _valid_bundle() -> ReportBundle:
             resolved=True,
             passed=True,
             treatment_valid=True,
-            metrics=MetricSet(patch_bytes=90, input_tokens=180, output_tokens=25, elapsed_seconds=11.5),
+            metrics=MetricSet(
+                patch_bytes=90,
+                input_tokens=180,
+                cached_input_tokens=170,
+                output_tokens=25,
+                reasoning_output_tokens=12,
+                elapsed_seconds=11.5,
+            ),
         ),
     )
 
@@ -113,6 +127,21 @@ def test_missing_metrics_render_na_and_do_not_invent_zero() -> None:
     assert "Elapsed seconds | N/A" in report
     assert "Comparison unavailable" in report
     assert "comparable metrics are missing" in report
+
+
+def test_cached_and_reasoning_tokens_are_reported_with_their_deltas() -> None:
+    report = render_report(_valid_bundle())
+    assert "| Cached input tokens | 150 |" in report
+    assert "| Reasoning output tokens | 10 |" in report
+    assert "| Cached input tokens delta | +20 |" in report
+    assert "| Reasoning output tokens delta | +2 |" in report
+
+
+def test_metrics_written_before_cached_and_reasoning_counts_still_load() -> None:
+    older = {"patch_bytes": 1, "input_tokens": 2, "output_tokens": 3, "elapsed_seconds": 4.0}
+    metrics = MetricSet.model_validate(older, strict=True)
+    assert metrics.cached_input_tokens is None
+    assert metrics.reasoning_output_tokens is None
 
 
 def test_invalid_treatment_is_not_scored_as_failure() -> None:

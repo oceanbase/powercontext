@@ -51,6 +51,7 @@ builtin = [
     "aiosqlite>=0.22,<1",
     "alembic>=1.16,<2",
     "apscheduler>=3.11,<4",
+    "cryptography>=46,<51",
     "filelock>=3.16,<4",
     "httpx>=0.28,<1",
     "jieba==0.42.1",

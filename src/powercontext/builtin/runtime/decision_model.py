@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, m
 
 from powercontext._logging import log_safely
 from powercontext.builtin.inference import InferenceError, InferenceUsage, StructuredGenerator
+from powercontext.builtin.inference.errors import InferencePrivacyError
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,9 @@ class FailOpenDecisionModel:
                 return await self._delegate.evaluate(request)
         except asyncio.CancelledError:
             raise
+        except InferencePrivacyError:
+            # A mandatory send/release refusal is not a discretionary judgment.
+            raise
         except Exception:
             log_safely(
                 logger,
@@ -318,6 +322,8 @@ class StructuredDecisionModel:
     async def evaluate(self, request: DecisionModelRequest, /) -> DecisionModelResult:
         try:
             result = await self._generator.generate(request)
+        except InferencePrivacyError:
+            raise
         except InferenceError as error:
             return DecisionModelResult(used_fallback=True, fallback_reason=type(error).__name__)
         output = result.output.model_copy(update={"usage": result.usage})
