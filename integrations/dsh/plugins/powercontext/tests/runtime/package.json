@@ -8,5 +8,8 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-sdk-client": "0.2.2-alpha.2"
+  },
+  "engines": {
+    "node": ">=24.9.0"
   }
 }

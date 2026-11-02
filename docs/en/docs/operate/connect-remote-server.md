@@ -33,6 +33,8 @@ The same options work with `setup codex dsh` for multiple agents and `config age
 A declined or missing consent fails before installation starts. A warning is written to stderr, leaving JSON stdout
 parseable. Successful installation saves the endpoint and consent for new sessions; it does not save credentials.
 
+PowerContext DSH integration supports the tested Session v4 hosts 0.2.1-rc.5 and 0.2.2-alpha.2. Older hosts without native `loadProfileDirectory` must be upgraded; inspection returns upgrade guidance before setup writes.
+
 ## Settings and precedence
 
 Setup writes `~/.config/powercontext/clients.json`; override this path with `POWERCONTEXT_CLIENT_CONFIG_FILE`.

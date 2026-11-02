@@ -897,7 +897,8 @@ jobs:
         run: make dsh-runtime-test
 
       - name: Install native DSH configuration test APIs
-        run: pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
+        run: |
+          pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile
 
       - name: Resolve required DSH test runtimes
         run: |

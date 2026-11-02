@@ -728,10 +728,10 @@ def test_installed_bundle_uses_the_native_transport_override(dsh_profile, tmp_pa
     assert resolve_host_transport("dsh") == ("http://memory.example", True)
 
 
-def test_unreadable_bundle_is_not_assumed_to_be_unrelated(dsh_profile):
+def test_unreadable_third_party_bundle_is_skipped_with_warning(dsh_profile, capsys):
     (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["missing-bundle"]}}}))
-    with pytest.raises(ValueError, match="Cannot read"):
-        read_dsh_settings(prospective=True)
+    assert read_dsh_settings(prospective=True) == {}
+    assert "skipped a bundle" in capsys.readouterr().err
 
 
 def test_remote_http_consent_and_environment_precedence(dsh_profile, monkeypatch):
@@ -960,7 +960,7 @@ def test_incompatible_third_party_bundle_is_excluded_from_first_and_repeated_set
         )
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["hosts"]["dsh"]["setup"] == "complete"
-        assert "incompatible third-party bundle" in result.stderr
+        assert "incompatible bundle" in result.stderr
         assert json.loads((tmp_path / "clients.json").read_text())["hosts"]["dsh"]["server_url"] == (
             "https://selected.example"
         )
@@ -982,11 +982,14 @@ def test_incompatible_powercontext_bundle_is_rejected(dsh_native_api_profile, tm
     assert not (tmp_path / "clients.json").exists()
 
 
-def test_version_exemption_keeps_third_party_transport_overrides(dsh_native_api_profile, tmp_path, monkeypatch):
+def test_version_exemption_keeps_third_party_transport_overrides(
+    dsh_native_api_profile, dsh_config_boot, tmp_path, monkeypatch
+):
     from powercontext.cli import dsh
 
     source = compatibility_profile(dsh_native_api_profile, tmp_path)
-    (dsh_native_api_profile / "compatibility.json").write_text(json.dumps({"custom-bundle@1.0.0": ["0.2.0-rc.2"]}))
+    version = json.loads((dsh_config_boot.parent.parent / "package.json").read_text())["version"]
+    (dsh_native_api_profile / "compatibility.json").write_text(json.dumps({"custom-bundle@1.0.0": [version]}))
     installer = Mock()
     monkeypatch.setattr(dsh, "_run_dsh", installer)
     result = CliRunner().invoke(
@@ -1081,3 +1084,40 @@ def test_uninitialized_profile_with_existing_patch_uses_native_templates(dsh_pro
     assert read_dsh_settings(prospective=True) == {}
     assert not manifest.exists()
     assert {path: path.read_bytes() for path in (tmp_path / "dsh").rglob("*") if path.is_file()} == original
+
+
+def test_retired_bundle_is_omitted_without_rewriting_profile(dsh_profile):
+    manifest = dsh_profile / "package.json"
+    manifest.write_text(
+        json.dumps({
+            "private": True,
+            "dsh": {
+                "profile": {
+                    "bundles": [
+                        "@deepseek-ai/dsh-experimental-schedule-bundle",
+                    ]
+                }
+            },
+        })
+    )
+    original = manifest.read_bytes()
+    assert read_dsh_settings(prospective=True) == {}
+    assert manifest.read_bytes() == original
+
+
+def test_unreadable_powercontext_bundle_is_not_treated_as_optional(dsh_profile):
+    (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["powercontext-dsh"]}}}))
+    with pytest.raises(ValueError, match="PowerContext cannot be loaded"):
+        read_dsh_settings(require_installed=True)
+
+
+def test_host_platform_skipped_bundle_does_not_create_transport_conflicts(dsh_native_api_profile, tmp_path):
+    profile = dsh_native_api_profile
+    compatibility_profile(profile, tmp_path, incompatible="none")
+    custom = profile / "node_modules/custom-bundle"
+    manifest = json.loads((custom / "package.json").read_text())
+    manifest["dsh"]["bundle"]["platforms"] = ["win32" if os.name != "nt" else "darwin"]
+    (custom / "package.json").write_text(json.dumps(manifest))
+    original = {path: path.read_bytes() for path in profile.rglob("*") if path.is_file()}
+    assert read_dsh_settings(require_installed=True) == {}
+    assert {path: path.read_bytes() for path in profile.rglob("*") if path.is_file()} == original
