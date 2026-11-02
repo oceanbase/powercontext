@@ -91,11 +91,36 @@ function collectSchemas(value) {
 for (const item of Object.values(contract.paths))
   for (const op of Object.values(item))
     if (wanted.includes(op?.operationId)) collectSchemas(op);
+// OpenAPI Generator inlines plain string aliases instead of emitting model files.
+const stringAliases = new Set(
+  [...schemaNames].filter((name) => {
+    const schema = contract.components.schemas[name];
+    return schema.type === "string" && !schema.enum;
+  }),
+);
 function snakeCase(name) {
   return name
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
     .toLowerCase();
+}
+function normalizeNullableReceiptRefs(value) {
+  const normalized = structuredClone(value);
+  for (const [schemaName, propertyName] of [
+    ["PreparedContextRerankConfig", "prompt"],
+    ["PreparedContextPromptIdentity", "artifact_address"],
+  ]) {
+    const property =
+      normalized.components.schemas[schemaName].properties[propertyName];
+    if (property.$ref && property.nullable === true) {
+      const { $ref, ...rest } = property;
+      normalized.components.schemas[schemaName].properties[propertyName] = {
+        allOf: [{ $ref }],
+        ...rest,
+      };
+    }
+  }
+  return normalized;
 }
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -124,7 +149,9 @@ async function generateRustModels() {
     join(tmpdir(), "powercontext-desktop-openapi-"),
   );
   const output = join(temporary, "generated");
-  const modelNames = [...schemaNames].sort();
+  const modelNames = [...schemaNames]
+    .filter((name) => !stringAliases.has(name))
+    .sort();
   const generatorCli = createRequire(import.meta.url).resolve(
     "@openapitools/openapi-generator-cli/main.js",
   );
@@ -238,7 +265,11 @@ const rustDeclarations = `\n#[rustfmt::skip]\npub fn declarations(config: &ts_rs
   ...new Set([...schemaNames, ...rustModelNames]),
 ]
   .sort()
-  .map((name) => `        <${name} as ts_rs::TS>::decl(config),`)
+  .map((name) =>
+    stringAliases.has(name)
+      ? `        format!("type ${name} = {};", <String as ts_rs::TS>::name(config)),`
+      : `        <${name} as ts_rs::TS>::decl(config),`,
+  )
   .join("\n")}\n    ]\n}\n`;
 const outputs = {
   "src-tauri/src/transport/wire.rs":
@@ -246,7 +277,9 @@ const outputs = {
     "// rustfmt uses this generated layout verbatim.\n" +
     rustModels +
     rustDeclarations,
-  "ui/src/generated/api.d.ts": header + astToString(await openapiTS(contract)),
+  "ui/src/generated/api.d.ts":
+    header +
+    astToString(await openapiTS(normalizeNullableReceiptRefs(contract))),
   "ui/src/generated/operations.ts":
     header +
     "export const contractSha256 = " +

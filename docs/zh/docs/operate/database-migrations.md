@@ -14,8 +14,8 @@ description: 了解数据库迁移命令、备份策略、服务启停及当前�
 
 完整 Server 框架登记了两个真实安装包来源：
 
-- **1.3.0：**`s1300 → s1400 → s1401 → s1402 → v1_4_1_004`。
-- **1.4.0：**通过独立冻结的来源桥接，执行 `r1400 → s1400 → s1401 → s1402 → v1_4_1_004`。
+- **1.3.0：**`s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`。
+- **1.4.0：**通过独立冻结的来源桥接，执行 `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`。
 
 应用发布版本与 schema revision 分别编号。1.4.0 发行包不等于 `s1400` 检查点：其 Candidate 结构已经是当前格式，
 但 Topic 尝试状态仍需登记的桥接。两条路径保留既有引用和历史，到达相同的受管目标结构；原有资源摘要分别保留，
@@ -44,6 +44,14 @@ payload 身份及待处理 intent。兼容的当前任务原样保留，不套�
 
 修订 `v1_4_1_004` 将 `pc_access_owner_recovery` 纳入管理，用于持久保存 Artifact 和 Candidate 的所有权写入意图。两条已登记发布源路径及向量配置均包含此表。已有受管数据库需要显式维护，新数据库创建已登记的空表。待恢复意图在 Server 重启后保留原有 deployment、Principal 与幂等身份；历史修订资源及校验和保持不变。未登记布局不会仅凭表名被自动接纳。此登记不代表已通过安装发布版或外部 Provider 的升级验收。
 
+`v1_4_1_005` 为文本和向量配置添加可空的 `pc_atomic_memory_current.description` 列。已有受管库需要显式迁移，启动不会修改该列。新增列不改写历史 Artifact 内容；已有投影的摘要保持空值，直到新写入或显式投影重建复制权威摘要。
+
+`v1_4_1_006` 登记 `pc_source_write_plugins`，用于持久保存 Source write 插件声明。
+`v1_5_0_001` 增加 Artifact 插件注册字段、family schema、检索状态和投影、索引覆盖与变更跟踪，以及向量空间和索引登记。
+SQLite 还登记可移植向量和 FTS 辅助结构。两条来源链均通过显式维护加入这些增量变更；历史修订资源与校验和保持不变。
+根据已登记空间创建的原生向量表，必须通过精确布局检查才能纳入后续维护。上述登记不扩展受支持的来源版本，
+也不代表已通过真实安装发布版的升级验收。
+
 [可移植归档恢复](portable-archive.md) 中断后，普通启动和 worker 会继续拒绝未完成的检索投影。
 请使用同一个通过校验的归档，重新执行 `powercontext archive restore <bundle> --yes`。
 仅此显式恢复路径可在验证已登记结构和配置的向量 profile 后打开投影尚未完整的数据库，且不启动 worker。
@@ -56,7 +64,7 @@ identity，仍使用原有事务语义。
 
 向量维护要求声明与历史数据完全一致的 embedding profile：profile ID、模型、维度、距离和归一化方式。迁移保留历史向量及 Topic 检索配置，不调用 embedding provider。SQLite 的登记步骤添加并回填 Atomic Memory 的 vec0 辅助索引和事务触发器；原生后端保留登记的向量列与 HNSW 参数。`pc_server_storage_profile` 保存完整的 embedding 配置，不是另一张 revision 表或恢复日志。通用存储读入口校验该声明，Server 启动使用配置或注入模型的实际 profile。受管辅助对象缺失或 profile 变化会在启动修补或写入之前被拒绝。
 
-空的持久 SQLite/seekDB Server 启用向量时，通过同一版本链所选的 profile 初始化。已有未受管库必须显式维护，且来源结构必须与登记布局完全一致。切换配置不能绕过准入检查，不能给受管无向量库直接启用向量，也不能隐式增加向量或 Code 对象。已经受管但没有 Code 表的数据库若要启用嵌入式 Code，需要另行登记配置转换，启动入口与独立 Code CLI 均拒绝隐式扩展。测试目录保留 1.3.0 来源、三个后端、向量开关及 Code 开关组成的 12 种组合。当前嵌入式 seekDB 的两个 Code 配置暂时仅手动运行，发布豁免这两项；自动 CI 和发布要求其余 10 项通过。在 Main 工作流手动选择 `upgrade_selection=seekdb-code` 可执行这两项。自动门禁通过不能证明这两个配置已通过升级验收。1.4.0 桥接仍保留登记，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。Code 配置用各自实际安装的来源版本创建索引，保留缓存文件与嵌入式图数据，并在升级后查询原指纹和符号。向量配置保留非空的历史 Atomic 与 Topic 向量，通过实际安装的目标包验证语义读取和新写入，拒绝 profile 漂移，并对比新建库与升级库。SQLite 还验证辅助对象缺失时的拒绝行为及备份还原。无向量配置通过不能证明向量支持，只有实际目标安装包通过对应配置的验收，才能声明该配置的升级支持。
+空的持久 SQLite/seekDB Server 启用向量时，通过同一版本链所选的 profile 初始化。已有未受管库必须显式维护，且来源结构必须与登记布局完全一致。切换配置不能绕过准入检查，不能给受管无向量库直接启用向量，也不能隐式增加向量或 Code 对象。已经受管但没有 Code 表的数据库若要启用嵌入式 Code，需要另行登记配置转换，启动入口与独立 Code CLI 均拒绝隐式扩展。测试目录保留 1.3.0 来源、三个后端、向量开关及 Code 开关组成的 12 种组合。嵌入式 seekDB 要求使用包含恢复事务锁修复的 pylibseekdb 1.4.0.post2 或更新版本。自动 CI 和发布要求全部 12 项通过，包括两个嵌入式 seekDB Code 配置，不豁免任何组合。在 Main 工作流手动选择 `upgrade_selection=seekdb-code` 仅执行诊断子集，不能据此授权发布。1.4.0 桥接仍保留登记，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。Code 配置用各自实际安装的来源版本创建索引，保留缓存文件与嵌入式图数据，并在升级后查询原指纹和符号。向量配置保留非空的历史 Atomic 与 Topic 向量，通过实际安装的目标包验证语义读取和新写入，拒绝 profile 漂移，并对比新建库与升级库。SQLite 还验证辅助对象缺失时的拒绝行为及备份还原。无向量配置通过不能证明向量支持，只有实际目标安装包通过对应配置的验收，才能声明该配置的升级支持。
 
 `--bundle artifacts` 保留 `p0001` 开始的局部 Artifact 原型链；`--bundle topic-memory-recovery` 只处理登记的 Topic 恢复布局。两者均报告 `server_ready=false`，不得用于证明完整 Server 就绪，也不能把其版本号直接 stamp 为完整 Server 版本。
 
@@ -71,7 +79,7 @@ MySQL 兼容后端的结构反射支持 CHECK 表达式中的二元 `+`、`-`、
 
 ## 迁移编号与软件版本
 
-目标发布版本为 **PowerContext 1.4.1**。迁移名称采用
+目标发布版本为 **PowerContext 1.5.0**。迁移名称采用
 `v<主版本>_<次版本>_<补丁版本>_<序号>`，序号在同一版本内使用三位数字。
 `000` 表示已登记的历史基线，升级步骤从 `001` 开始。
 
@@ -82,12 +90,16 @@ MySQL 兼容后端的结构反射支持 CHECK 表达式中的二元 `+`、`-`、
 | `v1_4_1_001` | 1.4.1 | 第一步 | `s1400` | 完整 Server 存储转换 |
 | `v1_4_1_002` | 1.4.1 | 第二步 | `s1401` | 离线 Memory 历史归档 |
 | `v1_4_1_003` | 1.4.1 | 第三步 | `s1402` | 可移植恢复回执与时间戳适配 |
+| `v1_4_1_004` | 1.4.1 | 第四步 | `v1_4_1_004` | 持久化所有权恢复意图 |
+| `v1_4_1_005` | 1.4.1 | 第五步 | `v1_4_1_005` | Atomic Memory 可空摘要投影列 |
+| `v1_4_1_006` | 1.4.1 | 第六步 | `v1_4_1_006` | Source write 插件注册 |
+| `v1_5_0_001` | 1.5.0 | 第一步 | `v1_5_0_001` | Artifact 插件存储与检索登记 |
 
-两条已登记来源路径都升级到 `v1_4_1_003`；CI 升级验收只选择 1.3.0：
+两条已登记来源路径都升级到 `v1_5_0_001`；CI 升级验收只选择 1.3.0：
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001
 ```
 
 `status` 和 `plan` 在原有机器字段之前显示 `source_migration`、`target_migration`、
@@ -95,7 +107,7 @@ MySQL 兼容后端的结构反射支持 CHECK 表达式中的二元 `+`、`-`、
 `software_version`、`sequence` 和兼容保留的 `revision` ID。例如：
 
 ```json
-{"revision":"s1402","name":"v1_4_1_003","software_version":"1.4.1","sequence":3}
+{"revision":"v1_5_0_001","name":"v1_5_0_001","software_version":"1.5.0","sequence":1}
 ```
 
 这里的软件版本描述已登记的数据库状态，不代表当前运行的软件包版本，也不代表中断维护窗口最初的来源。
@@ -106,7 +118,7 @@ MySQL 兼容后端的结构反射支持 CHECK 表达式中的二元 `+`、`-`、
 这样可以继续使用已有计划和原始备份。局部原型 bundle 保留自己的独立编号。
 
 后续新增 Server 迁移直接使用该命名作为 Alembic `revision`，并正常登记结构、领域步骤和恢复检查点。
-`down_revision` 必须引用前一步的实际 ID；若直接追加在当前 head 之后，仍引用 `s1402`，即使它已有展示别名。
+`down_revision` 必须引用前一步的实际 ID；若直接追加在当前 head 之后，引用 `v1_5_0_001`，即使它已有展示别名。
 框架按照登记的链执行，不按名称字典序推算。已登记的名称和所属发布版本保持不变，版本升级不能重命名历史。
 
 ## 初始化与维护职责
@@ -271,7 +283,7 @@ powercontext server db-migrate apply --env-file deployment.env --backup manual \
 
 OceanBase 维护须能通过 `effective_tenant_id()`、`oceanbase.GV$OB_PARAMETERS`、`oceanbase.DBA_OB_TENANTS` 读取租户 ID、集群 ID 和租户创建信息。权限不足或身份信息不完整时返回 `target_identity_unavailable`，不以代理主机名代替数据库身份。
 
-seekdb 只读检查遇到缺失路径或空目录时不启动引擎；非空目录缺少可识别的引擎结构时返回 `unsupported_target`。打开有效的已有引擎可能写入原生日志和引擎维护文件；只读迁移命令不执行业务 DDL、不初始化表。
+seekdb 只读检查遇到缺失路径或空目录时不启动引擎；非空目录缺少可识别的引擎结构时返回 `unsupported_target`。未显式配置库名、而旧 `test` 库中仍有 PowerContext 表时返回 `explicit_database_required`，不会隐式选择任一数据库；显式选定库名后重跑该命令。已有引擎中缺少所选数据库时，`status` 和 `verify` 返回带库名和准备指引的 `database_missing`；`plan` 不创建数据库，而是返回绑定所选库的 `uninitialized` 计划。操作员确认计划后，`apply` 才可创建数据库并初始化已登记的结构。访问被拒时返回 `database_access_denied`。可写 seekDB 维护无法创建配置指定的库时返回 `database_creation_required`，权限被拒且无法确认库是否存在时返回 `database_access_denied`；两者都在载荷中保留管理员语句与准备指引。打开有效的已有引擎可能写入原生日志和引擎维护文件；只读迁移命令不执行业务 DDL、不初始化表。
 
 `--evidence-dir PATH` 指定目标库之外的持久目录，保存维护进度及恢复引用。`status`、`plan`、`apply`、`verify` 和重试必须使用同一目录；进程、容器或迁移 Job 退出后仍须保留。每个数据库使用独立目录，并限制为迁移操作者可访问。
 
@@ -331,6 +343,47 @@ powercontext server db-migrate verify --env-file oceanbase.env \
 ```
 
 使用最新计划中的 `plan_id` 和 `coordination.pending_run_id`。重新声明既有手动备份，不用部分状态的新备份替换原恢复点。正常升级仍只确认一次；中断恢复另需用户显式作出 DBA 声明，PC 展示计划时不会自动替用户确认。
+
+## 原生 SeekDB 重启与恢复验收
+
+嵌入式引擎必须使用 `pylibseekdb>=1.4.0.post2,<2`，事务恢复修复由该原生依赖提供。迁移检查保留
+`SHOW TRIGGERS`，并在操作之间释放最后一个客户端。分别在 Python 3.11 和 Python 3.14 环境中，从仓库根目录执行：
+
+```bash
+uv sync --locked --extra seekdb
+uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+  --scenario migration --attempts 12 --timeout 180 --output .powercontext/seekdb-migration
+uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+  --scenario restart-recovery --restart --attempts 12 --timeout 180 --output .powercontext/seekdb-restart
+```
+
+每次运行使用新的输出目录。migration 场景选择原 issue 的
+`test_mysql_committed_revision_recovers_before_evidence_advance[seekdb]` 节点，保留自然客户端生命周期。释放客户端不代表
+原生进程已经退出，紧接着打开可能复用该进程。restart-recovery 场景检查元数据查询、提交、确认最后一个客户端关闭后
+进程退出、基线 DDL，以及重开后内容和标签的保留；即使不通过探针调用，该测试也会等待内核进程退出通知。
+每次必须恰好一个测试通过，跳过、报错和超时均不算通过。`--restart` 在每次关闭时最多等待 10 秒确认原生进程退出，
+再要求各代 PID 不同，且下一次打开之前存在退出记录。等待超时直接失败，不自动重试。
+证据包括 Python 和绑定版本、原生二进制 SHA-256、实例生命周期、
+SQL 日志、压缩后的原生日志，以及慢执行时的事务快照。独立的延长观察工作流仅用于诊断，不能用它的较长时限替代正常验收时限。
+
+两个显式重开验收均在 Linux 上执行，每次重开前通过内核退出事件确认上一代进程已结束，不使用固定启动等待。
+测试优先使用 Python 的 `os.pidfd_open`，其次使用可选的 libc 封装；两者均缺失时，仅在锁定 wheels 对应的
+64 位 x86_64 和 aarch64 架构上调用 Linux syscall。内核报错或退出等待超时仍会导致验收失败。
+故障库验收应先在隔离的 `1.4.0.post1` 环境中，
+使用 `--scenario restart-recovery --keep-failed-storage` 复现阻塞。
+停止引擎后，冻结失败输出中的 `tmp/pc-*/seekdb` 目录，并保持原件不变。此场景在 `powercontext` 数据库中创建合成数据，
+包括故障库测试要求的 `preserved` 内容和 `Keep` 标签。健康库、结构或哨兵数据不同的库，不能用于证明该缺陷已恢复。
+使用同一冻结故障库的独立副本，对比旧引擎与修复后的引擎：
+
+```bash
+uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+  --scenario fixture-recovery --fixture /absolute/path/to/frozen/seekdb \
+  --restart --attempts 1 --timeout 75 --output .powercontext/seekdb-fixture
+```
+
+故障库门禁只打开临时副本：创建并提交基线版本表、验证原始数据；重开后再次验证并提交新写入；第三次打开时读回该写入。
+故障库原件与旧版失败证据保存在本地；CI 只上传诊断文件，不上传物理数据库。这些门禁不代表完整升级支持，
+发布仍须通过安装产物的全部升级矩阵。
 
 ## 备份选择
 

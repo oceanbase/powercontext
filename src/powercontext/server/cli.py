@@ -19,17 +19,24 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
-from contextlib import AsyncExitStack, nullcontext
+from collections.abc import Callable, Iterator
+from contextlib import AsyncExitStack, ExitStack, contextmanager, nullcontext
 from pathlib import Path
 from sqlite3 import SQLITE_CANTOPEN
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Never
 
 import typer
 from pydantic import ValidationError
 from sqlalchemy import inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
+from typing_extensions import override
 
+from powercontext.builtin.persistence.bootstrap import (
+    DatabaseAccessError,
+    DatabaseCreationError,
+    MissingDatabaseError,
+)
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.processing_migration import (
@@ -37,7 +44,12 @@ from powercontext.builtin.persistence.processing_migration import (
     plan_processing_migration,
     verify_processing_migration,
 )
-from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.seekdb import (
+    LegacySeekDBDatabaseError,
+    SeekDBConfig,
+    SeekDBInspectionError,
+    SeekDBProfile,
+)
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
 from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
@@ -72,6 +84,8 @@ from powercontext.server.tracing import configure_server_tracing
 from powercontext.server.worker_tracing import WorkerTracing
 
 if TYPE_CHECKING:
+    from socket import socket
+
     from powercontext.builtin.persistence.migrations.atomic_memory_references import CandidateDecision
     from powercontext.builtin.persistence.migrations.atomic_memory_v1 import OwnerDecision
 
@@ -180,9 +194,33 @@ def processing_migrate(
             )
         return
     with server_settings_context(env_file=env_file) as settings:
-        ready = asyncio.run(_processing_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size))
+        try:
+            ready = asyncio.run(
+                _processing_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size)
+            )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
+
+
+def _report_database_guidance(error: DatabaseAccessError | DatabaseCreationError) -> Never:
+    """Print provisioning guidance verbatim; the rich error panel truncates long statements."""
+    typer.echo(str(error), err=True)
+    raise typer.Exit(code=2)
+
+
+def _missing_read_only_database(error: MissingDatabaseError) -> str:
+    return (
+        f"plan and verify require an existing database: {error.database_name!r} is missing. "
+        "Provision it first, or start the Server once to create the configured database"
+    )
 
 
 def _managed_storage(
@@ -247,17 +285,24 @@ async def _processing_maintenance(
     )
     manifest = canonical_processing_manifest(config)
     database = settings.database
-    # A plan only inspects an existing database: opening it read-only keeps the
-    # command from creating the directory, the file or a journal mode it reports on.
-    read_only = action == "plan"
+    # A plan or verify only inspects the configured database: opening it read-only
+    # keeps the command from creating the directory, the file or a journal mode it
+    # reports on.
+    read_only = action in {"plan", "verify"}
     if isinstance(database, SQLiteConfig):
         if not database.is_persistent:
             raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
         opened = SQLiteProfile.open_readonly(database) if read_only else SQLiteProfile.open(database, tables=())
     elif isinstance(database, OceanBaseConfig):
-        opened = OceanBaseProfile.open(database, tables=())
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if read_only
+            else OceanBaseProfile.open(database, tables=())
+        )
     elif isinstance(database, SeekDBConfig):
-        opened = SeekDBProfile.open(database, tables=())
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if read_only else SeekDBProfile.open(database, tables=())
+        )
     else:
         raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
     async with opened as profile:
@@ -300,7 +345,12 @@ def identity_reset(
     with server_settings_context(env_file=env_file) as settings:
         if isinstance(settings.database, SQLiteConfig) and not settings.database.is_persistent:
             raise typer.BadParameter("identity reset requires a persistent database")  # noqa: TRY003
-        server_id = asyncio.run(_reset_server_identity(settings))
+        try:
+            server_id = asyncio.run(_reset_server_identity(settings))
+        except LegacySeekDBDatabaseError as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     typer.echo(server_id)
 
 
@@ -310,7 +360,7 @@ async def _reset_server_identity(settings: ServerSettings) -> str:
 
 
 @app.command("atomic-memory-migrate")
-def atomic_memory_migrate(
+def atomic_memory_migrate(  # noqa: C901
     action: Annotated[
         Literal["plan", "apply", "verify"], typer.Option(help="Offline domain migration action.")
     ] = "plan",
@@ -413,6 +463,14 @@ def atomic_memory_migrate(
                     owner_decisions=loaded_owners,
                 )
             )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
         except OperationalError as error:
             sqlite_code = getattr(error.orig, "sqlite_errorcode", None)
             if (
@@ -496,11 +554,16 @@ def atomic_memory_rebuild_projection(
     if not maintenance_confirmed:
         raise typer.BadParameter("projection rebuild requires --maintenance-confirmed after stopping every writer")  # noqa: TRY003
     with server_settings_context(env_file=env_file) as settings:
-        ready = asyncio.run(
-            _atomic_memory_maintenance(
-                settings, "rebuild-projection", maintenance_confirmed=maintenance_confirmed, batch_size=batch_size
+        try:
+            ready = asyncio.run(
+                _atomic_memory_maintenance(
+                    settings, "rebuild-projection", maintenance_confirmed=maintenance_confirmed, batch_size=batch_size
+                )
             )
-        )
+        except LegacySeekDBDatabaseError as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
 
@@ -569,10 +632,16 @@ async def _atomic_memory_maintenance(
         )
         index = SQLiteAtomicMemoryIndex(embedding_profile)
     elif isinstance(database, OceanBaseConfig):
-        opened = OceanBaseProfile.open(database, tables=())
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if read_only
+            else OceanBaseProfile.open(database, tables=())
+        )
         index = OceanBaseAtomicMemoryIndex(embedding_profile)
     elif isinstance(database, SeekDBConfig):
-        opened = SeekDBProfile.open(database, tables=())
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if read_only else SeekDBProfile.open(database, tables=())
+        )
         index = OceanBaseAtomicMemoryIndex(embedding_profile)
     else:
         raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
@@ -634,6 +703,9 @@ async def _atomic_memory_maintenance(
 def run(
     host: Annotated[str | None, typer.Option(help="Address to bind.")] = None,
     port: Annotated[int | None, typer.Option(min=1, max=65535, help="Port to bind.")] = None,
+    uds: Annotated[
+        Path | None, typer.Option(help="Listen only on this absolute Unix socket path (Linux/macOS).")
+    ] = None,
     env_file: Annotated[
         Path | None,
         typer.Option(help="Load Server and provider settings from this environment file."),
@@ -666,6 +738,7 @@ def run(
             server_settings_context(
                 host=host,
                 port=port,
+                uds=uds,
                 env_file=selected_env_file,
                 process_environment_overrides=True,
             ) as settings,
@@ -702,8 +775,24 @@ def _run_configured_server(settings: ServerSettings) -> None:
             if settings.runtime.artifact_processing_role == "background":
                 _run_background(settings, tracing)
                 return
-            application = create_server_app(settings=settings, tracing=tracing)
-            _run_server(application, host=settings.http.host, port=settings.http.port)
+            if settings.http.uds is None:
+                application = create_server_app(settings=settings, tracing=tracing)
+                _run_server(application, host=settings.http.host, port=settings.http.port)
+            else:
+                from powercontext.server.uds import UnixSocketError, UnixSocketExternalScheme, unix_socket_listener
+
+                try:
+                    with ExitStack() as resources:
+                        listener = resources.enter_context(unix_socket_listener(settings.http.uds))
+                        application = create_server_app(settings=settings, tracing=tracing)
+                        uds_application = (
+                            UnixSocketExternalScheme(application, settings.http.uds_external_scheme)
+                            if settings.http.uds_external_scheme is not None
+                            else application
+                        )
+                        _run_unix_server(uds_application, listener=listener, cleanup=resources.close)
+                except UnixSocketError as error:
+                    raise typer.BadParameter(str(error), param_hint="--uds / POWERCONTEXT_SERVER_HTTP_UDS") from error
         finally:
             tracing.shutdown()
     finally:
@@ -733,6 +822,27 @@ def _run_server(application: Any, *, host: str, port: int) -> None:
     import uvicorn
 
     uvicorn.run(application, host=host, port=port, access_log=False, log_config=None)
+
+
+def _run_unix_server(application: Any, *, listener: socket, cleanup: Callable[[], None]) -> None:
+    import uvicorn
+
+    class UnixServer(uvicorn.Server):
+        @contextmanager
+        @override
+        def capture_signals(self) -> Iterator[None]:
+            with super().capture_signals():
+                try:
+                    yield
+                finally:
+                    # Uvicorn replays SIGTERM after draining the app. Release the
+                    # socket and lock before that signal can terminate the process.
+                    cleanup()
+
+    server = UnixServer(uvicorn.Config(application, access_log=False, log_config=None, proxy_headers=False))
+    server.run(sockets=[listener])
+    if not server.started:
+        raise typer.Exit(code=3)
 
 
 def _run_background(settings: ServerSettings, tracing: Any) -> None:

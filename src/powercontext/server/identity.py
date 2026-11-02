@@ -66,7 +66,11 @@ class ServerIdentityRepository:
                 # This shared check refuses missing tables without startup DDL.
                 await create_tables(connection, (SERVER_IDENTITY_TABLE,))
                 return
-            await connection.execute(CreateTable(SERVER_IDENTITY_TABLE, if_not_exists=True))
+            if connection.dialect.name == "mysql":
+                await create_tables(connection, (SERVER_IDENTITY_TABLE,))
+            else:
+                # Keep atomic creation for concurrent SQLite initializers.
+                await connection.execute(CreateTable(SERVER_IDENTITY_TABLE, if_not_exists=True))
 
     async def load_or_create(self) -> str:
         """Return the durable identity, creating it once across concurrent replicas."""

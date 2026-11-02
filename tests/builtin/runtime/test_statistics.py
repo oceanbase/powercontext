@@ -56,6 +56,7 @@ from powercontext.builtin.runtime import (
     BuiltinRuntime,
     CaptureSource,
     PrepareContextRequest,
+    PreparedContext,
     ProposeExperienceRequest,
     StatisticsPeriod,
     open_builtin_runtime,
@@ -79,7 +80,14 @@ class _ContentCandidatePipeline:
             payload = evidence.content
             text = payload.get("content", payload.get("text")) if isinstance(payload, dict) else payload
             if isinstance(text, str):
-                candidates.append(AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,)))
+                candidates.append(
+                    AtomicMemoryCandidate(
+                        kind="fact",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
+                )
         return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=tuple(candidates)))
 
 
@@ -91,7 +99,9 @@ class _IndependentMemoryReconciler:
             output=AtomicMemoryReconciliationOutput(
                 action="create",
                 compared_ids=tuple(item.item_id for item in request.related),
-                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                content=AtomicMemoryReconciliationContent(
+                    kind=request.proposal.kind, text=request.proposal.text, description="Reconciled fixture fact"
+                ),
                 evidence_ids=request.proposal.evidence_ids,
                 reason="Preserve each independent fixture fact with its exact Source evidence.",
             )
@@ -123,7 +133,9 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
             assert runtime.atomic_memory is not None
             await runtime.atomic_memory.for_scope(scope_id).flush()
             await runtime.atomic_memory.for_scope(scope_id).create((
-                AtomicMemoryContent(kind="project_note", text="Keep kinds open."),
+                AtomicMemoryContent(
+                    kind="project_note", text="Keep kinds open.", description="Explicit fixture memory"
+                ),
             ))
             candidate = await runtime.experience.for_scope(scope_id).propose(
                 ProposeExperienceRequest(
@@ -144,6 +156,7 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
             )
             statistics = runtime.statistics.for_scope(scope_id)
             prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="contract"))
+            assert isinstance(prepared, PreparedContext)
 
             result = await statistics.overview(period=StatisticsPeriod.TODAY)
 
@@ -226,6 +239,7 @@ def test_recall_estimates_each_source_as_complete_text() -> None:
                 )
             )
             prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="ancestry"))
+            assert isinstance(prepared, PreparedContext)
             result = await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY)
 
         estimator = character_token_estimator()
@@ -258,7 +272,9 @@ def test_statistics_uses_the_same_all_exact_and_subtree_selection() -> None:
             for scope_id in (root.scope_id, child.scope_id, other.scope_id):
                 assert runtime.atomic_memory is not None
                 await runtime.atomic_memory.for_scope(scope_id).create((
-                    AtomicMemoryContent(kind="fact", text=f"Fact for {scope_id}."),
+                    AtomicMemoryContent(
+                        kind="fact", text=f"Fact for {scope_id}.", description="Explicit fixture memory"
+                    ),
                 ))
 
             all_statistics = await runtime.statistics.overview(
@@ -542,7 +558,9 @@ async def _seed_selection(runtime: BuiltinRuntime, count: int, /) -> tuple[str, 
         assert runtime.atomic_memory is not None
         await runtime.atomic_memory.for_scope(scope_id).create(
             tuple(
-                AtomicMemoryContent(kind="fact", text=f"Scope {index} keeps fact {entry}.")
+                AtomicMemoryContent(
+                    kind="fact", text=f"Scope {index} keeps fact {entry}.", description="Explicit fixture memory"
+                )
                 for entry in range(index + 1)
             )
         )

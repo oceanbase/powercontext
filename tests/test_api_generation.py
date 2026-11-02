@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import runpy
 from pathlib import Path
 
 import pytest
+import yaml
+from pydantic import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,6 +74,53 @@ def test_path_and_header_parameters_do_not_create_a_query_model_for_no_content_s
     assert "request_location=None" in source
     assert "response_type=None" in source
     assert "success_status=204" in source
+
+
+@pytest.mark.parametrize("exclusive", [True, False])
+def test_openapi_30_exclusive_bounds_survive_generation(tmp_path, monkeypatch, exclusive: bool) -> None:
+    generator = _load_generator()
+    budget_schema = {
+        "type": "object",
+        "required": ["timeout_seconds"],
+        "properties": {
+            "timeout_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "exclusiveMinimum": exclusive,
+                "maximum": 1,
+                "exclusiveMaximum": exclusive,
+            },
+        },
+        "example": {"minimum": 5, "exclusiveMinimum": True},
+    }
+    contract = {
+        "openapi": "3.0.3",
+        "info": {"title": "Test API", "version": "1.0.0"},
+        "paths": {},
+        "components": {"schemas": {"Budget": budget_schema}},
+    }
+    contract_path = tmp_path / "contract.yaml"
+    contract_path.write_text(yaml.safe_dump(contract))
+    monkeypatch.setattr(generator, "CONTRACT_PATH", contract_path)
+
+    sources = generator.generate_sources()
+    models_path = tmp_path / "models.py"
+    models_path.write_text(sources[generator.MODELS_PATH])
+    budget = runpy.run_path(str(models_path))["Budget"]
+    assert budget(timeout_seconds=0.5).timeout_seconds == 0.5
+    for boundary in (0.0, 1.0):
+        if exclusive:
+            with pytest.raises(ValidationError):
+                budget(timeout_seconds=boundary)
+        else:
+            assert budget(timeout_seconds=boundary).timeout_seconds == boundary
+    for outside in (-0.1, 1.1):
+        with pytest.raises(ValidationError):
+            budget(timeout_seconds=outside)
+    schema_path = tmp_path / "schema.py"
+    schema_path.write_text(sources[generator.SCHEMA_PATH])
+    generated = runpy.run_path(str(schema_path))["OPENAPI_SCHEMA"]
+    assert generated["components"]["schemas"]["Budget"] == budget_schema
 
 
 @pytest.fixture

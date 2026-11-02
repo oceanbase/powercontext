@@ -51,7 +51,11 @@ class _GenerationHandler(BaseHTTPRequestHandler):
             output = {
                 "action": "create",
                 "compared_ids": [item["item_id"] for item in request["related"]],
-                "content": {"kind": request["proposal"]["kind"], "text": request["proposal"]["text"]},
+                "content": {
+                    "kind": request["proposal"]["kind"],
+                    "text": request["proposal"]["text"],
+                    "description": "Spawned worker acceptance testing preference",
+                },
                 "evidence_ids": request["proposal"]["evidence_ids"],
                 "reason": "Keep the preference with the supplied Source evidence.",
             }
@@ -61,6 +65,7 @@ class _GenerationHandler(BaseHTTPRequestHandler):
                     {
                         "kind": "preference",
                         "text": _MEMORY_TEXT,
+                        "description": "Spawned worker acceptance testing preference",
                         "evidence_ids": [item["evidence_id"] for item in request["evidence"]],
                     }
                 ]

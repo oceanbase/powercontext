@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
+from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -154,6 +156,17 @@ def recovery_inventory(connection: Connection, *, include_leases: bool = False) 
     return result
 
 
+@lru_cache
+def _description_altered_projection_ddl(legacy_ddl: str) -> str:
+    """Render SQLite's exact ADD COLUMN form from the frozen empty projection DDL."""
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute(legacy_ddl)
+        connection.execute("ALTER TABLE pc_atomic_memory_current ADD COLUMN description VARCHAR(200) NULL")
+        return connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'pc_atomic_memory_current'"
+        ).fetchone()[0]
+
+
 def _atomic_maintenance_initialization(connection: Connection) -> bool:
     """Recognize the complete, pristine SQLite output of Atomic maintenance.
 
@@ -172,7 +185,20 @@ def _atomic_maintenance_initialization(connection: Connection) -> bool:
         )
         if row[2] not in ignored
     ]
-    if actual != expected["schema"]:
+    # The manifest adds only nullable metadata to the pristine Atomic projection.
+    # Recognize that exact additive layout without changing the frozen v1 resource
+    # or accepting arbitrary columns, FTS helpers, triggers or persisted evidence.
+    with_description = [list(row) for row in expected["schema"]]
+    altered_description = [list(row) for row in expected["schema"]]
+    for row in altered_description:
+        if row[:2] == ["table", "pc_atomic_memory_current"]:
+            row[3] = _description_altered_projection_ddl(row[3])
+    for row in with_description:
+        if row[:2] == ["table", "pc_atomic_memory_current"]:
+            row[3] = row[3].replace(
+                "\ttext TEXT NOT NULL, \n", "\ttext TEXT NOT NULL, \n\tdescription VARCHAR(200), \n", 1
+            )
+    if actual not in (expected["schema"], with_description, altered_description):
         return False
     return all(
         connection.exec_driver_sql(f'SELECT 1 FROM "{name}" LIMIT 1').first() is None  # noqa: S608 - frozen identifiers

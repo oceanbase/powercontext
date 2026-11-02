@@ -25,6 +25,7 @@ from pydantic import JsonValue, ValidationError
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
 from powercontext.builtin.artifacts.profile.models import Profile, ProfileContent, ProfileGeneration
+from powercontext.builtin.artifacts.prompt.models import ResolvedPrompt
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
 from powercontext.builtin.code.capture import digest_bytes
 from powercontext.builtin.code.models import CodeQueryResult
@@ -48,8 +49,62 @@ from powercontext.builtin.runtime.prepared_context import (
 )
 from powercontext.builtin.runtime.prepared_text import ContextTextItem, fit_context_text_item, render_context_text
 from powercontext.builtin.runtime.recall_sufficiency import RecallBudgetView
+from powercontext.builtin.runtime.receipt_builder import ReceiptEvidence
 
 MEMORY_REF = ArtifactRef(family="atomic-memory", artifact_id="memory", revision=3)
+
+
+def test_rerank_configuration_digest_tracks_bound_scope_revision_and_effective_settings() -> None:
+    prompt = ResolvedPrompt(
+        scope_id="scope:first",
+        key="memory.rerank",
+        definition_version="definition.v1",
+        builtin_version="builtin.v1",
+        selection="artifact",
+        artifact=ArtifactRef(family="prompt", artifact_id="rerank", revision=1),
+        selected_version="artifact.v1",
+        compiled_digest="sha256:" + "a" * 64,
+        instructions="private-instruction-sentinel",
+        demonstrations=(),
+        compiled_instructions="private-compiled-sentinel",
+    )
+    configuration = {
+        "policy_id": "memory.rerank.v1",
+        "model": "test:receipt",
+        "effective_settings": {"temperature": 0.0},
+        "timeout_seconds": 5.0,
+        "max_requests": 1,
+    }
+    evidence = ReceiptEvidence()
+    evidence.rerank(configuration=configuration, prompt=prompt, outcome="selected", fallback="none")
+    evidence.rerank(configuration=configuration, prompt=prompt, outcome="selected", fallback="none")
+    evidence.rerank(
+        configuration=configuration,
+        prompt=prompt.model_copy(
+            update={
+                "scope_id": "scope:second",
+                "artifact": ArtifactRef(family="prompt", artifact_id="rerank", revision=2),
+            }
+        ),
+        outcome="selected",
+        fallback="none",
+    )
+    evidence.rerank(
+        configuration={**configuration, "effective_settings": {"temperature": 0.4}},
+        prompt=prompt,
+        outcome="selected",
+        fallback="none",
+    )
+    assert evidence.incomplete is None
+    assert len(evidence.configs) == 3
+    assert sorted(evidence.reranks.values()) == [1, 1, 2]
+    assert {item.prompt.scope_id for item in evidence.configs.values() if item.prompt is not None} == {
+        "scope:first",
+        "scope:second",
+    }
+    assert "private-instruction-sentinel" not in json.dumps([
+        item.model_dump(mode="json") for item in evidence.configs.values()
+    ])
 
 
 class _PreparedArtifactRef(TypedDict):
@@ -901,7 +956,6 @@ def _code_candidates(count: int = 5) -> tuple[PreparedCodeCandidate, ...]:
                 "scope", "a" * 64, f"module{number}.py", "b" * 64, 1, 2, digest_bytes(content.encode())
             ),
             content=content,
-            checked_at="2026-09-21T00:00:00Z",
         )
         for number in range(count)
     )
@@ -935,6 +989,155 @@ def test_code_only_prepare_and_unavailable_code_preserve_empty_contract() -> Non
     assert empty.context.status == "empty"
     assert empty.context.content is None
     assert empty.context.content_bytes == 0
+
+
+def test_receipt_preserves_selected_history_and_truncated_code_identity() -> None:
+    content = "".join(f"line {number} value\n" for number in range(250))
+    candidate = PreparedCodeCandidate(
+        origin=CodeEvidenceRef("scope", "a" * 64, "module.py", "b" * 64, 1, 250, digest_bytes(content.encode())),
+        content=content,
+    )
+    request = PrepareContextRequest(
+        query="budget",
+        include_code=True,
+        include_receipt=True,
+        max_bytes=2200,
+        assembly=ContextAssembly(sections=()),
+    )
+    build = PreparedContextBuilder().build_scopes_result(
+        request=request, current_scope_id="scope", code_candidates=(candidate,)
+    )
+    assert len(build.code_origins) == 1
+    receipt = ReceiptEvidence().build(request, build.context, build, "scope")
+    assert receipt.selected[0].kind == "code"
+    assert receipt.selected[0].truncated
+    assert receipt.selected[0].code_evidence is not None
+    assert receipt.selected[0].code_evidence.end_line == build.code_origins[0].end_line
+    assert receipt.selected[0].code_evidence.snippet_sha256 == build.code_origins[0].snippet_sha256
+    assert receipt.truncated
+
+
+def test_receipt_orders_mixed_history_before_code_evidence() -> None:
+    request = PrepareContextRequest(query="budget", include_code=True, include_receipt=True, max_bytes=8000)
+    build = PreparedContextBuilder().build_scopes_result(
+        request=request,
+        current_scope_id="scope",
+        memory_candidates=(PreparedMemoryCandidates("scope", (_hit("decision", "Keep the budget decision."),)),),
+        code_candidates=_code_candidates(1),
+    )
+    receipt = ReceiptEvidence().build(request, build.context, build, "scope")
+    assert [item.kind for item in receipt.selected] == ["atomic-memory", "code"]
+    assert isinstance(build.origins[0], ArtifactRef)
+    assert receipt.selected[0].artifact_address == ArtifactAddress(scope_id="scope", artifact=build.origins[0])
+    assert receipt.selected[1].code_evidence is not None
+    assert receipt.selected[1].code_evidence.snippet_sha256 == build.code_origins[0].snippet_sha256
+    assert all(item.rendered_bytes > 0 for item in receipt.selected)
+
+
+@pytest.mark.parametrize(
+    ("memory_count", "section_limit", "selected_memories", "omission_reason"),
+    [(2, 1, 1, "family_limit"), (8, 8, 7, "entry_limit")],
+)
+def test_receipt_attributes_binding_limit_with_code(
+    memory_count: int, section_limit: int, selected_memories: int, omission_reason: str
+) -> None:
+    request = PrepareContextRequest(
+        query="budget",
+        include_code=True,
+        include_receipt=True,
+        max_bytes=32768,
+        assembly=ContextAssembly.model_validate({"sections": [{"family": "memory", "limit": section_limit}]}),
+    )
+    build = PreparedContextBuilder().build_scopes_result(
+        request=request,
+        current_scope_id="scope",
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                "scope", tuple(_hit(f"memory-{index}", f"Memory {index}") for index in range(memory_count))
+            ),
+        ),
+        code_candidates=_code_candidates(1),
+    )
+
+    receipt = ReceiptEvidence().build(request, build.context, build, "scope")
+
+    assert [(item.family, item.reason, item.count) for item in receipt.omitted] == [
+        ("atomic-memory", omission_reason, 1)
+    ]
+    assert [item.kind for item in receipt.selected] == ["atomic-memory"] * selected_memories + ["code"]
+
+
+@pytest.mark.parametrize("include_profiles,expected", [(False, 18), (True, 26)])
+@pytest.mark.parametrize("include_code", [False, True])
+def test_receipt_retains_large_mixed_scope_selection_within_wire_budget(
+    include_profiles, expected, include_code
+) -> None:
+    scopes = tuple(f"scope:{index:08d}-0000-0000-0000-000000000000" for index in range(8))
+    profile_candidates = (
+        tuple(
+            PreparedProfileCandidate(
+                scope_id=scope_id,
+                profile=Profile(
+                    artifact_id="profile",
+                    revision=1,
+                    content=ProfileContent(
+                        content="Keep the shared project decisions.",
+                        generation=ProfileGeneration(
+                            mode="manual_replace", created_at=datetime(2026, 9, 8, tzinfo=UTC)
+                        ),
+                    ),
+                ),
+            )
+            for scope_id in scopes
+        )
+        if include_profiles
+        else ()
+    )
+    request = PrepareContextRequest(
+        query="project decisions",
+        include_receipt=True,
+        include_code=include_code,
+        max_bytes=32768,
+        assembly=ContextAssembly.model_validate({
+            "sections": [
+                {"family": "profile", "limit": 8},
+                {"family": "topic-memory", "limit": 8},
+                {"family": "memory", "limit": 8},
+                {"family": "experience", "limit": 2},
+            ]
+        }),
+    )
+    builder = PreparedContextBuilder()
+    if include_code:
+        builder.entry_limit = 30
+    code = tuple(replace(item, origin=replace(item.origin, scope_id=scopes[0])) for item in _code_candidates(4))
+    build = builder.build_scopes_result(
+        request=request,
+        current_scope_id=scopes[0],
+        code_candidates=code if include_code else (),
+        profile_candidates=profile_candidates,
+        topic_memory_hits=tuple(_topic_hit(f"{index:08d}-0000-0000-0000-000000000001") for index in range(8)),
+        memory_candidates=tuple(
+            PreparedMemoryCandidates(
+                scope_id, (_hit("00000000-0000-0000-0000-000000000002", "Keep the decision context."),)
+            )
+            for scope_id in scopes
+        ),
+        experience_candidates=(
+            PreparedExperienceCandidates(scopes[0], (_experience_hit("00000000-0000-0000-0000-000000000003"),)),
+            PreparedExperienceCandidates(scopes[1], (_experience_hit("00000000-0000-0000-0000-000000000004"),)),
+        ),
+    )
+    assert len(build.origins) == expected
+    if expected == 26 and include_code:
+        with pytest.raises(ValueError, match="receipt-byte-limit"):
+            ReceiptEvidence().build(request, build.context, build, scopes[0])
+        return
+    receipt = ReceiptEvidence().build(request, build.context, build, scopes[0])
+    assert len(receipt.selected) == expected + (4 if include_code else 0)
+    memory = [item.artifact_address for item in receipt.selected if item.kind == "atomic-memory"]
+    assert {item.scope_id for item in memory if item is not None} == set(scopes)
+    assert len(json.dumps(receipt.model_dump(mode="json", by_alias=True), separators=(",", ":")).encode()) <= 8192
 
 
 @pytest.mark.parametrize("memory_count", [0, 1, 3, 6])
@@ -1030,6 +1233,46 @@ def test_code_evidence_merges_overlapping_ranges_without_losing_source() -> None
     assert candidates[0].content == content
     assert (candidates[0].origin.start_line, candidates[0].origin.end_line) == (1, 4)
     assert candidates[0].origin.snippet_sha256 == digest_bytes(content.encode())
+
+
+def test_code_evidence_renders_identically_when_only_query_time_differs() -> None:
+    # Hosts that prepare on every model request rely on stable bytes for provider prompt caching.
+    content = "def budget():\n    return 1\n"
+    item: dict[str, JsonValue] = {
+        "path": "module.py",
+        "start_line": 1,
+        "end_line": 2,
+        "content": content,
+        "file_sha256": digest_bytes(content.encode()),
+        "snippet_sha256": digest_bytes(content.encode()),
+    }
+
+    def render(checked_at: str) -> str | None:
+        result = CodeQueryResult(
+            scope_id="scope",
+            fingerprint="a" * 64,
+            commit="b" * 40,
+            git_object_format="sha1",
+            dirty=False,
+            checked_at=checked_at,
+            operation="explore",
+            items=[item],
+            coverage={},
+            limitations=[],
+        )
+        return (
+            PreparedContextBuilder()
+            .build_scopes_result(
+                request=PrepareContextRequest(query="budget", include_code=True, assembly=ContextAssembly(sections=())),
+                current_scope_id="scope",
+                code_candidates=code_candidates(result),
+            )
+            .context.content
+        )
+
+    first = render("2026-09-21T00:00:00Z")
+    assert first is not None and "BEGIN_POWERCONTEXT_CODE_V1" in first
+    assert render("2026-09-21T00:00:07Z") == first
 
 
 @pytest.mark.parametrize(

@@ -112,8 +112,10 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | Listener address |
-| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | Listener port; the configuration wizard suggests `17429` for new setups |
+| `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | TCP listener address; ignored when `HTTP_UDS` is set |
+| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | TCP listener port; ignored when `HTTP_UDS` is set; the configuration wizard suggests `17429` for new setups |
+| `POWERCONTEXT_SERVER_HTTP_UDS` | unset | HTTP Unix socket path for `server run` on Linux/macOS; selects UDS only, with no TCP listener; absolute path, at most 103 filesystem-encoded bytes, without `..` or NUL |
+| `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | unset | Operator-declared external `http` or `https` scheme for a trusted proxy on the private UDS; requires `HTTP_UDS`. Set `https` only with trusted TLS termination. Forwarded scheme and client-IP headers remain ignored |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | Maximum external HTTP body bytes before parsing, including chunked uploads |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
@@ -145,6 +147,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekdb |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekdb path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DATABASE_DATABASE` | `powercontext` | seekDB database name; explicitly set `test` to retain legacy data |
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | Milliseconds a business connection waits for SQLite's single write lock before raising; it does not govern usage accounting, which has its own bounded budget |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Source journal positions per activation; Memory reduces its window after generation timeouts |
@@ -307,9 +310,20 @@ key. Configure the same `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` on every rep
 restart or when the next request reaches another replica. Never expose or rotate this value while issued cursors
 must remain valid.
 
+Set `HttpConfig.uds`, `POWERCONTEXT_SERVER_HTTP_UDS`, or `server run --uds /absolute/path/core.sock` to select UDS.
+The JSON form `POWERCONTEXT_SERVER_HTTP='{"uds":"/absolute/private/core.sock"}'` also selects UDS.
+Flat `HTTP_UDS` values override JSON within one source; for `server run` and Agent setup, process HTTP settings
+override environment-file settings. The wizard/template reject UDS in the edited file or effective process configuration,
+and Agent setup never infers a TCP URL from a UDS listener.
+The CLI option takes precedence; explicit `--host` or `--port` options conflict with an effective UDS setting. UDS is
+supported for roles `all` and `api` (the latter still requires OceanBase), and rejected for `background`. Personal
+services and local ops/Desktop management require TCP. See [Listen on a Unix domain socket](deploy-server.md#listen-on-a-unix-domain-socket)
+for directory ownership, permissions, safe restart behavior, and authenticated clients. UDS does not enable the proposed
+Rust Gateway or change API authorization.
+
 Access Control is disabled by default. In `enforced` mode, API and MCP requests must establish a Principal through the
 selected Authentication Provider; the liveness and readiness endpoints remain public. The built-in `static-bearer`
-Provider accepts `Authorization: Bearer <token>`. Plain HTTP is trusted only on a
+Provider accepts `Authorization: Bearer <token>`, including over UDS. Plain HTTP over TCP is trusted only on a
 loopback address (`localhost`, `::1`, or any address in `127.0.0.0/8`). The Server refuses to start when it binds to a
 non-loopback address while authentication is disabled; either enable authentication, keep the bind on loopback, or,
 when TLS is terminated upstream or the network is otherwise controlled, set
@@ -612,8 +626,18 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
 export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 ```
 
-The URL must use the `mysql+aoceanbase` driver, include an explicit port and database, and set `charset=utf8mb4`. The
-tenant must use MySQL compatibility mode.
+The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
+defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
+
+seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
+without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;
+other connection errors do not trigger fallback. seekDB detects PowerContext-named tables in the old `test` database
+when no name was explicitly configured and requires an explicit choice before initializing a new database.
+Both backends reject database names containing backticks during configuration validation, before any database writes.
+Choose a name without backticks, such as `team_context`.
+Full OceanBase Server deployments require a prepared database and explicit Server schema maintenance before startup;
+database auto-provisioning does not replace that admission contract.
+See [Install and run](../get-started/install-and-run.md) for custom names, permissions, and old seekDB data handling.
 
 ### Embeddings and SQLite vector search
 

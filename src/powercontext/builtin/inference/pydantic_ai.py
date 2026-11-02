@@ -33,14 +33,25 @@ from powercontext.builtin.artifacts.prompt.service import current_prompt
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
     InferenceError,
+    InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
+    find_privacy_error,
 )
 from powercontext.builtin.inference.models import (
     EmbeddingResult,
     GenerationResult,
     InferenceUsage,
+    combine_inference_usage,
+)
+from powercontext.builtin.inference.usage import approved_usage, collect_approved_usage
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+    stage_for_operation,
 )
 
 
@@ -92,6 +103,7 @@ try:
     )
     from pydantic_ai.models import Model, ModelRequestParameters
     from pydantic_ai.models.wrapper import WrapperModel
+    from pydantic_ai.profiles.openai import SAMPLING_PARAMS
     from pydantic_ai.settings import ModelSettings, merge_model_settings
     from pydantic_ai.usage import RunUsage, UsageLimits
     from pydantic_core import PydanticSerializationError
@@ -104,6 +116,28 @@ InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 
 logger = logging.getLogger(__name__)
+
+
+def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dict[str, object]:
+    """Return settings that the pinned provider will pass to its request builder."""
+
+    effective = dict(settings or {})
+    profile = getattr(model, "profile", None)
+    if not hasattr(profile, "get") or not profile.get("openai_supports_reasoning", False):
+        return effective
+
+    reasoning_effort = effective.get("openai_reasoning_effort")
+    if reasoning_effort is not None:
+        reasoning_active = reasoning_effort != "none"
+    elif (thinking := effective.get("thinking")) is not None and profile.get("supports_thinking", False):
+        reasoning_active = thinking is not False
+    else:
+        reasoning_active = bool(profile.get("openai_reasoning_enabled_by_default", False))
+    if profile.get("openai_supports_reasoning_effort_none", False) and not reasoning_active:
+        return effective
+    for setting in SAMPLING_PARAMS:
+        effective.pop(setting, None)
+    return effective
 
 
 class InferenceLimits(BaseModel):
@@ -128,7 +162,18 @@ class _CompleteResponseModel(WrapperModel):
     ) -> ModelResponse:
         response = await self.wrapped.request(messages, model_settings, model_request_parameters)
         if response.state != "complete":
-            raise InvalidInferenceOutputError("generate", "provider continuation is not allowed")
+            finish_reason = getattr(response, "finish_reason", None)
+            truncated = str(finish_reason or "").lower() in {"length", "max_tokens"}
+            raise attach_diagnostics(
+                InvalidInferenceOutputError("generate", "provider continuation is not allowed"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.GENERATION,
+                    reason=ProcessingFailureReason.OUTPUT_TRUNCATED if truncated else None,
+                    provider_request_id=getattr(response, "provider_response_id", None),
+                    finish_reason=finish_reason,
+                    failure_location="provider-response",
+                ),
+            ) from None
         return response
 
 
@@ -237,14 +282,17 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         name: str | None = None,
         prompt_key: str | None = None,
         output_check: Callable[[InputT, OutputT], None] | None = None,
+        input_renderer: Callable[[InputT], str] | None = None,
     ) -> None:
         if isinstance(model, str) or not isinstance(model, Model):
             raise PydanticAIConfigurationError("model-instance")
         if not instructions.strip():
             raise PydanticAIConfigurationError("instructions")
         self._limits = InferenceLimits() if limits is None else limits
+        self._receipt_model = model
         self._input_type = input_type
         self._prompt_key = prompt_key
+        self._input_renderer = input_renderer
         try:
             self._input_adapter = TypeAdapter(input_type)
             bounded_settings = model_settings
@@ -253,6 +301,10 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                     model_settings,
                     ModelSettings(max_tokens=self._limits.max_output_tokens_per_request),
                 )
+            self._receipt_settings = _receipt_model_settings(
+                model,
+                merge_model_settings(model.settings, bounded_settings),
+            )
             self._agent = Agent(
                 model if self._limits.allow_continuations else _CompleteResponseModel(model),
                 deps_type=input_type,
@@ -277,16 +329,43 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
 
             self._agent.output_validator(check)
 
+    def receipt_configuration(self) -> dict[str, object]:
+        """Report the bound model and effective non-content controls for receipt validation."""
+        model_name = getattr(self._receipt_model, "model_name", None)
+        system = getattr(self._receipt_model, "system", None)
+        if not isinstance(model_name, str) or not isinstance(system, str):
+            raise TypeError("rerank model identity unavailable")  # noqa: TRY003
+        return {
+            "model": f"{system}:{model_name}",
+            "effective_settings": {
+                **(self._receipt_settings or {}),
+                "allow_continuations": self._limits.allow_continuations,
+                **(
+                    {"output_tokens_limit": self._limits.output_tokens_limit}
+                    if self._limits.output_tokens_limit is not None
+                    else {}
+                ),
+            },
+            "timeout_seconds": self._limits.timeout_seconds,
+            "max_requests": self._limits.max_requests,
+        }
+
     async def generate(self, value: InputT, /) -> GenerationResult[OutputT]:
         """Generate one structured value within the configured request and time limits."""
 
         if not isinstance(value, self._input_type):
             raise PydanticAIConfigurationError("input-type", self._input_type.__qualname__)
         try:
-            prompt = self._input_adapter.dump_json(value).decode("utf-8")
+            prompt = (
+                self._input_adapter.dump_json(value).decode("utf-8")
+                if self._input_renderer is None
+                else self._input_renderer(value)
+            )
         except (PydanticSerializationError, PydanticUserError, ValidationError, UnicodeError) as error:
             raise PydanticAIConfigurationError("serialize") from error
 
+        run_usage = RunUsage()
+        raw_usage: list[InferenceUsage] = []
         try:
             selection = None if self._prompt_key is None else current_prompt(self._prompt_key)
             # Agent.override uses task-local state; concurrent Scopes never mutate a shared Agent.
@@ -295,11 +374,12 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 if selection is not None and selection.selection == "artifact"
                 else nullcontext()
             )
-            with override:
+            with override, collect_approved_usage() as raw_usage:
                 result = await asyncio.wait_for(
                     self._agent.run(
                         prompt,
                         deps=value,
+                        usage=run_usage,
                         usage_limits=UsageLimits(
                             request_limit=self._limits.max_requests,
                             output_tokens_limit=self._limits.output_tokens_limit,
@@ -313,16 +393,20 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         except Exception as error:
             # An exhausted retry budget reports the rule the last response broke, not a generic failure.
             rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
-            if rejected is not None:
-                raise rejected from error
-            mapped = _map_error(error, operation="generate", timeout_seconds=self._limits.timeout_seconds)
+            mapped = rejected or _map_error(error, operation="generate", timeout_seconds=self._limits.timeout_seconds)
+            if mapped is not None and raw_usage:
+                prior = approved_usage(raw_usage)
+                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+            elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
+                prior = _generation_usage(run_usage)
+                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
             if mapped is None:
                 raise
             if mapped is error:
                 raise
             raise mapped from error
 
-        usage = _generation_usage(result.usage)
+        usage = approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
         return GenerationResult(output=cast(OutputT, result.output), usage=usage)
 
 
@@ -384,6 +468,13 @@ class PydanticAIEmbeddingModel:
             raise
         except InvalidInferenceOutputError:
             raise
+        except ValidationError as error:
+            # Malformed provider output is an invalid-output failure, not a
+            # transient availability failure; match the structured mapping.
+            mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
+            if mapped is None:
+                raise
+            raise mapped from error
         except ValueError as error:
             raise InferenceUnavailableError("embed") from error
         except Exception as error:
@@ -400,19 +491,32 @@ class PydanticAIEmbeddingModel:
         self, texts: tuple[str, ...], *, input_type: Literal["document", "query"]
     ) -> EmbeddingResult:
         vectors: list[tuple[float, ...]] = []
-        requests = 0
-        input_tokens = 0
+        usage = InferenceUsage(requests=0)
         for start in range(0, len(texts), self._batch_size):
             batch = texts[start : start + self._batch_size]
-            result = await self._embedder.embed(batch, input_type=input_type)
+            try:
+                with collect_approved_usage() as raw_usage:
+                    result = await self._embedder.embed(batch, input_type=input_type)
+            except Exception as error:
+                privacy_error = find_privacy_error(error)
+                if privacy_error is not None and usage.requests:
+                    prior = usage
+                    privacy_error.usage = (
+                        prior if privacy_error.usage is None else combine_inference_usage(prior, privacy_error.usage)
+                    )
+                raise
             vectors.extend(
                 self._validated_vectors(batch, result.inputs, result.input_type, result.embeddings, input_type)
             )
-            requests += 1
-            input_tokens += result.usage.input_tokens
+            batch_usage = (
+                approved_usage(raw_usage)
+                if raw_usage
+                else InferenceUsage(requests=1, input_tokens=result.usage.input_tokens)
+            )
+            usage = combine_inference_usage(usage, batch_usage)
         return EmbeddingResult(
             vectors=tuple(vectors),
-            usage=InferenceUsage(requests=requests, input_tokens=input_tokens, output_tokens=None),
+            usage=usage,
         )
 
     def _validated_vectors(
@@ -483,6 +587,10 @@ def _generation_usage(value: RunUsage) -> InferenceUsage:
         requests=value.requests,
         input_tokens=value.input_tokens,
         output_tokens=value.output_tokens,
+        cache_read_tokens=value.cache_read_tokens or None,
+        cache_write_tokens=value.cache_write_tokens or None,
+        reasoning_tokens=value.details.get("reasoning_tokens"),
+        incomplete=value.input_tokens == 0 and value.output_tokens == 0,
     )
 
 
@@ -495,29 +603,131 @@ def _checked_rule(error: BaseException) -> InvalidInferenceOutputError | None:
     return None
 
 
-def _map_error(
+def _map_error(  # noqa: C901 - bounded mapping across status codes and provider exception classes
     error: Exception,
     *,
     operation: str,
     timeout_seconds: float,
 ) -> InferenceError | None:
+    privacy_error = find_privacy_error(error)
+    if privacy_error is not None:
+        return privacy_error
     if isinstance(error, InferenceError):
         return error
+    stage = stage_for_operation(operation)
+    cause_type = type(error).__name__
     if isinstance(error, TimeoutError):
-        return InferenceTimeoutError(operation, timeout_seconds)
+        return attach_diagnostics(
+            InferenceTimeoutError(operation, timeout_seconds),
+            ProcessingDiagnostics(stage=stage, reason=ProcessingFailureReason.TIMEOUT, cause_exception_type=cause_type),
+        )
     if isinstance(error, ModelHTTPError):
         if error.status_code in {408, 504}:
-            return InferenceTimeoutError(operation, timeout_seconds)
-        if error.status_code in {409, 425, 429} or error.status_code >= 500:
-            return InferenceUnavailableError(operation)
-        return PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}")
+            return attach_diagnostics(
+                InferenceTimeoutError(operation, timeout_seconds),
+                ProcessingDiagnostics(
+                    stage=stage,
+                    reason=ProcessingFailureReason.TIMEOUT,
+                    cause_exception_type=cause_type,
+                ),
+            )
+        if error.status_code in {409, 425, 429}:
+            return attach_diagnostics(
+                InferenceUnavailableError(operation),
+                ProcessingDiagnostics(
+                    stage=stage,
+                    reason=(
+                        ProcessingFailureReason.RATE_LIMIT
+                        if error.status_code == 429
+                        else ProcessingFailureReason.PROVIDER_UNAVAILABLE
+                    ),
+                    cause_exception_type=cause_type,
+                ),
+            )
+        if error.status_code >= 500:
+            return attach_diagnostics(
+                InferenceUnavailableError(operation),
+                ProcessingDiagnostics(
+                    stage=stage,
+                    reason=ProcessingFailureReason.PROVIDER_UNAVAILABLE,
+                    cause_exception_type=cause_type,
+                ),
+            )
+        reason = (
+            ProcessingFailureReason.CONTEXT_OVERFLOW
+            if _looks_like_context_overflow(error)
+            else ProcessingFailureReason.CONFIGURATION
+        )
+        return attach_diagnostics(
+            PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}"),
+            ProcessingDiagnostics(
+                stage=stage,
+                reason=reason,
+                failure_location="provider-response",
+                cause_exception_type=cause_type,
+            ),
+        )
     if isinstance(error, (ModelAPIError, ConcurrencyLimitExceeded, OSError)):
-        return InferenceUnavailableError(operation)
-    if isinstance(error, (UnexpectedModelBehavior, UsageLimitExceeded, ValidationError)):
-        return InvalidInferenceOutputError(operation, "provider did not return a valid result")
+        return attach_diagnostics(
+            InferenceUnavailableError(operation),
+            ProcessingDiagnostics(
+                stage=stage,
+                reason=ProcessingFailureReason.PROVIDER_UNAVAILABLE,
+                cause_exception_type=cause_type,
+            ),
+        )
+    if isinstance(error, UsageLimitExceeded):
+        return attach_diagnostics(
+            InvalidInferenceOutputError(operation, "provider did not return a valid result"),
+            ProcessingDiagnostics(
+                stage=stage or ProcessingStage.GENERATION,
+                reason=ProcessingFailureReason.USAGE_LIMIT,
+                failure_location="inference-limits",
+                cause_exception_type=cause_type,
+            ),
+        )
+    if isinstance(error, (UnexpectedModelBehavior, ValidationError)):
+        embedding = stage is ProcessingStage.EMBEDDING
+        return attach_diagnostics(
+            InvalidInferenceOutputError(operation, "provider did not return a valid result"),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.EMBEDDING if embedding else ProcessingStage.OUTPUT_PARSING,
+                reason=(
+                    ProcessingFailureReason.INVALID_OUTPUT if embedding else ProcessingFailureReason.SCHEMA_INVALID
+                ),
+                failure_location="provider-output",
+                cause_exception_type=cause_type,
+            ),
+        )
     if isinstance(error, (PydanticSchemaGenerationError, PydanticUserError, UserError)):
-        return PydanticAIConfigurationError("pydantic-rejected")
+        return attach_diagnostics(
+            PydanticAIConfigurationError("pydantic-rejected"),
+            ProcessingDiagnostics(
+                stage=stage,
+                reason=ProcessingFailureReason.CONFIGURATION,
+                cause_exception_type=cause_type,
+            ),
+        )
     return None
+
+
+def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
+    """Classify only when the provider's own response names a context limit."""
+
+    body = getattr(error, "body", None)
+    text = str(body if isinstance(body, (str, bytes)) else body or "").lower()
+    return any(
+        term in text
+        for term in (
+            "context length",
+            "context window",
+            "maximum context",
+            "too many tokens",
+            "prompt is too long",
+            "input is too long",
+            "token limit",
+        )
+    )
 
 
 __all__ = [

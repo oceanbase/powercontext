@@ -91,7 +91,11 @@ def validate_demonstration(value: BaseModel, output: BaseModel) -> None:  # noqa
     if isinstance(value, AtomicMemoryExtractionInput) and isinstance(output, AtomicMemoryExtractionOutput):
         evidence = _identities(item.evidence_id for item in value.evidence)
         for candidate in output.candidates:
-            AtomicMemoryContent(kind=candidate.kind, text=candidate.text)
+            AtomicMemoryContent(
+                kind=candidate.kind,
+                text=candidate.text,
+                description=candidate.description,
+            )
             _require(bool(candidate.evidence_ids) and set(candidate.evidence_ids) <= evidence)
     elif isinstance(value, AtomicMemoryReconciliationInput) and isinstance(output, AtomicMemoryReconciliationOutput):
         validate_reconciliation_output(value, output)

@@ -29,6 +29,9 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import powercontext.client.cli as client_cli
+from powercontext.builtin.code.cli import app as code_app
+from powercontext.builtin.persistence.bootstrap import DatabaseAccessError, DatabaseCreationError, creation_statement
+from powercontext.builtin.persistence.seekdb import LegacySeekDBDatabaseError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.cli.app import create_cli
 from powercontext.client import ServerResponseError
@@ -631,6 +634,79 @@ def test_cli_exposes_installed_role_commands() -> None:
     assert all(command in result.output for command in ("capabilities", "candidate", "stats", "service", "server"))
     assert "builtin" not in result.output
     assert "client" not in result.output
+
+
+@pytest.mark.parametrize("command", ["status", "index", "sync", "query", "clear"])
+def test_code_cli_reports_explicit_legacy_database_required(tmp_path, monkeypatch, command) -> None:
+    def refuse_implicit_database(_config, _database):
+        raise LegacySeekDBDatabaseError(tmp_path / "seekdb")
+
+    monkeypatch.setattr("powercontext.builtin.code.cli.open_code_service", refuse_implicit_database)
+    arguments = ["code", command, "--scope", "configured-scope"]
+    if command == "query":
+        arguments.extend(["--request-file", str(tmp_path / "request.json")])
+
+    result = CliRunner().invoke(create_cli([code_app]), arguments)
+
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "explicit_database_required"
+    assert "POWERCONTEXT_SERVER_DATABASE_DATABASE=test" in payload["error"]["message"]
+    assert "database='powercontext'" in payload["error"]["message"]
+    assert isinstance(result.exception, SystemExit)
+
+
+@pytest.mark.parametrize("error_type", [DatabaseAccessError, DatabaseCreationError])
+@pytest.mark.parametrize(
+    ("command", "operation", "options"),
+    [
+        ("processing-migrate", "_processing_maintenance", ["--action", "plan"]),
+        ("atomic-memory-migrate", "_atomic_memory_maintenance", ["--action", "verify"]),
+        ("identity-reset", "_reset_server_identity", ["--maintenance-confirmed"]),
+        ("atomic-memory-rebuild-projection", "_atomic_memory_maintenance", ["--maintenance-confirmed"]),
+    ],
+)
+def test_server_maintenance_reports_database_permission_guidance(
+    tmp_path, monkeypatch, error_type, command, operation, options
+):
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path))
+
+    async def refuse_database(*_args, **_kwargs):
+        raise error_type("team_context", creation_statement("team_context"))
+
+    monkeypatch.setattr(f"powercontext.server.cli.{operation}", refuse_database)
+
+    result = CliRunner().invoke(create_cli([server_app]), ["server", command, *options], terminal_width=240)
+
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert "team_context" in result.stderr
+    assert "administrator" in result.stderr
+    assert creation_statement("team_context") in result.stderr
+    assert "No fallback database was selected" in result.stderr
+    assert "Traceback" not in result.output
+    assert isinstance(result.exception, SystemExit)
+
+
+def test_server_identity_reset_reports_explicit_legacy_database_required(tmp_path, monkeypatch) -> None:
+    async def refuse_implicit_database(_settings) -> str:
+        raise LegacySeekDBDatabaseError(tmp_path / "seekdb")
+
+    monkeypatch.setattr("powercontext.server.cli._reset_server_identity", refuse_implicit_database)
+
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "identity-reset", "--maintenance-confirmed"],
+        terminal_width=240,
+    )
+
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert "POWERCONTEXT_SERVER_DATABASE_DATABASE=test" in result.stderr
+    assert "database='powercontext'" in result.stderr
+    assert "Traceback" not in result.output
+    assert isinstance(result.exception, SystemExit)
 
 
 def test_cli_without_distribution_metadata_keeps_core_commands(monkeypatch) -> None:

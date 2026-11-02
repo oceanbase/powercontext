@@ -95,6 +95,12 @@ export const connectionMessages = {
     discard: "丢弃尚未保存的输入？",
     dirty: "尚未保存；保存后才能检查或使用。",
     wait: "正在检查…",
+    saving: "正在保存…",
+    activating: "正在启用…",
+    removing: "正在移除…",
+    checkedComplete: "连接检查已完成，请核对下方各项结果。",
+    activationBlocked:
+      "连接尚不满足范围选择条件，请核对下方的兼容性和身份验证结果。",
     saved: "配置已保存，尚未执行新的连接验证。",
     not_required: "无需凭据",
     stored: "已保存到系统凭据库",
@@ -119,6 +125,8 @@ export const connectionMessages = {
     find: "查找范围",
     more: "下一页",
     empty: "本页没有可访问的范围。",
+    emptyScopeHint:
+      "可尝试其他标题、请管理员授予范围访问权限，或选择其他连接。",
     currentScope: "当前范围",
     scopeHint: "选择只影响此桌面，不创建范围或修改 Agent 绑定。",
     noConnection: "连接并明确启用服务后，才能选择范围。",
@@ -241,6 +249,13 @@ export const connectionMessages = {
     discard: "Discard unsaved input?",
     dirty: "Unsaved changes: save before checking or activating.",
     wait: "Checking…",
+    saving: "Saving…",
+    activating: "Activating…",
+    removing: "Removing…",
+    checkedComplete:
+      "Connection check complete. Review the individual results below.",
+    activationBlocked:
+      "The connection is not ready for scope selection. Review compatibility and identity verification below.",
     saved: "Configuration saved; a new connection check has not run.",
     not_required: "No credential required",
     stored: "Stored in the system vault",
@@ -267,6 +282,8 @@ export const connectionMessages = {
     find: "Find scopes",
     more: "Next page",
     empty: "No accessible scopes on this page.",
+    emptyScopeHint:
+      "Try another title, request Scope access from an administrator, or choose another connection.",
     currentScope: "Current scope",
     scopeHint:
       "Selection affects only Desktop, without creating scopes or changing Agent bindings.",

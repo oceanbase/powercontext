@@ -15,6 +15,7 @@
 """User-visible file generation flows for the bilingual configuration wizard."""
 
 import json
+import shlex
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -35,6 +36,35 @@ from powercontext.server.configuration import server_settings_context
 def available_listener(monkeypatch) -> None:
     """Keep prompt-flow tests independent of services running on the test machine."""
     monkeypatch.setattr(config_wizard, "_listener_port_available", lambda host, port: True)
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("POWERCONTEXT_SERVER_HTTP_UDS", "/run/powercontext/core.sock"),
+        ("powercontext_server_http_uds", "/run/powercontext/core.sock"),
+        ("POWERCONTEXT_SERVER_HTTP", '{"uds":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UDS":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UdS":"/run/powercontext/core.sock"}'),
+    ],
+)
+@pytest.mark.parametrize("stored_port", ["18000", "invalid"])
+def test_wizard_rejects_uds_configuration_before_prompts_or_writes(
+    tmp_path: Path, setting: str, value: str, stored_port: str
+) -> None:
+    output = tmp_path / "server.env"
+    content = f"{setting}={shlex.quote(value)}\nPOWERCONTEXT_SERVER_HTTP_PORT={stored_port}\n"
+    output.write_text(content, encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["init", "--output", str(output)], input="")
+
+    assert result.exit_code == 2
+    assert "edit UDS configuration directly" in result.output
+    assert "Where should the data live?" not in result.output
+    assert "PowerContext configuration wizard" not in result.output
+    assert "/run/powercontext/core.sock" not in result.output
+    assert output.read_text(encoding="utf-8") == content
+    assert list(tmp_path.iterdir()) == [output]
 
 
 @pytest.mark.parametrize("stored_port", [None, "8000", "19000"])
@@ -86,6 +116,29 @@ def test_edit_network_module_changes_existing_default_port(tmp_path: Path) -> No
     assert values["POWERCONTEXT_SERVER_HTTP_PORT"] == "18000"
     assert values["CUSTOM_FLAG"] == "keep"
     assert "http://127.0.0.1:18000/dashboard/home" in result.output
+
+
+@pytest.mark.parametrize("stored_port", ["invalid", "0", "65536"])
+def test_init_repairs_invalid_stored_tcp_port_before_writing(tmp_path: Path, stored_port: str) -> None:
+    output = tmp_path / "server.env"
+    original = f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_HTTP_PORT={stored_port}\n"
+    output.write_text(original, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        ["init", "--language", "en", "--output", str(output)],
+        input=f"sqlite\n{tmp_path / 'context.db'}\nedit\nnetwork\nlocal\ny\n18000\n\ndone\ny\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "The existing Server port is invalid" in result.output
+    assert parse_environment(output.read_text())["POWERCONTEXT_SERVER_HTTP_PORT"] == "18000"
+    with server_settings_context(env_file=output) as settings:
+        assert settings.http.port == 18000
+    assert "http://127.0.0.1:18000/dashboard/home" in result.output
+    backups = tuple(tmp_path.glob("server.env.bak-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == original
 
 
 class AgentAnswers(WizardUI):
@@ -353,7 +406,10 @@ def test_eof_never_falls_back_to_a_template(tmp_path: Path) -> None:
     assert not output.exists()
 
 
-def test_seekdb_install_runs_behind_prompts_and_finishes_after_save(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("database_name", ["", "test", "team_context"])
+def test_seekdb_install_runs_behind_prompts_and_finishes_after_save(
+    tmp_path: Path, monkeypatch, database_name: str
+) -> None:
     output = tmp_path / "server.env"
     events: list[str] = []
 
@@ -387,10 +443,12 @@ def test_seekdb_install_runs_behind_prompts_and_finishes_after_save(tmp_path: Pa
     result = CliRunner().invoke(
         app,
         ["init", "--language", "zh", "--output", str(output)],
-        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
+        input=f"seekdb\n{tmp_path / 'seekdb'}\n{database_name}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
     )
 
     assert result.exit_code == 0, result.output
+    saved = parse_environment(output.read_text(encoding="utf-8"))
+    assert saved["POWERCONTEXT_SERVER_DATABASE_DATABASE"] == (database_name or "powercontext")
     assert "在后台开始安装" in result.output
     assert "阿里云镜像" in result.output
     assert "seekdb 依赖安装完成，版本 1.3.0" in result.output  # noqa: RUF001
@@ -427,7 +485,7 @@ def test_seekdb_install_failure_prints_one_manual_command(tmp_path: Path, monkey
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
+        input=f"seekdb\n{tmp_path / 'seekdb'}\n\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
     )
 
     assert result.exit_code == 0, result.output

@@ -52,7 +52,9 @@ from powercontext.http import (
     SearchMemoryRequest,
     UpdateScopeRequest,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 from .harness import _configured_access_token, _start_configured_server, _without_scheduled_processing
 
@@ -105,6 +107,7 @@ def test_configured_services_and_native_codex_consume_standard_text(tmp_path, py
                     )
                 }
             )
+            prepare_server_database(settings, evidence_dir=tmp_path / "migration-evidence")
             report["temporary_database"] = temporary_database
             (tmp_path / "assembly-report.json").write_text(json.dumps(report, indent=2))
         print("Starting isolated configured-service context assembly acceptance", flush=True)
@@ -257,6 +260,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": ASSEMBLY,
             })
         )
+        assert isinstance(pending, PreparedContext)
         assert pending.content and "## Experience" not in pending.content
         approved = await client.approve_candidate(
             ApproveCandidateRequest(
@@ -278,6 +282,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": ASSEMBLY,
             })
         )
+        assert isinstance(grouped, PreparedContext)
         assert grouped.content
         assert grouped.content.index("## Experience") < grouped.content.index("## Memory")
         assert current in grouped.content and shared in grouped.content
@@ -293,6 +298,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": {"sections": [{"family": "memory", "limit": 1}]},
             })
         )
+        assert isinstance(memory_only, PreparedContext)
         assert memory_only.content and "## Experience" not in memory_only.content
         assert memory_only.content.count("### Memory ") == 1
         for budget in [512, 1024, 2048]:
@@ -304,11 +310,13 @@ async def _api_scenario(url, token, scope_ids, report, output):
                     "assembly": ASSEMBLY,
                 })
             )
+            assert isinstance(bounded, PreparedContext)
             assert bounded.content_bytes == len((bounded.content or "").encode()) <= budget
             if bounded.content:
                 assert bounded.content.endswith("END_POWERCONTEXT_PREPARED_TEXT_V1")
         report["checks"].append("selected_family_limit_and_utf8_output_budgets")
         legacy = await client.prepare_context(PrepareContextRequest(scope_id=current, query=QUERY))
+        assert isinstance(legacy, PreparedContext)
         assert legacy.content and '"items":[' in legacy.content
         disabled = await client.prepare_context(
             PrepareContextRequest.model_validate({
@@ -317,6 +325,7 @@ async def _api_scenario(url, token, scope_ids, report, output):
                 "assembly": {"sections": []},
             })
         )
+        assert isinstance(disabled, PreparedContext)
         assert disabled.content is None and disabled.content_bytes == 0
         report["checks"].append("legacy_default_and_explicit_empty_sections")
         headers = {} if token is None else {"Authorization": f"Bearer {token}"}
@@ -491,8 +500,10 @@ async def _cleanup(database, scope_ids):
             scoped_tables = await connection.run_sync(
                 lambda conn: [
                     name
-                    for name in inspect(conn).get_table_names()
-                    if any(column["name"] == "scope_id" for column in inspect(conn).get_columns(name))
+                    # Remove referencing rows before their referenced Artifacts and Scopes.
+                    for name, _foreign_keys in reversed(inspect(conn).get_sorted_table_and_fkc_names())
+                    if name is not None
+                    and any(column["name"] == "scope_id" for column in inspect(conn).get_columns(name))
                 ]
             )
             for name in scoped_tables:

@@ -14,7 +14,20 @@
 
 from pathlib import Path
 
+import yaml
+
 WORKFLOW = (Path(__file__).parents[1] / ".github" / "workflows" / "e2e-harness.yml").read_text(encoding="utf-8")
+
+
+def test_supplied_scope_keeps_acceptance_runnable_after_the_detector_is_skipped() -> None:
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    assert jobs["changes"]["if"] == "${{ inputs.suites == '' }}"
+    assert "!cancelled()" in jobs["validate"]["if"]
+    assert jobs["acceptance"]["needs"] == "validate"
+    # A successful validate job does not clear the skipped ancestor for Actions'
+    # implicit success(). Acceptance needs its own status function and success gate.
+    assert jobs["acceptance"]["if"] == "${{ !cancelled() && needs.validate.result == 'success' }}"
+    assert set(jobs["acceptance"]["strategy"]["matrix"]["database"]) == {"sqlite", "oceanbase"}
 
 
 def test_e2e_scan_keeps_raw_scanner_output_out_of_artifacts() -> None:

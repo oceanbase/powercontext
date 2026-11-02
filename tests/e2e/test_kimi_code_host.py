@@ -45,6 +45,7 @@ from powercontext.server.settings import BearerAuthConfig, ServerSettings
 REPOSITORY = Path(__file__).parents[2]
 EXPLICIT = "Explicit Kimi deployment code is amber-582."
 AUTOMATIC = "Kimi acceptance staging color is cobalt-731."
+AUTOMATIC_DESCRIPTION = "Kimi staging color: cobalt-731."
 
 
 def _objects(value: Any) -> Iterator[dict[str, Any]]:
@@ -188,14 +189,25 @@ class ModelHandler(BaseHTTPRequestHandler):
                 "action": "noop" if duplicate else "create",
                 "compared_ids": [item["item_id"] for item in payload["related"]],
                 "target_ids": [duplicate["item_id"]] if duplicate else [],
-                "content": None if duplicate else {"kind": proposal["kind"], "text": proposal["text"]},
+                "content": None
+                if duplicate
+                else {
+                    "kind": proposal["kind"],
+                    "text": proposal["text"],
+                    "description": proposal["description"],
+                },
                 "evidence_ids": [] if duplicate else proposal["evidence_ids"],
                 "reason": "Synthetic evidence reconciliation",
             }
         else:
             value = {
                 "candidates": [
-                    {"kind": "fact", "text": AUTOMATIC, "evidence_ids": [item["evidence_id"]]}
+                    {
+                        "kind": "fact",
+                        "text": AUTOMATIC,
+                        "description": AUTOMATIC_DESCRIPTION,
+                        "evidence_ids": [item["evidence_id"]],
+                    }
                     for item in payload["evidence"]
                     if AUTOMATIC in json.dumps(item["content"])
                 ]
@@ -414,6 +426,7 @@ def test_real_kimi_memory_capture_recall_and_fail_open(tmp_path: Path, monkeypat
             f"{artifact['artifact_id']}/revisions/{artifact['revision']}"
         )
         revision.raise_for_status()
+        assert revision.json()["content"]["description"] == AUTOMATIC_DESCRIPTION
         evidence_ids = {item["source_id"] for item in revision.json()["sources"]}
         assert evidence_ids & {item["source_id"] for item in captured}
         start = len(gateway.requests)

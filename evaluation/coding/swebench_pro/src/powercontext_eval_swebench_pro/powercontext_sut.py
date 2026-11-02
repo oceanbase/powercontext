@@ -107,6 +107,7 @@ _OCEANBASE_QUERY_OVERRIDES = frozenset(
     }
 )
 _SHA = re.compile(r"[0-9a-f]{40}")
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _INVALID_DOCKER_COPY_SYMLINK = re.compile(r'invalid symlink "[^"\r\n]+" -> "[^"\r\n]+"')
 _DOCKER_NETWORK_CONTROL_LOCK = threading.Lock()
 _DOCKER_NETWORK_CREATE_ATTEMPTS = 3
@@ -429,6 +430,11 @@ def default_docker_bridge_gateway(process: ProcessRunner, cwd: Path) -> str:
     return _validated_gateway(result.stdout.strip())
 
 
+# Fields whose values are fixed labels rather than credentials. Forbidding them rejects ordinary
+# patches; for example, "apikey" is a common identifier in projects with API-key authentication.
+_AUTH_NON_SECRET_FIELDS = frozenset({"auth_mode"})
+
+
 def auth_secret_variants(auth_json: Path) -> tuple[str, ...]:
     """Extract nested scalar credentials and conservative encoded derivatives without logging them."""
 
@@ -449,8 +455,9 @@ def auth_secret_variants(auth_json: Path) -> tuple[str, ...]:
 
     def visit(item: object) -> None:
         if isinstance(item, dict):
-            for nested in item.values():
-                visit(nested)
+            for key, nested in item.items():
+                if key not in _AUTH_NON_SECRET_FIELDS:
+                    visit(nested)
         elif isinstance(item, list):
             for nested in item:
                 visit(nested)
@@ -1231,6 +1238,7 @@ class DockerSut:
                 self._stage_tokensflow_binary(config, paths)
                 tokensflow_binary_staged = True
             self._initialize_workspace(config, arm, paths)
+            trim_future_history(self._docker, paths.workspace)
             self._prewarm(config, arm, paths, network, relay_url)
             self._start_container(
                 config,
@@ -2590,6 +2598,9 @@ class DockerSut:
             network,
             "--mount",
             f"type=bind,src={paths.workspace},dst=/workspace",
+            # Hide the image's original repository while preserving absolute /app paths used by task dependencies.
+            "--mount",
+            f"type=bind,src={paths.workspace},dst=/app",
             "--mount",
             f"type=bind,src={paths.runtime},dst=/runtime",
             "--mount",
@@ -3096,6 +3107,57 @@ def _tool_directory_mount(
     if require_executable and not os.access(resolved, os.X_OK):
         raise UnsafeSutConfiguration("Tool binary is not executable")
     return f"type=bind,src={resolved.parent},dst={destination},readonly"
+
+
+def trim_future_history(runner: Any, workspace: Path) -> None:
+    """Keep only HEAD and its ancestors so the agent cannot read the reference fix from git.
+
+    Task images ship the upstream history, including the fix commit, on branches, remotes, and tags. The working
+    tree and index are left untouched, so the final ``git diff HEAD`` is unchanged. Shared object stores and
+    linked worktrees are rejected before changing references; retained future commits also fail closed.
+    """
+
+    def git(*argv: str, check: bool = True, input_bytes: bytes | None = None) -> str:
+        return runner.run(
+            ("git", *argv), cwd=workspace, timeout=600, check=check, input_bytes=input_bytes
+        ).stdout.strip()
+
+    git_directory = workspace / ".git"
+    if not git_directory.is_dir() or git_directory.is_symlink() or (git_directory / "commondir").exists():
+        raise UnsafeSutConfiguration("Workspace requires a private git directory")
+    if any(
+        path.exists() and path.read_bytes().strip()
+        for path in (git_directory / "objects/info/alternates", git_directory / "objects/info/http-alternates")
+    ):
+        raise UnsafeSutConfiguration("Workspace git alternate object stores are unsupported")
+    worktrees = git("worktree", "list", "--porcelain").splitlines()
+    if sum(line.startswith("worktree ") for line in worktrees) != 1:
+        raise UnsafeSutConfiguration("Workspace git linked worktrees are unsupported")
+
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    if _OBJECT_ID.fullmatch(head) is None:
+        raise UnsafeSutConfiguration("Workspace HEAD is not a commit")
+    branch = git("symbolic-ref", "--quiet", "HEAD", check=False)
+    refs = git("for-each-ref", "--format=%(refname)").splitlines()
+    git("update-ref", "--no-deref", "HEAD", head)
+    if refs:
+        git("update-ref", "--no-deref", "--stdin", input_bytes="".join(f"delete {ref}\n" for ref in refs).encode())
+    for pseudo_ref in ("ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        git("update-ref", "-d", pseudo_ref, check=False)
+    if branch.startswith("refs/heads/"):
+        git("update-ref", branch, head)
+        git("symbolic-ref", "HEAD", branch)
+    git("reflog", "expire", "--expire=now", "--all")
+    git("gc", "--quiet", "--prune=now")
+    if git("rev-list", "--all", "--not", "HEAD"):
+        raise UnsafeSutConfiguration("Workspace git history still reaches commits after HEAD")
+    ancestors = set(git("rev-list", "HEAD").splitlines())
+    # GC can retain unreachable objects in kept or promisor packs. Inspect the object store itself, while
+    # allowing blobs and trees needed by staged changes in the unchanged index.
+    for line in git("cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)").splitlines():
+        object_id, object_type = line.split()
+        if object_type == "commit" and object_id not in ancestors:
+            raise UnsafeSutConfiguration("Workspace git object store retains commits outside HEAD ancestry")
 
 
 def _reject_retained_secrets(data: bytes, variants: tuple[str, ...]) -> None:

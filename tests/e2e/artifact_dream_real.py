@@ -64,6 +64,7 @@ from powercontext.http import (
     ListDreamRunsRequest,
     PrepareContextRequest,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.settings import ServerSettings
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
@@ -147,7 +148,12 @@ class TaskMemory:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="working_note", text=rendering, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="working_note",
+                        text=rendering,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                     for rendering in (
@@ -342,6 +348,7 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                         scope_id=scope.scope_id, query="Retry a write whose commit acknowledgement was lost."
                     )
                 )
+                assert isinstance(followup, PreparedContext)
                 assert followup.content is not None and experience.artifact.artifact_id in followup.content
                 report[label]["followup_context"] = followup.model_dump(mode="json")
                 progress(

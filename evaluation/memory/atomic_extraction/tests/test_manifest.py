@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+from hashlib import sha256
 from pathlib import Path
 
 from evaluation.memory.atomic_extraction.manifest import load_manifest
@@ -85,3 +86,22 @@ def test_pinned_reports_match_the_current_dataset_and_prompt_contract() -> None:
         assert manifest.dataset.case_count == len(loaded.manifest.cases)
         assert manifest.prompts == prompt_run_identities()
         assert report["dataset"] == manifest.dataset.model_dump(mode="json")
+
+
+def test_archived_reports_remain_bound_to_their_recorded_run() -> None:
+    archive = Path(__file__).resolve().parents[1] / "reports" / "archive"
+    assert archive.is_dir()
+    pinned = sorted(path for path in archive.iterdir() if (path / "run-manifest.json").is_file())
+
+    assert pinned
+    for directory in pinned:
+        manifest = LiveRunManifest.model_validate_json((directory / "run-manifest.json").read_text(encoding="utf-8"))
+        recorded = manifest.model_dump(mode="json")
+        report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
+
+        assert report["run_id"] == manifest.run_id
+        assert report["dataset"] == recorded["dataset"]
+        assert report["prompts"] == recorded["prompts"]
+        assert report["provider"] == recorded["provider"]
+        encoded = json.dumps(recorded, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        assert report["run_manifest_sha256"] == sha256(encoded).hexdigest()

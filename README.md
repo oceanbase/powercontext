@@ -43,7 +43,9 @@ Scope
 └── Topic Memory      # extracted in the background from eligible Sources
 ```
 
-*The Dashboard screenshots below use synthetic demonstration records.*
+For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
+
+*Recordings show the running Dashboard and native Desktop preview in their dark themes, using synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
 
@@ -55,7 +57,7 @@ Explicit Memory writes need no model at all; extraction from captured Sources ne
 > "Don't refactor the old auth module — mobile is still using it."
 > Context this expensive shouldn't depend on someone repeating it in every session.
 
-![Dashboard showing active decisions and constraints for one Scope with their Artifact and Source references](docs/assets/readme-dashboard-memories.png)
+![Dashboard in dark mode: search project memories and inspect a saved revision](docs/assets/readme-dashboard-demo.gif)
 
 ### Handoff — the current state, not the whole transcript
 
@@ -71,7 +73,7 @@ a Task Outcome preserves the final status and checks as Source evidence. The
 [Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) projects the latest Revision in
 each selected Scope — read-only, and it never rewrites Memory.
 
-![Dashboard showing a committed Handoff Revision with recorded progress, next action, and linked source evidence](docs/assets/readme-dashboard-handoff.png)
+![Dashboard in dark mode: open a Handoff and inspect its saved revision](docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — what worked, reviewed before it is reused
 
@@ -85,6 +87,14 @@ only the approved current head takes part in recall — pending, rejected, and h
 A managed Skill holds a name, a discovery description, instructions, validation checks, and lineage. Approval does not
 install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the
 host-local projection.
+
+### Desktop — inspect project memory from a connected workspace
+
+Connect to a Server, select an exact Scope, and search its memories. Open a result to read its saved revision,
+or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation;
+signed distribution and platform release qualification remain separate work.
+
+![Native Desktop in dark mode: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 
@@ -160,7 +170,7 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.4.1 includes an interactive setup wizard. You need Python 3.11+, Git, and
+PowerContext 1.5.0 includes an interactive setup wizard. You need Python 3.11+, Git, and
 [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent,
 also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory
 requires separate Generation and Embedding API credentials. For a local Server without model APIs, see
@@ -178,7 +188,7 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.1"
+uv tool install --force "powercontext[cli,server]==1.5.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 powercontext config validate --env-file .env
@@ -207,7 +217,7 @@ Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable accep
 Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.4.1
+powercontext setup codex --ref powercontext-v1.5.0
 powercontext doctor codex
 ```
 

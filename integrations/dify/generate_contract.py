@@ -41,6 +41,11 @@ PARAMETERS = {
     "if_match": ("当前内容 ETag", "Real content ETag returned by pc_memory_get for this exact current revision."),
     "kind": ("记忆类型", "One of the six supported curated Memory kinds."),
     "text": ("记忆正文", "Curated Memory text: nonblank after NFC/trim and at most 8192 UTF-8 bytes."),
+    "description": (
+        "记忆简介",
+        "Optional single-line Memory description of at most 200 characters. "
+        "When omitted, the Server stores a bounded text preview without calling a generation model.",
+    ),
     "reason": ("操作原因", "Reason for this explicit operation; preserve the user's intent."),
     "source_id": ("稳定 Source ID", "Stable caller-selected Source ID for explicitly retained evidence."),
     "content": (
@@ -100,6 +105,13 @@ def json_schema(value):
     if not isinstance(value, dict):
         return value
     result = {key: json_schema(item) for key, item in value.items() if key != "nullable"}
+    for bound in ("minimum", "maximum"):
+        exclusive_key = f"exclusive{bound[0].upper()}{bound[1:]}"
+        exclusive = result.get(exclusive_key)
+        if isinstance(exclusive, bool):
+            result.pop(exclusive_key)
+            if exclusive:
+                result[exclusive_key] = result[bound]
     if "$ref" in result and len(result) > 1:
         reference = result.pop("$ref")
         result = {"allOf": [{"$ref": reference}], **result}
@@ -201,7 +213,7 @@ def build():
         "change_atomic_memory_lifecycle",
     }
     tool_requests, tool_responses = memory_tool_schemas(schemas)
-    operations = {}
+    operations: dict[str, dict[str, Any]] = {}
     used = set()
 
     def visit(value):
@@ -238,6 +250,10 @@ def build():
                 for status, response in operation["responses"].items()
                 if str(status).startswith("2") and "application/json" in response.get("content", {})
             }
+            if operation["operationId"] == "prepare_context":
+                # This tool never requests include_reuse. Keep its workflow fields and
+                # response validation tied to the ordinary, non-executor result.
+                responses = {status: {"$ref": "#/components/schemas/PreparedContext"} for status in responses}
             operations[operation["operationId"]] = {
                 "method": method.upper(),
                 "path": path,

@@ -99,8 +99,10 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
-| `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | 监听地址 |
-| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | 监听端口；配置向导在首次设置时建议使用 `17429` |
+| `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | TCP 监听地址；设置 `HTTP_UDS` 时忽略 |
+| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | TCP 监听端口；设置 `HTTP_UDS` 时忽略；配置向导在首次设置时建议使用 `17429` |
+| `POWERCONTEXT_SERVER_HTTP_UDS` | 未设置 | Linux/macOS 上 `server run` 的 HTTP Unix socket 路径；仅监听 UDS，不创建 TCP listener；必须是绝对路径，不含 `..` 或 NUL，按文件系统编码计算不超过 103 字节 |
+| `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | 未设置 | 私有 UDS 上可信代理的外部协议，只接受 `http` 或 `https`，必须同时设置 `HTTP_UDS`；仅在可信代理终止 TLS 时设置 `https`。仍忽略转发的协议与客户端 IP header |
 | `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | 解析前允许的外部 HTTP 请求体字节数，包括分块上传 |
 | `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | 每进程进行中的外部 HTTP 请求上限，包括完整流式响应 |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
@@ -132,6 +134,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekdb 不设置 |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekdb 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
+| `POWERCONTEXT_SERVER_DATABASE_DATABASE` | `powercontext` | seekDB 数据库名称；已有数据显式设置为 `test` |
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | 业务连接等待 SQLite 单一写锁的毫秒数；它不约束用量记账，后者有自己的有界预算 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 每次处理的 Source 日志位置上限；Memory 在生成超时后会缩小窗口 |
@@ -275,9 +278,19 @@ PowerContext 用户数据目录创建密钥。内存 SQLite 使用进程内密�
 `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET`，这样重启或下一请求落到其他副本后，已签发 cursor 仍然有效。
 在已签发 cursor 仍需有效期间，不要泄漏或轮换该值。
 
+设置 `HttpConfig.uds`、`POWERCONTEXT_SERVER_HTTP_UDS` 或 `server run --uds /absolute/path/core.sock` 可以选择 UDS。
+也支持 JSON 形式 `POWERCONTEXT_SERVER_HTTP='{"uds":"/absolute/private/core.sock"}'`。同一来源中，
+扁平的 `HTTP_UDS` 优先于 JSON；`server run` 和 Agent 接入采用的进程 HTTP 配置优先于环境文件。
+向导和模板会拒绝待编辑文件或进程有效配置中的 UDS，
+Agent 接入不会为 UDS listener 推断 TCP URL。
+CLI 参数优先于环境配置；有效配置已选择 UDS 时，显式传入 `--host` 或 `--port` 会被拒绝。UDS 支持 `all` 和 `api` role
+（后者仍要求 OceanBase），不支持 `background`。个人服务及本机 ops/Desktop 管理要求 TCP。目录 owner、权限、安全重启
+和鉴权客户端示例见[监听 Unix domain socket](deploy-server.md#监听-unix-domain-socket)。UDS 不会启用设计中的 Rust
+网关，也不会改变 API 授权规则。
+
 Access Control 默认关闭。在 `enforced` 模式下，API 和 MCP 请求必须通过所选 Authentication Provider 建立 Principal；
 liveness 和 readiness endpoint 仍然公开。内置 `static-bearer` Provider 接受
-`Authorization: Bearer <token>`。明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意
+`Authorization: Bearer <token>`，UDS 请求也适用。TCP 上的明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意
 地址）上受信任。当 Server 绑定到非 loopback 地址且鉴权关闭时会拒绝启动；此时应启用鉴权、改回绑定 loopback，或在
 TLS 由上游终止或网络本身受控的场景下，
 显式设置 `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true` 主动选择接受。通过网络暴露启用鉴权的
@@ -551,8 +564,15 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
 export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 ```
 
-URL 必须使用 `mysql+aoceanbase` driver，包含明确的端口和数据库，并设置 `charset=utf8mb4`。对应
-tenant 必须使用 MySQL 兼容模式。
+URL 必须使用 `mysql+aoceanbase` 驱动、明确的端口，并设置 `charset=utf8mb4`。省略库名时使用 `powercontext`，
+显式库名保持有效。租户必须使用 MySQL 兼容模式。
+
+seekDB 启动和 OceanBase Python SDK 初始化会先创建缺失的目标库，再初始化表；已有可用库不会执行建库语句。
+完整 OceanBase Server 需要先准备数据库并通过显式维护初始化 Server 表结构，再启动服务；自动建库不替代该准入规则。
+建库权限不足时会提供手动准备说明，其他连接错误不会触发回退。seekDB 未显式配置库名时，若在旧 `test` 中检测到
+PowerContext 命名的表，会要求先明确选择数据库。两个后端都会在配置校验阶段拒绝包含反引号的库名，
+不会产生数据库写入；请改用 `team_context` 等不含反引号的名称。自定义名称、权限和旧数据处理见
+[安装与运行](../get-started/install-and-run.md)。
 
 ### Embedding 与 SQLite 向量检索
 

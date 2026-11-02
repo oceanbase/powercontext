@@ -14,10 +14,10 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
-The full Server framework registers two installed-release sources for the PowerContext 1.4.1 target (stored compatibility IDs shown below):
+The full Server framework registers two installed-release sources for the PowerContext 1.5.0 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -51,6 +51,16 @@ maintenance for existing managed storage. Runtime startup does not add the recei
 
 Revision `v1_4_1_004` registers `pc_access_owner_recovery` for durable Artifact and Candidate ownership intents. Both installed-release source paths and vector profiles include this table. Existing managed databases require explicit maintenance; fresh databases create the registered empty table. Pending intents retain their original deployment, principal and idempotency identity across Server restarts. Earlier revision resources and checksums remain unchanged. Unregistered database layouts are rejected rather than adopted from a table name alone. This registration does not establish installed-release or external-Provider upgrade acceptance.
 
+Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metadata for text and vector profiles. Existing managed databases require explicit migration; startup does not alter this column. The additive revision leaves historical Artifact bytes unchanged and existing descriptions null until a new write or explicit projection rebuild copies authoritative metadata.
+
+Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
+Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
+index coverage and change tracking, and vector-space/index registrations. SQLite also registers portable vector
+and FTS auxiliary structures. Both source chains include these additive changes through explicit maintenance;
+earlier revision resources and checksums remain unchanged. Native vector tables created from registered spaces
+are admitted to later maintenance only after exact layout validation. These registrations do not expand the
+accepted source versions or establish installed-release upgrade acceptance.
+
 An interrupted [portable restore](portable-archive.md) keeps normal startup and workers blocked until its projections
 are complete. Retry `powercontext archive restore <bundle> --yes` with the same validated bundle. Only this explicit
 recovery path can open an incomplete projection set, after validating the registered layout and the configured vector
@@ -63,7 +73,7 @@ identity value and explicitly rotating a stopped clone's identity retain their e
 
 Vector maintenance requires the exact historical embedding profile: profile ID, model, dimension, distance and normalization. It preserves historical embeddings and Topic retrieval shape without calling an embedding provider. The registered SQLite transition adds and backfills Atomic Memory's vec0 helper and transactional triggers; native backends retain the registered vector columns and HNSW parameters. `pc_server_storage_profile` stores the complete embedding configuration, not another revision or recovery journal. Generic storage readers validate this declaration, and Server startup uses the configured or injected model's actual profile. Missing managed helpers and profile changes are rejected before startup repair or writes.
 
-Empty persistent SQLite/seekDB Server storage with vectors initializes through the selected profile of the same chain. Existing unmanaged storage requires explicit maintenance and an exact registered source layout. Changing configuration cannot bypass admission, enable vectors on no-vector managed storage, or implicitly add vector/Code objects. Enabling embedded Code on an already managed database without its tables requires a separately registered configuration transition; startup and the standalone Code CLI reject it. The catalog retains twelve combinations of the 1.3.0 source, three backends, vectors enabled or disabled, and Code enabled or disabled. Temporarily, the two embedded seekDB Code configurations are manual-only and waived from publication; automatic CI and releases require the other ten. Main workflow dispatch with `upgrade_selection=seekdb-code` runs the two deferred configurations. Passing the automatic gate does not certify them. The 1.4.0 bridge remains registered but is outside CI upgrade acceptance; passing this gate does not certify that path. Code cases build an index with each installed source release, preserve its cache files and embedded graph rows, and query the original fingerprint and symbols after the upgrade. Vector cases preserve nonempty historical Atomic and Topic embeddings, verify semantic reads and new writes through the installed target, reject profile drift, and compare fresh/upgraded storage. SQLite also tests missing-helper rejection and backup restoration. A successful no-vector case does not establish vector support; each configuration needs passing evidence for the actual target artifact before upgrade support can be claimed.
+Empty persistent SQLite/seekDB Server storage with vectors initializes through the selected profile of the same chain. Existing unmanaged storage requires explicit maintenance and an exact registered source layout. Changing configuration cannot bypass admission, enable vectors on no-vector managed storage, or implicitly add vector/Code objects. Enabling embedded Code on an already managed database without its tables requires a separately registered configuration transition; startup and the standalone Code CLI reject it. The catalog retains twelve combinations of the 1.3.0 source, three backends, vectors enabled or disabled, and Code enabled or disabled. Embedded seekDB requires pylibseekdb 1.4.0.post2 or newer with the recovered-transaction lock fix. Automatic CI and publication require all twelve configurations, including both embedded seekDB Code configurations; none are waived. Main workflow dispatch with `upgrade_selection=seekdb-code` runs a diagnostic subset and cannot authorize publication. The 1.4.0 bridge remains registered but is outside CI upgrade acceptance; passing this gate does not certify that path. Code cases build an index with each installed source release, preserve its cache files and embedded graph rows, and query the original fingerprint and symbols after the upgrade. Vector cases preserve nonempty historical Atomic and Topic embeddings, verify semantic reads and new writes through the installed target, reject profile drift, and compare fresh/upgraded storage. SQLite also tests missing-helper rejection and backup restoration. A successful no-vector case does not establish vector support; each configuration needs passing evidence for the actual target artifact before upgrade support can be claimed.
 
 `--bundle artifacts` retains the partial Artifact prototype chain starting at `p0001`; `--bundle topic-memory-recovery` covers only registered Topic recovery layouts. Both report `server_ready=false`. Neither establishes full Server readiness, and their revisions cannot be stamped as full Server revisions.
 
@@ -86,7 +96,7 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.4.1**. Migration names use
+The target release is **PowerContext 1.5.0**. Migration names use
 `v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence within the release.
 Sequence `000` identifies a registered historical baseline; upgrade steps start at `001`.
 
@@ -97,12 +107,16 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_4_1_001` | 1.4.1 | 1 | `s1400` | Complete Server storage transition |
 | `v1_4_1_002` | 1.4.1 | 2 | `s1401` | Offline Memory history archive |
 | `v1_4_1_003` | 1.4.1 | 3 | `s1402` | Portable restore receipts and timestamp adaptation |
+| `v1_4_1_004` | 1.4.1 | 4 | `v1_4_1_004` | Durable owner recovery intents |
+| `v1_4_1_005` | 1.4.1 | 5 | `v1_4_1_005` | Nullable Atomic Memory description projection |
+| `v1_4_1_006` | 1.4.1 | 6 | `v1_4_1_006` | Source write plugin registrations |
+| `v1_5_0_001` | 1.5.0 | 1 | `v1_5_0_001` | Artifact plugin storage and search registrations |
 
-Both registered source paths reach `v1_4_1_003`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_5_0_001`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -110,7 +124,7 @@ before the existing machine fields. `apply` and `verify` show `migration`. Each 
 contains `name`, `software_version`, `sequence` and the compatible `revision` ID. For example:
 
 ```json
-{"revision":"s1402","name":"v1_4_1_003","software_version":"1.4.1","sequence":3}
+{"revision":"v1_5_0_001","name":"v1_5_0_001","software_version":"1.5.0","sequence":1}
 ```
 
 The software version describes the registered database state, not the currently running binary
@@ -124,7 +138,7 @@ existing plans and original backups usable. Partial prototype bundles keep their
 
 For a new Server migration, use the release-based name directly as its Alembic `revision` and
 register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`s1402` when appending directly to the current head), even if that ID has
+the actual preceding ID (`v1_5_0_001` when appending directly to the current head), even if that ID has
 a display alias. The framework follows this registered chain, not lexical name ordering. Already
 registered names and release assignments stay immutable; a version bump must not rename history.
 
@@ -329,8 +343,17 @@ OceanBase maintenance must be able to read the tenant ID, cluster ID, and tenant
 identity return `target_identity_unavailable`; a proxy hostname is not used as a substitute database identity.
 
 seekdb inspection does not start an engine for a missing path or empty directory. A nonempty directory without a
-recognized engine layout returns `unsupported_target`. Opening a valid existing engine may write native logs and other
-engine housekeeping files; read-only migration commands do not perform business DDL or initialize tables.
+recognized engine layout returns `unsupported_target`. An unconfigured database name whose old `test` database still
+holds PowerContext tables returns `explicit_database_required` instead of selecting either database implicitly; select
+the name explicitly and rerun the command. For an existing engine missing the selected database, `status` and `verify`
+return `database_missing` with its name and provisioning guidance. `plan` instead returns an `uninitialized` plan bound
+to the selected database without creating it; after the operator accepts that plan, `apply` may create the database and
+initialize its registered schema. Denied access returns `database_access_denied`.
+Writable seekDB maintenance that cannot create its configured database
+returns `database_creation_required`, and a permission denial that leaves existence unproven returns
+`database_access_denied`; both keep the administrator statement and provisioning guidance in the payload. Opening a
+valid existing engine may write native logs and other engine housekeeping files; read-only migration commands do not
+perform business DDL or initialize tables.
 
 `--evidence-dir PATH` selects persistent storage outside the target database for maintenance progress and recovery
 references. Use the same directory for `status`, `plan`, `apply`, `verify`, and retries. Keep it available after a process,
@@ -420,6 +443,53 @@ powercontext server db-migrate verify --env-file oceanbase.env \
 Use the latest plan's `plan_id` and `coordination.pending_run_id`. Reconfirm the existing manual backup; do not replace
 the original recovery point with a backup of partial state. Normal upgrades still use one confirmation. Recovery requires
 the additional explicit DBA declaration; PC never invents it when showing the plan.
+
+## Native SeekDB restart and recovery acceptance
+
+The embedded engine must use `pylibseekdb>=1.4.0.post2,<2`. The native transaction recovery fix is supplied by
+that dependency. The migration checks retain `SHOW TRIGGERS` and release the last client between operations.
+Run the following from the repository root, separately under Python 3.11 and Python 3.14:
+
+```bash
+uv sync --locked --extra seekdb
+uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+  --scenario migration --attempts 12 --timeout 180 --output .powercontext/seekdb-migration
+uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+  --scenario restart-recovery --restart --attempts 12 --timeout 180 --output .powercontext/seekdb-restart
+```
+
+Use a new output directory for each run. The migration scenario selects
+`test_mysql_committed_revision_recovers_before_evidence_advance[seekdb]` with its natural client lifecycle. Releasing a
+client does not imply that the native process has already exited; a rapid reopen may reuse it. The restart scenario
+checks metadata inspection, commit, confirmed last-client shutdown, baseline DDL and preserved content and tags after
+reopening. Its test waits for kernel process-exit notification even when invoked without the probe. Each attempt must
+report exactly one passing test, with no skip, error or timeout. `--restart` explicitly waits up to 10 seconds for native
+exit on each close, then requires distinct process IDs and an exit record before each subsequent open. A timeout fails
+the attempt; it does not retry. Evidence includes the Python and binding versions, native binary SHA-256, instance
+lifetimes, SQL trace, compressed native logs and live transaction snapshots for slow attempts. The separate extended
+observation workflow is diagnostic; its longer deadline does not replace the ordinary acceptance deadline.
+
+Both explicit restart gates run on Linux and observe kernel process-exit notifications before each reopen;
+neither uses a fixed startup delay. The tests prefer Python's `os.pidfd_open`, then the optional libc wrapper.
+When both are absent, they use the Linux syscall on the locked wheels' 64-bit x86_64 and aarch64 architectures.
+Kernel errors and exit timeouts still fail acceptance. For recovery acceptance, first reproduce the stall with an isolated
+`1.4.0.post1` environment and `--scenario restart-recovery --keep-failed-storage`.
+Stop its engine before freezing the failed `tmp/pc-*/seekdb`
+directory. Keep the original immutable. This scenario creates synthetic data in the `powercontext` database, including
+the `preserved` content and `Keep` tag expected by the fixture test. A healthy database or a fixture with different
+schema or sentinels cannot establish recovery of this defect. Compare the old and fixed engines on separate copies of
+the same frozen fault fixture:
+
+```bash
+uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+  --scenario fixture-recovery --fixture /absolute/path/to/frozen/seekdb \
+  --restart --attempts 1 --timeout 75 --output .powercontext/seekdb-fixture
+```
+
+The fixture gate opens only a disposable copy, creates and commits the baseline revision, verifies the original data,
+reopens to verify it and commit a new write, then reopens once more to read that write. Preserve the fixture and the
+old-engine failure evidence locally; CI uploads diagnostic files, not physical databases. Do not infer upgrade support
+from these gates: the full installed-release upgrade matrix remains required.
 
 ## Backup choices
 

@@ -31,6 +31,7 @@ const sdkRequire = createRequire(process.env.DSH_TEST_SDK_ROOT
   : import.meta.resolve('@deepseek-ai/dsh-sdk-client'))
 export const dshBin = join(dirname(sdkRequire.resolve('@deepseek-ai/dsh/package.json')), 'lib/bin.js')
 export const CANARY = 'The aurora deployment color is violet-cedar-1457.'
+export const CANARY_DESCRIPTION = 'Aurora deployment color: violet-cedar-1457.'
 export const NATIVE_ERROR_CANARY = 'private-response-marker: api_key=FAKE_NATIVE_ERROR_CANARY'
 export const pluginRoot = resolve(import.meta.dirname, '../..')
 
@@ -151,7 +152,9 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
             action: duplicate ? 'noop' : 'create',
             compared_ids: input.related.map(item => item.item_id),
             ...(duplicate ? { target_ids: [duplicate.item_id] } : {
-              content: { kind: input.proposal.kind, text: input.proposal.text },
+              content: {
+                kind: input.proposal.kind, text: input.proposal.text, description: input.proposal.description,
+              },
               evidence_ids: input.proposal.evidence_ids,
             }),
             reason: 'Preserve the runtime fixture fact without duplicating it.',
@@ -159,7 +162,7 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
         } else {
           const evidence = input.evidence.find(item => JSON.stringify(item).includes(CANARY))
           const candidates = evidence ? [{
-            kind: 'decision', text: CANARY, evidence_ids: [evidence.evidence_id],
+            kind: 'decision', text: CANARY, description: CANARY_DESCRIPTION, evidence_ids: [evidence.evidence_id],
           }] : []
           content = JSON.stringify({ candidates })
         }

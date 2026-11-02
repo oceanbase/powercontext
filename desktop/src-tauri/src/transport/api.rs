@@ -402,6 +402,7 @@ impl ServerApi {
             text: text.to_owned(),
             reason: None,
             expected_revision: None,
+            description: None,
         };
         let body = serde_json::to_value(request)
             .map_err(|_| ApiFailure::before(SafeError::InvalidInput))?;
@@ -508,7 +509,7 @@ impl ServerApi {
             )
             .await?;
         if result.scope_id != scope
-            || result.family != ArtifactReadFamily::AtomicMemory
+            || result.family != "atomic-memory"
             || result.artifact_id != artifact.artifact_id
             || result.revision != artifact.revision
             || result.content.get("schema").and_then(|v| v.as_str())

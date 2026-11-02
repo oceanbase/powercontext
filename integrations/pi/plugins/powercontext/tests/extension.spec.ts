@@ -123,6 +123,41 @@ describe('PowerContext Pi extension', () => {
     })
   })
 
+  it('sends the end of a long prompt as the recall query and captures the whole prompt', async () => {
+    vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
+    const fetch = scopeAwareFetch(async (url: string) => {
+      if (url.endsWith('/v1/context/prepare')) {
+        return new Response(JSON.stringify({
+          schema: 'powercontext.prepared-context.v1',
+          status: 'empty',
+          content: null,
+          content_bytes: 0,
+        }))
+      }
+      if (url.endsWith('/v1/sources/content')) return new Response(JSON.stringify({ position: 7 }))
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const prompt = `${'earlier context '.repeat(1_000)}Which service owns the retry?`
+
+    await installExtension().get('before_agent_start')?.({
+      prompt,
+      systemPrompt: 'Base instructions',
+    }, {
+      cwd: '/workspace/repo',
+      sessionManager: {
+        getSessionId: () => 'session-42',
+        getBranch: () => [],
+      },
+    })
+
+    const body = (path: string) => JSON.parse(String(
+      fetch.mock.calls.find(([url]) => url === `http://127.0.0.1:8000${path}`)?.[1]?.body,
+    ))
+    expect(body('/v1/context/prepare').query).toBe(prompt.slice(-8_192))
+    expect(body('/v1/sources/content').content).toBe(prompt)
+  })
+
   it('keeps stderr clean by default so the TUI input bar is not corrupted', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network unavailable')))
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)

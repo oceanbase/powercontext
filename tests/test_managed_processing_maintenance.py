@@ -75,7 +75,7 @@ def test_registered_mode_switch_backs_up_preserves_revision_and_fences_old_worke
     assert result.backup_state == "completed"
     assert result.backup_ref and Path(result.backup_ref).is_file()
     with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute("SELECT version_num FROM pc_schema_revision").fetchall() == [("v1_4_1_004",)]
+        assert connection.execute("SELECT version_num FROM pc_schema_revision").fetchall() == [("v1_5_0_001",)]
         assert (
             json.loads(connection.execute("SELECT config_manifest FROM pc_artifact_processing_schema").fetchone()[0])[
                 "mode"

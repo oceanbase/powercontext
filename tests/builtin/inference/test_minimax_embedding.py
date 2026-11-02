@@ -35,6 +35,11 @@ from powercontext.builtin.inference.minimax import (
     _embedding_model_name,
     is_minimax_embedding,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 
 TEST_PROFILE = EmbeddingProfile(
     profile_id="mm-v1",
@@ -155,6 +160,25 @@ def test_embed_raises_unavailable_on_http_error() -> None:
             model = _model(http_client=client)
             with pytest.raises(InferenceUnavailableError):
                 await model.embed(("alpha",))
+
+    asyncio.run(scenario())
+
+
+def test_embed_classifies_rate_limited_http_status() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"base_resp": {"status_code": 1002}})
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            model = _model(http_client=client)
+            with pytest.raises(InferenceUnavailableError) as error:
+                await model.embed(("alpha",))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.EMBEDDING
+        assert diagnostics.reason is ProcessingFailureReason.RATE_LIMIT
+        assert diagnostics.cause_exception_type == "HTTPStatusError"
 
     asyncio.run(scenario())
 
@@ -293,3 +317,35 @@ def test_embedding_model_name_strips_provider_prefix() -> None:
     assert _embedding_model_name("minimax:embo-01") == "embo-01"
     assert _embedding_model_name("embo-01") == "embo-01"
     assert _embedding_model_name(None) == ""
+
+
+@pytest.mark.parametrize(
+    ("status_code", "reason"),
+    [
+        (401, ProcessingFailureReason.CONFIGURATION),
+        (403, ProcessingFailureReason.CONFIGURATION),
+        (408, ProcessingFailureReason.TIMEOUT),
+        (504, ProcessingFailureReason.TIMEOUT),
+        (409, ProcessingFailureReason.PROVIDER_UNAVAILABLE),
+        (425, ProcessingFailureReason.PROVIDER_UNAVAILABLE),
+        (500, ProcessingFailureReason.PROVIDER_UNAVAILABLE),
+        (400, None),
+    ],
+)
+def test_embed_classifies_http_status_reason(status_code, reason) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, json={"base_resp": {"status_code": 1000}})
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            model = _model(http_client=client)
+            with pytest.raises(InferenceUnavailableError) as error:
+                await model.embed(("alpha",))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.EMBEDDING
+        assert diagnostics.reason is reason
+        assert diagnostics.cause_exception_type == "HTTPStatusError"
+
+    asyncio.run(scenario())

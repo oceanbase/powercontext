@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from secrets import compare_digest
-from typing import Protocol
+from typing import Any, Protocol
 
 from powercontext.server.authz import GroupRef, PrincipalRef
 
@@ -127,3 +127,72 @@ __all__ = (
     "ProviderReadiness",
     "StaticBearerAuthenticationProvider",
 )
+
+
+class MultiBearerAuthenticationProvider:
+    """Reload a protected static identity map; no identity receives an implicit role.
+
+    The JSON file contains ``identities`` with ``credential_id``, ``token_digest``
+    (SHA-256), and ``subject`` (a Principal object). Rotation takes effect on the
+    next request, including every management-channel heartbeat.
+    """
+
+    def __init__(self, path) -> None:
+        from pathlib import Path
+
+        self.path = Path(path)
+        self._identities()
+
+    def _identities(self) -> list[dict[str, Any]]:
+        import json
+        import os
+
+        if self.path.is_symlink() or not self.path.is_file():
+            raise ValueError("Identity configuration must be a regular protected file")  # noqa: TRY003
+        if os.name == "posix" and self.path.stat().st_mode & 0o077:
+            raise ValueError("Identity configuration must have mode 600")  # noqa: TRY003
+        identities = json.loads(self.path.read_text(encoding="utf-8"))["identities"]
+        if not isinstance(identities, list) or not identities or len(identities) > 1000:
+            raise ValueError("Invalid identity configuration")  # noqa: TRY003
+        keys = set()
+        digests = set()
+        for value in identities:
+            PrincipalRef(**value["subject"])
+            digest = value["token_digest"]
+            if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                raise ValueError("Identity token digests must be SHA-256")  # noqa: TRY003
+            if value["credential_id"] in keys or digest in digests:
+                raise ValueError("Identity credentials must be distinct")  # noqa: TRY003
+            keys.add(value["credential_id"])
+            digests.add(digest)
+        return identities
+
+    def principals(self) -> tuple[PrincipalRef, ...]:
+        return tuple(PrincipalRef(**value["subject"]) for value in self._identities())
+
+    async def authenticate(self, request: AuthenticationRequest, /) -> AuthenticationResult:
+        from hashlib import sha256
+
+        authorization = request.headers.get("authorization", "")
+        scheme, separator, credential = authorization.partition(" ")
+        if not separator or scheme.casefold() != "bearer" or not credential:
+            raise AuthenticationRejectedError
+        try:
+            identities = self._identities()
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise AuthenticationUnavailableError from error
+        digest = sha256(credential.encode()).hexdigest()
+        matched = None
+        for value in identities:
+            if compare_digest(digest, value["token_digest"]):
+                matched = value
+        if matched is None:
+            raise AuthenticationRejectedError
+        return AuthenticationResult(subject=PrincipalRef(**matched["subject"]), credential_id=matched["credential_id"])
+
+    async def readiness(self) -> ProviderReadiness:
+        try:
+            self._identities()
+        except (OSError, ValueError, KeyError, TypeError):
+            return ProviderReadiness(ready=False, reason="identity_configuration_unavailable")
+        return ProviderReadiness(ready=True)

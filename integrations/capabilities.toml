@@ -16,6 +16,7 @@ schema_version = 2
 
 # Every integrations/*/ directory must be declared below or explicitly excluded.
 [directory_exclusions]
+cindy = "Scoped Ghost recall and will-user-message hooks plus native MCP under evaluation with Cindy 0.1.115; opt-in Codex app-server acceptance does not qualify Electron installation, credential UI, or complete Desktop harness routing. See integrations/cindy/README.md."
 agent-plugin = "Portable Agent Plugin client package, not a qualified host or framework adapter; host support is tracked by the individual host declarations. See integrations/agent-plugin/README.md."
 minimax = "Host package awaiting one-command setup and native qualification under #1840; not yet included in the supported host catalog. See integrations/minimax/README.md."
 opendal = "Independently deployed evaluation Connector worker, not a complete standard Source integration or host adapter. See integrations/opendal/README.md."
@@ -70,6 +71,9 @@ capabilities = ["memory_read"]
 id = "list_atomic_memories"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "get_recall_manifest"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "search_atomic_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
@@ -98,6 +102,24 @@ id = "restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"
@@ -282,6 +304,9 @@ capabilities = ["memory_read"]
 id = "mcp__powercontext__list_atomic_memories"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "mcp__powercontext__get_recall_manifest"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "mcp__powercontext__search_atomic_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
@@ -310,6 +335,24 @@ id = "mcp__powercontext__restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "mcp__powercontext__pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "mcp__powercontext__capture_working_note"
@@ -1090,6 +1133,9 @@ tests = ["integrations/dify/tests/test_plugin_contract.py", "tests/e2e/test_dify
 id = "kimi-code-mcp"
 probe = "kimi_code_mcp"
 [[toolsets.tools]]
+id = "get_recall_manifest"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "search_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
@@ -1139,6 +1185,24 @@ id = "restore_atomic_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]
 id = "capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_capabilities"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_add"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_status"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_target_set_enabled"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instances"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_source_instance_set_enabled"
 capabilities = ["source_capture"]
 [[toolsets.tools]]
 id = "capture_working_note"

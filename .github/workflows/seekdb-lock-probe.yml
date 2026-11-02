@@ -1,38 +1,68 @@
 name: SeekDB migration lock diagnostics
 
 on:
-  pull_request:
-    paths:
-      - scripts/probe_seekdb_migration_lock.py
-      - .github/workflows/seekdb-lock-probe.yml
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: seekdb-lock-probe-${{ github.event.pull_request.number || github.ref }}
+  group: seekdb-lock-probe-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: seekdb-lock-probe.yml
+
   reproduce:
+    needs: changes
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').seekdb_lock) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+        scenario: [migration, restart-recovery]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
       - name: Reproduce migration lifecycle with complete native evidence
-        run: uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py --attempts 12
+        env:
+          SEEKDB_PROBE_SCENARIO: ${{ matrix.scenario }}
+        run: |
+          restart_args=()
+          if [ "$SEEKDB_PROBE_SCENARIO" = restart-recovery ]; then
+            restart_args+=(--restart)
+          fi
+          uv run --locked --extra seekdb python scripts/probe_seekdb_migration_lock.py \
+            --scenario "$SEEKDB_PROBE_SCENARIO" "${restart_args[@]}" --attempts 12 --timeout 180
       - name: Upload native logs, lifecycle and live transaction snapshots
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: seekdb-lock-probe-${{ github.sha }}
-          path: .powercontext/seekdb-lock-probe
+          name: seekdb-lock-probe-${{ matrix.python }}-${{ matrix.scenario }}-${{ github.sha }}
+          path: |
+            .powercontext/seekdb-lock-probe/environment.json
+            .powercontext/seekdb-lock-probe/attempt-*/*.json
+            .powercontext/seekdb-lock-probe/attempt-*/*.jsonl
+            .powercontext/seekdb-lock-probe/attempt-*/*.xml
+            .powercontext/seekdb-lock-probe/attempt-*/*.log
+            .powercontext/seekdb-lock-probe/attempt-*/*.gz
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7

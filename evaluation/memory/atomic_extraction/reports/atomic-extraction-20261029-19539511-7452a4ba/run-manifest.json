@@ -1,0 +1,40 @@
+{
+  "dataset": {
+    "case_count": 9,
+    "dataset_version": "powercontext.atomic-memory-extraction.synthetic.v1",
+    "manifest_sha256": "47e6a9e731523b6b41295cf59f6eb4772e69b1afddfa1edebfbf1fe6db021ab4",
+    "schema_version": "powercontext.atomic-memory-extraction-cases.v1"
+  },
+  "prompts": {
+    "coding": {
+      "builtin_version": "powercontext.atomic-memory.extract.coding.v3",
+      "compiled_digest": "656f82727896c3d5b8793ae2b9d210f143aa1e8ca760f7f5225e72d663fb083f",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "49f89a1a61e5f551780f934bf447b353a199545fa547ac6aee0a1e8c0e34aee8",
+      "key": "atomic_memory.extract"
+    },
+    "conversation": {
+      "builtin_version": "powercontext.atomic-memory.extract.conversation.v3",
+      "compiled_digest": "8d023c1bb94c724da1613dc9061d3e546815bd34cdf390ebcd8af0deff08d2eb",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "44c6c4969c7c4b984d845af1c4e94270d556443e133e862650ad226a7f508475",
+      "key": "atomic_memory.extract"
+    }
+  },
+  "provider": {
+    "base_url_configured": true,
+    "base_url_sha256": "0413b53d28826c51b400bc9ebc578639bf6a4ff94d3e43fbcbc468bd51945602",
+    "header_names": [
+      "Authorization"
+    ],
+    "max_requests": 2,
+    "model": "openai-chat:glm-5.3",
+    "model_settings": {},
+    "model_settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "provider": "openai-chat",
+    "timeout_seconds": 120.0
+  },
+  "run_id": "atomic-extraction-20261029-19539511-7452a4ba",
+  "schema_version": "powercontext.atomic-memory-extraction-run.v1",
+  "started_at": "2026-10-29T09:27:36.565679Z"
+}
