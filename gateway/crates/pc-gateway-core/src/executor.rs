@@ -131,7 +131,8 @@ where
         let pristine_user_text = last_user_text(&pristine_request).unwrap_or_default();
 
         if call.inject_context {
-            self.enrich(&mut call, evidence).await;
+            self.enrich(&mut call, renderer.message_list_key(), evidence)
+                .await;
         }
 
         let payload = match renderer.render(&call.request, None) {
@@ -371,7 +372,7 @@ where
         }
     }
 
-    async fn enrich(&self, call: &mut ManagedCall, evidence: &dyn EvidenceSink) {
+    async fn enrich(&self, call: &mut ManagedCall, list_key: &str, evidence: &dyn EvidenceSink) {
         let Some(query) = last_user_text(&call.request) else {
             return;
         };
@@ -408,6 +409,13 @@ where
         let Some(message) = call.request.messages.get_mut(index) else {
             return;
         };
+        // Core accepts Responses prepared-context locations only in input_text parts.
+        // Normalize only when injecting, preserving uninjected and degraded payloads.
+        if list_key == "input" {
+            if let [serde_json::Value::String(text)] = message.content.as_slice() {
+                message.content = vec![serde_json::json!({"type": "input_text", "text": text})];
+            }
+        }
         match message.content.as_slice() {
             [serde_json::Value::String(s)] => {
                 let new_text = format!("{block}\n\n{s}");
@@ -417,9 +425,7 @@ where
             // 保留所有非文本部件（image_url 等）——移除非文本部件会让 Core
             // 看不到不支持的内容（安全缺陷），重复注入会膨胀 payload（审计缺陷）。
             parts if !parts.is_empty() => {
-                let first_text_idx = parts
-                    .iter()
-                    .position(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"));
+                let first_text_idx = parts.iter().position(is_text_part);
                 let Some(text_idx) = first_text_idx else {
                     return;
                 };
@@ -448,7 +454,7 @@ where
                     binding: binding.to_string(),
                     location: ModelJsonTextLocation {
                         schema: pc_gateway_types::MODEL_JSON_TEXT_LOCATION_SCHEMA.to_string(),
-                        pointer: format!("/messages/{index}/content/{text_idx}/text"),
+                        pointer: format!("/{list_key}/{index}/content/{text_idx}/text"),
                         start_byte: 0,
                         end_byte: block.len() as u64,
                     },
@@ -461,7 +467,7 @@ where
             binding: binding.to_string(),
             location: ModelJsonTextLocation {
                 schema: pc_gateway_types::MODEL_JSON_TEXT_LOCATION_SCHEMA.to_string(),
-                pointer: format!("/messages/{index}/content"),
+                pointer: format!("/{list_key}/{index}/content"),
                 start_byte: 0,
                 end_byte: block.len() as u64,
             },
@@ -566,6 +572,14 @@ fn classify_gate_error(e: GateError) -> String {
     }
 }
 
+/// 文本内容部件：Chat 为 `text`，Responses 的用户输入为 `input_text`。
+fn is_text_part(part: &serde_json::Value) -> bool {
+    matches!(
+        part.get("type").and_then(|t| t.as_str()),
+        Some("text" | "input_text")
+    )
+}
+
 fn last_user_index(request: &CanonicalRequest) -> Option<usize> {
     request
         .messages
@@ -577,19 +591,13 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
     let i = last_user_index(request)?;
     match request.messages[i].content.as_slice() {
         [serde_json::Value::String(s)] => Some(s.clone()),
-        // typed content parts：[{"type":"text","text":"..."},...] → 拼接 text 字段。
-        // 这是 OpenAI Chat 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
+        // typed content parts：[{"type":"text"或"input_text","text":"..."},...] → 拼接 text 字段。
+        // 这是 Chat 与 Responses 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
         parts if !parts.is_empty() => {
             let texts: Vec<String> = parts
                 .iter()
-                .filter_map(|p| {
-                    p.get("type")
-                        .and_then(|t| t.as_str())
-                        .filter(|t| t == &"text")
-                        .and_then(|_| p.get("text"))
-                        .and_then(|t| t.as_str())
-                        .map(String::from)
-                })
+                .filter(|p| is_text_part(p))
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()).map(String::from))
                 .collect();
             if texts.is_empty() {
                 None

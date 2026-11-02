@@ -53,8 +53,11 @@ pub struct AppState {
     pub upstream_responses_api_key: String,
     pub api_key: Option<String>,
     pub degrade: pc_gateway_core::DegradePolicy,
-    /// 是否调 prepare 注入上下文（默认关；v1 仅 chat 格式）。
+    /// 是否调 prepare 注入上下文（默认关）。
     pub inject_context: bool,
+    /// Responses 入口是否注入：默认跟随 inject_context，
+    /// `PC_GATEWAY_INJECTION_RESPONSES=off` 可单独关闭。
+    pub inject_responses: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
@@ -118,6 +121,10 @@ async fn main() {
             .filter(|k| !k.is_empty()),
         degrade,
         inject_context: matches!(std::env::var("PC_GATEWAY_INJECTION").as_deref(), Ok("on")),
+        inject_responses: !matches!(
+            std::env::var("PC_GATEWAY_INJECTION_RESPONSES").as_deref(),
+            Ok("off")
+        ),
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),

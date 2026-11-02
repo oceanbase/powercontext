@@ -86,7 +86,8 @@ PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider/v1/chat/completions \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 ./target/release/pc-gateway
 
-# Optional: PC_GATEWAY_INJECTION=on (prepare + inject), PC_GATEWAY_SEDIMENT=on (capture after release),
+# Optional: PC_GATEWAY_INJECTION=on (prepare + inject on the Chat and Responses routes;
+# PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected), PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_DEGRADE=passthrough (no-memory passthrough when Core is unreachable; never applies
 # to deployments with enforcing protection), PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES,
 # PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled).
