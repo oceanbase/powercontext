@@ -124,7 +124,7 @@ def reference(rows: list[list[Any]]) -> Iterator[Connection]:
 
 
 def _default(value: str | None, column_type: str) -> tuple[str, ...] | None:
-    if value is None:
+    if value is None or re.fullmatch(r"[\s()]*null[\s()]*", value, re.IGNORECASE):
         return None
     result = sql_tokens(value)
     while len(result) >= 2 and result[0] == "(" and result[-1] == ")" and "(" not in result[1:-1]:

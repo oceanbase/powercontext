@@ -38,7 +38,7 @@ from powercontext.builtin.runtime.processing_registry import canonical_processin
 
 
 @pytest.mark.parametrize("backend", ["seekdb", "oceanbase"])
-@pytest.mark.parametrize("damage", [None, "missing-evidence", "unregistered-table"])
+@pytest.mark.parametrize("damage", [None, "missing-evidence", "independent-table"])
 def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(tmp_path, monkeypatch, backend, damage):
     directory = tmp_path / "evidence"
     config = (
@@ -83,7 +83,7 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
     )
     if damage == "missing-evidence":
         journal.path.unlink()
-    elif damage == "unregistered-table":
+    elif damage == "independent-table":
         name, definition = _parse_table("CREATE TABLE unregistered (id INTEGER PRIMARY KEY)")
         inventory["tables"][name] = definition
 
@@ -94,6 +94,9 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
             for statement in resource["initialize"]:
                 connection.exec_driver_sql(statement)
             connection.exec_driver_sql(control)
+            if damage == "independent-table":
+                connection.exec_driver_sql("CREATE TABLE unregistered (id INTEGER PRIMARY KEY)")
+                connection.exec_driver_sql("INSERT INTO unregistered VALUES (7)")
             connection.commit()
             # The baseline table DDL exists, but its final manifest seed has not
             # run. Domain preflight cannot validate this intermediate state yet.
@@ -105,9 +108,8 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
                 connections, "run", lambda operation, **_options: operation(connection, identity, lambda: None)
             )
             monkeypatch.setattr(connections, "coordination", lambda _identity: {})
-            if damage:
-                code = "recovery_required" if damage == "missing-evidence" else "incompatible_schema"
-                with pytest.raises(MigrationError, match=code):
+            if damage == "missing-evidence":
+                with pytest.raises(MigrationError, match="recovery_required"):
                     runner.plan()
             else:
                 plan = runner.plan()
@@ -115,6 +117,7 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
                 assert plan.source_revision is None
                 assert plan.revisions[0] == "s1300"
                 assert plan.domain_steps
+                assert not plan.compatibility_steps
                 native_execute = runner.schema.execute
 
                 def execute_revision(connection, _config, _source, target, guard):
@@ -134,6 +137,10 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
                     inventory.clear()
                     inventory.update(copy.deepcopy(runner.schema._schemas[target]))
                     inventory["tables"]["pc_schema_revision"] = _parse_table(control)[1]
+                    if damage == "independent-table":
+                        inventory["tables"]["unregistered"] = _parse_table(
+                            "CREATE TABLE unregistered (id INTEGER PRIMARY KEY)"
+                        )[1]
                     connection.commit()
 
                 monkeypatch.setattr(runner, "_upgrade", execute_revision)
@@ -147,5 +154,7 @@ def test_initialization_recovery_defers_seed_checks_only_for_registered_prefix(t
                 completed = journal.read()
                 assert completed is not None and completed.state == "complete"
                 assert completed.maintenance_window_id == "interrupted-initialization"
+                if damage == "independent-table":
+                    assert connection.exec_driver_sql("SELECT id FROM unregistered").all() == [(7,)]
     finally:
         engine.dispose()

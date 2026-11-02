@@ -31,6 +31,12 @@ conversion run only when their data state requires them. The normalized database
 before the framework stamps a checkpoint and continues the shared chain. Unknown destructive conversions, conflicting
 constraints and incomplete domain state still produce an actionable error instead of silently discarding data.
 
+Independent tables and their rows are preserved during registered upgrades and initialization recovery. Adding an
+independent table to a recognized 1.3.0 or 1.4.0 source does not schedule historical conversion. This does not authorize
+arbitrary layouts: required managed structure, domain state, vector configuration and recovery evidence must still pass
+validation. An extra required column must have a usable default; SQL `DEFAULT NULL` cannot satisfy `NOT NULL`, whereas
+the string default `'NULL'` remains usable.
+
 `plan` exposes `compatibility_steps` and their checksum without changing the database. The existing `apply` command
 performs normalization after maintenance confirmation and backup. SQLite rolls back an unsuccessful normalization.
 seekDB and OceanBase record each structural operation's intent and postcondition in the existing external maintenance

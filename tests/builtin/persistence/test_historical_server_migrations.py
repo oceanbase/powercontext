@@ -14,6 +14,7 @@
 
 """Real released SQLite layouts must remain usable through the unified upgrade."""
 
+import asyncio
 import json
 import shutil
 import sqlite3
@@ -32,8 +33,11 @@ from powercontext.builtin.persistence.migrations.models import MigrationError, d
 from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema
 from powercontext.builtin.persistence.migrations.sqlite import SQLiteMigrationRunner
 from powercontext.builtin.persistence.migrations.sqlite_compatibility import layout
+from powercontext.builtin.persistence.sources import SourceRepository
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentCapture
 
 FIXTURES = Path(__file__).parent / "fixtures/historical"
 FACTS = [
@@ -556,3 +560,58 @@ def test_dependent_views_survive_rebuild_and_retry(tmp_path, name, interruption)
         assert connection.execute("SELECT total FROM extension_audit").fetchall() == [(count,)]
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert not apply(runner).changed
+
+
+@pytest.mark.parametrize(
+    ("default", "usable"),
+    [
+        ("NULL", False),
+        ("(((NULL)))", False),
+        ("'NULL'", True),
+        ('"NULL"', True),
+        ("'keep'", True),
+        ("0", True),
+        ("(1+1)", True),
+    ],
+)
+def test_required_extension_defaults_must_allow_source_writes(tmp_path, default, usable):
+    runner = SQLiteMigrationRunner(
+        tmp_path / "managed.db",
+        server_bundle(),
+        configuration={
+            "processing_manifest": canonical_processing_manifest(BuiltinConfig()),
+            "embedding_enabled": False,
+        },
+    )
+    apply(runner)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute(
+            "ALTER TABLE pc_source_journal_heads ADD COLUMN extension_note TEXT NOT NULL DEFAULT " + default
+        )
+    before = dump(runner.database)
+    engine = create_engine(f"sqlite:///{runner.database}")
+    try:
+        with engine.connect() as connection:
+            if not usable:
+                with pytest.raises(MigrationError, match="incompatible_schema"):
+                    runner.verify()
+                with pytest.raises(MigrationError, match="incompatible_schema"):
+                    check_server_schema(connection, _startup=True)
+                assert dump(runner.database) == before
+                return
+            assert runner.verify().state == "ready"
+            check_server_schema(connection, _startup=True)
+    finally:
+        engine.dispose()
+
+    async def write_and_read():
+        value = await CONTENT_SOURCE_ADAPTER.resolve(ContentCapture(source_id="extension-default", content="kept"))
+        repository = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+        async with SQLiteProfile.open(SQLiteConfig(url=f"sqlite+aiosqlite:///{runner.database}"), tables=()) as profile:
+            async with profile.database.transaction() as connection:
+                stored = await repository.add(connection, "extension-scope", value)
+            async with profile.database.transaction() as connection:
+                assert (await repository.get(connection, "extension-scope", stored.ref)).value == value
+                assert await repository.journal_position(connection, "extension-scope") == 1
+
+    asyncio.run(write_and_read())
