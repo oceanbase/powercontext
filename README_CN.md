@@ -42,10 +42,7 @@ Scope
 
 ### Memory —— 活得比会话更久的决定与约束
 
-Memory 是一个带版本的 Artifact 家族，存放可以复用的决定、约束、事实、状态和下一步。条目状态为 `active`、
-`forgotten`、`merged` 或 `retired`。通过 `POST /v1/atomic-memory/lifecycle` 遗忘一条，会把它移出主动召回，但内容
-和历史仍然可用、可恢复，且不会推进内容 revision。显式写入 Memory 完全不需要模型；从已捕获的 Source 中提取，
-才需要配置生成流水线。
+Memory 是一个带版本的 Artifact 家族，存放可以复用的决定、约束、事实、状态和下一步。条目状态为 `active`、`forgotten`、`merged` 或 `retired`。通过 `POST /v1/atomic-memory/lifecycle` 遗忘一条，会把它移出主动召回，但内容和历史仍然可用、可恢复，且不会推进内容 revision。显式写入 Memory 完全不需要模型；从已捕获的 Source 中提取，才需要配置生成流水线。
 
 > "别重构老的 auth 模块 —— 移动端还在用。"
 > 这么贵的上下文，不应该依赖有人每个会话都重讲一遍。
@@ -102,10 +99,8 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 
 ![PowerContext 在 LoCoMo 和 SWE-bench Pro 上的紧凑对比图](docs/assets/readme-benchmark-summary.svg)
 
-- **长对话记忆（LoCoMo；类别 1–4 的 1,540 个计分问题）：准确率 90.78%**，PowerMem 为 87.79%，全量上下文
-  重放为 52.9% —— 相对后者 **+37.88 个百分点**。
-- **编码任务（SWE-bench Pro；731 个公开 v2 任务的配对项目运行，非官方提交）：开启 PowerContext 后任务解决率
-  86.73%，关闭时 82.35%** —— **+4.38 个百分点**，多解出 32 题。
+- **长对话记忆（LoCoMo；类别 1–4 的 1,540 个计分问题）：准确率 90.78%**，PowerMem 为 87.79%，全量上下文重放为 52.9% —— 相对后者 **+37.88 个百分点**。
+- **编码任务（SWE-bench Pro；731 个公开 v2 任务的配对项目运行，非官方提交）：开启 PowerContext 后任务解决率 86.73%，关闭时 82.35%** —— **+4.38 个百分点**，多解出 32 题。
 - **召回质量（LoCoMo Plus）**：原生 PowerContext 对比检索后用 Jev 做候选筛选。每组模型同时用于 Memory 抽取与回答，向量模型为 `qwen3.7-text-embedding`（1024 维）：
 
   | 模型 | PowerContext | PowerContext + Jev | 差值 |
@@ -126,13 +121,7 @@ PowerContext 把可长期复用的项目上下文放在单次对话之外。一�
 Agent 输入 → Source 证据 → Memory / Topic Memory → PreparedContext → 新会话或新 Agent
 ```
 
-PowerContext 1.4.1 包含交互式配置向导。需要 Python 3.11+、Git 和
-[uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。
-要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；
-选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，
-请参考[安装与运行](docs/zh/docs/get-started/install-and-run.md)。
-支持 macOS 和 Linux；Windows 支持为 `experimental`。
-需要自动安装 Python 和 uv 时，使用[安装脚本](docs/zh/docs/get-started/install-and-run.md#使用推荐安装脚本)。
+PowerContext 1.4.1 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](docs/zh/docs/get-started/install-and-run.md)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](docs/zh/docs/get-started/install-and-run.md#使用推荐安装脚本)。
 
 请选择与你目标匹配的路径：
 
@@ -160,8 +149,7 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-向导生成一个 `.env` 环境文件和 `.env.next-steps.md`。这些文件可能包含凭据，请勿提交到 Git。
-原生当前用户服务负责 Server 生命周期；Linux 需要可用的 `systemd --user` 管理器。加载生成的环境文件并检查服务：
+向导生成一个 `.env` 环境文件和 `.env.next-steps.md`。这些文件可能包含凭据，请勿提交到 Git。原生当前用户服务负责 Server 生命周期；Linux 需要可用的 `systemd --user` 管理器。加载生成的环境文件并检查服务：
 
 ```bash
 set -a
@@ -171,26 +159,18 @@ powercontext ready
 powercontext capabilities
 ```
 
-接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。
-切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行
-`powercontext service install --env-file .env` 以协调服务配置。然后安装相同版本的插件，再打开新 Agent 会话。
-[完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
+接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行 `powercontext service install --env-file .env` 以协调服务配置。然后安装相同版本的插件，再打开新 Agent 会话。[完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
 powercontext setup codex --ref powercontext-v1.4.1
 powercontext doctor codex
 ```
 
-在新 Codex 会话发送第一条消息前，打开 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。
-`UserPromptSubmit` Hook 未启用时，即使 MCP 连通，也不会自动采集输入或召回上下文。
-检查与恢复步骤见[首次会话 Hook 信任](docs/zh/docs/integrations/codex.md#首次会话-hook-信任)。
-完成下面的首次验收后，可按[能力与触发指南](docs/zh/docs/get-started/quickstart.md#5-选择下一项工作流)
-体验七类 Artifact、Source 和 Tag。基础记忆无需独立的 Server 模型 API；Agent 仍使用自己的模型。
+在新 Codex 会话发送第一条消息前，打开 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。`UserPromptSubmit` Hook 未启用时，即使 MCP 连通，也不会自动采集输入或召回上下文。检查与恢复步骤见[首次会话 Hook 信任](docs/zh/docs/integrations/codex.md#首次会话-hook-信任)。完成下面的首次验收后，可按[能力与触发指南](docs/zh/docs/get-started/quickstart.md#5-选择下一项工作流) 体验七类 Artifact、Source 和 Tag。基础记忆无需独立的 Server 模型 API；Agent 仍使用自己的模型。
 
 ### 2. 验收第一条端到端结果
 
-这一步检查 PowerContext 真正有用的链路：Source 采集 → 后台处理 → 跨会话召回。
-在绑定了同一 Scope 的新 Agent 会话中，发送一条具体决定，例如：
+这一步检查 PowerContext 真正有用的链路：Source 采集 → 后台处理 → 跨会话召回。在绑定了同一 Scope 的新 Agent 会话中，发送一条具体决定，例如：
 
 ```text
 我们正在设计 Aurora 验收项目。决定用 uv 管理 Python 依赖，配置文件使用 .env。
@@ -204,8 +184,7 @@ powercontext doctor codex
 3. 发送一条相关更新，确认新的 Source 入库，且主题内容或修订记录反映了更新。
 4. 使用同一 Scope 开启新的 Agent 会话，要求它带引用找回 Aurora 的决定。
 
-`doctor codex` 只检查安装与连接。Source 采集本身不会创建 Memory 或 Topic Memory，后台处理还要等待配置的调度和模型运行。
-基础记忆模式下，可以显式要求 Agent 保存一条决定，再在新会话中搜索；这不能验收自动提取。
+`doctor codex` 只检查安装与连接。Source 采集本身不会创建 Memory 或 Topic Memory，后台处理还要等待配置的调度和模型运行。基础记忆模式下，可以显式要求 Agent 保存一条决定，再在新会话中搜索；这不能验收自动提取。
 
 ### 3. 先用 Python 体验
 
@@ -216,9 +195,7 @@ uv sync --locked --group notebooks
 uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
 ```
 
-先从 [01 · 让新会话用上项目约定](examples/jupyter/01_memory_across_sessions.ipynb)开始，再通过
-[22 篇中文 Jupyter 教程与完整团队工作流](examples/jupyter/README.md)亲手运行 Memory、上下文、交接、Experience、Skill
-和真实 Agent。前七篇不需要模型或 API Key。
+先从 [01 · 让新会话用上项目约定](examples/jupyter/01_memory_across_sessions.ipynb)开始，再通过 [22 篇中文 Jupyter 教程与完整团队工作流](examples/jupyter/README.md)亲手运行 Memory、上下文、交接、Experience、Skill 和真实 Agent。前七篇不需要模型或 API Key。
 
 ### 常见问题
 
@@ -265,8 +242,7 @@ make check
 make test
 ```
 
-完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
-编程能力评测、记忆质量评测、性能压测和 Skill 回归统一放在 [`evaluation/`](evaluation/README.md)，按用途选择对应目录。
+完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。编程能力评测、记忆质量评测、性能压测和 Skill 回归统一放在 [`evaluation/`](evaluation/README.md)，按用途选择对应目录。
 
 ## 进一步了解
 
@@ -286,8 +262,7 @@ PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
   <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext 贡献者" />
 </a>
 
-[查看全部贡献者](https://github.com/oceanbase/powercontext/graphs/contributors) ·
-[参与贡献](CONTRIBUTING.md)
+[查看全部贡献者](https://github.com/oceanbase/powercontext/graphs/contributors) · [参与贡献](CONTRIBUTING.md)
 
 ## 许可证
 
