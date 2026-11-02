@@ -86,7 +86,8 @@ sources; PDF/base64, URL, Files API references, and documents containing images 
 image-generation tools and opaque `image_generation_call` results are withheld on input and output.
 
 Built-in OpenAI/Anthropic clients and configured embedding/rerank paths install the checks at the final HTTP
-transport. Native SDK formatting happens first. Enforcing disables SDK transport retries; output-schema retries
+transport. Native SDK formatting happens first. Observation modes preserve the provider's existing retry policy;
+explicitly budgeted workers still disable SDK retries. Enforcing disables SDK transport retries; output-schema retries
 remain bounded by the existing stage and every actual attempt is checked. A mandatory privacy failure propagates
 through advisory decision fallbacks and cannot become an empty extraction or a consumed Memory HOLD.
 If a Memory write gate encounters that refusal, flush fails before publication and keeps its Source window
