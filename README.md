@@ -45,7 +45,7 @@ Scope
 
 For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
 
-*The Dashboard screenshots below use synthetic demonstration records.*
+*Screenshots show the Dashboard and Desktop preview with synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
 
@@ -87,6 +87,14 @@ only the approved current head takes part in recall — pending, rejected, and h
 A managed Skill holds a name, a discovery description, instructions, validation checks, and lineage. Approval does not
 install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the
 host-local projection.
+
+### Desktop — inspect project memory from a connected workspace
+
+Connect to a Server, select an exact Scope, and search its memories. Open a result to read its saved revision,
+or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation;
+signed distribution and platform release qualification remain separate work.
+
+![Desktop preview showing project memory search results and an exact saved revision](docs/assets/readme-desktop-memories.png)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 
