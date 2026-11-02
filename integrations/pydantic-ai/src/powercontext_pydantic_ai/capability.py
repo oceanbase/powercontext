@@ -39,7 +39,7 @@ from typing_extensions import override
 
 from powercontext.client import ClientError
 from powercontext.client.capture import render_capture_event
-from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest
+from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest, PreparedContext
 from powercontext_pydantic_ai.scope import ScopeId
 from powercontext_pydantic_ai.settings import PowerContextSettings
 from powercontext_pydantic_ai.toolset import (
@@ -233,7 +233,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
                 exc_info=exc,
             )
             return None
-        return response.content
+        return response.content if isinstance(response, PreparedContext) else None
 
     async def _capture_event(
         self,

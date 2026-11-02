@@ -56,6 +56,7 @@ from powercontext.builtin.runtime import (
     BuiltinRuntime,
     CaptureSource,
     PrepareContextRequest,
+    PreparedContext,
     ProposeExperienceRequest,
     StatisticsPeriod,
     open_builtin_runtime,
@@ -155,6 +156,7 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
             )
             statistics = runtime.statistics.for_scope(scope_id)
             prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="contract"))
+            assert isinstance(prepared, PreparedContext)
 
             result = await statistics.overview(period=StatisticsPeriod.TODAY)
 
@@ -237,6 +239,7 @@ def test_recall_estimates_each_source_as_complete_text() -> None:
                 )
             )
             prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="ancestry"))
+            assert isinstance(prepared, PreparedContext)
             result = await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY)
 
         estimator = character_token_estimator()
