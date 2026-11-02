@@ -52,7 +52,12 @@ from powercontext.builtin.runtime.application import ScheduledExperienceRunner, 
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.context_bindings import BindingCodec
-from powercontext.builtin.runtime.context_check import MAX_CHECK_BODY_BYTES, RESPONSE_CORRELATION, SEND_VALIDITY
+from powercontext.builtin.runtime.context_check import (
+    MAX_CHECK_BODY_BYTES,
+    MAX_PREPARED_CONTEXTS,
+    RESPONSE_CORRELATION,
+    SEND_VALIDITY,
+)
 from powercontext.builtin.runtime.context_reuse import MAX_REUSE_DEPENDENCIES
 from powercontext.builtin.runtime.processing_registry import processing_capabilities
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
@@ -907,7 +912,7 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
             "limits": {
                 "payload_bytes": min(runtime.inference_protection.max_payload_bytes, MAX_CHECK_BODY_BYTES),
                 "binding_bytes": runtime.context_binding_codec.max_token_bytes,
-                "prepared_contexts": 16,
+                "prepared_contexts": MAX_PREPARED_CONTEXTS,
                 "dependencies": MAX_REUSE_DEPENDENCIES,
                 "send_seconds": int(SEND_VALIDITY.total_seconds()),
                 "correlate_seconds": int(RESPONSE_CORRELATION.total_seconds()),
