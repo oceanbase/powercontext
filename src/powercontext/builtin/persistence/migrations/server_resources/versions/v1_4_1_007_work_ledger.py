@@ -14,10 +14,10 @@
 
 """Add the durable Work Ledger and its scheduler coordination tables.
 
-The revision follows ``v1_4_1_004`` rather than branching off ``s1402``: the
-bundle requires one linear chain, and master's owner-recovery revision already
-claimed the slot after ``s1402``. The release-based name follows the same rule
-that named ``v1_4_1_004``.
+The revision follows ``v1_4_1_006`` rather than branching off ``s1402``: the
+bundle requires one linear chain, and the earlier owner-recovery and
+source-write-plugin revisions already claimed the slots after ``s1402``. The
+release-based name follows the same rule that named ``v1_4_1_004``.
 """
 
 import json
@@ -25,12 +25,12 @@ from pathlib import Path
 
 from alembic import op
 
-revision = "v1_4_1_006"
-down_revision = "v1_4_1_004"
+revision = "v1_4_1_007"
+down_revision = "v1_4_1_006"
 
 
 def upgrade():
-    resource = Path(__file__).parents[1] / "schemas/sqlite-v1_4_1_006.json"
+    resource = Path(__file__).parents[1] / "schemas/sqlite-v1_4_1_007.json"
     connection = op.get_bind()
     for statement in json.loads(resource.read_text())["create"]:
         connection.exec_driver_sql(statement)

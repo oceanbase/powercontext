@@ -56,7 +56,9 @@ def test_mysql_vector_admission_retains_description_and_exact_previous_revision(
     assert vector.vector_profile is not None
     inventory = {"tables": {}, "views": [], "triggers": []}
     for resource in json.loads((plain.directory / "manifest.json").read_text())["mysql_state_layouts"]:
-        if resource.endswith("mysql-v1_5_0_001.json"):
+        # Inspect the description revision: later Source-plugin and Work Ledger
+        # registrations only add their own tables and are skipped outright.
+        if resource.endswith("mysql-v1_5_0_001.json") or resource.endswith("mysql-v1_4_1_007.json"):
             continue
         for entry in json.loads((plain.directory / resource).read_text())["revisions"].values():
             for change in entry["changes"]:
@@ -103,7 +105,7 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
     shutil.copytree(current.snapshot_directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    removed_revisions = ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001")
+    removed_revisions = ("v1_4_1_005", "v1_4_1_006", "v1_4_1_007", "v1_5_0_001")
     for revision in removed_revisions:
         for resource in manifest["revision_resources"].pop(revision):
             (directory / resource).unlink()
@@ -116,6 +118,17 @@ def test_description_upgrade_preserves_registered_owner_recovery_and_evidence(tm
     manifest["domain_steps"] = [step for step in manifest["domain_steps"] if step["revision"] not in removed_revisions]
     (directory / "artifact_storage_readiness.py").unlink()
     manifest["affected_objects"].remove("pc_source_write_plugins")
+    for table in (
+        "pc_work_lanes",
+        "pc_work_items",
+        "pc_work_keys",
+        "pc_work_attempts",
+        "pc_scheduler_leases",
+        "pc_scheduler_scans",
+        "pc_runtime_members",
+        "pc_rate_limit_windows",
+    ):
+        manifest["affected_objects"].remove(table)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     previous = MigrationBundle(directory, embedding_profile=profile)
     configuration = {
