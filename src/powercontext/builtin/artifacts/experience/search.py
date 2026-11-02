@@ -49,6 +49,7 @@ class ExperienceSearchOutcome:
     admission: AdmissionCounts | None = None
     matches: tuple[ArtifactSearchMatch, ...] = ()
     artifacts: tuple[Experience, ...] = ()
+    mode: Literal["fts", "vector", "hybrid"] | None = None
 
 
 class ExperienceSearchHit(BaseModel):
