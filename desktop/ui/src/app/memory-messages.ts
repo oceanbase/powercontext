@@ -38,9 +38,11 @@ export const memoryMessages = {
     recovery: "提交草稿恢复",
     submittedText: "原始提交文本",
     recoveryHint:
-      "原始输入仅在当前窗口内保留，供手动复制，不会自动提交到新目标。关闭窗口会丢失这些草稿。",
+      "原始输入仅在当前窗口内保留，供手动复制，不会自动提交到新目标。确认丢弃后切换页面、连接或范围会清除保留的输入；关闭窗口也会丢失这些草稿。",
     unconfirmed:
       "这次尝试未取得提交回执。请核对原目标后再决定是否重新提交；之前的未知提交仍需单独核查。",
+    discardAllSubmittedConfirm:
+      "丢弃所有保留的提交文本和尚未保存的输入？这不会撤销提交或修改 Server 上的记录。",
     discardSubmitted: "丢弃提交文本",
     discardSubmittedConfirm:
       "丢弃保留的原始输入吗？这不会撤销提交或修改 Server 上的记录。",
@@ -107,9 +109,11 @@ export const memoryMessages = {
     recovery: "Submitted draft recovery",
     submittedText: "Original submitted text",
     recoveryHint:
-      "Original inputs stay in this window for manual copying and are never submitted to a new target automatically. Closing the window loses these drafts.",
+      "Original inputs stay in this window for manual copying and are never submitted to a new target automatically. Confirming discard before changing pages, connections or Scopes clears the retained inputs; closing the window also loses these drafts.",
     unconfirmed:
       "No submission receipt was received for this attempt. Inspect the original target before resubmitting; any earlier unknown submission still needs separate verification.",
+    discardAllSubmittedConfirm:
+      "Discard all retained submitted text and unsaved input? This does not undo submissions or change Server records.",
     discardSubmitted: "Discard submitted text",
     discardSubmittedConfirm:
       "Discard the retained original input? This does not undo the submission or change records on the Server.",

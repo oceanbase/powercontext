@@ -486,6 +486,7 @@ async fn reset_excludes_in_flight_observations_without_cancelling_the_write() {
     )
     .await
     .unwrap();
+    let before_reset_requests = fixture.http_requests.load(Ordering::Relaxed);
     fixture.manager.observations().reset().unwrap();
     fixture.release.notify_one();
     let outcome = write.await.unwrap().unwrap();
@@ -504,6 +505,14 @@ async fn reset_excludes_in_flight_observations_without_cancelling_the_write() {
             .operations
             .iter()
             .all(|record| record.operation != ObservedOperation::RememberMemory)
+    );
+    assert_eq!(
+        summary
+            .recent
+            .iter()
+            .filter(|record| record.unit == ObservationUnit::HttpRequest)
+            .count(),
+        fixture.http_requests.load(Ordering::Relaxed) - before_reset_requests
     );
     assert_eq!(summary.evicted, 0);
     // Both the HTTP request and its user operation completed outside their reset window.

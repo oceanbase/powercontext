@@ -46,7 +46,11 @@ HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powerco
 
 
 class DeterministicSourcePipeline:
+    def __init__(self, delay: float = 0) -> None:
+        self.delay = delay
+
     async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
+        await asyncio.sleep(self.delay)
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
@@ -79,28 +83,194 @@ def _invoke_hook(
     environment.update(POWERCONTEXT_ZCODE_SERVER_URL=base_url, ZCODE_PLUGIN_DATA=os.environ["ZCODE_PLUGIN_DATA"])
     if scope_id is not None:
         environment["POWERCONTEXT_ZCODE_SCOPE_ID"] = scope_id
-    result = subprocess.run(
-        [node, str(HOOK)],
-        input=json.dumps({
-            "hookEventName": "UserPromptSubmit",
-            "sessionId": session_id,
-            "turnId": turn_id,
-            "cwd": str(HOOK.parents[5]),
-            "prompt": prompt,
-        }),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=10,
-        env=environment,
+    hook_input = json.dumps({
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": session_id,
+        "turnId": turn_id,
+        "cwd": str(HOOK.parents[5]),
+        "prompt": prompt,
+    })
+    for _ in range(3):
+        result = subprocess.run(
+            [node, str(HOOK)],
+            input=hook_input,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+            env=environment,
+        )
+        assert result.returncode == 0, result.stderr
+        output = json.loads(result.stdout)
+        diagnostics = [json.loads(line) for line in result.stderr.splitlines()]
+        if diagnostics != [{"component": "powercontext.zcode", "stage": "scope", "code": "timeout"}]:
+            allowed = [{"component": "powercontext.zcode", "stage": stage, "code": "timeout"} for stage in allowed_timeout_stages]
+            assert all(diagnostic in allowed for diagnostic in diagnostics), result.stderr
+            return output
+        # Scope resolution failed before capture. A capture timeout may have
+        # committed a write, so it must never take this retry path.
+        assert output == {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": ""}}
+    pytest.fail("Scope resolution timed out on all three Hook invocations")
+
+
+def _run_scope(node: str, environment: dict[str, str], action: str, *extra: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 10
+    while True:
+        result = subprocess.run(
+            [
+                node,
+                str(HOOK.parent.parent / "scripts" / "scope.mjs"),
+                action,
+                "--cwd",
+                str(HOOK.parents[5]),
+                "--session-id",
+                "binding-probe",
+                *extra,
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        assert result.stderr == "", result.stderr
+        document = json.loads(result.stdout)
+        assert document["schema"] == "powercontext.zcode.scope-result.v1"
+        if result.returncode == 0:
+            assert document["status"] == "resolved", document
+            return document
+        assert result.returncode == 1, document
+        assert document["status"] == "failed" and document["code"] == "timeout", document
+        if action != "resolve":
+            # Delivery is uncertain; inspect committed state without replaying a mutation.
+            assert document["binding"]["action"] == action, document
+            allowed = {"unknown", "saved"} if action == "bind" else {"unknown", "cleared", "absent"}
+            assert document["binding"]["status"] in allowed, document
+            return document
+        assert time.monotonic() < deadline, document
+        time.sleep(0.05)
+
+
+def _observe_binding_replies(app, binding_delay: float) -> list[tuple[str, dict[str, Any]]]:
+    binding_mutations: list[tuple[str, dict[str, Any]]] = []
+
+    @app.middleware("http")
+    async def observe_binding_response(request, call_next):
+        workspace_mutation = False
+        if (request.method, request.url.path) in {
+            ("PUT", "/v1/scope-bindings"),
+            ("POST", "/v1/scope-bindings/clear"),
+        }:
+            payload = await request.json()
+            workspace_mutation = payload["key"]["kind"] == "workspace"
+            if workspace_mutation:
+                binding_mutations.append((request.url.path, payload))
+        response = await call_next(request)
+        if workspace_mutation:
+            # Hold a real committed binding reply past the unchanged CLI deadline.
+            await asyncio.sleep(binding_delay)
+        return response
+
+    return binding_mutations
+
+
+def _exercise_scope_bindings(
+    client: httpx.Client,
+    node: str,
+    environment: dict[str, str],
+    scope_id: str,
+    binding_mutations: list[tuple[str, dict[str, Any]]],
+    binding_delay: float,
+    slow_initial_prepare: bool,
+) -> None:
+    def wait_for_workspace_binding(expected: str | None) -> None:
+        deadline = time.monotonic() + 10
+        while True:
+            if binding_mutations:
+                selected = client.post(
+                    "/v1/scope-bindings/resolve",
+                    json={"binding_keys": [binding_mutations[0][1]["key"]], "allow_default": False},
+                )
+                if expected is None and selected.status_code == 404:
+                    return
+                if selected.status_code == 200 and selected.json()["scope_id"] == expected:
+                    return
+                assert selected.status_code in {200, 404}, selected.text
+            assert time.monotonic() < deadline, (expected, binding_mutations)
+            time.sleep(0.05)
+
+    binding = _run_scope(node, environment, "bind", "--scope-id", scope_id)
+    if binding_delay:
+        assert binding["status"] == "failed" and binding["binding"]["status"] == "unknown", binding
+    if binding["status"] == "resolved":
+        assert binding["scope_id"] == scope_id, binding
+    wait_for_workspace_binding(scope_id)
+    assert len(binding_mutations) == 1
+    assert binding_mutations[0][0] == "/v1/scope-bindings"
+    other = client.post(
+        "/v1/scopes",
+        json={
+            "title": "Session binding probe",
+            "summary": "isolated",
+            "idempotency_key": "zcode-session-binding-probe",
+        },
     )
-    assert result.returncode == 0, result.stderr
-    diagnostics = [json.loads(line) for line in result.stderr.splitlines()]
-    allowed_diagnostics = [
-        {"component": "powercontext.zcode", "stage": stage, "code": "timeout"} for stage in allowed_timeout_stages
-    ]
-    assert all(diagnostic in allowed_diagnostics for diagnostic in diagnostics), result.stderr
-    return json.loads(result.stdout)
+    other.raise_for_status()
+    session_scope = other.json()["scope_id"]
+    bound = client.put(
+        "/v1/scope-bindings",
+        json={
+            "key": {"integration": "zcode", "kind": "session", "external_id": "binding-probe"},
+            "scope_id": session_scope,
+        },
+    )
+    bound.raise_for_status()
+    assert _run_scope(node, environment, "resolve")["scope_id"] == session_scope
+    probe = _invoke_hook(
+        node=node,
+        base_url=str(client.base_url),
+        scope_id=None,
+        session_id="binding-probe",
+        turn_id="probe-1",
+        prompt="Scope binding synthetic probe.",
+        allowed_timeout_stages=("capture", "prepare"),
+    )
+    assert session_scope in probe["hookSpecificOutput"]["additionalContext"]
+    probe_sources = client.get(f"/v1/scopes/{session_scope}/sources")
+    probe_sources.raise_for_status()
+    assert len(probe_sources.json()["items"]) == 1
+    if slow_initial_prepare:
+        probe_status = subprocess.run(
+            [
+                node,
+                str(HOOK.parent.parent / "scripts/status.mjs"),
+                "--cwd",
+                str(HOOK.parents[5]),
+                "--session-id",
+                "binding-probe",
+            ],
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        assert probe_status.returncode == 0, probe_status.stdout + probe_status.stderr
+        stages = json.loads(probe_status.stdout)["observation"]["stages"]
+        assert stages["prepare"]["state"] == "failed"
+        assert stages["prepare"]["code"] == "timeout"
+        assert stages["capture"]["state"] == "accepted"
+        assert stages["capture"]["source_position"] == probe_sources.json()["items"][0]["position"]
+    unbinding = _run_scope(node, environment, "unbind")
+    if binding_delay:
+        assert unbinding["status"] == "failed" and unbinding["binding"]["status"] == "unknown", unbinding
+    if unbinding["status"] == "resolved":
+        assert unbinding["scope_id"] == session_scope, unbinding
+    wait_for_workspace_binding(None)
+    assert [path for path, _ in binding_mutations] == ["/v1/scope-bindings", "/v1/scope-bindings/clear"]
+    assert binding_mutations[0][1]["key"] == binding_mutations[1][1]["key"]
+
+
 
 
 def _wait_for_processed_memory(client: httpx.Client, scope_id: str, text: str) -> dict[str, Any]:
@@ -133,6 +303,25 @@ def _delay_first_capture_response():
     return middleware
 
 
+def _delay_first_explicit_scope_response():
+    delayed = False
+
+    async def middleware(request, call_next):
+        nonlocal delayed
+        if (
+            delayed
+            or request.url.path != "/v1/scope-bindings/resolve"
+            or (await request.json()).get("explicit_scope_id") is None
+        ):
+            return await call_next(request)
+        delayed = True
+        response = await call_next(request)
+        await asyncio.sleep(1.2)
+        return response
+
+    return middleware
+
+
 class _HookBoundaryFaults:
     def __init__(self, slow_flush_receipt: bool, slow_initial_prepare: bool = False) -> None:
         self.slow_flush_receipt = slow_flush_receipt
@@ -159,11 +348,12 @@ class _HookBoundaryFaults:
 
 
 @pytest.mark.parametrize(
-    ("slow_flush_receipt", "slow_retry_resolution", "slow_initial_prepare"),
-    [(False, False, False), (True, False, False), (True, True, False), (False, False, True)],
+    ("processing_delay", "binding_delay", "slow_flush_receipt", "slow_retry_resolution", "slow_initial_prepare"),
+    [(0, 0, False, False, False), (0, 0, True, False, False), (0, 0, True, True, False),
+     (0, 0, False, False, True), (1.2, 0, False, False, False), (0, 1.2, False, False, False)],
 )
 def test_zcode_source_is_processed_and_recalled_in_a_new_session(
-    tmp_path: Path, monkeypatch, slow_flush_receipt, slow_retry_resolution, slow_initial_prepare
+    tmp_path: Path, monkeypatch, processing_delay, binding_delay, slow_flush_receipt, slow_retry_resolution, slow_initial_prepare
 ) -> None:
     monkeypatch.setenv("ZCODE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
     node = shutil.which("node")
@@ -173,11 +363,14 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'zcode.db'}"), mcp=McpConfig(enabled=False)
         ),
-        candidate_pipeline=atomic_memory_pipeline(DeterministicSourcePipeline()),
+        candidate_pipeline=atomic_memory_pipeline(DeterministicSourcePipeline(processing_delay)),
     )
+    binding_mutations = _observe_binding_replies(app, binding_delay)
     boundary = _HookBoundaryFaults(slow_flush_receipt, slow_initial_prepare)
     app.middleware("http")(boundary)
 
+    if slow_flush_receipt:
+        app.middleware("http")(_delay_first_explicit_scope_response())
     if not slow_initial_prepare:
         app.middleware("http")(_delay_first_capture_response())
 
@@ -210,84 +403,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
             environment.pop("ZCODE_SESSION_ID", None)
             environment["POWERCONTEXT_ZCODE_SERVER_URL"] = base_url
 
-            def run_scope(action: str, *extra: str) -> dict[str, Any]:
-                result = subprocess.run(
-                    [
-                        node,
-                        str(scope_script),
-                        action,
-                        "--cwd",
-                        str(HOOK.parents[5]),
-                        "--session-id",
-                        "binding-probe",
-                        *extra,
-                    ],
-                    env=environment,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=10,
-                )
-                assert result.returncode == 0, result.stdout + result.stderr
-                return json.loads(result.stdout)
-
-            assert run_scope("bind", "--scope-id", scope_id)["scope_id"] == scope_id
-            other = client.post(
-                "/v1/scopes",
-                json={
-                    "title": "Session binding probe",
-                    "summary": "isolated",
-                    "idempotency_key": "zcode-session-binding-probe",
-                },
-            )
-            other.raise_for_status()
-            session_scope = other.json()["scope_id"]
-            bound = client.put(
-                "/v1/scope-bindings",
-                json={
-                    "key": {"integration": "zcode", "kind": "session", "external_id": "binding-probe"},
-                    "scope_id": session_scope,
-                },
-            )
-            bound.raise_for_status()
-            assert run_scope("resolve")["scope_id"] == session_scope
-            probe = _invoke_hook(
-                node=node,
-                base_url=base_url,
-                scope_id=None,
-                session_id="binding-probe",
-                turn_id="probe-1",
-                prompt="Scope binding synthetic probe.",
-                # Initial capture commits before its delayed response; empty recall may also time out.
-                allowed_timeout_stages=("capture", "prepare"),
-            )
-            assert session_scope in probe["hookSpecificOutput"]["additionalContext"]
-            probe_sources = client.get(f"/v1/scopes/{session_scope}/sources")
-            probe_sources.raise_for_status()
-            assert len(probe_sources.json()["items"]) == 1
-            if slow_initial_prepare:
-                probe_status = subprocess.run(
-                    [
-                        node,
-                        str(HOOK.parent.parent / "scripts/status.mjs"),
-                        "--cwd",
-                        str(HOOK.parents[5]),
-                        "--session-id",
-                        "binding-probe",
-                    ],
-                    env=environment,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                    timeout=10,
-                )
-                assert probe_status.returncode == 0, probe_status.stdout + probe_status.stderr
-                stages = json.loads(probe_status.stdout)["observation"]["stages"]
-                assert stages["prepare"]["state"] == "failed"
-                assert stages["prepare"]["code"] == "timeout"
-                assert stages["capture"]["state"] == "accepted"
-                assert stages["capture"]["source_position"] == probe_sources.json()["items"][0]["position"]
-            assert run_scope("unbind")["scope_id"] == session_scope
+            _exercise_scope_bindings(client, node, environment, scope_id, binding_mutations, binding_delay, slow_initial_prepare)
             first = _invoke_hook(
                 node=node,
                 base_url=base_url,
@@ -346,7 +462,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
             result = json.loads(status.stdout)
             flush = result["observation"]["stages"]["flush"]
             assert flush["state"] in {"cursor_reached", "unknown"}, result
-            if slow_flush_receipt:
+            if processing_delay or slow_flush_receipt:
                 assert flush["state"] == "unknown", result
             if flush["state"] == "unknown":
                 assert flush["code"] == "timeout", result
