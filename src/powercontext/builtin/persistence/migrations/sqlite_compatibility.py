@@ -185,14 +185,20 @@ def table_contract(connection: Connection, name: str) -> dict[str, Any]:
         for key in inspector.get_foreign_keys(name)
     )
     indexes = connection.exec_driver_sql(f"PRAGMA index_list({quote(name)})").mappings().all()
+    # INTEGER PRIMARY KEY aliases have no backing index. Other primary keys
+    # can override a column's collation in the key declaration itself.
+    primary_key = [(column, "binary") for column in inspector.get_pk_constraint(name)["constrained_columns"]]
     unique = []
     for index in indexes:
-        if index["unique"] and index["origin"] != "pk":
+        if index["unique"]:
             keys = tuple(
                 (row[0], row[2], row[3], row[4])
                 for row in connection.exec_driver_sql(f"PRAGMA index_xinfo({quote(index['name'])})")
                 if row[5]
             )
+            if index["origin"] == "pk":
+                primary_key = [(column, collation.lower()) for _, column, _, collation in keys]
+                continue
             definition = connection.exec_driver_sql(
                 "SELECT sql FROM sqlite_schema WHERE name=?", (index["name"],)
             ).scalar_one_or_none()
@@ -202,7 +208,7 @@ def table_contract(connection: Connection, name: str) -> dict[str, Any]:
             unique.append((keys, predicate, expression))
     return {
         "columns": columns,
-        "primary_key": inspector.get_pk_constraint(name)["constrained_columns"],
+        "primary_key": primary_key,
         "foreign_keys": foreign_keys,
         "checks": sorted(sql_tokens(check["sqltext"]) for check in inspector.get_check_constraints(name)),
         "unique": sorted(unique, key=repr),
@@ -286,6 +292,7 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
         row for row in sqlite_inventory(connection) if row[0] == "index" and row[1] not in managed and row[3]
     ]
     extra_columns = {}
+    generated_sources = {}
     if revision == "s1400":
         # This released revision rebuilds tables and copies every source column.
         # Extend its temporary destination with independently owned columns.
@@ -299,9 +306,22 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
                 for column in table.columns
                 if column.name not in contract["columns"]
             ]
+            if any(column.computed is not None for column in table.columns):
+                generated_sources["pc_full_upgrade_" + name] = name
 
-    def before_execute(conn, _cursor, statement, parameters, _context, _many):
+    def before_execute(conn, _cursor, statement, parameters, _context, _many):  # noqa: C901 -- Adapt only exact frozen DDL and copy statements.
         tokens = sql_tokens(statement)
+        if len(tokens) > 2 and tokens[:2] == ("insert", "into") and tokens[2] in generated_sources:
+            name = generated_sources[tokens[2]]
+            # The revision may add ordinary columns before copying this table.
+            # Read the writable set at execution, retaining its new data too.
+            columns = inspect(conn).get_columns(name)
+            fields = ",".join(quote(column["name"]) for column in columns)
+            original = f"INSERT INTO pc_full_upgrade_{name} ({fields}) SELECT {fields} FROM {name}"  # noqa: S608 -- frozen table names and quoted columns
+            if statement == original:
+                writable = ",".join(quote(column["name"]) for column in columns if column.get("computed") is None)
+                statement = f"INSERT INTO pc_full_upgrade_{name} ({writable}) SELECT {writable} FROM {name}"  # noqa: S608 -- frozen table names and quoted columns
+            return statement, parameters
         if len(tokens) > 5 and tokens[:2] == ("alter", "table") and tokens[3:5] == ("add", "column"):
             name, column = tokens[2], tokens[5]
             if name in expected:

@@ -284,3 +284,107 @@ def test_future_feature_revisions_extend_the_same_upgrade_path(tmp_path, already
         assert connection.execute("SELECT value FROM pc_future_9_8_0").fetchall() == [(4,)]
         assert connection.execute("SELECT value FROM pc_future_9_9_0").fetchall() == [(4,)]
     assert not apply(future).changed
+
+
+@pytest.mark.parametrize("managed", [False, True])
+@pytest.mark.parametrize("collation", ["BINARY", "NOCASE"])
+def test_primary_key_collation_is_validated_during_upgrade_and_admission(tmp_path, managed, collation):
+    runner = source(tmp_path, "evolved-atomic")
+    if managed:
+        apply(runner)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        ddl = connection.execute("SELECT sql FROM sqlite_schema WHERE name='pc_source_journal_heads'").fetchone()[0]
+        rows = connection.execute("SELECT scope_id,position FROM pc_source_journal_heads").fetchall()
+        connection.execute("DROP TABLE pc_source_journal_heads")
+        connection.execute(ddl.replace("PRIMARY KEY (scope_id)", f"PRIMARY KEY (scope_id COLLATE {collation})"))
+        connection.executemany("INSERT INTO pc_source_journal_heads(scope_id,position) VALUES (?,?)", rows)
+    before = dump(runner.database)
+    if collation == "BINARY":
+        apply(runner)
+        assert runner.verify().state == "ready"
+        with closing(sqlite3.connect(runner.database)) as connection, connection:
+            connection.executemany(
+                "INSERT INTO pc_source_journal_heads(scope_id,position) VALUES (?,0)",
+                [("CaseProbe",), ("caseprobe",)],
+            )
+    else:
+        with pytest.raises(MigrationError, match=r"primary.key"):
+            apply(runner)
+        assert dump(runner.database) == before
+        if managed:
+            with pytest.raises(MigrationError, match=r"primary.key"):
+                runner.verify()
+
+
+@pytest.mark.parametrize("storage", ["VIRTUAL", "STORED"])
+def test_generated_extension_columns_survive_historical_and_revision_rebuilds(tmp_path, storage):
+    runner = source(tmp_path, "evolved-atomic")
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        # SQLite can add a STORED column only while a table is empty.
+        heads = connection.execute("SELECT scope_id,position FROM pc_source_journal_heads").fetchall()
+        connection.execute("DELETE FROM pc_source_journal_heads")
+        connection.execute(
+            "ALTER TABLE pc_source_journal_heads ADD COLUMN extension_value TEXT "
+            f"GENERATED ALWAYS AS (scope_id || ':' || position) {storage}"
+        )
+        connection.executemany("INSERT INTO pc_source_journal_heads(scope_id,position) VALUES (?,?)", heads)
+        artifacts = connection.execute("SELECT * FROM pc_artifacts").fetchall()
+        connection.execute("DELETE FROM pc_artifacts")
+        connection.execute(
+            "ALTER TABLE pc_artifacts ADD COLUMN extension_value TEXT "
+            f"GENERATED ALWAYS AS (artifact_id || ':' || revision) {storage}"
+        )
+        connection.executemany(
+            "INSERT INTO pc_artifacts VALUES (" + ",".join("?" for _ in artifacts[0]) + ")",  # noqa: S608 -- fixed table and generated placeholders
+            artifacts,
+        )
+        connection.execute(
+            "INSERT INTO pc_artifacts(scope_id,family,artifact_id,revision,content) VALUES (?,'custom','kept',1,?)",
+            (heads[0][0], b'{"preserved":true}'),
+        )
+        connection.execute("CREATE INDEX extension_generated_value ON pc_artifacts(extension_value)")
+    before = dump(runner.database)
+    result = apply(runner)
+    assert result.backup_ref and dump(result.backup_ref) == before
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        assert connection.execute(
+            "SELECT content,extension_value FROM pc_artifacts WHERE artifact_id='kept'"
+        ).fetchall() == [(b'{"preserved":true}', "kept:1")]
+        assert connection.execute(
+            "SELECT scope_id,position,extension_value FROM pc_source_journal_heads ORDER BY scope_id"
+        ).fetchall() == sorted((scope, position, f"{scope}:{position}") for scope, position in heads)
+        assert connection.execute("SELECT 1 FROM sqlite_schema WHERE name='extension_generated_value'").fetchone()
+        connection.execute("UPDATE pc_source_journal_heads SET position=position+1")
+        assert connection.execute(
+            "SELECT scope_id,position,extension_value FROM pc_source_journal_heads ORDER BY scope_id"
+        ).fetchall() == sorted((scope, position + 1, f"{scope}:{position + 1}") for scope, position in heads)
+        for table in ("pc_source_journal_heads", "pc_artifacts"):
+            columns = connection.execute(f"PRAGMA table_xinfo({table})").fetchall()
+            assert next(column[6] for column in columns if column[1] == "extension_value") == (
+                3 if storage == "STORED" else 2
+            )
+    after = dump(runner.database)
+    assert not apply(runner).changed
+    assert dump(runner.database) == after
+
+
+def test_generated_column_copy_includes_columns_added_by_the_same_revision(tmp_path):
+    runner = source(tmp_path, "evolved-atomic")
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute(
+            "ALTER TABLE pc_artifact_processing_intents ADD COLUMN extension_value TEXT "
+            "GENERATED ALWAYS AS ('task:' || scope_id) VIRTUAL"
+        )
+        before = connection.execute(
+            "SELECT scope_id,extension_value FROM pc_artifact_processing_intents ORDER BY scope_id"
+        ).fetchall()
+        assert before
+    apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute(
+            "SELECT scope_id,extension_value,consecutive_dream_attempts "
+            "FROM pc_artifact_processing_intents ORDER BY scope_id"
+        ).fetchall() == [(scope, value, 0) for scope, value in before]
+    assert not apply(runner).changed

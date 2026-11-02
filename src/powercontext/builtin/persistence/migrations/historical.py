@@ -286,7 +286,9 @@ def _reconcile(connection: Connection, expected: Connection, rows: list[list[Any
             )
         )
         connection.exec_driver_sql(create)
-        fields = ",".join(quote(column) for column in actual_contract["columns"])
+        fields = ",".join(
+            quote(column) for column, definition in actual_contract["columns"].items() if definition["computed"] is None
+        )
         connection.exec_driver_sql(f"INSERT INTO {quote(temporary)} ({fields}) SELECT {fields} FROM {quote(name)}")  # noqa: S608 -- all identifiers quoted
         connection.exec_driver_sql(f"DROP TABLE {quote(name)}")
         connection.exec_driver_sql(f"ALTER TABLE {quote(temporary)} RENAME TO {quote(name)}")
