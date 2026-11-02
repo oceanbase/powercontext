@@ -31,6 +31,7 @@ from sqlalchemy import Connection, create_engine
 from powercontext.builtin.persistence.migrations import SQLiteMigrationRunner
 from powercontext.builtin.persistence.migrations.bundle import MigrationBundle, sqlite_inventory
 from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
+from powercontext.builtin.persistence.migrations.deployment import server_bundle
 from powercontext.builtin.persistence.migrations.models import MigrationError, digest
 from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
 from powercontext.builtin.persistence.migrations.mysql_schema import MySQLSchema, mysql_inventory, read_revision
@@ -324,6 +325,74 @@ def test_released_fulltext_keys_preserve_search_semantics_in_the_inventory() -> 
         }
 
 
+def test_native_oceanbase_phrase_match_preserves_released_fulltext_inventory() -> None:
+    path = Path(__file__).parents[2] / "fixtures/database_migrations/schemas/oceanbase_4_6_3_1_fulltext.json"
+    tables = json.loads(path.read_text(encoding="utf-8"))["tables"]
+    assert _inventory(_ReflectedDatabase(tables)) == _inventory(_ReflectedDatabase(_released_fulltext_tables()))
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "",
+        "FTS_INDEX_TYPE = MATCH",
+        "fts_index_type=match",
+        "FTS_INDEX_TYPE = PHRASE_MATCH",
+        "fts_index_type=phrase_match",
+    ],
+)
+def test_oceanbase_fulltext_reflection_preserves_server_baseline_and_recovery(option: str) -> None:
+    bundle = server_bundle()
+    statements = json.loads((bundle.snapshot_directory / "schemas/mysql-s1300.json").read_text())["revisions"]["s1300"][
+        "statements"
+    ]
+    tables = {statement.split("`", 2)[1]: statement for statement in statements if statement.startswith("CREATE TABLE")}
+    expected = _inventory(_ReflectedDatabase(tables))
+    # Replay MATCH reported by OceanBase 4.6.0.1 and PHRASE_MATCH captured on 4.6.3.1.
+    # This models reflection; it is not live OceanBase acceptance.
+    reflected = {
+        name: ddl.replace(
+            "PARSER_PROPERTIES=(min_token_size=3,max_token_size=84)",
+            f"PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) {option}",
+        )
+        for name, ddl in tables.items()
+    }
+    inventory = _inventory(_ReflectedDatabase(reflected))
+    assert inventory == expected
+    schema = MySQLSchema(bundle)
+    assert schema.identify(inventory) == "s1300"
+    schema.verify(inventory, "s1300")
+    # The reported interruption leaves 17 tables, including the first FULLTEXT
+    # index. Only the remaining registered statements may be scheduled again.
+    partial = _inventory(_ReflectedDatabase(dict(list(reflected.items())[:17])))
+    recovery = schema.recovery(partial, None)
+    assert recovery.revision == "s1300"
+    assert recovery.completed_revision is None
+    assert recovery.pending_statements == tuple(statements[17:])
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "FTS_INDEX_TYPE = UNKNOWN",
+        "FTS_INDEX_TYPE =",
+        "FTS_INDEX_TYPE = MATCH FUTURE_OPTION=1",
+        "FTS_INDEX_TYPE = PHRASE_MATCH FUTURE_OPTION=1",
+    ],
+)
+def test_unknown_or_incomplete_fulltext_storage_options_are_rejected(option: str) -> None:
+    tables = _released_fulltext_tables()
+    tables = {
+        name: ddl.replace(
+            "PARSER_PROPERTIES=(min_token_size=3,max_token_size=84)",
+            f"PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) {option}",
+        )
+        for name, ddl in tables.items()
+    }
+    with pytest.raises(MigrationError, match="incompatible_schema"):
+        _inventory(_ReflectedDatabase(tables))
+
+
 @pytest.mark.parametrize(
     ("old", "new"),
     [
@@ -333,8 +402,15 @@ def test_released_fulltext_keys_preserve_search_semantics_in_the_inventory() -> 
         ("ix_pc_artifact_heads_fts", "ix_other_fts"),
     ],
 )
-def test_fulltext_semantic_changes_have_distinct_fingerprints(old: str, new: str) -> None:
-    tables = _released_fulltext_tables()
+@pytest.mark.parametrize("physical_option", ["", "FTS_INDEX_TYPE = MATCH", "FTS_INDEX_TYPE = PHRASE_MATCH"])
+def test_fulltext_semantic_changes_have_distinct_fingerprints(old: str, new: str, physical_option: str) -> None:
+    tables = {
+        name: ddl.replace(
+            "PARSER_PROPERTIES=(min_token_size=3,max_token_size=84)",
+            f"PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) {physical_option}",
+        )
+        for name, ddl in _released_fulltext_tables().items()
+    }
     original = digest(_inventory(_ReflectedDatabase(tables)))
     tables["pc_artifact_heads"] = tables["pc_artifact_heads"].replace(old, new)
     assert digest(_inventory(_ReflectedDatabase(tables))) != original

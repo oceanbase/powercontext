@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from pydantic import JsonValue
 from typing_extensions import override
 
@@ -50,17 +52,35 @@ from powercontext.sources import (
 from powercontext.sources.connectors import (
     ConnectorCheckpointStore,
     ConnectorLifecycle,
+    ConnectorRunObserver,
     ConnectorSourceSink,
     validate_connector,
 )
 
 
+class RemoteConnectorObserver(ConnectorRunObserver, Protocol):
+    """Observe materialization and confirmed submission without changing Source semantics."""
+
+    async def materialized(
+        self, binding: ConnectorBinding, item_id: str, observation: SourceObservation, /
+    ) -> None: ...
+
+    async def accepted(self, item_id: str, source_ref: SourceRef, /) -> None: ...
+
+
 class _RemoteConnectorSourceSink(ConnectorSourceSink):
     """Resolve and project Definition-native values inside the worker."""
 
-    def __init__(self, *, client: PowerContextClient, registry: SourceDefinitionRegistry) -> None:
+    def __init__(
+        self,
+        *,
+        client: PowerContextClient,
+        registry: SourceDefinitionRegistry,
+        observer: RemoteConnectorObserver | None = None,
+    ) -> None:
         self._client = client
         self._registry = registry
+        self._observer = observer
 
     @override
     async def submit(
@@ -71,7 +91,6 @@ class _RemoteConnectorSourceSink(ConnectorSourceSink):
         value: object,
         /,
     ) -> SourceRef:
-        del item_id
         self._registry.definition_for_name(definition_name)
         source = await self._registry.resolve(value)
         observation: SourceObservation = project_source_for_transport(self._registry, source)
@@ -84,17 +103,29 @@ class _RemoteConnectorSourceSink(ConnectorSourceSink):
             raise ConnectorSubmissionRejectedError(  # noqa: TRY003
                 f"observation exceeds {MAX_SOURCE_OBSERVATION_BYTES} bytes"
             )
-        receipt = await self._client.submit_source_observation(
-            SubmitSourceObservationRequest(
-                scope_id=binding.scope_id,
-                observation=HttpSourceObservation.model_validate(observation.model_dump(mode="json")),
-            )
-        )
-        source_ref = SourceRef(source_type=receipt.source.name, source_id=receipt.source.source_id)
-        expected_ref = SourceRef(source_type=observation.source_type, source_id=observation.name)
-        if source_ref != expected_ref:
-            raise InvalidConnectorRunError("identity-mismatch", "Server receipt changed the accepted Source identity")
+        if self._observer is not None:
+            await self._observer.materialized(binding, item_id, observation)
+        source_ref = await submit_materialized_observation(self._client, binding, observation)
+        if self._observer is not None:
+            await self._observer.accepted(item_id, source_ref)
         return source_ref
+
+
+async def submit_materialized_observation(
+    client: PowerContextClient, binding: ConnectorBinding, observation: SourceObservation
+) -> SourceRef:
+    """Submit exactly the captured value, including its stable Source identity."""
+    receipt = await client.submit_source_observation(
+        SubmitSourceObservationRequest(
+            scope_id=binding.scope_id,
+            observation=HttpSourceObservation.model_validate(observation.model_dump(mode="json")),
+        )
+    )
+    source_ref = SourceRef(source_type=receipt.source.name, source_id=receipt.source.source_id)
+    expected_ref = SourceRef(source_type=observation.source_type, source_id=observation.name)
+    if source_ref != expected_ref:
+        raise InvalidConnectorRunError("identity-mismatch", "Server receipt changed the accepted Source identity")
+    return source_ref
 
 
 class _RemoteConnectorCheckpointStore(ConnectorCheckpointStore):
@@ -133,34 +164,49 @@ class _RemoteConnectorCheckpointStore(ConnectorCheckpointStore):
 
 
 class RemoteConnectorWorker:
-    """Register worker-owned Definitions and execute one Connector binding."""
+    """Register connector Definitions and execute one binding.
 
-    def __init__(self, *, client: PowerContextClient, registry: SourceDefinitionRegistry) -> None:
+    Managed runtimes disable registration after deployment registers their Definitions,
+    allowing collection with Scope credentials alone.
+    """
+
+    def __init__(
+        self,
+        *,
+        client: PowerContextClient,
+        registry: SourceDefinitionRegistry,
+        observer: RemoteConnectorObserver | None = None,
+        register_definitions: bool = True,
+    ) -> None:
         self._client = client
         self._registry = registry
+        self._observer = observer
+        self._register_definitions = register_definitions
         self._lifecycle = ConnectorLifecycle(
-            sink=_RemoteConnectorSourceSink(client=client, registry=registry),
+            sink=_RemoteConnectorSourceSink(client=client, registry=registry, observer=observer),
             checkpoints=_RemoteConnectorCheckpointStore(client),
         )
 
     async def run(self, connector: Connector, binding: ConnectorBinding, /) -> ConnectorRunResult:
-        source_definitions = validate_connector(connector, binding)
-        for definition_name in sorted(source_definitions):
-            definition = self._registry.definition_for_name(definition_name)
-            manifest = manifest_for_definition(definition)
-            registered = await self._client.register_source_definition(
-                RegisterSourceDefinitionRequest(
-                    manifest=HttpSourceDefinitionManifest.model_validate(
-                        manifest.model_dump(mode="json", by_alias=True)
-                    )
-                )
+        definitions = tuple(
+            self._registry.definition_for_name(name) for name in sorted(validate_connector(connector, binding))
+        )
+        if self._register_definitions:
+            await register_source_definitions(client=self._client, registry=SourceDefinitionRegistry(definitions))
+        return await self._lifecycle.run(connector, binding, observer=self._observer)
+
+
+async def register_source_definitions(*, client: PowerContextClient, registry: SourceDefinitionRegistry) -> None:
+    """Register trusted output contracts using a deployment credential, before collection."""
+    for definition in registry.definitions:
+        manifest = manifest_for_definition(definition)
+        registered = await client.register_source_definition(
+            RegisterSourceDefinitionRequest(
+                manifest=HttpSourceDefinitionManifest.model_validate(manifest.model_dump(mode="json", by_alias=True))
             )
-            if registered.model_dump(mode="json", by_alias=True) != manifest.model_dump(mode="json", by_alias=True):
-                raise InvalidConnectorRunError(
-                    "manifest-mismatch",
-                    f"Server returned a different manifest for {definition.name!r}",
-                )
-        return await self._lifecycle.run(connector, binding)
+        )
+        if registered.model_dump(mode="json", by_alias=True) != manifest.model_dump(mode="json", by_alias=True):
+            raise InvalidConnectorRunError("manifest-mismatch", "Server returned a different Definition manifest")
 
 
 def _http_binding(binding: ConnectorBinding) -> HttpConnectorBinding:
@@ -175,4 +221,4 @@ def _validate_checkpoint_binding(
         raise InvalidConnectorRunError("binding-mismatch", "Server returned a different Connector binding")
 
 
-__all__ = ["RemoteConnectorWorker"]
+__all__ = ["RemoteConnectorWorker", "register_source_definitions"]

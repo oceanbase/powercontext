@@ -51,16 +51,22 @@ HTTP 外层是 `schema`、`status`、`content`、`content_bytes` 四个字段。
 历史证据提示、章节标题、按字面展示的正文、精确引用和截断标记。空结果为 `status: "empty"`、`content: null`、
 `content_bytes: 0`。
 
-请求里加 `"explain": true`，就能额外知道本次准备是否丢了一条本来会用的召回通道：此时响应会带 `reason`，
-`inference_timeout` 表示 `recall_embedding_timeout_seconds` 预算耗尽，`inference_unavailable` 表示 provider 报错。
-这两个值是 RFC 1435 给 `SearchGroup.fallback_reason` 的四个拼写里属于推理失败的那两个，也与 fallback 日志用的词表
-完全一致，因此接口与日志不会对同一个原因给出两种说法。另外两个不是漏了：`none` 由字段缺席表达，
-`reused_fts_fallback` 不属于这一层的原因——后继轮复用失败轮的纯关键词结果，其成因仍由那一轮的 `inference_*`
-值表达，且优先级更高。
-没有丢通道时该字段不出现，不询问的请求更是完全没有这个键，所以 Host 校验的那四个字段永远不会变。它标记的是
-「某条通道丢了」，不是「结果为空」；纯关键词部署从不请求向量，因此永远不会出现。同一个事件也会以
-`memory.search.embedding_fallback` 或 `topic_memory.search.embedding_fallback` 写进服务端日志，所以即使 Host
-从不 opt-in，运维也拿得到这个信号，且日志与 `reason` 都不含查询文本。
+需要诊断时，在请求中设置 `"include_receipt": true`。成功生成的 `receipt` 与原有四个注入字段并列，
+按注入顺序列出所选 Artifact 的精确版本和代码行范围，汇总实际检索模式、重排配置、遗漏原因与阶段耗时，
+并给出规范化查询和最终 UTF-8 注入内容的摘要。例如 `receipt.retrieval.searches` 能区分正常的 `fts`
+和 `inference_timeout` / `inference_unavailable` 后降级的 `fts`；`receipt.omitted` 能区分零命中和预算排除。
+空结果的 `content_digest` 为 `null`。Receipt 不含查询或证据正文，也不是模型输入或持久读取键；
+需要查看所选版本时，请使用现有授权的精确读取接口。若证据不完整或序列化后的 Receipt 超过 8192 字节，
+响应仍返回原有内容但省略 `receipt`，并记录不含内容的诊断日志。
+省略 `include_receipt`、传 `false` 或 `null` 均保持 Host 校验的四字段响应；自动召回不请求 Receipt。
+
+## 从 `explain` 和 `reason` 迁移
+
+对于从 PowerContext 1.4.1 升级的调用方，这是一个不兼容变更：prepare 请求不再接受 `explain`，响应也已移除顶层
+`reason`。仍发送 `explain` 的请求会返回 HTTP 422（`invalid_request`）。请将 `"explain": true` 改为
+`"include_receipt": true`，然后从 `receipt.retrieval.searches[]` 读取各次检索的降级信息，并结合其中的
+`family`、`round`、`mode` 和 `fallback_reason` 判断。读取前应先确认响应包含 `receipt`：Receipt 构造失败时会
+保留原准备结果并省略 Receipt，序列化结果超过 8192 字节时也会如此。
 
 Python Client 的等价调用：
 

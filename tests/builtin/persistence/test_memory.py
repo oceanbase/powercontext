@@ -15,13 +15,16 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
+import pytest
 from sqlalchemy import BigInteger, DateTime, Integer, String
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
 from powercontext.artifacts import ArtifactLineage
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCandidateError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import (
     MEMORY_ENTRY_HEADS_TABLE,
@@ -93,7 +96,11 @@ def test_sqlite_memory_backend_commits_authoritative_history_and_fts() -> None:
                     connection,
                     "project",
                     "decision",
-                    AtomicMemoryContent(kind="decision", text="Use one atomic composition boundary."),
+                    AtomicMemoryContent(
+                        kind="decision",
+                        text="Use one atomic composition boundary.",
+                        description="Fixture memory summary",
+                    ),
                     None,
                     lineage=ArtifactLineage(sources=(SourceRef(source_type="content", source_id=source.name),)),
                 )
@@ -106,13 +113,23 @@ def test_sqlite_memory_backend_commits_authoritative_history_and_fts() -> None:
                 first.ref.artifact_id,
                 '"revision:1"',
                 ArtifactWrite(
-                    content={"kind": "decision", "text": "Use one atomic composition boundary for providers."}
+                    content={
+                        "kind": "decision",
+                        "text": "Use one atomic composition boundary for providers.",
+                        "description": "Fixture memory summary",
+                    }
                 ),
             )
             constraint = await contexts.records.create_artifact(
                 "project",
                 "atomic-memory",
-                ArtifactWrite(content={"kind": "constraint", "text": "Do not split the provider transaction."}),
+                ArtifactWrite(
+                    content={
+                        "kind": "constraint",
+                        "text": "Do not split the provider transaction.",
+                        "description": "Fixture memory summary",
+                    }
+                ),
             )
             assert second.revision == 2
             history = await contexts.records.list_artifact_revisions(
@@ -148,7 +165,11 @@ def test_sqlite_memory_backend_rebuilds_head_and_fts_projections() -> None:
                 "project",
                 "atomic-memory",
                 ArtifactWrite(
-                    content={"kind": "decision", "text": "Rebuild search projections from authoritative revisions."}
+                    content={
+                        "kind": "decision",
+                        "text": "Rebuild search projections from authoritative revisions.",
+                        "description": "Fixture memory summary",
+                    }
                 ),
             )
             memory = contexts.atomic_memory.for_scope("project")
@@ -185,5 +206,39 @@ def test_scope_bound_contexts_do_not_share_rows() -> None:
             assert all(isinstance(source, ContentSource) for source in (*left_sources, *right_sources))
             assert tuple(source.content for source in left_sources if isinstance(source, ContentSource)) == ("left",)
             assert tuple(source.content for source in right_sources if isinstance(source, ContentSource)) == ("right",)
+
+    asyncio.run(scenario())
+
+
+def test_atomic_commit_rejects_a_prepared_write_with_its_description_removed() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            await contexts.get("project")
+            application = contexts.atomic_memory
+            content = AtomicMemoryContent(kind="fact", text="A bounded memory body.")
+            async with contexts.database.transaction() as connection:
+                plan = await application.service.inspect_change(
+                    connection, "project", "summary-invariant", content, None
+                )
+            prepared = await application.service.prepare_change(plan)
+            (write,) = prepared.plan.writes
+            assert write.draft is not None
+            assert write.draft.content.description == "A bounded memory body."
+            assert content.description is None
+            broken = replace(
+                prepared,
+                plan=replace(
+                    prepared.plan,
+                    writes=(replace(write, draft=write.draft.model_copy(update={"content": content})),),
+                ),
+            )
+            async with contexts.database.transaction() as connection:
+                with pytest.raises(InvalidMemoryCandidateError, match="description is required for new writes"):
+                    await application.service.commit(connection, broken, None)
+            assert (await application.for_scope("project").list()).items == ()
+            async with contexts.database.transaction() as connection:
+                result = await application.service.commit(connection, prepared, None)
+            stored = await application.for_scope("project").get(result.primary.ref.artifact_id)
+            assert stored.artifact.content.description == "A bounded memory body."
 
     asyncio.run(scenario())

@@ -71,7 +71,18 @@ def test_failed_candidate_keeps_known_usage_without_leaking_it_into_the_next_fai
         calls += 1
         if calls == 2:
             raise RuntimeError("No provider response is available")
-        candidates = [] if calls == 3 else [{"kind": "fact", "text": "Synthetic fact", "evidence_ids": ["missing"]}]
+        candidates = (
+            []
+            if calls == 3
+            else [
+                {
+                    "kind": "fact",
+                    "text": "Synthetic fact",
+                    "description": "Synthetic fact summary",
+                    "evidence_ids": ["missing"],
+                }
+            ]
+        )
         return ModelResponse(
             parts=[TextPart(json.dumps({"candidates": candidates}))],
             usage=RequestUsage(input_tokens=100 + calls, output_tokens=5 + 2 * calls),

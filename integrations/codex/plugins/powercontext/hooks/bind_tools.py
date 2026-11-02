@@ -75,6 +75,7 @@ _CURRENT_OPERATIONS = frozenset({
     "get_atomic_memory_state",
     "get_experience",
     "get_memory_entry",
+    "get_recall_manifest",
     "get_skill",
     "get_skill_package_manifest",
     "get_topic_memory",

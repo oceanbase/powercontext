@@ -12,17 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Register the Work Ledger tables through the shared MySQL DDL executor.
-
-The revision follows ``v1_4_1_004`` so both the SQLite and MySQL histories stay
-linear behind master's owner-recovery revision, and carries the release-based
-name that revision introduced.
-"""
+"""Register Source write plugins through the shared DDL executor."""
 
 from alembic import context
 
 revision = "v1_4_1_006"
-down_revision = "v1_4_1_004"
+down_revision = "v1_4_1_005"
 
 
 def upgrade() -> None:

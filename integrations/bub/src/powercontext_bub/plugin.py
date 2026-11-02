@@ -49,6 +49,10 @@ from .scope import resolve_scope_id, workspace_binding_key
 STATE_KEY = "_powercontext"
 CONTEXT_MARKER = "PowerContext host-supplied context"
 CLIENT_ERRORS = (InvalidResponseError, ServerResponseError, TransportError)
+# ``POST /v1/context/prepare`` bounds ``query`` at 8,192 characters. The byte bound is the hosts' own margin,
+# shared with the hook-based hosts, so a recall also fits a server that measures bytes.
+MAX_QUERY_CHARACTERS = 8192
+MAX_QUERY_BYTES = 8192
 GUIDANCE = """\
 PowerContext provides durable project memory shared across agent sessions.
 Relevant host-supplied context is injected automatically before each model call.
@@ -286,7 +290,7 @@ class PowerContextPlugin:
     async def _prepare_context(self, query: str, scope_id: str, state: TurnState) -> str | None:
         request = PrepareContextRequest(
             scope_id=scope_id,
-            query=query,
+            query=_bounded_recall_query(query),
             max_bytes=self.settings.max_bytes,
             **({"assembly": self.settings.context_assembly} if self.settings.context_assembly is not None else {}),
         )
@@ -434,6 +438,19 @@ def _latest_user_text(messages: list[dict[str, Any]]) -> str:
                 if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str)
             ).strip()
     return ""
+
+
+def _bounded_recall_query(text: str) -> str:
+    """Keep the most recent text of a long prompt, cut between characters, within both query bounds."""
+
+    query = text.strip()
+    if len(query) <= MAX_QUERY_CHARACTERS and len(query.encode("utf-8")) <= MAX_QUERY_BYTES:
+        return query
+    retained = query[-MAX_QUERY_CHARACTERS:]
+    encoded = retained.encode("utf-8")
+    if len(encoded) > MAX_QUERY_BYTES:
+        retained = encoded[-MAX_QUERY_BYTES:].decode("utf-8", errors="ignore")
+    return retained.strip()
 
 
 def _contains_context_marker(message: dict[str, Any]) -> bool:

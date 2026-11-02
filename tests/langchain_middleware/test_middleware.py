@@ -79,7 +79,12 @@ class _ContentExtractor:
             text = payload.get("content", payload.get("text")) if isinstance(payload, dict) else payload
             if isinstance(text, str):
                 candidates.append(
-                    AtomicMemoryCandidate(kind="working_note", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="working_note",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                 )
         return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=tuple(candidates)))
 
@@ -92,7 +97,9 @@ class _IndependentMemoryReconciler:
             output=AtomicMemoryReconciliationOutput(
                 action="create",
                 compared_ids=tuple(item.item_id for item in request.related),
-                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                content=AtomicMemoryReconciliationContent(
+                    kind=request.proposal.kind, text=request.proposal.text, description="Reconciled fixture fact"
+                ),
                 evidence_ids=request.proposal.evidence_ids,
                 reason="Keep the captured turn with its exact Source evidence.",
             )
@@ -190,7 +197,11 @@ def test_middleware_injects_recall_without_persisting_it(tmp_path: Path) -> None
 
     async def scenario(client: PowerContextClient) -> None:
         scope_id = await _default_scope_id(client)
-        await client.remember_memory(RememberMemoryRequest(scope_id=scope_id, kind="decision", text=MEMORY_TEXT))
+        await client.remember_memory(
+            RememberMemoryRequest(
+                scope_id=scope_id, kind="decision", text=MEMORY_TEXT, description="Explicit fixture memory"
+            )
+        )
 
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content="How should we deploy the application and its migrations?")]},

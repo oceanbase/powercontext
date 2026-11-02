@@ -52,7 +52,11 @@ class _SourceExtractor:
             assert isinstance(evidence.content, dict)
             text = evidence.content["content"]
             assert isinstance(text, str)
-            candidates.append(AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,)))
+            candidates.append(
+                AtomicMemoryCandidate(
+                    kind="fact", text=text, evidence_ids=(evidence.evidence_id,), description="Extracted fixture fact"
+                )
+            )
         return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=tuple(candidates)))
 
 
@@ -64,7 +68,9 @@ class _CreatingReconciler:
             output=AtomicMemoryReconciliationOutput(
                 action="create",
                 compared_ids=tuple(item.item_id for item in request.related),
-                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                content=AtomicMemoryReconciliationContent(
+                    kind=request.proposal.kind, text=request.proposal.text, description="Reconciled fixture fact"
+                ),
                 evidence_ids=request.proposal.evidence_ids,
                 reason="Keep the captured decision.",
             )

@@ -50,13 +50,11 @@ def test_desktop_contract_identity_matches_openapi(manifest: str) -> None:
 
 def test_desktop_bundle_qualifies_the_current_contract() -> None:
     """The shipped preview must carry a qualification record for its own contract.
-
     ``desktop/src-tauri/tests/session.rs`` asserts this too, but that check only runs in
     ``cargo test``. Advancing the contract digest therefore used to look green in the Python
     gate and deterministic red on four platforms. Recording the requirement here makes the
     two gates agree and names the harness that has to run before the digest moves.
     """
-
     contract = (REPOSITORY_ROOT / "openapi/powercontext.yaml").read_bytes().replace(b"\r\n", b"\n")
     expected = hashlib.sha256(contract).hexdigest()
     bundled = json.loads(
@@ -79,3 +77,14 @@ def test_desktop_bundle_qualifies_the_current_contract() -> None:
         )
         assert re.fullmatch(r"[0-9a-f]{40}", profile["serverCommit"]), profile["id"]
         assert re.fullmatch(r"[0-9a-f]{64}", profile["artifactSha256"]), profile["id"]
+
+
+def test_bundled_desktop_contract_has_a_qualified_business_profile() -> None:
+    native = REPOSITORY_ROOT / "desktop/src-tauri/src"
+    contract = json.loads((native / "transport/operations.json").read_text(encoding="utf-8"))
+    profiles = json.loads((native / "connections/compatibility.json").read_text(encoding="utf-8"))
+    required = {"remember_memory", "search_memory", "get_artifact_revision"}
+    assert any(
+        profile["contractSha256"] == contract["contractSha256"] and required <= set(profile["operations"])
+        for profile in profiles
+    ), "The bundled Desktop contract has no qualified profile for save, search and exact reads."

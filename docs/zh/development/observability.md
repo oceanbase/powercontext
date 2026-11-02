@@ -78,6 +78,8 @@ JSON formatter 会忽略未登记的 extras。确需新增字段时：
 4. 更新中英文 operational field contract，并补充针对可观察输出的 regression test。
    重命名或删除已发布字段、event name 前，必须检查 compatibility。
 
+共享失败词汇与各 Family 覆盖矩阵见 [处理失败诊断](processing-failures.md)。
+
 Service identity 来自 `src/powercontext/server/telemetry.py`，logs 和 traces 共用同一 resource identity。
 Error classification 来自 `powercontext._logging.error_category`；`blocked` 等 domain-owned category
 由所属 boundary 明确设置。各 adapter 不应自行定义不同词汇。

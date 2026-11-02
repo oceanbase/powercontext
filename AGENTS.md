@@ -67,6 +67,25 @@ Include doctests when public examples are useful. For changes that affect suppor
 
 Run focused checks first and expand based on affected behavior. For claims about an external backend or host, distinguish actual execution from mocks, emulators, and direct hook invocation. Simulated inputs verify local handling; they do not establish that a real service produces those inputs or that a host supports the complete workflow.
 
+## Blog Publishing and i18n
+
+Keep blog changes scoped to the blog. Preserve the existing appearance, navigation,
+content, and behavior of non-blog pages. Load blog styles and scripts only on blog
+pages, and keep blog publishing instructions under `docs/{en,zh}/blog/`.
+
+When the user supplies a blog post as Markdown, prepare both `docs/zh/blog/posts/` and
+`docs/en/blog/posts/` versions. Translate the supplied language faithfully; preserve code,
+commands, links, and technical meaning. The user need not supply a translation or complete
+front matter. Derive the summary and stable slug from the article, reuse known author profiles,
+and ask only for missing facts such as a new author's identity or photo; never invent them.
+
+Keep counterpart posts at matching relative paths with identical slugs, publication/update
+dates, author IDs, draft status, and pin status. Localize titles, summaries, body text,
+category names, and author biographies; share author photos and article assets. Apply edits
+to both languages together. Check blog i18n and pagination with
+`uv run pytest tests/e2e/test_blog_site.py -q` and run `make docs-test` before delivery.
+Preparing content does not by itself authorize a production deployment.
+
 ## Deliverables
 
 Write page metadata and content as literal UTF-8 text. Use Chinese characters directly instead of Unicode escape sequences. Preserve non-ASCII text when serializing documentation metadata to JSON.

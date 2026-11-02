@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { DesktopState, ScopeDescriptor } from "../generated/ipc";
 import { desktopApi } from "../shared/ipc";
 import {
@@ -37,7 +37,7 @@ export function Scopes({
 }: {
   state: DesktopState | null;
   language: Language;
-  onState: (state: DesktopState) => void;
+  onState: (state: DesktopState) => boolean | void;
   confirmSwitch: () => boolean | Promise<boolean>;
   onSelected?: () => void;
   hideHeading?: boolean;
@@ -46,6 +46,7 @@ export function Scopes({
   onSelectionError?: (error: unknown) => void;
 }) {
   const t = connectionMessages[language];
+  const listId = useId();
   const common = messages[language];
   const manage = onManageConnections && (
     <button onClick={onManageConnections}>{common.chooseConnection}</button>
@@ -132,8 +133,21 @@ export function Scopes({
     setError(null);
     onPendingChange?.(true);
     try {
-      onState(await desktopApi.selectScope(active.generation, id));
-      if (ticket === lifetime.current) onSelected?.();
+      const next = await desktopApi.selectScope(active.generation, id);
+      const accepted = onState(next);
+      if (
+        ticket === lifetime.current &&
+        accepted !== false &&
+        generation === currentGeneration.current &&
+        next.active?.connectionId === active.connectionId &&
+        next.active.scope?.scope_id === id
+      )
+        onSelected?.();
+      else if (
+        ticket === lifetime.current &&
+        generation === currentGeneration.current
+      )
+        setError({ code: "stale_context" });
     } catch (e) {
       if (ticket === lifetime.current) setError(e);
       else onSelectionError?.(e);
@@ -252,21 +266,29 @@ export function Scopes({
             </div>
             {items && (
               <ul className="scope-list">
-                {items.map((scope) => (
+                {items.map((scope, index) => (
                   <li key={scope.scope_id}>
                     <button
+                      aria-describedby={`${listId}-${index}`}
                       disabled={busy || !selectionSupported}
                       onClick={() => void select(scope.scope_id)}
                     >
                       {scope.title}
                     </button>
-                    <code>{scope.scope_id}</code>
+                    <code id={`${listId}-${index}`}>{scope.scope_id}</code>
                   </li>
                 ))}
               </ul>
             )}
             {items?.length === 0 && (
-              <PageFeedback compact kind="empty" title={t.empty} />
+              <PageFeedback
+                compact
+                kind="empty"
+                title={t.empty}
+                action={manage}
+              >
+                <p>{t.emptyScopeHint}</p>
+              </PageFeedback>
             )}
             {cursor && (
               <button

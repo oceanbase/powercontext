@@ -185,7 +185,8 @@ class CandidateObservation(BaseModel):
 
     @classmethod
     def from_candidate(cls, candidate: AtomicMemoryCandidate) -> CandidateObservation:
-        return cls.model_validate(candidate.model_dump(mode="json"))
+        # The observation schema retains the fields consumed by the scorer.
+        return cls(kind=candidate.kind, text=candidate.text, evidence_ids=candidate.evidence_ids)
 
 
 class CaseObservation(BaseModel):

@@ -63,7 +63,9 @@ def test_atomic_forgetting_preserves_history_tags_and_current_projection(databas
             memory = contexts.atomic_memory.for_scope(scope_id)
             created = [
                 await contexts.records.create_artifact(
-                    scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(i)})
+                    scope_id,
+                    "atomic-memory",
+                    ArtifactWrite(content={"kind": "fact", "text": fact(i), "description": "Fact summary"}),
                 )
                 for i in range(12)
             ]
@@ -130,7 +132,9 @@ def test_atomic_memory_ignores_legacy_capacity_limits(database_config):
             memory = contexts.atomic_memory.for_scope(scope_id)
             created = [
                 await contexts.records.create_artifact(
-                    scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(i)})
+                    scope_id,
+                    "atomic-memory",
+                    ArtifactWrite(content={"kind": "fact", "text": fact(i), "description": "Fact summary"}),
                 )
                 for i in range(3)
             ]
@@ -144,7 +148,9 @@ def test_atomic_memory_ignores_legacy_capacity_limits(database_config):
                 )
             before = await atomic_row_counts(contexts, scope_id)
             fourth = await contexts.records.create_artifact(
-                scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(4)})
+                scope_id,
+                "atomic-memory",
+                ArtifactWrite(content={"kind": "fact", "text": fact(4), "description": "Fact summary"}),
             )
             assert fourth.artifact_id not in {item.artifact_id for item in created}
             assert await atomic_row_counts(contexts, scope_id) == (before[0] + 1, before[1] + 1, 2)
@@ -180,7 +186,9 @@ def test_atomic_forgetting_preserves_tags_added_before_commit(database_config, m
             await contexts.get(scope_id)
             created = [
                 await contexts.records.create_artifact(
-                    scope_id, "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": fact(i)})
+                    scope_id,
+                    "atomic-memory",
+                    ArtifactWrite(content={"kind": "fact", "text": fact(i), "description": "Fact summary"}),
                 )
                 for i in range(2)
             ]

@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+from copy import deepcopy
 from pathlib import Path
 from pprint import pformat
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 import yaml
 from datamodel_code_generator import GenerateConfig, InputFileType, generate
@@ -38,7 +39,7 @@ from fastapi.openapi.models import (
     Schema,
 )
 from fastapi.openapi.models import Operation as OpenAPIOperation
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "openapi" / "powercontext.yaml"
@@ -85,7 +86,8 @@ def generate_sources() -> dict[Path, str]:
     """Build every generated source without modifying the worktree."""
 
     try:
-        contract = OpenAPI.model_validate(yaml.safe_load(CONTRACT_PATH.read_text()))
+        raw_contract = _JSON_OBJECT_ADAPTER.validate_python(yaml.safe_load(CONTRACT_PATH.read_text()))
+        contract = OpenAPI.model_validate(raw_contract)
     except ValidationError as exc:
         raise ContractGenerationError(  # noqa: TRY003
             "OpenAPI contract",
@@ -97,11 +99,33 @@ def generate_sources() -> dict[Path, str]:
     contract_data = _JSON_OBJECT_ADAPTER.validate_python(
         contract.model_dump(mode="json", by_alias=True, exclude_none=True)
     )
+    if contract.openapi.startswith("3.0."):
+        _restore_openapi_30_exclusive_bounds(contract_data, raw_contract, contract)
     return {
-        MODELS_PATH: _generate_models(contract),
+        MODELS_PATH: _generate_models(contract, contract_data),
         OPERATIONS_PATH: _generate_operations(contract, contract.components.schemas),
         SCHEMA_PATH: _generate_schema(contract_data),
     }
+
+
+def _restore_openapi_30_exclusive_bounds(generated: JsonValue, source: JsonValue, model: object) -> None:
+    """Preserve 3.0 bounds that FastAPI's 3.1 Schema coerces to numeric values."""
+
+    if isinstance(generated, dict) and isinstance(source, dict) and isinstance(model, BaseModel):
+        if isinstance(model, Schema):
+            for key in source.keys() & {"exclusiveMinimum", "exclusiveMaximum"}:
+                generated[key] = source[key]
+        for name, field in type(model).model_fields.items():
+            key = field.alias or name
+            if key in generated and key in source:
+                _restore_openapi_30_exclusive_bounds(generated[key], source[key], vars(model)[name])
+    elif isinstance(generated, dict) and isinstance(source, dict) and isinstance(model, dict):
+        nested_models = cast(dict[str, object], model)
+        for key in generated.keys() & source.keys() & nested_models.keys():
+            _restore_openapi_30_exclusive_bounds(generated[key], source[key], nested_models[key])
+    elif isinstance(generated, list) and isinstance(source, list) and isinstance(model, list):
+        for generated_item, source_item, nested in zip(generated, source, model, strict=True):
+            _restore_openapi_30_exclusive_bounds(generated_item, source_item, nested)
 
 
 def main() -> None:
@@ -122,21 +146,32 @@ def main() -> None:
 
 def _generate_models(
     contract: OpenAPI,
+    contract_data: dict[str, JsonValue],
 ) -> str:
     transport_contract = contract.model_copy(deep=True)
     transport_contract.paths = {}
     if transport_contract.components is None or transport_contract.components.schemas is None:
         raise ContractGenerationError("components.schemas", None)
+    contract_schemas = transport_contract.components.schemas
     exclusive_schemas = {
         name: schema
-        for name, schema in transport_contract.components.schemas.items()
+        for name, schema in contract_schemas.items()
         if isinstance(schema, Schema) and (schema.model_extra or {}).get("x-powercontext-exclusive-fields")
     }
     # Keep address alternatives as fields in the SDK; the generated validator retains their exclusivity.
-    for schema in exclusive_schemas.values():
-        schema.oneOf = None
+    transport_data = deepcopy(contract_data)
+    transport_data["paths"] = {}
+    components = _JSON_OBJECT_ADAPTER.validate_python(transport_data["components"])
+    transport_schemas = _JSON_OBJECT_ADAPTER.validate_python(components["schemas"])
+    _inline_artifact_read_family(contract_schemas, transport_schemas)
+    for name in exclusive_schemas:
+        schema_data = _JSON_OBJECT_ADAPTER.validate_python(transport_schemas[name])
+        schema_data.pop("oneOf", None)
+        transport_schemas[name] = schema_data
+    components["schemas"] = transport_schemas
+    transport_data["components"] = components
     result = generate(
-        transport_contract.model_dump(mode="json", by_alias=True, exclude_none=True),
+        transport_data,
         config=GenerateConfig(
             input_filename="openapi/powercontext.yaml",
             input_file_type=InputFileType.OpenAPI,
@@ -155,12 +190,38 @@ def _generate_models(
     )
     if not isinstance(result, str):
         raise ContractGenerationError("model generator output", result)  # noqa: TRY003
-    evidence_models = _candidate_evidence_models(transport_contract.components.schemas)
+    evidence_models = _candidate_evidence_models(contract_schemas)
     source = _with_nested_model_defaults(f"{result.rstrip()}\n")
-    source = _with_code_validation(source, transport_contract.components.schemas)
+    source = _with_code_validation(source, contract_schemas)
     source = _with_exclusive_fields(source, exclusive_schemas)
-    source = _with_artifact_search_validation(source, transport_contract.components.schemas)
+    source = _with_artifact_search_validation(source, contract_schemas)
     return _with_candidate_evidence_limits(source, evidence_models)
+
+
+def _inline_artifact_read_family(
+    schemas: dict[str, Schema | Reference], transport_schemas: dict[str, JsonValue]
+) -> None:
+    """Keep read families as strings, including custom values, instead of scalar RootModels."""
+
+    family_schema = schemas.get("ArtifactReadFamily")
+    if family_schema is None:
+        return
+    if not isinstance(family_schema, Schema):
+        raise ContractGenerationError("ArtifactReadFamily schema", family_schema)  # noqa: TRY003
+    family_data = _JSON_OBJECT_ADAPTER.validate_python(
+        family_schema.model_dump(mode="json", by_alias=True, exclude_none=True)
+    )
+    for name in ("ArtifactCollectionItem", "ArtifactRevision"):
+        schema = schemas.get(name)
+        if not isinstance(schema, Schema) or schema.properties is None:
+            raise ContractGenerationError("Artifact read schema", name)  # noqa: TRY003
+        schema.properties["family"] = family_schema.model_copy(deep=True)
+        schema_data = _JSON_OBJECT_ADAPTER.validate_python(transport_schemas[name])
+        properties = schema_data.get("properties")
+        if not isinstance(properties, dict):
+            raise ContractGenerationError("Artifact read schema properties", name)  # noqa: TRY003
+        properties["family"] = family_data
+        transport_schemas[name] = schema_data
 
 
 def _with_exclusive_fields(source: str, schemas: dict[str, Schema]) -> str:

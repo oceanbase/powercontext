@@ -78,11 +78,6 @@ _HOST_BLOCK_OPEN_PREFIXES = (
     "<system-reminder",
     "<task-notification",
 )
-# The request contract bounds a query in characters. The byte bound is the hook's own
-# margin, so a query stays acceptable to a server that still measures the storage layer's
-# limit as well.
-_MAX_QUERY_CHARACTERS = 8192
-_MAX_QUERY_BYTES = 8192
 _REQUEST_HEADERS = {
     "X-PowerContext-Dream-Contract": "2",
     "Accept": "application/json",
@@ -232,13 +227,15 @@ def _recall_query(prompt: str) -> str:
 
     The element is only trusted where its boundaries match the host's wrapper, because the
     same tags appear verbatim wherever a user or a host-written summary quotes this code. A
-    prompt no verified element can be read from falls back to the joined text, trimmed to the
-    bounds above so the request stays acceptable to any server version.
+    prompt no verified element can be read from falls back to the joined text. Either query is
+    bounded the way the other prompt hooks bound theirs, so the request stays acceptable to any
+    server version.
     """
 
     extracted = _last_user_query(prompt)
-    query = prompt if extracted is None else extracted
-    bounded, truncated = _query_within_bounds(query.strip())
+    query = (prompt if extracted is None else extracted).strip()
+    bounded = _prepared_context.bounded_recall_query(query)
+    truncated = bounded != query
     if extracted is not None or truncated:
         _emit_query_event(
             source="user_query" if extracted is not None else "joined_prompt",
@@ -357,18 +354,6 @@ def _ends_at_host_boundary(prompt: str, closed: int) -> bool:
     if prompt.startswith(_CLOSING_TAG_PREFIX, index):
         return False
     return any(prompt.startswith(prefix, index) for prefix in _HOST_BLOCK_OPEN_PREFIXES)
-
-
-def _query_within_bounds(query: str) -> tuple[str, bool]:
-    """Trim a query to the request bounds, keeping the most recent text."""
-
-    if len(query) <= _MAX_QUERY_CHARACTERS and len(query.encode("utf-8")) <= _MAX_QUERY_BYTES:
-        return query, False
-    retained = query[-_MAX_QUERY_CHARACTERS:]
-    encoded = retained.encode("utf-8")
-    if len(encoded) > _MAX_QUERY_BYTES:
-        retained = encoded[-_MAX_QUERY_BYTES:].decode("utf-8", errors="ignore")
-    return retained, True
 
 
 def _emit_query_event(*, source: str, truncated: bool, characters: int, utf8_bytes: int) -> None:

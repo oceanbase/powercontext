@@ -549,7 +549,8 @@
     ],
     "get_atomic_memory_state": [],
     "remember_memory": [
-      "reason"
+      "reason",
+      "description"
     ],
     "revise_memory_entry": [
       "artifact"
@@ -909,18 +910,30 @@
           }
         }
       },
+      "ArtifactAddress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "artifact"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
+          },
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactReference"
+          }
+        }
+      },
       "ArtifactReadFamily": {
         "type": "string",
-        "enum": [
-          "memory",
-          "atomic-memory",
-          "experience",
-          "skill",
-          "handoff",
-          "profile",
-          "prompt",
-          "topic-memory"
-        ]
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9-]*$"
       },
       "ArtifactReference": {
         "type": "object",
@@ -976,6 +989,17 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[\\x21-\\x7E]+$"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Persisted schema version for a custom Artifact family."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "revision": {
             "type": "integer",
@@ -1150,6 +1174,48 @@
           }
         }
       },
+      "AtomicMemoryReadContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "text"
+        ],
+        "properties": {
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AtomicMemoryContentSchema"
+              }
+            ],
+            "default": "powercontext.atomic-memory.v1"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Memory text is NFC-normalized and trimmed before enforcing an 8192 UTF-8 byte limit."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$",
+                "description": "A concise single-line summary of final text, in the same language. Required for new writes."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "AtomicMemoryRecord": {
         "type": "object",
         "additionalProperties": false,
@@ -1294,6 +1360,20 @@
             "type": "string",
             "minLength": 1,
             "description": "Memory text is NFC-normalized and trimmed before enforcing an 8192 UTF-8 byte limit."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$",
+                "description": "Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -1368,7 +1448,7 @@
                 "$ref": "#/components/schemas/ProfileCandidateProposal"
               },
               {
-                "$ref": "#/components/schemas/AtomicMemoryWriteContent"
+                "$ref": "#/components/schemas/AtomicMemoryReadContent"
               },
               {
                 "$ref": "#/components/schemas/TopicMemoryDreamProposal"
@@ -3217,10 +3297,17 @@
             "default": false,
             "description": "Opt into current-Scope native code evidence. No index is built during preparation."
           },
-          "explain": {
-            "type": "boolean",
-            "default": false,
-            "description": "Opt into reporting which retrieval channel this preparation lost, as `reason` on the response. Off by default, because a response a Host injects keeps its four fields."
+          "include_receipt": {
+            "anyOf": [
+              {
+                "type": "boolean",
+                "default": false,
+                "description": "Opt into a bounded, content-free PreparedContext Receipt."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "assembly": {
             "$ref": "#/components/schemas/ContextAssembly"
@@ -3310,35 +3397,553 @@
             "type": "integer",
             "minimum": 0
           },
+          "receipt": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PreparedContextReceipt"
+              }
+            ],
+            "description": "Present only when requested and successfully assembled."
+          }
+        }
+      },
+      "PreparedContextCodeEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope_id",
+          "fingerprint",
+          "path",
+          "file_sha256",
+          "start_line",
+          "end_line",
+          "snippet_sha256"
+        ],
+        "properties": {
+          "scope_id": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "file_sha256": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "snippet_sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "PreparedContextFamily": {
+        "type": "string",
+        "enum": [
+          "atomic-memory",
+          "topic-memory",
+          "experience",
+          "profile",
+          "code"
+        ]
+      },
+      "PreparedContextOmittedGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "family",
+          "reason",
+          "count"
+        ],
+        "properties": {
+          "family": {
+            "$ref": "#/components/schemas/PreparedContextFamily"
+          },
           "reason": {
+            "type": "string",
+            "enum": [
+              "duplicate",
+              "blank",
+              "family_limit",
+              "entry_limit",
+              "below_min_bytes",
+              "no_fitting_truncation",
+              "rerank_not_selected",
+              "not_retrieved"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "PreparedContextPromptArtifactAddress": {
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope_id",
+              "artifact"
+            ],
+            "properties": {
+              "scope_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": ".*\\S.*"
+              },
+              "artifact": {
+                "$ref": "#/components/schemas/ArtifactReference"
+              }
+            }
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "PreparedContextPromptIdentity": {
+        "anyOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scope_id",
+              "key",
+              "definition_version",
+              "builtin_version",
+              "selection",
+              "selected_version",
+              "compiled_digest",
+              "artifact_address"
+            ],
+            "properties": {
+              "scope_id": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "definition_version": {
+                "type": "string"
+              },
+              "builtin_version": {
+                "type": "string"
+              },
+              "selection": {
+                "type": "string",
+                "enum": [
+                  "built_in",
+                  "artifact"
+                ]
+              },
+              "selected_version": {
+                "type": "string"
+              },
+              "compiled_digest": {
+                "type": "string"
+              },
+              "artifact_address": {
+                "$ref": "#/components/schemas/PreparedContextPromptArtifactAddress"
+              }
+            }
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "PreparedContextRecallRound": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "round",
+          "outcome",
+          "retained"
+        ],
+        "properties": {
+          "round": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "expansion_failed"
+            ]
+          },
+          "retained": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PreparedContextReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "receipt_id",
+          "policy_id",
+          "query_digest",
+          "content_digest",
+          "requested_max_bytes",
+          "used_bytes",
+          "truncated",
+          "non_deterministic",
+          "retrieval",
+          "selected",
+          "omitted",
+          "stages"
+        ],
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "powercontext.prepared-context-receipt.v1"
+            ]
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy_id": {
+            "type": "string",
+            "enum": [
+              "powercontext.prepared-context-receipt.v1"
+            ]
+          },
+          "query_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "content_digest": {
             "anyOf": [
               {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/PreparedContextReason"
-                  }
-                ],
-                "description": "Why this preparation lost a retrieval channel it would otherwise have used. Absent unless the request asked with `explain` and a channel was lost, so a response a Host injects keeps its four fields. The values are the two inference failures among RFC 1435's four `SearchGroup.fallback_reason` spellings, so a later Receipt reuses them instead of restating the cause. `none` travels as absence, and `reused_fts_fallback` is not a cause here: a later round reusing a failed round's keyword-only outcome is still explained by that round's `inference_*` value, which outranks it."
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "requested_max_bytes": {
+            "type": "integer",
+            "minimum": 512,
+            "maximum": 32768
+          },
+          "used_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "non_deterministic": {
+            "type": "boolean"
+          },
+          "retrieval": {
+            "$ref": "#/components/schemas/PreparedContextRetrieval"
+          },
+          "selected": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/PreparedContextSelectedItem"
+            }
+          },
+          "omitted": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "$ref": "#/components/schemas/PreparedContextOmittedGroup"
+            }
+          },
+          "stages": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/PreparedContextStageTiming"
+            }
           }
         }
       },
-      "PreparedContextReason": {
-        "type": "string",
-        "enum": [
-          "inference_timeout",
-          "inference_unavailable"
-        ]
+      "PreparedContextRerankConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "config_id",
+          "policy_id",
+          "model",
+          "effective_settings",
+          "timeout_seconds",
+          "max_requests",
+          "config_digest",
+          "prompt",
+          "non_deterministic"
+        ],
+        "properties": {
+          "config_id": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effective_settings": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": 0
+          },
+          "max_requests": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "config_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/PreparedContextPromptIdentity"
+          },
+          "non_deterministic": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PreparedContextRerankGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "round",
+          "config_id",
+          "outcome",
+          "fallback_reason",
+          "count"
+        ],
+        "properties": {
+          "round": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "config_id": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "selected",
+              "fallback",
+              "failed"
+            ]
+          },
+          "fallback_reason": {
+            "type": "string",
+            "enum": [
+              "none",
+              "empty_selection",
+              "inference_unavailable",
+              "inference_timeout",
+              "invalid_output"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "PreparedContextRetrieval": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rounds",
+          "searches",
+          "rerank_configs",
+          "reranks"
+        ],
+        "properties": {
+          "rounds": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/PreparedContextRecallRound"
+            }
+          },
+          "searches": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/PreparedContextSearchGroup"
+            }
+          },
+          "rerank_configs": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/PreparedContextRerankConfig"
+            }
+          },
+          "reranks": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/PreparedContextRerankGroup"
+            }
+          }
+        }
       },
       "PreparedContextSchema": {
         "type": "string",
         "enum": [
           "powercontext.prepared-context.v1"
         ]
+      },
+      "PreparedContextSearchGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "round",
+          "family",
+          "mode",
+          "outcome",
+          "fallback_reason",
+          "count"
+        ],
+        "properties": {
+          "round": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "family": {
+            "$ref": "#/components/schemas/PreparedContextFamily"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "fts",
+              "vector",
+              "hybrid",
+              "snapshot",
+              "code",
+              "none"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "not_run",
+              "failed"
+            ]
+          },
+          "fallback_reason": {
+            "type": "string",
+            "enum": [
+              "none",
+              "inference_unavailable",
+              "inference_timeout",
+              "reused_fts_fallback"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "PreparedContextSelectedItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "rendered_bytes",
+          "truncated"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/PreparedContextFamily"
+          },
+          "artifact_address": {
+            "$ref": "#/components/schemas/ArtifactAddress"
+          },
+          "code_evidence": {
+            "$ref": "#/components/schemas/PreparedContextCodeEvidence"
+          },
+          "rendered_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PreparedContextStageTiming": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "duration_ms",
+          "count"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
       },
       "PreparedContextStatus": {
         "type": "string",
@@ -3626,6 +4231,20 @@
               {
                 "type": "integer",
                 "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$",
+                "description": "Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model."
               },
               {
                 "type": "null"

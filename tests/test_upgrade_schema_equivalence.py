@@ -21,8 +21,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+import upgrade_database_probe
 
-from scripts import upgrade_database_probe
 from tests.release_upgrades.test_full_server import canonical_schema
 
 

@@ -64,6 +64,7 @@ from powercontext.builtin.runtime.application import (
     ScopedContextApplication,
     _RecallRoundOutcome,
 )
+from powercontext.builtin.runtime.atomic_memory import ScopedAtomicMemory
 from powercontext.builtin.runtime.prepared_context import (
     PreparedContextBuild,
     PreparedContextBuilder,
@@ -836,7 +837,7 @@ def test_work_between_embedding_waits_does_not_spend_the_preparation_budget(tmp_
 
     async def slow_experience(_scope_id: str, _query: str, _limit: int, **_kwargs: Any) -> ExperienceSearchOutcome:
         await asyncio.sleep(0.3)
-        return ExperienceSearchOutcome()
+        return ExperienceSearchOutcome(mode="fts")
 
     memory_embedding = SlowQueryEmbedding()
     topic_embedding = SlowQueryEmbedding()
@@ -859,14 +860,15 @@ def test_work_between_embedding_waits_does_not_spend_the_preparation_budget(tmp_
             # A separate Topic Memory model makes it embed the query itself instead of reusing the Atomic vector.
             runtime._topic_memory_embedding_model = topic_embedding
             runtime._experience_recall = slow_experience
-            request = PrepareContextRequest.model_validate({"query": _QUERY, "max_bytes": 8000, "explain": True})
+            request = PrepareContextRequest(query=_QUERY, max_bytes=8000, include_receipt=True)
             return await runtime.context.for_scope(scope_id).prepare(request)
 
     prepared = asyncio.run(scenario())
 
     assert memory_embedding.answered
     assert topic_embedding.answered
-    assert prepared.reason is None
+    assert prepared.receipt is not None
+    assert all(search.fallback_reason == "none" for search in prepared.receipt.retrieval.searches)
 
 
 def test_a_spent_budget_keeps_the_cached_memory_vector_for_expansion(tmp_path) -> None:
@@ -921,12 +923,16 @@ def test_a_spent_budget_keeps_the_cached_memory_vector_for_expansion(tmp_path) -
                 driver = (await connection.get_raw_connection()).driver_connection
                 assert driver is not None
                 await driver.create_function("power", 2, None)
-            request = PrepareContextRequest.model_validate({"query": query, "max_bytes": 8000, "explain": True})
+            request = PrepareContextRequest(query=query, max_bytes=8000, include_receipt=True)
             return await runtime.context.for_scope(scope_id).prepare(request)
 
     prepared = asyncio.run(scenario())
 
-    assert prepared.reason == "inference_timeout"
+    assert prepared.receipt is not None
+    assert any(
+        search.family == "topic-memory" and search.fallback_reason == "inference_timeout"
+        for search in prepared.receipt.retrieval.searches
+    )
     assert vector_only in (prepared.content or "")
     # This is the external inference-attempt budget for one request: Atomic once, Topic once.
     assert embedding.query_calls == 2
@@ -976,12 +982,13 @@ def test_a_spent_budget_keeps_the_cached_vector_for_topic_memory(tmp_path) -> No
                 TopicMemoryContent(title=vector_only, summary="Seasonal accounts", detail="unrelated detail"),
                 embedding,
             )
-            request = PrepareContextRequest.model_validate({"query": _QUERY, "max_bytes": 8000, "explain": True})
+            request = PrepareContextRequest(query=_QUERY, max_bytes=8000, include_receipt=True)
             return await runtime.context.for_scope(scope_id).prepare(request)
 
     prepared = asyncio.run(scenario())
 
-    assert prepared.reason is None
+    assert prepared.receipt is not None
+    assert all(search.fallback_reason == "none" for search in prepared.receipt.retrieval.searches)
     assert vector_only in (prepared.content or "")
     # This is the external inference-attempt budget for one request: Topic Memory reuses Atomic Memory's vector.
     assert embedding.query_calls == 1
@@ -1160,6 +1167,46 @@ def test_later_rounds_never_remove_an_accumulated_candidate(tmp_path, monkeypatc
     asyncio.run(scenario())
 
 
+def test_failed_expansion_search_remains_visible_in_receipt(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        async with _runtime(
+            tmp_path / "failed-search.db",
+            RuntimeConfig(recall_gate_enabled=True, recall_gate_min_candidates=100),
+        ) as runtime:
+            scope_id = await _create_scope(runtime, "failed-search")
+            await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
+            original = ScopedAtomicMemory.search
+            calls = 0
+
+            async def failing_search(self, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError("expansion search failed")  # noqa: TRY003
+                return replace(await original(self, *args, **kwargs), recoverable=True)
+
+            monkeypatch.setattr(ScopedAtomicMemory, "search", failing_search)
+            prepared = await runtime.context.for_scope(scope_id).prepare(
+                _memory_request().model_copy(update={"include_receipt": True})
+            )
+            assert prepared.status == "ready"
+            assert prepared.receipt is not None
+            assert [(item.round, item.outcome, item.retained) for item in prepared.receipt.retrieval.rounds] == [
+                (0, "completed", True),
+                (1, "expansion_failed", False),
+            ]
+            assert any(
+                item.round == 1
+                and item.family == "atomic-memory"
+                and item.mode == "none"
+                and item.outcome == "failed"
+                and item.count == 1
+                for item in prepared.receipt.retrieval.searches
+            )
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("failure_phase", ["search", "assessment"])
 def test_later_round_failure_preserves_committed_expansion(tmp_path, monkeypatch, failure_phase) -> None:
     async def scenario() -> None:
@@ -1244,6 +1291,11 @@ def test_later_round_failure_preserves_committed_expansion(tmp_path, monkeypatch
             RuntimeConfig(recall_gate_enabled=True, recall_gate_min_candidates=100),
         ) as runtime:
             build, effort = await _prepare_build(runtime, scope_id, request)
+            assert calls == 3
+            calls = 0
+            prepared = await runtime.context.for_scope(scope_id).prepare(
+                request.model_copy(update={"include_receipt": True})
+            )
 
         assert effort is not None
         assert effort.assessment == REASON_EXPANSION_FAILED
@@ -1256,6 +1308,21 @@ def test_later_round_failure_preserves_committed_expansion(tmp_path, monkeypatch
         assert calls == 3
         assert build.context.content == committed.context.content
         assert build.origins == committed.origins
+        assert prepared.content == committed.context.content
+        assert prepared.receipt is not None
+        assert [(item.round, item.outcome, item.retained) for item in prepared.receipt.retrieval.rounds] == [
+            (0, "completed", True),
+            (1, "completed", True),
+            (2, "expansion_failed", False),
+        ]
+        assert (
+            next(
+                item.count
+                for item in prepared.receipt.omitted
+                if item.family == "atomic-memory" and item.reason == "duplicate"
+            )
+            == 2
+        )
 
     asyncio.run(scenario())
 

@@ -80,16 +80,337 @@ output_schema:
         content_bytes:
           $ref: '#/definitions/Result/properties/content_bytes'
           type: number
-        reason:
-          $ref: '#/definitions/Result/properties/reason'
-          description: 'Why this preparation lost a retrieval channel it would otherwise
-            have used. Absent unless the request asked with `explain` and a channel
-            was lost, so a response a Host injects keeps its four fields. The values
-            are the two inference failures among RFC 1435''s four `SearchGroup.fallback_reason`
-            spellings, so a later Receipt reuses them instead of restating the cause.
-            `none` travels as absence, and `reused_fts_fallback` is not a cause here:
-            a later round reusing a failed round''s keyword-only outcome is still
-            explained by that round''s `inference_*` value, which outranks it.'
+        receipt:
+          $ref: '#/definitions/Result/properties/receipt'
+          type: object
+          properties:
+            schema:
+              $ref: '#/definitions/Result/properties/receipt/properties/schema'
+              type: string
+              enum: &id003
+              - powercontext.prepared-context-receipt.v1
+            receipt_id:
+              $ref: '#/definitions/Result/properties/receipt/properties/receipt_id'
+              type: string
+            policy_id:
+              $ref: '#/definitions/Result/properties/receipt/properties/policy_id'
+              type: string
+              enum: &id004
+              - powercontext.prepared-context-receipt.v1
+            query_digest:
+              $ref: '#/definitions/Result/properties/receipt/properties/query_digest'
+              type: string
+            content_digest:
+              $ref: '#/definitions/Result/properties/receipt/properties/content_digest'
+              type: string
+            requested_max_bytes:
+              $ref: '#/definitions/Result/properties/receipt/properties/requested_max_bytes'
+              type: number
+            used_bytes:
+              $ref: '#/definitions/Result/properties/receipt/properties/used_bytes'
+              type: number
+            truncated:
+              $ref: '#/definitions/Result/properties/receipt/properties/truncated'
+              type: boolean
+            non_deterministic:
+              $ref: '#/definitions/Result/properties/receipt/properties/non_deterministic'
+              type: boolean
+            retrieval:
+              $ref: '#/definitions/Result/properties/receipt/properties/retrieval'
+              type: object
+              properties:
+                rounds:
+                  $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rounds'
+                  type: array
+                  items:
+                    $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rounds/items'
+                    type: object
+                    properties:
+                      round:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rounds/items/properties/round'
+                        type: number
+                      outcome:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rounds/items/properties/outcome'
+                        type: string
+                        enum: &id005
+                        - completed
+                        - expansion_failed
+                      retained:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rounds/items/properties/retained'
+                        type: boolean
+                searches:
+                  $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches'
+                  type: array
+                  items:
+                    $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items'
+                    type: object
+                    properties:
+                      round:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/round'
+                        type: number
+                      family:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/family'
+                        type: string
+                        enum: &id006
+                        - atomic-memory
+                        - topic-memory
+                        - experience
+                        - profile
+                        - code
+                      mode:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/mode'
+                        type: string
+                        enum: &id007
+                        - fts
+                        - vector
+                        - hybrid
+                        - snapshot
+                        - code
+                        - none
+                      outcome:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/outcome'
+                        type: string
+                        enum: &id008
+                        - completed
+                        - not_run
+                        - failed
+                      fallback_reason:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/fallback_reason'
+                        type: string
+                        enum: &id009
+                        - none
+                        - inference_unavailable
+                        - inference_timeout
+                        - reused_fts_fallback
+                      count:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/searches/items/properties/count'
+                        type: number
+                rerank_configs:
+                  $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs'
+                  type: array
+                  items:
+                    $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items'
+                    type: object
+                    properties:
+                      config_id:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/config_id'
+                        type: string
+                      policy_id:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/policy_id'
+                        type: string
+                      model:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/model'
+                        type: string
+                      effective_settings:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/effective_settings'
+                        type: object
+                      timeout_seconds:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/timeout_seconds'
+                        type: number
+                      max_requests:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/max_requests'
+                        type: number
+                      config_digest:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/config_digest'
+                        type: string
+                      prompt:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt'
+                        type: object
+                        properties:
+                          scope_id:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/scope_id'
+                            type: string
+                          key:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/key'
+                            type: string
+                          definition_version:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/definition_version'
+                            type: string
+                          builtin_version:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/builtin_version'
+                            type: string
+                          selection:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/selection'
+                            type: string
+                            enum: &id010
+                            - built_in
+                            - artifact
+                          selected_version:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/selected_version'
+                            type: string
+                          compiled_digest:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/compiled_digest'
+                            type: string
+                          artifact_address:
+                            $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/artifact_address'
+                            type: object
+                            properties:
+                              scope_id:
+                                $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/artifact_address/anyOf/0/properties/scope_id'
+                                type: string
+                              artifact:
+                                $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/artifact_address/anyOf/0/properties/artifact'
+                                type: object
+                                properties:
+                                  family:
+                                    $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/artifact_address/anyOf/0/properties/artifact/properties/family'
+                                    type: string
+                                  artifact_id:
+                                    $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/artifact_address/anyOf/0/properties/artifact/properties/artifact_id'
+                                    type: string
+                                  revision:
+                                    $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/prompt/anyOf/0/properties/artifact_address/anyOf/0/properties/artifact/properties/revision'
+                                    type: number
+                      non_deterministic:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/rerank_configs/items/properties/non_deterministic'
+                        type: boolean
+                reranks:
+                  $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks'
+                  type: array
+                  items:
+                    $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items'
+                    type: object
+                    properties:
+                      round:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items/properties/round'
+                        type: number
+                      config_id:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items/properties/config_id'
+                        type: string
+                      outcome:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items/properties/outcome'
+                        type: string
+                        enum: &id011
+                        - selected
+                        - fallback
+                        - failed
+                      fallback_reason:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items/properties/fallback_reason'
+                        type: string
+                        enum: &id012
+                        - none
+                        - empty_selection
+                        - inference_unavailable
+                        - inference_timeout
+                        - invalid_output
+                      count:
+                        $ref: '#/definitions/Result/properties/receipt/properties/retrieval/properties/reranks/items/properties/count'
+                        type: number
+            selected:
+              $ref: '#/definitions/Result/properties/receipt/properties/selected'
+              type: array
+              items:
+                $ref: '#/definitions/Result/properties/receipt/properties/selected/items'
+                type: object
+                properties:
+                  kind:
+                    $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/kind'
+                    type: string
+                    enum: &id013
+                    - atomic-memory
+                    - topic-memory
+                    - experience
+                    - profile
+                    - code
+                  artifact_address:
+                    $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/artifact_address'
+                    type: object
+                    properties:
+                      scope_id:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/artifact_address/properties/scope_id'
+                        type: string
+                      artifact:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/artifact_address/properties/artifact'
+                        type: object
+                        properties:
+                          family:
+                            $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/artifact_address/properties/artifact/properties/family'
+                            type: string
+                          artifact_id:
+                            $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/artifact_address/properties/artifact/properties/artifact_id'
+                            type: string
+                          revision:
+                            $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/artifact_address/properties/artifact/properties/revision'
+                            type: number
+                  code_evidence:
+                    $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence'
+                    type: object
+                    properties:
+                      scope_id:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence/properties/scope_id'
+                        type: string
+                      fingerprint:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence/properties/fingerprint'
+                        type: string
+                      path:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence/properties/path'
+                        type: string
+                      file_sha256:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence/properties/file_sha256'
+                        type: string
+                      start_line:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence/properties/start_line'
+                        type: number
+                      end_line:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence/properties/end_line'
+                        type: number
+                      snippet_sha256:
+                        $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/code_evidence/properties/snippet_sha256'
+                        type: string
+                  rendered_bytes:
+                    $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/rendered_bytes'
+                    type: number
+                  truncated:
+                    $ref: '#/definitions/Result/properties/receipt/properties/selected/items/properties/truncated'
+                    type: boolean
+            omitted:
+              $ref: '#/definitions/Result/properties/receipt/properties/omitted'
+              type: array
+              items:
+                $ref: '#/definitions/Result/properties/receipt/properties/omitted/items'
+                type: object
+                properties:
+                  family:
+                    $ref: '#/definitions/Result/properties/receipt/properties/omitted/items/properties/family'
+                    type: string
+                    enum: &id014
+                    - atomic-memory
+                    - topic-memory
+                    - experience
+                    - profile
+                    - code
+                  reason:
+                    $ref: '#/definitions/Result/properties/receipt/properties/omitted/items/properties/reason'
+                    type: string
+                    enum: &id015
+                    - duplicate
+                    - blank
+                    - family_limit
+                    - entry_limit
+                    - below_min_bytes
+                    - no_fitting_truncation
+                    - rerank_not_selected
+                    - not_retrieved
+                  count:
+                    $ref: '#/definitions/Result/properties/receipt/properties/omitted/items/properties/count'
+                    type: number
+            stages:
+              $ref: '#/definitions/Result/properties/receipt/properties/stages'
+              type: array
+              items:
+                $ref: '#/definitions/Result/properties/receipt/properties/stages/items'
+                type: object
+                properties:
+                  stage:
+                    $ref: '#/definitions/Result/properties/receipt/properties/stages/items/properties/stage'
+                    type: string
+                  duration_ms:
+                    $ref: '#/definitions/Result/properties/receipt/properties/stages/items/properties/duration_ms'
+                    type: number
+                  count:
+                    $ref: '#/definitions/Result/properties/receipt/properties/stages/items/properties/count'
+                    type: number
+          description: Present only when requested and successfully assembled.
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
   required:
@@ -118,23 +439,374 @@ output_schema:
         content_bytes:
           type: integer
           minimum: 0
-        reason:
-          anyOf:
-          - allOf:
-            - type: string
-              enum:
-              - inference_timeout
-              - inference_unavailable
-            description: 'Why this preparation lost a retrieval channel it would otherwise
-              have used. Absent unless the request asked with `explain` and a channel
-              was lost, so a response a Host injects keeps its four fields. The values
-              are the two inference failures among RFC 1435''s four `SearchGroup.fallback_reason`
-              spellings, so a later Receipt reuses them instead of restating the cause.
-              `none` travels as absence, and `reused_fts_fallback` is not a cause
-              here: a later round reusing a failed round''s keyword-only outcome is
-              still explained by that round''s `inference_*` value, which outranks
-              it.'
-          - type: 'null'
+        receipt:
+          type: object
+          additionalProperties: false
+          required:
+          - schema
+          - receipt_id
+          - policy_id
+          - query_digest
+          - content_digest
+          - requested_max_bytes
+          - used_bytes
+          - truncated
+          - non_deterministic
+          - retrieval
+          - selected
+          - omitted
+          - stages
+          properties:
+            schema:
+              type: string
+              enum: *id003
+            receipt_id:
+              type: string
+              format: uuid
+            policy_id:
+              type: string
+              enum: *id004
+            query_digest:
+              type: string
+              pattern: ^sha256:[0-9a-f]{64}$
+            content_digest:
+              anyOf:
+              - type: string
+                pattern: ^sha256:[0-9a-f]{64}$
+              - type: 'null'
+            requested_max_bytes:
+              type: integer
+              minimum: 512
+              maximum: 32768
+            used_bytes:
+              type: integer
+              minimum: 0
+            truncated:
+              type: boolean
+            non_deterministic:
+              type: boolean
+            retrieval:
+              type: object
+              additionalProperties: false
+              required:
+              - rounds
+              - searches
+              - rerank_configs
+              - reranks
+              properties:
+                rounds:
+                  type: array
+                  maxItems: 3
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - round
+                    - outcome
+                    - retained
+                    properties:
+                      round:
+                        type: integer
+                        minimum: 0
+                        maximum: 2
+                      outcome:
+                        type: string
+                        enum: *id005
+                      retained:
+                        type: boolean
+                searches:
+                  type: array
+                  maxItems: 32
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - round
+                    - family
+                    - mode
+                    - outcome
+                    - fallback_reason
+                    - count
+                    properties:
+                      round:
+                        type: integer
+                        minimum: 0
+                        maximum: 2
+                      family:
+                        type: string
+                        enum: *id006
+                      mode:
+                        type: string
+                        enum: *id007
+                      outcome:
+                        type: string
+                        enum: *id008
+                      fallback_reason:
+                        type: string
+                        enum: *id009
+                      count:
+                        type: integer
+                        minimum: 1
+                rerank_configs:
+                  type: array
+                  maxItems: 8
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - config_id
+                    - policy_id
+                    - model
+                    - effective_settings
+                    - timeout_seconds
+                    - max_requests
+                    - config_digest
+                    - prompt
+                    - non_deterministic
+                    properties:
+                      config_id:
+                        type: string
+                        pattern: ^sha256:[0-9a-f]{64}$
+                      policy_id:
+                        type: string
+                      model:
+                        anyOf:
+                        - type: string
+                        - type: 'null'
+                      effective_settings:
+                        type: object
+                        additionalProperties:
+                          anyOf:
+                          - type: string
+                          - type: integer
+                          - type: number
+                          - type: boolean
+                      timeout_seconds:
+                        type: number
+                        minimum: 0
+                        exclusiveMinimum: 0
+                      max_requests:
+                        type: integer
+                        minimum: 1
+                      config_digest:
+                        type: string
+                        pattern: ^sha256:[0-9a-f]{64}$
+                      prompt:
+                        anyOf:
+                        - type: object
+                          additionalProperties: false
+                          required:
+                          - scope_id
+                          - key
+                          - definition_version
+                          - builtin_version
+                          - selection
+                          - selected_version
+                          - compiled_digest
+                          - artifact_address
+                          properties:
+                            scope_id:
+                              type: string
+                            key:
+                              type: string
+                            definition_version:
+                              type: string
+                            builtin_version:
+                              type: string
+                            selection:
+                              type: string
+                              enum: *id010
+                            selected_version:
+                              type: string
+                            compiled_digest:
+                              type: string
+                            artifact_address:
+                              anyOf:
+                              - type: object
+                                additionalProperties: false
+                                required:
+                                - scope_id
+                                - artifact
+                                properties:
+                                  scope_id:
+                                    type: string
+                                    minLength: 1
+                                    maxLength: 256
+                                    pattern: .*\S.*
+                                  artifact:
+                                    type: object
+                                    additionalProperties: false
+                                    required:
+                                    - family
+                                    - artifact_id
+                                    - revision
+                                    properties:
+                                      family:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      artifact_id:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 128
+                                        pattern: ^[\x21-\x7E]+$
+                                      revision:
+                                        type: integer
+                                        minimum: 1
+                              - type: 'null'
+                        - type: 'null'
+                      non_deterministic:
+                        type: boolean
+                reranks:
+                  type: array
+                  maxItems: 32
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - round
+                    - config_id
+                    - outcome
+                    - fallback_reason
+                    - count
+                    properties:
+                      round:
+                        type: integer
+                        minimum: 0
+                        maximum: 2
+                      config_id:
+                        type: string
+                        pattern: ^sha256:[0-9a-f]{64}$
+                      outcome:
+                        type: string
+                        enum: *id011
+                      fallback_reason:
+                        type: string
+                        enum: *id012
+                      count:
+                        type: integer
+                        minimum: 1
+            selected:
+              type: array
+              maxItems: 32
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - kind
+                - rendered_bytes
+                - truncated
+                properties:
+                  kind:
+                    type: string
+                    enum: *id013
+                  artifact_address:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - scope_id
+                    - artifact
+                    properties:
+                      scope_id:
+                        type: string
+                        minLength: 1
+                        maxLength: 256
+                        pattern: .*\S.*
+                      artifact:
+                        type: object
+                        additionalProperties: false
+                        required:
+                        - family
+                        - artifact_id
+                        - revision
+                        properties:
+                          family:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                            pattern: ^[\x21-\x7E]+$
+                          artifact_id:
+                            type: string
+                            minLength: 1
+                            maxLength: 128
+                            pattern: ^[\x21-\x7E]+$
+                          revision:
+                            type: integer
+                            minimum: 1
+                  code_evidence:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - scope_id
+                    - fingerprint
+                    - path
+                    - file_sha256
+                    - start_line
+                    - end_line
+                    - snippet_sha256
+                    properties:
+                      scope_id:
+                        type: string
+                      fingerprint:
+                        type: string
+                      path:
+                        type: string
+                      file_sha256:
+                        type: string
+                      start_line:
+                        type: integer
+                        minimum: 1
+                      end_line:
+                        type: integer
+                        minimum: 1
+                      snippet_sha256:
+                        type: string
+                  rendered_bytes:
+                    type: integer
+                    minimum: 0
+                  truncated:
+                    type: boolean
+            omitted:
+              type: array
+              maxItems: 16
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - family
+                - reason
+                - count
+                properties:
+                  family:
+                    type: string
+                    enum: *id014
+                  reason:
+                    type: string
+                    enum: *id015
+                  count:
+                    type: integer
+                    minimum: 1
+            stages:
+              type: array
+              maxItems: 8
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - stage
+                - duration_ms
+                - count
+                properties:
+                  stage:
+                    type: string
+                  duration_ms:
+                    type: number
+                    minimum: 0
+                  count:
+                    type: integer
+                    minimum: 1
+          description: Present only when requested and successfully assembled.
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
 extra:

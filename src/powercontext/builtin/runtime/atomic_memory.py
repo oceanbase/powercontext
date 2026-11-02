@@ -26,7 +26,8 @@ from time import perf_counter
 from typing import cast
 from uuid import uuid4
 
-from sqlalchemy import Text, and_, func, or_, select
+import rfc8785
+from sqlalchemy import LargeBinary, Text, and_, func, literal, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
@@ -45,6 +46,8 @@ from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryRead,
     AtomicMemoryRecord,
     AtomicMemoryStateValue,
+    RecallManifestEntry,
+    RecallManifestPage,
 )
 from powercontext.builtin.artifacts.atomic_memory.restoration import AtomicMemoryPreviewSigner
 from powercontext.builtin.artifacts.atomic_memory.search import AtomicArtifactSearchRequest, plan_atomic_search
@@ -90,6 +93,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 from powercontext.builtin.persistence.tags import tag_predicate
 from powercontext.builtin.records import BaseOperationNotSupportedError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime.artifact_merge import ArtifactMergeAccess, merge_artifact_tags
+from powercontext.builtin.runtime.receipt_capture import current_receipt_evidence
 from powercontext.builtin.tags import TagFilter
 
 logger = logging.getLogger(__name__)
@@ -374,6 +378,104 @@ class ScopedAtomicMemory:
             raise RepositoryNotFoundError("artifact", (self.scope_id, "atomic-memory", missing))
         return tuple(by_id[artifact_id] for artifact_id in artifact_ids)
 
+    async def manifest(
+        self,
+        *,
+        kind: str | None = None,
+        tag_filter: TagFilter | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        context=None,
+    ) -> RecallManifestPage:
+        """Read only current metadata; never assemble content or infer summaries."""
+        _validate_limit(limit)
+        if kind is not None:
+            AtomicMemoryContent(kind=kind, text="validation", description="validation")
+        # Hash the complete binding so accepted Unicode filters cannot inflate the
+        # signed cursor beyond the transport's 4096-character request limit.
+        # Preserve exact strings: the query does not apply Unicode normalization.
+        bound = {
+            "endpoint": "recall_manifest",
+            "version": 3,
+            "binding_hash": sha256(
+                rfc8785.dumps({
+                    "scope_id": self.scope_id,
+                    "subject": self.application.security.subject(context),
+                    "kind": kind,
+                    "tags": None if tag_filter is None else list(tag_filter.keys),
+                    "tag_match": None if tag_filter is None else tag_filter.match,
+                })
+            ).hexdigest(),
+        }
+        after = self.application.cursor.after_text(cursor, bound)
+        async with self._read(context) as connection:
+            await self.application.security.filters(connection, self.scope_id, context, tags=tag_filter)
+            current = self.application.index.table
+            heads = ARTIFACT_HEADS_TABLE
+            statement = (
+                select(
+                    current.c.artifact_id,
+                    current.c.revision,
+                    current.c.state_version,
+                    current.c.kind,
+                    current.c.description,
+                )
+                .select_from(
+                    current.join(
+                        heads,
+                        and_(
+                            current.c.scope_id == heads.c.scope_id,
+                            current.c.artifact_id == heads.c.artifact_id,
+                            current.c.revision == heads.c.revision,
+                            current.c.state_version == heads.c.governance_generation,
+                            heads.c.family == "atomic-memory",
+                        ),
+                    )
+                )
+                .where(
+                    current.c.scope_id == self.scope_id,
+                    current.c.artifact_id > after,
+                    heads.c.lifecycle_state == "active",
+                    heads.c.merged_into_id.is_(None),
+                    current.c.projection_format == ATOMIC_MEMORY_PROJECTION_FORMAT,
+                )
+                .order_by(current.c.artifact_id)
+                .limit(limit + 1)
+            )
+            if kind is not None:
+                if connection.dialect.name == "mysql":
+                    # Binary strings preserve trailing spaces as well as case.
+                    predicate = sql_cast(current.c.kind, LargeBinary) == sql_cast(literal(kind), LargeBinary)
+                else:
+                    predicate = current.c.kind.collate("BINARY") == kind
+                statement = statement.where(predicate)
+            if tag_filter is not None:
+                statement = statement.where(
+                    tag_predicate(
+                        self.scope_id,
+                        "atomic-memory",
+                        current.c.artifact_id,
+                        "artifact",
+                        current.c.artifact_id,
+                        tag_filter,
+                    )
+                )
+            rows = (await connection.execute(statement)).mappings().all()
+        items = tuple(
+            RecallManifestEntry(
+                ref=ArtifactRef(family="atomic-memory", artifact_id=row["artifact_id"], revision=row["revision"]),
+                kind=row["kind"],
+                description=row["description"],
+                state_version=row["state_version"],
+            )
+            for row in rows[:limit]
+        )
+        return RecallManifestPage(
+            items=items,
+            code="page" if items else "empty_inventory",
+            next_cursor=self.application.cursor.encode(bound, items[-1].ref.artifact_id) if len(rows) > limit else None,
+        )
+
     def list_query(
         self,
         connection: AsyncConnection,
@@ -391,7 +493,11 @@ class ScopedAtomicMemory:
             raise InvalidBaseAccessRequestError("states", "must contain distinct lifecycle values")
         states = tuple(AtomicMemoryStateValue(state).value for state in states)
         if kind is not None:
-            AtomicMemoryContent(kind=kind, text="validation")
+            AtomicMemoryContent(
+                kind=kind,
+                text="validation",
+                description="validation",
+            )
         bound = {
             "endpoint": "atomic_memory_list",
             "version": 1,
@@ -542,7 +648,11 @@ class ScopedAtomicMemory:
         if mode not in {"auto", "text", "vector", "hybrid"}:
             raise InvalidBaseAccessRequestError("mode", "must be auto, text, vector, or hybrid")
         if kind is not None:
-            AtomicMemoryContent(kind=kind, text="validation")
+            AtomicMemoryContent(
+                kind=kind,
+                text="validation",
+                description="validation",
+            )
         started = asyncio.get_running_loop().time()
         mode, vector, query_embedding, embedding_calls, embedding_fallback = await self._resolve_query_embedding(
             query,
@@ -868,15 +978,24 @@ class ScopedAtomicMemory:
         )
         binding = nullcontext() if prompt is None else prompt.service.bind(self.scope_id, "memory.rerank")
         started = perf_counter()
-        async with binding:
-            decision = await reranker.rerank(query, candidates, min(limit, len(candidates)))
-        ranks = decision.selected_ranks
-        if (
-            len(ranks) > limit
-            or len(set(ranks)) != len(ranks)
-            or any(rank < 1 or rank > len(candidates) for rank in ranks)
-        ):
-            raise InvalidInferenceOutputError("atomic-memory-rerank", "Reranker returned invalid candidate ranks")
+        evidence = current_receipt_evidence()
+        async with binding as selected_prompt:
+            try:
+                decision = await reranker.rerank(query, candidates, min(limit, len(candidates)))
+                ranks = decision.selected_ranks
+                _validate_rerank_ranks(ranks, limit, len(candidates))
+            except Exception as error:
+                if evidence is not None:
+                    evidence.rerank(
+                        configuration=_rerank_receipt_configuration(reranker, evidence),
+                        prompt=selected_prompt,
+                        outcome="failed",
+                        fallback=_rerank_receipt_failure(error),
+                    )
+                raise
+            else:
+                if evidence is not None:
+                    _record_rerank_decision(evidence, reranker, selected_prompt, decision, len(candidates))
         trace = AtomicMemoryRerankTrace(
             reranker.policy_id,
             candidates,
@@ -971,6 +1090,43 @@ class ScopedAtomicMemory:
                 if attempt == application.restore_retry_budget:
                     raise
         raise AssertionError("restoration retry loop ended without a result")  # noqa: TRY003
+
+
+def _validate_rerank_ranks(ranks, limit: int, candidate_count: int) -> None:
+    if len(ranks) > limit or len(set(ranks)) != len(ranks) or any(rank < 1 or rank > candidate_count for rank in ranks):
+        raise InvalidInferenceOutputError("atomic-memory-rerank", "Reranker returned invalid candidate ranks")
+
+
+def _rerank_receipt_configuration(reranker, evidence):
+    reader = getattr(reranker, "receipt_configuration", None)
+    if not callable(reader):
+        return None
+    try:
+        return reader()
+    except Exception as error:
+        evidence.incomplete = type(error).__name__
+        return None
+
+
+def _record_rerank_decision(evidence, reranker, prompt, decision, candidate_count: int) -> None:
+    if decision.used_fallback and decision.fallback_reason is None:
+        evidence.incomplete = "rerank-fallback-reason-missing"
+        return
+    evidence.rerank(
+        configuration=_rerank_receipt_configuration(reranker, evidence),
+        prompt=prompt,
+        outcome="fallback" if decision.used_fallback else "selected",
+        fallback=(decision.fallback_reason or "none") if decision.used_fallback else "none",
+        omitted_count=candidate_count - len(decision.selected_ranks),
+    )
+
+
+def _rerank_receipt_failure(error: Exception) -> str:
+    if isinstance(error, InferenceTimeoutError):
+        return "inference_timeout"
+    if isinstance(error, InferenceUnavailableError):
+        return "inference_unavailable"
+    return "invalid_output"
 
 
 def _validate_limit(limit: int) -> None:

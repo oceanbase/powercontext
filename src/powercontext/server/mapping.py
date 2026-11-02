@@ -16,10 +16,13 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
 
 from pydantic import ValidationError
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
 from powercontext.artifacts.search import ArtifactSearchOutcome
 from powercontext.builtin.artifacts.atomic_memory.models import (
@@ -176,6 +179,7 @@ from powercontext.http import (
     ActivateHandoffRequest,
     ApproveCandidateRequest,
     ArtifactReference,
+    AtomicMemoryReadContent,
     BootstrapDeliveryReceipt,
     Candidate,
     CandidateAudit,
@@ -895,11 +899,40 @@ def prepared_context_response(value: PreparedContext) -> TransportPreparedContex
         "content": value.content,
         "content_bytes": value.content_bytes,
     }
-    if value.reason is not None:
-        # Named on purpose rather than dumped: the four fields above are what every Host validates,
-        # so this key appears only on a preparation that asked for it with ``explain``.
-        payload["reason"] = value.reason
-    return TransportPreparedContext.model_validate(payload)
+    if value.receipt is not None:
+        payload["receipt"] = value.receipt.model_dump(mode="json", by_alias=True)
+    try:
+        response = TransportPreparedContext.model_validate(payload)
+    except ValidationError:
+        if value.receipt is None:
+            raise
+        return _prepared_context_without_receipt(payload, "receipt-schema-invalid")
+    if response.receipt is not None:
+        wire = json.dumps(
+            response.receipt.model_dump(mode="json", by_alias=True, exclude_unset=True),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        if len(wire.encode("utf-8")) > 8192:
+            return _prepared_context_without_receipt(payload, "receipt-byte-limit")
+    return response
+
+
+def _prepared_context_without_receipt(payload: dict[str, object], error_code: str) -> TransportPreparedContext:
+    log_safely(
+        logging.getLogger(__name__),
+        logging.WARNING,
+        "PreparedContext Receipt omitted",
+        extra={
+            "event": "context.receipt.omitted",
+            "operation": "prepare_context",
+            "outcome": "failure",
+            "unit": "context",
+            "error_code": error_code,
+        },
+    )
+    return TransportPreparedContext.model_validate({key: item for key, item in payload.items() if key != "receipt"})
 
 
 def bootstrap_context_response(value: RuntimeBootstrapContext) -> TransportBootstrapContext:
@@ -1140,6 +1173,7 @@ def reviewed_content(
     | SkillProposal
     | ProfileWriteContent
     | AtomicMemoryContent
+    | AtomicMemoryReadContent
     | TopicMemoryDreamProposal
     | TransportHandoffContent
     | PromptContent,
@@ -1158,7 +1192,7 @@ def reviewed_content(
         return runtime_handoff_content(value)
     if isinstance(value, TopicMemoryDreamProposal):
         return RuntimeTopicMemoryContent.model_validate(value.model_dump(mode="json"))
-    if isinstance(value, AtomicMemoryContent):
+    if isinstance(value, (AtomicMemoryContent, AtomicMemoryReadContent)):
         return RuntimeAtomicMemoryContent.model_validate(value.model_dump(mode="json"))
     if isinstance(value, ProfileWriteContent):
         return RuntimeProfileWriteContent.model_validate(value.model_dump(mode="json"))
@@ -1173,7 +1207,7 @@ def reviewed_proposal(
     ExperienceProposal
     | SkillProposal
     | ProfileCandidateProposal
-    | AtomicMemoryContent
+    | AtomicMemoryReadContent
     | TopicMemoryDreamProposal
     | TransportHandoffContent
     | PromptContent
@@ -1185,7 +1219,9 @@ def reviewed_proposal(
     if isinstance(value, RuntimeTopicMemoryContent):
         return TopicMemoryDreamProposal.model_validate(value.model_dump(mode="json"))
     if isinstance(value, RuntimeAtomicMemoryContent):
-        return AtomicMemoryContent.model_validate(value.model_dump(mode="json", by_alias=True, exclude={"creation"}))
+        return AtomicMemoryReadContent.model_validate(
+            value.model_dump(mode="json", by_alias=True, exclude={"creation"})
+        )
     if isinstance(value, RuntimeProfileCandidateProposal):
         return ProfileCandidateProposal.model_validate(value.model_dump(mode="json", by_alias=True))
     if isinstance(value, ExperienceContent):

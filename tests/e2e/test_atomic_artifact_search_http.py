@@ -206,6 +206,7 @@ def test_composed_atomic_search_returns_full_content_scores_and_trusted_local_id
                 "schema": "powercontext.atomic-memory.v1",
                 "kind": "decision",
                 "text": "Release rollback uses a reviewed plan.",
+                "description": "Release rollback uses a reviewed plan.",
                 "creation": None,
             }
             assert "scores" not in plain_item

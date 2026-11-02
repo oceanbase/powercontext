@@ -22,9 +22,27 @@ import pytest
 
 from evaluation.memory.atomic_extraction import runner
 from evaluation.memory.atomic_extraction.manifest import load_manifest
+from evaluation.memory.atomic_extraction.models import CandidateObservation
+from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryCandidate
 
 _SECRET_SENTINEL = "Bearer private-provider-secret"  # noqa: S105 - synthetic leak sentinel
 _CONTENT_SENTINEL = "PRIVATE_PREDICTED_SOURCE_MARKER"
+
+
+def test_candidate_observation_accepts_the_description_contract() -> None:
+    candidate = AtomicMemoryCandidate(
+        kind="fact",
+        text="The project uses SQLite.",
+        description="Project database choice",
+        evidence_ids=("source-1",),
+    )
+
+    observation = CandidateObservation.from_candidate(candidate)
+
+    assert observation.kind == candidate.kind
+    assert observation.text == candidate.text
+    assert observation.evidence_ids == candidate.evidence_ids
+    assert CandidateObservation.model_validate_json(observation.model_dump_json()) == observation
 
 
 def test_provider_bootstrap_failure_writes_incomplete_content_free_report(

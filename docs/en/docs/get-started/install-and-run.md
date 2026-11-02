@@ -142,7 +142,10 @@ powercontext server run
 pass `--env-file <path>` to select another file, or pass `--no-env-file` to ignore environment files. Process managers
 and containers should normally provide an explicit environment instead of relying on their working directory.
 
-PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
+PowerContext defaults to a dedicated `powercontext` database and creates it before initializing application tables.
+To select another database, set `POWERCONTEXT_SERVER_DATABASE_DATABASE=my_context`; a missing database is created,
+and an existing one is reused. Names containing backticks are rejected before initialization.
+Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
 the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the
 default is `$POWERCONTEXT_HOME/seekdb`; set `POWERCONTEXT_SERVER_DATABASE_PATH` only when a different location is
 required.
@@ -154,6 +157,98 @@ powercontext doctor
 powercontext ready
 powercontext capabilities
 ```
+
+### Existing seekDB installations
+
+Before upgrading, back up the seekDB instance and configuration, then explicitly retain the old database:
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
+export POWERCONTEXT_SERVER_DATABASE_DATABASE=test
+powercontext server run
+```
+
+Keep the original `POWERCONTEXT_SERVER_DATABASE_PATH` or `POWERCONTEXT_HOME`. The instance directory and database name
+are separate settings: changing either can select different data. Configure services and containers with the same values.
+
+If no database name was explicitly configured and `test` contains tables named with PowerContext's `pc_` prefix,
+startup stops before creating application tables and asks you to choose a database. It never automatically selects,
+copies, or deletes the old database. Explicitly choose `test` to retain old data, or `powercontext` to use the new database.
+The configuration wizard also asks for the database name; existing users should enter `test`.
+
+To move data, keep using `test` until you have a backup and a validated export/import procedure for your engine version.
+Stop all source writers, provision the target database, export/import the schema and data using that procedure, verify
+identities and relationships, and read the migrated data through PowerContext before switching the configuration.
+Automatic database creation does not perform this migration. Do not assume an arbitrary SQL dump is compatible across
+engine or schema versions; existing schemas remain subject to compatibility checks and explicit schema maintenance.
+Code graph references identify their instance and database: copying relational rows alone does not migrate graph storage.
+Include target Code index rebuilding and queries in your validation; explicitly retaining `test` preserves legacy graph identities.
+
+After switching, keep the old database without writers for a retention period you choose. Record the source and target
+instance paths and names, backup location, stop-write and cutover times, validation results, and a review date. Before
+manually deleting the source, confirm that no deployment uses it and that a usable backup remains. New writes to the
+target are not copied back to the source, so keeping the source does not provide lossless rollback. PowerContext does
+not automatically migrate data, send retention reminders, compare databases, or delete old databases.
+
+## Use OceanBase
+
+Connect to an existing OceanBase **MySQL-compatible user tenant**. Prepare the selected database and initialize its
+full Server schema through explicit maintenance before starting the Server. PowerContext does not provision an
+OceanBase instance, tenant, or account. Ensure network access and complete the Server
+installation steps above, then configure the connection:
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
+# Store credentials in your secret manager or a protected environment file.
+export POWERCONTEXT_SERVER_DATABASE_URL='mysql+aoceanbase://user%40tenant:encoded-password@host:2881/?charset=utf8mb4'
+```
+
+Use the tenant account and the actual direct-connection or OBProxy endpoint and port. Percent-encode reserved characters
+in the URL username and password; for example, `user@tenant` becomes `user%40tenant`. The URL requires the
+`mysql+aoceanbase` driver, an explicit port, and `charset=utf8mb4`.
+
+The example omits the database name and therefore selects `powercontext`. To select a custom database, put its name in
+the URL path, for example `/team_context?charset=utf8mb4`. Existing URLs with an explicit database continue to select
+that database. Select the database only in the URL path; `db` and `database` query parameters are rejected.
+Database identifiers support 1–64 BMP characters, excluding control characters, slash, backslash, dot, backticks,
+leading/trailing whitespace, and system database names; names are never silently trimmed or renamed by PowerContext. The server's identifier case rules still apply.
+Names containing backticks are rejected during configuration validation, before connecting or creating a database.
+Choose a name such as `powercontext`, `team_context`, or a Chinese name without backticks.
+
+Python SDK initialization first connects to the selected database. If it is usable, no database-creation privileges are required. Only a
+confirmed unknown-database error triggers an instance/tenant connection and `CREATE DATABASE IF NOT EXISTS`, followed
+by a new connection to the selected database and application-table initialization. Authentication and network errors
+do not trigger creation or fallback. If access is denied without proving whether the database exists, the error asks
+an administrator to check both existence and privileges.
+
+For a new full Server deployment, create the selected database first. If SDK initialization cannot create a missing
+database, the same administrator step applies. Run the following in the **same tenant**, using your configured name,
+then grant the application account the required database privileges:
+
+```sql
+CREATE DATABASE IF NOT EXISTS `powercontext` CHARACTER SET utf8mb4;
+```
+
+For the full Server, follow [database migrations](../operate/database-migrations.md) to plan, apply, and verify the
+registered Server bundle with an explicit evidence directory and coordination mode. Start `powercontext server run`
+only after the database is ready. Server startup checks readiness and does not initialize OceanBase schemas or
+automatically migrate existing databases. SDK callers can retry initialization using the same URL after provisioning.
+Creating missing tables requires table-creation privileges; an existing fully initialized database does not acquire a
+new database-creation privilege requirement. Initialization never drops or
+recreates an existing database, never switches to another database after a failure, and does not authorize schema upgrades.
+Concurrent creation uses idempotent database/table DDL and handles duplicate-index creation races. This does not provide
+coordination for existing-schema migrations or change embedded seekDB's process-ownership restrictions.
+
+For Python callers, `OceanBaseProfile.open()` resolves an omitted URL database and provisions it when necessary.
+`OceanBaseProfile.open_existing()` connects only to an already provisioned database, and `attach()` requires a
+caller-owned engine that already selects an existing database; neither replaces that engine or provisions a different
+connection target. Read-only inspection (`plan`, `verify`, and the `db-migrate` inspection commands) never creates a
+missing OceanBase or embedded seekDB database; explicit writable seekDB maintenance can provision its configured database
+before applying its bundle.
+
+Read-only seekDB inspection requires an initialized instance directory. A missing or empty path is rejected before
+starting the native engine, without creating parent directories or storage files. A file or a nonempty directory without
+recognized native storage is also rejected without changing its contents. Ordinary startup still initializes new instances.
 
 ## Verify the installation
 

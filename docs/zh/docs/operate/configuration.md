@@ -132,6 +132,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekdb 不设置 |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekdb 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
+| `POWERCONTEXT_SERVER_DATABASE_DATABASE` | `powercontext` | seekDB 数据库名称；已有数据显式设置为 `test` |
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | 业务连接等待 SQLite 单一写锁的毫秒数；它不约束用量记账，后者有自己的有界预算 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 每次处理的 Source 日志位置上限；Memory 在生成超时后会缩小窗口 |
@@ -551,8 +552,15 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
 export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 ```
 
-URL 必须使用 `mysql+aoceanbase` driver，包含明确的端口和数据库，并设置 `charset=utf8mb4`。对应
-tenant 必须使用 MySQL 兼容模式。
+URL 必须使用 `mysql+aoceanbase` 驱动、明确的端口，并设置 `charset=utf8mb4`。省略库名时使用 `powercontext`，
+显式库名保持有效。租户必须使用 MySQL 兼容模式。
+
+seekDB 启动和 OceanBase Python SDK 初始化会先创建缺失的目标库，再初始化表；已有可用库不会执行建库语句。
+完整 OceanBase Server 需要先准备数据库并通过显式维护初始化 Server 表结构，再启动服务；自动建库不替代该准入规则。
+建库权限不足时会提供手动准备说明，其他连接错误不会触发回退。seekDB 未显式配置库名时，若在旧 `test` 中检测到
+PowerContext 命名的表，会要求先明确选择数据库。两个后端都会在配置校验阶段拒绝包含反引号的库名，
+不会产生数据库写入；请改用 `team_context` 等不含反引号的名称。自定义名称、权限和旧数据处理见
+[安装与运行](../get-started/install-and-run.md)。
 
 ### Embedding 与 SQLite 向量检索
 

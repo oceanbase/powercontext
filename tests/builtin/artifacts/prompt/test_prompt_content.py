@@ -71,10 +71,12 @@ def test_atomic_memory_auto_uses_the_versioned_subject_bound_contract(profile: M
 
     resolved = definition.resolve("scope-a", None)
 
-    assert definition.builtin_version == f"powercontext.atomic-memory.extract.{profile.value}.v2"
-    assert definition.definition_version == "powercontext.prompt.atomic-memory.extract.v1"
+    assert definition.builtin_version == f"powercontext.atomic-memory.extract.{profile.value}.v3"
+    assert definition.definition_version == "powercontext.prompt.atomic-memory.extract.v2"
     assert resolved.compiled_instructions == atomic_memory_extraction_instructions(profile)
     assert resolved.builtin_version == definition.builtin_version
+    assert "subject-bound declarative proposition" in resolved.compiled_instructions
+    assert "kind, text and description" in resolved.compiled_instructions
 
 
 def test_custom_atomic_memory_prompt_cannot_remove_subject_and_procedure_invariants() -> None:
@@ -91,6 +93,7 @@ def test_custom_atomic_memory_prompt_cannot_remove_subject_and_procedure_invaria
     assert "subject-bound declarative proposition" in resolved.compiled_instructions
     assert 'Do not address a future agent as "you"' in resolved.compiled_instructions
     assert "not Atomic Memory" in resolved.compiled_instructions
+    assert "kind, text and description" in resolved.compiled_instructions
     assert "Copy every instruction exactly as written." in resolved.compiled_instructions
 
 

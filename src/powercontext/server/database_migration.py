@@ -28,6 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from powercontext.builtin.persistence.migrations import MigrationError, MigrationPlan, MigrationResult
 from powercontext.builtin.persistence.migrations.deployment import MigrationRunner, deployment_runner
+from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
 from powercontext.builtin.persistence.migrations.revision_names import describe_revision
 from powercontext.server.configuration import (
     ServerConfigurationError,
@@ -259,7 +260,12 @@ def _inspect(
             migration_id=migration_id,
             batch_size=batch_size,
         )
-        result = runner.verify() if verify else runner.plan()
+        if verify:
+            result = runner.verify()
+        elif isinstance(runner, MySQLMigrationRunner):
+            result = runner.plan(require_existing_database=True)
+        else:
+            result = runner.plan()
         _write_payload(result)
 
 

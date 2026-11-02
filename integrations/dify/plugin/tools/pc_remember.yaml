@@ -91,6 +91,28 @@ parameters:
     Pass one JSON-encoded value as text, never a native object/array/null. Encode
     strings with JSON quotes; use the text null for null; omit optional inputs when
     unused. Decode exactly once and preserve every field. Decoded JSON Schema: {"anyOf":[{"type":"string","maxLength":512},{"type":"null"}]}'
+- name: description
+  type: string
+  required: false
+  form: llm
+  label:
+    en_US: description
+    zh_Hans: 记忆简介
+  human_description:
+    en_US: Optional single-line Memory description of at most 200 characters. When
+      omitted, the Server stores a bounded text preview without calling a generation
+      model. Supply one JSON-encoded text value. Strings include JSON quotes; null
+      is the text null. Omit unused optional inputs and preserve every field.
+    zh_Hans: 记忆简介；填写一次 JSON 序列化后的文本；字符串须带 JSON 双引号，空值填 null；可选参数不用时省略，保留所有字段。
+  llm_description: 'Optional single-line Memory description of at most 200 characters.
+    When omitted, the Server stores a bounded text preview without calling a generation
+    model. Pass one JSON-encoded value as text, never a native object/array/null.
+    Encode strings with JSON quotes; use the text null for null; omit optional inputs
+    when unused. Decode exactly once and preserve every field. Decoded JSON Schema:
+    {"anyOf":[{"type":"string","minLength":1,"maxLength":200,"pattern":"^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$","description":"Optional
+    supplied single-line summary. When omitted, the Server stores a whitespace-collapsed
+    text prefix of at most 200 Unicode characters, including a trailing ellipsis when
+    truncated. Explicit writes do not invoke a generation model."},{"type":"null"}]}'
 output_schema:
   type: object
   properties:

@@ -30,7 +30,7 @@ from typer.testing import CliRunner
 
 from powercontext.builtin.persistence.migrations.connections import BackendIdentity, MaintenanceConnections
 from powercontext.builtin.persistence.migrations.deployment import production_bundle
-from powercontext.builtin.persistence.migrations.models import MigrationResult
+from powercontext.builtin.persistence.migrations.models import MigrationError, MigrationResult
 from powercontext.builtin.persistence.migrations.mysql import MySQLMigrationRunner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
@@ -503,7 +503,7 @@ def test_remote_cli_uses_the_configured_maintenance_identity_and_coordination_sc
     tmp_path, monkeypatch, kind: Literal["seekdb", "oceanbase"]
 ):
     _database, command = _configure(tmp_path, monkeypatch)
-    database_name = "test" if kind == "seekdb" else "pc_probe"
+    database_name = "powercontext" if kind == "seekdb" else "pc_probe"
     environment = f"POWERCONTEXT_SERVER_DATABASE_KIND={kind}\n"
     if kind == "seekdb":
         environment += f"POWERCONTEXT_SERVER_DATABASE_PATH={(tmp_path / 'seekdb').as_posix()}\n"
@@ -515,7 +515,7 @@ def test_remote_cli_uses_the_configured_maintenance_identity_and_coordination_sc
     (tmp_path / "deployment.env").write_text(environment, encoding="utf-8")
     identity = BackendIdentity(kind, f"simulated-{kind}-database-identity", database_name)
 
-    def inspect_empty_database(_connections, operation, *, writable=False):
+    def inspect_empty_database(_connections, operation, *, writable=False, **_options):
         assert not writable
         return operation(None, identity, lambda: None)
 
@@ -752,3 +752,25 @@ def test_no_backup_requires_separate_risk_consent_and_policy_is_plan_bound(tmp_p
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["backup_state"] == "skipped"
+
+
+@pytest.mark.parametrize("action", ["status", "plan", "verify"])
+def test_legacy_seekdb_refusal_is_the_documented_blocked_json(tmp_path, monkeypatch, action):
+    _database, command = _configure(tmp_path, monkeypatch)
+
+    class _RefusingRunner:
+        def plan(self, **_options):
+            raise MigrationError("explicit_database_required", "Existing PowerContext tables were found in 'test'")
+
+        def verify(self):
+            raise MigrationError("explicit_database_required", "Existing PowerContext tables were found in 'test'")
+
+    monkeypatch.setattr(database_migration, "deployment_runner", lambda *_args, **_options: _RefusingRunner())
+
+    result = _invoke(command, action, tmp_path)
+
+    assert result.exit_code == 1, result.output
+    payload = json.loads(result.output)
+    assert payload["state"] == "blocked"
+    assert payload["error"] == "explicit_database_required"
+    assert "Traceback" not in result.output

@@ -145,6 +145,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekdb |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekdb path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DATABASE_DATABASE` | `powercontext` | seekDB database name; explicitly set `test` to retain legacy data |
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | Milliseconds a business connection waits for SQLite's single write lock before raising; it does not govern usage accounting, which has its own bounded budget |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Source journal positions per activation; Memory reduces its window after generation timeouts |
@@ -612,8 +613,18 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
 export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 ```
 
-The URL must use the `mysql+aoceanbase` driver, include an explicit port and database, and set `charset=utf8mb4`. The
-tenant must use MySQL compatibility mode.
+The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
+defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
+
+seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
+without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;
+other connection errors do not trigger fallback. seekDB detects PowerContext-named tables in the old `test` database
+when no name was explicitly configured and requires an explicit choice before initializing a new database.
+Both backends reject database names containing backticks during configuration validation, before any database writes.
+Choose a name without backticks, such as `team_context`.
+Full OceanBase Server deployments require a prepared database and explicit Server schema maintenance before startup;
+database auto-provisioning does not replace that admission contract.
+See [Install and run](../get-started/install-and-run.md) for custom names, permissions, and old seekDB data handling.
 
 ### Embeddings and SQLite vector search
 

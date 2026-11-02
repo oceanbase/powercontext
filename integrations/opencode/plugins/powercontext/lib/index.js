@@ -606,6 +606,39 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_topic_memory_processing_status: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/status",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory_processing_block: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/blocks/get",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	retry_topic_memory_processing: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/retry",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	search_topic_memory: {
 		method: "POST",
 		path: "/v1/topic-memory/search",
@@ -2072,6 +2105,25 @@ function validatePreparedContext(value, maxBytes) {
 		content_bytes: Number(record.content_bytes)
 	};
 }
+const MAX_QUERY_CHARACTERS = 8192;
+const MAX_QUERY_BYTES = 8192;
+/**
+* Reduce a prompt to the recall query. A prompt within both bounds is sent as submitted, trimmed.
+* A longer prompt keeps its most recent text, which holds the turn in hand, cut between characters
+* so that the query fits both bounds and splits no character.
+*/
+function boundedRecallQuery(prompt) {
+	const characters = Array.from(prompt.trim());
+	let start = characters.length;
+	let bytes = 0;
+	while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+		const size = Buffer.byteLength(characters[start - 1], "utf8");
+		if (bytes + size > MAX_QUERY_BYTES) break;
+		bytes += size;
+		start -= 1;
+	}
+	return characters.slice(start).join("").trim();
+}
 
 //#endregion
 //#region src/scope.ts
@@ -2229,7 +2281,7 @@ async function prepareTurn(runtime, input) {
 		try {
 			const prepared = validatePreparedContext((await runtime.client.request("prepare_context", {
 				scope_id: context.scopeId,
-				query: scrubSecrets(input.prompt, runtime.config.authorization),
+				query: boundedRecallQuery(scrubSecrets(input.prompt, runtime.config.authorization)),
 				max_bytes: runtime.config.maxBytes,
 				...runtime.config.contextAssembly === void 0 ? {} : { assembly: runtime.config.contextAssembly }
 			}, signal)).value, runtime.config.maxBytes);

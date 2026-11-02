@@ -112,8 +112,8 @@ Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于�
 
 ## 选择启用 Session 启动上下文
 
-启动上下文默认关闭。若要在 Codex 的 `startup`、`resume`、`clear` 或 `compact` 事件中，于第一条 prompt 前加载一份
-小而确定的上下文包，请用以下环境启动 Codex：
+启动上下文默认关闭。若要在 Codex 的 `startup`、`resume`、`clear`、`compact` 或 `fork` 事件中，于第一条 prompt 前
+加载一份小而确定的上下文包，请用以下环境启动 Codex：
 
 ```bash
 export POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=true

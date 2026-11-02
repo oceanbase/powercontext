@@ -19,12 +19,17 @@ import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
+import { Connections } from "../src/app/Connections";
+import { messages } from "../src/app/messages";
+import { connectionMessages } from "../src/app/connection-messages";
+import { contractSha256 } from "../src/generated/operations";
 import { desktopApi } from "../src/shared/ipc";
 import type { DesktopState } from "../src/generated/ipc";
 vi.mock("../src/shared/ipc", () => ({
   getFoundationInfo: vi.fn().mockResolvedValue(null),
   desktopApi: {
     state: vi.fn(),
+    save: vi.fn(),
     check: vi.fn(),
     remember: vi.fn(),
     search: vi.fn(),
@@ -80,6 +85,264 @@ const state: DesktopState = {
   pendingCredentialCleanup: 0,
   lastWrite: null,
 };
+
+test.each(["zh", "en"] as const)(
+  "%s first use saves, checks, activates and selects an exact Scope with keyboard navigation",
+  async (language) => {
+    const user = userEvent.setup();
+    const t = messages[language];
+    const ct = connectionMessages[language];
+    const qualification = {
+      id: "synthetic-journey",
+      serverCommit: "synthetic",
+      artifactSha256: "synthetic",
+      contractSha256,
+      operations: report.supportedOperations,
+      evidence: "UI fixture; not Server qualification",
+    };
+    const disconnected = {
+      ...state,
+      generation: 0,
+      profiles: [],
+      reports: [],
+      active: null,
+      compatibilityProfiles: [qualification],
+    };
+    const saved = {
+      ...disconnected,
+      generation: 1,
+      profiles: [{ ...profile, compatibility: qualification.id }],
+    };
+    const checked = { ...saved, reports: [report] };
+    const activated = {
+      ...checked,
+      generation: 2,
+      active: { connectionId: "a", generation: 2, report, scope: null },
+    };
+    vi.mocked(desktopApi.state).mockResolvedValue(disconnected);
+    vi.mocked(desktopApi.save).mockResolvedValueOnce(saved);
+    vi.mocked(desktopApi.check)
+      .mockResolvedValueOnce(checked)
+      .mockResolvedValueOnce(activated);
+    vi.mocked(desktopApi.scopes).mockResolvedValueOnce({
+      items: [scope, { ...scope, scope_id: "same-title-other-id" }],
+      next_cursor: null,
+    });
+    vi.mocked(desktopApi.selectScope).mockResolvedValueOnce({
+      ...activated,
+      generation: 3,
+      active: { ...activated.active, generation: 3, scope },
+    });
+    const { unmount } = render(<App />);
+    await user.click(await screen.findByRole("button", { name: "设置与诊断" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(screen.getByRole("button", { name: t.memories }));
+    await user.click(screen.getByRole("button", { name: t.connectExisting }));
+    await user.type(screen.getByLabelText(ct.name), profile.name);
+    await user.type(screen.getByLabelText(ct.endpoint), profile.endpoint);
+    await user.selectOptions(
+      screen.getByLabelText(ct.compatibility),
+      qualification.id,
+    );
+    await user.click(screen.getByRole("button", { name: ct.save }));
+    expect(screen.getByText(ct.saved)).toBeTruthy();
+    expect(desktopApi.check).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: ct.check }));
+    expect(desktopApi.check).toHaveBeenLastCalledWith("a", false);
+    expect(screen.getByText(ct.checkedComplete)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    screen.getByRole("button", { name: ct.activate }).focus();
+    await user.keyboard("{Enter}");
+    expect(desktopApi.check).toHaveBeenLastCalledWith("a", true);
+    const dialog = screen.getByRole("dialog", { name: ct.scope });
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole("button", { name: t.closeDialog }),
+    );
+    await user.tab();
+    expect(document.activeElement).toBe(
+      within(dialog).getByLabelText(ct.scopeQuery),
+    );
+    await user.type(within(dialog).getByLabelText(ct.scopeQuery), "Scope");
+    await user.click(within(dialog).getByRole("button", { name: ct.find }));
+    expect(
+      within(dialog).getAllByRole("button", { name: scope.title }),
+    ).toHaveLength(2);
+    within(dialog)
+      .getByRole("button", { name: scope.title, description: scope.scope_id })
+      .focus();
+    await user.keyboard("{Enter}");
+    expect(desktopApi.selectScope).toHaveBeenCalledWith(2, scope.scope_id);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { level: 1, name: t.memories }),
+    );
+    expect(
+      screen
+        .getByRole("textbox", {
+          name: language === "zh" ? "记忆内容" : "Memory text",
+        })
+        .matches(":enabled"),
+    ).toBe(true);
+    // Reopening consumes saved configuration without restoring a private session.
+    unmount();
+    vi.mocked(desktopApi.state).mockResolvedValue(saved);
+    render(<App />);
+    await screen.findByRole("heading", { name: messages.zh.noActiveTitle });
+    expect(desktopApi.check).toHaveBeenCalledTimes(2);
+  },
+  15_000,
+);
+
+test("a rejected stale activation cannot open a Scope dialog or claim completion", async () => {
+  const user = userEvent.setup();
+  const onActivated = vi.fn();
+  vi.mocked(desktopApi.check).mockResolvedValueOnce(state);
+  render(
+    <Connections
+      state={state}
+      language="en"
+      initialProfileId="a"
+      onState={() => false}
+      onDirty={vi.fn()}
+      onActivated={onActivated}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Use this connection" }));
+  expect(screen.getByRole("alert").textContent).toContain("changed");
+  expect(onActivated).not.toHaveBeenCalled();
+});
+test("activation guides exact Scope selection into Memory using the shared dialog", async () => {
+  const user = userEvent.setup();
+  const activated = {
+    ...state,
+    generation: 2,
+    active: { ...state.active!, generation: 2, scope: null },
+  };
+  vi.mocked(desktopApi.check).mockResolvedValueOnce(activated);
+  vi.mocked(desktopApi.scopes).mockResolvedValueOnce({
+    items: [scope],
+    next_cursor: null,
+  });
+  vi.mocked(desktopApi.selectScope).mockResolvedValueOnce({
+    ...state,
+    generation: 3,
+    active: { ...state.active!, generation: 3 },
+  });
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "连接" }));
+  await user.click(screen.getByRole("button", { name: /Original http/ }));
+  await user.click(screen.getByRole("button", { name: "使用此连接" }));
+  expect(desktopApi.check).toHaveBeenCalledWith("a", true);
+  const dialog = screen.getByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "查找范围" }));
+  await user.click(within(dialog).getByRole("button", { name: "Scope A" }));
+  expect(desktopApi.selectScope).toHaveBeenCalledWith(2, "scope-a");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", { level: 1, name: "记忆" }),
+  );
+  expect(
+    screen.getByRole("textbox", { name: "记忆内容" }).matches(":enabled"),
+  ).toBe(true);
+});
+
+test("a passive check reports completion without opening Scope selection", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.check).mockResolvedValueOnce(state);
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "连接" }));
+  await user.click(screen.getByRole("button", { name: /Original http/ }));
+  await user.click(screen.getByRole("button", { name: "检查连接" }));
+  expect(desktopApi.check).toHaveBeenCalledWith("a", false);
+  expect(screen.getByText("连接检查已完成，请核对下方各项结果。")).toBeTruthy();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("closing the activation guide restores the activate button without choosing a Scope", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.check).mockResolvedValueOnce({
+    ...state,
+    generation: 2,
+    active: { ...state.active!, generation: 2, scope: null },
+  });
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "连接" }));
+  await user.click(screen.getByRole("button", { name: /Original http/ }));
+  await user.click(screen.getByRole("button", { name: "使用此连接" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  await user.keyboard("{Escape}");
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "使用此连接" }),
+  );
+  expect(desktopApi.selectScope).not.toHaveBeenCalled();
+  expect(desktopApi.scopes).not.toHaveBeenCalled();
+});
+
+test("the activation guide preserves partial operation restrictions", async () => {
+  const user = userEvent.setup();
+  const partial = { ...report, supportedOperations: ["list_scopes"] };
+  vi.mocked(desktopApi.check).mockResolvedValueOnce({
+    ...state,
+    generation: 2,
+    reports: [partial],
+    active: { ...state.active!, generation: 2, scope: null, report: partial },
+  });
+  vi.mocked(desktopApi.scopes).mockResolvedValueOnce({
+    items: [scope],
+    next_cursor: null,
+  });
+  render(<App />);
+  await user.click(await screen.findByRole("button", { name: "连接" }));
+  await user.click(screen.getByRole("button", { name: /Original http/ }));
+  await user.click(screen.getByRole("button", { name: "使用此连接" }));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByText("范围选择不可用")).toBeTruthy();
+  await user.click(within(dialog).getByRole("button", { name: "查找范围" }));
+  expect(
+    within(dialog)
+      .getByRole("button", { name: scope.title })
+      .matches(":disabled"),
+  ).toBe(true);
+  expect(desktopApi.selectScope).not.toHaveBeenCalled();
+});
+
+test.each(["network", "identity", "compatibility"])(
+  "failed activation preserves the editor (%s)",
+  async (failure) => {
+    const user = userEvent.setup();
+    if (failure === "network")
+      vi.mocked(desktopApi.check).mockRejectedValueOnce({ code: "network" });
+    else {
+      const checked = {
+        ...report,
+        compatibilityVerified: failure !== "compatibility",
+        anonymousAccess: failure !== "identity",
+      };
+      vi.mocked(desktopApi.check).mockResolvedValueOnce({
+        ...state,
+        generation: 2,
+        reports: [checked],
+        active: {
+          ...state.active!,
+          generation: 2,
+          scope: null,
+          report: checked,
+        },
+      });
+    }
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "连接" }));
+    await user.click(screen.getByRole("button", { name: /Original http/ }));
+    await user.click(screen.getByRole("button", { name: "使用此连接" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect((screen.getByLabelText("连接名称") as HTMLInputElement).value).toBe(
+      "Original",
+    );
+    if (failure === "network")
+      expect(screen.getByRole("alert").textContent).toContain("无法连接服务");
+    else expect(screen.getByText(/连接尚不满足范围选择条件/)).toBeTruthy();
+  },
+);
 beforeEach(() => {
   vi.mocked(desktopApi.state).mockResolvedValue(state);
 });

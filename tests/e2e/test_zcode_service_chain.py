@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -49,7 +50,12 @@ class DeterministicSourcePipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="fact",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                 )
@@ -86,7 +92,24 @@ def _invoke_hook(
     return json.loads(result.stdout)
 
 
-def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path, monkeypatch) -> None:
+def _wait_for_processed_memory(client: httpx.Client, scope_id: str, text: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        response = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+        response.raise_for_status()
+        items = response.json()["entries"]
+        assert all(entry["artifact"]["family"] == "atomic-memory" for entry in items)
+        generated = next((entry for entry in items if text in entry["text"]), None)
+        if generated is not None:
+            return generated
+        time.sleep(0.05)
+    pytest.fail("The original flush must commit the captured source")
+
+
+@pytest.mark.parametrize("slow_flush_receipt", [False, True])
+def test_zcode_source_is_processed_and_recalled_in_a_new_session(
+    tmp_path: Path, monkeypatch, slow_flush_receipt
+) -> None:
     monkeypatch.setenv("ZCODE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
     node = shutil.which("node")
     if node is None:
@@ -97,6 +120,21 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
         ),
         candidate_pipeline=atomic_memory_pipeline(DeterministicSourcePipeline()),
     )
+    flush_requests = 0
+
+    @app.middleware("http")
+    async def observe_flush(request, call_next):
+        nonlocal flush_requests
+        is_flush = request.url.path == "/v1/memory/flush"
+        if is_flush:
+            flush_requests += 1
+        response = await call_next(request)
+        if is_flush and slow_flush_receipt:
+            # Processing commits in the real Server, but the response arrives
+            # after Stop's fixed 800 ms request budget.
+            await asyncio.sleep(1.2)
+        return response
+
     with socket.socket() as socket_probe:
         socket_probe.bind(("127.0.0.1", 0))
         port = socket_probe.getsockname()[1]
@@ -193,66 +231,77 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
             remaining = 5 - time.time() % 5
             if remaining < 1.5:
                 time.sleep(remaining + 0.05)
-            # The Stop hook bounds its boundary flush with ``AbortSignal.timeout(800)``,
-            # so a single attempt is allowed to end ``unknown`` on a loaded machine.
-            # Re-issue the bounded flush until it observes the cursor instead of
-            # encoding machine speed into the assertion.
-            flush_state = None
-            result = None
-            deadline = time.monotonic() + 30
-            while True:
-                stopped = subprocess.run(
-                    [node, str(HOOK.parent / "stop.mjs")],
-                    input=json.dumps({
-                        "hookEventName": "Stop",
-                        "cwd": str(HOOK.parents[5]),
-                        "sessionId": "old-session",
-                        "stopHookActive": False,
-                    }),
-                    env={
-                        **environment,
-                        "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
-                        "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
-                    },
+            stop_input = json.dumps({
+                "hookEventName": "Stop",
+                "cwd": str(HOOK.parents[5]),
+                "sessionId": "old-session",
+                "stopHookActive": False,
+            })
+            stop_environment = {
+                **environment,
+                "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
+                "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
+            }
+            stopped = subprocess.run(
+                [node, str(HOOK.parent / "stop.mjs")],
+                input=stop_input,
+                env=stop_environment,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=2,
+            )
+            assert stopped.returncode == 0, stopped.stderr
+            assert json.loads(stopped.stdout) == {}
+            status = subprocess.run(
+                [
+                    node,
+                    str(HOOK.parent.parent / "scripts/status.mjs"),
+                    "--cwd",
+                    str(HOOK.parents[5]),
+                    "--session-id",
+                    "old-session",
+                ],
+                env={
+                    **environment,
+                    "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
+                    "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            assert status.returncode == 0, status.stdout + status.stderr
+            result = json.loads(status.stdout)
+            flush = result["observation"]["stages"]["flush"]
+            assert flush["state"] in {"cursor_reached", "unknown"}, result
+            if slow_flush_receipt:
+                assert flush["state"] == "unknown", result
+            if flush["state"] == "unknown":
+                assert flush["code"] == "timeout", result
+                pending = result["pending"]["scopes"]
+                assert len(pending) == 1 and pending[0]["scope_id"] == scope_id, result
+                assert pending[0]["unknown_flush_paused"] is True, result
+                assert pending[0]["receipt_count"] == 1, result
+                assert pending[0]["target_position"] == flush["source_position"], result
+                retried = subprocess.run(
+                    stopped.args,
+                    input=stop_input,
+                    env=stop_environment,
                     text=True,
                     capture_output=True,
                     check=False,
                     timeout=2,
                 )
-                assert stopped.returncode == 0, stopped.stderr
-                assert json.loads(stopped.stdout) == {}
-                status = subprocess.run(
-                    [
-                        node,
-                        str(HOOK.parent.parent / "scripts/status.mjs"),
-                        "--cwd",
-                        str(HOOK.parents[5]),
-                        "--session-id",
-                        "old-session",
-                    ],
-                    env={
-                        **environment,
-                        "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
-                        "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
-                    },
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                    timeout=10,
-                )
-                assert status.returncode == 0, status.stdout + status.stderr
-                result = json.loads(status.stdout)
-                flush_state = result["observation"]["stages"]["flush"]["state"]
-                if flush_state == "cursor_reached" or time.monotonic() >= deadline:
-                    break
-                time.sleep(0.25)
-            assert flush_state == "cursor_reached", result
-            assert result["pending"]["scopes"] == []
-            entries = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
-            entries.raise_for_status()
-            assert entries.json()["entries"]
-            assert all(entry["artifact"]["family"] == "atomic-memory" for entry in entries.json()["entries"])
-            generated = next(entry for entry in entries.json()["entries"] if "teal-731" in entry["text"])
+                assert retried.returncode == 0 and json.loads(retried.stdout) == {}, retried.stderr
+                assert "unknown_flush_paused" in retried.stderr
+            else:
+                assert result["pending"]["scopes"] == []
+            # Stop is time-bounded, not a guarantee of completed processing.
+            # Verify committed memory independently, without replaying the flush.
+            generated = _wait_for_processed_memory(client, scope_id, "teal-731")
+            assert flush_requests == 1, "An unknown Stop must never replay its mutation automatically"
             captured = client.get(f"/v1/scopes/{scope_id}/sources").json()["items"]
             reference = generated["artifact"]
             revision = client.get(

@@ -61,6 +61,9 @@ class _Result:
     def all(self) -> list[tuple[object, ...]]:
         return list(self._rows)
 
+    def scalar_one(self) -> object:
+        return self._rows[0][0]
+
 
 class _Connection:
     def __init__(self, row: tuple[str, str] | None = ("ob_compatibility_mode", "MYSQL")) -> None:
@@ -70,6 +73,8 @@ class _Connection:
 
     async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> _Result:
         self.statements.append(statement)
+        if statement == "SELECT DATABASE()":
+            return _Result((("powercontext",),))
         if "ob_compatibility_mode" in statement:
             return _Result(() if self.row is None else (self.row,))
         return _Result(())
@@ -82,6 +87,8 @@ class _SchemaConnection(_Connection):
 
     async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> _Result:
         self.statements.append(statement)
+        if statement == "SELECT DATABASE()":
+            return _Result((("powercontext",),))
         if "ob_compatibility_mode" in statement:
             return _Result((("ob_compatibility_mode", "MYSQL"),))
         if "LEFT(TABLE_NAME" in statement:
@@ -106,6 +113,8 @@ class _Begin(AbstractAsyncContextManager[_Connection]):
 
 
 class _Engine:
+    dialect = mysql_dialect()
+
     def __init__(
         self,
         *,
@@ -116,6 +125,9 @@ class _Engine:
         self.connection = connection or _Connection(row)
 
     def begin(self) -> _Begin:
+        return _Begin(self.connection)
+
+    def connect(self) -> _Begin:
         return _Begin(self.connection)
 
     async def dispose(self) -> None:
@@ -129,7 +141,6 @@ class _Engine:
         "mysql+aiomysql://root:secret@127.0.0.1:2881/powercontext?charset=utf8mb4",
         "postgresql+asyncpg://root:secret@127.0.0.1:2881/powercontext?charset=utf8mb4",
         "mysql+aoceanbase://root:secret@127.0.0.1/powercontext?charset=utf8mb4",
-        "mysql+aoceanbase://root:secret@127.0.0.1:2881/?charset=utf8mb4",
         "mysql+aoceanbase://root:secret@127.0.0.1:2881/powercontext",
     ],
 )

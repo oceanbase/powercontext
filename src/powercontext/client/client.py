@@ -995,6 +995,12 @@ class PowerContextClient:
             path_parameters={"scope_id": scope_id, "artifact_id": artifact_id},
         )
 
+    async def get_recall_manifest(
+        self, request: atomic_models.RecallManifestRequest
+    ) -> atomic_models.RecallManifestResponse:
+        """Read bounded Atomic Memory metadata before fetching selected exact revisions."""
+        return await self._request(atomic_operations.GET_RECALL_MANIFEST, request)
+
     async def list_atomic_memories(
         self, request: atomic_models.ListAtomicMemoryRequest
     ) -> atomic_models.ListAtomicMemoryResponse:
@@ -1415,14 +1421,14 @@ def _prepare_request(
         if (
             operation is PREPARE_CONTEXT
             and isinstance(request, PrepareContextRequest)
-            and not payload.get("explain", False)
+            and not payload.get("include_receipt", False)
         ):
             # ``PREPARE_CONTEXT`` serializes its defaults because an older Server needs the fields
-            # it already knows about. ``explain`` is not one of them: a Server that predates it
+            # it already knows about. ``include_receipt`` is not one of them: an older Server
             # rejects the key with ``422 invalid_request``, so a client upgraded ahead of its
             # Server must not volunteer a flag whose default means "say nothing extra". ``false``
             # and absence are the same request.
-            payload.pop("explain", None)
+            payload.pop("include_receipt", None)
         if operation.request_location == "query":
             request_query.update({key: value for key, value in payload.items() if value is not None})
         else:

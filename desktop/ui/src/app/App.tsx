@@ -17,7 +17,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { messages, type Language } from "./messages";
 import { getFoundationInfo, desktopApi } from "../shared/ipc";
-import type { FoundationInfo, DesktopState } from "../generated/ipc";
+import type {
+  FoundationInfo,
+  DesktopState,
+  WriteRecord,
+} from "../generated/ipc";
 import logo from "../../../src-tauri/icons/brand.png";
 import homeIcon from "../assets/overview.svg";
 import connectionsIcon from "../assets/connections.svg";
@@ -27,7 +31,11 @@ import observationIcon from "../assets/retrieval.svg";
 
 import { TopBar } from "./TopBar";
 import { Overview } from "./Overview";
-import { MemoryWorkspace } from "./MemoryWorkspace";
+import {
+  MemoryWorkspace,
+  SubmittedDraftRecovery,
+  type SubmittedDraft,
+} from "./MemoryWorkspace";
 import { LocalServerSettings } from "./LocalServerSettings";
 import { Help } from "./Help";
 import { Diagnostics } from "./Diagnostics";
@@ -51,11 +59,39 @@ export function App() {
   const [menu, setMenu] = useState(false);
   const [host, setHost] = useState<FoundationInfo | null>(null);
   const [desktop, setDesktop] = useState<DesktopState | null>(null);
+  const currentState = useRef<DesktopState | null>(null);
   const [nativeError, setNativeError] = useState<unknown>(null);
   const [stateError, setStateError] = useState<unknown>(null);
   const [stateLoading, setStateLoading] = useState(true);
   const stateRequest = useRef(0);
   const [dirty, setDirty] = useState(false);
+  const [submittedDrafts, setSubmittedDrafts] = useState<SubmittedDraft[]>([]);
+  const submissionSequence = useRef(0);
+  function beginSubmission(text: string, target: SubmittedDraft["target"]) {
+    const id = ++submissionSequence.current;
+    setSubmittedDrafts((current) => [
+      ...current,
+      { id, text, target, phase: "pending" },
+    ]);
+    return (record: WriteRecord | null) => {
+      // Update only a retained intent. Explicit discard removes its identity,
+      // so late receipts cannot revive it or clear a different submission.
+      setSubmittedDrafts((current) =>
+        current.flatMap((draft) => {
+          if (draft.id !== id) return [draft];
+          if (record?.status === "succeeded") return [];
+          return [
+            {
+              ...draft,
+              target: record?.context ?? draft.target,
+              phase: record?.status ?? "unconfirmed",
+            },
+          ];
+        }),
+      );
+    };
+  }
+  const [connectionDraftReset, setConnectionDraftReset] = useState(0);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [connectionSelection, setConnectionSelection] = useState<{
@@ -74,13 +110,24 @@ export function App() {
     setPendingConnections((current) => current + (pending ? 1 : -1));
   }
   function receiveState(next: DesktopState) {
-    setDesktop((current) =>
-      !current || next.generation >= current.generation ? next : current,
-    );
+    if (
+      currentState.current &&
+      next.generation < currentState.current.generation
+    )
+      return false;
+    currentState.current = next;
+    setDesktop(next);
+    return true;
   }
   const { confirm, confirmation } = useConfirmation(language);
-  function confirmSwitch() {
-    return !dirty || confirm(connectionMessages[language].discard);
+  async function confirmSwitch() {
+    if (
+      (dirty || submittedDrafts.length > 0) &&
+      !(await confirm(connectionMessages[language].discard))
+    )
+      return false;
+    setSubmittedDrafts([]);
+    return true;
   }
   const activeProfile = desktop?.profiles.find(
     (p) => p.id === desktop.active?.connectionId,
@@ -90,6 +137,7 @@ export function App() {
   const localServerHeading = useRef<HTMLHeadingElement>(null);
   const settingsSection = useRef<"local-server" | undefined>(undefined);
   const scopeReturnFocus = useRef<HTMLElement | null>(null);
+  const scopeToMemory = useRef(false);
   const t = messages[language];
   const ct = connectionMessages[language];
   async function loadState() {
@@ -123,8 +171,9 @@ export function App() {
     target?.focus();
     if (localServer) target?.scrollIntoView?.({ block: "start" });
   }, [page, connectionSelection]);
-  function openScopes(trigger: HTMLElement) {
+  function openScopes(trigger: HTMLElement, toMemory = false) {
     scopeReturnFocus.current = trigger;
+    scopeToMemory.current = toMemory;
     setScopeOpen(true);
   }
   async function navigate(
@@ -318,19 +367,39 @@ export function App() {
             />
           )}
           {page === "memories" && (
-            <MemoryWorkspace
-              key={`memory-${desktop?.active?.generation ?? "none"}`}
-              state={desktop}
-              language={language}
-              onState={receiveState}
-              onDirty={setDirty}
-              onManageConnections={() => navigate("connections")}
-              onOpenScopes={openScopes}
-              onOpenLocalServer={() =>
-                navigate("settings", { section: "local-server" })
-              }
-              contextPending={contextPending}
-            />
+            <>
+              {submittedDrafts
+                .filter(
+                  (draft) =>
+                    draft.target.generation !== desktop?.active?.generation,
+                )
+                .map((draft) => (
+                  <SubmittedDraftRecovery
+                    key={draft.id}
+                    draft={draft}
+                    language={language}
+                    onDiscard={() =>
+                      setSubmittedDrafts((current) =>
+                        current.filter((item) => item.id !== draft.id),
+                      )
+                    }
+                  />
+                ))}
+              <MemoryWorkspace
+                key={`memory-${desktop?.active?.generation ?? "none"}`}
+                state={desktop}
+                language={language}
+                onState={receiveState}
+                onDirty={setDirty}
+                onSubmission={beginSubmission}
+                onManageConnections={() => navigate("connections")}
+                onOpenScopes={openScopes}
+                onOpenLocalServer={() =>
+                  navigate("settings", { section: "local-server" })
+                }
+                contextPending={contextPending}
+              />
+            </>
           )}
           {page === "connections" && (
             <Connections
@@ -341,6 +410,8 @@ export function App() {
               onState={receiveState}
               onDirty={setDirty}
               onPendingChange={connectionPending}
+              onActivated={(trigger) => openScopes(trigger, true)}
+              discardDraft={connectionDraftReset}
             />
           )}
           {page === "observation" && (
@@ -423,8 +494,14 @@ export function App() {
             onPendingChange={scopePending}
             onSelectionError={setNativeError}
             onSelected={() => {
+              if (page === "connections" && dirty)
+                setConnectionDraftReset((current) => current + 1);
               setDirty(false);
               setScopeOpen(false);
+              if (scopeToMemory.current) {
+                scopeReturnFocus.current = null;
+                setPage("memories");
+              }
             }}
             hideHeading
             onManageConnections={() => {

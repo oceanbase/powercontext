@@ -29,10 +29,12 @@ from sqlalchemy.engine import make_url
 
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import BuiltinConfig
 from powercontext.builtin.runtime.composition import _embedding_models
 from powercontext.client import PowerContextClient
 from powercontext.http import CreateScopeRequest, PrepareContextRequest, RememberMemoryRequest
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_context_text_assembly import _seed_topics
 
 from .harness import _configured_access_token, _start_configured_server, _without_scheduled_processing
@@ -75,6 +77,7 @@ def test_configured_profile_generation_review_and_context_delivery(tmp_path, pyt
                     )
                 }
             )
+            prepare_server_database(settings, evidence_dir=tmp_path / "migration-evidence")
         elif isinstance(settings.database, SQLiteConfig):
             settings = settings.model_copy(
                 update={"database": SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile.db'}")}
@@ -198,7 +201,18 @@ async def _scenario(url, token, scope_ids, report, settings):
         async with AsyncExitStack() as resources:
             embedding, _ = await _embedding_models(settings.inference, resources, None)
             assert embedding is not None
-            await _seed_topics(settings.database, scope_ids, embedding)
+            await _seed_topics(
+                BuiltinConfig(
+                    database=settings.database,
+                    runtime=settings.runtime,
+                    inference=settings.inference,
+                    code=settings.code,
+                    handoff_report=settings.handoff_report,
+                    external_skills=settings.external_skills,
+                ),
+                scope_ids,
+                embedding,
+            )
         topics = await client.prepare_context(
             PrepareContextRequest.model_validate({
                 "scope_id": current,
