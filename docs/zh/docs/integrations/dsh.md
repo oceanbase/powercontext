@@ -85,7 +85,8 @@ setup 不求值无关的界面和模型表达式。启用的 include 文件必�
 Setup 不会启动 Server。安装完成后重启 DSH。
 面向模型的 PowerContext 能力通过 DSH 原生的 `@deepseek-ai/dsh-mcp-client` 注册。
 
-召回查询会排除 DSH 的 runtime-context snapshot 及其清空标记，避免宿主目录内容挤掉用户问题。
+召回查询会排除当前 DSH 的 `runtime-context` 消息（包括上下文清空标记），以及旧版
+`@deepseek-ai/dsh-system-prompt` 插件 snapshot，避免宿主目录内容挤掉用户问题。
 
 运行 `powercontext setup dsh --json` 时，`hosts.dsh.setup: "complete"` 表示已完成安装和配置；
 注册结果位于 `hosts.dsh.checks.plugin.checks.registration: "present"`。同一报告还包含 Server 诊断，
