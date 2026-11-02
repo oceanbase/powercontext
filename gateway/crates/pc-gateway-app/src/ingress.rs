@@ -422,15 +422,30 @@ fn injects(format: &Format, injection: Injection, responses: bool, has_conversat
 }
 
 /// 请求所属的会话，决定准备结果在哪些请求之间重放。依次取：
-/// - 宿主提供的 `X-PowerContext-Conversation-ID`（RFC 2199）；
-/// - Responses 入口上，Codex 原生的 `thread-id`：Codex 在一个线程的每个请求上发送同一个值，父线程与
-///   子代理线程的值不同。它们共享的 `session-id` 和 `prompt_cache_key` 不用作身份。
+/// - 宿主提供的 `X-PowerContext-Conversation-ID`（RFC 2199），优先于各客户端的原生头；
+/// - Claude Code 的 `x-claude-code-session-id`：主代理与子代理共享它，子代理的请求另带
+///   `x-claude-code-agent-id`，所以会话是二者的组合；
+/// - OpenCode 的 `x-opencode-session-id`：子会话有自己的值。`x-opencode-session`、
+///   `x-session-affinity` 等亲和头可能让子会话沿用父会话的值，不用作身份；
+/// - Responses 入口上，Codex 的 `thread-id`：一个线程的每个请求同值，子代理线程的值不同。它们共享的
+///   `session-id` 和 `prompt_cache_key` 不用作身份。`thread-id` 不带客户端前缀，所以只在 Responses
+///   入口识别。
 ///
-/// 两种来源加不同前缀，互不相同。值须为 1～256 个可见 ASCII 字符；都没有时按没有会话处理：
+/// 各来源加不同前缀，互不相同。值须为 1～256 个可见 ASCII 字符；都没有时按没有会话处理：
 /// 不在请求之间重放准备结果，请求照常处理。
 fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
     if let Some(id) = header_id(headers, CONVERSATION_ID_HEADER) {
         return Some(format!("powercontext:{id}"));
+    }
+    if let Some(session) = header_id(headers, CLAUDE_CODE_SESSION_HEADER) {
+        // 合法值不含空格，用空格分隔会话与代理，组合不会与另一组值重合。
+        return Some(match header_id(headers, CLAUDE_CODE_AGENT_HEADER) {
+            Some(agent) => format!("claude-code:{session} {agent}"),
+            None => format!("claude-code:{session}"),
+        });
+    }
+    if let Some(session) = header_id(headers, OPENCODE_SESSION_HEADER) {
+        return Some(format!("opencode:{session}"));
     }
     match format {
         Format::Responses => {
@@ -448,6 +463,9 @@ fn header_id<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
+const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
+const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
+const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
 const CODEX_THREAD_ID_HEADER: &str = "thread-id";
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
@@ -1065,6 +1083,85 @@ mod tests {
             conversation_id(&hosted, &Format::Responses).as_deref(),
             Some("powercontext:host-1")
         );
+    }
+
+    #[test]
+    fn claude_code_subagents_are_separate_conversations() {
+        // Claude Code 的主代理与子代理共享会话 ID，子代理的请求另带代理 ID。
+        let mut main = HeaderMap::new();
+        main.insert(CLAUDE_CODE_SESSION_HEADER, "session-1".parse().unwrap());
+        let mut subagent = main.clone();
+        subagent.insert(CLAUDE_CODE_AGENT_HEADER, "agent-a".parse().unwrap());
+        let mut nested = main.clone();
+        nested.insert(CLAUDE_CODE_AGENT_HEADER, "agent-b".parse().unwrap());
+        nested.insert("x-claude-code-parent-agent-id", "agent-a".parse().unwrap());
+        for format in [Format::Chat, Format::Responses] {
+            let main_id = conversation_id(&main, &format);
+            assert_eq!(main_id.as_deref(), Some("claude-code:session-1"));
+            assert_eq!(
+                conversation_id(&subagent, &format).as_deref(),
+                Some("claude-code:session-1 agent-a")
+            );
+            assert_eq!(
+                conversation_id(&nested, &format).as_deref(),
+                Some("claude-code:session-1 agent-b")
+            );
+        }
+        // 会话与代理的组合不会与另一个会话重合。
+        let mut slash = HeaderMap::new();
+        slash.insert(
+            CLAUDE_CODE_SESSION_HEADER,
+            "session-1/agent-a".parse().unwrap(),
+        );
+        assert_ne!(
+            conversation_id(&slash, &Format::Chat),
+            conversation_id(&subagent, &Format::Chat)
+        );
+    }
+
+    #[test]
+    fn opencode_child_sessions_are_separate_conversations() {
+        // 子会话有自己的会话 ID，亲和头与父会话相同。
+        let affinity = "ses_0123456789abcdef";
+        let mut parent = HeaderMap::new();
+        parent.insert(OPENCODE_SESSION_HEADER, "ses_parent".parse().unwrap());
+        parent.insert("x-opencode-session", affinity.parse().unwrap());
+        parent.insert("x-session-affinity", affinity.parse().unwrap());
+        let mut child = parent.clone();
+        child.insert(OPENCODE_SESSION_HEADER, "ses_child".parse().unwrap());
+        child.insert(
+            "x-opencode-parent-session-id",
+            "ses_parent".parse().unwrap(),
+        );
+        for format in [Format::Chat, Format::Responses] {
+            assert_eq!(
+                conversation_id(&parent, &format).as_deref(),
+                Some("opencode:ses_parent")
+            );
+            assert_eq!(
+                conversation_id(&child, &format).as_deref(),
+                Some("opencode:ses_child")
+            );
+        }
+        // 只有亲和头时不算会话。
+        let mut affinity_only = HeaderMap::new();
+        affinity_only.insert("x-opencode-session", affinity.parse().unwrap());
+        affinity_only.insert("x-session-affinity", affinity.parse().unwrap());
+        assert_eq!(conversation_id(&affinity_only, &Format::Chat), None);
+    }
+
+    #[test]
+    fn the_powercontext_header_overrides_every_native_identity() {
+        let mut headers = codex_headers("thread-a");
+        headers.insert(CLAUDE_CODE_SESSION_HEADER, "session-1".parse().unwrap());
+        headers.insert(OPENCODE_SESSION_HEADER, "ses_parent".parse().unwrap());
+        headers.insert(CONVERSATION_ID_HEADER, "host-1".parse().unwrap());
+        for format in [Format::Chat, Format::Responses] {
+            assert_eq!(
+                conversation_id(&headers, &format).as_deref(),
+                Some("powercontext:host-1")
+            );
+        }
     }
 
     #[test]
