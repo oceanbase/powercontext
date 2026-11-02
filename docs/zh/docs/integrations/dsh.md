@@ -83,6 +83,8 @@ setup 不求值无关的界面和模型表达式。启用的 include 文件必�
 Setup 不会启动 Server。安装完成后重启 DSH。
 面向模型的 PowerContext 能力通过 DSH 原生的 `@deepseek-ai/dsh-mcp-client` 注册。
 
+召回查询会排除 DSH 的 runtime-context snapshot 及其清空标记，避免宿主目录内容挤掉用户问题。
+
 ## 启动 Server 和宿主
 
 需要自动将 Source 提取为 Memory 时，生成并校验 Server 配置：

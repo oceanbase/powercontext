@@ -85,6 +85,8 @@ spaces. These rules apply to configuration inspection, stored credentials, and p
 Setup does not start the Server. Restart DSH after installation.
 The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.
 
+Recall queries exclude DSH runtime-context snapshots, including cleared-context markers, so host catalogs cannot displace the user request.
+
 ## Start the Server and the host
 
 For automatic Source-to-Memory extraction, generate and validate a Server configuration:

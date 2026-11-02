@@ -81,9 +81,10 @@ function isRuntimeContextSnapshot(message: unknown): boolean {
   const source = (message as { source?: unknown }).source
   if (!source || typeof source !== 'object') return false
   const value = source as { kind?: unknown; plugin?: unknown; form?: unknown }
-  return value.kind === 'plugin'
-    && value.plugin === '@deepseek-ai/dsh-system-prompt'
-    && value.form === 'snapshot'
+  return value.kind === 'runtime-context'
+    || (value.kind === 'plugin'
+      && value.plugin === '@deepseek-ai/dsh-system-prompt'
+      && value.form === 'snapshot')
 }
 
 export function messagesToQuery(messages: readonly unknown[]): string {
