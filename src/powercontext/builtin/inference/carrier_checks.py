@@ -111,12 +111,9 @@ def inspect_sse(policy: PrivacyPolicy, body: bytes, profile_id: str) -> PrivacyD
             return policy.decision(phase, "block", "forbidden_content")
         if duplicate or contains_opaque_content(value, protocol=profile.protocol):
             return policy.decision(phase, "withhold", "content_unsupported")
-        model_carrier = value.get("message", value.get("response", value))
-        if (
-            isinstance(model_carrier, dict)
-            and "model" in model_carrier
-            and model_carrier.get("model") not in (profile.model, *profile.response_models)
-        ):
+        # This carrier supports Chat only; its model identity is always at the root.
+        # Unrelated message/response extension fields cannot replace that identity.
+        if "model" in value and value["model"] not in (profile.model, *profile.response_models):
             return policy.decision(phase, "withhold", "response_model_mismatch")
         _stream_fragments(value, parts)
         if "error" in value or value.get("type") == "error":
