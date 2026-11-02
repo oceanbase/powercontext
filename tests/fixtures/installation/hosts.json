@@ -106,6 +106,63 @@
         "selected_hosts": [],
         "error_contains": "requires Git"
       }
+    },
+    {
+      "id": "host-uses-existing-file",
+      "environment_file": true,
+      "git": true,
+      "args": [
+        "--host",
+        "codex",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "setup_env_file": true
+      }
+    },
+    {
+      "id": "host-requires-existing-file",
+      "git": true,
+      "args": [
+        "--host",
+        "codex",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "existing file"
+      }
+    },
+    {
+      "id": "unsupported-configure",
+      "args": [
+        "--configure"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "Unknown option"
+      }
+    },
+    {
+      "id": "unsupported-service",
+      "args": [
+        "--service"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "Unknown option"
+      }
     }
   ]
 }

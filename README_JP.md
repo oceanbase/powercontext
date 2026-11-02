@@ -121,6 +121,7 @@ Agent の入力 → Source の証拠 → Memory / Topic Memory → PreparedConte
 ```
 
 PowerContext 1.4.1 には対話式セットアップウィザードが含まれています。Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](docs/en/docs/get-started/install-and-run.md)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。
+Python と uv を自動で用意する場合は、[インストールスクリプト](docs/en/docs/get-started/install-and-run.md#install-with-the-recommended-script)を使ってください。
 
 目的に合う経路を選択してください：
 
@@ -136,13 +137,20 @@ PowerContext 1.4.1 には対話式セットアップウィザードが含まれ�
 uv tool install --force "powercontext[cli,server]==1.4.1"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
-powercontext config validate --env-file .env
-powercontext server run --env-file .env      # このターミナルは開いたままにする
 ```
 
 ウィザードでは、ストレージ、ローカルまたはリモート利用、メモリ機能、Dashboard/アクセス制御、Agent 接続を選択します。最初は SQLite が簡単です。組み込み seekdb は必要な場合だけ選び、依存関係のインストールを許可してください。
 
-ウィザードは `.env` と `.env.next-steps.md` を生成します。これらのファイルには認証情報が含まれることがあるため、コミットしないでください。Server を起動したまま、別のターミナルで `powercontext-config` に戻り、生成された環境ファイルを読み込んで接続を確認します。
+`.env` を保存してから、設定を検証してユーザーサービスを登録します。
+
+```bash
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+```
+
+ウィザードは `.env` と `.env.next-steps.md` を生成します。これらのファイルには認証情報が含まれることがあるため、コミットしないでください。
+Server のライフサイクルはネイティブのユーザーサービスが管理します。Linux では利用可能な `systemd --user` マネージャーが必要です。生成された環境ファイルを読み込んで接続を確認します。
 
 ```bash
 set -a
@@ -154,7 +162,7 @@ powercontext capabilities
 
 続いて `.env.next-steps.md` の手順に従い、Scope を作成して紐付けます。作成リクエストが返す実際の `scope_id` を使ってください。
 計画された `codex-...` タイトルは ID ではありません。ディレクトリを変えても分離は作られないため、Dashboard と Agent で同じ Server と
-Scope を使います。その後、対応するプラグインをインストールして新しい Agent セッションを起動します。[完全な手順](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)では、Codex と Claude Code、Dashboard へのログイン、SSH 転送、HTTPS の前提条件、確認可能な受け入れチェックを扱っています。対応する Codex のインストールは次のとおりです。
+Scope を使います。`.env` を編集したら、`powercontext service install --env-file .env` を再実行してサービスの設定を反映します。その後、対応するプラグインをインストールして新しい Agent セッションを起動します。[完全な手順](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)では、Codex と Claude Code、Dashboard へのログイン、SSH 転送、HTTPS の前提条件、確認可能な受け入れチェックを扱っています。対応する Codex のインストールは次のとおりです。
 
 ```bash
 powercontext setup codex --ref powercontext-v1.4.1

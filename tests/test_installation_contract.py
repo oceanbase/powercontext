@@ -51,25 +51,6 @@ def main():
         if command == "server run":
             import contract_server
         print("Synthetic installation contract CLI")
-    elif args[:2] == ["config", "init"]:
-        if not sys.stdin.isatty():
-            return 2
-        status = int(os.environ.get("CONTRACT_CONFIG_EXIT", "0"))
-        if status == 0:
-            Path(args[args.index("--output") + 1]).write_text("POWERCONTEXT_SERVER_HTTP_PORT=18000\\n")
-        return status
-    elif args[:2] == ["config", "validate"]:
-        return int(os.environ.get("CONTRACT_VALIDATE_EXIT", "0"))
-    elif args[:2] == ["service", "install"]:
-        env_file = args[args.index("--env-file") + 1]
-        Path(os.environ["CONTRACT_SERVICE_RESULT"]).write_text(json.dumps({"env_file": env_file}))
-        return int(os.environ.get("CONTRACT_SERVICE_EXIT", "0"))
-    elif args[:2] == ["service", "status"]:
-        return 0
-    elif args and args[0] == "doctor":
-        env_file = args[args.index("--env-file") + 1]
-        Path(os.environ["CONTRACT_DOCTOR_RESULT"]).write_text(json.dumps({"env_file": env_file}))
-        return int(os.environ.get("CONTRACT_DOCTOR_EXIT", "0"))
     elif args and args[0] == "setup":
         hosts = []
         index = 1
@@ -88,7 +69,7 @@ def main():
     elif args == ["contract-capabilities"]:
         print(json.dumps({"server_extra": importlib.util.find_spec("contract_server") is not None}))
     else:
-        print("Synthetic installation contract CLI")
+        return 2
     return 0
 """
 
@@ -150,8 +131,6 @@ def test_installation_contract(case: dict[str, Any], tmp_path: Path) -> None:
     if not uv:
         pytest.skip("native installation contract requires real uv")
     windows = sys.platform == "win32"
-    if case.get("terminal") and windows:
-        pytest.skip("controlling-terminal pipe regression requires POSIX")
     shell = shutil.which("powershell") or shutil.which("pwsh") if windows else shutil.which("bash")
     if not shell:
         pytest.skip("native installer shell is unavailable")
@@ -191,12 +170,6 @@ def test_installation_contract(case: dict[str, Any], tmp_path: Path) -> None:
         "CONTRACT_SETUP_EXIT": str(case.get("setup_exit", 0)),
         "CONTRACT_REPORTED_VERSION": case.get("reported_version", "1.2.0"),
         "CONTRACT_MISSING_COMMANDS": json.dumps(case.get("missing_commands", [])),
-        "CONTRACT_VALIDATE_EXIT": str(case.get("validate_exit", 0)),
-        "CONTRACT_CONFIG_EXIT": str(case.get("config_exit", 0)),
-        "CONTRACT_SERVICE_EXIT": str(case.get("service_exit", 0)),
-        "CONTRACT_DOCTOR_EXIT": str(case.get("doctor_exit", 0)),
-        "CONTRACT_SERVICE_RESULT": str(tmp_path / "service.json"),
-        "CONTRACT_DOCTOR_RESULT": str(tmp_path / "doctor.json"),
     })
     env_file = tmp_path / "existing configuration.env"
     if case.get("environment_file"):
@@ -207,30 +180,6 @@ def test_installation_contract(case: dict[str, Any], tmp_path: Path) -> None:
     command = (
         [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)] if windows else [shell, str(script)]
     )
-    if case.get("terminal"):
-        controller = """import errno, os, pty, sys
-pid, terminal = pty.fork()
-if pid == 0:
-    shell, script, *args = sys.argv[1:]
-    os.execv(shell, [shell, '-o', 'pipefail', '-c',
-        'cat "$1" | "$2" -s -- "${@:3}"', 'installation', script, shell, *args])
-try:
-    while True:
-        try:
-            data = os.read(terminal, 4096)
-        except OSError as error:
-            if error.errno == errno.EIO:
-                break
-            raise
-        if not data:
-            break
-        os.write(1, data)
-finally:
-    os.close(terminal)
-_, status = os.waitpid(pid, 0)
-sys.exit(os.waitstatus_to_exitcode(status))
-"""
-        command = [sys.executable, "-c", controller, *command]
     result = subprocess.run(
         [*command, "--region", "global", *arguments], env=environment, capture_output=True, text=True, timeout=60
     )
@@ -241,8 +190,6 @@ def assert_installation_outcome(case, tmp_path, result, environment) -> None:
     expected = case["expected"]
     windows = sys.platform == "win32"
     env_file = tmp_path / "existing configuration.env"
-    if "configuration_saved" in expected:
-        assert env_file.exists() == expected["configuration_saved"]
     assert result.returncode == expected["exit_code"], result.stdout + result.stderr
     executable = tmp_path / "bin" / ("powercontext.exe" if windows else "powercontext")
     assert executable.exists() == expected["runtime_installed"]
@@ -253,11 +200,6 @@ def assert_installation_outcome(case, tmp_path, result, environment) -> None:
         assert observed["ref"] == expected["setup_ref"]
     if expected.get("setup_env_file"):
         assert observed["env_file"] == str(env_file)
-    for action in ("service", "doctor"):
-        observed_file = tmp_path / f"{action}.json"
-        assert observed_file.exists() == expected.get(action, False)
-        if observed_file.exists():
-            assert json.loads(observed_file.read_text())["env_file"] == str(env_file)
     if case.get("environment_file"):
         assert env_file.read_text() == "POWERCONTEXT_SERVER_HTTP_PORT=18000\n"
     if expected.get("verification_failed"):

@@ -266,7 +266,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         request(url + "/v1/memory/remember", token, {"scope_id": scope, "kind": "decision", "text": text})
         query = {"scope_id": scope, "query": "release decision", "mode": "fts"}
         found = request(url + "/v1/memory/search", token, query)
-        assert text in [hit["text"] for hit in found["hits"]]
+        assert text in [hit["memory"]["text"] for hit in found["hits"]]
     env.update(
         UV_OFFLINE="1", UV_PYTHON_DOWNLOADS="never", POWERCONTEXT_UV_INSTALLER_URL="https://127.0.0.1:9/unavailable"
     )
@@ -276,7 +276,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
     assert (tmp_path / ".env").read_bytes() == config
     with running_server(cli, tmp_path, env, token, "server-restarted") as url:
         found = request(url + "/v1/memory/search", token, query)
-        assert text in [hit["text"] for hit in found["hits"]]
+        assert text in [hit["memory"]["text"] for hit in found["hits"]]
 
 
 def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:

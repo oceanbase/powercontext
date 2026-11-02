@@ -177,14 +177,26 @@ def test_encoded_release_installs_through_public_script(installation, region):
     assert "Runtime installed: 1.0.0" in output
 
 
-def test_latest_stable_and_explicit_prerelease(installation):
+@pytest.mark.parametrize("region", ["global", "cn"])
+def test_latest_stable_and_explicit_prerelease(installation, region):
     install, version, _index, _env = installation
-    install("--region", "cn")
+    install("--region", region)
     assert version() == "1.1.0"
-    install("--region", "cn", "--version", "1.2.0rc1")
+    install("--region", region, "--version", "1.2.0rc1")
     assert version() == "1.2.0rc1"
-    install("--region", "cn")
+    install("--region", region)
     assert version() == "1.1.0"
+
+
+def test_latest_without_a_stable_release_preserves_installed_prerelease(installation):
+    install, version, index, _env = installation
+    install("--region", "cn", "--version", "1.2.0rc1")
+    index.mirror_versions = ["1.2.0rc1"]
+
+    output = install("--region", "cn", success=False)
+
+    assert "Installation failed" in output
+    assert version() == "1.2.0rc1"
 
 
 def test_unavailable_automatic_mirror_falls_back_before_tool_install(installation):

@@ -23,8 +23,6 @@ if ($env:POWERCONTEXT_INSTALL_REGION) { $Region = $env:POWERCONTEXT_INSTALL_REGI
 $IndexUrl = ''
 $Hosts = @()
 $NoHosts = $false
-$Configure = $false
-$InstallService = $false
 $EnvFile = ''
 $Uv = ''
 $TempDir = $null
@@ -41,15 +39,13 @@ Usage: powershell -ExecutionPolicy Bypass -File install.ps1 [options]
   --index-url URL    HTTPS default package index for this installation.
   --host HOST        Install an Agent integration; repeat for multiple hosts.
   --no-hosts         Compatibility option; integration setup is skipped by default.
-  --configure       Open the configuration wizard in a terminal; requires --env-file.
-  --service         Install and verify the personal service using --env-file.
-  --env-file PATH   Explicit configuration file for configuration, service, and hosts.
+  --env-file PATH   Existing configuration file for selected Agent integrations.
   -h, --help         Show this help.
 
 Agent integration setup runs only for explicitly selected --host values.
 After installation, run powercontext setup --ref "powercontext-v$(powercontext --version)".
-Unattended service setup requires an existing protected environment file.
-Windows service setup is experimental; --service enables login auto-start explicitly.
+Configure and register a personal service separately after installation.
+Windows personal services remain experimental.
 
 Region priority: --region, POWERCONTEXT_INSTALL_REGION, named timezone, locale
 territory, then global. No network location service is queried.
@@ -239,8 +235,6 @@ try {
                 }
             }
             '--no-hosts' { $NoHosts = $true }
-            '--configure' { $Configure = $true }
-            '--service' { $InstallService = $true }
             { $_ -in '-h', '--help' } { Show-Help; exit 0 }
             default { throw 'Unknown option. Run install.ps1 --help.' }
         }
@@ -253,15 +247,8 @@ try {
     if ($IndexUrl) { Assert-HttpsUrl $IndexUrl '--index-url' }
     if ($env:POWERCONTEXT_UV_INSTALLER_URL) { Assert-HttpsUrl $env:POWERCONTEXT_UV_INSTALLER_URL 'POWERCONTEXT_UV_INSTALLER_URL' }
     if ($NoHosts -and $Hosts.Count) { throw '--host and --no-hosts cannot be combined.' }
-    if ($Configure -or $InstallService) {
-        if ($RuntimeProfile -ne 'local') { throw '--configure and --service require --profile local.' }
-        if (-not $EnvFile) { throw '--configure and --service require --env-file PATH.' }
-    }
-    if ($EnvFile -and -not $Configure -and -not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
-        throw '--env-file must name an existing file unless --configure is selected.'
-    }
-    if ($Configure -and ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected)) {
-        throw '--configure requires a terminal. For unattended setup, use --service with an existing --env-file.'
+    if ($EnvFile -and -not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
+        throw '--env-file must name an existing file.'
     }
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Use install.sh on macOS and Linux.' }
     if ($Hosts.Count -and -not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
@@ -316,8 +303,8 @@ try {
     $Requirement = 'powercontext[cli,server]'
     if ($RuntimeProfile -eq 'client') { $Requirement = 'powercontext[cli]' }
     $InstallArgs = @('tool', 'install', '--python', $Python.Trim(), '--no-python-downloads')
-    # An installed prerelease otherwise remains eligible even with prereleases disallowed.
-    if ($Version -eq 'latest') { $InstallArgs += @('--upgrade', '--reinstall-package', 'powercontext', '--prerelease', 'disallow') }
+    # Older uv retains installed prereleases unless it resolves a fresh tool environment.
+    if ($Version -eq 'latest') { $InstallArgs += @('--upgrade', '--force', '--prerelease', 'disallow') }
     else { $Requirement += "==$Version" }
     $InstallArgs += $Requirement
     if ($IndexUrl) { $InstallArgs += @('--default-index', $IndexUrl) }
@@ -346,25 +333,6 @@ try {
     Write-Host "Runtime installed: $Version ($RuntimeProfile)"
     $PathPrefix = ("$($ToolBin.Trim());$(Split-Path -Parent $Uv)").Replace("'", "''")
     Write-Host ('For a new terminal: $env:Path = ''' + $PathPrefix + ';'' + $env:Path')
-    if ($Configure) {
-        & $Cli config init --output $EnvFile --require-write
-        if ($LASTEXITCODE -ne 0) { throw 'Runtime installed, but configuration did not complete. Review the command error or cancellation; retry config init before service setup.' }
-        Write-Host "Configuration saved: $EnvFile"
-    }
-    if ($EnvFile -and $RuntimeProfile -eq 'local') {
-        & $Cli config validate --env-file $EnvFile
-        if ($LASTEXITCODE -ne 0) { throw 'Runtime installed, but configuration validation failed. Correct the selected environment file before service setup.' }
-        Write-Host "Configuration validated: $EnvFile"
-    }
-    if ($InstallService) {
-        & $Cli service install --env-file $EnvFile --start-on-login
-        if ($LASTEXITCODE -ne 0) { throw 'Runtime installed, but personal service setup did not complete. Inspect service status and retry service install with the same --env-file.' }
-        & $Cli service status
-        if ($LASTEXITCODE -ne 0) { throw 'Runtime installed, but personal service verification failed. Inspect the native service logs.' }
-        & $Cli doctor --env-file $EnvFile
-        if ($LASTEXITCODE -ne 0) { throw 'Personal service installed, but Server diagnostics did not pass. Review readiness and retry doctor with the same --env-file.' }
-        Write-Host "Personal service verified with: $EnvFile"
-    }
     $SetupStatus = 0
     if ($Hosts.Count) {
         $SetupArgs = @('setup')
@@ -373,19 +341,13 @@ try {
         $SetupStatus = $LASTEXITCODE
     }
     if ($RuntimeProfile -eq 'local') {
-        if ($InstallService) {
-            Write-Host 'After upgrades or any environment-file edit, rerun service install with the same --env-file.'
-        }
-        else {
-            $NextEnv = '.env'
-            if ($EnvFile) { $NextEnv = $EnvFile }
-            $QuotedEnv = "'" + $NextEnv.Replace("'", "''") + "'"
-            if (-not $EnvFile) { Write-Host "`nConfigure: powercontext config init --output $QuotedEnv" }
-            Write-Host "Then run: powercontext service install --env-file $QuotedEnv"
-            Write-Host '  powercontext service status'
-            Write-Host "  powercontext doctor --env-file $QuotedEnv"
-            Write-Host 'Windows personal services are experimental. For development or temporary use, run powercontext server run.'
-        }
+        Write-Host "`nConfigure a local Server: powercontext config init --output .env"
+        Write-Host 'After saving, validate the file and register the personal service:'
+        Write-Host '  powercontext config validate --env-file .env'
+        Write-Host '  powercontext service install --env-file .env'
+        Write-Host '  powercontext service status'
+        Write-Host 'Load the generated Client settings, then run powercontext ready and powercontext capabilities.'
+        Write-Host 'Windows personal services are experimental. For development or temporary use, run powercontext server run.'
         Write-Host '  https://powercontext.oceanbase.io/en/docs/get-started/quickstart/'
     }
     else {

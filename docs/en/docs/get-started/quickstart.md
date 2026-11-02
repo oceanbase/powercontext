@@ -14,6 +14,7 @@ and an installed Codex CLI. Full memory also needs working Generation and Embedd
 prepare their base URLs, model names, and API keys. Signing into a Codex or Claude subscription does not automatically
 provide these APIs to the PowerContext Server. Without separate model APIs, select basic memory to test explicit saves
 and recall; that does not enable automatic Topic Memory.
+To provision Python and uv automatically, use the [installation script](install-and-run.md#install-with-the-recommended-script).
 
 ## 1. Install and open the wizard
 
@@ -53,17 +54,19 @@ In this terminal, run:
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-Keep the terminal running. Open the Dashboard URL printed by the wizard, using the port saved as
+The native current-user service manages the Server lifecycle. Linux requires an available
+`systemd --user` manager. Open the Dashboard URL printed by the wizard, using the port saved as
 `POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in
 with the **Server token**, not a model API key.
-An empty Dashboard is expected before you capture data. For operation after closing the terminal, stop the foreground
-Server and install a [persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server)
-with `powercontext service install --env-file .env` to reuse the same configuration.
+An empty Dashboard is expected before you capture data. For development, debugging, temporary use, or systems without
+a native user-service manager, use `powercontext server run --env-file .env`; stop the personal service first if it is
+running. See [persistent personal services](../operate/deploy-server.md#run-a-persistent-personal-server).
 
-Open another terminal, load the client settings, and check the running service:
+Load the client settings and check the running service:
 
 ```bash
 cd ~/powercontext-demo
@@ -90,9 +93,11 @@ The planned `codex-xxxxxxxx` value is a title, not an ID. For Claude Code, put t
 in `POWERCONTEXT_CLAUDE_SCOPE_ID`. Agents can have separate Scopes or explicitly share an existing one.
 Changing directories does not create isolation. Use the same Scope in the Dashboard and Agent during this check.
 
-Reload the client settings and install the matching plugin:
+After editing `.env`, reconcile the service, reload the client settings, and install the matching plugin:
 
 ```bash
+powercontext service install --env-file .env
+powercontext service status
 set -a
 . ./.env
 set +a

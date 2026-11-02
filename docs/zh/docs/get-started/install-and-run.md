@@ -50,42 +50,39 @@ PATH。`UV_INSTALL_DIR` 指定缺少 uv 时的安装目录，`UV_TOOL_BIN_DIR` �
 
 ## 配置并安装个人服务
 
-个人 macOS/Linux 推荐使用原生当前用户服务。安装器可以显式串联配置向导和服务注册：
+个人 macOS/Linux 安装完成后，先配置本地 Server：
 
 ```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- \
-  --configure --service --env-file "$HOME/.config/powercontext/powercontext.env"
+powercontext config init --output .env
 ```
 
-`--configure` 通过控制终端打开现有向导，需要显式 `--env-file`。保存后才能继续；取消会中止后续服务和宿主安装。
-个人服务选择 loopback 绑定；Linux 需要可用的 `systemd --user`。无人值守环境使用已有受保护文件：
+保存 `.env` 后再继续；如果取消向导，到这里停止。随后验证已保存的文件，并显式注册原生当前用户服务：
 
 ```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- \
-  --service --env-file /path/to/powercontext.env
-```
-
-安装器验证配置，执行 `service install`、`service status`，再通过 `doctor --env-file` 检查同一文件中的 Server。
-显式 `--host` 也会使用该文件及实际安装版本对应的 ref。Client-only 模式在安装前拒绝 `--configure` 和 `--service`；
-单独使用 `--env-file` 可以为显式宿主安装提供连接配置，而不安装本地服务。
-
-Windows 的相同选项仍为试验性支持；`--service` 显式启用登录自启动。`--configure` 需要交互控制台。
-已有文件的 ACL 保护方式见[部署 Server](../operate/deploy-server.md)。
-
-这些选项要求所选发行版提供 `config init --require-write` 和 `doctor --env-file`。缺少时，安装器报告失败阶段并保留
-Runtime；使用兼容发行版，或分开执行配置与服务命令。Runtime 安装、配置保存、服务注册和 Server 就绪分别报告。
-`degraded` 诊断返回非零状态；后续失败不会回滚包文件、删除配置或移除已提交的服务注册。
-
-任何文件修改，包括写入返回的 Scope ID 后，都要使用原文件重新注册：
-
-```bash
-powercontext service install --env-file /path/to/powercontext.env
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
 powercontext service status
-powercontext doctor --env-file /path/to/powercontext.env
 ```
 
-`doctor --env-file` 以文件为准，覆盖调用者 shell 的默认配置。Server 文件选择其监听地址，Client-only 文件选择 Client URL；
-显式 `--server-url` 可以覆盖诊断目标。生成的后续步骤仍负责引导 Scope 创建和 Agent 验收；服务运行不代表 Agent 工作流已完成。
+个人服务选择 loopback 绑定；Linux 需要可用的 `systemd --user` 管理器。Windows 个人服务仍为试验性支持，
+文件保护和登录自启动说明见[部署 Server](../operate/deploy-server.md)。
+
+加载生成的 Client 配置，检查运行中的 Server：
+
+```bash
+set -a
+. ./.env
+set +a
+powercontext ready
+powercontext capabilities
+```
+
+修改文件（包括写入返回的 Scope ID）后，使用原文件重新执行 `service install --env-file`。
+如果把配置保存在其他位置，始终使用同一路径。服务运行不代表 Agent 工作流已完成；
+继续按[快速开始](quickstart.md)完成 Scope 创建和 Agent 验收。
+
+安装器只安装软件及显式选择的集成。`--env-file PATH` 可以通过现有 `setup` 命令，为选定宿主提供已有连接文件；
+配置和服务注册仍由用户分步执行现有 CLI 命令。
 
 ## 选择脚本安装版本
 

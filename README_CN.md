@@ -132,6 +132,7 @@ PowerContext 1.4.1 包含交互式配置向导。需要 Python 3.11+、Git 和
 选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，
 请参考[安装与运行](docs/zh/docs/get-started/install-and-run.md)。
 支持 macOS 和 Linux；Windows 支持为 `experimental`。
+需要自动安装 Python 和 uv 时，使用[安装脚本](docs/zh/docs/get-started/install-and-run.md#使用推荐安装脚本)。
 
 请选择与你目标匹配的路径：
 
@@ -147,13 +148,20 @@ PowerContext 1.4.1 包含交互式配置向导。需要 Python 3.11+、Git 和
 uv tool install --force "powercontext[cli,server]==1.4.1"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language zh --output .env
-powercontext config validate --env-file .env
-powercontext server run --env-file .env      # 保持这个终端不关
 ```
 
 向导会询问存储、本机或远程使用场景、记忆能力、Dashboard/访问控制和 Agent 连接。首次体验可以使用 SQLite；只有确实需要时再选择嵌入式 seekdb，并同意依赖安装。
 
-向导生成一个 `.env` 环境文件和 `.env.next-steps.md`。这些文件可能包含凭据，请勿提交到 Git。保持 Server 运行，在另一个终端回到 `powercontext-config` 目录，重新加载生成的环境文件并检查服务：
+保存 `.env` 后，验证配置并注册个人服务：
+
+```bash
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+```
+
+向导生成一个 `.env` 环境文件和 `.env.next-steps.md`。这些文件可能包含凭据，请勿提交到 Git。
+原生当前用户服务负责 Server 生命周期；Linux 需要可用的 `systemd --user` 管理器。加载生成的环境文件并检查服务：
 
 ```bash
 set -a
@@ -164,7 +172,8 @@ powercontext capabilities
 ```
 
 接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。
-切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。然后安装相同版本的插件，再打开新 Agent 会话。
+切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行
+`powercontext service install --env-file .env` 以协调服务配置。然后安装相同版本的插件，再打开新 Agent 会话。
 [完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash

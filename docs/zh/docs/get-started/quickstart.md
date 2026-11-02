@@ -13,6 +13,7 @@ description: 通过配置向导安装完整记忆能力，接入 Codex，并验�
 完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。
 Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些 API。只有 Agent 登录、没有模型 API 时，
 仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。
+需要自动安装 Python 和 uv 时，使用[安装脚本](install-and-run.md#使用推荐安装脚本)。
 
 ## 1. 安装并进入配置向导
 
@@ -51,15 +52,18 @@ powercontext config init --language zh --output .env
 
 ```bash
 powercontext config validate --env-file .env
-powercontext server run --env-file .env
+powercontext service install --env-file .env
+powercontext service status
 ```
 
-保持终端运行。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
+原生当前用户服务负责 Server 生命周期；Linux 需要可用的 `systemd --user` 管理器。
+在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
 `POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。
-首次没有数据是正常现象。需要关闭终端后继续运行时，先停止前台 Server，再通过
-`powercontext service install --env-file .env` 安装[个人后台服务](../operate/deploy-server.md#运行持久个人-server)，复用同一份配置。
+首次没有数据是正常现象。开发、排障、临时使用或没有原生用户服务管理器时，可使用
+`powercontext server run --env-file .env`；如个人服务正在运行，先将其停止。
+服务管理详见[个人后台服务](../operate/deploy-server.md#运行持久个人-server)。
 
-另开终端，加载客户端连接配置并检查服务：
+加载客户端连接配置并检查服务：
 
 ```bash
 cd ~/powercontext-demo
@@ -86,9 +90,11 @@ POWERCONTEXT_CODEX_SCOPE_ID=替换为返回的scope_id
 `POWERCONTEXT_CLAUDE_SCOPE_ID`。不同 Agent 可以各自隔离，也可以显式绑定同一已有 Scope。
 切换目录本身不会创建隔离。验收期间，Dashboard 和 Agent 必须使用相同的 Scope。
 
-重新加载客户端文件并安装匹配的插件：
+修改 `.env` 后，协调服务配置，重新加载客户端文件并安装匹配的插件：
 
 ```bash
+powercontext service install --env-file .env
+powercontext service status
 set -a
 . ./.env
 set +a

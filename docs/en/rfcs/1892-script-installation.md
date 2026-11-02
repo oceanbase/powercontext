@@ -16,9 +16,9 @@ The scripts provision missing uv and Python, install the selected Runtime profil
 existing Agent integration adapters with a tag matching the installed Runtime.
 
 Installation, configuration, diagnostics, and service operation have separate responsibilities. Installing software
-does not configure inference providers, start a Server, or register a persistent service by default. Explicit
-`--configure` and `--service` compose those existing CLI operations using one selected `--env-file`. The scripts and their
-installation guide are the first recommended path in the READMEs and Quick Start.
+does not configure inference providers, start a Server, or register a persistent service. Configuration and service
+operation remain separate existing CLI steps. The installation guide documents the scripts alongside the version-pinned
+uv commands used in the READMEs and Quick Start.
 
 # Motivation
 
@@ -77,49 +77,24 @@ and never defaults to `master`. If a host installation fails, the Runtime remain
 nonzero with instructions to retry setup at that tag. Each adapter supplies its existing host-specific result.
 
 For personal macOS/Linux, configure a protected file, then run `powercontext service install --env-file .env`,
-`powercontext service status`, and `powercontext doctor --env-file .env`. The native user manager owns the Server lifecycle.
+`powercontext service status`, then load the generated Client settings for `powercontext ready` and `powercontext capabilities`. The native user manager owns the Server lifecycle.
 Development, debugging, temporary use, and unavailable managers keep the foreground `server run` path.
 Client-only installations follow the remote connection guide. Service registration remains explicit.
 
-## Explicit configuration and personal service setup
+## Configuration and personal services
 
-The installer supports three composable options:
+Configuration and service registration use the existing CLI in separate steps. Run `config init --output .env`,
+save the configuration, then run `config validate --env-file .env`, `service install --env-file .env`, and `service status`.
+Load the generated Client settings before running `ready` and `capabilities`. See the
+[installation guide](../docs/get-started/install-and-run.md#configure-and-install-a-personal-service) for the full sequence.
 
-| Option | Contract |
-| --- | --- |
-| `--configure` | Run `config init --require-write --output PATH` through a controlling terminal |
-| `--service` | Validate the selected file, install the native user service, inspect status, and diagnose readiness |
-| `--env-file PATH` | Select the same explicit configuration for configuration, service, diagnostics, and host setup |
+The installer does not run the configuration wizard or manage a service. Cancelling the wizard cannot cause the
+installer to continue with service registration. Service ownership, supported managers, protected files, login startup,
+and recovery remain the existing service layer's responsibility. Windows personal services remain experimental.
 
-```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- \
-  --configure --service --env-file "$HOME/.config/powercontext/powercontext.env"
-```
-
-`--configure` and `--service` require the local profile and an explicit file. Unattended setup requires an existing
-file and omits `--configure`. Invalid combinations, a missing existing file, and unavailable interactive input fail
-before Runtime installation. The Bash wizard receives `/dev/tty` independently of the downloaded script's stdin;
-PowerShell requires an interactive console. Ordinary installation remains unattended.
-
-The configuration CLI exposes `--require-write` without changing its normal cancellation behavior. With this option,
-cancelled saving returns 130 and prevents service/host changes, including when a previous valid file remains present.
-Both wrappers report saved configuration, validation, service verification, and any later failure separately.
-
-Service setup delegates protected-file loading, loopback restrictions, manager support, registration ownership,
-reconciliation, and startup to the existing service layer. Windows remains experimental; the wrapper's explicit
-`--service` also opts into login startup. A registered service is not sufficient for full completion: `service status`
-must pass and `doctor --env-file` must report healthy readiness. Degraded readiness returns nonzero.
-
-`doctor --env-file` uses the strict Python environment loader and restores process settings afterwards. Server files
-select the configured listener, independently of Client URLs used for SSH forwarding or stale caller defaults.
-Client-only files select their Client URL; an explicit diagnostic `--server-url` takes priority. Shell does not source
-the file or interpret its contents. Host setup receives `setup --env-file PATH HOST...` at the installed release tag.
-
-The installed release must provide the added CLI options; an older release reports the failed stage and leaves the
-Runtime installed. Distribution publication must coordinate the package containing these options with the website.
-After any file edit, including Scope IDs, or an upgrade, users rerun `service install --env-file` with the original file.
-Generated configuration output and next-step instructions recommend this flow, including reconciliation after Scope
-creation. A post-install failure retains packages, saved files, and committed registrations for explicit recovery.
+`--env-file PATH` selects an existing connection file only for explicitly selected host setup. It is passed to
+`setup --env-file PATH HOST...` at the installed release tag; the shell does not parse or source it. After editing a
+service configuration, including Scope IDs, follow the service guide using the original file.
 
 ## Choose download sources
 
@@ -160,9 +135,9 @@ into shell, add a standalone Python installer engine, or change Runtime/public H
 
 ## Version and profile semantics
 
-- `latest` passes an unpinned profile requirement to `uv tool install --upgrade --reinstall-package powercontext --prerelease disallow`. It means the
+- `latest` passes an unpinned profile requirement to `uv tool install --upgrade --force --prerelease disallow`. It means the
   newest stable version compatible with the selected interpreter and configured sources, not necessarily the version
-  most recently uploaded to another mirror. The PowerContext package is reinstalled so an existing prerelease cannot bypass stable selection. Resolution failures
+  most recently uploaded to another mirror. A fresh tool environment prevents an installed prerelease from bypassing stable selection in older uv versions. Resolution failures
   are reported without substituting another requirement.
 - An exact `X.Y.Z`, optionally followed by `aN`, `bN`, or `rcN`, uses `==VERSION`. Explicit prereleases are supported;
   source refs, ranges, and URLs are not `--version` values. Releases before 0.1.0 are excluded.
@@ -199,8 +174,8 @@ downloads are cleaned. `UV_INSTALL_DIR`, `UV_TOOL_DIR`, and `UV_TOOL_BIN_DIR` re
 ## Persistence and compatibility
 
 Ordinary package installation does not read or rewrite `.env`, credentials, data directories, or database schemas,
-and does not stop or restart a service. Explicit `--configure` asks the CLI to save only the selected file; explicit
-`--service` asks the native layer to reconcile its owned registration and restart when its existing contract requires it. Users follow the existing upgrade and migration instructions when starting an updated
+and does not stop or restart a service. Users configure and register services separately through the existing CLI,
+and follow the existing upgrade and migration instructions when starting an updated
 Server. An exact-version retry may reuse cached packages; `latest` intentionally allows upgrades.
 
 `UV_OFFLINE=1` permits cached reinstallation only when uv, a compatible Python, and all dependencies are present.
@@ -219,9 +194,9 @@ support still comes from each integration's capability contract.
 `tests/test_installation_contract.py` executes those cases with real uv and small offline fixture wheels: host opt-in,
 profiles, exact-version verification, unavailable commands, and partial host failure. Cases observe installed
 capabilities, selected hosts, release refs and exit results. They do not fix internal function boundaries or call order.
-The same catalog runs on each native operating system; fixture host/service execution is not native service or Agent
-acceptance. POSIX controlling-terminal cases cover a piped configuration request and cancellation. Native service CI
-adds installed-script acceptance for persistent memory, environment-file reconciliation, and a stopped-service upgrade.
+The same catalog runs on each native operating system; fixture host execution is not native service or Agent
+acceptance. Host cases cover passing an existing connection file. Configuration and personal-service lifecycle
+acceptance remain separate from installer conformance.
 
 `tests/native/test_installation.py` runs the actual shell installer, uv, installed PowerContext CLI, and HTTP Server.
 A wheel built from the tested commit uses release-shaped metadata and a direct local file constraint. That constraint

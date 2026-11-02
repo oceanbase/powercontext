@@ -40,7 +40,6 @@ import typer
 from pydantic import ValidationError
 
 from powercontext.cli.dsh_runtime import DshProfile, resolve_dsh_target
-from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
 from powercontext.cli.hosts import stdin_is_tty
 from powercontext.cli.installation import SetupError, setup
 from powercontext.cli.transport import is_remote_http
@@ -277,20 +276,8 @@ def doctor(
     session_id: Annotated[str | None, typer.Option(help="Exact Kimi session.")] = None,
     runtime_data_dir: Annotated[Path | None, typer.Option(help="Actual ZCode plugin data directory.")] = None,
     prepare: Annotated[bool, typer.Option(help="Probe ZCode readonly context preparation.")] = False,
-    env_file: Annotated[
-        Path | None, typer.Option(help="Diagnose the Server defined in this file, independently of shell defaults.")
-    ] = None,
 ) -> None:
     """Check selected integrations, or saved integrations and the environment by default."""
-    if env_file is not None:
-        if agents:
-            message = "Run doctor without an Agent selection when using --env-file."
-            raise typer.BadParameter(message, param_hint="--env-file")
-        _doctor_environment_file(
-            env_file, server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        return
-
     from powercontext.cli.hosts import (
         diagnostic_result,
         doctor_checks,
@@ -379,50 +366,6 @@ def _codex_endpoint_updates(marketplace: str, plugin_version: str, server_url: s
         raise SetupError(  # noqa: TRY003
             f"Cannot configure the installed Codex MCP endpoint at {path}; rerun setup after checking the plugin cache"
         ) from error
-
-
-def _doctor_environment_file(
-    path: Path, *, server_url: str | None, allow_insecure_http: bool | None, json_output: bool
-) -> None:
-    try:
-        checks = run_environment_diagnostics(path, server_url=server_url, allow_insecure_http=allow_insecure_http)
-    except (EnvironmentFileError, OSError, ValueError) as error:
-        typer.echo("Cannot diagnose the environment file; check its path, assignments, and Server settings.", err=True)
-        raise typer.Exit(2) from error
-    _write_diagnostics(checks, json_output=json_output)
-    if not _diagnostics_ok(checks):
-        raise typer.Exit(code=1)
-
-
-def run_environment_diagnostics(
-    path: Path, *, server_url: str | None = None, allow_insecure_http: bool | None = None
-) -> dict[str, Diagnostic]:
-    """Observe the same Server configuration used by a personal service."""
-
-    loaded = read_environment_file(path.expanduser())
-    cleared = {
-        name
-        for name in os.environ
-        if name.casefold().startswith(("powercontext_client_", "powercontext_server_")) or name == "POWERCONTEXT_HOME"
-    }
-    with environment_context(loaded, override=True, clear=cleared):
-        if server_url is None and any(name.casefold().startswith("powercontext_server_") for name in loaded):
-            from powercontext.server.configuration import server_settings_context
-
-            with server_settings_context(environment=loaded) as settings:
-                host = settings.http.host
-                if host == "0.0.0.0":  # noqa: S104 - diagnose wildcard binds via loopback
-                    host = "127.0.0.1"
-                elif host in {"::", "[::]"}:
-                    host = "::1"
-                if ":" in host and not host.startswith("["):
-                    host = f"[{host}]"
-                server_url = f"http://{host}:{settings.http.port}"
-        else:
-            server_url = server_url or next(
-                (value for name, value in loaded.items() if name.casefold() == "powercontext_client_server_url"), None
-            )
-        return run_diagnostics(server_url=server_url, allow_insecure_http=allow_insecure_http)
 
 
 def run_diagnostics(*, server_url: str | None = None, allow_insecure_http: bool | None = None) -> dict[str, Diagnostic]:

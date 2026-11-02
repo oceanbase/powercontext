@@ -54,48 +54,41 @@ Client-only installations use endpoint settings in the [remote connection guide]
 
 ## Configure and install a personal service
 
-For personal macOS/Linux use, the recommended lifecycle is a native current-user service. The installer can
-explicitly compose configuration and service registration:
+For personal macOS/Linux use, configure the local Server after installation:
 
 ```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- \
-  --configure --service --env-file "$HOME/.config/powercontext/powercontext.env"
+powercontext config init --output .env
 ```
 
-`--configure` opens the existing wizard through the controlling terminal and requires `--env-file`. Save the file
-to continue; cancellation stops service and host setup. Choose loopback binding for a personal service. Linux needs
-an available `systemd --user` manager. In a non-interactive environment, provide an existing protected file instead:
+Save `.env` before continuing. If you cancel the wizard, stop here. Then validate the saved file and explicitly
+register the native current-user service:
 
 ```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- \
-  --service --env-file /path/to/powercontext.env
-```
-
-The installer validates that file, runs `service install`, checks `service status`, and runs `doctor --env-file`
-against the Server settings in the same file. An explicit `--host` also receives this file and the installed release
-ref. Client-only installations reject `--configure` and `--service` before installation. `--env-file` alone can supply
-connection settings to an explicitly selected host without installing a local service.
-
-Windows supports the same explicit options experimentally; `--service` opts into login auto-start. Run `--configure`
-in an interactive console. Protect an existing file using the ACL steps in [Deploy the Server](../operate/deploy-server.md).
-
-These options need an installed release providing `config init --require-write` and `doctor --env-file`. If the selected
-release lacks them, the installer reports the failed stage and retains the Runtime; use a compatible release or the
-separate configuration/service commands. Runtime installation, saved configuration, service registration, and Server
-readiness are separate outcomes. `degraded` diagnostics return nonzero. A failed post-install stage does not roll back
-packages, delete configuration, or remove an already committed service registration.
-
-After any file edit, including writing returned Scope IDs, reconcile using the original file:
-
-```bash
-powercontext service install --env-file /path/to/powercontext.env
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
 powercontext service status
-powercontext doctor --env-file /path/to/powercontext.env
 ```
 
-`doctor --env-file` gives the file authority over shell defaults. A Server file selects its listener; a client-only
-file selects its Client URL. `--server-url` can explicitly override the diagnostic target. Generated next-step instructions
-cover Scope creation and Agent acceptance; a running service does not establish an Agent workflow.
+Choose loopback binding for a personal service. Linux needs an available `systemd --user` manager. Windows personal
+services remain experimental; see [Deploy the Server](../operate/deploy-server.md) for file protection and login startup.
+
+Load the generated Client settings and check the running Server:
+
+```bash
+set -a
+. ./.env
+set +a
+powercontext ready
+powercontext capabilities
+```
+
+After any file edit, including writing returned Scope IDs, rerun `service install --env-file` with the original file.
+Use the same path if you saved the configuration elsewhere. A running service does not establish an Agent workflow;
+continue with the [Quick Start](quickstart.md) for Scope creation and Agent acceptance.
+
+The installer only installs software and explicitly selected integrations. `--env-file PATH` can supply an existing
+connection file to selected hosts through the existing `setup` command; configuration and service registration remain
+separate CLI steps.
 
 ## Installer version selection
 
