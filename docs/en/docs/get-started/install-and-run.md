@@ -289,6 +289,14 @@ migration after unfinished runs have drained. [Full Server migration](../operate
 `state=ready` and `server_ready=true`; partial Artifact or Atomic Memory verification cannot replace it. Do not bypass
 the migration gate.
 
+Server builds with [context reuse and final admission](../operate/context-protection.md) always include
+`context_protection` in `/v1/capabilities`, even when protection is disabled. Older Python SDKs reject this unknown
+field: `get_capabilities()` raises `InvalidResponseError`, and `powercontext client capabilities` fails. Coordinate
+the Server upgrade with the Python SDK environments and CLI installations that connect to it, using a matching
+release or Git ref before resuming capability reads. This endpoint does not negotiate an older response shape;
+disabling protection does not restore compatibility. This client requirement is additional to the database upgrade
+gates above.
+
 To install 1.4.1 in a separate environment for a fresh deployment:
 
 ```bash

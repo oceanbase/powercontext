@@ -56,6 +56,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFA
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     PrepareContextRequest,
+    PreparedContext,
     RuntimeConfig,
     open_builtin_runtime,
 )
@@ -1189,6 +1190,7 @@ def test_failed_expansion_search_remains_visible_in_receipt(tmp_path, monkeypatc
             prepared = await runtime.context.for_scope(scope_id).prepare(
                 _memory_request().model_copy(update={"include_receipt": True})
             )
+            assert isinstance(prepared, PreparedContext)
             assert prepared.status == "ready"
             assert prepared.receipt is not None
             assert [(item.round, item.outcome, item.retained) for item in prepared.receipt.retrieval.rounds] == [
@@ -1308,6 +1310,7 @@ def test_later_round_failure_preserves_committed_expansion(tmp_path, monkeypatch
         assert calls == 3
         assert build.context.content == committed.context.content
         assert build.origins == committed.origins
+        assert isinstance(prepared, PreparedContext)
         assert prepared.content == committed.context.content
         assert prepared.receipt is not None
         assert [(item.round, item.outcome, item.retained) for item in prepared.receipt.retrieval.rounds] == [
@@ -1369,6 +1372,7 @@ def test_empty_assembly_returns_before_any_recall(tmp_path, monkeypatch) -> None
             result = await runtime.context.for_scope(scope_id).prepare(
                 PrepareContextRequest.model_validate({"query": _QUERY, "assembly": {"sections": []}})
             )
+            assert isinstance(result, PreparedContext)
 
         assert result.status == "empty"
         assert result.content is None
@@ -1419,6 +1423,7 @@ def test_prepare_delivers_final_recall_effort_to_the_optional_sink(tmp_path) -> 
             scope_id = await _create_scope(runtime, "sink")
             await _seed(runtime, scope_id, ["alpha beta gamma " + "evidence " * 500])
             prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request(max_bytes=800))
+            assert isinstance(prepared, PreparedContext)
             assert await _effort_rows(runtime) == []
 
         assert prepared.status == "ready"
@@ -1481,6 +1486,7 @@ def test_recall_effort_sink_failure_does_not_fail_prepare(tmp_path, caplog) -> N
             scope_id = await _create_scope(runtime, "sink-failure")
             await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
             prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request())
+            assert isinstance(prepared, PreparedContext)
             assert await _effort_rows(runtime) == []
 
         assert prepared.status == "ready"
@@ -1510,6 +1516,7 @@ def test_disabled_gate_does_not_call_recall_effort_sink(tmp_path) -> None:
             scope_id = await _create_scope(runtime, "sink-disabled")
             await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
             prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request())
+            assert isinstance(prepared, PreparedContext)
 
         assert prepared.status == "ready"
         assert calls == 0
@@ -1542,8 +1549,11 @@ def test_default_recorder_persists_real_expansions_and_isolates_caller_scopes(tm
             assert await _effort_rows(runtime) == []
             before = await _revision_state(runtime, first)
             first_prepared = await runtime.context.for_scope(first).prepare(_memory_request())
+            assert isinstance(first_prepared, PreparedContext)
             repeated = await runtime.context.for_scope(first).prepare(_memory_request())
+            assert isinstance(repeated, PreparedContext)
             other = await runtime.context.for_scope(second).prepare(_memory_request())
+            assert isinstance(other, PreparedContext)
             assert first_prepared == repeated == build.context
             assert other.status == "ready"
             assert await _revision_state(runtime, first) == before
@@ -1573,6 +1583,8 @@ def test_default_recorder_is_a_noop_when_gate_is_disabled(tmp_path) -> None:
             scope_id = await _create_scope(runtime, "effort-disabled")
             await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
             prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request())
+            assert isinstance(prepared, PreparedContext)
+            assert isinstance(prepared, PreparedContext)
             assert prepared.status == "ready"
             assert await _effort_rows(runtime) == []
 
@@ -1602,6 +1614,7 @@ def test_default_recorder_failure_rolls_back_and_preserves_preparation(tmp_path,
             assert expected.omissions.truncated_items > 0
             before = await _revision_state(runtime, scope_id)
             prepared = await runtime.context.for_scope(scope_id).prepare(request)
+            assert isinstance(prepared, PreparedContext)
             after_build, _ = await _prepare_build(runtime, scope_id, request)
             assert prepared == expected.context
             assert after_build.origins == expected.origins
@@ -1646,6 +1659,8 @@ def test_default_recorder_write_contention_is_bounded_and_does_not_break_later_o
             scope_id = await _create_scope(runtime, "effort-lock")
             await _seed(runtime, scope_id, ["alpha beta gamma evidence"])
             prepared = await runtime.context.for_scope(scope_id).prepare(_memory_request())
+            assert isinstance(prepared, PreparedContext)
+            assert isinstance(prepared, PreparedContext)
             assert prepared.status == "ready"
             assert await _effort_rows(runtime) == []
             await _seed(runtime, scope_id, ["later business write still succeeds"])

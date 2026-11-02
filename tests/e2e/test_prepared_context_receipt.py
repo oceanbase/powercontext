@@ -33,7 +33,13 @@ from powercontext.builtin.artifacts.memory.reranking import MemoryRerankDecision
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, RuntimeConfig, open_builtin_runtime
+from powercontext.builtin.runtime import (
+    BuiltinConfig,
+    InferenceConfig,
+    PreparedContext,
+    RuntimeConfig,
+    open_builtin_runtime,
+)
 from powercontext.builtin.runtime import PrepareContextRequest as RuntimePrepareContextRequest
 from powercontext.builtin.runtime.receipt_builder import ReceiptEvidence
 from powercontext.builtin.scope import ScopeDraft
@@ -215,6 +221,8 @@ def test_injected_reranker_needs_actual_configuration_evidence(tmp_path, declare
             prepared = await runtime.context.for_scope(scope.scope_id).prepare(
                 RuntimePrepareContextRequest(query="budget review", include_receipt=True)
             )
+            assert isinstance(plain, PreparedContext)
+            assert isinstance(prepared, PreparedContext)
             assert plain.content == prepared.content
             if declared is True or declared == "timeout":
                 assert prepared.receipt is not None
