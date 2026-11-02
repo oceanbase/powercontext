@@ -279,7 +279,7 @@ def test_server_info_uses_one_durable_identity_across_restarts(tmp_path) -> None
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     assert first.json()["schema_version"] == {"major": 1, "minor": 0}
-    assert first.json()["api_contract_version"] == {"major": 1, "minor": 4}
+    assert first.json()["api_contract_version"] == {"major": 1, "minor": 5}
 
 
 def test_server_startup_fails_when_identity_initialization_fails(tmp_path, monkeypatch) -> None:
