@@ -36,7 +36,8 @@ uv run --project evaluation ty check --project evaluation evaluation/memory/evid
 The shared evaluation development environment includes the local `powercontext[builtin]` runtime needed for Source replay.
 Installed wheels expose the optional `evidence-admission` dependency extra and bundle the frozen manifests and fixtures.
 The root `make evaluation-unit-test` target also includes these tests. No default test requires credentials or an external service.
-See [validation and the existing full-project prerequisite](VALIDATION.md) for the broader evaluation type-check limitation.
+See [validation](VALIDATION.md) and [engineering readiness](ENGINEERING_READINESS.zh.md) for the four-version results,
+the preserved historical byte contract, and the separate native-lineage API prerequisite.
 
 ## Model-free preparation
 

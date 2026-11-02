@@ -181,7 +181,7 @@ try:
             if sample.name != "powercontext_server_transport_requests_total" or sample.labels.get("transport") != "mcp":
                 continue
             value = sample.value
-            if not math.isfinite(value) or value < 0 or not value.is_integer():
+            if not math.isfinite(value) or value < 0 or value != int(value):
                 raise ValueError("MCP request counter is invalid")
             total += int(value)
     if not found:

@@ -19,10 +19,6 @@ import asyncio
 import json
 from pathlib import Path
 
-from .freeze import identity
-from .replay import replay_history
-from .workflow import compare, summarize, write_result
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -39,6 +35,15 @@ def main():
     summary = commands.add_parser("summarize")
     summary.add_argument("--run-root", type=Path, required=True)
     args = parser.parse_args()
+    entry = Path(__file__).resolve()
+    relative = "evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v15/__main__.py"
+    if not any((parent / ".git").exists() and (parent / relative).resolve() == entry for parent in entry.parents):
+        parser.error("v15 execution requires a Git source checkout; installed wheels support --help only")
+
+    from .freeze import identity
+    from .replay import replay_history
+    from .workflow import compare, summarize, write_result
+
     if args.command == "freeze":
         result = identity()
         write_result(args.output, result)

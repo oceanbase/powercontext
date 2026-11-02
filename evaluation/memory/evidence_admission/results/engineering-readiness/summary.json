@@ -1,0 +1,193 @@
+{
+  "schema": "evidence-admission.engineering-readiness.v1",
+  "baseline_commit": "a5caa740b6ef0a7324438a27019dc29811c877cb",
+  "required_engineering_gates_passed": true,
+  "root_tox_final_results": [
+    {
+      "environment": "py311",
+      "python": "3.11.15",
+      "passed": 7053,
+      "skipped": 627,
+      "pytest_warnings": 8,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "0f4ab97993c487d3a0bfd2039d72b56dacd1e599df82e6a39caa769604166e15"
+    },
+    {
+      "environment": "py312",
+      "python": "3.12.3",
+      "passed": 7053,
+      "skipped": 627,
+      "pytest_warnings": 154,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "841203cba30cff1ace17cf7e9e99b925842ff184bd08d8e2205e5377a2c3f3b3"
+    },
+    {
+      "environment": "py313",
+      "python": "3.13.13",
+      "passed": 7053,
+      "skipped": 627,
+      "pytest_warnings": 652,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "0f4ab97993c487d3a0bfd2039d72b56dacd1e599df82e6a39caa769604166e15"
+    },
+    {
+      "environment": "py314",
+      "python": "3.14.5",
+      "passed": 7053,
+      "skipped": 627,
+      "pytest_warnings": 670,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "0f4ab97993c487d3a0bfd2039d72b56dacd1e599df82e6a39caa769604166e15"
+    }
+  ],
+  "evaluation_tox_final_results": [
+    {
+      "environment": "py311-evaluation",
+      "python": "3.11.15",
+      "passed": 1291,
+      "skipped": 1,
+      "pytest_warnings": 1927,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "67a0334e24b82ce6ded890ca613ec2ce7dfe47be951e6b1ac9483e1e7c7a2d93"
+    },
+    {
+      "environment": "py312-evaluation",
+      "python": "3.12.3",
+      "passed": 1291,
+      "skipped": 1,
+      "pytest_warnings": 1927,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "67a0334e24b82ce6ded890ca613ec2ce7dfe47be951e6b1ac9483e1e7c7a2d93"
+    },
+    {
+      "environment": "py313-evaluation",
+      "python": "3.13.13",
+      "passed": 1291,
+      "skipped": 1,
+      "pytest_warnings": 1927,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "67a0334e24b82ce6ded890ca613ec2ce7dfe47be951e6b1ac9483e1e7c7a2d93"
+    },
+    {
+      "environment": "py314-evaluation",
+      "python": "3.14.5",
+      "passed": 1291,
+      "skipped": 1,
+      "pytest_warnings": 1928,
+      "type_check_passed": true,
+      "all_commands_exit_zero": true,
+      "artifact_sha256": "67a0334e24b82ce6ded890ca613ec2ce7dfe47be951e6b1ac9483e1e7c7a2d93"
+    }
+  ],
+  "root_first_py312_attempt": {
+    "failed_tests": 2,
+    "passed_tests": 7051,
+    "failure": "base_interpreter_system_typing_extensions_preceded_selected_environment",
+    "preserved": true,
+    "artifact_sha256": "12ab23679e1a000308a887d64a95cf018655118c1a33841ba1b3a0b5c5675716"
+  },
+  "serial_root_attempt": {
+    "status": "cancelled",
+    "reason": "restart_same_suite_with_xdist_and_isolated_coverage",
+    "success_claimed": false,
+    "artifact_sha256": "c43c5904db969cdec7dc3e729616f91d7eef8fd83c507b125c6abe410f295753"
+  },
+  "bootstrap_fix": {
+    "all_four_python_versions_targeted_passed": 2,
+    "python312_full_suite_rerun": true,
+    "other_full_root_runs_started_before_test_only_bootstrap_fix": true,
+    "production_runtime_changed": false
+  },
+  "make_check_passed": true,
+  "root_make_test": {
+    "passed": 7053,
+    "skipped": 627
+  },
+  "issue_ruff_check_passed": true,
+  "issue_ruff_format_passed": true,
+  "evaluation_types_passed": true,
+  "root_and_evaluation_wheel_sdist_built": true,
+  "installed_generic_cli_manifest_validation_passed": true,
+  "installed_v15_help_passed": true,
+  "installed_v15_execution": "requires_git_source_checkout",
+  "longmemeval_native_evidence_api": "unavailable_requires_issue_1975",
+  "historical_v14_contract_sha256": "ea129d7358767d462163f042c20e8d6e81f0a6ab30f01e956709acec1349832b",
+  "historical_v15_artifacts_unchanged": true,
+  "git_autocrlf_frozen_bytes_preserved": true,
+  "source_snapshot": {
+    ".gitattributes": "d2dcef8d789ef342d97a7f4f58259651594585a7e665a06702f1a4686cb64237",
+    ".gitignore": "23494f8a0a6efa515004fb6b6e4b8b04df78eabfd8a89d67a621850a85e956cc",
+    ".pre-commit-config.yaml": "886040919535dab7d77f1da978784dc1c0cdf278cd853f4832359a82eb15cb96",
+    "evaluation/coding/swebench_pro/src/powercontext_eval_swebench_pro/powercontext_sut.py": "38e20be834db569be8718c044d689bcb196e0bdf097d809edcc171e24cfb6b9c",
+    "evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v12/compatibility.py": "6e1cbee03eda889ffe04a1b9170a4186cf0fbdea7b83b569ce11411af12ccff8",
+    "evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v12/session.py": "5c003bac22b997e6bf6010069deda7c929186827e598fa26c6378c485b05bb6f",
+    "evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v13/session.py": "94c6754130ea77ba0888c49fa45417113bfbbcd93a070a5014239ba4cc585846",
+    "evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v15/__main__.py": "e3fd1f07b050b79163c2e4515a43f68533ce2658f625e99a30a1b7114acd1262",
+    "evaluation/memory/evidence_admission/tests/test_preparation_compatibility.py": "dd954e86a774d1fa0f9176f7f786c795e9dcdbf604f6d22652088948f163fd16",
+    "evaluation/memory/evidence_admission/tests/test_v14_codec.py": "bcfa8637897a5c3c63afbd50743688df06c2939b6e90e44c137116cff85583a9",
+    "evaluation/memory/evidence_admission/tests/test_v15_cli.py": "d8c85df108b2b03fd5467fb437d774b6ac1d573a779a6a1bc7559d0dc8673efe",
+    "evaluation/memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/lineage_run.py": "eea9f5478125939404a3d6ecae53538fb64dda6db2d5f8f8759316faaf8b4208",
+    "evaluation/memory/longmemeval_v2/tests/test_lineage_run.py": "9aae39dc02ef92c01a20dc35210f3e5f8a50fb523692d7e0c3dffdbc959a3fad",
+    "scripts/check_frozen_evaluation_contracts.py": "170b8c2f5c69e87efce632f64fc131a33078a626bf261c4048877688a2a038ff",
+    "tests/test_frozen_evaluation_contracts.py": "1242849b67ab4915f396ee587c07b7995d83de8608afeac13ad906407d329eab",
+    "tests/test_ops.py": "8d69a1662cdc2af36f5efabe32267a330366c0a64cb6673496b4e9f0d9a12aa3",
+    "tox.ini": "c7a708265b3645ee77070c331157037b7763710f805ee8fdf05f6570ad27bc42"
+  },
+  "evidence_artifact_hashes": {
+    "make-check.log": "5e17785811ab0b02fd98344f303214184e4cda641b8d063b1ced52a246fb3a49",
+    "make-test.log": "dc71a9b0025ff67d6828404d019e86d9a3a07f8e0b1c221f5d3869f95ba57eb8",
+    "evaluation-tests.log": "2fd7d8cb0909e9bcceff31f55c0bf6c1b0c1095cdb785009c723e8779c64a50b",
+    "evaluation-types.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "ruff-check.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "ruff-format.log": "02bed28762c49640d7f02e6846a37745113a47eec5cdfeda4cdac36b08151b75",
+    "build-root.log": "08f0c698af567c17d1b1671ff3eb153ea161397678a05c2ae481685610a18e91",
+    "build-evaluation.log": "8d4aac30b2da1bb05f64ee8a62502f4f686282aaaa4f22ae065322cdddbb9574",
+    "installed-manifest-validation.log": "10196b5439fe93c374b5a82ad6da8758df0f173b5196e6d6c70555615ec77af7",
+    "installed-cli-verification.json": "5d4f70ee6e7c2f87584a7c16617ca0fbcdab2c409b3a722cebb5113b0f28702a",
+    "historical-replay/result.json": "ca2df239181d7edd28ca8a5c630768bc0dbaa8e10e16182c6b2d1b87eadfbacb",
+    "make-check-delivery.log": "ac19f6ad84507379f891f6b10ef46fd4f275119b28954b9675340c22b65e2b21"
+  },
+  "provider_generation_requests_this_phase": 0,
+  "production_authorized": false,
+  "issue_decision": "insufficient_evidence",
+  "limitations": [
+    "Linux execution only; no actual Windows or OceanBase claim",
+    "Generated temporary migration sources produce non-fatal coverage warnings",
+    "Extra Ruff scan of the whole evaluation tree retains out-of-scope legacy diagnostics; required issue Ruff and tracked-file hooks pass",
+    "Original early v14 template and 13 pre-budget v5 rejected responses remain unavailable"
+  ],
+  "public_json_scan_passed": true,
+  "build_artifacts": [
+    {
+      "file": "powercontext-1.4.1.dev188+ga5caa740b.d20261102-py3-none-any.whl",
+      "sha256": "39315502359018031290a447b06455fb7fd83b58bc96eb1d02ab55147aeb8d7b",
+      "entries": 558,
+      "excluded_local_data_absent": true
+    },
+    {
+      "file": "powercontext-1.4.1.dev188+ga5caa740b.d20261102.tar.gz",
+      "sha256": "dd82e70095b9c87d4f59c3e207307cd67ec2dc1738ccf18001b2d13d83f8f93a",
+      "entries": 3056,
+      "excluded_local_data_absent": true
+    },
+    {
+      "file": "powercontext_eval-0.1.0-py3-none-any.whl",
+      "sha256": "d4171b90c999577ee66f12d36499e1c2acf1d2599a4c18ea0ea3fad547ad6b9d",
+      "entries": 209,
+      "excluded_local_data_absent": true
+    },
+    {
+      "file": "powercontext_eval-0.1.0.tar.gz",
+      "sha256": "fb691875b2f1cb253a7659cb53f36155fe42efbc18278175e8eabacff7519ee6",
+      "entries": 537,
+      "excluded_local_data_absent": true
+    }
+  ]
+}

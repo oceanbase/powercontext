@@ -1,5 +1,11 @@
 # Validation
 
+Current engineering receipts are in [the readiness report](ENGINEERING_READINESS.zh.md) and its
+[machine summary](results/engineering-readiness/summary.json). Root tests, doctests, coverage and types pass on
+Python 3.11/3.12/3.13/3.14; the complete evaluation suite passes 1291 tests with one native-lineage prerequisite skip
+on each version. Required repository hooks, issue-scoped Ruff, full evaluation types, wheel and sdist builds pass.
+Protocol-specific measurements below retain their historical execution limits; they are not substituted for these receipts.
+
 The synthetic preparation matrix uses actual local SQLite persistence and Source projection. It makes no provider requests.
 Results and exact code/configuration hashes are in [the saved report](results/synthetic-v1-preparation/REPORT.md).
 
@@ -16,16 +22,16 @@ uv run prek run -a
 uv run ty check
 ```
 
-The current evidence admission suite has 414 passing tests, including 18 v10, 16 v11, 17 v12 and 26 v13 regressions. It runs without provider
-credentials or live network access. The previously recorded combined LongMemEval-V2 run is not a rerun of the v10/v11 code;
-the native lineage acceptance still requires the `ScopedAtomicMemory.evidence` prerequisite from #1975.
+The current evidence admission suite contains 461 tests, included in the complete evaluation runs above. It runs without provider
+credentials or live network access. Native LongMemEval lineage acceptance still requires the
+`ScopedAtomicMemory.evidence` prerequisite from #1975.
 The 24 related production window-recovery, SQLite wire-evidence and extraction-evidence tests pass separately.
 SQLite tests in the evaluation environment emit an existing SQLAlchemy 2.1 `Result.tuples()` deprecation warning.
 
-The evaluator package and root project type checks pass. The broader command
-`uv run --project evaluation ty check --project evaluation` reports one existing capability mismatch at
-`memory/longmemeval_v2/src/powercontext_eval_longmemeval_v2/lineage_run.py`: the checked-out `ScopedAtomicMemory` has no
-`evidence` method. This suite does not add that production API or change the unrelated lineage evaluator to hide the gap.
+The evaluator package, root project and full evaluation type checks pass. LongMemEval narrows its optional evidence
+capability explicitly and still rejects a missing or non-callable API. This does not add a production evidence API
+or turn the skipped native-lineage acceptance into a pass. Historical frozen v14 JSON retains its exact bytes under
+a dedicated hash hook and Git newline-conversion exclusion; JSON syntax validation remains enabled.
 
 Wheel validation checks that the command and frozen fixture/manifest data are packaged and can be read outside the source
 tree. Default tests and provider-adapter construction use no external model. No claim about live provider quality, remote

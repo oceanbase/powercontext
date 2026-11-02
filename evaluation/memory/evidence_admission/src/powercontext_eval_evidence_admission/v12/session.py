@@ -31,6 +31,7 @@ from ..v9_live.ledger import Ledger, write_private
 from ..v9_preflight.adapter import Journal
 from ..v10.protocol import bind, pack
 from ..v11.window import identity as window_identity
+from .compatibility import preparation_compatibility
 from .freeze import committed_freeze, identity
 
 
@@ -54,9 +55,12 @@ async def prepare_session(baseline_dir, output_dir, *, mode="offline_mock", pref
         if Path(name).name != name or file_hash(baseline_dir / name) != checksum:
             raise EvaluationError("v12_baseline_bundle_changed")
     baseline = read_json(baseline_dir / "comparison.json")
+    current_window_identity = window_identity()
+    compatibility = preparation_compatibility(baseline["identity"], current_window_identity)
     if (
         file_hash(baseline_dir / "comparison.json") != contract["baseline_v11_sha256"]
-        or baseline["identity"] != window_identity()
+        or not compatibility["content_matches"]
+        or (mode == "live" and baseline["identity"] != current_window_identity)
         or not baseline["summary"]["window_offline_gate_passed"]
     ):
         raise EvaluationError("v12_baseline_not_verified")
@@ -119,6 +123,7 @@ async def prepare_session(baseline_dir, output_dir, *, mode="offline_mock", pref
         "identity": frozen,
         "freeze": freeze,
         "execution_mode": mode,
+        "baseline_environment_compatibility": compatibility,
         "provider": contract["provider"],
         "private_root": str(private),
         "private_plan_hash": digest(data),

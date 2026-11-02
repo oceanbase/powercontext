@@ -25,7 +25,7 @@ from typer.testing import CliRunner
 from powercontext_eval_longmemeval_v2.cli import app
 from powercontext_eval_longmemeval_v2.lineage import ARMS, LineageEvaluationError
 from powercontext_eval_longmemeval_v2.lineage_fixtures import fixture_cases
-from powercontext_eval_longmemeval_v2.lineage_run import run_lineage_fixture
+from powercontext_eval_longmemeval_v2.lineage_run import _require_evidence, run_lineage_fixture
 
 
 def test_native_fixture_refuses_missing_evidence_prerequisite(tmp_path):
@@ -131,3 +131,27 @@ def test_backend_configuration_error_does_not_echo_connection_values(tmp_path):
     assert result.exit_code == 1
     assert "private-invalid-connection-value" not in result.output
     assert not (tmp_path / "report").exists()
+
+
+@pytest.mark.parametrize("value", [None, 3, "not a reader"])
+def test_non_callable_optional_evidence_capability_is_rejected(value):
+    class Unavailable:
+        evidence = value
+
+    with pytest.raises(LineageEvaluationError, match="#1975"):
+        _require_evidence(Unavailable())
+
+
+def test_optional_reader_retains_exact_revision_arguments():
+    class Snapshot:
+        def model_dump_json(self) -> str:
+            return '{"revision":7}'
+
+    class Reader:
+        async def evidence(self, artifact_id: str, *, revision: int) -> Snapshot:
+            assert artifact_id == "historical-item"
+            assert revision == 7
+            return Snapshot()
+
+    snapshot = asyncio.run(_require_evidence(Reader()).evidence("historical-item", revision=7))
+    assert snapshot.model_dump_json() == '{"revision":7}'

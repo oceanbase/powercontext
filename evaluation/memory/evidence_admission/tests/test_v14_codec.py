@@ -103,7 +103,7 @@ def test_render_copies_whole_cell_without_byte_offsets():
     output = copy_template(cells[0])
     rendered = render(output, cells, ALIASES)
     assert rendered.candidates[0].text == "deployctl --region cn-2 --retries 03"
-    assert rendered.candidates[0].text.encode() == "deployctl --region cn-2 --retries 03".encode()
+    assert rendered.candidates[0].text.encode() == b"deployctl --region cn-2 --retries 03"
 
 
 def test_original_unicode_whole_cell_preserved_byte_for_byte():

@@ -3,6 +3,9 @@
 本评测回答：超大或混合 Source 是否需要在 Atomic Memory 提取前增加有限预算的证据准入步骤。
 实现仅位于 evaluation 工程，不修改生产投影、注册表、Memory 发布、检索、生命周期或 API。
 
+[工程验证](ENGINEERING_READINESS.zh.md)提供四个 Python 版本的根包与完整 evaluation 测试、类型检查、
+完整 hooks 和构建凭据。工程通过不代表正式线上比较通过；当前总体决策仍为 `insufficient_evidence`。
+
 默认实验仍为 v1。新增 v2 的窗口优先、整记录分片、共享出处包装、成本上限与配对比较见
 [V2_PROTOCOL.md](V2_PROTOCOL.md)。使用 `--experiment-version v2` 选择，压力集另加 `--dataset validation-v2`；
 报告和人工审计必须使用相同选择参数。原始 v1 清单、算法及结果保留，v2 矩阵重新执行全部对照组。

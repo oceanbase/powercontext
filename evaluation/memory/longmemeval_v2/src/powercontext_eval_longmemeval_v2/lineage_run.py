@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 from powercontext_eval_longmemeval_v2.lineage import (
@@ -77,6 +77,21 @@ class LineageRun:
     manifest_path: Path
 
 
+class EvidenceSnapshot(Protocol):
+    def model_dump_json(self) -> str: ...
+
+
+@runtime_checkable
+class ExactEvidenceReader(Protocol):
+    async def evidence(self, artifact_id: str, *, revision: int) -> EvidenceSnapshot: ...
+
+
+def _require_evidence(memory: object) -> ExactEvidenceReader:
+    if not isinstance(memory, ExactEvidenceReader) or not callable(memory.evidence):
+        raise LineageEvaluationError("requires #1975 exact Source evidence API; no inferred replacement is allowed")
+    return memory
+
+
 @asynccontextmanager
 async def _database(backend: str, directory: Path, oceanbase_url_env: str) -> AsyncIterator[Any]:
     from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -89,10 +104,9 @@ async def _database(backend: str, directory: Path, oceanbase_url_env: str) -> As
     configured = os.environ.get(oceanbase_url_env)
     if not configured:
         raise LineageEvaluationError("OceanBase is not configured; no backend execution was performed")
+    from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
     from pydantic import SecretStr
     from sqlalchemy.engine import make_url
-
-    from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 
     # Never reuse or delete the configured database. Only a newly created fixture DB is owned here.
     name = f"pc_lineage_{uuid4().hex}"
@@ -250,8 +264,7 @@ async def _replay(config: Any, cases: tuple[Case, ...]) -> tuple[list[dict[str, 
         index = contexts.atomic_memory.index
         if not index.capabilities.fts:
             raise LineageEvaluationError("backend has no FTS capability; no semantic equivalence is assumed")
-        if not callable(getattr(contexts.atomic_memory.for_scope("capability-probe"), "evidence", None)):
-            raise LineageEvaluationError("requires #1975 exact Source evidence API; no inferred replacement is allowed")
+        _require_evidence(contexts.atomic_memory.for_scope("capability-probe"))
         facts = {}
         for case in cases:
             facts.update(await _seed(contexts, case))
@@ -262,7 +275,7 @@ async def _replay(config: Any, cases: tuple[Case, ...]) -> tuple[list[dict[str, 
             for ref in sorted(facts):
                 memory = contexts.atomic_memory.for_scope(ref.scope)
                 record = await memory.get(ref.artifact, revision=ref.revision)
-                evidence = await memory.evidence(ref.artifact, revision=ref.revision)
+                evidence = await _require_evidence(memory).evidence(ref.artifact, revision=ref.revision)
                 values.append(record.model_dump_json() + evidence.model_dump_json())
             return tuple(values)
 

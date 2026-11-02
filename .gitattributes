@@ -9,3 +9,6 @@ integrations/dsh/plugins/powercontext/lib/*.js text eol=lf
 integrations/dsh/plugins/powercontext/lib/*.d.ts text eol=lf
 # Generated guidance compares canonical bytes; keep user notes outside its markers untouched.
 integrations/**/skills/powercontext-project-context/** text eol=lf
+
+# Historical evaluation evidence must retain its exact committed bytes.
+evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v14/contract.json -text

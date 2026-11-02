@@ -3,6 +3,11 @@
 本评估对应 [issue #2074](https://github.com/oceanbase/powercontext/issues/2074)，当前唯一总体决策为
 `insufficient_evidence`。包、Source 重放、准入比较和本地审计已经实现，正式线上联合验收尚未完成，不能授权生产修改。
 
+[工程验证](ENGINEERING_READINESS.zh.md)已完成：根包四个 Python 版本最终均为 7053 passed、627 skipped，
+完整 evaluation 四版本均为 1291 passed、1 skipped；完整 hooks、类型检查及构建通过。
+LongMemEval 的类型诊断已通过显式可选能力检查修复，但缺失的 #1975 原生 evidence API 仍如实跳过。
+这不改变下列历史模型失败、v15 最小清单停止条件或正式比较的证据缺口。
+
 [v15 结果](V15_RESULTS.zh.md)在同一内容身份下重新执行三集 1620 条离线比较：候选可执行必需事实
 495/495，新增协议预算拒绝与非确定性均为 0。原始准备的完整投影/窗口预算拒绝、故障与取消仍单独保留。
 最小线上清单预检发现 Unicode 在 4K 需要四次请求，超过冻结的每例一次约束，已停止在 SDK 预检前，
@@ -86,5 +91,5 @@ v13 的提交后重放单独记录当前执行身份和实际冻结证明。
 失败后停止，Unicode 和正式矩阵未运行；最小离线回放复现相同输出和评分，零新增 provider 请求。
 
 完整回归 414 项通过，Ruff 和全量 hooks 通过。Ruff 6 项通过代码修复，7 项使用有理由的局部豁免；
-不能描述为所有历史诊断均已通过源码重写消除。整个 evaluation 类型检查仍保留一个 LongMemEval 问题。
+不能描述为所有历史诊断均已通过源码重写消除。整个 evaluation 类型检查现已通过；独立原生 lineage API 仍缺失。
 独立审阅与完整正式比较仍不足，唯一总体决策保持 insufficient_evidence；不能授权生产后续。
