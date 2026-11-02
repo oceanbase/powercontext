@@ -233,6 +233,11 @@ translates its requests to the Chat or Responses route and forwards them. Set `P
 (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
 without injection.
 
+Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is
+off by default and requires a configured repository for the Scope. When a replayed value no longer passes the check
+because a cited source changed (for example, the agent edited a cited file), the gateway discards that conversation's
+replay and prepares once more for the request instead of returning the withhold.
+
 ### Gateway instruction
 
 `PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the
