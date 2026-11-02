@@ -456,8 +456,20 @@ class TranscriptDocker:
         self.commands.append(argv)
         if self.fail_at and self.fail_at in argv:
             raise CommandFailed("injected", command_result("", returncode=70))
+        if argv[:2] == ("docker", "cp") and argv[2].endswith(":/app/."):
+            Path(argv[3], ".git").mkdir(parents=True, exist_ok=True)
+        if argv[:2] == ("docker", "run") and argv[-2:] == ("/app/.", "/workspace"):
+            mount = argv[argv.index("--mount") + 1]
+            source = next(part.removeprefix("src=") for part in mount.split(",") if part.startswith("src="))
+            Path(source, ".git").mkdir(parents=True, exist_ok=True)
         if argv[:2] == ("git", "rev-parse"):
             return command_result("a" * 40 + "\n")
+        if argv[:3] == ("git", "worktree", "list"):
+            return command_result(f"worktree {cwd}\nHEAD {'a' * 40}\ndetached\n")
+        if argv == ("git", "rev-list", "HEAD"):
+            return command_result("a" * 40 + "\n")
+        if argv[:2] == ("git", "cat-file"):
+            return command_result("a" * 40 + " commit\n")
         if argv[:2] == ("git", "status"):
             return command_result("")
         if argv[-1:] == ("whoami",) and any(part.endswith("/tokensflow") for part in argv):
@@ -680,6 +692,14 @@ def test_workspace_history_keeps_only_head_and_its_ancestors(tmp_path: Path) -> 
     git("tag", "v2", fix)
     git("switch", "--quiet", "main")
     (tmp_path / "module.py").write_text("value = 3\n")
+    git("add", "module.py")
+    (tmp_path / "module.py").write_text("value = 4\n")
+    (tmp_path / "new.py").write_text("staged = True\n")
+    git("add", "new.py")
+    (tmp_path / "untracked.py").write_text("untracked = True\n")
+    original_patch = git("diff", "--binary", "HEAD")
+    staged_patch = git("diff", "--cached", "--binary")
+    original_index = (tmp_path / ".git/index").read_bytes()
 
     trim_future_history(ProcessRunner(), tmp_path)
 
@@ -687,7 +707,10 @@ def test_workspace_history_keeps_only_head_and_its_ancestors(tmp_path: Path) -> 
     assert git("symbolic-ref", "HEAD") == "refs/heads/main"
     assert git("for-each-ref", "--format=%(refname)") == "refs/heads/main"
     assert subprocess.run(("git", "cat-file", "-e", fix), cwd=tmp_path, check=False).returncode != 0
-    assert "+value = 3" in git("diff", "HEAD")
+    assert (tmp_path / ".git/index").read_bytes() == original_index
+    assert git("diff", "--binary", "HEAD") == original_patch
+    assert git("diff", "--cached", "--binary") == staged_patch
+    assert (tmp_path / "untracked.py").read_text() == "untracked = True\n"
 
 
 def test_parallel_workspace_initialization_shares_a_bounded_docker_budget(tmp_path: Path) -> None:
@@ -1070,11 +1093,15 @@ def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(t
     assert not any(part.startswith(("HOME=", "CODEX_HOME=")) for part in run)
     assert not any(part.startswith("POWERCONTEXT_CODEX_SCOPE_ID=") for part in run)
     mounts = [run[index + 1] for index, value in enumerate(run) if value in {"--mount", "-v"}]
+    # Both agent-visible task paths must expose the same sanitized checkout and subsequent edits.
+    assert f"type=bind,src={paths.workspace},dst=/workspace" in mounts
+    assert f"type=bind,src={paths.workspace},dst=/app" in mounts
     assert all(
         any(
             allowed in mount
             for allowed in (
                 "/workspace",
+                "/app",
                 "/runtime",
                 "/source",
                 "/evaluation",

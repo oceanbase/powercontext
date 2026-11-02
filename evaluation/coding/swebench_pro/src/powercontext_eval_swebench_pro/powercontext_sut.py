@@ -2592,6 +2592,9 @@ class DockerSut:
             network,
             "--mount",
             f"type=bind,src={paths.workspace},dst=/workspace",
+            # Hide the image's original repository while preserving absolute /app paths used by task dependencies.
+            "--mount",
+            f"type=bind,src={paths.workspace},dst=/app",
             "--mount",
             f"type=bind,src={paths.runtime},dst=/runtime",
             "--mount",
@@ -3104,13 +3107,26 @@ def trim_future_history(runner: Any, workspace: Path) -> None:
     """Keep only HEAD and its ancestors so the agent cannot read the reference fix from git.
 
     Task images ship the upstream history, including the fix commit, on branches, remotes, and tags. The working
-    tree and index are left untouched, so the final ``git diff HEAD`` is unchanged.
+    tree and index are left untouched, so the final ``git diff HEAD`` is unchanged. Shared object stores and
+    linked worktrees are rejected before changing references; retained future commits also fail closed.
     """
 
     def git(*argv: str, check: bool = True, input_bytes: bytes | None = None) -> str:
         return runner.run(
             ("git", *argv), cwd=workspace, timeout=600, check=check, input_bytes=input_bytes
         ).stdout.strip()
+
+    git_directory = workspace / ".git"
+    if not git_directory.is_dir() or git_directory.is_symlink() or (git_directory / "commondir").exists():
+        raise UnsafeSutConfiguration("Workspace requires a private git directory")
+    if any(
+        path.exists() and path.read_bytes().strip()
+        for path in (git_directory / "objects/info/alternates", git_directory / "objects/info/http-alternates")
+    ):
+        raise UnsafeSutConfiguration("Workspace git alternate object stores are unsupported")
+    worktrees = git("worktree", "list", "--porcelain").splitlines()
+    if sum(line.startswith("worktree ") for line in worktrees) != 1:
+        raise UnsafeSutConfiguration("Workspace git linked worktrees are unsupported")
 
     head = git("rev-parse", "--verify", "HEAD^{commit}")
     if _OBJECT_ID.fullmatch(head) is None:
@@ -3129,6 +3145,13 @@ def trim_future_history(runner: Any, workspace: Path) -> None:
     git("gc", "--quiet", "--prune=now")
     if git("rev-list", "--all", "--not", "HEAD"):
         raise UnsafeSutConfiguration("Workspace git history still reaches commits after HEAD")
+    ancestors = set(git("rev-list", "HEAD").splitlines())
+    # GC can retain unreachable objects in kept or promisor packs. Inspect the object store itself, while
+    # allowing blobs and trees needed by staged changes in the unchanged index.
+    for line in git("cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)").splitlines():
+        object_id, object_type = line.split()
+        if object_type == "commit" and object_id not in ancestors:
+            raise UnsafeSutConfiguration("Workspace git object store retains commits outside HEAD ancestry")
 
 
 def _reject_retained_secrets(data: bytes, variants: tuple[str, ...]) -> None:
