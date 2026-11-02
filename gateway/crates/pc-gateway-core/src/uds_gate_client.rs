@@ -320,6 +320,10 @@ async fn read_chunked(
                 };
             }
         }
+        // 累计预算：在读取 chunk 数据之前检查（不在读完 64 MiB 后才拒绝）。
+        if out.len() + size > MAX_BODY_BYTES {
+            return Err(GateError::Malformed("uds body too large".into()));
+        }
         let needed = size + 2; // 数据 + CRLF
         while buf.len() < needed {
             let n = read_with_timeout(rd, buf, 8192).await?;
