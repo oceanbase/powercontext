@@ -334,7 +334,7 @@ def _reconcile(connection: Connection, expected: Connection, rows: list[list[Any
             quote(column) for column, definition in actual_contract["columns"].items() if definition["computed"] is None
         )
         connection.exec_driver_sql(f"INSERT INTO {quote(temporary)} ({fields}) SELECT {fields} FROM {quote(name)}")  # noqa: S608 -- all identifiers quoted
-        with preserve_rebuild_views(connection, {temporary: name}):
+        with preserve_rebuild_views(connection):
             connection.exec_driver_sql(f"DROP TABLE {quote(name)}")
             connection.exec_driver_sql(f"ALTER TABLE {quote(temporary)} RENAME TO {quote(name)}")
         for _, _, sql in objects:
