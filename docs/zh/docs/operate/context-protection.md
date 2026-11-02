@@ -7,6 +7,8 @@ description: 复用精确的 Atomic Memory 上下文，并按当前授权检查�
 
 准备一次上下文，保留短期复用证明，在每次模型请求发送前和完整响应交付前验证实际字节。使用公开准入 API 前，先按[推理隐私保护](inference-protection.md)配置 enforcing 目标。调用方负责模型执行与响应交付；检查本身不会调用模型，也不会授予模型调用额度。
 
+升级带有此 API 的 Server 前，请遵循 [SDK/CLI 协调升级要求](../get-started/install-and-run.md#更新或替换安装)。即使关闭保护，旧客户端仍会拒绝新增的能力字段。
+
 ## 准备一次，每次复用都验证
 
 `POST /v1/context/prepare` 默认仍返回 `schema`、`status`、`content`、`content_bytes`；

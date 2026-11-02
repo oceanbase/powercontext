@@ -7,6 +7,8 @@ description: Reuse exact prepared Atomic Memory and check final requests and res
 
 Prepare context once, retain its short-lived reuse proof, and validate the exact bytes before each model request and complete response delivery. Configure an enforcing target using [Inference privacy protection](inference-protection.md) before using the public admission API. The caller owns model execution and delivery; a check does not execute a model or authorize spending.
 
+Before upgrading a Server with this API, follow the [coordinated SDK/CLI upgrade requirements](../get-started/install-and-run.md#update-or-replace-an-installation). Older clients reject the new capability field even when protection is disabled.
+
 ## Prepare once, validate each use
 
 The default `POST /v1/context/prepare` response remains `schema`, `status`, `content`, and `content_bytes`.

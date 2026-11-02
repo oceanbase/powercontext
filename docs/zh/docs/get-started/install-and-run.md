@@ -256,6 +256,12 @@ Agent 诊断见[各自的集成文档](../integrations/index.md)；Server 状态
 已有 Dream 存储需排空未完成任务后显式迁移。[完整 Server 迁移](../operate/database-migrations.md)要求
 `state=ready` 和 `server_ready=true`；局部 Artifact 或 Atomic Memory 验证不能替代它。不要绕过迁移门禁。
 
+带有[上下文复用与最终准入](../operate/context-protection.md)的 Server 构建始终在 `/v1/capabilities` 中返回
+`context_protection`，关闭保护后也一样。旧版 Python SDK 会拒绝这个未知字段：`get_capabilities()` 抛出
+`InvalidResponseError`，`powercontext client capabilities` 也会失败。升级 Server 时，应一并协调连接它的
+Python SDK 环境和 CLI 安装，使用匹配的发布版本或 Git ref，再恢复能力查询。此端点不会协商旧版响应格式；
+关闭保护不能恢复兼容性。客户端升级要求不能替代上述数据库升级门禁。
+
 安装 1.4.1 到独立环境以试用新建部署：
 
 ```bash
