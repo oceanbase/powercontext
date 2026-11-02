@@ -220,7 +220,7 @@ async fn ingress_common(
         Format::Responses => pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
     };
 
-    let conversation = conversation_id(&headers);
+    let conversation = conversation_id(&headers, &format);
     let call = ManagedCall {
         scope_id: state.default_scope.clone(),
         target_profile: state.upstream_profile.clone(),
@@ -421,16 +421,34 @@ fn injects(format: &Format, injection: Injection, responses: bool, has_conversat
     enabled && (matches!(format, Format::Chat) || responses)
 }
 
-/// 宿主提供的会话 ID（RFC 2199 `X-PowerContext-Conversation-ID`）：1～256 个可见 ASCII 字符。
-/// 缺失或不合规时按没有会话处理：不在请求之间重放准备结果，请求照常处理。
-fn conversation_id(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(CONVERSATION_ID_HEADER)?.to_str().ok()?;
+/// 请求所属的会话，决定准备结果在哪些请求之间重放。依次取：
+/// - 宿主提供的 `X-PowerContext-Conversation-ID`（RFC 2199）；
+/// - Responses 入口上，Codex 原生的 `thread-id`：Codex 在一个线程的每个请求上发送同一个值，父线程与
+///   子代理线程的值不同。它们共享的 `session-id` 和 `prompt_cache_key` 不用作身份。
+///
+/// 两种来源加不同前缀，互不相同。值须为 1～256 个可见 ASCII 字符；都没有时按没有会话处理：
+/// 不在请求之间重放准备结果，请求照常处理。
+fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
+    if let Some(id) = header_id(headers, CONVERSATION_ID_HEADER) {
+        return Some(format!("powercontext:{id}"));
+    }
+    match format {
+        Format::Responses => {
+            header_id(headers, CODEX_THREAD_ID_HEADER).map(|id| format!("codex-thread:{id}"))
+        }
+        Format::Chat => None,
+    }
+}
+
+fn header_id<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    let value = headers.get(name)?.to_str().ok()?;
     let valid =
         !value.is_empty() && value.len() <= 256 && value.bytes().all(|b| b.is_ascii_graphic());
-    valid.then(|| value.to_owned())
+    valid.then_some(value)
 }
 
 const CONVERSATION_ID_HEADER: &str = "x-powercontext-conversation-id";
+const CODEX_THREAD_ID_HEADER: &str = "thread-id";
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
     if key.is_empty() {
@@ -1000,16 +1018,53 @@ mod tests {
     #[test]
     fn conversation_id_comes_only_from_a_valid_header() {
         let mut headers = HeaderMap::new();
-        assert_eq!(conversation_id(&headers), None);
+        assert_eq!(conversation_id(&headers, &Format::Chat), None);
         headers.insert(CONVERSATION_ID_HEADER, "coding-client-001".parse().unwrap());
         assert_eq!(
-            conversation_id(&headers).as_deref(),
-            Some("coding-client-001")
+            conversation_id(&headers, &Format::Chat).as_deref(),
+            Some("powercontext:coding-client-001")
         );
         headers.insert(CONVERSATION_ID_HEADER, "has space".parse().unwrap());
-        assert_eq!(conversation_id(&headers), None);
+        assert_eq!(conversation_id(&headers, &Format::Chat), None);
         headers.insert(CONVERSATION_ID_HEADER, "x".repeat(257).parse().unwrap());
-        assert_eq!(conversation_id(&headers), None);
+        assert_eq!(conversation_id(&headers, &Format::Chat), None);
+    }
+
+    /// Codex 0.145 的请求头：同一会话的父线程与子代理线程共享 `session-id`，`thread-id` 不同。
+    fn codex_headers(thread: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "session-id",
+            "019a0000-0000-7000-8000-000000000001".parse().unwrap(),
+        );
+        headers.insert("x-client-request-id", thread.parse().unwrap());
+        headers.insert(CODEX_THREAD_ID_HEADER, thread.parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn codex_threads_are_separate_conversations_on_the_responses_route() {
+        let root = codex_headers("019a0000-0000-7000-8000-00000000000a");
+        let child = codex_headers("019a0000-0000-7000-8000-00000000000b");
+        let root_id = conversation_id(&root, &Format::Responses);
+        assert_eq!(
+            root_id.as_deref(),
+            Some("codex-thread:019a0000-0000-7000-8000-00000000000a")
+        );
+        assert_eq!(
+            conversation_id(&root, &Format::Responses),
+            root_id,
+            "every request of a thread"
+        );
+        assert_ne!(conversation_id(&child, &Format::Responses), root_id);
+        // 只在 Responses 入口识别 Codex 的线程头；宿主提供的会话 ID 优先。
+        assert_eq!(conversation_id(&root, &Format::Chat), None);
+        let mut hosted = root.clone();
+        hosted.insert(CONVERSATION_ID_HEADER, "host-1".parse().unwrap());
+        assert_eq!(
+            conversation_id(&hosted, &Format::Responses).as_deref(),
+            Some("powercontext:host-1")
+        );
     }
 
     #[test]
