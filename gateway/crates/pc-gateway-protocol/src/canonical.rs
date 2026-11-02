@@ -42,6 +42,9 @@ pub struct CanonicalRequest {
     /// Responses 的保留设置（store）。#2313 要求 openai-responses 目标显式 store:false。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
+    /// Responses 的会话续写 ID，原样透传给上游和 Core。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +74,8 @@ pub enum Role {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputLimits {
-    pub max_output_tokens: u32,
+    /// None = 客户端未指定，不输出该字段（上游用默认值，不截断）。
+    pub max_output_tokens: Option<u32>,
 }
 
 /// 渲染结果：语义内容不变的最终字节。

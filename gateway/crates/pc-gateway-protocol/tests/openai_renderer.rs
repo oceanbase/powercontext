@@ -30,12 +30,13 @@ fn request() -> CanonicalRequest {
         instructions: None,
         native_cache_fields: None,
         output_limits: OutputLimits {
-            max_output_tokens: 16,
+            max_output_tokens: Some(16),
         },
         stream: false,
         response_format: None,
         tool_choice: None,
         store: None,
+        previous_response_id: None,
     }
 }
 
@@ -117,12 +118,13 @@ fn tool_call_metadata_round_trip_preserved() {
         instructions: None,
         native_cache_fields: None,
         output_limits: OutputLimits {
-            max_output_tokens: 16,
+            max_output_tokens: Some(16),
         },
         stream: false,
         response_format: None,
         tool_choice: None,
         store: None,
+        previous_response_id: None,
     };
     let p = OpenAiChatRenderer.render(&req, None).unwrap();
     let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
@@ -143,4 +145,64 @@ fn tool_call_metadata_round_trip_preserved() {
     assert_eq!(msgs[2]["content"], "sunny");
     // 普通消息不受影响
     assert_eq!(msgs[0]["content"], "天气如何？");
+}
+
+#[test]
+fn omitted_token_limit_not_emitted() {
+    // P2 review：客户端没传 max_tokens → 字段不出现在线格式（不截断到 1024）。
+    let req = CanonicalRequest {
+        model: "m".into(),
+        messages: vec![CanonicalMessage {
+            role: Role::User,
+            content: vec![serde_json::json!("hi")],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        }],
+        tools: vec![],
+        instructions: None,
+        native_cache_fields: None,
+        output_limits: OutputLimits {
+            max_output_tokens: None,
+        },
+        stream: false,
+        response_format: None,
+        tool_choice: None,
+        store: None,
+        previous_response_id: None,
+    };
+    let p = OpenAiChatRenderer.render(&req, None).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
+    assert!(
+        v.get("max_tokens").is_none(),
+        "未传 max_tokens 时不得出现在 wire body"
+    );
+}
+
+#[test]
+fn explicit_token_limit_still_emitted() {
+    let req = CanonicalRequest {
+        model: "m".into(),
+        messages: vec![CanonicalMessage {
+            role: Role::User,
+            content: vec![serde_json::json!("hi")],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        }],
+        tools: vec![],
+        instructions: None,
+        native_cache_fields: None,
+        output_limits: OutputLimits {
+            max_output_tokens: Some(64),
+        },
+        stream: false,
+        response_format: None,
+        tool_choice: None,
+        store: None,
+        previous_response_id: None,
+    };
+    let p = OpenAiChatRenderer.render(&req, None).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
+    assert_eq!(v["max_tokens"], 64, "显式传的 64 必须到达 wire body");
 }

@@ -170,8 +170,35 @@ async fn resolve_degradation(link: link::CoreLink) -> bool {
     use pc_gateway_core::GateClient;
     match tokio::time::timeout(std::time::Duration::from_secs(10), link.capabilities()).await {
         Ok(Ok(caps)) => {
-            let enforcing = caps
-                .get("context_protection")
+            let cp = caps.get("context_protection");
+            // P2 review：验契约版本——Core 必须支持我们消费的 check/payload 契约。
+            let check_ok = cp
+                .and_then(|cp| cp.get("check_versions"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .any(|s| s.as_str() == Some("powercontext.context-check.v1"))
+                })
+                .unwrap_or(false);
+            let payload_ok = cp
+                .and_then(|cp| cp.get("payload_versions"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .any(|s| s.as_str() == Some("powercontext.model-json-payload.v1"))
+                })
+                .unwrap_or(false);
+            if !check_ok || !payload_ok {
+                tracing::error!(
+                    check_ok,
+                    payload_ok,
+                    "Core does not support the required context-check contract; \
+                     this gateway requires #2311+#2313. Startup will continue but \
+                     every /gateway/v1 request will fail until the contract is available."
+                );
+                return false; // 降级也不允许——没有 check 契约就没有安全保障
+            }
+            let enforcing = cp
                 .and_then(|cp| cp.get("enforcing"))
                 .and_then(|e| e.as_bool())
                 .unwrap_or(true); // 缺字段 → fail-closed

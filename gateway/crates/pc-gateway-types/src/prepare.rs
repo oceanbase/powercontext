@@ -52,11 +52,18 @@ pub struct AssemblySection {
 
 impl ContextAssembly {
     /// memory-only assembly（只召回 Atomic Memory）：#2313 支持的唯一 reuse 家族。
+    /// limit 可通过 PC_GATEWAY_ASSEMBLY_LIMIT 环境变量配置（默认 8，
+    /// 不超过 Server 的 context_assembly_max_entries）。
     pub fn memory_only() -> Self {
+        let limit = std::env::var("PC_GATEWAY_ASSEMBLY_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|v| *v > 0 && *v <= 8)
+            .unwrap_or(8);
         Self {
             sections: vec![AssemblySection {
                 family: "memory".into(),
-                limit: 8,
+                limit,
             }],
         }
     }

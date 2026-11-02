@@ -76,6 +76,9 @@ struct OpenAiResponsesRequest {
     /// #2313 要求 openai-responses 目标显式 store:false。
     #[serde(default)]
     store: Option<bool>,
+    /// Responses 的会话续写 ID；不透传 = 客户端丢失历史连续性。
+    #[serde(default)]
+    previous_response_id: Option<String>,
     #[serde(default)]
     stream: Option<bool>,
 }
@@ -277,15 +280,13 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
         instructions: None,
         native_cache_fields: None,
         output_limits: OutputLimits {
-            max_output_tokens: chat
-                .max_completion_tokens
-                .or(chat.max_tokens)
-                .unwrap_or(1024),
+            max_output_tokens: chat.max_completion_tokens.or(chat.max_tokens),
         },
         stream: chat.stream.unwrap_or(false),
         response_format: chat.response_format,
         tool_choice: chat.tool_choice,
         store: None,
+        previous_response_id: None,
     })
 }
 
@@ -335,13 +336,14 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
         instructions: r.instructions,
         native_cache_fields: None,
         output_limits: OutputLimits {
-            max_output_tokens: r.max_output_tokens.unwrap_or(1024),
+            max_output_tokens: r.max_output_tokens,
         },
         stream: r.stream.unwrap_or(false),
         // Responses 的结构化输出在 text.format，不在 response_format（Chat 字段）。
         response_format: r.text,
         tool_choice: r.tool_choice,
         store: r.store,
+        previous_response_id: r.previous_response_id,
     })
 }
 

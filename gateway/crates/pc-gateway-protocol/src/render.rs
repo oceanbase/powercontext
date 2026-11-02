@@ -93,9 +93,11 @@ impl WireRenderer for OpenAiChatRenderer {
         let mut body = serde_json::json!({
             "model": request.model,
             "messages": messages,
-            "max_tokens": request.output_limits.max_output_tokens,
             "stream": request.stream,
         });
+        if let Some(max) = request.output_limits.max_output_tokens {
+            body["max_tokens"] = serde_json::json!(max);
+        }
         if !request.tools.is_empty() {
             body["tools"] = serde_json::json!(request.tools);
         }
@@ -107,6 +109,9 @@ impl WireRenderer for OpenAiChatRenderer {
         }
         if let Some(store) = request.store {
             body["store"] = serde_json::json!(store);
+        }
+        if let Some(prev_id) = &request.previous_response_id {
+            body["previous_response_id"] = serde_json::json!(prev_id);
         }
         if let Some(fields) = request.native_cache_fields.as_ref() {
             merge_top_level(&mut body, fields).map_err(|_| RenderError::InvalidRenderPlan {
@@ -252,9 +257,11 @@ impl WireRenderer for OpenAiResponsesRenderer {
         let mut body = serde_json::json!({
             "model": request.model,
             "input": input,
-            "max_output_tokens": request.output_limits.max_output_tokens,
             "stream": request.stream,
         });
+        if let Some(max) = request.output_limits.max_output_tokens {
+            body["max_output_tokens"] = serde_json::json!(max);
+        }
         if let Some(instructions) = &request.instructions {
             body["instructions"] = serde_json::json!(instructions);
         }
@@ -269,6 +276,9 @@ impl WireRenderer for OpenAiResponsesRenderer {
         }
         if let Some(store) = request.store {
             body["store"] = serde_json::json!(store);
+        }
+        if let Some(prev_id) = &request.previous_response_id {
+            body["previous_response_id"] = serde_json::json!(prev_id);
         }
         if let Some(fields) = request.native_cache_fields.as_ref() {
             merge_top_level(&mut body, fields).map_err(|_| RenderError::InvalidRenderPlan {
