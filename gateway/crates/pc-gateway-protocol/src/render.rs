@@ -281,6 +281,9 @@ impl WireRenderer for OpenAiResponsesRenderer {
         if let Some(prev_id) = &request.previous_response_id {
             body["previous_response_id"] = serde_json::json!(prev_id);
         }
+        if let Some(conv) = &request.conversation {
+            body["conversation"] = serde_json::json!(conv);
+        }
         if let Some(fields) = request.native_cache_fields.as_ref() {
             merge_top_level(&mut body, fields).map_err(|_| RenderError::InvalidRenderPlan {
                 renderer: self.name(),

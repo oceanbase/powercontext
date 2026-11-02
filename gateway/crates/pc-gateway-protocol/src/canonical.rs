@@ -49,6 +49,9 @@ pub struct CanonicalRequest {
     /// Responses 的会话续写 ID，原样透传给上游和 Core。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
+    /// Responses 的会话标识（conversation 参数），原样透传。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -37,6 +37,7 @@ fn request() -> CanonicalRequest {
         tool_choice: None,
         store: None,
         previous_response_id: None,
+        conversation: None,
         token_limit_field: None,
     }
 }
@@ -93,6 +94,7 @@ fn responses_items_pass_through_verbatim() {
         tool_choice: None,
         store: None,
         previous_response_id: None,
+        conversation: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -138,6 +140,7 @@ fn typed_content_parts_pass_through_as_array() {
         tool_choice: None,
         store: None,
         previous_response_id: None,
+        conversation: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -178,6 +181,7 @@ fn structured_output_via_text_field_reaches_wire() {
         tool_choice: None,
         store: None,
         previous_response_id: None,
+        conversation: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -219,6 +223,7 @@ fn store_false_reaches_responses_wire_body() {
         tool_choice: None,
         store: Some(false),
         previous_response_id: None,
+        conversation: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -252,6 +257,7 @@ fn store_absent_omitted_from_wire_body() {
         tool_choice: None,
         store: None,
         previous_response_id: None,
+        conversation: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -285,6 +291,7 @@ fn previous_response_id_reaches_wire_body() {
         tool_choice: None,
         store: Some(false),
         previous_response_id: Some("resp_prior_turn".into()),
+        conversation: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -317,9 +324,45 @@ fn responses_omitted_token_limit_not_emitted() {
         tool_choice: None,
         store: None,
         previous_response_id: None,
+        conversation: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
     let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
     assert!(v.get("max_output_tokens").is_none(), "未传时不出现");
+}
+
+#[test]
+fn conversation_field_reaches_wire_body() {
+    // hidb4ai P2：Responses 的 conversation 参数（与会话 ID 不同）
+    // 也必须透传到上游载荷，让 Core 决定接受或拒绝。
+    let req = CanonicalRequest {
+        model: "m".into(),
+        messages: vec![CanonicalMessage {
+            role: Role::User,
+            content: vec![serde_json::json!("hi")],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        }],
+        tools: vec![],
+        instructions: None,
+        native_cache_fields: None,
+        output_limits: OutputLimits {
+            max_output_tokens: Some(64),
+        },
+        stream: false,
+        response_format: None,
+        tool_choice: None,
+        store: None,
+        previous_response_id: None,
+        conversation: Some("conv_prior".into()),
+        token_limit_field: None,
+    };
+    let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&p.bytes).unwrap();
+    assert_eq!(
+        v["conversation"], "conv_prior",
+        "conversation 参数必须原样到达 Responses wire body"
+    );
 }

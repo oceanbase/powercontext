@@ -79,6 +79,10 @@ struct OpenAiResponsesRequest {
     /// Responses 的会话续写 ID；不透传 = 客户端丢失历史连续性。
     #[serde(default)]
     previous_response_id: Option<String>,
+    /// Responses 的会话标识（conversation 参数）；与 previous_response_id
+    /// 是不同的字段，同样需要透传给 Core 检查。
+    #[serde(default)]
+    conversation: Option<String>,
     #[serde(default)]
     stream: Option<bool>,
 }
@@ -294,6 +298,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
         } else {
             None
         },
+        conversation: None,
     })
 }
 
@@ -351,6 +356,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
         tool_choice: r.tool_choice,
         store: r.store,
         previous_response_id: r.previous_response_id,
+        conversation: r.conversation,
         token_limit_field: None,
     })
 }
