@@ -128,6 +128,10 @@ _CONTAINER_TOKENSFLOW_WRAPPER_DIR = "/tools/tokensflow-wrapper"
 _CONTAINER_UV = "/tools/uv-dir/uv"
 _CONTAINER_RECORDER = "/evaluation/record_codex_jsonl.py"
 _CONTAINER_UV_PYTHON_INSTALL_DIR = "/runtime/uv-python"
+# Task images ship an interpreter below PowerContext's requires-python, so uv installs a managed one. Left unpinned it
+# picks the newest release (3.15 with uv 0.13.6), for which uv.lock has no wheels of some dependencies (tiktoken,
+# PyYAML), and the images cannot build them. 3.13 is covered by every locked wheel.
+_CONTAINER_UV_PYTHON = "3.13"
 _DEFAULT_RECORDER_SCRIPT = Path(__file__).with_name("record_codex_jsonl.py")
 _TIMED_OUT_CONTAINER_REMOVAL_SETTLE_SECONDS = 90.0
 _TIMED_OUT_CONTAINER_REMOVAL_POLL_SECONDS = 0.25
@@ -1300,6 +1304,7 @@ class DockerSut:
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+                    "UV_PYTHON": _CONTAINER_UV_PYTHON,
                     "UV_OFFLINE": "1",
                 },
                 secrets=credential_variants,
@@ -2421,6 +2426,7 @@ class DockerSut:
             **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
             "UV_CACHE_DIR": "/runtime/uv-cache",
             "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+            "UV_PYTHON": _CONTAINER_UV_PYTHON,
         }
         command = (
             "docker",
@@ -2627,6 +2633,7 @@ class DockerSut:
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+                    "UV_PYTHON": _CONTAINER_UV_PYTHON,
                     "UV_OFFLINE": "1",
                     **tokensflow_container_environment,
                     "PATH": executable_path,
