@@ -118,7 +118,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. `sqlite-atomic-bae5d714-v1` records the current bundled contract's eleven protocol operations qualified below. Historical records retain their exact identities and evidence, including `sqlite-source-artifact-87b6fae2-v1` and the preceding `sqlite-artifact-merge-87d01f68-v1` record. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. `sqlite-atomic-d9f33be3-v1` records the current bundled contract's eleven protocol operations qualified below. Historical records retain their exact identities and evidence, including `sqlite-atomic-cf81c1a8-v1` and `sqlite-atomic-bae5d714-v1`, which qualified the preceding `c7f00e81…` and `0f6befcd…` contracts respectively, and `sqlite-source-artifact-87b6fae2-v1` with the preceding `sqlite-artifact-merge-87d01f68-v1` record. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 
@@ -127,6 +127,40 @@ Selecting a compatibility profile does not attest the remote binary identity. Ex
 <a id="current-server-protocol-qualification"></a>
 
 ### Server protocol qualification records
+
+#### Server d9f33be3 protocol qualification
+
+`sqlite-atomic-d9f33be3-v1` qualifies Server sources at
+`d9f33be3fde7a1801b51aa66c51d25af5b883d69` for the bundled OpenAPI digest
+`3a89f4131cf822d458a55e9ea4c57e1314aaffbaff764fd4f4935c7fc9a5f3cb`, the merged contract that carries
+master's 1.5.0 artifact-storage chain plus the four Scope-scoped durable operation endpoints. The
+qualification wheel is `powercontext-1.2.1.dev498+gd9f33be3f-py3-none-any.whl`, SHA-256
+`c23438d67cb79ee6e23d58307917853167d2f4dd1916138b35f2ceb169d48202`, built from that clean commit.
+All 685 packaged runtime files in `powercontext/` and `powercontext_service_bootstrap/` match the
+source bytes at that commit. The runtime manifest digest is
+`d81c6ed801f5d30686b7e7565ccc16a145af90dbf19b6788334a16d305a45cf3`
+(sorted `wheel/path sha256` lines, with a final newline).
+
+On 2026-11-02, macOS 27.2 ARM64 with Python 3.14.7 and Rust 1.95.0 ran the existing
+`desktop/tests/real_server.py` harness against the extracted wheel and independent SQLite Server
+processes. All four modes passed: anonymous loopback, static Bearer, HTTPS with an explicit CA and
+base path, and an injected provider with enforced access. The eleven recorded operations cover
+Atomic Memory save/search/exact revision reads, Scope selection and pagination, identity changes,
+same-identity revocation, committed writes with lost responses without replay, server discovery,
+and Server survival after client exit. The report records the source commit above and
+`desktopWorkingTreeDirty=false`.
+
+This is protocol qualification of the recorded source, contract and wheel. It does not qualify
+Windows/Intel execution, native credential persistence, installed GUI workflows, signing or release
+readiness, and it says nothing about the four new operation endpoints: they are Server-side contract
+covered by the Python suite and are deliberately absent from the Desktop operation set above.
+Reproduce from this clean commit with `uv build --wheel --out-dir desktop/.artifacts/server-wheel`,
+`cargo build --locked --example server_probe --example diagnostic_cli_probe`,
+`uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit d9f33be3fde7a1801b51aa66c51d25af5b883d69`,
+and `uv run --no-sync python desktop/tests/real_server.py`.
+The bundled preview resolves its qualification by digest, so a contract change and a matching record
+have to land together. `tests/test_desktop_contract.py` fails the Python gate for a digest without a
+record, exactly as `bundled_qualification_allows_explicit_scope_browsing` fails the native one.
 
 #### Server bae5d714 protocol qualification
 
