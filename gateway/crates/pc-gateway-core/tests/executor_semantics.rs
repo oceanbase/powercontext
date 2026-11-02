@@ -1061,3 +1061,140 @@ async fn prepare_requests_memory_only_assembly() {
     assert!(json.contains(r#""family":"memory""#));
     assert!(json.contains(r#""limit":8"#));
 }
+
+// ---------- P2 allow 完整性验证探针 ----------
+
+#[tokio::test]
+async fn allow_with_incomplete_coverage_pauses() {
+    // 契约："Only allow with complete coverage permits the corresponding phase."
+    // coverage.complete=false 的 allow 是畸形 → 必须暂停。
+    let (executor, renderer, transport, _gate) = harness(
+        vec![Ok(ContextCheckResult {
+            coverage: pc_gateway_types::ContextCheckCoverage {
+                profile: "text-and-tools.v1".into(),
+                complete: false, // ← 不完整覆盖
+            },
+            ..result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])
+        })],
+        vec![raw_response()],
+        2,
+    );
+    let outcome = executor
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::GatePaused(ref m) if m.contains("incomplete coverage")),
+        "不完整覆盖的 allow 必须暂停，实际: {outcome:?}"
+    );
+    assert_eq!(transport.sends.lock().unwrap().len(), 0, "零发送");
+}
+
+#[tokio::test]
+async fn allow_without_binding_pauses() {
+    // allow 但 binding 为空 → 畸形 → 必须暂停（不得用 missing-binding 替代）。
+    let (executor, renderer, transport, _gate) = harness(
+        vec![Ok(ContextCheckResult {
+            binding: None, // ← 缺失许可凭证
+            ..result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])
+        })],
+        vec![raw_response()],
+        2,
+    );
+    let outcome = executor
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::GatePaused(ref m) if m.contains("without binding")),
+        "缺失 binding 的 allow 必须暂停，实际: {outcome:?}"
+    );
+    assert_eq!(transport.sends.lock().unwrap().len(), 0, "零发送");
+}
+
+#[tokio::test]
+async fn allow_with_phase_mismatch_pauses() {
+    // before_send 的 check 返回了 before_release 的 allow → 畸形。
+    let (executor, renderer, transport, _gate) = harness(
+        vec![Ok(result(
+            CheckPhase::BeforeRelease,
+            CheckDecision::Allow,
+            &[],
+        ))],
+        vec![raw_response()],
+        2,
+    );
+    let outcome = executor
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::GatePaused(ref m) if m.contains("phase mismatch")),
+        "阶段不匹配的 allow 必须暂停，实际: {outcome:?}"
+    );
+    assert_eq!(transport.sends.lock().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn allow_with_wrong_schema_pauses() {
+    // schema 不是 powercontext.context-check.v1 → 畸形对端。
+    let (executor, renderer, transport, _gate) = harness(
+        vec![Ok(ContextCheckResult {
+            schema: "evil-schema-v99".into(),
+            ..result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])
+        })],
+        vec![raw_response()],
+        2,
+    );
+    let outcome = executor
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::GatePaused(ref m) if m.contains("schema mismatch")),
+        "错误 schema 的 allow 必须暂停，实际: {outcome:?}"
+    );
+    assert_eq!(transport.sends.lock().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn release_allow_with_incomplete_coverage_pauses() {
+    // 释放阶段同样验证——incomplete coverage 的 release allow 不放行内容。
+    let (executor, renderer, _transport, _gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(ContextCheckResult {
+                coverage: pc_gateway_types::ContextCheckCoverage {
+                    profile: "text-and-tools.v1".into(),
+                    complete: false,
+                },
+                ..result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])
+            }),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let outcome = executor
+        .run(
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::GatePaused(ref m) if m.contains("incomplete coverage")),
+        "释放阶段不完整覆盖的 allow 必须暂停"
+    );
+}
