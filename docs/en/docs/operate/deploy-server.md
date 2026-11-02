@@ -220,7 +220,9 @@ so an administrator migrates the missing attribution explicitly:
    It also includes committed Handoffs and each published Handoff copy under its recorded identity.
    Offline `apply`, HTTP `apply`, and the HTTP preview report `owner-recovery-pending` or
    `owner-recovery-delivered_relation_missing` when durable recovery evidence already records an identity.
-   They preserve that evidence and do not replace its owner. Complete pending ownership delivery through the
+   They preserve that evidence and do not replace its owner. Candidate recovery checks cover the families accepted
+   by migration, including Prompt Candidates, independently of which families require standalone Artifact ownership.
+   Complete pending ownership delivery through the
    [ownership recovery procedure](../workflows/scopes-and-access.md#recover-external-ownership-writes).
    With an external Access store, migration retains durable ownership delivery work if its audit write fails.
    Repeating the same HTTP `apply` completes that original audit before reporting success, even if the owner

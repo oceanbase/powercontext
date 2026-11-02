@@ -39,7 +39,15 @@ from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.builtin.scope import ScopeApplication, ScopeDraft
 from powercontext.cli.app import create_cli
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
-from powercontext.server.authz import AccessAction, AccessAuditContext, AccessConflictError, PrincipalRef, ResourceRef
+from powercontext.server.authz import (
+    AccessAction,
+    AccessAuditContext,
+    AccessConflictError,
+    AccessRole,
+    BindingSearchRequest,
+    PrincipalRef,
+    ResourceRef,
+)
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.ownership import ArtifactOwnershipGap, apply_ownership_migration
@@ -128,14 +136,20 @@ async def _create_legacy_data(client: httpx.AsyncClient) -> tuple[str, str, dict
 
 
 @pytest.mark.parametrize("profile_owner", [None, "server-token", "other", "revoked"])
+@pytest.mark.parametrize("scope_length", [None, 220, 256])
 def test_background_plan_accounts_for_static_preset_without_granting_bindings(
-    tmp_path: Path, profile_owner: str | None
+    tmp_path: Path, profile_owner: str | None, scope_length: int | None
 ) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{(tmp_path / 'static-background.db').as_posix()}")
         app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
         async with app.router.lifespan_context(app):
-            scope = await app.state.application.scopes.create(
+            scopes = (
+                app.state.application.scopes
+                if scope_length is None
+                else ScopeApplication(app.state.application.primary_database, id_factory=lambda: "s" * scope_length)
+            )
+            scope = await scopes.create(
                 ScopeDraft(title="Legacy", summary="No static bindings", idempotency_key="static-background")
             )
             if profile_owner in {"server-token", "other"}:
@@ -171,27 +185,18 @@ def test_background_plan_accounts_for_static_preset_without_granting_bindings(
                     await client.post(f"/v1/scopes/{scope.scope_id}/sources", json={"content": "Initialize preset."}),
                     201,
                 )
-                bindings = checked(
-                    await client.post(
-                        "/v1/access/bindings/list",
-                        json={
-                            "management_resource": {"type": "scope", "scope_id": scope.scope_id},
-                            "role": "scope.contributor",
-                        },
-                    ),
-                    200,
+                bindings = await access.list_bindings(
+                    SERVER_TOKEN,
+                    BindingSearchRequest(management_resource=resource, role=AccessRole.SCOPE_CONTRIBUTOR),
+                    context=context,
                 )
-                (binding,) = bindings["items"]
-                checked(
-                    await client.post(
-                        "/v1/access/bindings/revoke",
-                        json={
-                            "binding_id": binding["binding_id"],
-                            "expected_version": binding["version"],
-                            "idempotency_key": "revoke-static",
-                        },
-                    ),
-                    200,
+                (binding,) = bindings.items
+                await access.revoke_binding(
+                    SERVER_TOKEN,
+                    binding.binding_id,
+                    expected_version=binding.version,
+                    idempotency_key="revoke-static",
+                    context=context,
                 )
             assert not (
                 await access.check(SERVER_TOKEN, AccessAction.SCOPE_CONTRIBUTE, resource, context=context)
@@ -211,10 +216,23 @@ def test_background_plan_accounts_for_static_preset_without_granting_bindings(
             assert not (
                 await access.check(SERVER_TOKEN, AccessAction.SCOPE_CONTRIBUTE, resource, context=context)
             ).allowed
-            # The worker materializes this configured preset before its real authorization.
-            await access.bootstrap_static_scope(SERVER_TOKEN, scope.scope_id, context=context)
+            written = await client.post(
+                f"/v1/scopes/{scope.scope_id}/sources", json={"content": "Exercise the actual static bootstrap."}
+            )
+            assert written.status_code == (403 if profile_owner == "revoked" else 201), written.text
             decision = await access.check(SERVER_TOKEN, AccessAction.SCOPE_CONTRIBUTE, resource, context=context)
             assert decision.allowed == (profile_owner != "revoked")
+            after = checked(
+                await client.post(
+                    "/v1/access/ownership/plan",
+                    json={
+                        "scope_ids": [scope.scope_id],
+                        "background_principal": {"type": "service", "id": "server-token"},
+                    },
+                ),
+                200,
+            )
+            assert len(after["background"]) == int(profile_owner in {"other", "revoked"})
 
     asyncio.run(scenario())
 
@@ -308,8 +326,9 @@ def test_migration_inventories_published_handoff_identities(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("static_token", [False, True])
+@pytest.mark.parametrize("scope_length", [None, 220, 256])
 def test_offline_background_plan_uses_configured_static_preset_without_grants(
-    tmp_path: Path, static_token: bool
+    tmp_path: Path, static_token: bool, scope_length: int | None
 ) -> None:
     from powercontext.server.cli import app as server_cli
 
@@ -318,7 +337,12 @@ def test_offline_background_plan_uses_configured_static_preset_without_grants(
     async def seed() -> str:
         app = create_server_app(settings=_settings(database, "disabled"), scheduler_path=tmp_path / "scheduler.db")
         async with app.router.lifespan_context(app):
-            scope = await app.state.application.scopes.create(
+            scopes = (
+                app.state.application.scopes
+                if scope_length is None
+                else ScopeApplication(app.state.application.primary_database, id_factory=lambda: "s" * scope_length)
+            )
+            scope = await scopes.create(
                 ScopeDraft(title="Legacy", summary="Static preview", idempotency_key="offline-static")
             )
             return scope.scope_id

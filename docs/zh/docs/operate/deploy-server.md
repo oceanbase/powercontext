@@ -199,6 +199,7 @@ Principal，并仅向审核者授予审核权限。参见[分离 Agent 提交与
    如果持久化恢复记录已经确定归属，
    离线 `apply`、HTTP `apply` 及 HTTP 预览会报告 `owner-recovery-pending` 或 `owner-recovery-delivered_relation_missing`，
    并保留原始记录及其归属。待投递的归属信息应按[归属恢复流程](../workflows/scopes-and-access.md)继续处理。
+   Candidate 恢复预检覆盖迁移接受的家族，包括 Prompt Candidate，不受独立 Artifact owner 家族范围限制。
    使用外部 Access 存储时，如果审计写入失败，迁移会保留可重放的归属投递任务。即使 owner 关系已存在，
    重复同一 HTTP `apply` 也会先完成原始审计，再报告成功。预览不会重放待处理任务。
 

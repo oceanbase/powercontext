@@ -919,8 +919,9 @@ class AccessControlService:
         for role in _STATIC_SCOPE_ROLES:
             if action not in actions[role]:
                 continue
+            # Match bootstrap's complete internal receipt key, not public request-key limits.
             key = f"static-preset:{self.deployment_id}:{principal.id}:{resource.scope_id}:{role.value}"
-            if len(key) <= 255 and not await _access_call(repository.static_scope_initialized(principal, (key,))):
+            if not await _access_call(repository.static_scope_initialized(principal, (key,))):
                 return True
         return False
 

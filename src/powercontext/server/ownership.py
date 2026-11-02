@@ -24,10 +24,10 @@ idempotent Access-store transaction that can be safely repeated.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from powercontext.server.authz import (
     AccessAction,
@@ -256,7 +256,7 @@ async def apply_ownership_migration(
                 # Complete the original intent before an idempotent retry succeeds.
                 async with owner_recovery_session(owner_recovery):
                     await flush_owner_writes(artifact=_owner_identity(item)[1])
-    protected = await _owner_recovery_conflicts(owner_recovery, items, families)
+    protected = await _owner_recovery_conflicts(owner_recovery, items)
     protected_keys = {_migration_item_key(item.gap) for item in protected}
     items = [item for item in items if _migration_item_key(item) not in protected_keys]
     if dry_run:
@@ -301,39 +301,43 @@ def _preview_gaps(items: Sequence[ArtifactOwnershipGap | CandidateOwnershipGap])
 async def _owner_recovery_conflicts(
     recovery: OwnerRecovery | None,
     items: Sequence[ArtifactOwnershipGap | CandidateOwnershipGap],
-    families: Collection[str],
 ) -> list[OwnershipDisposition]:
     if recovery is None:
         return []
     conflicts: list[OwnershipDisposition] = []
     by_identity = {_migration_item_key(item): item for item in items}
-    for scope_id in dict.fromkeys(item.scope_id for item in items):
-        for kind in ("artifact", "candidate"):
-            after: tuple[str, str] | None = None
-            while True:
-                page = await recovery.inventory_gaps(scope_id, kind=kind, after=after, families=families)
-                for evidence in page.items:
-                    if evidence.operation_id is None:
-                        continue
-                    key = (
-                        ResourceRef.artifact(scope_id, family=evidence.family, artifact_id=evidence.identity).key
-                        if kind == "artifact"
-                        else evidence.identity
+    families_by_kind: dict[tuple[str, Literal["artifact", "candidate"]], set[str]] = {}
+    for item in items:
+        scope_id, kind, _ = _migration_item_key(item)
+        families_by_kind.setdefault((scope_id, kind), set()).add(item.family)
+    # Candidate attribution also covers families without standalone Artifact ownership.
+    # Protect exactly the identities accepted above instead of borrowing another whitelist.
+    for (scope_id, kind), families in families_by_kind.items():
+        after: tuple[str, str] | None = None
+        while True:
+            page = await recovery.inventory_gaps(scope_id, kind=kind, after=after, families=families)
+            for evidence in page.items:
+                if evidence.operation_id is None:
+                    continue
+                key = (
+                    ResourceRef.artifact(scope_id, family=evidence.family, artifact_id=evidence.identity).key
+                    if kind == "artifact"
+                    else evidence.identity
+                )
+                item = by_identity.get((scope_id, kind, key))
+                if item is not None:
+                    conflicts.append(
+                        OwnershipDisposition(gap=item, outcome="conflict", detail=f"owner-recovery-{evidence.reason}")
                     )
-                    item = by_identity.get((scope_id, kind, key))
-                    if item is not None:
-                        conflicts.append(
-                            OwnershipDisposition(
-                                gap=item, outcome="conflict", detail=f"owner-recovery-{evidence.reason}"
-                            )
-                        )
-                after = page.after
-                if after is None:
-                    break
+            after = page.after
+            if after is None:
+                break
     return conflicts
 
 
-def _migration_item_key(item: ArtifactOwnershipGap | CandidateOwnershipGap) -> tuple[str, str, str]:
+def _migration_item_key(
+    item: ArtifactOwnershipGap | CandidateOwnershipGap,
+) -> tuple[str, Literal["artifact", "candidate"], str]:
     if isinstance(item, ArtifactOwnershipGap):
         return (item.scope_id, "artifact", _owner_identity(item)[1].key)
     return (item.scope_id, "candidate", item.candidate_id)

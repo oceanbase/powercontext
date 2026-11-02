@@ -712,6 +712,7 @@ jobs:
           tests/e2e/test_access_ownership_migration.py::test_migration_audit_preserves_request_context
           tests/e2e/test_ownership_maintenance_dispatch.py
           tests/e2e/test_owner_recovery_http.py::test_offline_migration_preserves_external_owner_evidence
+          tests/e2e/test_candidate_ownership_migration.py
 
       - name: Verify bootstrap receipt persistence and failure recovery on Windows
         run: >-
