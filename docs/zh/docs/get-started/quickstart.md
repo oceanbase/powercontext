@@ -39,7 +39,7 @@ powercontext config init --language zh --output .env
 
 ## 2. 启动 Server
 
-在当前终端执行：
+注册个人服务，让 Server 在关闭终端后继续运行。Linux 需要可用的 `systemd --user` 管理器。执行：
 
 ```bash
 powercontext config validate --env-file .env
@@ -47,7 +47,7 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-原生当前用户服务负责 Server 生命周期；Linux 需要可用的 `systemd --user` 管理器。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的 `POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。首次没有数据是正常现象。开发、排障、临时使用或没有原生用户服务管理器时，可使用 `powercontext server run --env-file .env`；如个人服务正在运行，先将其停止。服务管理详见[个人后台服务](../operate/deploy-server.md#运行持久个人-server)。
+在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的 `POWERCONTEXT_SERVER_HTTP_PORT` 为准。未启用认证时可直接进入页面；启用后使用 **Server Token** 登录，不是模型 API key。首次没有数据是正常现象。开发、排障、临时使用或没有原生用户服务管理器时，可使用 `powercontext server run --env-file .env`；如个人服务正在运行，先将其停止。服务管理详见[个人后台服务](../operate/deploy-server.md#运行持久个人-server)。
 
 加载客户端连接配置并检查服务：
 
@@ -72,7 +72,7 @@ POWERCONTEXT_CODEX_SCOPE_ID=替换为返回的scope_id
 
 `codex-xxxxxxxx` 是向导规划的标题，不是 ID。配置 Claude Code 时，将其创建请求返回的 ID 写入 `POWERCONTEXT_CLAUDE_SCOPE_ID`。不同 Agent 可以各自隔离，也可以显式绑定同一已有 Scope。切换目录本身不会创建隔离。验收期间，Dashboard 和 Agent 必须使用相同的 Scope。
 
-修改 `.env` 后，协调服务配置，重新加载客户端文件并安装匹配的插件：
+修改 `.env` 后，更新服务设置，重新加载客户端配置并安装匹配的插件：
 
 ```bash
 powercontext service install --env-file .env

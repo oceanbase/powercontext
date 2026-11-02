@@ -39,7 +39,7 @@ The final screen shows the Dashboard URL and the SSH command when selected. If a
 
 ## 2. Start the Server
 
-In this terminal, run:
+Register a personal service so the Server keeps running after you close the terminal. Linux needs an available `systemd --user` manager. Run:
 
 ```bash
 powercontext config validate --env-file .env
@@ -47,7 +47,7 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-The native current-user service manages the Server lifecycle. Linux requires an available `systemd --user` manager. Open the Dashboard URL printed by the wizard, using the port saved as `POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in with the **Server token**, not a model API key. An empty Dashboard is expected before you capture data. For development, debugging, temporary use, or systems without a native user-service manager, use `powercontext server run --env-file .env`; stop the personal service first if it is running. See [persistent personal services](../operate/deploy-server.md#run-a-persistent-personal-server).
+Open the Dashboard URL printed by the wizard, using the port saved as `POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in with the **Server token**, not a model API key. An empty Dashboard is expected before you capture data. For development, debugging, temporary use, or systems without a native user-service manager, use `powercontext server run --env-file .env`; stop the personal service first if it is running. See [persistent personal services](../operate/deploy-server.md#run-a-persistent-personal-server).
 
 Load the client settings and check the running service:
 
@@ -72,7 +72,7 @@ POWERCONTEXT_CODEX_SCOPE_ID=replace-with-returned-scope-id
 
 The planned `codex-xxxxxxxx` value is a title, not an ID. For Claude Code, put the ID returned by its creation request in `POWERCONTEXT_CLAUDE_SCOPE_ID`. Agents can have separate Scopes or explicitly share an existing one. Changing directories does not create isolation. Use the same Scope in the Dashboard and Agent during this check.
 
-After editing `.env`, reconcile the service, reload the client settings, and install the matching plugin:
+After editing `.env`, apply the updated service settings, reload the client settings, and install the matching plugin:
 
 ```bash
 powercontext service install --env-file .env

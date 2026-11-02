@@ -141,6 +141,8 @@ powercontext config init --language zh --output .env
 
 向导会询问存储、本机或远程使用场景、记忆能力、Dashboard/访问控制和 Agent 连接。首次体验可以使用 SQLite；只有确实需要时再选择嵌入式 seekdb，并同意依赖安装。
 
+向导生成 `.env` 和 `.env.next-steps.md`。这些文件可能包含凭据，请勿提交到 Git。Linux 上的个人服务需要可用的 `systemd --user` 管理器。
+
 保存 `.env` 后，验证配置并注册个人服务：
 
 ```bash
@@ -149,7 +151,7 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-向导生成一个 `.env` 环境文件和 `.env.next-steps.md`。这些文件可能包含凭据，请勿提交到 Git。原生当前用户服务负责 Server 生命周期；Linux 需要可用的 `systemd --user` 管理器。加载生成的环境文件并检查服务：
+服务会在关闭终端后继续运行 Server。加载生成的环境文件并检查服务：
 
 ```bash
 set -a
@@ -159,7 +161,7 @@ powercontext ready
 powercontext capabilities
 ```
 
-接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行 `powercontext service install --env-file .env` 以协调服务配置。然后安装相同版本的插件，再打开新 Agent 会话。[完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
+接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行 `powercontext service install --env-file .env` 使修改后的配置生效。然后安装相同版本的插件，再打开新 Agent 会话。[完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
 powercontext setup codex --ref powercontext-v1.4.1

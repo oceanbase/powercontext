@@ -1,14 +1,20 @@
 # Installer behavior contract
 
-The JSON catalogs describe public installer inputs and observable outcomes. Both native shell entry points use the same cases through `tests/test_installation_contract.py`. The catalogs are test inputs, not bootstrap downloads or an additional installation manifest. RFC 1892 defines the overall installation and recovery boundary.
+Both shell installers run against the JSON catalogs in this directory through `tests/test_installation_contract.py`. Add a case here when changing a public argument or observable installer behavior.
 
-Run the offline contract with an existing Python and uv:
+## Run the contract tests
+
+With Python and uv available, run from the repository root:
 
 ```bash
 uv run pytest tests/test_installation_contract.py -q
 ```
 
-Each file has `schema_version: 1` and a `cases` array. Case IDs must be unique across catalogs.
+The harness builds small fixture wheels, installs them with real uv in temporary directories without network access, and runs the installed launcher. Profile cases check the installed dependency set. Host cases use a fixture CLI to record the setup arguments and simulate success or failure.
+
+## Add a case
+
+Each catalog has `schema_version: 1` and a `cases` array. Give every case an ID unique across all catalogs. Describe the public arguments and the resulting installation state or error. Avoid assertions about private function names or call order.
 
 | Field | Meaning |
 | --- | --- |
@@ -19,15 +25,23 @@ Each file has `schema_version: 1` and a `cases` array. Case IDs must be unique a
 | `reported_version` | Fixture CLI version; defaults to the wheel's `1.2.0` |
 | `environment_file` | Create a protected existing configuration file for the case |
 | `missing_commands` | Public command help paths omitted by the fixture |
-| `expected.exit_code` | Installer completion or failure |
+| `expected.exit_code` | Expected installer process exit code |
 | `expected.runtime_installed` | Whether uv installed the tool launcher, including verification failures |
 | `expected.server_extra` | Whether the selected profile contains the fixture Server dependency |
 | `expected.selected_hosts` | Hosts actually submitted to setup; defaults to none |
 | `expected.setup_ref` | Release tag actually submitted to setup |
 | `expected.setup_env_file` | Whether host setup received the selected configuration file |
-| `expected.verification_failed` | Whether success must remain unannounced |
+| `expected.verification_failed` | Whether the Runtime installed message must be absent |
 | `expected.error_contains` | Required diagnostic fragment |
 
-The harness builds small standards-shaped wheels, installs them through real uv in private directories without network access, and executes the resulting native launcher. Profile cases inspect an optional installed dependency. Host cases observe the setup request and result through the fixture CLI. They do not start a real Agent, execute Git, or establish Server readiness. No case requires a particular shell function name, private call order or subprocess count.
+## Choose the right test suite
 
-The installation CI matrix runs these cases on Linux, macOS and Windows. The same workflow also builds the actual PowerContext wheel and runs `tests/native/test_installation.py` for bootstrap, configuration, HTTP readiness, Memory persistence, profile replacement and version selection. `tests/native/test_install_sources.py` adds Linux loopback index fault tests using the real downloader and uv, with only distribution endpoints redirected to fixtures. Those source tests do not qualify public mirror availability or native Windows source handling. Personal-service lifecycle acceptance remains in the existing native service workflow, separate from installer conformance.
+| Suite | Coverage |
+| --- | --- |
+| `tests/test_installation_contract.py` | Shared installer arguments, profiles, command verification, host selection, and partial host failures using fixture wheels |
+| `tests/native/test_install_sources.py` | Source selection, fallback, and version resolution with real uv and a controlled loopback index on Linux |
+| `tests/native/test_installation.py` | Actual PowerContext wheel, prerequisite bootstrap, HTTP readiness, Memory persistence, offline reinstall, profiles, and versions |
+
+The installation CI workflow builds the PowerContext wheel and runs the shared contract and native acceptance on Linux, macOS, and Windows. Set `POWERCONTEXT_INSTALL_WHEEL` to a built wheel to run actual-wheel acceptance locally; see `.github/workflows/installation.yml` for the build and invocation.
+
+Fixture hosts do not exercise a real Agent or service manager. Controlled sources do not check public mirror availability. Personal-service acceptance runs separately in `.github/workflows/native-service.yml`.

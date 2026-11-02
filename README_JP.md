@@ -139,6 +139,8 @@ powercontext config init --language en --output .env
 
 ウィザードでは、ストレージ、ローカルまたはリモート利用、メモリ機能、Dashboard/アクセス制御、Agent 接続を選択します。最初は SQLite が簡単です。組み込み seekdb は必要な場合だけ選び、依存関係のインストールを許可してください。
 
+ウィザードは `.env` と `.env.next-steps.md` を生成します。これらのファイルには認証情報が含まれることがあるため、コミットしないでください。Linux のユーザーサービスには利用可能な `systemd --user` マネージャーが必要です。
+
 `.env` を保存してから、設定を検証してユーザーサービスを登録します。
 
 ```bash
@@ -147,7 +149,7 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-ウィザードは `.env` と `.env.next-steps.md` を生成します。これらのファイルには認証情報が含まれることがあるため、コミットしないでください。Server のライフサイクルはネイティブのユーザーサービスが管理します。Linux では利用可能な `systemd --user` マネージャーが必要です。生成された環境ファイルを読み込んで接続を確認します。
+サービスはターミナルを閉じた後も Server を実行します。生成された環境ファイルを読み込んで接続を確認します。
 
 ```bash
 set -a

@@ -143,6 +143,8 @@ powercontext config init --language en --output .env
 
 The wizard asks about storage, local or remote usage, memory capabilities, Dashboard/access, and Agent connections. SQLite is the simplest first storage choice; choose embedded seekdb only when you need it and can approve its dependency install.
 
+The wizard writes `.env` and `.env.next-steps.md`. These files can contain credentials; do not commit them. Linux needs an available `systemd --user` manager for the personal service.
+
 After saving `.env`, validate it and register the personal service:
 
 ```bash
@@ -151,7 +153,7 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-The wizard writes one `.env` environment file and `.env.next-steps.md`. These files can contain credentials; do not commit them. The native current-user service manages the Server lifecycle; Linux requires an available `systemd --user` manager. Load the generated environment file and check the connection:
+The service keeps the Server running after you close the terminal. Load the generated environment file and check the connection:
 
 ```bash
 set -a
@@ -161,7 +163,7 @@ powercontext ready
 powercontext capabilities
 ```
 
-Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the same Server and Scope in the Dashboard and Agent. After editing `.env`, rerun `powercontext service install --env-file .env` to reconcile the service. Then install the matching plugins and launch a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching Codex installation is:
+Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the same Server and Scope in the Dashboard and Agent. After editing `.env`, rerun `powercontext service install --env-file .env` to apply the updated settings. Then install the matching plugins and launch a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching Codex installation is:
 
 ```bash
 powercontext setup codex --ref powercontext-v1.4.1

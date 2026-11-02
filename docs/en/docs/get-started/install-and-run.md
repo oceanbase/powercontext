@@ -5,9 +5,7 @@ description: Install PowerContext 1.4.1 and run the local Server.
 
 # Install and run
 
-For an Agent connecting from another machine, see [Connect to a remote Server](../operate/connect-remote-server.md) for guided URL confirmation, unattended setup, and endpoint-bound HTTP consent.
-
-Start with the [Quick Start](quickstart.md) for your first session. This page covers version selection, platforms, installation roles, startup, diagnostics, and updates.
+Use this guide to install PowerContext and run a personal Server. For your first Agent session, follow the [Quick Start](quickstart.md). To connect to an existing Server, use the [remote connection guide](../operate/connect-remote-server.md).
 
 ## Platform support
 
@@ -16,13 +14,13 @@ Start with the [Quick Start](quickstart.md) for your first session. This page co
 | macOS, Linux | Supported |
 | Windows | `experimental` |
 
-Windows CLI, Server, and personal-service support is experimental. Each Agent Host still has its own platform requirements. Examples using Bash syntax require a Bash environment and cannot be pasted directly into PowerShell. Embedded seekDB is unavailable on Windows.
+Windows CLI, Server, and personal-service support is experimental. Each Agent host has its own requirements. Embedded seekDB is unavailable on Windows. Bash examples below require a Bash shell.
 
 ## Install with the recommended script
 
-The script installs the CLI and local Server in an isolated uv tool environment. It reuses compatible uv/Python, or installs uv and Python 3.12 in user-owned directories. It does not need administrator privileges.
+The script installs the CLI and local Server in an isolated uv tool environment. It reuses compatible Python and uv, or installs the missing prerequisites in your user directory. You do not need administrator privileges.
 
-macOS or Linux uses Bash and requires `curl` or `wget`; Windows requires PowerShell 5.1 or newer.
+macOS or Linux needs Bash and `curl` or `wget`; Windows needs PowerShell 5.1 or newer.
 
 ```bash tab="macOS / Linux"
 curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
@@ -32,21 +30,23 @@ curl -fsSL https://powercontext.oceanbase.io/install.sh | bash
 powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://powercontext.oceanbase.io/install.ps1)))"
 ```
 
-Apply the PATH command printed at completion before running `powercontext` in your terminal. The installer does not edit shell startup files or the persistent Windows PATH. `UV_INSTALL_DIR` selects where a missing uv is installed; `UV_TOOL_BIN_DIR` selects the PowerContext executable directory.
+With `wget`, use `wget -qO- https://powercontext.oceanbase.io/install.sh | bash`.
 
-Installation runs unattended by default. Pass `--host codex` (repeatable) to install selected Agent integrations. Only Agent setup needs Git and each host's prerequisites. `--no-hosts` remains an optional way to state the default; it cannot be combined with `--host`. The [capability matrix](../integrations/capabilities.md) describes host support.
+Run the PATH command printed at completion before using `powercontext` in your terminal. The script prints how to make the installed commands available; it leaves shell startup files and the persistent Windows PATH unchanged.
 
-For an existing remote Server, add `--profile client` to install only the CLI and Client dependencies. The default `--profile local` includes the local Server. Neither profile starts a Server, registers a service, or overwrites configuration or data. For a local installation, continue with `powercontext config init` and [Quick Start](quickstart.md). Client-only installations use endpoint settings in the [remote connection guide](../operate/connect-remote-server.md).
+The default installs the latest stable release and local Server dependencies. After installation, continue with the personal-service steps below. For a remote Server, use `--profile client` and follow the [remote connection guide](../operate/connect-remote-server.md).
 
 ## Configure and install a personal service
 
-For personal macOS/Linux use, configure the local Server after installation:
+On macOS or Linux, configure a local Server:
 
 ```bash
 powercontext config init --output .env
 ```
 
-Save `.env` before continuing. If you cancel the wizard, stop here. Then validate the saved file and explicitly register the native current-user service:
+Choose local usage and loopback binding in the wizard. Save `.env` before continuing. If you cancel, stop here. Linux needs an available `systemd --user` manager. For Windows service setup and login startup, follow [Deploy the Server](../operate/deploy-server.md).
+
+Validate the saved file and register the service:
 
 ```bash
 powercontext config validate --env-file .env
@@ -54,9 +54,7 @@ powercontext service install --env-file .env
 powercontext service status
 ```
 
-Choose loopback binding for a personal service. Linux needs an available `systemd --user` manager. Windows personal services remain experimental; see [Deploy the Server](../operate/deploy-server.md) for file protection and login startup.
-
-Load the generated Client settings and check the running Server:
+The service keeps the Server running after you close the terminal. Load the client settings and check the connection:
 
 ```bash
 set -a
@@ -66,62 +64,85 @@ powercontext ready
 powercontext capabilities
 ```
 
-After any file edit, including writing returned Scope IDs, rerun `service install --env-file` with the original file. Use the same path if you saved the configuration elsewhere. A running service does not establish an Agent workflow; continue with the [Quick Start](quickstart.md) for Scope creation and Agent acceptance.
+If you edit `.env`, including adding Scope IDs, rerun `powercontext service install --env-file .env` and reload the client settings. Use the original file path if you saved it elsewhere. The [Quick Start](quickstart.md) explains Scope creation and how to verify memory from an Agent session.
 
-The installer only installs software and explicitly selected integrations. `--env-file PATH` can supply an existing connection file to selected hosts through the existing `setup` command; configuration and service registration remain separate CLI steps.
+For development, debugging, or systems without a native user-service manager, use the [foreground Server instructions](#run-the-local-server).
 
-## Installer version selection
+## Install Agent integrations
 
-The default `--version latest` installs or upgrades to the newest stable release available from the selected index and compatible with the chosen Python. It excludes prereleases. `--version` accepts an exact release, including an explicit prerelease such as `1.3.0rc1`; it never substitutes a different version if that release is unavailable.
-
-For example, install PowerContext 1.4.1 with its Codex integration:
-
-```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.4.1 --host codex
-```
-
-This selects package `1.4.1` and Git tag `powercontext-v1.4.1`. With `latest`, the installer reads the installed CLI's version and uses its matching tag; it never uses the moving `master` branch for host setup. To add an integration later:
+Install each Agent's CLI first, then add its PowerContext integration. For Codex:
 
 ```bash
 powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 ```
 
-Use `powercontext setup --ref "powercontext-v$(powercontext --version)"` for an interactive host picker.
+This uses the tag matching your installed PowerContext version. Run `powercontext setup --ref "powercontext-v$(powercontext --version)"` to choose hosts interactively. Follow the selected [integration guide](../integrations/index.md) to check the connection and enable its hooks.
 
-In PowerShell, the same double-quoted expression works. An integration failure leaves the installed Runtime usable and exits with an error and a retry instruction. Installation success does not establish Server readiness or host workflow correctness; use the checks below and the integration's own guide.
+To install an integration with the package, pass `--host codex` to the installer. Repeat `--host` for multiple hosts; this needs Git and each host's prerequisites. If you already have a connection file, pass `--env-file PATH` with the selected hosts. The script passes that file to `setup`. Without `--host`, installation skips integrations; `--no-hosts` states this explicitly and cannot be combined with `--host`. See the [capability matrix](../integrations/capabilities.md) for supported hosts.
 
-The installer verifies the installed version and advertised commands before reporting success. A package can install successfully while command verification fails; in that case the old executable may already have been replaced. Review the named command error and rerun with a known working `--version`. The installer does not roll package files back.
+## Installer version selection
+
+The default `--version latest` installs or upgrades to the newest compatible stable release on the selected index. To install PowerContext 1.4.1, choose the command for your platform:
+
+```bash tab="macOS / Linux"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.4.1
+```
+
+```powershell tab="Windows"
+irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --version 1.4.1
+```
+
+You can also request an explicit prerelease, such as `1.3.0rc1`. If the selected index lacks that version, installation fails and preserves the installed tool. `latest` excludes prereleases. A mirror may lag PyPI, so its latest available release may differ.
 
 ## Retry dependency downloads with a mirror
 
-Package indexes, uv binaries, and Python distributions are separate downloads. Changing the package index does not change the uv or Python download location.
+Choose the China mirrors with `--region cn`:
+
+```bash tab="macOS / Linux"
+curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --region cn
+```
+
+```powershell tab="Windows"
+irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn
+```
+
+`--region auto|cn|global` overrides `POWERCONTEXT_INSTALL_REGION`. Without an explicit region, the script uses your named timezone, then locale territory, then global sources. Use `--region global` to select global defaults.
+
+For a specific download problem, set the corresponding source. A package index setting does not change where Python or uv is downloaded:
 
 | Download | Explicit setting | Automatic China source | Global source |
 | --- | --- | --- | --- |
-| PowerContext and Python packages | `--index-url URL`, uv index environment variables or `uv.toml` | Tsinghua PyPI mirror | PyPI |
+| PowerContext and Python packages | `--index-url URL`, uv index variables or `uv.toml` | Tsinghua PyPI mirror | PyPI |
 | uv installer | `POWERCONTEXT_UV_INSTALLER_URL` | USTC uv release mirror | Astral installer |
 | uv binaries | `UV_DOWNLOAD_URL` or `UV_INSTALLER_GITHUB_BASE_URL` | USTC uv release mirror | Astral release channels |
 | Python distributions | `UV_PYTHON_INSTALL_MIRROR` | NJU python-build-standalone mirror | uv default channels |
 
-```bash
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --region cn
-curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --index-url https://pypi.org/simple
-```
+Existing uv settings take precedence over automatic mirrors. `--index-url` changes the default package index; additional uv indexes keep their priority. Store private-index credentials in uv's authentication configuration. uv does not read `PIP_INDEX_URL` or `PIP_EXTRA_INDEX_URL`. Existing Python mirror settings and `uv.toml` also suppress automatic Python mirrors. `UV_ASTRAL_MIRROR_URL` is passed to uv versions that support it.
 
-`--region auto|cn|global` overrides `POWERCONTEXT_INSTALL_REGION`. Auto selection uses a named local timezone, then the locale territory, then global; it makes no geolocation request. An unavailable automatic mirror can fall back to the official source. A reachable China package mirror remains selected even if it lacks the requested release; uv reports resolution or artifact failures without retrying against another index. Use `--region global` or an explicit source to select another index. Explicit sources never fall back automatically. A mirror may lag PyPI: `latest` means the newest compatible stable release on the chosen index.
+An unavailable automatic mirror can fall back to an official source. A reachable package mirror that lacks the requested version returns an installation error. Select `--region global` or an explicit index to retry elsewhere. Explicit sources stay selected when they fail.
 
-Existing uv index settings and configuration files take precedence over automatic package mirrors. An explicit `--index-url` overrides the default index only; additional uv indexes keep their priority. Private index credentials belong in uv's authentication configuration, not in script arguments. uv does not read `PIP_INDEX_URL` or `PIP_EXTRA_INDEX_URL`. Existing Python mirror settings and `uv.toml` also suppress automatic Python mirror selection. `UV_ASTRAL_MIRROR_URL` is passed through for uv versions that support it. These settings are scoped to the installation; your persistent package-manager configuration is unchanged. An existing uv is reused without upgrading it.
+## Recover a failed installation
 
-To inspect the installer or pass several options in PowerShell, save it first:
+Use the error reported by the installer to choose the next step:
 
-```powershell
-irm https://powercontext.oceanbase.io/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 --region cn --version 1.4.1
-```
+| Failure | What to do |
+| --- | --- |
+| Python or uv download failed | Check the download setting above and rerun the installer |
+| Package resolution or download failed | Check the selected index and requested version, then retry |
+| Package installed, command verification failed | Review the named command error and rerun with a known working `--version`; the previous executable may already have been replaced |
+| Agent integration setup failed | Keep the installed PowerContext and retry `powercontext setup` with the release tag printed in the error |
 
-Cached reinstallation with `UV_OFFLINE=1` can work when uv, compatible Python, and all required packages are already present. This is not an offline distribution bundle; missing downloads fail explicitly.
+For cached reinstallation, set `UV_OFFLINE=1` only when uv, compatible Python, and all required packages are available. Missing downloads fail in offline mode.
 
-## Choose a version
+To choose installation locations, use `UV_INSTALL_DIR` for a missing uv and `UV_TOOL_BIN_DIR` for the PowerContext commands. Reused uv versions and your persistent package-manager settings remain unchanged.
+
+## Install manually with uv
+
+If you already manage Python and uv, you can install a fixed release directly. Choose a version, then install the required package extras.
+
+### Choose a version
 
 These instructions use PowerContext 1.4.1. Keep the package and Agent integration on the same version: package `1.4.1` and Git tag `powercontext-v1.4.1`.
 
@@ -132,7 +153,7 @@ powercontext setup codex --ref powercontext-v1.4.1
 
 Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status. Capabilities marked `experimental` remain experimental in this release.
 
-## Install the application
+### Install the application
 
 You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install PowerContext from PyPI:
 
@@ -153,6 +174,8 @@ The Git command does not leave a repository checkout for you to manage. Git uses
 To install another branch or tag, replace the ref after the final `@`. The `master` branch can include unreleased changes. Follow the [guide for each integration](../integrations/index.md) for Agent installation, connection options, and verification, using the same ref as the Server.
 
 ## Run the local Server
+
+Use this foreground mode for development, debugging, or temporary use. Stop an existing personal service before starting another Server on the same address.
 
 ```bash
 powercontext server run
