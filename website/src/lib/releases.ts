@@ -29,6 +29,58 @@ export interface Release {
 // Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
   {
+    version: 'v1.5.0',
+    date: '2026-11-02',
+    title: {
+      en: 'Source and Artifact plugins · Explainable context · Safer Desktop and Server workflows',
+      zh: 'Source 与 Artifact 插件 · 可解释的上下文 · 更可靠的桌面端与 Server 工作流',
+    },
+    summary: {
+      en: 'PowerContext 1.5.0 adds managed Source and Artifact plugins, content-free preparation receipts, and a metadata-only Atomic Memory manifest. Opt-in inference protection checks final model requests and responses. Desktop gains clearer connection and Scope selection, identity-change recovery, and Linux credential storage, while local Ops adds fixed-runtime installation and repair.',
+      zh: 'PowerContext 1.5.0 新增受管 Source 与 Artifact 插件、不含正文的上下文准备回执，以及仅返回元数据的 Atomic Memory 清单。可选的推理保护检查最终模型请求与响应。桌面端完善连接和 Scope 选择、身份变化后的恢复，并支持 Linux 凭据存储；本地 Ops 新增固定版本运行环境的安装与修复。',
+    },
+    changes: {
+      en: [
+        'Extend Source ingestion with trusted local plugins for synchronous writes and ongoing collection. Hosts discover capabilities and manage collection targets through the public MCP; separate collect Runtimes retain checkpoints and explicit lifecycle state. Plugin loading requires deployment administration, and local collect process management currently requires Linux.',
+        'Generate custom Artifact families with managed plugins, versioned schemas, exact Source lineage, and declared text or vector search. Administrators load, enable, disable, reload, or unload bindings; initial registrations are disabled. Saved results remain readable when generation is disabled or plugin code is removed. Included incident-report and ticket-summary examples demonstrate the workflow.',
+        'Request include_receipt during context preparation to inspect selected exact revisions, retrieval and fallback modes, omissions, configuration, and stage timings without returning query or evidence bodies. Receipts are bounded, ephemeral diagnostics; unavailable or oversized receipts leave the original prepared context usable. Normal host injection keeps the default response shape.',
+        'Browse a bounded, paginated Atomic Memory manifest before reading selected exact revisions. New writes retain a short description, with a text preview for explicit writes and descriptions generated within existing extraction calls. Historical descriptions can remain absent; reading the manifest never generates summaries. Extraction instructions also preserve subject, scope, and applicability when facts concern different entities.',
+        'Opt in to final inference request and complete-response checks at owned provider transports. Enforcing mode refuses forbidden content or incomplete inspection; disabled remains the default. Public context admission and short-lived exact Atomic Memory reuse proofs let external executors check their final payloads and current permissions. This release does not include the proposed Rust Gateway, general-purpose redaction, or a provider cache.',
+        'Configure reversible input encoding separately for Atomic Memory extraction/reconciliation and Experience generation/incubation. Shadow mode sends original inputs; experimental active mode selects an exactly restorable, smaller representation when eligible. Encoding is off by default and does not establish equivalent model understanding, privacy redaction, or lower total task cost.',
+        'Guide Desktop connection activation into exact Scope selection and gate each action on discovered operation compatibility. Revalidate Server and Principal identity around private reads and writes; identity changes clear active context, while uncertain writes retain a read-only recovery draft. Add bounded session diagnostics and Linux Secret Service credential storage, with an explicit session-only option when persistent storage is unavailable.',
+        'Install and repair fixed managed local Server runtimes through independent Ops preflight and apply operations, with a constrained native Desktop bridge. Repair preserves configuration and data and leaves the service stopped. Existing managed SQLite startup checks use a private main-file and WAL snapshot through the exact target bundle. Resource candidates remain unqualified; a public production catalog and clean-machine native distribution acceptance are separate requirements.',
+        'Add experimental Cindy scoped recall and automatic memory hooks, with a separate native MCP connection for the full tool catalog. Tighten pre-compaction lifecycle handling, bound recall queries in Pi, OpenCode, DSH, and Bub, run Codex SessionStart on forked sessions, and support Claude Code hooks on the macOS system Python 3.9.',
+        'Bound all query-embedding waits within one context preparation budget and reduce repeated reads in Candidate review, Experience incubation, Handoff Reports, and archive compatibility checks. Add durable recovery intents for external ownership writes, safe processing failure classifications, and Code publication journals that keep newly orphaned generations reclaimable. Identical rendered code evidence no longer changes with query time.',
+        'Deploy API and background roles on Kubernetes using the new Helm chart with an external OceanBase database, pinned image, existing Secrets, and explicit database initialization. Linux and macOS Servers can also use a private Unix domain socket for same-user proxies. Socket transport retains authentication and requires explicit external-scheme configuration for HTTPS Dashboard access.',
+        'Default new seekDB and OceanBase selections to the powercontext database while preserving explicit database names. Legacy seekDB data in test requires selecting that database explicitly; no data is moved automatically. Provision only confirmed missing databases during authorized initialization, preserve read-only maintenance, and improve seekDB restart recovery and OceanBase full-text schema reflection.',
+        'Add a bilingual website blog with author profiles and evaluation tooling for recovery from failed MCP calls, capture ownership, and encoded-input quality. Evaluation fixtures and published measurements do not certify every Agent host, model, or native platform.',
+        'Upgrade Server, Python SDK, CLI, and integrations together: older clients reject the new context capability field even when protection is disabled. Prepare requests no longer accept explain, and responses no longer include top-level reason; use include_receipt and receipt.retrieval.searches[].fallback_reason, checking that the optional receipt is present. Update custom Atomic Memory prompts for the v2 extraction/reconciliation definitions.',
+        'Existing managed databases require explicit migration for owner recovery, Atomic Memory descriptions, Source plugin registrations, and Artifact plugin storage through v1_5_0_001. Normal publication requires all twelve installed-1.3.0 upgrade combinations across SQLite, embedded seekDB, and OceanBase, including both seekDB Code configurations, against the exact target artifact. No intermediate release is added automatically; the registered 1.4.0 bridge remains outside that acceptance matrix. The policy remains upgrade-required pending acceptance and review of the support declaration.',
+        'Upgrades from 1.3.0 and 1.4.0 require passing full Server acceptance on SQLite, seekDB and OceanBase. These migration paths are not yet verified; do not upgrade existing databases.',
+      ],
+      zh: [
+        '通过可信本地插件扩展 Source 接入，支持同步写入和持续采集。Host 通过公开 MCP 发现能力并管理采集目标；独立的 collect Runtime 保留检查点和明确的生命周期状态。加载插件需要部署管理员权限，本地 collect 进程管理目前要求 Linux。',
+        '通过受管插件生成自定义 Artifact family，声明内容版本、精确 Source 血缘，以及文本或向量检索。管理员可加载、启用、停用、重新加载或卸载 binding；首次登记默认停用。生成停用或插件代码移除后，已保存的结果仍可读取；内置工单报告和工单摘要示例展示完整流程。',
+        '准备上下文时可指定 include_receipt，查看选中的精确版本、检索与回退方式、遗漏原因、配置和阶段耗时，不返回查询或证据正文。回执是有大小限制的临时诊断；回执不可用或超限时，原始上下文仍可使用。常规 Host 注入保持默认响应结构。',
+        '通过有界分页的 Atomic Memory 清单筛选记忆，再读取选中的精确版本。新写入保留简短描述：显式写入默认生成正文预览，自动提取在现有模型调用中生成描述。历史描述可以为空，读取清单不会触发摘要生成；提取规则同时保留不同实体对应的主体、范围与适用条件。',
+        '可选启用推理保护，在自有 Provider 传输边界检查最终请求与完整响应。enforcing 模式拒绝禁用内容或覆盖不完整的检查，默认仍为 disabled。公开上下文准入接口和短时有效的 Atomic Memory 精确复用凭据，供外部执行器核对最终载荷与当前权限。本版本不包含提案中的 Rust Gateway、通用脱敏或 Provider 缓存。',
+        '分别配置 Atomic Memory 提取／协调和 Experience 生成／孵化的可逆输入编码。shadow 模式仍发送原始输入；试验性 active 模式在符合条件时选择可精确还原的更小表示。编码默认关闭，不能据此认定模型理解等价、内容已脱敏或任务总成本降低。',
+        '桌面端激活连接后引导选择精确 Scope，按发现的操作兼容性控制各项功能。私有读写前后重新核对 Server 与 Principal 身份；身份变化时清除活跃上下文，结果不确定的写入保留只读恢复草稿。新增有界会话诊断和 Linux Secret Service 凭据存储；持久存储不可用时，可显式选择仅会话保存。',
+        '独立 Ops 通过预检与执行操作安装、修复固定版本的本地 Server 运行环境，并提供受限的桌面原生桥接。修复保留配置与数据，完成后服务保持停止。已有受管 SQLite 库通过私有主文件和 WAL 快照，由目标运行包执行启动准入检查。运行资源候选尚未取得发行资格；公开生产资源目录和干净机器上的原生发行验收仍需独立完成。',
+        '新增试验性 Cindy 按 Scope 召回与自动记忆 Hook，通过独立原生 MCP 连接使用完整工具目录。完善压缩前生命周期处理，限制 Pi、OpenCode、DSH 和 Bub 的召回查询长度，在 Codex 分叉会话中执行 SessionStart，并支持在 macOS 系统 Python 3.9 上运行 Claude Code Hook。',
+        '将一次上下文准备中的所有查询 Embedding 等待限制在同一预算内，减少 Candidate 审核、Experience 孵化、Handoff Report 和归档兼容检查的重复读取。为外部所有权写入增加持久恢复意图，提供安全的处理失败分类，并通过 Code 发布日志回收新产生的孤立 generation。相同代码证据的渲染结果不再随查询时间变化。',
+        '新增 Helm chart，使用外部 OceanBase、固定镜像、已有 Secret 和显式数据库初始化，在 Kubernetes 部署 API 与后台角色。Linux、macOS Server 也可通过私有 Unix domain socket 连接同用户代理；Socket 传输仍保留认证，HTTPS Dashboard 访问需显式声明外部协议。',
+        '新建 seekDB 和 OceanBase 连接默认选择 powercontext 数据库，同时保留显式库名。旧 seekDB 数据位于 test 时需显式选择该库，不自动搬迁数据。仅在获准初始化时创建已确认缺失的库，保持维护查询只读，并完善 seekDB 重启恢复和 OceanBase 全文索引结构识别。',
+        '网站新增双语博客与作者资料，并增加 MCP 调用失败恢复、采集归属和编码输入质量的评测工具。评测夹具与已发布测量不代表所有 Agent Host、模型或原生平台均已验收。',
+        'Server、Python SDK、CLI 与集成需协调升级：即使推理保护关闭，旧 Client 也会拒绝新的上下文能力字段。上下文准备请求不再接受 explain，响应移除顶层 reason；改用 include_receipt 和 receipt.retrieval.searches[].fallback_reason，并先确认可选回执存在。自定义 Atomic Memory Prompt 需适配 v2 提取／协调定义。',
+        '已有受管数据库需要显式迁移，加入所有权恢复、Atomic Memory 描述、Source 插件登记和 Artifact 插件存储，目标修订为 v1_5_0_001。常规发布要求真实 1.3.0 到准确目标产物的十二个组合全部通过，覆盖 SQLite、嵌入式 seekDB、OceanBase 及向量、Code 开关，包括两个 seekDB Code 配置。不自动纳入中间发行版，已登记的 1.4.0 桥接仍不在该验收矩阵中。验收和支持声明审阅完成前保持 upgrade-required 策略。',
+        '从 1.3.0 和 1.4.0 升级，需要通过 SQLite、seekDB、OceanBase 的完整 Server 验收。这些迁移路径尚未验证，请勿升级已有数据库。',
+      ],
+    },
+    installCommand: 'uv tool install --force "powercontext[cli,server]==1.5.0"',
+    githubUrl: 'https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.0',
+  },
+  {
     version: 'v1.4.1',
     date: '2026-10-26',
     title: {

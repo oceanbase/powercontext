@@ -162,7 +162,7 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.4.1 includes an interactive setup wizard. You need Python 3.11+, Git, and
+PowerContext 1.5.0 includes an interactive setup wizard. You need Python 3.11+, Git, and
 [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent,
 also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory
 requires separate Generation and Embedding API credentials. For a local Server without model APIs, see
@@ -180,7 +180,7 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.1"
+uv tool install --force "powercontext[cli,server]==1.5.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 powercontext config validate --env-file .env
@@ -209,7 +209,7 @@ Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable accep
 Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.4.1
+powercontext setup codex --ref powercontext-v1.5.0
 powercontext doctor codex
 ```
 
