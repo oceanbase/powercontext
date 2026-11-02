@@ -161,9 +161,9 @@ class CandidateReplay:
         self.manifest["registered_operations"] = operations
         execute = schema.execute
 
-        def observed(connection, statement, configuration):
+        def observed(connection, statement, configuration, *, revision):
             if statement not in operations:
-                execute(connection, statement, configuration)
+                execute(connection, statement, configuration, revision=revision)
                 return
             executed = []
 
@@ -173,7 +173,7 @@ class CandidateReplay:
 
             event.listen(connection, "after_cursor_execute", capture_sql)
             try:
-                execute(connection, statement, configuration)
+                execute(connection, statement, configuration, revision=revision)
             finally:
                 event.remove(connection, "after_cursor_execute", capture_sql)
             position = operations.index(statement) + 1

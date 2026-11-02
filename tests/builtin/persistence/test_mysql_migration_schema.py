@@ -144,6 +144,28 @@ def extended_bundle(tmp_path: Path) -> MigrationBundle:
     return MigrationBundle(directory)
 
 
+@pytest.mark.parametrize("table_charset", ["gbk", "utf8mb4"])
+def test_registered_additions_preserve_declared_encodings(table_charset: str) -> None:
+    """Model inheritance to check emitted SQL; native tests cover execution/recovery."""
+    from unittest.mock import Mock
+
+    from powercontext.builtin.persistence.migrations.mysql_schema import _parse_table
+
+    schema = MySQLSchema(server_bundle())
+    connection = Mock(spec=Connection)
+    for statement in schema.statements("s1400"):
+        if not statement.startswith("ALTER TABLE pc_artifacts ADD COLUMN"):
+            continue
+        schema.execute(connection, statement, {}, revision="s1400")
+        emitted = connection.exec_driver_sql.call_args.args[0]
+        clause = emitted.split(" ADD COLUMN ", 1)[1]
+        _, observed = _parse_table(f"CREATE TABLE pc_artifacts ({clause}) DEFAULT CHARSET={table_charset}")
+        for name, column in observed["columns"].items():
+            expected = schema.required("s1400")["tables"]["pc_artifacts"]["columns"][name]
+            assert column == expected
+        assert "DEFAULT NULL" in emitted
+
+
 def test_registered_next_revision_uses_the_same_recognition_and_sqlite_executor(
     tmp_path: Path, extended_bundle: MigrationBundle
 ) -> None:

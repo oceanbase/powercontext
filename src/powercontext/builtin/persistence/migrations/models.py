@@ -50,6 +50,8 @@ class MigrationPlan(BaseModel):
     revisions: tuple[str, ...]
     domain_steps: tuple[str, ...] = ()
     domain_validators: tuple[str, ...] = ()
+    compatibility_steps: tuple[str, ...] = ()
+    compatibility_checksum: str | None = None
     adopt_baseline: bool = False
     backup_policy: Literal["auto", "manual", "skip"] = "auto"
     backup_available: bool = True

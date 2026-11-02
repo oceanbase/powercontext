@@ -1,0 +1,355 @@
+{
+  "provenance": {
+    "tag": "v0.0.1",
+    "creation": "Released HTTP server; four Memory writes. evolved-atomic also ran 1.1.0, 1.2.0, official 1.3.0 Atomic apply/verify, then three Atomic writes. No manual schema edits."
+  },
+  "schema": [
+    [
+      "table",
+      "pc_artifact_candidate_heads",
+      "pc_artifact_candidate_heads",
+      "CREATE TABLE pc_artifact_candidate_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tresult_family VARCHAR(128), \n\tresult_artifact_id VARCHAR(128), \n\tresult_revision INTEGER, \n\tdecision_reason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tFOREIGN KEY(scope_id, candidate_id, version) REFERENCES pc_artifact_candidate_versions (scope_id, candidate_id, version) ON DELETE RESTRICT, \n\tFOREIGN KEY(scope_id, result_family, result_artifact_id, result_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_artifact_candidate_heads_terminal_result CHECK ((status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_candidate_versions",
+      "pc_artifact_candidate_versions",
+      "CREATE TABLE pc_artifact_candidate_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tcandidate_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tproposal BLOB NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\ttarget_family VARCHAR(128), \n\ttarget_artifact_id VARCHAR(128), \n\ttarget_revision INTEGER, \n\treason TEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tFOREIGN KEY(scope_id, target_family, target_artifact_id, target_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_candidate_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_artifact_candidate_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_heads",
+      "pc_artifact_heads",
+      "CREATE TABLE pc_artifact_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tsearchable_text TEXT, \n\tPRIMARY KEY (scope_id, family, artifact_id), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_artifact_heads_revision_positive CHECK (revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_lineage_artifacts",
+      "pc_artifact_lineage_artifacts",
+      "CREATE TABLE pc_artifact_lineage_artifacts (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tupstream_family VARCHAR(128) NOT NULL, \n\tupstream_artifact_id VARCHAR(128) NOT NULL, \n\tupstream_revision INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, upstream_family, upstream_artifact_id, upstream_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_artifact_lineage_sources",
+      "pc_artifact_lineage_sources",
+      "CREATE TABLE pc_artifact_lineage_sources (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tordinal INTEGER NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision, ordinal), \n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE CASCADE, \n\tFOREIGN KEY(scope_id, source_type, source_id) REFERENCES pc_sources (scope_id, source_type, source_id) ON DELETE RESTRICT\n)"
+    ],
+    [
+      "table",
+      "pc_artifacts",
+      "pc_artifacts",
+      "CREATE TABLE pc_artifacts (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+    ],
+    [
+      "table",
+      "pc_experience_fts",
+      "pc_experience_fts",
+      "CREATE VIRTUAL TABLE pc_experience_fts USING fts5(\n    scope_id UNINDEXED,\n    artifact_id UNINDEXED,\n    revision UNINDEXED,\n    searchable_text,\n    tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_experience_fts_config",
+      "pc_experience_fts_config",
+      "CREATE TABLE 'pc_experience_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_experience_fts_content",
+      "pc_experience_fts_content",
+      "CREATE TABLE 'pc_experience_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3)"
+    ],
+    [
+      "table",
+      "pc_experience_fts_data",
+      "pc_experience_fts_data",
+      "CREATE TABLE 'pc_experience_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_experience_fts_docsize",
+      "pc_experience_fts_docsize",
+      "CREATE TABLE 'pc_experience_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_experience_fts_idx",
+      "pc_experience_fts_idx",
+      "CREATE TABLE 'pc_experience_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_external_skill_registrations",
+      "pc_external_skill_registrations",
+      "CREATE TABLE pc_external_skill_registrations (\n\tscope_id VARCHAR(256) NOT NULL, \n\texternal_skill_id VARCHAR(128) NOT NULL, \n\tprovider VARCHAR(128) NOT NULL, \n\tagent_kind VARCHAR(128) NOT NULL, \n\thost_id VARCHAR(128) NOT NULL, \n\tinstallation_scope VARCHAR(16) NOT NULL, \n\tlocator VARCHAR(2000) NOT NULL, \n\tlocator_hash VARCHAR(64) NOT NULL, \n\tfingerprint VARCHAR(64) NOT NULL, \n\tname VARCHAR(128) NOT NULL, \n\tdescription VARCHAR(2000) NOT NULL, \n\tPRIMARY KEY (scope_id, external_skill_id), \n\tCONSTRAINT uq_pc_external_skill_registrations_binding UNIQUE (scope_id, provider, host_id, installation_scope, locator_hash), \n\tCONSTRAINT ck_pc_external_skill_registrations_scope CHECK (installation_scope IN ('user', 'project', 'plugin'))\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts",
+      "pc_memory_entry_fts",
+      "CREATE VIRTUAL TABLE pc_memory_entry_fts USING fts5(\n    scope_id UNINDEXED,\n    memory_artifact_id UNINDEXED,\n    head_revision UNINDEXED,\n    entry_id UNINDEXED,\n    entry_version_id UNINDEXED,\n    searchable_text,\n    tokenize='unicode61'\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_config",
+      "pc_memory_entry_fts_config",
+      "CREATE TABLE 'pc_memory_entry_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_content",
+      "pc_memory_entry_fts_content",
+      "CREATE TABLE 'pc_memory_entry_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4, c5)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_data",
+      "pc_memory_entry_fts_data",
+      "CREATE TABLE 'pc_memory_entry_fts_data'(id INTEGER PRIMARY KEY, block BLOB)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_docsize",
+      "pc_memory_entry_fts_docsize",
+      "CREATE TABLE 'pc_memory_entry_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_fts_idx",
+      "pc_memory_entry_fts_idx",
+      "CREATE TABLE 'pc_memory_entry_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID"
+    ],
+    [
+      "table",
+      "pc_memory_entry_heads",
+      "pc_memory_entry_heads",
+      "CREATE TABLE pc_memory_entry_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tmemory_artifact_id VARCHAR(128) NOT NULL, \n\thead_revision INTEGER NOT NULL, \n\tentry_id VARCHAR(128) NOT NULL, \n\tentry_version_id VARCHAR(128) NOT NULL, \n\tentry_content_hash VARCHAR(64) NOT NULL, \n\tsearchable_text TEXT NOT NULL, \n\tPRIMARY KEY (scope_id, memory_artifact_id, entry_id), \n\tFOREIGN KEY(scope_id, family, memory_artifact_id, head_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tFOREIGN KEY(scope_id, memory_artifact_id, entry_id, entry_version_id) REFERENCES pc_memory_entry_versions (scope_id, memory_artifact_id, entry_id, entry_version_id) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_memory_entry_heads_revision_positive CHECK (head_revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_entry_versions",
+      "pc_memory_entry_versions",
+      "CREATE TABLE pc_memory_entry_versions (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tmemory_artifact_id VARCHAR(128) NOT NULL, \n\tentry_id VARCHAR(128) NOT NULL, \n\tentry_version_id VARCHAR(128) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tprevious_version_id VARCHAR(128), \n\tkind VARCHAR(128) NOT NULL, \n\ttext TEXT NOT NULL, \n\tsource_refs BLOB NOT NULL, \n\tartifact_refs BLOB NOT NULL, \n\tentry_content_hash VARCHAR(64) NOT NULL, \n\tcreated_in_revision INTEGER NOT NULL, \n\tPRIMARY KEY (scope_id, memory_artifact_id, entry_version_id), \n\tCONSTRAINT uq_pc_memory_entry_versions_logical_version UNIQUE (scope_id, memory_artifact_id, entry_id, version), \n\tCONSTRAINT uq_pc_memory_entry_versions_identity UNIQUE (scope_id, memory_artifact_id, entry_id, entry_version_id), \n\tFOREIGN KEY(scope_id, family, memory_artifact_id, created_in_revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT, \n\tCONSTRAINT ck_pc_memory_entry_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_memory_entry_versions_revision_positive CHECK (created_in_revision > 0)\n)"
+    ],
+    [
+      "table",
+      "pc_memory_fts_index",
+      "pc_memory_fts_index",
+      "CREATE TABLE pc_memory_fts_index (\n\tsingleton INTEGER NOT NULL, \n\tschema_version INTEGER NOT NULL, \n\tPRIMARY KEY (singleton), \n\tCONSTRAINT ck_pc_memory_fts_index_singleton CHECK (singleton = 1)\n)"
+    ],
+    [
+      "table",
+      "pc_model_usage_daily",
+      "pc_model_usage_daily",
+      "CREATE TABLE pc_model_usage_daily (\n\tscope_id VARCHAR(256) NOT NULL, \n\tusage_date DATE NOT NULL, \n\tpurpose VARCHAR(64) NOT NULL, \n\toperation VARCHAR(16) NOT NULL, \n\trequests BIGINT NOT NULL, \n\tinput_tokens BIGINT NOT NULL, \n\toutput_tokens BIGINT NOT NULL, \n\tinput_complete BOOLEAN NOT NULL, \n\toutput_complete BOOLEAN NOT NULL, \n\tPRIMARY KEY (scope_id, usage_date, purpose, operation), \n\tCONSTRAINT ck_pc_model_usage_daily_operation CHECK (operation IN ('generation', 'embedding')), \n\tCONSTRAINT ck_pc_model_usage_daily_requests_nonnegative CHECK (requests >= 0), \n\tCONSTRAINT ck_pc_model_usage_daily_input_nonnegative CHECK (input_tokens >= 0), \n\tCONSTRAINT ck_pc_model_usage_daily_output_nonnegative CHECK (output_tokens >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_recall_token_daily",
+      "pc_recall_token_daily",
+      "CREATE TABLE pc_recall_token_daily (\n\tscope_id VARCHAR(256) NOT NULL, \n\tusage_date DATE NOT NULL, \n\testimator_id VARCHAR(128) NOT NULL, \n\testimator_version VARCHAR(64) NOT NULL, \n\tpreparations BIGINT NOT NULL, \n\tready_preparations BIGINT NOT NULL, \n\tcomparable_preparations BIGINT NOT NULL, \n\tbaseline_tokens BIGINT NOT NULL, \n\trecalled_tokens BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, usage_date, estimator_id, estimator_version), \n\tCONSTRAINT ck_pc_recall_token_daily_preparations_nonnegative CHECK (preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_ready_nonnegative CHECK (ready_preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_comparable_nonnegative CHECK (comparable_preparations >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_comparable_ready CHECK (comparable_preparations <= ready_preparations), \n\tCONSTRAINT ck_pc_recall_token_daily_ready_total CHECK (ready_preparations <= preparations), \n\tCONSTRAINT ck_pc_recall_token_daily_baseline_nonnegative CHECK (baseline_tokens >= 0), \n\tCONSTRAINT ck_pc_recall_token_daily_recalled_nonnegative CHECK (recalled_tokens >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_source_cursors",
+      "pc_source_cursors",
+      "CREATE TABLE pc_source_cursors (\n\tscope_id VARCHAR(256) NOT NULL, \n\tbinding_name VARCHAR(128) NOT NULL, \n\tcursor BLOB NOT NULL, \n\tgeneration BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, binding_name), \n\tCONSTRAINT ck_pc_source_cursors_generation_nonnegative CHECK (generation >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_source_journal_heads",
+      "pc_source_journal_heads",
+      "CREATE TABLE pc_source_journal_heads (\n\tscope_id VARCHAR(256) NOT NULL, \n\tposition BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id), \n\tCONSTRAINT ck_pc_source_journal_heads_position_nonnegative CHECK (position >= 0)\n)"
+    ],
+    [
+      "table",
+      "pc_sources",
+      "pc_sources",
+      "CREATE TABLE pc_sources (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tpayload BLOB NOT NULL, \n\tjournal_position BIGINT NOT NULL, \n\tPRIMARY KEY (scope_id, source_type, source_id), \n\tCONSTRAINT uq_pc_sources_scope_journal_position UNIQUE (scope_id, journal_position)\n)"
+    ]
+  ],
+  "rows": {
+    "pc_artifact_candidate_heads": [],
+    "pc_artifact_candidate_versions": [],
+    "pc_artifact_heads": [
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        4,
+        null
+      ]
+    ],
+    "pc_artifact_lineage_artifacts": [],
+    "pc_artifact_lineage_sources": [],
+    "pc_artifacts": [
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        1,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f6662386663396135363962613437626539373965623834326163376639396461222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3832613231613266353834613435663562386639326364363438383330343434222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6662386663396135363962613437626539373965623834326163376639396461222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3832613231613266353834613435663562386639326364363438383330343434222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        }
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        2,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f3334393266313763393438373462303562623064653639653833323966373863222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3163626565656536616637343436636638363738656434383466633033363966222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6662386663396135363962613437626539373965623834326163376639396461222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3832613231613266353834613435663562386639326364363438383330343434222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f3334393266313763393438373462303562623064653639653833323966373863222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3163626565656536616637343436636638363738656434383466633033363966222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        }
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        3,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f3334393266313763393438373462303562623064653639653833323966373863222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3163626565656536616637343436636638363738656434383466633033363966222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6266386164343437643733383438386338393962663261383231313665383161222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6436653063396561623138623430626639666465636332326439336237396130222c22656e7472795f636f6e74656e745f68617368223a2235313837633638623036643134373339363831643763303566333863396430386437383833313464376433653262383262326538663035613164313237636362222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6662386663396135363962613437626539373965623834326163376639396461222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3832613231613266353834613435663562386639326364363438383330343434222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6266386164343437643733383438386338393962663261383231313665383161222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6436653063396561623138623430626639666465636332326439336237396130222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        }
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        4,
+        {
+          "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f3334393266313763393438373462303562623064653639653833323966373863222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3163626565656536616637343436636638363738656434383466633033363966222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f3661633436383962643636363465633961366438333336663362616365346664222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3862643435336532616462393432666238636530346265666166633338373663222c22656e7472795f636f6e74656e745f68617368223a2232666630356137633137313362626166633734383464343466323964323161653233656164363866616133663561613135623836383032636661343161336439222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6266386164343437643733383438386338393962663261383231313665383161222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6436653063396561623138623430626639666465636332326439336237396130222c22656e7472795f636f6e74656e745f68617368223a2235313837633638623036643134373339363831643763303566333863396430386437383833313464376433653262383262326538663035613164313237636362222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6662386663396135363962613437626539373965623834326163376639396461222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3832613231613266353834613435663562386639326364363438383330343434222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f3661633436383962643636363465633961366438333336663362616365346664222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f3862643435336532616462393432666238636530346265666166633338373663222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+        }
+      ]
+    ],
+    "pc_external_skill_registrations": [],
+    "pc_memory_entry_heads": [
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_3492f17c94874b05bb0de69e8329f78c",
+        "mem_ver_1cbeeee6af7446cf8678ed484fc0369f",
+        "a9fbf45af3002f156c6f5e55423f7e891e8805d20932abbcb96791533ca20eed",
+        "upgrade100bravo pet cat is named tangyuan"
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_6ac4689bd6664ec9a6d8336f3bace4fd",
+        "mem_ver_8bd453e2adb942fb8ce04befafc3876c",
+        "2ff05a7c1713bbafc7484d44f29d21ae23ead68faa3f5aa15b86802cfa41a3d9",
+        "upgrade100delta occupation is database engineer"
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_bf8ad447d738488c899bf2a82116e81a",
+        "mem_ver_d6e0c9eab18b40bf9fdecc22d93b79a0",
+        "5187c68b06d14739681d7c05f38c9d08d788314d7d3e2b82b2e8f05a1d127ccb",
+        "upgrade100charlie favorite dish is west lake vinegar fish"
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        4,
+        "mem_ent_fb8fc9a569ba47be979eb842ac7f99da",
+        "mem_ver_82a21a2f584a45f5b8f92cd648830444",
+        "ddf513955f656035914ab68270f5641faa09f29afafd701ed5e9f0a54425e6ea",
+        "upgrade100alpha user name is chen chen"
+      ]
+    ],
+    "pc_memory_entry_versions": [
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        "mem_ent_fb8fc9a569ba47be979eb842ac7f99da",
+        "mem_ver_82a21a2f584a45f5b8f92cd648830444",
+        1,
+        null,
+        "fact",
+        "Upgrade100Alpha user name is Chen Chen.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "ddf513955f656035914ab68270f5641faa09f29afafd701ed5e9f0a54425e6ea",
+        1
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        "mem_ent_3492f17c94874b05bb0de69e8329f78c",
+        "mem_ver_1cbeeee6af7446cf8678ed484fc0369f",
+        1,
+        null,
+        "fact",
+        "Upgrade100Bravo pet cat is named Tangyuan.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "a9fbf45af3002f156c6f5e55423f7e891e8805d20932abbcb96791533ca20eed",
+        2
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        "mem_ent_bf8ad447d738488c899bf2a82116e81a",
+        "mem_ver_d6e0c9eab18b40bf9fdecc22d93b79a0",
+        1,
+        null,
+        "fact",
+        "Upgrade100Charlie favorite dish is West Lake vinegar fish.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "5187c68b06d14739681d7c05f38c9d08d788314d7d3e2b82b2e8f05a1d127ccb",
+        3
+      ],
+      [
+        "historical-upgrade",
+        "memory",
+        "memory",
+        "mem_ent_6ac4689bd6664ec9a6d8336f3bace4fd",
+        "mem_ver_8bd453e2adb942fb8ce04befafc3876c",
+        1,
+        null,
+        "fact",
+        "Upgrade100Delta occupation is database engineer.",
+        {
+          "hex": "5b5d"
+        },
+        {
+          "hex": "5b5d"
+        },
+        "2ff05a7c1713bbafc7484d44f29d21ae23ead68faa3f5aa15b86802cfa41a3d9",
+        4
+      ]
+    ],
+    "pc_memory_fts_index": [
+      [
+        1,
+        1
+      ]
+    ],
+    "pc_model_usage_daily": [],
+    "pc_recall_token_daily": [],
+    "pc_source_cursors": [],
+    "pc_source_journal_heads": [],
+    "pc_sources": []
+  }
+}
