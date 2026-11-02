@@ -4129,6 +4129,25 @@ def test_managed_python_is_kept_in_the_writable_arm_runtime(tmp_path: Path) -> N
     assert all("UV_PYTHON_INSTALL_DIR=/runtime/uv-python" in command for command in uv_consumers)
 
 
+def test_container_uv_commands_pin_a_python_covered_by_the_lock(tmp_path: Path) -> None:
+    paths = make_paths(tmp_path)
+    config = sut_config(tmp_path)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = TranscriptDocker()
+
+    DockerSut(docker, relay_factory=FakeRelay).run_arm(
+        config, Arm.ON, paths, b"prompt", ArtifactStore(paths.result_root)
+    )
+
+    uv_consumers = [
+        command for command in docker.commands if any(value.startswith("UV_PROJECT_ENVIRONMENT=") for value in command)
+    ]
+    assert len(uv_consumers) >= 4
+    # Without a pin, uv picks the newest CPython, which the locked wheels may not cover (#2369).
+    assert all("UV_PYTHON=3.13" in command for command in uv_consumers)
+
+
 def test_network_is_retained_when_relay_stop_fails(tmp_path: Path) -> None:
     paths = make_paths(tmp_path)
     config = sut_config(tmp_path)
