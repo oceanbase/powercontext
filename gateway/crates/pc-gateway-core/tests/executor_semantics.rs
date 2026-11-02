@@ -80,6 +80,8 @@ struct FakeGate {
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
     captured: Mutex<Vec<(String, String)>>,
+    /// 设置后，capture 记录请求后返回该错误。
+    capture_error: Mutex<Option<GateError>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
     prepare_barrier: Mutex<Option<Arc<tokio::sync::Barrier>>>,
     /// 依次给出的 prepare 结果，先于 `prepare_result` 使用。
@@ -157,7 +159,10 @@ impl GateClient for FakeGate {
             .lock()
             .unwrap()
             .push((request.source_id, request.content));
-        Ok(serde_json::json!({"captured": true}))
+        match self.capture_error.lock().unwrap().take() {
+            Some(error) => Err(error),
+            None => Ok(serde_json::json!({"captured": true})),
+        }
     }
 }
 
@@ -329,6 +334,7 @@ fn harness(
         prepare_holds: Mutex::new(VecDeque::new()),
         prepare_queries: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
+        capture_error: Mutex::new(None),
     });
     let executor = Executor::new(
         FakeGateRef(gate.clone()),
@@ -866,8 +872,10 @@ async fn sediment_captures_released_turn_synchronously() {
         captured[0].0
     );
     let v: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
-    assert_eq!(v["user"], "hello");
-    assert_eq!(v["model"], "test-model");
+    assert_eq!(
+        v,
+        serde_json::json!({"kind": "gateway_turn", "user": "hello", "steps": [], "assistant": "ok"})
+    );
 }
 
 #[tokio::test]
@@ -1878,4 +1886,224 @@ async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_tu
             .all(|(body, _)| body.contains("memory-snapshot-2")
                 && !body.contains("memory-snapshot-3"))
     );
+}
+
+// ---------- #2407：每个用户回合在终止响应时沉淀一次规范化记录 ----------
+
+fn delivered(body: serde_json::Value) -> SendOutcome {
+    SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        status: 200,
+        content_type: "application/json".into(),
+        ttft_ms: None,
+        body: bytes::Bytes::from(body.to_string()),
+        usage: None,
+    })
+}
+
+fn chat_tool_call_response() -> SendOutcome {
+    delivered(serde_json::json!({
+        "id": "chatcmpl-1",
+        "choices": [{"finish_reason": "tool_calls", "message": {"role": "assistant", "content": null,
+            "tool_calls": [{"id": "call_9", "type": "function", "function": {"name": "run", "arguments": "{}"}}]}}],
+        "usage": {"total_tokens": 7}
+    }))
+}
+
+fn chat_final_response(text: &str) -> SendOutcome {
+    delivered(serde_json::json!({
+        "id": "chatcmpl-2",
+        "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": text}}],
+        "usage": {"total_tokens": 9}
+    }))
+}
+
+fn responses_output(items: serde_json::Value) -> SendOutcome {
+    delivered(serde_json::json!({
+        "id": "resp_1", "object": "response", "status": "completed", "output": items,
+        "usage": {"input_tokens": 10, "output_tokens": 2}
+    }))
+}
+
+fn reasoning_item() -> serde_json::Value {
+    serde_json::json!({"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": "gAAAA-secret"})
+}
+
+/// 规范化记录不得含推理密文、各类 ID、用量等元数据。
+fn assert_no_transport_metadata(content: &str) {
+    for field in [
+        "encrypted_content",
+        "gAAAA-secret",
+        "call_id",
+        "call_0",
+        "call_9",
+        "rs_1",
+        "resp_1",
+        "chatcmpl",
+        "usage",
+        "total_tokens",
+        "BEGIN_POWERCONTEXT",
+    ] {
+        assert!(
+            !content.contains(field),
+            "transcript contains {field}: {content}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn chat_tool_loop_captures_once_at_the_terminal_response() {
+    let (executor, renderer, _transport, gate) = harness(
+        allow_runs(2),
+        vec![chat_tool_call_response(), chat_final_response("done")],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let r = RendererRef(renderer.clone());
+    for step in 0..2 {
+        let mut c = tool_loop_call("fix the bug", step, false);
+        c.sediment = true;
+        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+        let expected = step;
+        assert_eq!(
+            gate.captured.lock().unwrap().len(),
+            expected,
+            "a tool-calling response is not captured"
+        );
+    }
+    let captured = gate.captured.lock().unwrap().clone();
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        transcript,
+        serde_json::json!({
+            "kind": "gateway_turn",
+            "user": "fix the bug",
+            "steps": [
+                {"type": "tool_call", "name": "run", "arguments": "{}"},
+                {"type": "tool_output", "output": "ok"}
+            ],
+            "assistant": "done"
+        })
+    );
+    assert_no_transport_metadata(&captured[0].1);
+}
+
+#[tokio::test]
+async fn responses_tool_loop_captures_once_at_the_terminal_response() {
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(2),
+        vec![
+            responses_output(serde_json::json!([
+                reasoning_item(),
+                {"id": "fc_1", "type": "function_call", "call_id": "call_0", "name": "run", "arguments": "{\"cmd\":\"ls\"}"}
+            ])),
+            responses_output(serde_json::json!([
+                reasoning_item(),
+                {"id": "msg_1", "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+            ])),
+        ],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    for step in 0..2 {
+        let mut c = tool_loop_call("fix the bug", step, true);
+        c.sediment = true;
+        if step == 1 {
+            // 下一个请求带回上一步的推理条目与工具调用。
+            c.request.messages.insert(
+                1,
+                CanonicalMessage {
+                    role: Role::Tool,
+                    content: vec![reasoning_item()],
+                    content_null: false,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+            );
+        }
+        let outcome = executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+        assert_eq!(gate.captured.lock().unwrap().len(), step);
+    }
+    let captured = gate.captured.lock().unwrap().clone();
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        transcript,
+        serde_json::json!({
+            "kind": "gateway_turn",
+            "user": "fix the bug",
+            "steps": [
+                {"type": "tool_call", "name": "run", "arguments": "{}"},
+                {"type": "tool_output", "output": "ok"}
+            ],
+            "assistant": "done"
+        })
+    );
+    assert_no_transport_metadata(&captured[0].1);
+}
+
+#[tokio::test]
+async fn a_failed_capture_still_releases_and_is_recorded() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(1), vec![chat_final_response("done")], 2);
+    *gate.capture_error.lock().unwrap() = Some(GateError::GateUnavailable("down".into()));
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = call(DegradePolicy::Pause);
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    assert_eq!(gate.captured.lock().unwrap().len(), 1);
+    assert!(evidence
+        .not_sent()
+        .iter()
+        .any(|(_, reason)| reason.starts_with("sediment_failed:")));
+}
+
+#[tokio::test]
+async fn a_blocked_release_is_never_captured() {
+    let (executor, renderer, _transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(
+                CheckPhase::BeforeRelease,
+                CheckDecision::Block,
+                &["privacy.denied"],
+            )),
+        ],
+        vec![chat_final_response("secret answer")],
+        2,
+    );
+    let mut c = call(DegradePolicy::Pause);
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Blocked { .. }));
+    assert!(gate.captured.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_degraded_delivery_is_never_captured() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![Err(GateError::GateUnavailable("down".into()))],
+        vec![chat_final_response("unchecked answer")],
+        2,
+    );
+    let mut c = call(DegradePolicy::PassthroughWithoutMemory);
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Degraded { .. }));
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    assert!(gate.captured.lock().unwrap().is_empty());
 }
