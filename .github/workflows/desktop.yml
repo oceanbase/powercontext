@@ -208,8 +208,21 @@ jobs:
         shell: bash
         run: |
           mkdir -p .artifacts
-          set -o pipefail
-          pnpm tauri build --ci --verbose -- --locked 2>&1 | tee .artifacts/macos-build.log
+          set -euo pipefail
+          : > .artifacts/macos-build.log
+          for attempt in 1 2 3; do
+            attempt_log=".artifacts/macos-build-attempt-${attempt}.log"
+            if pnpm tauri build --ci --verbose -- --locked 2>&1 | tee "$attempt_log" | tee -a .artifacts/macos-build.log; then
+              break
+            else
+              build_status=$?
+            fi
+            if [ "$attempt" -eq 3 ] || ! grep -Fq 'hdiutil: create failed - Resource busy' "$attempt_log"; then
+              exit "$build_status"
+            fi
+            echo "::warning::DMG creation found a busy resource; retrying after $((attempt * 5)) seconds (attempt $attempt of 3)."
+            sleep "$((attempt * 5))"
+          done
       - name: Collect macOS packaging diagnostics
         if: ${{ always() && steps.macos_build.outcome == 'failure' }}
         timeout-minutes: 2
@@ -230,7 +243,7 @@ jobs:
           name: desktop-macos-${{ matrix.runner }}-packaging-diagnostics
           include-hidden-files: true
           path: |
-            desktop/.artifacts/macos-build.log
+            desktop/.artifacts/macos-build*.log
             desktop/.artifacts/macos-packaging-diagnostics.log
             desktop/src-tauri/target/release/bundle/dmg/bundle_dmg.sh
             desktop/src-tauri/target/release/bundle/share/create-dmg/support/

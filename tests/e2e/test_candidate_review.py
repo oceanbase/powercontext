@@ -47,6 +47,7 @@ from powercontext.http import (
     SkillProposal,
     SkillValidationItem,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
@@ -136,6 +137,7 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                     query="Regenerate the Client before contract tests.",
                 )
             )
+            assert isinstance(prepared, PreparedContext)
             revised = await client.revise_candidate(
                 ReviseCandidateRequest(
                     scope_id=scope_id,
@@ -171,6 +173,7 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                     query="Regenerate and inspect the Client before contract tests.",
                 )
             )
+            assert isinstance(approved_context, PreparedContext)
             exact_candidate = await client.get_candidate(
                 GetCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id)
             )

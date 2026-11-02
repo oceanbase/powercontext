@@ -1124,6 +1124,16 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
+  gateway-validation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').gateway) }}
+    uses: ./.github/workflows/gateway.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
   desktop-validation:
     needs: [quality, tests]
     if: >-
@@ -1241,6 +1251,7 @@ jobs:
       - website-link-validation-windows
       - check-website
       - harness-validation
+      - gateway-validation
       - desktop-validation
       - managed-resource-candidates
       - helm

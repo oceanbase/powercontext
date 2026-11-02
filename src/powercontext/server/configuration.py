@@ -29,7 +29,7 @@ from typing_extensions import override
 
 from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
 from powercontext.paths import POWERCONTEXT_HOME_ENV
-from powercontext.server.settings import ServerSettings
+from powercontext.server.settings import HttpConfig, ServerSettings
 
 DEFAULT_SERVER_ENV_FILE = Path(".env")
 _SERVER_ENVIRONMENT_PREFIX = "POWERCONTEXT_SERVER_"
@@ -59,6 +59,50 @@ class _EnvironmentMappingSource(EnvSettingsSource):
     def __init__(self, settings_cls: type[BaseSettings], environment: Mapping[str, str]) -> None:
         super().__init__(settings_cls)
         self.env_vars = {name if self.case_sensitive else name.lower(): value for name, value in environment.items()}
+
+
+def _http_configuration_values(*environments: Mapping[str, str]) -> dict[str, Any]:
+    """Parse HTTP fields with Server casing and source precedence, before validation."""
+    values: dict[str, Any] = {}
+    field = ServerSettings.model_fields["http"]
+    try:
+        for environment in environments:
+            source = _EnvironmentMappingSource(ServerSettings, environment)
+            raw, _, complex_value = source.get_field_value(field, "http")
+            parsed = source.prepare_field_value("http", field, raw, complex_value)
+            if parsed is not None:
+                if not isinstance(parsed, dict):
+                    raise ValueError("HTTP settings must be an object")  # noqa: TRY003, TRY301
+                if not source.case_sensitive:
+                    parsed = source._replace_field_names_case_insensitively(field, parsed)
+                values.update(parsed)
+    except (ValueError, SettingsError) as error:
+        # Environment values may contain private paths; report the owning boundary only.
+        raise ServerConfigurationError(ValueError("Invalid Server HTTP configuration")) from error
+    return values
+
+
+def has_uds_configuration(*environments: Mapping[str, str]) -> bool:
+    """Detect a configured UDS value without validating editable TCP settings."""
+
+    return _http_configuration_values(*environments).get("uds") is not None
+
+
+def resolve_http_configuration(*environments: Mapping[str, str]) -> HttpConfig:
+    """Resolve only HTTP settings, with later environment sources taking precedence.
+
+    Use the Server's source parser so JSON objects, case-insensitive names and flat
+    nested overrides behave identically, without requiring unrelated runtime settings.
+    """
+
+    values = _http_configuration_values(*environments)
+    try:
+        return HttpConfig.model_validate(values)
+    except ValidationError as error:
+        message = "Invalid Server HTTP configuration"
+        if any(problem["loc"] == ("port",) for problem in error.errors()):
+            message = "Server HTTP port must be an integer between 1 and 65535"
+        raise ServerConfigurationError(ValueError(message)) from error
 
 
 class _ServerSettingsWithEnvironmentFile(ServerSettings):
@@ -111,6 +155,7 @@ def server_settings_context(
     *,
     host: str | None = None,
     port: int | None = None,
+    uds: Path | None = None,
     env_file: Path | None = None,
     environment: Mapping[str, str] | None = None,
     data_dir: Path | None = None,
@@ -163,22 +208,24 @@ def server_settings_context(
         else nullcontext()
     )
     with settings_context, loaded_context, data_dir_context:
-        http_overrides: dict[str, Any] = {}
-        if host is not None:
-            http_overrides["host"] = host
-        if port is not None:
-            http_overrides["port"] = port
+        http_overrides: dict[str, Any] = {
+            name: value for name, value in {"host": host, "port": port, "uds": uds}.items() if value is not None
+        }
         settings_kwargs: dict[str, Any] = {"http": http_overrides} if http_overrides else {}
         try:
             settings = settings_class(**settings_kwargs)
         except (SettingsError, ValidationError) as error:
             raise ServerConfigurationError(error) from error
+        if settings.http.uds is not None and (host is not None or port is not None):
+            raise ServerConfigurationError(ValueError("--host and --port cannot be combined with HTTP_UDS or --uds"))
         yield settings
 
 
 __all__ = [
     "DEFAULT_SERVER_ENV_FILE",
     "ServerConfigurationError",
+    "has_uds_configuration",
+    "resolve_http_configuration",
     "resolve_server_environment_file",
     "server_settings_context",
 ]

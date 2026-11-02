@@ -40,6 +40,7 @@ from powercontext.http import (
     ReplaceArtifactRequest,
     ReplaceArtifactTagsRequest,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
 
@@ -194,6 +195,7 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_keeps_partial_memory_r
             ordinary = await client.prepare_context(
                 PrepareContextRequest(scope_id=scope.scope_id, query="restore lunar archive validation")
             )
+            assert isinstance(ordinary, PreparedContext)
             assert ordinary.status == "ready"
             assert ordinary.content is not None and "OMITTED-TAIL" in ordinary.content
             with_receipt = await client.prepare_context(
@@ -203,6 +205,7 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_keeps_partial_memory_r
                     bootstrap_receipt_id=prepared.receipt.receipt_id,
                 )
             )
+            assert isinstance(with_receipt, PreparedContext)
             assert with_receipt.status == "ready"
             assert with_receipt.content is not None and "OMITTED-TAIL" in with_receipt.content
 
@@ -221,6 +224,7 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_keeps_partial_memory_r
                     bootstrap_receipt_id=prepared.receipt.receipt_id,
                 )
             )
+            assert isinstance(after_revision, PreparedContext)
             assert after_revision.status == "ready"
             assert after_revision.content is not None and "both Python and JavaScript" in after_revision.content
 
@@ -363,6 +367,7 @@ def test_bootstrap_deduplicates_complete_atomic_revision_before_recall_sufficien
             ordinary = await client.prepare_context(
                 PrepareContextRequest(scope_id=scope.scope_id, query="orange moonlight release protocol")
             )
+            assert isinstance(ordinary, PreparedContext)
             assert ordinary.status == "ready"
             assert ordinary.content is not None and "orange moonlight" in ordinary.content
             deduplicated = await client.prepare_context(
@@ -372,6 +377,7 @@ def test_bootstrap_deduplicates_complete_atomic_revision_before_recall_sufficien
                     bootstrap_receipt_id=prepared.receipt.receipt_id,
                 )
             )
+            assert isinstance(deduplicated, PreparedContext)
             assert deduplicated.status == "empty"
             assert assessed_memory_counts[-1] == 0
 
@@ -434,6 +440,7 @@ def test_bootstrap_deduplication_replenishes_candidates_before_the_limit(tmp_pat
                 "assembly": {"sections": [{"family": "memory", "limit": 8}]},
             })
             ordinary = await client.prepare_context(recall_request)
+            assert isinstance(ordinary, PreparedContext)
             assert ordinary.content is not None
             assert ordinary.content.count("REPLENISH-") == 8
             assert assessed_memory_counts[-1] == 16
@@ -466,6 +473,7 @@ def test_bootstrap_deduplication_replenishes_candidates_before_the_limit(tmp_pat
             deduplicated = await client.prepare_context(
                 recall_request.model_copy(update={"bootstrap_receipt_id": prepared.receipt.receipt_id})
             )
+            assert isinstance(deduplicated, PreparedContext)
             assert deduplicated.content is not None
             assert deduplicated.content.count("REPLENISH-") == 8
             assert all(marker not in deduplicated.content for marker, _record in delivered)
