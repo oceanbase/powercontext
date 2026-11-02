@@ -74,9 +74,16 @@ export function Connections({
   const [compatibility, setCompatibility] = useState("");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<
-    "save" | "check" | "activate" | "remove" | "readiness" | null
+    "save" | "check" | "activate" | "remove" | null
   >(null);
   const pending = useRef(false);
+  const probePending = useRef(false);
+  const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState<{
+    id: string;
+    revision: number;
+    error: unknown;
+  } | null>(null);
   const [notice, setNotice] = useState<{
     id: string;
     kind: "saved" | "checkedComplete" | "activationBlocked";
@@ -103,6 +110,7 @@ export function Connections({
     setDirty(false);
     onDirty(false);
     setError(null);
+    setProbeError(null);
     invalidated.current = false;
   }
   useEffect(() => {
@@ -169,6 +177,25 @@ export function Connections({
         pending.current = false;
         setBusy(null);
       }
+    }
+  }
+  async function probeReadiness() {
+    if (!profile || dirty || pending.current || probePending.current) return;
+    const target = { id: profile.id, revision: profile.revision };
+    const ticket = lifetime.current;
+    probePending.current = true;
+    setProbing(true);
+    setProbeError(null);
+    try {
+      const next = await desktopApi.probeReadiness(target.id, target.revision);
+      const accepted = onState(next);
+      if (ticket === lifetime.current && accepted === false)
+        setProbeError({ ...target, error: { code: "stale_context" } });
+    } catch (error) {
+      if (ticket === lifetime.current) setProbeError({ ...target, error });
+    } finally {
+      probePending.current = false;
+      if (ticket === lifetime.current) setProbing(false);
     }
   }
   async function save() {
@@ -598,27 +625,29 @@ export function Connections({
                 )}
               </p>
             )}
+            {!dirty &&
+              probeError?.id === profile.id &&
+              probeError.revision === profile.revision && (
+                <ErrorFeedback error={probeError.error} language={language} />
+              )}
             <div className="actions">
               <button
-                disabled={dirty || !!busy || !report}
+                disabled={dirty || !!busy || probing || !report}
                 aria-describedby="readiness-explanation"
-                onClick={() =>
-                  void action("readiness", () =>
-                    desktopApi.probeReadiness(profile.id, profile.revision),
-                  )
-                }
+                aria-busy={probing}
+                onClick={() => void probeReadiness()}
               >
-                {busy === "readiness" ? t.wait : t.probeReadiness}
+                {probing ? t.wait : t.probeReadiness}
               </button>
               <button
-                disabled={dirty || !!busy}
+                disabled={dirty || !!busy || probing}
                 onClick={(event) => void check(false, event.currentTarget)}
               >
                 {busy === "check" ? t.wait : t.check}
               </button>
               <button
                 className="primary"
-                disabled={dirty || !!busy}
+                disabled={dirty || !!busy || probing}
                 onClick={(event) => void check(true, event.currentTarget)}
               >
                 {busy === "activate" ? t.activating : t.activate}

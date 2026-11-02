@@ -89,6 +89,7 @@ pnpm --dir desktop desktop:dev
 保存、检查、激活、刷新及普通 Scope／Memory 操作均不探测模型或依赖的就绪状态。
 检查已保存配置后，可点击带有说明的“探测就绪状态”执行可选诊断；探测时间与连接检查时间分别记录。
 探测失败不会授予或撤销业务权限、激活连接、切换 Scope 或丢弃输入。打开页面和重开 Desktop 均不会执行此操作。
+探测等待期间，包括离开连接页后，独立获准的 Scope 和 Memory 操作仍可使用；诊断错误仅关联被探测的连接配置版本。
 
 公开操作 `get_connection_identity` 在不探测 readiness、不要求 `server.observe` 的情况下返回实际部署、请求 Principal、
 认证状态和 Access 模式。匿名 loopback 配置要求该操作有匹配的验证记录，且明确返回认证／Access 已禁用、Principal 为空。

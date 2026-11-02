@@ -1,5 +1,25 @@
 # Desktop validation
 
+## Diagnostic and context interaction
+
+The Connections readiness action owns independent pending/error state. It does not enter
+the global connection/Scope transition counter. Scope lookup, Memory search and Memory save
+remain usable while the diagnostic is pending, including after navigating away from Connections.
+Diagnostic errors are associated with the probed profile ID and revision; late completion
+cannot discard a new Memory draft. Connection checks/activation retain their context-transition
+protection and their native concurrency boundary.
+
+On 2026-11-02, both delayed-probe success and rejection scenarios passed through the App
+component, exercising Scope lookup, search, save and retained later input before/after probe
+completion. All 152 frontend tests, TypeScript, lint/generated drift and production build passed.
+These tests use jsdom and deferred mocked native IPC; installed WebView interaction is not
+qualified by these results.
+
+连接页的就绪探测独立记录等待和错误，不进入全局连接／Scope 切换计数。探测尚未完成时，即使已离开连接页，
+仍可查找 Scope、搜索和保存记忆；错误只关联被探测的配置 ID 和版本，晚到结果不会丢弃新草稿。
+延迟探测成功与失败两种 App 流程均已覆盖，全部 152 项前端测试、类型、lint／生成漂移及生产构建通过。
+此处使用模拟原生 IPC，不代替安装后 WebView 的交互验收。
+
 ## Server 0d89e591 connection identity qualification
 
 `sqlite-atomic-0d89e591-v1` qualifies Server source

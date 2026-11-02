@@ -111,7 +111,9 @@ A successful save that returns no memory record is reported as an operation succ
 Saving, checking, activating, refreshing and ordinary Scope/Memory operations do not probe model or dependency readiness.
 After checking a saved profile, **Probe readiness** explains and performs the optional diagnostic explicitly. Its timestamp
 is separate from the connection check. A failed probe does not grant or revoke business permissions, activate a profile,
-change the Scope, or discard input. Opening a page and reopening Desktop do not run this action.
+change the Scope, or discard input. While a probe is pending, independently authorized Scope and Memory operations remain
+available, including after leaving Connections. Its diagnostic error stays associated with the probed profile revision.
+Opening a page and reopening Desktop do not run this action.
 
 The public `get_connection_identity` operation reports the actual deployment, request Principal, authentication state
 and Access mode without readiness probes or `server.observe`. Anonymous loopback profiles require matching qualification
