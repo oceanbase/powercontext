@@ -283,6 +283,7 @@ test('an inactive transport bundle stays excluded during setup', { timeout: 2400
     assert.ok(!metadata.dsh.profile.bundles.includes('transport-override'))
     assert.doesNotMatch(await fixture.native(['--profile', 'web', '--dump-config']), /unexpected\.example/)
   } finally {
+    assert.equal(dirname(resolve(home)), resolve(tmpdir()))
     rmSync(home, { recursive: true, force: true })
   }
 })

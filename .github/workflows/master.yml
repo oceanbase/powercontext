@@ -884,11 +884,6 @@ jobs:
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
 
-      - name: Use the Node runtime required by DSH
-        run: |
-          mise install node@24.22.1
-          echo "$(mise where node@24.22.1)/bin" >> "$GITHUB_PATH"
-
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
         with:

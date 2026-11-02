@@ -132,13 +132,15 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
     if (realModel) {
       const isMessagesRequest = new URL(req.url, 'http://localhost').pathname === '/v1/messages'
       if (isMessagesRequest && !realModel.messagesBaseUrl) throw new Error('realModel.messagesBaseUrl is required for Messages requests')
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${realModel.apiKey}` }
+      if (isMessagesRequest) {
+        headers['anthropic-version'] = req.headers['anthropic-version'] ?? '2023-06-01'
+        if (req.headers['anthropic-beta']) headers['anthropic-beta'] = req.headers['anthropic-beta']
+      }
       const upstream = await fetch((isMessagesRequest ? realModel.messagesBaseUrl : realModel.baseUrl).replace(/\/$/, '')
         + (isMessagesRequest ? '/v1/messages' : '/chat/completions'), {
         method: 'POST', signal: AbortSignal.timeout(90000),
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${realModel.apiKey}`,
-          ...(isMessagesRequest ? { 'anthropic-version': req.headers['anthropic-version'] ?? '2023-06-01',
-            ...(req.headers['anthropic-beta'] ? { 'anthropic-beta': req.headers['anthropic-beta'] } : {}) } : {}),
-        },
+        headers,
         body: JSON.stringify({ ...body, model: realModel.model, thinking: { type: 'disabled' } }),
       })
       res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json' })
@@ -443,7 +445,7 @@ export function injected(run) {
 
 export function toolResult(messages, diagnostic = 'The model request has no tool result') {
   const result = messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
-    .find(block => block.type === 'tool_result')
+    .findLast(block => block.type === 'tool_result')
   if (!result) throw new Error(diagnostic)
   const blocks = Array.isArray(result.content) ? result.content : [{ type: 'text', text: result.content ?? '' }]
   return { content: blocks.map(block => block.type === 'text' ? block.text ?? '' : '').join('') }
