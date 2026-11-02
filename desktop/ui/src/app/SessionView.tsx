@@ -145,7 +145,11 @@ export function SessionView({ language }: { language: Language }) {
         <PageFeedback
           kind="error"
           title={t.readFailed}
-          action={<button onClick={() => void load()}>{t.retry}</button>}
+          action={
+            <button disabled={resetting} onClick={() => void load()}>
+              {t.retry}
+            </button>
+          }
         >
           <p>{t.retryHint}</p>
         </PageFeedback>

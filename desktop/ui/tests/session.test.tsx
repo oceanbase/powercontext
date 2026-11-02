@@ -16,6 +16,7 @@
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -388,6 +389,52 @@ test("reset requires confirmation, reloads the native window and preserves repor
     sessionMessages.en.incomplete,
   );
 });
+
+test.each(["success", "failure"] as const)(
+  "summary retry stays disabled until a pending reset ends with %s",
+  async (outcome) => {
+    const user = userEvent.setup();
+    const t = sessionMessages.en;
+    vi.mocked(desktopApi.sessionSummary).mockRejectedValueOnce(
+      new Error("summary unavailable"),
+    );
+    let finishReset!: () => void;
+    let failReset!: (error: Error) => void;
+    vi.mocked(desktopApi.resetSessionObservations).mockReturnValueOnce(
+      new Promise((resolve, reject) => {
+        finishReset = resolve;
+        failReset = reject;
+      }),
+    );
+    render(<SessionView language="en" />);
+    const retry = await screen.findByRole("button", { name: t.retry });
+    await user.click(screen.getByRole("button", { name: t.reset }));
+    await answerConfirmation(user, true);
+    expect(screen.getByText(t.resetting)).toBeTruthy();
+    expect((retry as HTMLButtonElement).disabled).toBe(true);
+    await user.click(retry);
+    expect(desktopApi.sessionSummary).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      if (outcome === "success") finishReset();
+      else failReset(new Error("reset unavailable"));
+    });
+    expect(screen.queryByText(t.resetting)).toBeNull();
+    expect(
+      screen.getByText(outcome === "success" ? t.resetDone : t.resetFailed),
+    ).toBeTruthy();
+    if (outcome === "failure") {
+      const availableRetry = screen.getByRole("button", { name: t.retry });
+      expect((availableRetry as HTMLButtonElement).disabled).toBe(false);
+      await user.click(availableRetry);
+    }
+    expect(await screen.findByRole("heading", { name: t.empty })).toBeTruthy();
+    for (const name of [t.refresh, t.preview, t.reset]) {
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    }
+  },
+);
 
 test("a failed reset preserves the visible snapshot and asks for explicit inspection", async () => {
   const user = userEvent.setup();

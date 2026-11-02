@@ -83,6 +83,7 @@ class MemoryRerankDecision:
     usage: InferenceUsage
     discarded_rank_count: int = 0
     used_fallback: bool = False
+    fallback_reason: str | None = None
 
 
 class MemoryRerankText(Protocol):
@@ -123,6 +124,12 @@ class LLMMemoryReranker:
     ) -> None:
         self._generator = generator
 
+    def receipt_configuration(self) -> dict[str, object]:
+        configuration = getattr(self._generator, "receipt_configuration", None)
+        if not callable(configuration):
+            raise TypeError("rerank configuration unavailable")  # noqa: TRY003
+        return {"policy_id": self.policy_id, **configuration()}
+
     async def rerank(
         self,
         query: str,
@@ -159,6 +166,7 @@ class LLMMemoryReranker:
             usage=result.usage,
             discarded_rank_count=discarded_rank_count,
             used_fallback=True,
+            fallback_reason="empty_selection",
         )
 
 

@@ -25,6 +25,7 @@ from datetime import timedelta
 from functools import partial
 from ipaddress import ip_address
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlsplit
 
@@ -204,6 +205,7 @@ from powercontext.builtin.runtime.readiness import (
     dependency_readiness_probe,
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallSufficiencyPolicy
+from powercontext.builtin.runtime.receipt_capture import current_receipt_evidence
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
@@ -310,6 +312,10 @@ class _TracingMemoryReranker:
         self.policy_id = delegate.policy_id
         self.supports_atomic_memory = getattr(delegate, "supports_atomic_memory", False)
 
+    def receipt_configuration(self) -> dict[str, object] | None:
+        configuration = getattr(self._delegate, "receipt_configuration", None)
+        return configuration() if callable(configuration) else None
+
     async def rerank(
         self,
         query: str,
@@ -317,20 +323,26 @@ class _TracingMemoryReranker:
         limit: int,
         /,
     ) -> MemoryRerankDecision:
-        with self._tracing.stage(
-            "memory.rerank",
-            attributes={
-                "powercontext.memory.rerank.candidate_count": len(candidates),
-                "powercontext.memory.rerank.limit": limit,
-            },
-        ) as span:
-            decision = await self._delegate.rerank(query, candidates, limit)
-            span.set_attributes({
-                "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
-                "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
-                "powercontext.memory.rerank.used_fallback": decision.used_fallback,
-            })
-            return decision
+        evidence = current_receipt_evidence()
+        started = perf_counter() if evidence is not None else None
+        try:
+            with self._tracing.stage(
+                "memory.rerank",
+                attributes={
+                    "powercontext.memory.rerank.candidate_count": len(candidates),
+                    "powercontext.memory.rerank.limit": limit,
+                },
+            ) as span:
+                decision = await self._delegate.rerank(query, candidates, limit)
+                span.set_attributes({
+                    "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
+                    "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
+                    "powercontext.memory.rerank.used_fallback": decision.used_fallback,
+                })
+                return decision
+        finally:
+            if evidence is not None and started is not None:
+                evidence.stage("memory.rerank", (perf_counter() - started) * 1000)
 
 
 class _TracingDecisionModel:
