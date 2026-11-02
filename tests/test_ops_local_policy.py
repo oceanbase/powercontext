@@ -111,7 +111,7 @@ def test_existing_uds_configuration_is_rejected_without_inventing_tcp_endpoint(t
     write_protected_file(path, content)
     root = tmp_path / "data"
 
-    with pytest.raises(OpsError, match="configuration_transport_unsupported"):
+    with pytest.raises(OpsError, match="configuration_invalid"):
         inspect_existing_configuration(path, data_dir=root)
 
     assert path.read_bytes() == content

@@ -101,7 +101,7 @@ def test_uds_configuration_is_rejected_before_managed_operations(fixture: tuple[
     result = ops.handle(_request(action, **fields))
 
     assert result["outcome"] == "rejected"
-    assert result["error"]["code"] == "configuration_transport_unsupported"
+    assert result["error"] == {"code": "configuration_invalid"}
     assert "plan" not in result
     assert adapter.definition is None
     assert adapter.events == []
