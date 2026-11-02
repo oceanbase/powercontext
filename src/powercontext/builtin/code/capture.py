@@ -337,6 +337,39 @@ def capture_repository(
         os.close(root_fd)
 
 
+def worktree_digests(
+    config: CodeRepositoryConfig, limits: CodeLimits, paths: tuple[str, ...], deadline: float
+) -> dict[str, str | None]:
+    """Return each path's current SHA-256 as the index would capture it, or `None` when it would not be indexed.
+
+    Only the listed files are read, through the same no-follow path walk and exclusion rules as a capture, so a
+    caller can tell whether specific cited files changed without re-capturing the whole repository.
+    """
+    try:
+        root = config.root.resolve(strict=True)
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as error:
+        raise CodeError("repository_unavailable") from error
+    digests: dict[str, str | None] = {}
+    try:
+        for path in paths:
+            check_deadline(deadline)
+            try:
+                relative_path(path)
+            except ValueError:
+                digests[path] = None
+                continue
+            if _excluded(path, config):
+                digests[path] = None
+                continue
+            content, reason, _size, _mode = _read_relative(root_fd, path, limits.max_file_bytes, deadline)
+            reason = reason or _content_reason(content)
+            digests[path] = digest_bytes(content) if content is not None and reason is None else None
+        return digests
+    finally:
+        os.close(root_fd)
+
+
 def _content_reason(content: bytes | None) -> str | None:
     if content is None:
         return None
