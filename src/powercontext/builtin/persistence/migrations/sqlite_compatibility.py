@@ -306,12 +306,14 @@ def differences(connection: Connection, rows: list[list[Any]]) -> tuple[str, ...
             required_extensions = [
                 column
                 for column, definition in observed["columns"].items()
-                if column not in expected["columns"] and not definition["nullable"] and definition["computed"] is None
+                if column not in expected["columns"] and not definition["nullable"]
             ]
             if required_extensions:
                 defaults = {column["name"]: column["default"] for column in inspect(connection).get_columns(name)}
                 for column in required_extensions:
-                    if not _usable_default(defaults[column]):
+                    if observed["columns"][column]["computed"] is not None:
+                        issues.append(f"{name}.{column}: extra generated column must be nullable")
+                    elif not _usable_default(defaults[column]):
                         issues.append(f"{name}.{column}: extra required column needs a supported non-NULL default")
         elif sql_tokens(actual_sql or "") != sql_tokens(sql or ""):
             issues.append(f"definition differs: {name}")

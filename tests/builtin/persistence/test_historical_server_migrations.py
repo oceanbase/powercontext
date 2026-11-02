@@ -379,6 +379,57 @@ def test_generated_extension_columns_survive_historical_and_revision_rebuilds(tm
     assert dump(runner.database) == after
 
 
+@pytest.mark.parametrize("managed", [False, True])
+@pytest.mark.parametrize("storage", ["VIRTUAL", "STORED"])
+@pytest.mark.parametrize("required", [False, True])
+def test_generated_extension_constraints_preserve_source_writes(tmp_path, managed, storage, required):
+    runner = source(tmp_path, "evolved-atomic")
+    if managed:
+        apply(runner)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        heads = connection.execute("SELECT scope_id,position FROM pc_source_journal_heads").fetchall()
+        connection.execute("DELETE FROM pc_source_journal_heads")
+        connection.execute(
+            "ALTER TABLE pc_source_journal_heads ADD COLUMN extension_guard INTEGER "
+            f"GENERATED ALWAYS AS (NULLIF(position, 1)) {storage}" + (" NOT NULL" if required else "")
+        )
+        connection.executemany("INSERT INTO pc_source_journal_heads(scope_id,position) VALUES (?,?)", heads)
+    before = dump(runner.database)
+    if required:
+        with pytest.raises(MigrationError, match="incompatible_schema"):
+            apply(runner)
+        if managed:
+            with pytest.raises(MigrationError, match="incompatible_schema"):
+                runner.verify()
+            engine = create_engine(f"sqlite:///{runner.database}")
+            try:
+                with engine.connect() as connection, pytest.raises(MigrationError, match="incompatible_schema"):
+                    check_server_schema(connection, _startup=True)
+            finally:
+                engine.dispose()
+        assert dump(runner.database) == before
+        return
+
+    apply(runner)
+    assert runner.verify().state == "ready"
+
+    async def write_and_read():
+        value = await CONTENT_SOURCE_ADAPTER.resolve(ContentCapture(source_id="generated-guard", content="kept"))
+        repository = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+        async with SQLiteProfile.open(SQLiteConfig(url=f"sqlite+aiosqlite:///{runner.database}"), tables=()) as profile:
+            async with profile.database.transaction() as connection:
+                stored = await repository.add(connection, "generated-scope", value)
+            async with profile.database.transaction() as connection:
+                assert (await repository.get(connection, "generated-scope", stored.ref)).value == value
+                assert await repository.journal_position(connection, "generated-scope") == 1
+
+    asyncio.run(write_and_read())
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute(
+            "SELECT extension_guard FROM pc_source_journal_heads WHERE scope_id='generated-scope'"
+        ).fetchone() == (None,)
+
+
 def test_generated_column_copy_includes_columns_added_by_the_same_revision(tmp_path):
     runner = source(tmp_path, "evolved-atomic")
     with closing(sqlite3.connect(runner.database)) as connection, connection:

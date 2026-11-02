@@ -39,7 +39,8 @@ validation. An extra required column must have a usable default; SQL `DEFAULT NU
 the string default `'NULL'` remains usable. SQLite accepts non-NULL deterministic expressions and direct
 `CURRENT_DATE`, `CURRENT_TIME` and `CURRENT_TIMESTAMP` defaults. Other defaults depending on connection state,
 randomness or the current clock are rejected before admission; one successful evaluation cannot establish that
-later writes can omit a required column.
+later writes can omit a required column. Extra SQLite generated columns must be nullable: their expressions
+depend on row values, so a `NOT NULL` constraint can reject otherwise valid application writes.
 
 On seekDB and OceanBase, registered column additions and modifications explicitly use their declared character set
 and collation when those are specified by the migration.
