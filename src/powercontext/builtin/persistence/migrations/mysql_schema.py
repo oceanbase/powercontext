@@ -275,8 +275,25 @@ class MySQLSchema:
             operation(connection, "@" + name, configuration)
         else:
             connection.exec_driver_sql(
-                self._column_encoding(statement, revision), execution_options={"no_parameters": True}
+                self._constraint_name(connection, self._column_encoding(statement, revision), revision),
+                execution_options={"no_parameters": True},
             )
+
+    def _constraint_name(self, connection: Connection, statement: str, revision: str) -> str:
+        """Resolve semantic CHECK matches to the name required by native DDL."""
+        tokens = _tokens(statement)
+        if len(tokens) != 6 or tokens[:2] != ["alter", "table"] or tokens[3:5] != ["drop", "check"]:
+            return statement
+        position = self._statements[revision].index(statement)
+        required = self._prefixes[revision][position]["tables"][tokens[2]]["checks"][tokens[5]]
+        ddl = connection.exec_driver_sql("SHOW CREATE TABLE " + _quote(tokens[2])).one()[1]
+        _, table = _parse_table(ddl)
+        matches = [name for name, check in table["checks"].items() if check == required]
+        if tokens[5] in matches:
+            return statement
+        if len(matches) != 1:
+            raise MigrationError("incompatible_schema", "The CHECK selected for removal is missing or ambiguous.")
+        return "ALTER TABLE " + _quote(tokens[2]) + " DROP CHECK " + _quote(matches[0])
 
     def _column_encoding(self, statement: str, revision: str) -> str:
         """Apply declared column encodings independently of historical table defaults."""

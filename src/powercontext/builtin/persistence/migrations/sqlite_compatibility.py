@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from collections import OrderedDict
 from contextlib import ExitStack, contextmanager
 from functools import lru_cache
@@ -134,6 +135,21 @@ def _default(value: str | None, column_type: str) -> tuple[str, ...] | None:
         if re.fullmatch(r"-?\d+(?:\.\d+)?", number):
             result = (number,)
     return result
+
+
+@lru_cache(maxsize=256)
+def _usable_default(expression: str | None) -> bool:
+    if expression is None:
+        return False
+    # Evaluate constant defaults on an isolated SQLite connection, never with
+    # application tables, user functions or loadable extensions available.
+    connection = sqlite3.connect(":memory:")
+    try:
+        return bool(connection.execute("SELECT (" + expression + ") IS NOT NULL").fetchone()[0])
+    except sqlite3.Error:
+        return False
+    finally:
+        connection.close()
 
 
 def _column_collation(clause: list[str]) -> str:
@@ -276,11 +292,16 @@ def differences(connection: Connection, rows: list[list[Any]]) -> tuple[str, ...
             for column, definition in expected["columns"].items():
                 if observed["columns"].get(column) != definition:
                     issues.append(f"{name}.{column}: column requirements differ")
-            for column, definition in observed["columns"].items():
-                if column not in expected["columns"] and not (
-                    definition["nullable"] or definition["default"] is not None or definition["computed"] is not None
-                ):
-                    issues.append(f"{name}.{column}: extra required column prevents writes")
+            required_extensions = [
+                column
+                for column, definition in observed["columns"].items()
+                if column not in expected["columns"] and not definition["nullable"] and definition["computed"] is None
+            ]
+            if required_extensions:
+                defaults = {column["name"]: column["default"] for column in inspect(connection).get_columns(name)}
+                for column in required_extensions:
+                    if not _usable_default(defaults[column]):
+                        issues.append(f"{name}.{column}: extra required column prevents writes")
         elif sql_tokens(actual_sql or "") != sql_tokens(sql or ""):
             issues.append(f"definition differs: {name}")
     for name, (kind, table, _) in actual.items():
@@ -325,6 +346,8 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
         row for row in sqlite_inventory(connection) if row[0] == "index" and row[1] not in managed and row[3]
     ]
     extra_columns = {}
+    candidate_sources = {}
+    candidate_columns = {}
     generated_sources = {}
     rebuild_prefix = "pc_release1400_" if bundle.source_revision == "r1400" else "pc_full_upgrade_"
     replacements = {}
@@ -335,16 +358,20 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
                 "pc_dream_upgrade_" + name.removeprefix("pc_"): name
                 for name in ("pc_candidate_heads", "pc_candidate_versions")
             })
+            schema = json.loads((bundle.snapshot_directory / "dream/schema.json").read_text())
+            candidate_sources = {entry["target_name"]: entry["source_name"] for entry in schema["tables"].values()}
+            candidate_columns = {entry["source_name"]: entry["source_columns"] for entry in schema["tables"].values()}
         # This released revision rebuilds tables and copies every source column.
         # Extend its temporary destination with independently owned columns.
         contracts = _expected_contracts(json.dumps(list(expected.values())))
         for name, contract in contracts.items():
-            if not inspect(connection).has_table(name):
+            source = candidate_sources.get(name, name)
+            if not inspect(connection).has_table(source):
                 continue
-            table = Table(name, MetaData(), autoload_with=connection)
+            table = Table(source, MetaData(), autoload_with=connection)
             extensions = [column for column in table.columns if column.name not in contract["columns"]]
             if extensions:
-                observed = table_contract(connection, name)["columns"]
+                observed = table_contract(connection, source)["columns"]
                 extra_columns[name] = [
                     extension_column_ddl(connection, column, collation=observed[column.name]["collation"])
                     for column in extensions
@@ -356,6 +383,21 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
 
     def before_execute(conn, _cursor, statement, parameters, _context, _many):  # noqa: C901 -- Adapt only exact frozen DDL and copy statements.
         tokens = sql_tokens(statement)
+        # The frozen Dream validator requests an exact managed-column list.
+        # Project only this reflection onto its registered source contract;
+        # the outer admission check validates the complete real table first.
+        reflected = re.fullmatch(r'PRAGMA (?:main\.)?(table_xinfo|table_info)\("([^"\n]+)"\)', statement, re.IGNORECASE)
+        if reflected and reflected[2] in candidate_columns:
+            columns = candidate_columns[reflected[2]]
+            fields = 'cid,name,type,"notnull",dflt_value,pk' + (
+                ",hidden" if reflected[1].lower() == "table_xinfo" else ""
+            )
+            placeholders = ",".join("?" for _ in columns)
+            order = " ".join(f"WHEN ? THEN {index}" for index in range(len(columns)))
+            return (
+                f"SELECT {fields} FROM pragma_{reflected[1]}(?) WHERE name IN ({placeholders}) ORDER BY CASE name {order} END",  # noqa: S608 -- fixed PRAGMA name and placeholders
+                (reflected[2], *columns, *columns),
+            )
         if (
             len(tokens) == 6
             and tokens[:2] == ("alter", "table")
@@ -363,6 +405,13 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
             and replacements.get(tokens[2]) == tokens[5]
         ):
             rebuild_settings.enter_context(preserve_rebuild_views(conn))
+        dream_target = (
+            replacements.get(tokens[2]) if len(tokens) > 2 and tokens[2].startswith("pc_dream_upgrade_") else None
+        )
+        if dream_target and tokens[:2] == ("insert", "into"):
+            columns = inspect(conn).get_columns(dream_target)
+            fields = ",".join(quote(column["name"]) for column in columns if column.get("computed") is None)
+            return f"INSERT INTO {quote(tokens[2])} ({fields}) SELECT {fields} FROM {quote(dream_target)}", parameters  # noqa: S608 -- quoted identifiers
         if len(tokens) > 2 and tokens[:2] == ("insert", "into") and tokens[2] in generated_sources:
             target = tokens[2]
             name = generated_sources[target]
@@ -386,8 +435,8 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
                     return "SELECT 1", ()
         if len(tokens) > 3 and tokens[:2] == ("create", "table"):
             name = tokens[2]
-            if revision == "s1400" and name.startswith(rebuild_prefix):
-                source = name.removeprefix(rebuild_prefix)
+            if revision == "s1400" and name in replacements:
+                source = replacements[name]
                 additions = extra_columns.get(source, [])
                 if additions:
                     position = statement.index("(") + 1
@@ -405,8 +454,18 @@ def adopt_existing_tables(connection: Connection, bundle: MigrationBundle, revis
                 return "SELECT 1", ()
         return statement, parameters
 
-    def after_execute(*_args):
+    def after_execute(conn, _cursor, statement, *_args):
         rebuild_settings.close()
+        tokens = sql_tokens(statement)
+        if (
+            len(tokens) == 6
+            and tokens[:2] == ("alter", "table")
+            and tokens[3:5] == ("rename", "to")
+            and candidate_sources.get(tokens[5]) == tokens[2]
+        ):
+            # Let SQLite rewrite quoted identifiers and index expressions.
+            renamed = {row[1]: row for row in sqlite_inventory(conn) if row[0] == "index" and row[2] == tokens[5]}
+            extra_indexes[:] = [renamed.get(row[1], row) for row in extra_indexes]
 
     event.listen(connection, "before_cursor_execute", before_execute, retval=True)
     event.listen(connection, "after_cursor_execute", after_execute)

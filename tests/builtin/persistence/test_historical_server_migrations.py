@@ -567,6 +567,9 @@ def test_dependent_views_survive_rebuild_and_retry(tmp_path, name, interruption)
     [
         ("NULL", False),
         ("(((NULL)))", False),
+        ("(CAST(NULL AS TEXT))", False),
+        ("(1/0)", False),
+        ("(CAST(7 AS TEXT))", True),
         ("'NULL'", True),
         ('"NULL"', True),
         ("'keep'", True),
@@ -615,3 +618,73 @@ def test_required_extension_defaults_must_allow_source_writes(tmp_path, default,
                 assert await repository.journal_position(connection, "extension-scope") == 1
 
     asyncio.run(write_and_read())
+
+
+@pytest.mark.parametrize("with_column,interrupted", [(False, False), (True, False), (True, True)])
+def test_candidate_extensions_survive_registered_rename(tmp_path, with_column, interrupted):
+    runner = source(tmp_path, "evolved-atomic")
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        scope = connection.execute("SELECT scope_id FROM pc_artifacts LIMIT 1").fetchone()[0]
+        connection.execute(
+            "INSERT INTO pc_artifact_candidate_versions "
+            "(scope_id,candidate_id,version,family,proposal,source_refs,artifact_refs) "
+            "VALUES (?,'candidate',1,'custom-family',?,?,?)",
+            (scope, b'{"history":1}', b"[]", b"[]"),
+        )
+        connection.execute(
+            "INSERT INTO pc_artifact_candidate_heads (scope_id,candidate_id,family,version,status) "
+            "VALUES (?,'candidate','custom-family',1,'pending')",
+            (scope,),
+        )
+        if with_column:
+            connection.execute(
+                "ALTER TABLE pc_artifact_candidate_versions ADD COLUMN extension_note TEXT DEFAULT 'keep'"
+            )
+            connection.execute("UPDATE pc_artifact_candidate_versions SET extension_note='preserved'")
+            connection.execute("ALTER TABLE pc_artifact_candidate_heads ADD COLUMN extension_note TEXT DEFAULT 'head'")
+            connection.execute(
+                "ALTER TABLE pc_artifact_candidate_heads ADD COLUMN extension_generated TEXT "
+                "GENERATED ALWAYS AS (extension_note || '-computed') VIRTUAL"
+            )
+            connection.execute(
+                "CREATE VIEW custom_candidates AS SELECT extension_note FROM pc_artifact_candidate_versions"
+            )
+        connection.execute('CREATE INDEX "custom ON index" ON pc_artifact_candidate_versions(lower(family))')
+        fields = "scope_id,candidate_id,version" + (",extension_note" if with_column else "")
+        before = connection.execute("SELECT " + fields + " FROM pc_artifact_candidate_versions").fetchall()  # noqa: S608 -- fixed test columns
+    assert before
+    if interrupted:
+
+        def interrupt(connection, _cursor, statement, *_args):
+            if statement == "ALTER TABLE pc_dream_upgrade_candidate_versions RENAME TO pc_candidate_versions":
+                files = connection.exec_driver_sql("PRAGMA database_list").all()
+                if any(Path(filename) == runner.database for _, _, filename in files if filename):
+                    raise MigrationError("interrupted", "Injected after Candidate replacement")
+
+        event.listen(Engine, "after_cursor_execute", interrupt)
+        try:
+            with pytest.raises(MigrationError, match="interrupted"):
+                apply(runner)
+        finally:
+            event.remove(Engine, "after_cursor_execute", interrupt)
+    assert apply(runner).changed
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT " + fields + " FROM pc_candidate_versions").fetchall() == before  # noqa: S608 -- fixed test columns
+        assert connection.execute("SELECT tbl_name FROM sqlite_schema WHERE name='custom ON index'").fetchone() == (
+            "pc_candidate_versions",
+        )
+        assert connection.execute(
+            'SELECT family FROM pc_candidate_versions INDEXED BY "custom ON index"'
+        ).fetchall() == [
+            ("custom-family",),
+        ]
+        if with_column:
+            assert connection.execute("SELECT extension_note FROM custom_candidates").fetchall() == [("preserved",)]
+            assert connection.execute(
+                "SELECT extension_note,extension_generated FROM pc_candidate_heads"
+            ).fetchall() == [
+                ("head", "head-computed"),
+            ]
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert not apply(runner).changed

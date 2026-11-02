@@ -1429,3 +1429,30 @@ def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledge
     assert backend.runner().verify().revision == "p0004"
     assert not backend.runner().apply().changed
     assert "pending_run_id" not in (backend.runner().plan().coordination or {})
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_full_server_upgrade_with_renamed_check(backend, interrupted):
+    _load_full_server_baseline(backend)
+
+    def rename(connection, *_args):
+        connection.exec_driver_sql(
+            "ALTER TABLE pc_artifact_candidate_versions DROP CHECK ck_pc_artifact_candidate_versions_version_positive"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE pc_artifact_candidate_versions ADD CONSTRAINT harmless_version_check CHECK (version > 0)"
+        )
+        connection.commit()
+
+    backend.connections().run(rename, writable=True)
+    runner = _full_server_runner(backend)
+    assert runner.plan(backup_policy="manual").source_revision == "s1300"
+    if interrupted:
+        _interrupt_after_ddl(runner, "ALTER TABLE `pc_candidate_versions` DROP CHECK `harmless_version_check`")
+        recovery = runner.plan(backup_policy="manual")
+        runner = _full_server_runner(
+            backend, acknowledge_previous_run=(recovery.coordination or {}).get("pending_run_id")
+        )
+    assert _apply(runner, policy="manual").changed
+    assert runner.verify().state == "ready"
+    assert not _apply(runner, policy="manual").changed
