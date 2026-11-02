@@ -49,7 +49,11 @@ class MetricSet(BaseModel):
 
     patch_bytes: int | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
+    # Part of input_tokens served from the provider's prompt cache; billed at a fraction of uncached input.
+    cached_input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    # Part of output_tokens spent on reasoning the user does not see; billed as output.
+    reasoning_output_tokens: int | None = Field(default=None, ge=0)
     elapsed_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
@@ -333,7 +337,9 @@ def _arm_section(label: str, arm: ArmReport) -> list[str]:
         f"| Treatment validity | {_status(arm.treatment_valid, 'VALID', 'INVALID')} |",
         f"| Patch bytes | {_cell(metrics.patch_bytes)} |",
         f"| Input tokens | {_cell(metrics.input_tokens)} |",
+        f"| Cached input tokens | {_cell(metrics.cached_input_tokens)} |",
         f"| Output tokens | {_cell(metrics.output_tokens)} |",
+        f"| Reasoning output tokens | {_cell(metrics.reasoning_output_tokens)} |",
         f"| Elapsed seconds | {_cell(metrics.elapsed_seconds)} |",
         f"| Failure or invalid reason | {_cell(details)} |",
         "",
@@ -366,7 +372,9 @@ def _comparison(bundle: ReportBundle) -> list[str]:
     comparable = (
         ("Patch bytes delta", off_metrics.patch_bytes, on_metrics.patch_bytes),
         ("Input tokens delta", off_metrics.input_tokens, on_metrics.input_tokens),
+        ("Cached input tokens delta", off_metrics.cached_input_tokens, on_metrics.cached_input_tokens),
         ("Output tokens delta", off_metrics.output_tokens, on_metrics.output_tokens),
+        ("Reasoning output tokens delta", off_metrics.reasoning_output_tokens, on_metrics.reasoning_output_tokens),
         ("Elapsed seconds delta", off_metrics.elapsed_seconds, on_metrics.elapsed_seconds),
     )
     available = [(name, off, on) for name, off, on in comparable if off is not None and on is not None]
