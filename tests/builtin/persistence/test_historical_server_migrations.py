@@ -567,6 +567,8 @@ def test_dependent_views_survive_rebuild_and_retry(tmp_path, name, interruption)
     [
         ("NULL", False),
         ("(((NULL)))", False),
+        ("(+NULL)", False),
+        ("(NULLIF('', ''))", False),
         ("(CAST(NULL AS TEXT))", False),
         ("(1/0)", False),
         ("(CAST(7 AS TEXT))", True),
