@@ -1,0 +1,20 @@
+{
+  "name": "seekdb-stepfun-kb",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-side embeddings + seekdb hybrid retrieval knowledge base",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "evaluate": "node scripts/evaluate.mjs"
+  },
+  "dependencies": {
+    "seekdb": "1.4.0"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

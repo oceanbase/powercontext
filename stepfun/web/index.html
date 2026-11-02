@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>端侧知识库 · seekdb 混合检索</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <div>
+          <h1>端侧知识库</h1>
+          <p>浏览器内向量化 · seekdb 混合检索</p>
+        </div>
+      </div>
+      <div class="badges">
+        <span id="backend-badge" class="badge badge-wait">推理后端检测中…</span>
+        <span id="db-badge" class="badge badge-wait">seekdb 未连接</span>
+        <span id="doc-badge" class="badge">0 条文档</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>1 · 导入语料</h2>
+        <p class="hint">文本在这里编码成向量后写入 seekdb；原文不会离开本机。</p>
+        <div class="row">
+          <button id="load-sample" class="btn">载入内置语料（50 条）</button>
+          <label class="btn btn-ghost">
+            选择文件
+            <input id="file-input" type="file" accept=".txt,.md,.jsonl,.json" hidden />
+          </label>
+        </div>
+        <textarea id="corpus-input" spellcheck="false" placeholder="每行一段文本，或粘贴 JSONL（{&quot;id&quot;:&quot;d1&quot;,&quot;title&quot;:&quot;…&quot;,&quot;text&quot;:&quot;…&quot;}）"></textarea>
+        <div class="row">
+          <button id="ingest" class="btn btn-primary">向量化并写入</button>
+          <button id="reset" class="btn btn-ghost">清空知识库</button>
+        </div>
+        <div class="progress"><div id="progress-bar"></div></div>
+        <p id="progress-text" class="mono small">待命</p>
+        <div class="metrics" id="ingest-metrics"></div>
+      </section>
+
+      <section class="panel">
+        <h2>2 · 检索</h2>
+        <p class="hint">查询向量同样在本地计算；排序由 seekdb 用一条混合检索语句完成。</p>
+        <div class="row">
+          <input id="query" type="text" placeholder="例如：新写入的数据查不到怎么办" />
+          <button id="search" class="btn btn-primary">检索</button>
+        </div>
+        <div class="row small muted">
+          <label>返回条数 <input id="topk" type="number" min="1" max="20" value="5" /></label>
+          <label>批大小 <input id="batch" type="number" min="1" max="64" value="16" /></label>
+        </div>
+        <ol id="results" class="results"></ol>
+        <div class="metrics" id="search-metrics"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span class="mono" id="model-line">模型：bge-small-zh-v1.5 · INT8</span>
+      <span class="mono" id="status-line"></span>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

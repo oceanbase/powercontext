@@ -1,0 +1,16 @@
+{
+  "documents": 50,
+  "queries": 20,
+  "docCosineMean": 0.9890789710673552,
+  "docCosineMin": 0.9851141715518998,
+  "queryCosineMean": 0.9909741441485366,
+  "queryCosineMin": 0.986305385229951,
+  "pureVectorRecallAt5": {
+    "fp32": 0.7666666666666667,
+    "int8": 0.7666666666666667
+  },
+  "pureVectorRecallAt3": {
+    "fp32": 0.7666666666666667,
+    "int8": 0.7666666666666667
+  }
+}
