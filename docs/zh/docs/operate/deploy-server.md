@@ -194,9 +194,21 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 
 ### 网关上下文注入
 
-网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向带有宿主会话 ID
-（`X-PowerContext-Conversation-ID`）的 Chat 和 Responses 请求注入准备好的上下文。在同一会话内，每条新的用户消息
-只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。设置 `PC_GATEWAY_INJECTION=on` 会注入所有
+网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入
+准备好的上下文。在同一会话内，每条新的用户消息只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。
+
+网关按以下顺序，取第一个出现的请求头确定会话：
+
+| 请求头 | 发送方 | 会话 |
+| --- | --- | --- |
+| `X-PowerContext-Conversation-ID` | 接入 PowerContext 的宿主 | 头的取值；优先于其他所有来源 |
+| `x-claude-code-session-id`，以及 `x-claude-code-agent-id` | Claude Code | 会话，每个子代理各自独立 |
+| `x-opencode-session-id` | OpenCode | 会话；子会话有自己的 ID |
+| `thread-id`（仅 Responses 入口） | Codex | 线程；子代理有自己的线程 ID |
+
+客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的
+`x-opencode-session` 和 `x-session-affinity`。Claude Code 使用 Anthropic Messages API，而网关不提供该接口，所以只有在
+网关前的代理把它的请求转换到 Chat 或 Responses 入口并转发这些头时，Claude Code 的头才会生效。设置 `PC_GATEWAY_INJECTION=on` 会注入所有
 请求（没有会话 ID 的请求各自准备），设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置
 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有
 设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。

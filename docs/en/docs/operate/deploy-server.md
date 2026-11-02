@@ -212,9 +212,22 @@ UDS with channel and user authentication.
 ### Gateway context injection
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared
-context by default into Chat and Responses requests that carry a host conversation ID
-(`X-PowerContext-Conversation-ID`). Within a conversation it prepares once per new user message and replays the exact
-result for the rest of that turn, such as an agent's tool loop. Set `PC_GATEWAY_INJECTION=on` to inject every request
+context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares
+once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.
+
+The gateway identifies the conversation from the first of these request headers that is present:
+
+| Header | Sent by | Conversation |
+| --- | --- | --- |
+| `X-PowerContext-Conversation-ID` | a host that integrates with PowerContext | the header value; overrides every other source |
+| `x-claude-code-session-id`, with `x-claude-code-agent-id` | Claude Code | the session, separately for each subagent |
+| `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
+| `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
+
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or
+OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic
+Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway
+translates its requests to the Chat or Responses route and forwards them. Set `PC_GATEWAY_INJECTION=on` to inject every request
 (requests without a conversation ID then prepare individually), `PC_GATEWAY_INJECTION=off` to turn injection off, or
 `PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway
 (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
