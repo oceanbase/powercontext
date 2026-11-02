@@ -147,6 +147,64 @@ def test_concurrent_privacy_refusals_preserve_all_completed_usage(order):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("order", [("unavailable", "success", "refusal"), ("refusal", "success", "unavailable")])
+def test_completed_privacy_refusal_takes_precedence_over_sibling_provider_failure(order):
+    async def scenario():
+        def respond(request):
+            candidate = json.loads(request.content)["state"]["candidate"]
+            if candidate == "unavailable":
+                return httpx.Response(429)
+            if candidate == "success":
+                return _response()
+            raise InferencePrivacyError(
+                "before_release",
+                "block",
+                ("forbidden_content",),
+                usage=InferenceUsage(requests=1, input_tokens=11, output_tokens=2),
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            with pytest.raises(InferencePrivacyError) as caught:
+                await JevMemoryReranker(_config(), client).rerank("query", tuple(_Text(text) for text in order), 2)
+        assert caught.value.phase == "before_release"
+        assert caught.value.reason_codes == ("forbidden_content",)
+        assert caught.value.usage is not None
+        assert caught.value.usage.requests == 2
+        assert caught.value.usage.input_tokens == 31
+        assert caught.value.usage.output_tokens == 3
+        assert caught.value.usage.incomplete is True
+
+    asyncio.run(scenario())
+
+
+def test_caller_cancellation_wins_over_a_completed_sibling_privacy_refusal():
+    async def scenario():
+        refused = asyncio.Event()
+        finished = asyncio.Event()
+
+        async def respond(request):
+            if json.loads(request.content)["state"]["candidate"] == "refusal":
+                refused.set()
+                raise InferencePrivacyError("before_release", "block", ("forbidden_content",))
+            try:
+                await asyncio.Event().wait()
+            finally:
+                finished.set()
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            task = asyncio.create_task(
+                JevMemoryReranker(_config(), client).rerank("query", (_Text("pending"), _Text("refusal")), 1)
+            )
+            async with asyncio.timeout(1):
+                await refused.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert finished.is_set()
+
+    asyncio.run(scenario())
+
+
 def test_total_deadline_includes_waiting_candidates_and_cancels_requests():
     async def scenario():
         active = 0

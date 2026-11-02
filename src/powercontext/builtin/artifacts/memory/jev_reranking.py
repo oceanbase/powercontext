@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from collections.abc import Coroutine, Iterable
 from typing import Literal, Self
 
 import httpx
@@ -122,24 +123,55 @@ def _http_failure(error: httpx.HTTPStatusError, timeout_seconds: float) -> Infer
 
 async def _settle_scores(
     tasks: list[asyncio.Task[float]], usages: list[_JevUsage], failure: InferencePrivacyError | None
-) -> None:
-    """Stop sibling sends before returning a failure and preserve completed usage."""
+) -> InferencePrivacyError | None:
+    """Stop sibling sends and recover any completed refusal with its usage."""
 
     for task in tasks:
         if not task.done() and not task.cancelling():
             task.cancel()
     results = await asyncio.gather(*tasks, return_exceptions=True)
+    if failure is None:
+        failure = next((result for result in results if isinstance(result, InferencePrivacyError)), None)
     if failure is not None:
         prior = InferenceUsage(
             requests=len(usages),
             input_tokens=sum(item.input_tokens for item in usages),
             output_tokens=sum(item.output_tokens for item in usages),
-            incomplete=any(task.cancelled() for task in tasks),
+            incomplete=any(
+                isinstance(result, BaseException) and not isinstance(result, InferencePrivacyError)
+                for result in results
+            ),
         )
         for result in results:
             if isinstance(result, InferencePrivacyError) and result.usage is not None:
                 prior = combine_inference_usage(prior, result.usage)
         failure.usage = prior
+    return failure
+
+
+async def _gather_scores(
+    scores: Iterable[Coroutine[None, None, float]], usages: list[_JevUsage], timeout_seconds: float
+) -> list[float]:
+    """Bound concurrent scoring and preserve refusal and caller cancellation semantics."""
+
+    tasks: list[asyncio.Task[float]] = []
+    caller = asyncio.current_task()
+    cancellations = caller.cancelling() if caller is not None else 0
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            tasks = [asyncio.create_task(score) for score in scores]
+            return await asyncio.gather(*tasks)
+    except BaseException as error:
+        privacy_failure = await _settle_scores(
+            tasks, usages, error if isinstance(error, InferencePrivacyError) else None
+        )
+        if isinstance(error, Exception):
+            # gather can deliver a sibling exception after accepting caller cancellation.
+            if caller is not None and caller.cancelling() > cancellations:
+                raise asyncio.CancelledError from error
+            if privacy_failure is not None and privacy_failure is not error:
+                raise privacy_failure from error
+        raise
 
 
 class JevMemoryReranker:
@@ -219,16 +251,11 @@ class JevMemoryReranker:
                 usages.append(result.usage)
                 return result.answers["useful"].noul
 
-        tasks: list[asyncio.Task[float]] = []
-        privacy_failure: InferencePrivacyError | None = None
         try:
-            async with asyncio.timeout(self._config.timeout_seconds):
-                tasks = [asyncio.create_task(score(candidate)) for candidate in candidates]
-                scores = await asyncio.gather(*tasks)
+            scores = await _gather_scores(
+                (score(candidate) for candidate in candidates), usages, self._config.timeout_seconds
+            )
             ranks = tuple(sorted(range(1, len(candidates) + 1), key=lambda rank: (-scores[rank - 1], rank))[:limit])
-        except InferencePrivacyError as error:
-            privacy_failure = error
-            raise
         except (TimeoutError, httpx.TimeoutException) as error:
             raise InferenceTimeoutError("memory.rerank", self._config.timeout_seconds) from error
         except httpx.HTTPStatusError as error:
@@ -237,8 +264,6 @@ class JevMemoryReranker:
             raise InferenceUnavailableError("memory.rerank") from error
         except (ValueError, KeyError, TypeError) as error:
             raise InvalidInferenceOutputError("memory.rerank", "Jev did not return a valid result") from error
-        finally:
-            await _settle_scores(tasks, usages, privacy_failure)
         return MemoryRerankDecision(
             selected_ranks=ranks,
             usage=InferenceUsage(
