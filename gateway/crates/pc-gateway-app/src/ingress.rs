@@ -253,65 +253,149 @@ async fn ingress_common(
     respond(outcome)
 }
 
-/// 流式 Responses 客户端：把放行后的完整响应重放为 Responses SSE 事件。
-/// 非 200 或无法解析的结果按普通 JSON 返回，错误状态码不被包装成流。
+/// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
+/// 非 200 或无法解析的结果按普通 JSON 返回，错误状态码不被包装成流；
+/// 降级直通的流保留 `x-pc-degraded` 头。
 fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
-    let events = match &outcome {
+    let (body, degraded) = match &outcome {
         ManagedOutcome::Released {
             status: 200, body, ..
-        } => serde_json::from_slice::<serde_json::Value>(body)
-            .ok()
-            .map(|resp| responses_sse(&resp)),
-        _ => None,
+        } => (body, false),
+        ManagedOutcome::Degraded {
+            status: 200, body, ..
+        } => (body, true),
+        _ => return respond(outcome),
     };
-    match events {
-        Some(text) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "text/event-stream")],
-            text,
-        )
-            .into_response(),
-        None => respond(outcome),
+    let Ok(resp) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return respond(outcome);
+    };
+    let mut response = (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/event-stream")],
+        responses_sse(&resp),
+    )
+        .into_response();
+    if degraded {
+        response.headers_mut().insert(
+            "x-pc-degraded",
+            header::HeaderValue::from_static("passthrough_without_memory"),
+        );
     }
+    response
 }
 
-/// 事件序列：response.created → 每个 output item 的 output_item.added/done → response.completed。
+/// 事件序列：response.created → 每个 output item 的 output_item.added/done
+/// （message 的每个内容部件在其间重放 content_part.added → 一次性 delta → done → content_part.done）
+/// → 按响应状态选择的终止事件（completed / incomplete / failed）。
 fn responses_sse(resp: &serde_json::Value) -> String {
-    fn push(out: &mut String, event: &str, data: serde_json::Value) {
+    use serde_json::{json, Value};
+    let mut out = String::new();
+    let mut seq: u64 = 0;
+    let mut push = |event: &str, mut data: Value| {
+        data["type"] = json!(event);
+        data["sequence_number"] = json!(seq);
+        seq += 1;
         out.push_str("event: ");
         out.push_str(event);
         out.push_str("\ndata: ");
         out.push_str(&data.to_string());
         out.push_str("\n\n");
-    }
-    let mut out = String::new();
+    };
     let mut created = resp.clone();
-    created["status"] = serde_json::json!("in_progress");
-    created["output"] = serde_json::json!([]);
-    push(
-        &mut out,
-        "response.created",
-        serde_json::json!({"type": "response.created", "response": created}),
-    );
-    if let Some(items) = resp.get("output").and_then(|v| v.as_array()) {
-        for (index, item) in items.iter().enumerate() {
+    created["status"] = json!("in_progress");
+    created["output"] = json!([]);
+    if created.get("error").is_some() {
+        created["error"] = Value::Null;
+    }
+    push("response.created", json!({"response": created}));
+    let items = resp.get("output").and_then(Value::as_array);
+    for (output_index, item) in items.into_iter().flatten().enumerate() {
+        let parts = match (
+            item.get("type").and_then(Value::as_str),
+            item.get("content"),
+        ) {
+            (Some("message"), Some(Value::Array(parts))) => Some(parts),
+            _ => None,
+        };
+        let Some(parts) = parts else {
             push(
-                &mut out,
                 "response.output_item.added",
-                serde_json::json!({"type": "response.output_item.added", "output_index": index, "item": item}),
+                json!({"output_index": output_index, "item": item}),
             );
             push(
-                &mut out,
                 "response.output_item.done",
-                serde_json::json!({"type": "response.output_item.done", "output_index": index, "item": item}),
+                json!({"output_index": output_index, "item": item}),
+            );
+            continue;
+        };
+        // 与上游流一致：added 时 message 尚无内容，内容由随后的部件事件补齐。
+        let mut added = item.clone();
+        added["content"] = json!([]);
+        added["status"] = json!("in_progress");
+        push(
+            "response.output_item.added",
+            json!({"output_index": output_index, "item": added}),
+        );
+        let item_id = item.get("id").cloned().unwrap_or(Value::Null);
+        for (content_index, part) in parts.iter().enumerate() {
+            let at = json!({"item_id": item_id, "output_index": output_index, "content_index": content_index});
+            let with = |mut base: Value, extra: Value| {
+                if let (Some(b), Some(e)) = (base.as_object_mut(), extra.as_object()) {
+                    b.extend(e.clone());
+                }
+                base
+            };
+            let mut empty = part.clone();
+            let text_kind = match part.get("type").and_then(Value::as_str) {
+                Some("output_text") => {
+                    empty["text"] = json!("");
+                    if empty.get("annotations").is_some() {
+                        empty["annotations"] = json!([]);
+                    }
+                    Some(("text", "response.output_text"))
+                }
+                Some("refusal") => {
+                    empty["refusal"] = json!("");
+                    Some(("refusal", "response.refusal"))
+                }
+                _ => None,
+            };
+            push(
+                "response.content_part.added",
+                with(at.clone(), json!({"part": empty})),
+            );
+            if let Some((field, prefix)) = text_kind {
+                let text = part.get(field).cloned().unwrap_or(json!(""));
+                let logprobs = json!({"logprobs": []});
+                let is_text = field == "text";
+                let mut delta = with(at.clone(), json!({"delta": text}));
+                let mut done = with(at.clone(), json!({ field: text }));
+                if is_text {
+                    delta = with(delta, logprobs.clone());
+                    done = with(done, logprobs);
+                }
+                push(&format!("{prefix}.delta"), delta);
+                push(&format!("{prefix}.done"), done);
+            }
+            push(
+                "response.content_part.done",
+                with(at, json!({"part": part})),
             );
         }
+        push(
+            "response.output_item.done",
+            json!({"output_index": output_index, "item": item}),
+        );
     }
-    push(
-        &mut out,
-        "response.completed",
-        serde_json::json!({"type": "response.completed", "response": resp}),
-    );
+    // 终止事件取自已获准的响应状态：失败或不完整的响应不能被报告为完成。
+    let has_error = resp.get("error").is_some_and(|e| !e.is_null());
+    let terminal = match resp.get("status").and_then(Value::as_str) {
+        _ if has_error => "response.failed",
+        Some("failed") | Some("cancelled") => "response.failed",
+        Some("incomplete") => "response.incomplete",
+        _ => "response.completed",
+    };
+    push(terminal, json!({"response": resp}));
     out
 }
 
@@ -637,38 +721,132 @@ mod tests {
         assert_eq!(upstream["stream"], false);
     }
 
+    fn sse_events(text: &str) -> Vec<serde_json::Value> {
+        text.split("\n\n")
+            .filter(|e| !e.is_empty())
+            .map(|e| {
+                let (head, data) = e.split_once("\ndata: ").unwrap();
+                let event: serde_json::Value = serde_json::from_str(data).unwrap();
+                assert_eq!(head.strip_prefix("event: "), event["type"].as_str());
+                event
+            })
+            .collect()
+    }
+
+    fn event_types(events: &[serde_json::Value]) -> Vec<&str> {
+        events.iter().map(|e| e["type"].as_str().unwrap()).collect()
+    }
+
     #[test]
     fn released_responses_are_replayed_as_sse_events() {
         let resp = serde_json::json!({
             "id": "resp_1", "object": "response", "status": "completed", "model": "m",
             "output": [
                 {"type": "reasoning", "summary": []},
-                {"type": "message", "role": "assistant",
-                 "content": [{"type": "output_text", "text": "ok"}]}
+                {"id": "msg_1", "type": "message", "role": "assistant", "status": "completed",
+                 "content": [{"type": "output_text", "text": "fixture-ok", "annotations": []}]}
             ],
             "usage": {"input_tokens": 3, "output_tokens": 1}
         });
-        let text = responses_sse(&resp);
-        let events: Vec<serde_json::Value> = text
-            .split("\n\n")
-            .filter(|e| !e.is_empty())
-            .map(|e| serde_json::from_str(e.split("\ndata: ").nth(1).unwrap()).unwrap())
-            .collect();
-        let types: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
+        let events = sse_events(&responses_sse(&resp));
         assert_eq!(
-            types,
+            event_types(&events),
             [
                 "response.created",
                 "response.output_item.added",
                 "response.output_item.done",
                 "response.output_item.added",
+                "response.content_part.added",
+                "response.output_text.delta",
+                "response.output_text.done",
+                "response.content_part.done",
                 "response.output_item.done",
                 "response.completed"
             ]
         );
         assert_eq!(events[0]["response"]["status"], "in_progress");
-        assert_eq!(events[4]["item"], resp["output"][1]);
-        assert_eq!(events[5]["response"], resp);
+        assert_eq!(events[3]["item"]["content"], serde_json::json!([]));
+        assert_eq!(events[8]["item"], resp["output"][1]);
+        assert_eq!(events[9]["response"], resp);
+        for (i, e) in events.iter().enumerate() {
+            assert_eq!(e["sequence_number"], i);
+        }
+    }
+
+    #[test]
+    fn replayed_text_reaches_delta_stream_consumers() {
+        let resp = serde_json::json!({
+            "id": "resp_1", "object": "response", "status": "completed",
+            "output": [
+                {"id": "msg_1", "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "fixture-", "annotations": []},
+                             {"type": "refusal", "refusal": "no"},
+                             {"type": "output_text", "text": "ok", "annotations": []}]}
+            ]
+        });
+        let events = sse_events(&responses_sse(&resp));
+        // 只读 output_text.delta 的标准消费循环必须拿到完整答案。
+        let text: String = events
+            .iter()
+            .filter(|e| e["type"] == "response.output_text.delta")
+            .map(|e| e["delta"].as_str().unwrap())
+            .collect();
+        assert_eq!(text, "fixture-ok");
+        let refusal = events
+            .iter()
+            .find(|e| e["type"] == "response.refusal.delta")
+            .unwrap();
+        assert_eq!(refusal["delta"], "no");
+        assert_eq!(refusal["content_index"], 1);
+        let done = events
+            .iter()
+            .find(|e| e["type"] == "response.output_text.done" && e["content_index"] == 2)
+            .unwrap();
+        assert_eq!(done["text"], "ok");
+        assert_eq!(done["item_id"], "msg_1");
+    }
+
+    #[test]
+    fn replay_terminal_event_follows_response_status() {
+        let failed = serde_json::json!({
+            "id": "resp_1", "object": "response", "status": "failed", "output": [],
+            "error": {"code": "server_error", "message": "upstream failed"}
+        });
+        let events = sse_events(&responses_sse(&failed));
+        assert_eq!(
+            event_types(&events),
+            ["response.created", "response.failed"]
+        );
+        assert_eq!(events[1]["response"]["error"]["code"], "server_error");
+        assert!(events[0]["response"]["error"].is_null());
+
+        let incomplete = serde_json::json!({
+            "id": "resp_2", "object": "response", "status": "incomplete", "output": [],
+            "incomplete_details": {"reason": "max_output_tokens"}
+        });
+        let events = sse_events(&responses_sse(&incomplete));
+        assert_eq!(event_types(&events).last(), Some(&"response.incomplete"));
+    }
+
+    #[test]
+    fn degraded_responses_are_replayed_as_a_marked_stream() {
+        let outcome = ManagedOutcome::Degraded {
+            status: 200,
+            content_type: "application/json".into(),
+            body: bytes::Bytes::from_static(
+                br#"{"id":"resp_1","object":"response","status":"completed","output":[]}"#,
+            ),
+        };
+        let response = respond_responses_sse(outcome);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/event-stream"
+        );
+        assert_eq!(
+            response.headers()["x-pc-degraded"],
+            "passthrough_without_memory"
+        );
     }
 
     #[test]
