@@ -173,7 +173,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 从早期预览版升级后，请打开「连接」并选中已保存的连接。与当前 API 契约匹配的配置显示在「此 Desktop 构建可用」中；先核对已测试的 Server 构建与实际部署，再明确选择、保存、检查并使用该连接。新连接默认不选择兼容配置。
 
-契约与本构建不匹配的历史配置显示为不可选择的记录。已保存的不匹配配置仍会显示，须明确替换，不会静默升级。对于 Server 源码 `9624761b`，请选择 `sqlite-atomic-9624761b-v1`；记录中的源码、wheel 和契约必须与实际部署一致，然后检查并显式激活连接。其他源码对应的记录保留其身份和证据。独立的 `ci-fixtures` 资格仅用于临时测试。已验证操作及平台限制见[验证说明](VALIDATION.md#server-9624761b-connection-identity-qualification)。
+契约与本构建不匹配的历史配置显示为不可选择的记录。已保存的不匹配配置仍会显示，须明确替换，不会静默升级。对于 Server 源码 `0d89e591`，请选择 `sqlite-atomic-0d89e591-v1`；记录中的源码、wheel 和契约必须与实际部署一致，然后检查并显式激活连接。其他源码对应的记录保留其身份和证据。独立的 `ci-fixtures` 资格仅用于临时测试。已验证操作及平台限制见[验证说明](VALIDATION.md#server-0d89e591-connection-identity-qualification)。
 
 ## 在 macOS 上构建
 

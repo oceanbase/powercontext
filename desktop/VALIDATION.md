@@ -1,5 +1,42 @@
 # Desktop validation
 
+## Server 0d89e591 connection identity qualification
+
+`sqlite-atomic-0d89e591-v1` qualifies Server source
+`0d89e591f9556433f1bc741fa4ce9009359ec9c3` with normalized OpenAPI SHA-256
+`32d75b58058ae0a9a3e159f47d67ab421649cefe86f662e12e75b4215f1f35d9` and wheel
+`powercontext-1.5.1.dev0+g0d89e591-py3-none-any.whl`, SHA-256
+`23dfb2ede0d4269c14ec91f89591f66bebd0fbe52e830f77ead846eea7e540c1`.
+The wheel uses an explicit archive-build version; all 684 runtime files match the exact
+Git archive after CRLF normalization. This record qualifies the same twelve operations
+as the 9624761b connection-identity record below against the v1.5 contract.
+
+On 2026-11-02, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 passed all four
+built-wheel SQLite modes: anonymous loopback, static Bearer, HTTPS with explicit CA/base
+path, and enforced Provider. Each mode passed both disposable-fixture qualification and
+ordinary `ConnectionManager::new` using the bundled source/contract/wheel record. The
+debug native probe SHA-256 was
+`9eed022905f81872241ae4df0dc02511f9b66414b77ccfd4898bb40b0848a4a8`.
+The Desktop catalog working tree was dirty; Server runtime sources match the recorded
+clean archive. Explicit readiness, private identity/context isolation, exact Scope and
+Memory workflows, lost-response writes without replay, revocation and pagination retain
+their probe assertions. These results do not establish installed WebView/vault or signed
+Windows 11/macOS acceptance. Existing qualification records retain their original evidence.
+
+The synchronized branch passed all 94 native suite tests plus a spawned-process proxy
+isolation recheck, 150 frontend tests, Rust Clippy, generated/IPC checks and Desktop
+lint/production build. DSH passed 457 tests (one platform skip) and nine actual-Server
+integration tests; Cindy passed 20 tests and package creation. Access-audit classification
+passed 19 tests, with Linux-target type checks for both the root and Bub harness. The
+complete Bub suite cannot collect on this Windows host because an unrelated Harbor
+permission test uses POSIX `os.geteuid`; its complete Linux execution remains CI evidence.
+
+该记录绑定 v1.5 契约及准确的源码和 wheel，684 个运行时文件已逐一核对。匿名本机、Bearer、HTTPS 自定义
+CA／路径前缀和强制 Provider 四种真实 SQLite Server 模式，均使用临时资格及普通产品连接管理器分别通过。
+原生套件 94 项及独立进程代理复核、前端 150 项、DSH 457 项及 9 项真实 Server 集成、Cindy 20 项及打包、
+Access 审计 19 项均通过；一项 DSH 平台测试跳过。完整 Bub 套件受本机缺少 POSIX `os.geteuid` 限制，
+其 Linux 运行结果须以 CI 为准。历史资格记录及安装版平台验收范围保持独立。
+
 ## Server 9624761b connection identity qualification
 
 `sqlite-atomic-9624761b-v1` qualifies Server source
