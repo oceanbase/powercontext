@@ -51,6 +51,8 @@ pub trait GateClient: Send + Sync {
 pub enum GateError {
     #[error("gate unavailable: {0}")]
     GateUnavailable(String),
+    #[error("gate rejected: HTTP {0}")]
+    GateRejected(u16),
     #[error("gate response malformed: {0}")]
     Malformed(String),
 }

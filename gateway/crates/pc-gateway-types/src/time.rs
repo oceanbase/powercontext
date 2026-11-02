@@ -55,8 +55,15 @@ pub fn parse_rfc3339_ms(s: &str) -> Option<u64> {
             return None;
         }
         let frac = &s[start..idx];
-        let taken: String = frac.chars().take(3).collect();
-        millis = taken.parse().unwrap_or(0);
+        // 小数秒缩放（非截断）：.5 = 500ms、.46 = 460ms、.464580 = 464ms。
+        // 右补零到 3 位保证等效表示得到等效毫秒值。
+        let millis_str = if frac.len() >= 3 {
+            &frac[..3]
+        } else {
+            // 右补零：.5 → "500"、.46 → "460"
+            &format!("{:0<3}", frac)
+        };
+        millis = millis_str.parse().unwrap_or(0);
     }
     // 时区：Z 或 ±HH:MM
     let tz_offset_sec: i64 = if idx < bytes.len() {
@@ -151,5 +158,34 @@ mod tests {
     #[test]
     fn epoch() {
         assert_eq!(parse_rfc3339_ms("1970-01-01T00:00:00Z"), Some(0));
+    }
+}
+
+#[cfg(test)]
+mod fraction_tests {
+    use super::*;
+
+    #[test]
+    fn short_fractions_scale_correctly() {
+        // .5Z = 500ms（不是 5ms）
+        assert_eq!(
+            parse_rfc3339_ms("2026-10-28T09:55:06.5Z").unwrap() % 1000,
+            500
+        );
+        // .46Z = 460ms（不是 46ms）
+        assert_eq!(
+            parse_rfc3339_ms("2026-10-28T09:55:06.46Z").unwrap() % 1000,
+            460
+        );
+    }
+
+    #[test]
+    fn equivalent_fractions_produce_equivalent_timestamps() {
+        // .5Z ≡ .500Z ≡ .500000Z —— 同一时刻
+        let a = parse_rfc3339_ms("2026-10-28T09:55:06.5Z").unwrap();
+        let b = parse_rfc3339_ms("2026-10-28T09:55:06.500Z").unwrap();
+        let c = parse_rfc3339_ms("2026-10-28T09:55:06.500000Z").unwrap();
+        assert_eq!(a, b, ".5Z 必须等于 .500Z");
+        assert_eq!(b, c, ".500Z 必须等于 .500000Z");
     }
 }

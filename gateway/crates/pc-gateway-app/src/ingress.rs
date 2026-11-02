@@ -189,6 +189,19 @@ async fn ingress_common(
             }
         }
     };
+    // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
+    if let Format::Responses = format {
+        if state.upstream_responses.is_empty() {
+            return (
+                StatusCode::NOT_IMPLEMENTED,
+                Json(serde_json::json!({
+                    "error": "responses_route_disabled",
+                    "hint": "set PC_GATEWAY_UPSTREAM_URL_RESPONSES to enable this route"
+                })),
+            )
+                .into_response();
+        }
+    }
     let renderer = match format {
         Format::Chat => pc_gateway_protocol::GatewayRenderer::Chat(Default::default()),
         Format::Responses => pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),

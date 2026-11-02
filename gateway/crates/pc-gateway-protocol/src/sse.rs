@@ -42,9 +42,9 @@ impl SseFramer {
     /// 取出所有完整事件（以空行分隔）。
     pub fn take_events(&mut self) -> Vec<RawSseEvent> {
         let mut events = Vec::new();
-        while let Some(pos) = find_blank_line(&self.buf) {
+        while let Some((pos, sep_len)) = find_blank_line_with_len(&self.buf) {
             let block: Vec<u8> = self.buf.drain(..pos).collect();
-            self.buf.drain(..2); // CRLF/LF 分隔符
+            self.buf.drain(..sep_len);
             if let Some(ev) = parse_block(&block) {
                 events.push(ev);
             }
@@ -62,8 +62,15 @@ impl SseFramer {
     }
 }
 
-fn find_blank_line(buf: &[u8]) -> Option<usize> {
-    buf.windows(2).position(|w| w == b"\n\n" || w == b"\r\n")
+fn find_blank_line_with_len(buf: &[u8]) -> Option<(usize, usize)> {
+    // 完整空行分隔符：\r\n\r\n（CRLF）或 \n\n（LF）。
+    // 不能匹配单个 \r\n（那是事件内部的行终止符，不是事件分隔符）。
+    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+        return Some((pos, 4));
+    }
+    buf.windows(2)
+        .position(|w| w == b"\n\n")
+        .map(|pos| (pos, 2))
 }
 
 fn parse_block(block: &[u8]) -> Option<RawSseEvent> {

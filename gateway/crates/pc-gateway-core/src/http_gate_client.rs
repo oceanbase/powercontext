@@ -66,9 +66,7 @@ impl HttpGateClient {
             .map_err(|e| GateError::GateUnavailable(e.to_string()))?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(GateError::GateUnavailable(format!(
-                "gate returned HTTP {status}"
-            )));
+            return Err(GateError::GateRejected(status.as_u16()));
         }
         let bytes = resp
             .bytes()
@@ -96,9 +94,7 @@ impl GateClient for HttpGateClient {
             .map_err(|e| GateError::GateUnavailable(e.to_string()))?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(GateError::GateUnavailable(format!(
-                "capabilities HTTP {status}"
-            )));
+            return Err(GateError::GateRejected(status.as_u16()));
         }
         resp.json()
             .await

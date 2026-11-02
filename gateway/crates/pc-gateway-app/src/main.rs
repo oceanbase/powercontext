@@ -106,8 +106,7 @@ async fn main() {
         upstream_chat: std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_URL"))
             .unwrap_or_else(|_| "http://127.0.0.1:9000/v1/chat/completions".into()),
-        upstream_responses: std::env::var("PC_GATEWAY_UPSTREAM_URL_RESPONSES")
-            .unwrap_or_else(|_| "https://openrouter.ai/api/v1/responses".into()),
+        upstream_responses: std::env::var("PC_GATEWAY_UPSTREAM_URL_RESPONSES").unwrap_or_default(),
         upstream_chat_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),

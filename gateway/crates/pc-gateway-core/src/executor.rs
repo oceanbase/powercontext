@@ -128,6 +128,7 @@ where
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
+        let pristine_user_text = last_user_text(&pristine_request).unwrap_or_default();
 
         if call.inject_context {
             self.enrich(&mut call, evidence).await;
@@ -314,7 +315,9 @@ where
                     if call.sediment {
                         let transcript = serde_json::json!({
                             "kind": "gateway_turn",
-                            "user": last_user_text(&call.request).unwrap_or_default(),
+                            // P2 review：沉淀的 user 字段必须用原始（pre-injection）用户文本，
+                            // 不含 enrich 注入的记忆块（防止旧记忆被当成新用户证据）。
+                            "user": pristine_user_text.clone(),
                             "assistant": release_body.clone(),
                             "model": call.request.model,
                         });
@@ -516,6 +519,7 @@ fn validate_allow(
 fn classify_gate_error(e: GateError) -> String {
     match e {
         GateError::GateUnavailable(msg) | GateError::Malformed(msg) => msg,
+        GateError::GateRejected(status) => format!("gate rejected: HTTP {status}"),
     }
 }
 

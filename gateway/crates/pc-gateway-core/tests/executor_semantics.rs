@@ -1198,3 +1198,62 @@ async fn release_allow_with_incomplete_coverage_pauses() {
         "释放阶段不完整覆盖的 allow 必须暂停"
     );
 }
+
+// ---------- knqiufan review 探针 ----------
+
+#[tokio::test]
+async fn gate_rejected_does_not_degrade() {
+    // P2：Core 可达但返回 401/403/422（明确拒绝）→ 不降级（不是"不可达"）。
+    let (executor, renderer, transport, _gate) = harness(
+        vec![Err(GateError::GateRejected(403))],
+        vec![raw_response()],
+        2,
+    );
+    let outcome = executor
+        .run(
+            call(DegradePolicy::PassthroughWithoutMemory),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::GatePaused(ref m) if m.contains("403")),
+        "Core 403 拒绝必须暂停，不降级。实际: {outcome:?}"
+    );
+    assert_eq!(transport.sends.lock().unwrap().len(), 0, "零发送");
+}
+
+#[tokio::test]
+async fn sediment_uses_pristine_user_text_not_enriched() {
+    // P2：沉淀的 user 字段必须是原始（pre-injection）文本，不含记忆块。
+    let (executor, renderer, _t, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(
+        "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\nOLD_MEMORY_MARKER\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1",
+    )));
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.sediment = true;
+    executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+    let captured = gate.captured.lock().unwrap();
+    assert_eq!(captured.len(), 1);
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    let user = transcript["user"].as_str().unwrap();
+    assert!(
+        !user.contains("BEGIN_POWERCONTEXT"),
+        "user 字段不得含注入块: {user}"
+    );
+    assert!(
+        !user.contains("OLD_MEMORY_MARKER"),
+        "user 字段不得含旧记忆: {user}"
+    );
+    assert_eq!(user, "hello", "user 字段必须是原始文本");
+}

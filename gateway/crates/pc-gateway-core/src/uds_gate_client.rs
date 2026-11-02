@@ -293,6 +293,12 @@ async fn read_chunked(
         buf.drain(..line_end + 2);
         let size = usize::from_str_radix(size_str.trim().split(';').next().unwrap_or("0"), 16)
             .map_err(|_| GateError::Malformed(format!("bad chunk size: {size_str}")))?;
+        // P2 review：对端可控的 size 必须在算术前验预算（防溢出 panic）。
+        if size > MAX_BODY_BYTES {
+            return Err(GateError::Malformed(format!(
+                "chunk size {size:#x} exceeds body budget {MAX_BODY_BYTES}"
+            )));
+        }
         if size == 0 {
             // 消费 trailer：连续读到空行（或读尽缓冲且对端无更多数据）。
             loop {
@@ -332,6 +338,8 @@ fn retryable(e: &GateError) -> bool {
         }
         // "uds closed before headers"：对端在响应前关闭，请求未生效。
         GateError::Malformed(msg) => msg.contains("closed before headers"),
+        // Core 可达但明确拒绝（401/403/422 等）：不可重试。
+        GateError::GateRejected(_) => false,
     }
 }
 
@@ -363,7 +371,7 @@ impl GateClient for UdsGateClient {
                 .request("POST", "/v1/context/check", Some(&body))
                 .await?;
             if !(200..300).contains(&status) {
-                return Err(GateError::GateUnavailable(format!("gate HTTP {status}")));
+                return Err(GateError::GateRejected(status));
             }
             serde_json::from_slice(&body)
                 .map_err(|e| GateError::Malformed(format!("decode check: {e}")))
@@ -395,7 +403,7 @@ impl GateClient for UdsGateClient {
                 .request("POST", "/v1/context/prepare", Some(&body))
                 .await?;
             if !(200..300).contains(&status) {
-                return Err(GateError::GateUnavailable(format!("prepare HTTP {status}")));
+                return Err(GateError::GateRejected(status));
             }
             serde_json::from_slice(&body)
                 .map_err(|e| GateError::Malformed(format!("decode prepare: {e}")))
@@ -413,7 +421,7 @@ impl GateClient for UdsGateClient {
                 .request("POST", "/v1/sources/content", Some(&body))
                 .await?;
             if !(200..300).contains(&status) {
-                return Err(GateError::GateUnavailable(format!("capture HTTP {status}")));
+                return Err(GateError::GateRejected(status));
             }
             serde_json::from_slice(&body)
                 .map_err(|e| GateError::Malformed(format!("decode capture: {e}")))
