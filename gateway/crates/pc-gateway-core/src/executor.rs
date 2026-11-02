@@ -409,6 +409,13 @@ where
         let Some(message) = call.request.messages.get_mut(index) else {
             return;
         };
+        // Core accepts Responses prepared-context locations only in input_text parts.
+        // Normalize only when injecting, preserving uninjected and degraded payloads.
+        if list_key == "input" {
+            if let [serde_json::Value::String(text)] = message.content.as_slice() {
+                message.content = vec![serde_json::json!({"type": "input_text", "text": text})];
+            }
+        }
         match message.content.as_slice() {
             [serde_json::Value::String(s)] => {
                 let new_text = format!("{block}\n\n{s}");
