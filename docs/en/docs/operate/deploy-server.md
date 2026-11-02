@@ -233,6 +233,20 @@ translates its requests to the Chat or Responses route and forwards them. Set `P
 (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
 without injection.
 
+### Gateway instruction
+
+`PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the
+Responses route (`/gateway/v1/responses`); the Chat route is never changed. The gateway reads the file once at startup.
+It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved
+`BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running without it. Nothing is added
+when the variable is unset.
+
+The text becomes the first content block of the developer message that follows the client's first developer message,
+which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer
+message after the client's first developer message, or before the first user message when the request has no developer
+message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the
+final request like any other request text. It is independent of context injection, capture, and replay.
+
 ## Run with Docker
 
 Build the image from the repository root:

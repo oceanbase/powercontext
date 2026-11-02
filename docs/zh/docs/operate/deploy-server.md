@@ -213,6 +213,18 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有
 设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。
 
+### 网关固定指令
+
+`PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 入口
+（`/gateway/v1/responses`）的每个请求；Chat 入口的请求不受影响。网关只在启动时读取一次该文件。文件必须是 UTF-8，
+去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在
+启动时退出，而不是不带指令运行。未设置该变量时不加入任何内容。
+
+指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身
+`developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；
+请求中没有 developer 消息时，插在第一条用户消息之前。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它
+作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
+
 ## 使用 Docker 运行
 
 在仓库根目录构建镜像：
