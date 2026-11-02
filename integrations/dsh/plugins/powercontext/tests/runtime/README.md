@@ -17,17 +17,17 @@ pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-
 pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
 ```
 
-The test package pins `@deepseek-ai/dsh-sdk-client@0.1.2-rc.1` and the resolved DSH host/dependency graph in its own
-lockfile. Use Node 22.19+ (CI: 22.19.0; also tested on Windows with 24.14.1). Install peers in this isolated package;
+The test package pins `@deepseek-ai/dsh-sdk-client@0.2.2-alpha.2` and the resolved DSH host/dependency graph in its own
+lockfile. Use Node 24.9+ (CI: 24.22.1). Install peers in this isolated package;
 the plugin's ordinary unit-test installation deliberately does not install its optional host peers.
 
 `../config-runtime` separately pins `@deepseek-ai/dsh-app-boot@0.2.0-rc.2` for native configuration/compatibility
 checks; install it with `pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile`.
-Its own dependency graph keeps the 0.2 API peers separate from the 0.1.2 SDK host.
+Its dependency graph remains separate from the current SDK host.
 `tests/test_dsh_transport.py` loads those real APIs through a synthetic carrier in disposable profiles; those
 checks do not execute a 0.2 CLI installation or a Desktop host. They verify omitted incompatible third-party
 layers, rejected incompatible PowerContext bundles, and explicit version exemptions. The SDK continues to use
-its matched 0.1.2 runtime. Setup reads the selected installation's own configuration APIs, not this test copy.
+its matched 0.2.2 runtime. Setup reads the selected installation's own configuration APIs, not this test copy.
 
 Run the native configuration regressions without installing a DSH CLI:
 
@@ -48,10 +48,12 @@ installed DSH CLI. The `dsh-package` CI job resolves both runtimes before runnin
 either is unavailable.
 The file also retains ordinary Python transport-policy tests that require no DSH installation.
 
+The plugin emits `plugin:powercontext-dsh` snapshot sources, matching DSH's migration of historical external-plugin attribution. Both routing-only messages and recalled content must persist and read back under Session v4.
+
 These tests launch the real `dsh --profile sdk` subprocess and a real PowerContext Server with isolated homes.
 Only the built distributable plugin files are installed. Host tool registration, pre-step processing, message
 construction, model request assembly, and session persistence are not replaced. A loopback model fixture provides
-scripted OpenAI-compatible streaming replies and Server inference decisions. A loopback proxy can inject HTTP
+scripted DeepSeek Messages streaming replies for DSH and OpenAI-compatible Server inference decisions. A loopback proxy can inject HTTP
 failures at individual PowerContext endpoints or hold the native MCP initialization response.
 
 The setup scenario first runs `powercontext setup dsh --source <this checkout>` with the pinned DSH executable
@@ -106,6 +108,7 @@ a live DeepSeek-compatible endpoint for both the DSH conversation and PowerConte
 # Provide the key through the process environment; never commit it.
 export DEEPSEEK_API_KEY=...
 export DEEPSEEK_BASE_URL=https://api.deepseek.com
+export DSH_REAL_MESSAGES_BASE_URL=https://api.deepseek.com/anthropic
 export DSH_REAL_MODEL=deepseek-v4-pro
 pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime test:real
 ```
@@ -119,7 +122,7 @@ configure the test model through environment-backed credentials. Test the shippe
 
 1. Submit a stable, non-sensitive project fact; with test-only `flushOnCapture`, verify Source acceptance and subsequent
    Memory generation. Open another session and ask for the fact.
-2. In 0.1.2-rc.1 Web, expand the completed turn's process details and **Context injection — powercontext-dsh** row;
+2. In a supported DSH Web host, expand the completed turn's process details and **Context injection — powercontext-dsh** row;
    inspect the `PowerContext` snapshot. Compare it with the
    prepare response and the persisted `user/message` event. Reload the page and reopen the historical request.
 3. Inject Scope/prepare/capture/flush faults, then restore the endpoint. Confirm conversation continues, logger output

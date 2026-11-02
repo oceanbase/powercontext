@@ -42,13 +42,14 @@ declare module '@deepseek-ai/dsh-llm' {
   export function createUserMessage(input: {
     content: Array<{ type: 'text'; text: string }>
     source: {
-      kind: 'plugin'; plugin: string; form: 'snapshot'
+      kind: 'plugin:powercontext-dsh'; form: 'snapshot'
       sections: Array<{ name: string; text: string }>
     }
   }): unknown
 }
 
 declare module '@deepseek-ai/dsh-session' {
+  export const SESSION_FORMAT_VERSION: number
   export type UserMessage = {
     readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string }>
     readonly source: {

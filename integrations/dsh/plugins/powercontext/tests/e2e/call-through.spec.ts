@@ -26,6 +26,7 @@ vi.mock('../../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: 
 
 vi.mock('../../src/peers.ts', () => ({
   loadPeer: async (specifier: string) => {
+    if (specifier === '@deepseek-ai/dsh-session') return { SESSION_FORMAT_VERSION: 4 }
     if (specifier === '@deepseek-ai/dsh-mcp-client') {
       return { apply: async () => undefined }
     }

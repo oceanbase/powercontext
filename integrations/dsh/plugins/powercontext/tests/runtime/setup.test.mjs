@@ -189,7 +189,7 @@ test('setup and repeated setup preserve an existing customized DSH profile', { t
   }
 })
 
-async function inactiveTransportBundle(home, config, { installed = true } = {}) {
+async function transportBundle(home, config, { installed = true, enabled = true } = {}) {
   const fixture = setupFixture(home)
   const bundle = join(home, 'transport-override')
   mkdirSync(bundle)
@@ -204,7 +204,7 @@ async function inactiveTransportBundle(home, config, { installed = true } = {}) 
   await fixture.native(['plugin', '--profile', 'web', 'add', bundle])
   const manifest = join(fixture.profile, 'package.json')
   const metadata = JSON.parse(readFileSync(manifest, 'utf8'))
-  metadata.dsh.profile.bundles = metadata.dsh.profile.bundles.filter(name => name !== 'transport-override')
+  if (!enabled) metadata.dsh.profile.bundles = metadata.dsh.profile.bundles.filter(name => name !== 'transport-override')
   writeFileSync(manifest, JSON.stringify(metadata, undefined, 2) + '\n')
   writeFileSync(fixture.patch, '- id: powercontext-dsh\n  disabled: false\n')
   writeFileSync(fixture.homePatch, '- id: agent-default-model\n  name: "@deepseek-ai/dsh-agent-default-model"\n')
@@ -226,10 +226,10 @@ for (const scenario of [
     config: { baseUrl: 'http://selected.example', allowInsecureHttp: false }, endpoint: 'http://selected.example',
     consent: '--allow-insecure-http' },
 ]) {
-  test(`setup rejects an inactive bundle's ${scenario.name} without changing saved connections or user patches`, { timeout: 240000 }, async () => {
+  test(`setup rejects an active bundle's ${scenario.name} without changing saved connections or user patches`, { timeout: 240000 }, async () => {
     const home = mkdtempSync(join(tmpdir(), 'pc-dsh-setup-conflict-'))
     try {
-      const fixture = await inactiveTransportBundle(home, scenario.config, { installed: scenario.installed })
+      const fixture = await transportBundle(home, scenario.config, { installed: scenario.installed })
       const paths = [fixture.patch, fixture.homePatch, fixture.clients]
       const before = paths.map(path => readFileSync(path))
       await assert.rejects(fixture.cli(['setup', 'dsh', '--source', fixture.root,
@@ -242,10 +242,10 @@ for (const scenario of [
   })
 }
 
-test('matching inactive bundle settings survive setup and repeated setup in native configuration', { timeout: 240000 }, async () => {
+test('matching active bundle settings survive setup and repeated setup in native configuration', { timeout: 240000 }, async () => {
   const home = mkdtempSync(join(tmpdir(), 'pc-dsh-setup-matching-'))
   try {
-    const fixture = await inactiveTransportBundle(home, {
+    const fixture = await transportBundle(home, {
       baseUrl: runtime.baseUrl, allowInsecureHttp: true,
     })
     const patches = [fixture.patch, fixture.homePatch]
@@ -267,6 +267,22 @@ test('matching inactive bundle settings survive setup and repeated setup in nati
     }
   } finally {
     assert.equal(dirname(resolve(home)), resolve(tmpdir()))
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+
+test('an inactive transport bundle stays excluded during setup', { timeout: 240000 }, async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pc-dsh-inactive-bundle-'))
+  try {
+    const fixture = await transportBundle(home, { baseUrl: 'https://unexpected.example' }, { enabled: false })
+    const result = JSON.parse(await fixture.cli(['setup', 'dsh', '--source', fixture.root,
+      '--server-url', runtime.baseUrl, '--json']))
+    assert.equal(result.hosts.dsh.setup, 'complete')
+    const metadata = JSON.parse(readFileSync(join(fixture.profile, 'package.json'), 'utf8'))
+    assert.ok(!metadata.dsh.profile.bundles.includes('transport-override'))
+    assert.doesNotMatch(await fixture.native(['--profile', 'web', '--dump-config']), /unexpected\.example/)
+  } finally {
     rmSync(home, { recursive: true, force: true })
   }
 })

@@ -7,6 +7,6 @@
     "test:real": "node --test real-model.test.mjs"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-sdk-client": "0.1.2-rc.1"
+    "@deepseek-ai/dsh-sdk-client": "0.2.2-alpha.2"
   }
 }

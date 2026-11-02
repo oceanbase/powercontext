@@ -20,7 +20,7 @@ import { appendFileSync } from 'node:fs'
 const TOOL_PREFIX = 'mcp__powercontext__'
 
 function isPowerContextSnapshot(message) {
-  return message.source?.plugin === 'powercontext-dsh'
+  return message.source?.kind === 'plugin:powercontext-dsh'
     && message.source?.form === 'snapshot'
     && message.source?.sections?.some(section => section.name === 'PowerContext')
 }

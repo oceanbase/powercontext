@@ -20,13 +20,14 @@ import { apply } from '../src/index.ts'
 import type { PluginConfig } from '../src/config.ts'
 import type { PreStepDecision, PromptMessage } from '../src/recall.ts'
 
+const sessionPeer = vi.hoisted(() => ({ SESSION_FORMAT_VERSION: 4 as number | undefined }))
 const peers = vi.hoisted(() => ({ createUserMessage: vi.fn((input: unknown) => input) }))
 vi.mock('../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
 
 vi.mock('../src/peers.ts', () => ({
   loadPeer: async (name: string) => name === '@deepseek-ai/dsh-llm'
     ? peers
-    : { apply: async () => undefined },
+    : name === '@deepseek-ai/dsh-session' ? sessionPeer : { apply: async () => undefined },
 }))
 
 const SCOPE = '/v1/scope-bindings/resolve'
@@ -302,7 +303,7 @@ describe('registered automatic path', () => {
     expect(result.messages).toHaveLength(3)
     const message = messageInSection(result.messages, 'PowerContext')
     expect(message.source).toEqual({
-      kind: 'plugin', plugin: 'powercontext-dsh', form: 'snapshot',
+      kind: 'plugin:powercontext-dsh', form: 'snapshot',
       sections: [{ name: 'PowerContext', text: message.content[0].text }],
     })
     expect(message.content[0].text).toContain('untrusted historical evidence')
@@ -425,4 +426,13 @@ describe('registered automatic path', () => {
     await h.run()
     expect(h.diagnostics()).toHaveLength(2)
   })
+})
+
+it('rejects an unsupported Session format before automatic work is registered', async () => {
+  try {
+    sessionPeer.SESSION_FORMAT_VERSION = 3
+    await expect(fixture(successfulRequest)).rejects.toThrow('requires DSH Session format v4')
+  } finally {
+    sessionPeer.SESSION_FORMAT_VERSION = 4
+  }
 })

@@ -4459,6 +4459,7 @@ function registerSkill(ctx) {
 
 //#endregion
 //#region src/index.ts
+const SOURCE_KIND = `plugin:${PLUGIN_NAME}`;
 const name = PLUGIN_NAME;
 const inject = [
 	"tools",
@@ -4549,8 +4550,7 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 					text
 				}],
 				source: {
-					kind: "plugin",
-					plugin: PLUGIN_NAME,
+					kind: SOURCE_KIND,
 					form: "snapshot",
 					sections: [{
 						name: "PowerContext",
@@ -4564,8 +4564,7 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 					text
 				}],
 				source: {
-					kind: "plugin",
-					plugin: PLUGIN_NAME,
+					kind: SOURCE_KIND,
 					form: "snapshot",
 					sections: [{
 						name: "PowerContext Scope routing",
@@ -4579,6 +4578,7 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 	}));
 }
 async function apply(ctx, config) {
+	if ((await loadPeer("@deepseek-ai/dsh-session")).SESSION_FORMAT_VERSION !== 4) throw new Error("powercontext-dsh requires DSH Session format v4; install a supported DSH version before enabling the plugin.");
 	const llmMod = await loadPeer("@deepseek-ai/dsh-llm");
 	const runtime = createRuntime(ctx, config);
 	const sessionScope = createSessionScopeResolver(runtime);

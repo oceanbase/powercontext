@@ -27,7 +27,7 @@ const peers = vi.hoisted(() => ({ createUserMessage: vi.fn((value: unknown) => v
 vi.mock('../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
 
 vi.mock('../src/peers.ts', () => ({ loadPeer: async (name: string) => name === '@deepseek-ai/dsh-llm'
-  ? peers : { apply: async () => undefined } }))
+  ? peers : name === '@deepseek-ai/dsh-session' ? { SESSION_FORMAT_VERSION: 4 } : { apply: async () => undefined } }))
 
 const PRIVATE = 'private-user-and-response-marker'
 const SCOPE = '/v1/scope-bindings/resolve'

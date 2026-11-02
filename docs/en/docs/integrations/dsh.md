@@ -10,8 +10,9 @@ description: Install the PowerContext DeepSeek Harness plugin and control its lo
 
 ## Install matching Server and plugin versions
 
-Install DeepSeek Harness Web or Desktop. The real-host acceptance suite pins DSH
-0.1.2-rc.1. Choose one PowerContext installation path and keep the Server and plugin together.
+Install DeepSeek Harness Web or Desktop. The plugin supports DSH 0.2.1-rc.5 and 0.2.2-alpha.2 (Session format v4).
+Real-host acceptance pins 0.2.2-alpha.2; its standalone CLI requires Node.js 24.9+. Upgrade older hosts before enabling
+the plugin. Choose one PowerContext installation path and keep the Server and plugin together.
 
 For this guided-setup build:
 
