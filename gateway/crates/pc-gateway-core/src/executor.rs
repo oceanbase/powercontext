@@ -534,6 +534,26 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
     let i = last_user_index(request)?;
     match request.messages[i].content.as_slice() {
         [serde_json::Value::String(s)] => Some(s.clone()),
+        // typed content parts：[{"type":"text","text":"..."},...] → 拼接 text 字段。
+        // 这是 OpenAI Chat 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
+        parts if !parts.is_empty() => {
+            let texts: Vec<String> = parts
+                .iter()
+                .filter_map(|p| {
+                    p.get("type")
+                        .and_then(|t| t.as_str())
+                        .filter(|t| t == &"text")
+                        .and_then(|_| p.get("text"))
+                        .and_then(|t| t.as_str())
+                        .map(String::from)
+                })
+                .collect();
+            if texts.is_empty() {
+                None
+            } else {
+                Some(texts.join("\n"))
+            }
+        }
         _ => None,
     }
 }

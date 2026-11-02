@@ -1258,3 +1258,39 @@ async fn sediment_uses_pristine_user_text_not_enriched() {
     );
     assert_eq!(user, "hello", "user 字段必须是原始文本");
 }
+
+#[tokio::test]
+async fn typed_content_parts_preserved_in_query_and_transcript() {
+    // hidb4ai P2：typed content parts [{"type":"text","text":"..."}]
+    // 不得导致沉淀 user 为空 / 注入被跳过。
+    let (executor, renderer, _t, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.sediment = true;
+    // 改成 typed parts 形态
+    c.request.messages[0].content = vec![serde_json::json!({
+        "type": "text", "text": "alpha port 8080"
+    })];
+    executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+
+    // 1. 注入 query 取到了 typed text（prepare 被调用，query 非默认值）
+    let queries = gate.prepare_queries.lock().unwrap();
+    assert_eq!(queries[0], "alpha port 8080", "typed text 必须作为 query");
+
+    // 2. 沉淀 transcript 的 user 字段包含原始 typed text
+    let captured = gate.captured.lock().unwrap();
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        transcript["user"], "alpha port 8080",
+        "transcript user 必须是 typed text 而非空串"
+    );
+}
