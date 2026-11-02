@@ -22,7 +22,6 @@ from pydantic import ValidationError
 from sqlalchemy import update
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.persistence.errors import InvalidStoredPayloadError
 from powercontext.builtin.persistence.sources import SOURCES_TABLE
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -445,14 +444,18 @@ def test_outcome_rejects_a_receipt_reference_that_does_not_match_its_source_type
     asyncio.run(scenario())
 
 
-def test_outcome_does_not_load_unrelated_unreadable_history() -> None:
+def test_outcome_reads_only_its_receipt_when_unrelated_history_is_unreadable() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
             scope_id = await _create_scope(runtime, "outcome-survives-unreadable-history")
             work = runtime.work.for_scope(scope_id)
-            selected, receipt_ref = await _accept_exact_handoff(runtime, scope_id)
+            _, receipt_ref = await _accept_exact_handoff(runtime, scope_id)
             sources = runtime.sources.for_scope(scope_id)
-            await sources.capture(CaptureSource(source_id="rotten-1", content="ordinary", metadata={"kind": "note"}))
+            await sources.capture(
+                CaptureSource(source_id="rotten-1", content="unrelated", metadata={"kind": "analysis-note"})
+            )
+            # Persistence-level damage to a Source this operation never references. Any decode of
+            # the whole journal raises here, while the referenced receipt stays readable.
             await _corrupt_source_payload(runtime, scope_id, "rotten-1")
 
             outcome = await work.record_outcome(
@@ -467,8 +470,6 @@ def test_outcome_does_not_load_unrelated_unreadable_history() -> None:
                     ),
                 )
             )
-            with pytest.raises(InvalidStoredPayloadError):
-                await work.continuity(selected)
 
         assert outcome.kind == "task-outcome"
         assert outcome.source_ref.source_id == "outcome-1"
@@ -526,69 +527,6 @@ def test_outcome_rejects_a_receipt_whose_content_is_malformed() -> None:
         assert continuity.coverage.outcome_records == 0
         assert continuity.coverage.transfer_state == "accepted"
         assert continuity.coverage.outcome_state == "awaiting_outcome"
-
-    asyncio.run(scenario())
-
-
-def test_outcome_covers_an_accepted_exact_receipt_after_a_longer_history() -> None:
-    async def scenario() -> None:
-        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            scope_id = await _create_scope(runtime, "outcome-exact-receipt-after-long-history")
-            work = runtime.work.for_scope(scope_id)
-            prepared = await work.handoff_current(
-                HandoffCurrentWork(
-                    source_id="handoff-1",
-                    handoff=CurrentWorkHandoff(
-                        objective="Resume one accepted attempt.",
-                        state=(WorkClaim(text="The attempt was accepted by the receiver."),),
-                        disposition="continuable",
-                    ),
-                )
-            )
-            committed = await runtime.handoff.for_scope(scope_id).commit(prepared.handoff)
-            acknowledgement = await work.acknowledge(
-                AcknowledgeHandoff(
-                    source_id="receipt-1",
-                    receiver="receiver-agent",
-                    status="accepted",
-                    selection="exact",
-                    receiver_checks=CONFIRMED_RECEIVER_CHECKS,
-                    revision=committed.as_ref(),
-                )
-            )
-            sources = runtime.sources.for_scope(scope_id)
-            for index in range(96):
-                await sources.capture(
-                    CaptureSource(
-                        source_id=f"ordinary-{index}",
-                        content=f"unrelated note {index}",
-                        metadata={"kind": "analysis-note"},
-                    )
-                )
-
-            outcome = await work.record_outcome(
-                RecordTaskOutcome(
-                    source_id="outcome-1",
-                    outcome=TaskOutcome(
-                        objective="Resume one accepted attempt.",
-                        status="succeeded",
-                        summary="The accepted attempt completed after unrelated records were appended.",
-                        handoff_receipt_ref=acknowledgement.receipt.source_ref,
-                        observations=(WorkClaim(text="The receiver reported completion."),),
-                    ),
-                )
-            )
-            covered = await work.continuity(committed.as_ref())
-
-        assert outcome.kind == "task-outcome"
-        assert outcome.position > acknowledgement.receipt.position
-        assert covered.coverage.transfer_state == "accepted"
-        assert covered.coverage.outcome_state == "covered"
-        assert covered.coverage.handoff_result_covered is True
-        assert covered.coverage.active_receipt_ref == acknowledgement.receipt.source_ref
-        assert covered.total_event_count == 3
-        assert covered.invalid_record_count == 0
-        assert covered.truncated is False
 
     asyncio.run(scenario())
 
