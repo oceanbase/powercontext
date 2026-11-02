@@ -213,6 +213,13 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有
 设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。
 
+### 网关输出上限
+
+enforcing 模式的 Server 要求每个生成请求都设置输出上限，而有些客户端从不发送；例如 Codex 0.145 不发送
+`max_output_tokens`。把 `PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS` 设为正整数后，网关为没有设置上限的 Chat 和 Responses
+请求补上该值。补值发生在送检之前，因此 Server 按目标的 `max_output_tokens` 检查最终的值；客户端自己设置的上限保持不变。
+该值只在启动时读取，配置了无效值时网关拒绝启动。
+
 ### 网关固定指令
 
 `PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 入口

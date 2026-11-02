@@ -63,6 +63,8 @@ pub struct AppState {
     pub sediment: bool,
     /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
     pub steering: Option<String>,
+    /// 客户端没有设置输出上限时使用的默认值（`PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS`）；未配置时不补。
+    pub default_max_output_tokens: Option<u32>,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
     /// Request body byte limit (also enforced when consuming chunked bodies).
@@ -109,6 +111,18 @@ async fn main() {
         }
     };
 
+    let default_max_output_tokens = match default_output_limit(
+        std::env::var("PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS")
+            .ok()
+            .as_deref(),
+    ) {
+        Ok(limit) => limit,
+        Err(reason) => {
+            tracing::error!("PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS: {reason}");
+            std::process::exit(2);
+        }
+    };
+
     let state = Arc::new(AppState {
         executor: Arc::new(Executor::new(
             core_link.clone(),
@@ -142,6 +156,7 @@ async fn main() {
         ),
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
         steering,
+        default_max_output_tokens,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes,
@@ -261,6 +276,17 @@ pub enum Injection {
 /// `PC_GATEWAY_INJECTION`：`on` 注入所有请求，`off` 关闭。未设置时，同机组合部署（经 UDS 连接已配置的 Core）
 /// 默认只注入带会话 ID 的请求，不会让工具循环的每一步都重新准备；独立部署默认关闭。
 /// 其他取值按关闭处理并告警，拼写错误不会意外开启注入。
+/// 默认输出上限只在启动时解析：须为正整数；配置了但无效时拒绝启动，而不是不补上限地运行。
+fn default_output_limit(setting: Option<&str>) -> Result<Option<u32>, String> {
+    let Some(value) = setting else {
+        return Ok(None);
+    };
+    match value.trim().parse::<u32>() {
+        Ok(limit) if limit > 0 => Ok(Some(limit)),
+        _ => Err("must be a positive integer".into()),
+    }
+}
+
 fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
     match setting {
         Some("on") => Injection::All,
@@ -280,6 +306,16 @@ fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
 #[cfg(test)]
 mod injection_default_tests {
     use super::{injection_mode, Injection};
+
+    #[test]
+    fn the_default_output_limit_is_a_positive_integer_or_absent() {
+        use super::default_output_limit;
+        assert_eq!(default_output_limit(None), Ok(None));
+        assert_eq!(default_output_limit(Some("32000")), Ok(Some(32000)));
+        for invalid in ["", "0", "-1", "32k", "4294967296"] {
+            assert!(default_output_limit(Some(invalid)).is_err(), "{invalid}");
+        }
+    }
 
     #[test]
     fn combined_deployments_inject_conversations_unless_set() {

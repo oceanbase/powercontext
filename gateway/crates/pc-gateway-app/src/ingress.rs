@@ -155,7 +155,7 @@ async fn ingress_common(
         }
     };
     let mut client_stream = false;
-    let canonical = match format {
+    let mut canonical = match format {
         Format::Chat => {
             let chat: OpenAiChatRequest = match serde_json::from_slice(&body) {
                 Ok(c) => c,
@@ -205,6 +205,7 @@ async fn ingress_common(
             }
         }
     };
+    apply_default_output_limit(&mut canonical, state.default_max_output_tokens);
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
     if let Format::Responses = format {
         if state.upstream_responses.is_empty() {
@@ -412,6 +413,14 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     };
     push(terminal, json!({"response": resp}));
     out
+}
+
+/// 客户端没有设置输出上限时补上部署配置的默认值（例如 Codex 从不发送 `max_output_tokens`，而 enforcing 的
+/// Core 要求有上限）。补上的值会出现在送检和发送的最终请求里；客户端设置的值保持不变。
+fn apply_default_output_limit(request: &mut CanonicalRequest, default: Option<u32>) {
+    if request.output_limits.max_output_tokens.is_none() {
+        request.output_limits.max_output_tokens = default;
+    }
 }
 
 /// `PC_GATEWAY_INJECTION` 决定注入范围（默认只注入带会话 ID 的请求）并作用于两个入口；`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses。
@@ -719,6 +728,54 @@ mod tests {
             "prompt_cache_key": "session-1",
             "client_metadata": {"x-codex-turn-metadata": "{}"}
         })
+    }
+
+    #[test]
+    fn a_missing_output_limit_gets_the_configured_default_on_both_routes() {
+        use pc_gateway_protocol::WireRenderer;
+        // Codex 0.145 sends no max_output_tokens.
+        let mut codex = codex_request(false);
+        assert!(codex.get("max_output_tokens").is_none());
+        let render = |canonical: &CanonicalRequest| -> serde_json::Value {
+            let payload = pc_gateway_protocol::OpenAiResponsesRenderer
+                .render(canonical, None)
+                .unwrap();
+            serde_json::from_slice(&payload.bytes).unwrap()
+        };
+        let canonical = |client: &serde_json::Value| {
+            to_canonical_responses(serde_json::from_value(client.clone()).unwrap()).unwrap()
+        };
+
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, None);
+        assert!(
+            render(&request).get("max_output_tokens").is_none(),
+            "no default configured"
+        );
+
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, Some(32000));
+        assert_eq!(render(&request)["max_output_tokens"], 32000);
+
+        codex["max_output_tokens"] = serde_json::json!(512);
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, Some(32000));
+        assert_eq!(
+            render(&request)["max_output_tokens"],
+            512,
+            "the client's limit is kept"
+        );
+
+        let chat: OpenAiChatRequest =
+            serde_json::from_str(r#"{"model":"m","messages":[{"role":"user","content":"hi"}]}"#)
+                .unwrap();
+        let mut request = to_canonical_chat(chat).unwrap();
+        apply_default_output_limit(&mut request, Some(32000));
+        let payload = pc_gateway_protocol::OpenAiChatRenderer
+            .render(&request, None)
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&payload.bytes).unwrap();
+        assert_eq!(body["max_tokens"], 32000);
     }
 
     fn render_responses(client: &serde_json::Value) -> serde_json::Value {
