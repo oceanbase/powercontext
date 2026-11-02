@@ -108,14 +108,30 @@ def _reclaim_socket(path: Path, lock: TextIO) -> None:
     path.unlink()
 
 
-def _close_socket(listener: socket.socket, path: Path, identity: tuple[int, int]) -> None:
+def _close_socket(listener: socket.socket, path: Path, identity: tuple[int, int, int]) -> None:
     # An operator's replacement file or socket must survive shutdown.
     listener.close()
     try:
         current = path.lstat()
     except FileNotFoundError:
         return
-    if (current.st_dev, current.st_ino) == identity and stat.S_ISSOCK(current.st_mode):
+    if (current.st_dev, current.st_ino, current.st_ctime_ns) != identity or not stat.S_ISSOCK(current.st_mode):
+        return
+    # A filesystem clock tick can cover inode reuse too. Preserve a live replacement.
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.2)
+        try:
+            probe.connect(str(path))
+        except OSError as error:
+            if error.errno != errno.ECONNREFUSED:
+                return
+        else:
+            return
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return
+    if (current.st_dev, current.st_ino, current.st_ctime_ns) == identity and stat.S_ISSOCK(current.st_mode):
         path.unlink()
 
 
@@ -152,10 +168,14 @@ def unix_socket_listener(path: Path) -> Iterator[socket.socket]:
             listener = resources.enter_context(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM))
             listener.bind(str(path))
             info = path.lstat()
-            identity = info.st_dev, info.st_ino
-            resources.callback(_close_socket, listener, path, identity)
+            identity = info.st_dev, info.st_ino, info.st_ctime_ns
+            # Register cleanup before chmod can fail, then retain its final ctime.
+            resources.callback(lambda: _close_socket(listener, path, identity))
             path.chmod(0o600)
             info = path.lstat()
+            if (info.st_dev, info.st_ino) != identity[:2] or not stat.S_ISSOCK(info.st_mode):
+                raise UnixSocketError("UDS socket changed during startup; refusing to claim it")
+            identity = *identity[:2], info.st_ctime_ns
             lock.seek(0)
             lock.truncate()
             # Include inode change time so a recycled inode is not mistaken for

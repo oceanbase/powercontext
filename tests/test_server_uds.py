@@ -20,6 +20,7 @@ import os
 import socket
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -142,6 +143,63 @@ def test_listener_cleanup_preserves_replacement_and_releases_lock(short_tmp_path
     with unix_socket_listener(path):
         assert path.is_socket()
     assert not path.exists()
+
+
+@_UNIX
+@pytest.mark.parametrize("same_ctime", [False, True])
+def test_listener_cleanup_preserves_replacement_when_device_and_inode_are_reused(
+    short_tmp_path, monkeypatch, same_ctime
+):
+    """Model inode reuse portably while retaining a real replacement listener."""
+    path = short_tmp_path / "core.sock"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as replacement:
+        with unix_socket_listener(path) as listener:
+            original = path.lstat()
+            listener.close()
+            path.unlink()
+            replacement.bind(str(path))
+            replacement.listen()
+            lstat = Path.lstat
+
+            def recycled_identity(candidate, *args, **kwargs):
+                info = lstat(candidate, *args, **kwargs)
+                if candidate == path:
+                    fields = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+                    fields.update(
+                        st_dev=original.st_dev,
+                        st_ino=original.st_ino,
+                        st_ctime_ns=original.st_ctime_ns + (not same_ctime),
+                    )
+                    return SimpleNamespace(**fields)
+                return info
+
+            monkeypatch.setattr(Path, "lstat", recycled_identity)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(str(path))
+            accepted, _ = replacement.accept()
+            accepted.close()
+
+
+@_UNIX
+def test_listener_refuses_socket_replaced_during_startup(short_tmp_path, monkeypatch):
+    path = short_tmp_path / "core.sock"
+    chmod = Path.chmod
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as replacement:
+
+        def replace_during_chmod(candidate, *args, **kwargs):
+            chmod(candidate, *args, **kwargs)
+            if candidate == path:
+                candidate.unlink()
+                replacement.bind(str(candidate))
+                replacement.listen()
+
+        monkeypatch.setattr(Path, "chmod", replace_during_chmod)
+        with pytest.raises(UnixSocketError, match="changed during startup"), unix_socket_listener(path):
+            pytest.fail("A replacement socket was claimed")
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(str(path))
+            accepted, _ = replacement.accept()
+            accepted.close()
 
 
 @pytest.mark.parametrize("scheme", ["http", "https"])

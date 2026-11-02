@@ -231,6 +231,58 @@ def test_cli_uds_authorization_context_and_process_restarts(tmp_path, short_tmp_
         assert not socket_path.exists()
 
 
+def test_cli_shutdown_preserves_replacement_with_reused_inode(tmp_path, short_tmp_path):
+    socket_path = short_tmp_path / "drain.sock"
+    with _running_server(tmp_path, socket_path, _environment(tmp_path)) as (process, client):
+        client.close()
+        original = socket_path.lstat()
+        process.send_signal(signal.SIGTERM)
+        deadline = time.monotonic() + 15
+        while True:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                probe.settimeout(1)
+                try:
+                    probe.connect(str(socket_path))
+                except ConnectionRefusedError:
+                    process.send_signal(signal.SIGSTOP)
+                    break
+                except FileNotFoundError:
+                    pytest.skip("Server completed cleanup before the shutdown window was observed")
+            assert time.monotonic() < deadline, "Server did not close its listener during shutdown"
+            time.sleep(0.001)
+        try:
+            _, stopped = os.waitpid(process.pid, os.WUNTRACED)
+            if not os.WIFSTOPPED(stopped) or not socket_path.exists():
+                pytest.skip("Server completed cleanup before it could be suspended")
+            socket_path.unlink()
+            for _ in range(128):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as replacement:
+                    replacement.bind(str(socket_path))
+                    replacement.listen()
+                    current = socket_path.lstat()
+                    if (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
+                        socket_path.unlink()
+                        continue
+                    assert current.st_ctime_ns != original.st_ctime_ns
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                        probe.connect(str(socket_path))
+                        accepted, _ = replacement.accept()
+                        accepted.close()
+                    process.send_signal(signal.SIGCONT)
+                    assert process.wait(timeout=20) in {0, -signal.SIGTERM}
+                    assert socket_path.is_socket(), "Old Server cleanup removed a replacement socket"
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                        probe.connect(str(socket_path))
+                        accepted, _ = replacement.accept()
+                        accepted.close()
+                    break
+            else:
+                pytest.skip("Filesystem did not reuse the released socket inode")
+        finally:
+            if process.poll() is None:
+                process.send_signal(signal.SIGCONT)
+
+
 @pytest.mark.parametrize("occupied_by", ["file", "symlink", "untracked_socket"])
 def test_cli_uds_preserves_occupied_paths(tmp_path, short_tmp_path, occupied_by):
     socket_path = short_tmp_path / "occupied.sock"
