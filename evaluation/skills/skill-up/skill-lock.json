@@ -1,13 +1,18 @@
 {
   "schema_version": 1,
-  "source_path": "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context",
-  "source_commit": "1ff19cc761969b9f3be68865f629c8523684a36a",
+  "source_path": "integrations/agent-plugin/powercontext/skills/powercontext-project-context",
+  "source_commit": "2405de21af03012f833ede6e23390a616f0daa2c",
   "files": {
-    ".powercontext-guidance.json": "c9872b03159d41f8880b91b679d77b5216970e865187e2c22cdc3e9feddc20fa",
-    "SKILL.md": "c85d5d4ae80354278982ca31d5910b5c4ef27fd1c8ed2bf3683f12722cb8c769",
-    "references/review-publication.md": "e796ffcb2ffb7fef1d17c2e356104a44c3797603e74ae7f27a9445f556529621",
-    "references/scope-memory.md": "f84c8dc933cdfe9934bc50fd23cb53f4d6a3631506700bfdfff4731fe43e6818",
-    "references/work-handoff.md": "248069bc7f69268ba90de38b2537fe9a385d4a220a35c54603d53e16df10988f"
+    "SKILL.md": "f2667491e0107eca6a3ef308e423b62781adf29697349610eadbef88da724198",
+    "agents/openai.yaml": "2500c7e1d329158214626d203c70e7e9975f6ce7273be7fd4e758cbe4320bdbb",
+    "references/examples.json": "3af536b88e12f0c0285c94c339e230dfa78b130b720f0e0a01b3086aa2255a1a",
+    "references/experience-skill.md": "2a5a91ef18f0d911d34ec3190a13d90cb43f0f685c3d19425b76c03335b401ec",
+    "references/experience-skills.md": "540005f5d85998abf669b04019d2acf2fea7fae9029698829f836b9c408584a9",
+    "references/host.md": "f16d33081061ebe49416afe986fee249b68f3cf9cce419e3fd370d8363f24561",
+    "references/http-boundaries.md": "c012a88b6fb96f5a2e9cfbb6d39a8c9ce897451c4ff3d10f38c7471340ace7e7",
+    "references/review-publication.md": "8f97c758e0877e38a542afaeb2c6ec33ae7a17fce86210efb6cd0e0e14148393",
+    "references/scope-memory.md": "d49ffa40afbf849604bee5e4d1d911b750458b57f975997f0a84c8bb87c8d3d0",
+    "references/work-handoff.md": "d258bca1efc9330f1137690f75fb1e34f2a260e0bd277d41580077ce1886e595"
   },
-  "content_sha256": "f4303bc04f7f578bd705ef6515eaa66ede71e91368cd138e6fcfcbe2bd57e072"
+  "content_sha256": "ea42435f5ea29892b8a651d5a93039ea3425365579f218062a8a5bf632d75961"
 }
