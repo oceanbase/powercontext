@@ -41,7 +41,6 @@ class CodeEvidenceRef:
 class PreparedCodeCandidate:
     origin: CodeEvidenceRef
     content: str
-    checked_at: str
     truncated: bool = False
 
 
@@ -67,7 +66,6 @@ def code_candidates(result: CodeQueryResult) -> tuple[PreparedCodeCandidate, ...
         candidate = PreparedCodeCandidate(
             CodeEvidenceRef(result.scope_id, result.fingerprint, path, str(file_hash), start, end, str(snippet_hash)),
             content,
-            result.checked_at,
         )
         position = len(candidates)
         remaining = []
@@ -126,7 +124,6 @@ def _item_parts(item: PreparedCodeCandidate) -> tuple[str, str]:
         "start_line": ref.start_line,
         "end_line": ref.end_line,
         "snippet_sha256": ref.snippet_sha256,
-        "checked_at": item.checked_at,
         "truncated": item.truncated,
     }
     # Encode each original line as a literal JSON string so controls and marker-like

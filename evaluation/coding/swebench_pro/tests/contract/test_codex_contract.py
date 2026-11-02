@@ -3630,6 +3630,17 @@ def test_auth_secrets_include_nested_scalars_and_supported_derivations(tmp_path:
     } <= set(variants)
 
 
+def test_auth_mode_label_is_not_treated_as_a_secret(tmp_path: Path) -> None:
+    # API-key logins write auth_mode "apikey"; patches to projects with API-key auth often contain that word.
+    key = "sk-fixture-0123456789abcdef"
+    variants = set(
+        auth_secret_variants(_write_json(tmp_path / "auth.json", {"OPENAI_API_KEY": key, "auth_mode": "apikey"}))
+    )
+
+    assert key in variants
+    assert "apikey" not in variants
+
+
 def test_fake_codex_echo_of_auth_secrets_or_encodings_is_never_published(tmp_path: Path) -> None:
     raw = "fixture/super secret"
     variants = auth_secret_variants(_write_json(tmp_path / "auth.json", {"nested": {"token": raw}}))

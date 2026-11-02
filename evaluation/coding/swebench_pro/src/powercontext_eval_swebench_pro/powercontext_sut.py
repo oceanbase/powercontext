@@ -429,6 +429,11 @@ def default_docker_bridge_gateway(process: ProcessRunner, cwd: Path) -> str:
     return _validated_gateway(result.stdout.strip())
 
 
+# Fields whose values are fixed labels rather than credentials. Forbidding them rejects ordinary
+# patches; for example, "apikey" is a common identifier in projects with API-key authentication.
+_AUTH_NON_SECRET_FIELDS = frozenset({"auth_mode"})
+
+
 def auth_secret_variants(auth_json: Path) -> tuple[str, ...]:
     """Extract nested scalar credentials and conservative encoded derivatives without logging them."""
 
@@ -449,8 +454,9 @@ def auth_secret_variants(auth_json: Path) -> tuple[str, ...]:
 
     def visit(item: object) -> None:
         if isinstance(item, dict):
-            for nested in item.values():
-                visit(nested)
+            for key, nested in item.items():
+                if key not in _AUTH_NON_SECRET_FIELDS:
+                    visit(nested)
         elif isinstance(item, list):
             for nested in item:
                 visit(nested)

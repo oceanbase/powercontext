@@ -956,7 +956,6 @@ def _code_candidates(count: int = 5) -> tuple[PreparedCodeCandidate, ...]:
                 "scope", "a" * 64, f"module{number}.py", "b" * 64, 1, 2, digest_bytes(content.encode())
             ),
             content=content,
-            checked_at="2026-09-21T00:00:00Z",
         )
         for number in range(count)
     )
@@ -997,7 +996,6 @@ def test_receipt_preserves_selected_history_and_truncated_code_identity() -> Non
     candidate = PreparedCodeCandidate(
         origin=CodeEvidenceRef("scope", "a" * 64, "module.py", "b" * 64, 1, 250, digest_bytes(content.encode())),
         content=content,
-        checked_at="2026-09-21T00:00:00Z",
     )
     request = PrepareContextRequest(
         query="budget",
@@ -1235,6 +1233,46 @@ def test_code_evidence_merges_overlapping_ranges_without_losing_source() -> None
     assert candidates[0].content == content
     assert (candidates[0].origin.start_line, candidates[0].origin.end_line) == (1, 4)
     assert candidates[0].origin.snippet_sha256 == digest_bytes(content.encode())
+
+
+def test_code_evidence_renders_identically_when_only_query_time_differs() -> None:
+    # Hosts that prepare on every model request rely on stable bytes for provider prompt caching.
+    content = "def budget():\n    return 1\n"
+    item: dict[str, JsonValue] = {
+        "path": "module.py",
+        "start_line": 1,
+        "end_line": 2,
+        "content": content,
+        "file_sha256": digest_bytes(content.encode()),
+        "snippet_sha256": digest_bytes(content.encode()),
+    }
+
+    def render(checked_at: str) -> str | None:
+        result = CodeQueryResult(
+            scope_id="scope",
+            fingerprint="a" * 64,
+            commit="b" * 40,
+            git_object_format="sha1",
+            dirty=False,
+            checked_at=checked_at,
+            operation="explore",
+            items=[item],
+            coverage={},
+            limitations=[],
+        )
+        return (
+            PreparedContextBuilder()
+            .build_scopes_result(
+                request=PrepareContextRequest(query="budget", include_code=True, assembly=ContextAssembly(sections=())),
+                current_scope_id="scope",
+                code_candidates=code_candidates(result),
+            )
+            .context.content
+        )
+
+    first = render("2026-09-21T00:00:00Z")
+    assert first is not None and "BEGIN_POWERCONTEXT_CODE_V1" in first
+    assert render("2026-09-21T00:00:07Z") == first
 
 
 @pytest.mark.parametrize(
