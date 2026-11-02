@@ -33,6 +33,11 @@ pub enum RenderError {
 /// 缓存渲染计划（withhold 附带）只允许合并计划里显式列出的顶层字段。
 pub trait WireRenderer: Send + Sync {
     fn name(&self) -> &'static str;
+    /// 渲染后请求体中消息列表的顶层键：Chat 为 `messages`，Responses 为 `input`。
+    /// 注入位置声明（JSON 指针）以它为根，否则 Core 检查的是错误的字节。
+    fn message_list_key(&self) -> &'static str {
+        "messages"
+    }
     fn render(
         &self,
         request: &CanonicalRequest,
@@ -158,6 +163,13 @@ impl WireRenderer for GatewayRenderer {
         }
     }
 
+    fn message_list_key(&self) -> &'static str {
+        match self {
+            GatewayRenderer::Chat(r) => r.message_list_key(),
+            GatewayRenderer::Responses(r) => r.message_list_key(),
+        }
+    }
+
     fn render(
         &self,
         request: &CanonicalRequest,
@@ -219,6 +231,10 @@ fn is_responses_item(v: &serde_json::Value) -> bool {
 impl WireRenderer for OpenAiResponsesRenderer {
     fn name(&self) -> &'static str {
         "openai-responses"
+    }
+
+    fn message_list_key(&self) -> &'static str {
+        "input"
     }
 
     fn render(

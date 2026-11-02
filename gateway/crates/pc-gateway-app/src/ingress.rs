@@ -238,7 +238,7 @@ async fn ingress_common(
         } else {
             pc_gateway_core::DegradePolicy::Pause
         },
-        inject_context: state.inject_context && matches!(format, Format::Chat),
+        inject_context: injects(&format, state.inject_context, state.inject_responses),
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
@@ -397,6 +397,11 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     };
     push(terminal, json!({"response": resp}));
     out
+}
+
+/// `PC_GATEWAY_INJECTION` 同时控制两个入口；`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses。
+fn injects(format: &Format, injection: bool, responses: bool) -> bool {
+    injection && (matches!(format, Format::Chat) || responses)
 }
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
@@ -860,6 +865,15 @@ mod tests {
         let response = respond_responses_sse(outcome);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    }
+
+    #[test]
+    fn responses_injection_follows_the_injection_switch_unless_opted_out() {
+        assert!(injects(&Format::Chat, true, false));
+        assert!(!injects(&Format::Responses, true, false));
+        assert!(injects(&Format::Responses, true, true));
+        assert!(!injects(&Format::Responses, false, true));
+        assert!(!injects(&Format::Chat, false, true));
     }
 
     #[test]

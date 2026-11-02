@@ -640,6 +640,74 @@ async fn injects_block_and_declares_exact_location() {
     assert_eq!(transport.sends.lock().unwrap().len(), 1);
 }
 
+#[tokio::test]
+async fn responses_injection_targets_input_text_and_declares_input_pointer() {
+    let (executor, _renderer, transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[{\"content\":\"测试命令\"}]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    let mut c = call(DegradePolicy::Pause);
+    // Responses 的形态：developer 条目原样封装在前，用户消息由 input_text 部件组成。
+    c.request.messages = vec![
+        CanonicalMessage {
+            role: Role::Tool,
+            content: vec![serde_json::json!({"type": "message", "role": "developer",
+                "content": [{"type": "input_text", "text": "base"}]})],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        },
+        CanonicalMessage {
+            role: Role::User,
+            content: vec![
+                serde_json::json!({"type": "input_text", "text": "Fix the bug"}),
+                serde_json::json!({"type": "input_text", "text": "in util.py"}),
+            ],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        },
+    ];
+    c.inject_context = true;
+    let outcome = executor
+        .run(
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+
+    // 检索词来自 input_text 部件。
+    assert_eq!(
+        gate.prepare_queries.lock().unwrap()[0],
+        "Fix the bug\nin util.py"
+    );
+
+    // 声明的指针在送检的 Responses 请求体中指向注入的字节。
+    let declared = gate.prepared_seen.lock().unwrap().clone();
+    let loc = &declared[0][0].location;
+    assert_eq!(loc.pointer, "/input/1/content/0/text");
+    let seen = gate.seen.lock().unwrap().clone();
+    let body: serde_json::Value = serde_json::from_str(&seen[0].1).unwrap();
+    let text = body.pointer(&loc.pointer).and_then(|v| v.as_str()).unwrap();
+    assert_eq!(
+        &text.as_bytes()[loc.start_byte as usize..loc.end_byte as usize],
+        block.as_bytes()
+    );
+    assert!(text.ends_with("Fix the bug"));
+    // 其他部件与 developer 条目不变。
+    assert_eq!(body["input"][1]["content"][1]["text"], "in util.py");
+    assert_eq!(body["input"][0]["role"], "developer");
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+}
+
 fn extract_user_text(before_send_payload: &str) -> String {
     // FakeGate 记录的即渲染后的请求体 JSON
     let body: serde_json::Value = serde_json::from_str(before_send_payload).unwrap();
