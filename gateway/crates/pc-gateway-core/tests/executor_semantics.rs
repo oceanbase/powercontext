@@ -2107,3 +2107,151 @@ async fn a_degraded_delivery_is_never_captured() {
     assert_eq!(transport.sends.lock().unwrap().len(), 1);
     assert!(gate.captured.lock().unwrap().is_empty());
 }
+
+/// 每次放行的 release binding 都不同（Core 每次重新封装），与真实行为一致。
+fn allow_runs_with_fresh_release_bindings(n: usize) -> Vec<Result<ContextCheckResult, GateError>> {
+    (0..n)
+        .flat_map(|i| {
+            [
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(ContextCheckResult {
+                    binding: Some(format!("release-{i}")),
+                    ..result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])
+                }),
+            ]
+        })
+        .collect()
+}
+
+fn captured_ids(gate: &FakeGate) -> Vec<String> {
+    gate.captured
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn retried_and_concurrent_terminal_requests_of_a_turn_share_one_source_id() {
+    let (executor, renderer, _transport, gate) = harness(
+        allow_runs_with_fresh_release_bindings(5),
+        (0..5)
+            .map(|i| chat_final_response(&format!("done {i}")))
+            .collect(),
+        2,
+    );
+    let r = RendererRef(renderer.clone());
+    let terminal = |conversation: &str| {
+        let mut c = tool_loop_call("fix the bug", 1, false);
+        c.inject_context = false;
+        c.sediment = true;
+        c.conversation_id = Some(conversation.into());
+        c
+    };
+    // 同一回合：先后重试两次，再并发重复两次。
+    executor
+        .run(terminal("conversation-a"), &r, &NoopEvidenceSink)
+        .await;
+    executor
+        .run(terminal("conversation-a"), &r, &NoopEvidenceSink)
+        .await;
+    tokio::join!(
+        executor.run(terminal("conversation-a"), &r, &NoopEvidenceSink),
+        executor.run(terminal("conversation-a"), &r, &NoopEvidenceSink),
+    );
+    let ids = captured_ids(&gate);
+    assert_eq!(ids.len(), 4);
+    assert!(
+        ids.iter().all(|id| id == &ids[0]),
+        "one turn, one Source ID: {ids:?}"
+    );
+    // 另一个会话中相同的消息是另一个回合。
+    executor
+        .run(terminal("conversation-b"), &r, &NoopEvidenceSink)
+        .await;
+    assert_ne!(captured_ids(&gate)[4], ids[0]);
+}
+
+#[tokio::test]
+async fn without_a_conversation_identical_turns_are_never_merged() {
+    let (executor, renderer, _transport, gate) = harness(
+        allow_runs_with_fresh_release_bindings(2),
+        vec![chat_final_response("done"), chat_final_response("done")],
+        2,
+    );
+    for _ in 0..2 {
+        let mut c = tool_loop_call("fix the bug", 1, false);
+        c.inject_context = false;
+        c.sediment = true;
+        c.conversation_id = None;
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    let ids = captured_ids(&gate);
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+}
+
+#[tokio::test]
+async fn a_turn_already_captured_with_other_content_is_recorded_as_a_duplicate() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(1), vec![chat_final_response("done again")], 2);
+    // Core 对同一 Source ID 的不同内容返回 409 source_conflict。
+    *gate.capture_error.lock().unwrap() = Some(GateError::GateRejected(409));
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = tool_loop_call("fix the bug", 1, false);
+    c.inject_context = false;
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let reasons: Vec<String> = evidence.not_sent().into_iter().map(|(_, r)| r).collect();
+    assert_eq!(reasons, vec!["sediment_duplicate".to_string()]);
+}
+
+#[tokio::test]
+async fn a_hosted_tool_response_is_terminal_but_a_client_tool_call_is_not() {
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(3),
+        vec![
+            responses_output(serde_json::json!([
+                {"id": "cu_1", "type": "computer_call", "call_id": "call_9", "status": "completed",
+                 "action": {"type": "screenshot"}}
+            ])),
+            responses_output(serde_json::json!([
+                {"id": "x_1", "type": "frobnicate_request", "status": "completed"}
+            ])),
+            responses_output(serde_json::json!([
+                {"id": "ws_1", "type": "web_search_call", "status": "completed",
+                 "action": {"type": "search", "query": "loader"}},
+                {"id": "msg_1", "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "found it", "annotations": []}]}
+            ])),
+        ],
+        2,
+    );
+    for expected in [0, 0, 1] {
+        let mut c = tool_loop_call("fix the bug", 0, true);
+        c.inject_context = false;
+        c.sediment = true;
+        executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert_eq!(gate.captured.lock().unwrap().len(), expected);
+    }
+    let captured = gate.captured.lock().unwrap().clone();
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        transcript["steps"],
+        serde_json::json!([{"type": "tool_call", "name": "web_search_call",
+            "arguments": "{\"query\":\"loader\",\"type\":\"search\"}"}])
+    );
+    assert_eq!(transcript["assistant"], "found it");
+}

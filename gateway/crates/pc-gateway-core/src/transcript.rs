@@ -54,17 +54,18 @@ fn is_responses(list_key: &str) -> bool {
     list_key == "input"
 }
 
-/// 响应是回合的终止响应时，返回该回合的规范化记录；响应仍在调用工具或无法解析时返回 `None`。
+/// 响应是回合的终止响应时，返回该回合的规范化记录。响应仍需客户端执行工具、含有无法识别的条目或无法解析时
+/// 返回 `None`：宁可不沉淀，也不把工具循环的中间响应当成回合结束。
 pub(crate) fn turn_transcript(
     request: &CanonicalRequest,
     response: &str,
     list_key: &str,
 ) -> Option<String> {
     let response: Value = serde_json::from_str(response).ok()?;
-    let assistant = if is_responses(list_key) {
-        responses_final_text(&response)?
+    let (final_steps, assistant) = if is_responses(list_key) {
+        responses_final(&response)?
     } else {
-        chat_final_text(&response)?
+        (Vec::new(), chat_final_text(&response)?)
     };
     let start = request
         .messages
@@ -75,12 +76,13 @@ pub(crate) fn turn_transcript(
         .iter()
         .flat_map(|m| {
             if is_responses(list_key) {
-                responses_steps(m)
+                m.content.first().map(item_steps).unwrap_or_default()
             } else {
                 chat_steps(m)
             }
         })
         .collect();
+    steps.extend(final_steps);
     let mut transcript = Transcript {
         kind: "gateway_turn",
         user: bounded(user),
@@ -101,44 +103,79 @@ pub(crate) fn turn_transcript(
     }
 }
 
-/// Chat 终止响应：第一个 choice 的消息没有工具调用。
+/// Chat 终止响应：第一个 choice 的消息既没有 `tool_calls`，也没有旧式的 `function_call`。
 fn chat_final_text(response: &Value) -> Option<String> {
     let message = response.get("choices")?.get(0)?.get("message")?;
     let calls = message.get("tool_calls").and_then(Value::as_array);
-    if calls.is_some_and(|calls| !calls.is_empty()) {
+    if calls.is_some_and(|calls| !calls.is_empty())
+        || message
+            .get("function_call")
+            .is_some_and(|call| !call.is_null())
+    {
         return None;
     }
-    Some(match message.get("content") {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(parts)) => parts_text(parts),
-        _ => String::new(),
-    })
+    Some(content_text(message.get("content")))
 }
 
-/// Responses 终止响应：output 中没有工具调用条目。
-fn responses_final_text(response: &Value) -> Option<String> {
-    let output = response.get("output")?.as_array()?;
-    if output.iter().any(is_responses_tool_call) {
-        return None;
-    }
-    let texts: Vec<String> = output.iter().filter_map(responses_assistant_text).collect();
-    Some(texts.join("\n"))
+/// Responses 条目按语义分类。
+#[derive(Debug, PartialEq)]
+enum ItemKind {
+    Message,
+    /// 不进入记录、也不影响回合是否结束的条目：推理与 MCP 工具清单。
+    Ignored,
+    /// 服务商在同一响应内执行完毕的内置工具，结果随条目返回，客户端不需要再发请求。
+    HostedCall,
+    /// 需要客户端执行的工具调用（`*_call`、MCP 审批请求）。
+    ClientCall,
+    /// 客户端回传的工具结果（`*_call_output`、MCP 审批答复）。
+    CallOutput,
+    Unknown,
 }
 
-fn is_responses_tool_call(item: &Value) -> bool {
-    matches!(
-        item.get("type").and_then(Value::as_str),
-        Some("function_call" | "custom_tool_call")
-    )
-}
+const HOSTED_CALLS: &[&str] = &[
+    "web_search_call",
+    "file_search_call",
+    "code_interpreter_call",
+    "image_generation_call",
+    "mcp_call",
+];
 
-fn responses_assistant_text(item: &Value) -> Option<String> {
-    let is_message = item
+fn classify(item: &Value) -> ItemKind {
+    match item
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or("message")
-        == "message";
-    (is_message && item.get("role").and_then(Value::as_str) == Some("assistant"))
+    {
+        "message" => ItemKind::Message,
+        "reasoning" | "mcp_list_tools" => ItemKind::Ignored,
+        kind if HOSTED_CALLS.contains(&kind) => ItemKind::HostedCall,
+        kind if kind.ends_with("_call_output") || kind == "mcp_approval_response" => {
+            ItemKind::CallOutput
+        }
+        kind if kind.ends_with("_call") || kind == "mcp_approval_request" => ItemKind::ClientCall,
+        _ => ItemKind::Unknown,
+    }
+}
+
+/// Responses 终止响应：output 只含助手消息、可忽略的条目和已在响应内完成的内置工具。
+/// 需要客户端执行的调用或无法识别的条目都表示回合尚未结束。
+fn responses_final(response: &Value) -> Option<(Vec<Step>, String)> {
+    let output = response.get("output")?.as_array()?;
+    let mut steps = Vec::new();
+    let mut texts = Vec::new();
+    for item in output {
+        match classify(item) {
+            ItemKind::Message => texts.extend(assistant_text(item)),
+            ItemKind::Ignored => {}
+            ItemKind::HostedCall => steps.extend(item_steps(item)),
+            ItemKind::ClientCall | ItemKind::CallOutput | ItemKind::Unknown => return None,
+        }
+    }
+    Some((steps, texts.join("\n")))
+}
+
+fn assistant_text(item: &Value) -> Option<String> {
+    (item.get("role").and_then(Value::as_str) == Some("assistant"))
         .then(|| content_text(item.get("content")))
 }
 
@@ -168,25 +205,11 @@ fn chat_steps(message: &CanonicalMessage) -> Vec<Step> {
     }
 }
 
-/// Responses 入口把用户消息以外的条目原样封装为单元素内容，这里按条目类型取出可见部分。
-fn responses_steps(message: &CanonicalMessage) -> Vec<Step> {
-    let Some(item) = message.content.first() else {
-        return Vec::new();
-    };
-    let kind = item.get("type").and_then(Value::as_str);
-    match kind {
-        Some("function_call") => vec![Step::ToolCall {
-            name: string_field(Some(item), "name"),
-            arguments: bounded(string_field(Some(item), "arguments")),
-        }],
-        Some("custom_tool_call") => vec![Step::ToolCall {
-            name: string_field(Some(item), "name"),
-            arguments: bounded(string_field(Some(item), "input")),
-        }],
-        Some("function_call_output" | "custom_tool_call_output") => vec![Step::ToolOutput {
-            output: bounded(content_text(item.get("output"))),
-        }],
-        _ => responses_assistant_text(item)
+/// 一个 Responses 条目在记录中的步骤。工具调用取名称（没有名称时用条目类型）与参数；内置工具随条目返回的结果
+/// 作为工具输出。条目 ID、`call_id`、状态等字段不进入记录。
+fn item_steps(item: &Value) -> Vec<Step> {
+    match classify(item) {
+        ItemKind::Message => assistant_text(item)
             .filter(|text| !text.is_empty())
             .map(|text| {
                 vec![Step::Assistant {
@@ -194,6 +217,63 @@ fn responses_steps(message: &CanonicalMessage) -> Vec<Step> {
                 }]
             })
             .unwrap_or_default(),
+        ItemKind::ClientCall | ItemKind::HostedCall => {
+            let name = item
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| item.get("type").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_owned();
+            let arguments = first_field(
+                item,
+                &["arguments", "input", "action", "code", "query", "queries"],
+            )
+            .map(value_text)
+            .unwrap_or_default();
+            let mut steps = vec![Step::ToolCall {
+                name,
+                arguments: bounded(arguments),
+            }];
+            if let Some(output) = first_field(item, &["output", "outputs", "results"]) {
+                steps.push(Step::ToolOutput {
+                    output: bounded(value_text(output)),
+                });
+            }
+            steps
+        }
+        ItemKind::CallOutput => vec![Step::ToolOutput {
+            output: bounded(item.get("output").map(value_text).unwrap_or_default()),
+        }],
+        ItemKind::Ignored | ItemKind::Unknown => Vec::new(),
+    }
+}
+
+fn first_field<'a>(item: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    keys.iter()
+        .filter_map(|key| item.get(*key))
+        .find(|value| !value.is_null())
+}
+
+/// 字段的可读文本：字符串原样，内容块数组取其文本；其余结构序列化为 JSON，其中的 `data:` URL
+/// （截图、图片等二进制内容）替换为占位文本。
+fn value_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) if !parts_text(parts).is_empty() => parts_text(parts),
+        other => without_binary(other).to_string(),
+    }
+}
+
+fn without_binary(value: &Value) -> Value {
+    match value {
+        Value::String(text) if text.starts_with("data:") => Value::from("[binary data omitted]"),
+        Value::Array(items) => Value::Array(items.iter().map(without_binary).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, value)| (key.clone(), without_binary(value)))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -323,6 +403,64 @@ mod tests {
         assert_eq!(steps.len() as u64 + omitted, 80);
         assert_eq!(transcript["user"], "task");
         assert_eq!(transcript["assistant"], "done");
+    }
+
+    #[test]
+    fn built_in_calls_and_outputs_in_the_history_are_kept_without_binary_data() {
+        let item = |value: Value| CanonicalMessage {
+            role: Role::Tool,
+            content: vec![value],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        };
+        let mut request = chat_turn(&[]);
+        request.messages.extend([
+            item(serde_json::json!({"type": "computer_call", "id": "cu_1", "call_id": "call_1",
+                "status": "completed", "action": {"type": "click", "x": 1, "y": 2}})),
+            item(serde_json::json!({"type": "computer_call_output", "call_id": "call_1",
+                "output": {"type": "computer_screenshot", "image_url": "data:image/png;base64,AAAA"}})),
+            item(serde_json::json!({"type": "mcp_call", "id": "mcp_1", "name": "search_docs",
+                "server_label": "docs", "arguments": "{\"q\":\"loader\"}", "output": "3 results"})),
+            item(serde_json::json!({"type": "reasoning", "encrypted_content": "gAAAA"})),
+            item(serde_json::json!({"type": "frobnicate", "data": "opaque"})),
+        ]);
+        let response = r#"{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}"#;
+        let text = turn_transcript(&request, response, "input").unwrap();
+        let transcript: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            transcript["steps"],
+            serde_json::json!([
+                {"type": "tool_call", "name": "computer_call", "arguments": "{\"type\":\"click\",\"x\":1,\"y\":2}"},
+                {"type": "tool_output", "output": "{\"image_url\":\"[binary data omitted]\",\"type\":\"computer_screenshot\"}"},
+                {"type": "tool_call", "name": "search_docs", "arguments": "{\"q\":\"loader\"}"},
+                {"type": "tool_output", "output": "3 results"}
+            ])
+        );
+        for absent in ["call_1", "cu_1", "mcp_1", "base64", "gAAAA", "opaque"] {
+            assert!(!text.contains(absent), "{absent} in {text}");
+        }
+    }
+
+    #[test]
+    fn client_and_unknown_items_keep_a_responses_turn_open() {
+        let request = chat_turn(&[]);
+        for item in [
+            r#"{"type":"computer_call","call_id":"c","action":{"type":"screenshot"}}"#,
+            r#"{"type":"local_shell_call","call_id":"c","action":{"command":["ls"]}}"#,
+            r#"{"type":"mcp_approval_request","name":"delete","server_label":"s","arguments":"{}"}"#,
+            r#"{"type":"frobnicate"}"#,
+        ] {
+            let response = format!(r#"{{"output":[{item}]}}"#);
+            assert_eq!(
+                turn_transcript(&request, &response, "input"),
+                None,
+                "{item}"
+            );
+        }
+        let legacy = r#"{"choices":[{"message":{"role":"assistant","content":null,
+            "function_call":{"name":"read","arguments":"{}"}}}]}"#;
+        assert_eq!(turn_transcript(&request, legacy, "messages"), None);
     }
 
     #[test]

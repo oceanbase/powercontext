@@ -334,11 +334,13 @@ where
                         })
                         .flatten();
                     if let Some(transcript) = transcript {
-                        let digest = result
-                            .binding
-                            .as_deref()
-                            .map(simple_digest)
-                            .unwrap_or_else(|| simple_digest(&release_body));
+                        let digest = turn_digest(&call, &pristine_request).unwrap_or_else(|| {
+                            result
+                                .binding
+                                .as_deref()
+                                .map(simple_digest)
+                                .unwrap_or_else(|| simple_digest(&release_body))
+                        });
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
                             source_id: format!("gw-turn-{digest}"),
@@ -348,8 +350,13 @@ where
                                 "target_profile": call.target_profile,
                             })),
                         };
-                        if let Err(e) = self.gate.capture(capture).await {
-                            evidence.record_not_sent(0, &format!("sediment_failed:{e}"));
+                        match self.gate.capture(capture).await {
+                            Ok(_) => {}
+                            // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
+                            Err(GateError::GateRejected(409)) => {
+                                evidence.record_not_sent(0, "sediment_duplicate")
+                            }
+                            Err(e) => evidence.record_not_sent(0, &format!("sediment_failed:{e}")),
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
                         if now_ms() >= release_deadline {
@@ -675,6 +682,24 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// 一个用户回合的稳定标识：Scope、可信会话 ID 与截至最后一条用户消息的注入前消息。同一回合的重试、重复或并发的
+/// 终止请求得到同一个 Source ID。没有可信会话时返回 `None`：不同会话的相同消息不能合并，调用方退回到每次放行
+/// 各自的标识。
+fn turn_digest(call: &ManagedCall, pristine: &CanonicalRequest) -> Option<String> {
+    let conversation = call.conversation_id.as_deref()?;
+    let last_user = pristine
+        .messages
+        .iter()
+        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
+    let messages = serde_json::to_string(&pristine.messages[..=last_user]).ok()?;
+    Some(simple_digest(&format!(
+        "{}\n{}\n{}\n{messages}",
+        call.scope_id.len(),
+        call.scope_id,
+        conversation
+    )))
 }
 
 fn simple_digest(input: &str) -> String {
