@@ -87,8 +87,11 @@ PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider/v1/chat/completions \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 ./target/release/pc-gateway
 
-# Optional: PC_GATEWAY_INJECTION=on (prepare + inject on the Chat and Responses routes;
-# PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected), PC_GATEWAY_SEDIMENT=on (capture after release),
+# Injection (prepare + inject on the Chat and Responses routes): in the combined deployment (PC_GATEWAY_CORE_UDS)
+# requests that carry X-PowerContext-Conversation-ID are injected by default; standalone is off by default.
+# PC_GATEWAY_INJECTION=on injects every request, PC_GATEWAY_INJECTION=off disables injection, and
+# PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected.
+# Optional: PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_DEGRADE=passthrough (no-memory passthrough when Core is unreachable; never applies
 # to deployments with enforcing protection), PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES,
 # PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled).

@@ -209,6 +209,17 @@ The Rust executable, joint launcher, gateway settings, private channel authentic
 tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over
 UDS with channel and user authentication.
 
+### Gateway context injection
+
+When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared
+context by default into Chat and Responses requests that carry a host conversation ID
+(`X-PowerContext-Conversation-ID`). Within a conversation it prepares once per new user message and replays the exact
+result for the rest of that turn, such as an agent's tool loop. Set `PC_GATEWAY_INJECTION=on` to inject every request
+(requests without a conversation ID then prepare individually), `PC_GATEWAY_INJECTION=off` to turn injection off, or
+`PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
+without injection.
+
 ## Run with Docker
 
 Build the image from the repository root:

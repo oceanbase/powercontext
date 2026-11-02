@@ -15,7 +15,7 @@
 //! 模型入口：OpenAI 兼容 `/gateway/v1/chat/completions`。
 //! 客户端只改 Base URL 与 API Key 即接入（PR #2199 产品形态）。
 
-use crate::{proxy::SharedProxy, AppState};
+use crate::{proxy::SharedProxy, AppState, Injection};
 use axum::body::Bytes;
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
@@ -220,6 +220,7 @@ async fn ingress_common(
         Format::Responses => pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
     };
 
+    let conversation = conversation_id(&headers);
     let call = ManagedCall {
         scope_id: state.default_scope.clone(),
         target_profile: state.upstream_profile.clone(),
@@ -238,8 +239,13 @@ async fn ingress_common(
         } else {
             pc_gateway_core::DegradePolicy::Pause
         },
-        inject_context: injects(&format, state.inject_context, state.inject_responses),
-        conversation_id: conversation_id(&headers),
+        inject_context: injects(
+            &format,
+            state.injection,
+            state.inject_responses,
+            conversation.is_some(),
+        ),
+        conversation_id: conversation,
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
@@ -405,9 +411,14 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     out
 }
 
-/// `PC_GATEWAY_INJECTION` 同时控制两个入口；`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses。
-fn injects(format: &Format, injection: bool, responses: bool) -> bool {
-    injection && (matches!(format, Format::Chat) || responses)
+/// `PC_GATEWAY_INJECTION` 决定注入范围（默认只注入带会话 ID 的请求）并作用于两个入口；`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses。
+fn injects(format: &Format, injection: Injection, responses: bool, has_conversation: bool) -> bool {
+    let enabled = match injection {
+        Injection::All => true,
+        Injection::ConversationsOnly => has_conversation,
+        Injection::Off => false,
+    };
+    enabled && (matches!(format, Format::Chat) || responses)
 }
 
 /// 宿主提供的会话 ID（RFC 2199 `X-PowerContext-Conversation-ID`）：1～256 个可见 ASCII 字符。
@@ -951,11 +962,39 @@ mod tests {
 
     #[test]
     fn responses_injection_follows_the_injection_switch_unless_opted_out() {
-        assert!(injects(&Format::Chat, true, false));
-        assert!(!injects(&Format::Responses, true, false));
-        assert!(injects(&Format::Responses, true, true));
-        assert!(!injects(&Format::Responses, false, true));
-        assert!(!injects(&Format::Chat, false, true));
+        assert!(injects(&Format::Chat, Injection::All, false, false));
+        assert!(!injects(&Format::Responses, Injection::All, false, true));
+        assert!(injects(&Format::Responses, Injection::All, true, false));
+        assert!(!injects(&Format::Responses, Injection::Off, true, true));
+        assert!(!injects(&Format::Chat, Injection::Off, true, true));
+    }
+
+    #[test]
+    fn the_default_injects_only_requests_with_a_conversation_id() {
+        assert!(injects(
+            &Format::Chat,
+            Injection::ConversationsOnly,
+            true,
+            true
+        ));
+        assert!(injects(
+            &Format::Responses,
+            Injection::ConversationsOnly,
+            true,
+            true
+        ));
+        assert!(!injects(
+            &Format::Chat,
+            Injection::ConversationsOnly,
+            true,
+            false
+        ));
+        assert!(!injects(
+            &Format::Responses,
+            Injection::ConversationsOnly,
+            true,
+            false
+        ));
     }
 
     #[test]

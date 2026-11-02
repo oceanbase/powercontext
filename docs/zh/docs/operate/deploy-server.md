@@ -192,6 +192,15 @@ Server 使用 UDS 时，通过 `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` 或
 Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私有路由和网关状态表仍需单独实现。设计中的网关负责原有
 公开 TCP 端口，并携带通道认证与用户认证通过 UDS 调用 Core。
 
+### 网关上下文注入
+
+网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向带有宿主会话 ID
+（`X-PowerContext-Conversation-ID`）的 Chat 和 Responses 请求注入准备好的上下文。在同一会话内，每条新的用户消息
+只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。设置 `PC_GATEWAY_INJECTION=on` 会注入所有
+请求（没有会话 ID 的请求各自准备），设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置
+`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有
+设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。
+
 ## 使用 Docker 运行
 
 在仓库根目录构建镜像：
