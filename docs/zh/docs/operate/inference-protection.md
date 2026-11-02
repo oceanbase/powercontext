@@ -77,7 +77,8 @@ Anthropic 文档仅支持内联纯文本来源；PDF/base64、URL、Files API �
 Responses 图片生成工具以及不透明的 `image_generation_call` 结果，在输入和输出边界都会暂缓。
 
 内置 OpenAI/Anthropic、Embedding、Rerank 路径把检查接在最终 HTTP transport，
-原生 SDK 的格式转换先完成。Enforcing 关闭 SDK 传输层自动重试；原有阶段的输出 schema 重试仍有界，
+原生 SDK 的格式转换先完成。观察模式保留提供方原有的重试策略；有显式预算约束的 worker 仍关闭 SDK 重试。
+Enforcing 关闭 SDK 传输层自动重试；原有阶段的输出 schema 重试仍有界，
 每次实际发送都要检查。必需隐私错误会穿透 advisory 决策降级，不会变成空提取结果或已消费的 Memory HOLD。
 Memory 写入 gate 遇到这类拒绝时，flush 会在发布前失败，Source 窗口在重启后仍待处理；
 修正策略或模型输出后可重试。

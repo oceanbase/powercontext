@@ -256,6 +256,27 @@ def joined_content_text(value: object) -> tuple[str, ...]:
     return tuple(result)
 
 
+def responses_output_text(value: dict[str, object]) -> str:
+    """Assemble Responses output_text in the order exposed by the native SDK."""
+
+    output = value.get("output")
+    if not isinstance(output, list):
+        return ""
+    texts: list[str] = []
+    for item in output:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "output_text":
+                text = block.get("text")
+                if isinstance(text, str):
+                    texts.append(text)
+    return "".join(texts)
+
+
 def nested_json_text(strings: tuple[str, ...], max_depth: int) -> tuple[tuple[str, ...], bool]:
     """Scan nested JSON objects and arrays without losing scalar evidence.
 

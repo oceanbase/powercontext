@@ -1007,3 +1007,67 @@ def test_native_stream_rejects_split_secret_despite_extra_metadata(metadata_at: 
 
     with server([(200, "text/event-stream", payload)]) as (_upstream, endpoint):
         asyncio.run(scenario(endpoint))
+
+
+@pytest.mark.parametrize("extension", ["message", "response"])
+def test_native_stream_checks_root_model_despite_unrelated_extension_fields(extension: str) -> None:
+    def payload(model: str, nested: dict[str, str]) -> bytes:
+        event = {
+            "id": "test",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": model,
+            extension: nested,
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "safe"}, "finish_reason": "stop"}],
+        }
+        return f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n".encode()
+
+    async def scenario(endpoint: str) -> None:
+        async with (
+            AsyncOpenAI(base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0) as sdk,
+            sdk.chat.completions.stream(
+                model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+            ) as stream,
+        ):
+            unprotected = await stream.get_final_completion()
+        assert unprotected.model == "unapproved-model"
+
+        released = []
+        async with (
+            httpx.AsyncClient(
+                transport=ProtectedAsyncTransport(
+                    config(endpoint, allow_streaming=True, response_models=("approved-alias",))
+                )
+            ) as http,
+            AsyncOpenAI(
+                base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
+            ) as sdk,
+        ):
+            with pytest.raises(APIConnectionError) as caught:
+                async with sdk.chat.completions.stream(
+                    model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+                ) as stream:
+                    released.extend([event async for event in stream])
+            refusal = find_privacy_error(caught.value)
+            assert refusal is not None and refusal.phase == "before_release"
+            assert refusal.reason_codes == ("response_model_mismatch",)
+            assert released == []
+
+            for expected_model in ("test-model", "approved-alias"):
+                async with sdk.chat.completions.stream(
+                    model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+                ) as stream:
+                    completion = await stream.get_final_completion()
+                assert completion.model == expected_model
+                assert completion.choices[0].message.content == "safe"
+
+    wrong_model = payload("unapproved-model", {})
+    responses = [
+        (200, "text/event-stream", wrong_model),
+        (200, "text/event-stream", wrong_model),
+        (200, "text/event-stream", payload("test-model", {"model": "unapproved-extension-model"})),
+        (200, "text/event-stream", payload("approved-alias", {"model": "unapproved-extension-model"})),
+    ]
+    with server(responses) as (upstream, endpoint):
+        asyncio.run(scenario(endpoint))
+        assert len(upstream.requests) == len(responses)

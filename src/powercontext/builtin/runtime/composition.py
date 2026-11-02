@@ -2083,7 +2083,12 @@ def _provider_factory(
 ) -> Callable[[str], Provider[Any]]:
     if protection is not None and protection.mode != "disabled":
         return _protected_provider_factory(
-            base_url, headers, workload=workload, resources=resources, protection=protection
+            base_url,
+            headers,
+            workload=workload,
+            resources=resources,
+            protection=protection,
+            disable_retries=disable_retries or protection.mode == "enforcing",
         )
     create = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
     if not disable_retries:
@@ -2111,6 +2116,7 @@ def _protected_provider_factory(
     workload: Literal["generation", "embedding"],
     resources: AsyncExitStack,
     protection: InferenceProtectionConfig,
+    disable_retries: bool,
 ) -> Callable[[str], Provider[Any]]:
     """Own the final transport, including SDK defaults and auxiliary models."""
 
@@ -2136,8 +2142,9 @@ def _protected_provider_factory(
                 api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
                 default_headers=_resolve_headers(headers),
                 http_client=client,
-                max_retries=0,
             )
+            if disable_retries:
+                sdk.max_retries = 0
             resources.push_async_callback(sdk.close)
             return OpenAIProvider(openai_client=sdk)
         if provider_name == "anthropic" and workload == "generation":
@@ -2152,8 +2159,9 @@ def _protected_provider_factory(
                 api_key=api_key or (None if has_authorization else "api-key-not-set"),
                 default_headers=resolved,
                 http_client=client,
-                max_retries=0,
             )
+            if disable_retries:
+                sdk.max_retries = 0
             resources.push_async_callback(sdk.close)
             return AnthropicProvider(anthropic_client=sdk)
         raise BuiltinConfigurationError("inference-endpoint-provider")

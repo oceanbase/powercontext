@@ -44,8 +44,10 @@ def _relevant_headers(headers: httpx.Headers) -> dict[str, str]:
 class ProtectedAsyncTransport(httpx.AsyncBaseTransport):
     """Check the actual HTTP request and buffer raw output before SDK access.
 
-    A protected client must disable SDK retries. Transport errors after entering
-    the delegate are reported as uncertain, never automatically replayed here.
+    An enforcing client must disable SDK retries. Observation modes preserve the
+    provider's retry policy and inspect each rendered attempt. Transport errors
+    after entering the enforcing delegate are reported as uncertain, never
+    automatically replayed here.
     """
 
     def __init__(
