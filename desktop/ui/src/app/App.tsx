@@ -29,6 +29,8 @@ import memoryIcon from "../assets/memory.svg";
 import settingsIcon from "../assets/settings.svg";
 import observationIcon from "../assets/retrieval.svg";
 
+import { useLocalServer } from "./useLocalServer";
+import { opsApi } from "../shared/ops";
 import { TopBar } from "./TopBar";
 import { Overview } from "./Overview";
 import { Statistics } from "./Statistics";
@@ -46,6 +48,7 @@ import { Observation, type ObservationTab } from "./Observation";
 import { Runtime } from "./Runtime";
 import { SessionView } from "./SessionView";
 import { connectionMessages } from "./connection-messages";
+import { memoryMessages } from "./memory-messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { activeCheckReport } from "./context";
 import { Modal } from "./Modal";
@@ -54,6 +57,8 @@ import { useConfirmation } from "./useConfirmation";
 type Page = "home" | "connections" | "memories" | "observation" | "settings";
 type Theme = "light" | "dark" | "system";
 export function App() {
+  const localServer = useLocalServer();
+  const [connectingLocal, setConnectingLocal] = useState(false);
   const [language, setLanguage] = useState<Language>("zh");
   const [theme, setTheme] = useState<Theme>("system");
   const [page, setPage] = useState<Page>("home");
@@ -69,6 +74,11 @@ export function App() {
   const [stateLoading, setStateLoading] = useState(true);
   const stateRequest = useRef(0);
   const [dirty, setDirty] = useState(false);
+  const uiIntent = useRef(0);
+  function editorDirty(next: boolean) {
+    uiIntent.current++;
+    setDirty(next);
+  }
   const [submittedDrafts, setSubmittedDrafts] = useState<SubmittedDraft[]>([]);
   const submissionSequence = useRef(0);
   function beginSubmission(text: string, target: SubmittedDraft["target"]) {
@@ -127,7 +137,11 @@ export function App() {
   async function confirmSwitch() {
     if (
       (dirty || submittedDrafts.length > 0) &&
-      !(await confirm(connectionMessages[language].discard))
+      !(await confirm(
+        submittedDrafts.length > 0
+          ? memoryMessages[language].discardAllSubmittedConfirm
+          : connectionMessages[language].discard,
+      ))
     )
       return false;
     setSubmittedDrafts([]);
@@ -176,6 +190,7 @@ export function App() {
     if (localServer) target?.scrollIntoView?.({ block: "start" });
   }, [page, connectionSelection]);
   function openScopes(trigger: HTMLElement, toMemory = false) {
+    uiIntent.current++;
     scopeReturnFocus.current = trigger;
     scopeToMemory.current = toMemory;
     setScopeOpen(true);
@@ -189,6 +204,7 @@ export function App() {
       !(await confirmSwitch())
     )
       return;
+    uiIntent.current++;
     settingsSection.current = target?.section;
     setConnectionSelection((current) =>
       target?.profileId === undefined
@@ -220,6 +236,11 @@ export function App() {
       );
     } catch (e) {
       setNativeError(e);
+      try {
+        receiveState(await desktopApi.state());
+      } catch {
+        /* Preserve the original check failure. */
+      }
     } finally {
       connectionPending(false);
       setRefreshing(false);
@@ -361,6 +382,17 @@ export function App() {
               </span>
             </div>
           )}
+          {page === "home" && !desktop?.active && (
+            <div className="actions">
+              <button
+                onClick={() =>
+                  navigate("settings", { section: "local-server" })
+                }
+              >
+                {t.setUpLocally}
+              </button>
+            </div>
+          )}
           {page === "home" && (
             <Overview
               state={desktop}
@@ -405,7 +437,7 @@ export function App() {
                 state={desktop}
                 language={language}
                 onState={receiveState}
-                onDirty={setDirty}
+                onDirty={editorDirty}
                 onSubmission={beginSubmission}
                 onManageConnections={() => navigate("connections")}
                 onOpenScopes={openScopes}
@@ -423,7 +455,7 @@ export function App() {
               state={desktop}
               language={language}
               onState={receiveState}
-              onDirty={setDirty}
+              onDirty={editorDirty}
               onPendingChange={connectionPending}
               onActivated={(trigger) => openScopes(trigger, true)}
               discardDraft={connectionDraftReset}
@@ -491,6 +523,63 @@ export function App() {
                 </div>
               </section>
               <LocalServerSettings
+                controller={localServer}
+                connecting={connectingLocal}
+                connectionAvailable={
+                  !!desktop && !stateLoading && !contextPending
+                }
+                onBeforeApply={async (plan) => {
+                  const intent = uiIntent.current;
+                  if (
+                    activeProfile &&
+                    plan.target.endpoint &&
+                    new URL(activeProfile.endpoint).origin ===
+                      new URL(plan.target.endpoint).origin
+                  ) {
+                    if (!(await confirmSwitch())) return false;
+                    try {
+                      receiveState(
+                        await desktopApi.invalidate(activeProfile.id),
+                      );
+                      if (intent === uiIntent.current) setDirty(false);
+                    } catch (error) {
+                      setNativeError(error);
+                      return false;
+                    }
+                  }
+                  return true;
+                }}
+                onConnect={async () => {
+                  const intent = uiIntent.current;
+                  if (!desktop || connectingLocal || !(await confirmSwitch()))
+                    return;
+                  if (intent !== uiIntent.current) return;
+                  setConnectingLocal(true);
+                  connectionPending(true);
+                  setNativeError(null);
+                  try {
+                    const next = await opsApi.connect(desktop.generation);
+                    const accepted = receiveState(next);
+                    if (
+                      accepted &&
+                      next.active?.scope &&
+                      intent === uiIntent.current
+                    ) {
+                      setDirty(false);
+                      setPage("memories");
+                    }
+                  } catch (error) {
+                    setNativeError(error);
+                    try {
+                      receiveState(await desktopApi.state());
+                    } catch {
+                      /* Keep the connection error visible. */
+                    }
+                  } finally {
+                    setConnectingLocal(false);
+                    connectionPending(false);
+                  }
+                }}
                 language={language}
                 headingRef={localServerHeading}
                 onManageConnections={() => navigate("connections")}
