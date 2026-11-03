@@ -64,6 +64,7 @@ from powercontext.builtin.inference import (
     embed_query,
 )
 from powercontext.builtin.persistence.atomic_memory_index import (
+    DEFAULT_ATOMIC_MEMORY_RELATED_MAX_CANDIDATES,
     AtomicMemoryIndexError,
     AtomicMemoryIndexFilter,
     AtomicMemoryRelatedRequest,
@@ -108,6 +109,7 @@ logger = logging.getLogger(__name__)
 class AtomicMemoryProcessingConfig:
     related_mode: Literal["auto", "fts", "vector", "hybrid"] = "auto"
     related_max_distance: float = 1.0
+    related_max_candidates: int | None = DEFAULT_ATOMIC_MEMORY_RELATED_MAX_CANDIDATES
     related_fts_fallback: bool = False
     comparison_batch_size: int = 20
     input_tokens_limit: int = 24_000
@@ -117,16 +119,25 @@ class AtomicMemoryProcessingConfig:
             self.related_mode not in {"auto", "fts", "vector", "hybrid"}
             or not math.isfinite(self.related_max_distance)
             or self.related_max_distance < 0
+            or (
+                self.related_max_candidates is not None
+                and (
+                    isinstance(self.related_max_candidates, bool)
+                    or not isinstance(self.related_max_candidates, int)
+                    or not 1 <= self.related_max_candidates <= 1000
+                )
+            )
             or self.comparison_batch_size < 1
             or self.input_tokens_limit < 1
         ):
-            raise ValueError("Atomic Memory processing requires a valid mode, threshold and positive input budgets")  # noqa: TRY003
+            raise ValueError("Atomic Memory processing requires a valid mode, threshold, candidate limit and budgets")  # noqa: TRY003
 
     @classmethod
     def from_runtime(cls, runtime: RuntimeConfig) -> AtomicMemoryProcessingConfig:
         return cls(
             related_mode=runtime.atomic_memory_related_mode,
             related_max_distance=runtime.atomic_memory_related_max_distance,
+            related_max_candidates=runtime.atomic_memory_related_max_candidates,
             related_fts_fallback=runtime.atomic_memory_related_fts_fallback,
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
@@ -729,6 +740,7 @@ class AtomicMemorySourceWindowProcessor:
             query_vector=vector,
             embedding_profile=profile,
             max_distance=self.config.related_max_distance,
+            max_candidates=self.config.related_max_candidates,
         )
 
     async def _query_vector(self, query):
