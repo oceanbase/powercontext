@@ -18,6 +18,11 @@ An evaluation run's containers sit on an internal Docker network, so their only 
 network's gateway on the host. It accepts ``CONNECT`` only, decides by host name and port, and never terminates TLS.
 The allowlist changes with the run phase: dependency installation may reach package indexes, while the agent may
 reach only its model endpoint, because a package index or source host can serve the reference fix.
+
+The name in ``CONNECT`` only chooses the upstream address, and one address can serve many HTTPS sites. The proxy
+therefore also reads the TLS ClientHello and requires its server name (SNI) to be the allowed host. It cannot see the
+encrypted ``Host`` header; sending a different ``Host`` under a matching SNI is left to the provider's front end, which
+for the supported model hosts rejects mismatched names.
 """
 
 from __future__ import annotations
@@ -27,22 +32,27 @@ import contextlib
 import json
 import re
 import threading
+import tomllib
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # uv resolves and downloads packages and managed Python builds from these hosts during prewarm.
 PREWARM_HOSTS = frozenset({"pypi.org", "files.pythonhosted.org", "releases.astral.sh"})
 # Model hosts per Codex login: API keys call the OpenAI API; ChatGPT logins call ChatGPT and refresh tokens.
 API_KEY_MODEL_HOSTS = frozenset({"api.openai.com"})
 CHATGPT_MODEL_HOSTS = frozenset({"chatgpt.com", "auth.openai.com"})
+# uv downloads managed Python builds from GitHub unless pointed at this mirror; older uv versions default to GitHub.
+PYTHON_INSTALL_MIRROR = "https://releases.astral.sh/github/python-build-standalone/releases/download"
 
 _HOST = re.compile(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]")
 _MAX_HEADER_BYTES = 8 * 1024
 _HEADER_SECONDS = 10.0
 _CONNECT_SECONDS = 15.0
 _MAX_TUNNELS = 256
+_MAX_CLIENT_HELLO_BYTES = 16 * 1024
 
 
 class EgressError(ValueError):
@@ -62,6 +72,34 @@ def model_hosts(auth_json: Path) -> frozenset[str]:
     if mode == "chatgpt" or (mode is None and not auth.get("OPENAI_API_KEY") and auth.get("tokens")):
         return CHATGPT_MODEL_HOSTS
     return API_KEY_MODEL_HOSTS
+
+
+def codex_provider_hosts(codex_config: Path | None) -> frozenset[str]:
+    """The HTTPS host of the custom model provider selected in a Codex ``config.toml``, if any.
+
+    A provider reached over plain HTTP (for example a gateway on the Docker host) bypasses the proxy through the
+    no-proxy list instead, and IP literals are never added.
+    """
+
+    if codex_config is None:
+        return frozenset()
+    try:
+        config = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise EgressError("Codex config.toml is unreadable") from error
+    provider = config.get("model_provider")
+    providers = config.get("model_providers")
+    if not isinstance(provider, str) or not isinstance(providers, dict):
+        return frozenset()
+    entry = providers.get(provider)
+    base_url = entry.get("base_url") if isinstance(entry, dict) else None
+    if not isinstance(base_url, str):
+        return frozenset()
+    parsed = urlsplit(base_url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or _HOST.fullmatch(host) is None:
+        return frozenset()
+    return frozenset({host})
 
 
 def validated_hosts(hosts: Iterable[str]) -> frozenset[str]:
@@ -173,13 +211,13 @@ class AllowlistProxy:
         if not loop.is_running():
             loop.close()
 
-    def _decide(self, host: str, port: int) -> bool:
+    def _permitted(self, host: str, port: int) -> tuple[str, bool]:
         with self._lock:
-            allowed = port in self._ports and host in self._allowed
-            # Record names, not arbitrary request text: a refused target that is not a DNS name is grouped.
-            label = host if allowed or _HOST.fullmatch(host) else "<invalid>"
-            self._decisions[(self._phase, label, allowed)] += 1
-        return allowed
+            return self._phase, port in self._ports and host in self._allowed
+
+    def _record(self, phase: str, label: str, allowed: bool) -> None:
+        with self._lock:
+            self._decisions[(phase, label, allowed)] += 1
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         if not self._tunnels.acquire(blocking=False):
@@ -203,18 +241,64 @@ class AllowlistProxy:
         target = rest.split(" ", 1)[0]
         host, _, port_text = target.rpartition(":")
         host = host.lower()
-        if not port_text.isdigit() or not self._decide(host, int(port_text)):
+        phase, allowed = self._permitted(host, int(port_text)) if port_text.isdigit() else (self._phase, False)
+        if not allowed:
+            # Record names, not arbitrary request text: a refused target that is not a DNS name is grouped.
+            self._record(phase, host if _HOST.fullmatch(host) else "<invalid>", False)
             return await _reply(writer, b"403 Forbidden")
+        writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+        await writer.drain()
+        hello = await asyncio.wait_for(_read_client_hello(reader), timeout=_HEADER_SECONDS)
+        if hello is None or _server_name(hello) != host:
+            self._record(phase, f"{host} (sni mismatch)", False)
+            return None
+        self._record(phase, host, True)
         upstream_reader, upstream_writer = await asyncio.wait_for(
             asyncio.open_connection(host, int(port_text)), timeout=_CONNECT_SECONDS
         )
         try:
-            writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-            await writer.drain()
+            upstream_writer.write(hello)
+            await upstream_writer.drain()
             await asyncio.gather(_pipe(reader, upstream_writer), _pipe(upstream_reader, writer))
         finally:
             upstream_writer.close()
         return None
+
+
+async def _read_client_hello(reader: asyncio.StreamReader) -> bytes | None:
+    """The client's first TLS record, which must carry a complete ClientHello."""
+
+    header = await reader.readexactly(5)
+    length = int.from_bytes(header[3:5], "big")
+    if header[0] != 0x16 or length > _MAX_CLIENT_HELLO_BYTES:
+        return None
+    return header + await reader.readexactly(length)
+
+
+def _server_name(record: bytes) -> str | None:
+    """The host name from the server_name extension of a ClientHello record, lower-cased."""
+
+    try:
+        body = memoryview(record)[5:]
+        if body[0] != 0x01:
+            return None
+        position = 4 + 2 + 32  # handshake header, client version, random
+        position += 1 + body[position]  # session id
+        position += 2 + int.from_bytes(body[position : position + 2], "big")  # cipher suites
+        position += 1 + body[position]  # compression methods
+        end = position + 2 + int.from_bytes(body[position : position + 2], "big")
+        position += 2
+        while position + 4 <= end:
+            kind = int.from_bytes(body[position : position + 2], "big")
+            size = int.from_bytes(body[position + 2 : position + 4], "big")
+            data = body[position + 4 : position + 4 + size]
+            if kind == 0 and data[2] == 0:  # server_name list with one host_name entry
+                name_length = int.from_bytes(data[3:5], "big")
+                return bytes(data[5 : 5 + name_length]).decode("ascii").lower()
+            position += 4 + size
+    except (IndexError, UnicodeDecodeError):
+        return None
+    return None
 
 
 async def _reply(writer: asyncio.StreamWriter, status: bytes) -> None:

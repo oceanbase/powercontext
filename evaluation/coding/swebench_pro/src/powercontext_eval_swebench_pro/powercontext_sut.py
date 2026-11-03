@@ -56,7 +56,7 @@ from urllib.parse import parse_qsl, quote, quote_plus, unquote, urlsplit
 
 from powercontext_eval_swebench_pro import docker_pressure
 from powercontext_eval_swebench_pro.artifacts import ArtifactStore
-from powercontext_eval_swebench_pro.egress import AllowlistProxy, EgressPolicy
+from powercontext_eval_swebench_pro.egress import PYTHON_INSTALL_MIRROR, AllowlistProxy, EgressPolicy
 from powercontext_eval_swebench_pro.codex import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_REASONING_EFFORT,
@@ -708,6 +708,9 @@ class SutConfig:
                 raise TokensFlowInfrastructureError("TokensFlow egress network is unsafe")
         if self.proxy is not None and self.egress is not None:
             raise UnsafeSutConfiguration("Use either a proxy upstream or the egress allowlist")
+        if self.egress is not None and self.tokensflow_enabled:
+            # TokensFlow attaches its own unrestricted egress network to the agent container.
+            raise UnsafeSutConfiguration("TokensFlow egress bypasses the egress allowlist")
         _validated_docker_network_pool(self.docker_network_pool)
         _validated_no_proxy_hosts(self.extra_no_proxy_hosts)
         try:
@@ -2466,6 +2469,8 @@ class DockerSut:
             "UV_CACHE_DIR": "/runtime/uv-cache",
             "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
             "UV_PYTHON": _CONTAINER_UV_PYTHON,
+            # Older uv versions download managed Python from GitHub, which the prewarm allowlist does not include.
+            **({"UV_PYTHON_INSTALL_MIRROR": PYTHON_INSTALL_MIRROR} if config.egress is not None else {}),
         }
         command = (
             "docker",

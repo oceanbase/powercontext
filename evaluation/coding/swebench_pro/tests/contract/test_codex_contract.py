@@ -3164,6 +3164,7 @@ def test_egress_allowlist_confines_each_phase_of_a_pair(tmp_path: Path) -> None:
     config = replace(
         sut_config(tmp_path),
         proxy=None,
+        tokensflow_enabled=False,
         egress=EgressPolicy(agent=frozenset({"api.openai.com"})),
     )
     config.codex_binary.write_text("binary")
@@ -3216,6 +3217,8 @@ def test_egress_allowlist_confines_each_phase_of_a_pair(tmp_path: Path) -> None:
         assert prewarm_allowed <= prewarm < agent_allowed <= agent < closed
     for index in (*prewarms, *agents):
         assert any("HTTPS_PROXY=http://172.29.0.1:17891" in part for part in commands[index])
+    for index in prewarms:
+        assert any(part.startswith("UV_PYTHON_INSTALL_MIRROR=https://releases.astral.sh/") for part in commands[index])
 
     on_decisions = json.loads((on_paths.result_root / "egress/decisions.json").read_text())
     assert on_decisions == [{"phase": "on:agent", "host": "api.openai.com", "allowed": True, "connections": 3}]
@@ -3224,6 +3227,12 @@ def test_egress_allowlist_confines_each_phase_of_a_pair(tmp_path: Path) -> None:
 def test_a_proxy_upstream_and_the_egress_allowlist_are_exclusive(tmp_path: Path) -> None:
     with pytest.raises(UnsafeSutConfiguration):
         replace(sut_config(tmp_path), egress=EgressPolicy())
+
+
+def test_tokensflow_egress_cannot_be_combined_with_the_allowlist(tmp_path: Path) -> None:
+    # TokensFlow attaches an unrestricted network to the agent container, which would bypass the allowlist.
+    with pytest.raises(UnsafeSutConfiguration, match="TokensFlow"):
+        replace(sut_config(tmp_path), proxy=None, egress=EgressPolicy())
 
 
 def test_pair_reuses_one_relay_and_network_and_runs_off_then_on(tmp_path: Path) -> None:

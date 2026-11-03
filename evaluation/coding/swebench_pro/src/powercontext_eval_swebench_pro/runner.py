@@ -38,7 +38,7 @@ from powercontext_eval_swebench_pro.adapter import (
 from powercontext_eval_swebench_pro.artifacts import ArmState, ArtifactStore
 from powercontext_eval_swebench_pro.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT, is_safe_codex_model
 from powercontext_eval_swebench_pro.context_trace import write_context_trace
-from powercontext_eval_swebench_pro.egress import EgressPolicy, model_hosts, validated_hosts
+from powercontext_eval_swebench_pro.egress import EgressPolicy, codex_provider_hosts, model_hosts, validated_hosts
 from powercontext_eval_swebench_pro.errors import CommandFailed
 from powercontext_eval_swebench_pro.evaluator import OfficialEvaluation, OfficialEvaluator
 from powercontext_eval_swebench_pro.git_source import GitSource
@@ -195,6 +195,10 @@ class RunConfig:
         validated_hosts(self.allow_hosts)
         if self.proxy_url is None and self.egress == "native" and self.extra_no_proxy_hosts:
             raise ValueError("Additional no-proxy hosts require the evaluation proxy or the egress allowlist")
+        if self.tokensflow_enabled and self.proxy_url is None and self.egress == "allowlist":
+            raise ValueError(
+                "TokensFlow attaches an unrestricted egress network to the agent; use --egress native or disable it"
+            )
 
 
 @dataclass(frozen=True)
@@ -415,7 +419,11 @@ def _run_swebench_pro_instance(
             plugin_checkout_sha=resolved.sha,
             proxy=ProxyRelayConfig(config.proxy_url) if config.proxy_url is not None else None,
             egress=(
-                EgressPolicy(agent=model_hosts(config.auth_json) | validated_hosts(config.allow_hosts))
+                EgressPolicy(
+                    agent=model_hosts(config.auth_json)
+                    | codex_provider_hosts(config.codex_config)
+                    | validated_hosts(config.allow_hosts)
+                )
                 if config.proxy_url is None and config.egress == "allowlist"
                 else None
             ),
@@ -614,6 +622,10 @@ class MinimalRunConfig:
         validated_hosts(self.allow_hosts)
         if self.proxy_url is None and self.egress == "native" and self.extra_no_proxy_hosts:
             raise ValueError("Additional no-proxy hosts require the evaluation proxy or the egress allowlist")
+        if self.tokensflow_enabled and self.proxy_url is None and self.egress == "allowlist":
+            raise ValueError(
+                "TokensFlow attaches an unrestricted egress network to the agent; use --egress native or disable it"
+            )
 
 
 def run_minimal_swebench_pro(

@@ -92,17 +92,22 @@ absolute `/app` paths while hiding the image's original repository.
 
 Network access is allowlisted by default (`--egress allowlist`). Each run's Docker network is internal, and its only
 route out is a CONNECT proxy that the runner starts on the network's gateway. The proxy decides by host name, allows
-port 443 only, never terminates TLS, and changes its list with the phase:
+port 443 only, and never terminates TLS. It also requires the TLS server name (SNI) to equal the allowed host, so an
+allowed address cannot be used to reach another site it serves. Its list changes with the phase:
 
 | Phase | Reachable hosts |
 | --- | --- |
 | Dependency installation (prewarm) | `pypi.org`, `files.pythonhosted.org`, `releases.astral.sh` |
-| Agent run | the model hosts for the Codex login in `auth.json`: `api.openai.com` for an API key, `chatgpt.com` and `auth.openai.com` for a ChatGPT login, plus any `--allow-host` names |
+| Agent run | the model hosts for the Codex login in `auth.json` (`api.openai.com` for an API key, `chatgpt.com` and `auth.openai.com` for a ChatGPT login), the HTTPS host of the custom provider selected in `--codex-config`, and any `--allow-host` names |
 
 Package indexes are closed during the agent run, because a newer release of the task's own project can contain the
 reference fix. Hosts that reach the run directly, such as a gateway on the host given in `--extra-no-proxy-hosts`,
 bypass the proxy. Each arm retains its connection counts per phase, host and decision in `egress/decisions.json`.
 `--proxy-url` uses a deployment's own proxy instead, and `--egress native` leaves the network unrestricted.
+Prewarm points uv at the `releases.astral.sh` mirror for managed Python, so uv versions that default to GitHub
+downloads still work. TokensFlow attaches its own unrestricted network to the agent container, so it requires
+`--egress native` or `--proxy-url`. The console reads the same settings from `POWERCONTEXT_EVAL_EGRESS` and
+`POWERCONTEXT_EVAL_ALLOW_HOSTS`.
 
 Codex runs with its provider-side web search disabled (`web_search="disabled"`), because those searches reach the model
 endpoint like any other request and no network policy can stop them. Each arm's report lists isolation flags found

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import socket
+import ssl
 import socketserver
 import threading
 from collections.abc import Iterator
@@ -30,6 +31,7 @@ from powercontext_eval_swebench_pro.egress import (
     AllowlistProxy,
     EgressError,
     EgressPolicy,
+    codex_provider_hosts,
     model_hosts,
     validated_hosts,
 )
@@ -74,15 +76,41 @@ def _request(proxy_port: int, request: bytes) -> tuple[str, socket.socket]:
     return response.split(b"\r\n", 1)[0].decode(), connection
 
 
+def _client_hello(server_name: str) -> bytes:
+    """A real TLS ClientHello for ``server_name``, produced without a network connection."""
+
+    incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+    tls = ssl.create_default_context().wrap_bio(incoming, outgoing, server_hostname=server_name)
+    with pytest.raises(ssl.SSLWantReadError):
+        tls.do_handshake()
+    return outgoing.read()
+
+
+def _tunnel(proxy_port: int, target: str, server_name: str) -> tuple[str, bytes]:
+    """CONNECT to ``target``, send a ClientHello for ``server_name``, and return the status and echoed bytes."""
+
+    status, connection = _request(proxy_port, f"CONNECT {target} HTTP/1.1\r\n\r\n".encode())
+    echoed = b""
+    with connection:
+        if status.endswith("200 Connection Established"):
+            hello = _client_hello(server_name)
+            connection.sendall(hello)
+            while len(echoed) < len(hello):
+                chunk = connection.recv(65536)
+                if not chunk:
+                    break
+                echoed += chunk
+            assert echoed in (b"", hello)
+    return status, echoed
+
+
 def test_allowed_hosts_are_tunneled_and_others_are_refused(proxy: tuple[AllowlistProxy, int], echo_port: int) -> None:
     instance, port = proxy
     instance.allow("agent", frozenset({"localhost"}))
 
-    status, connection = _request(port, f"CONNECT localhost:{echo_port} HTTP/1.1\r\nHost: x\r\n\r\n".encode())
+    status, echoed = _tunnel(port, f"localhost:{echo_port}", "localhost")
     assert status == "HTTP/1.1 200 Connection Established"
-    connection.sendall(b"opaque tls bytes")
-    assert connection.recv(1024) == b"opaque tls bytes"
-    connection.close()
+    assert echoed, "the ClientHello reaches the upstream unchanged"
 
     status, connection = _request(port, b"CONNECT github.com:443 HTTP/1.1\r\n\r\n")
     connection.close()
@@ -104,18 +132,33 @@ def test_allowed_hosts_are_tunneled_and_others_are_refused(proxy: tuple[Allowlis
 
 def test_switching_phase_changes_what_new_connections_reach(proxy: tuple[AllowlistProxy, int], echo_port: int) -> None:
     instance, port = proxy
-    request = f"CONNECT localhost:{echo_port} HTTP/1.1\r\n\r\n".encode()
     instance.allow("prewarm", frozenset({"localhost"}))
-    status, connection = _request(port, request)
-    connection.close()
+    status, _ = _tunnel(port, f"localhost:{echo_port}", "localhost")
     assert status.endswith("200 Connection Established")
     instance.allow("agent", frozenset({"api.openai.com"}))
-    status, connection = _request(port, request)
-    connection.close()
+    status, _ = _tunnel(port, f"localhost:{echo_port}", "localhost")
     assert status.endswith("403 Forbidden")
     assert [(item["phase"], item["allowed"]) for item in instance.decisions()] == [
         ("agent", False),
         ("prewarm", True),
+    ]
+
+
+def test_a_tunnel_whose_tls_server_name_differs_from_the_connect_host_is_closed(
+    proxy: tuple[AllowlistProxy, int], echo_port: int
+) -> None:
+    instance, port = proxy
+    instance.allow("agent", frozenset({"localhost"}))
+    # The allowed name chooses the upstream address, but the TLS session asks for another site on it.
+    status, echoed = _tunnel(port, f"localhost:{echo_port}", "gitlab.com")
+    assert status.endswith("200 Connection Established")
+    assert echoed == b"", "nothing reaches the upstream"
+    status, connection = _request(port, f"CONNECT localhost:{echo_port} HTTP/1.1\r\n\r\n".encode())
+    with connection:
+        connection.sendall(b"GET / HTTP/1.1\r\nHost: gitlab.com\r\n\r\n")
+        assert connection.recv(1024) == b"", "a tunnel that does not start with TLS is closed"
+    assert instance.decisions() == [
+        {"phase": "agent", "host": "localhost (sni mismatch)", "allowed": False, "connections": 2},
     ]
 
 
@@ -161,3 +204,16 @@ def test_model_hosts_follow_the_codex_login(tmp_path, auth: dict[str, object], h
 def test_an_unreadable_auth_file_is_an_error(tmp_path) -> None:
     with pytest.raises(EgressError):
         model_hosts(tmp_path / "missing.json")
+
+
+def test_the_codex_config_provider_host_is_allowed_only_for_https_names(tmp_path) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text(
+        'model_provider = "gateway"\n[model_providers.gateway]\nbase_url = "https://LLM.example.com/v1"\n'
+    )
+    assert codex_provider_hosts(config) == {"llm.example.com"}
+    config.write_text('model_provider = "gateway"\n[model_providers.gateway]\nbase_url = "http://172.17.0.1:8000/v1"\n')
+    assert codex_provider_hosts(config) == frozenset()
+    config.write_text('model = "gpt-5.6-sol"\n')
+    assert codex_provider_hosts(config) == frozenset()
+    assert codex_provider_hosts(None) == frozenset()
