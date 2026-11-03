@@ -9887,6 +9887,27 @@ components:
           maxItems: 16
           items:
             $ref: '#/components/schemas/PreparedContextLocation'
+        conversation_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Trusted conversation of the request, as resolved by the executor.
+        parent_conversation_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: >-
+            For a subagent, the conversation that handed it its task. Receipts issued to that conversation also
+            prove the origin of encrypted items in this request.
+        encrypted_receipts:
+          type: array
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 65536}
+          description: >-
+            Receipts from earlier before_release results. For a target that admits encrypted items, each admitted
+            encrypted value must appear in a receipt for the same principal, Scope and target, issued to this
+            conversation or its parent; otherwise the request is withheld with encrypted-origin-unverified.
+            Admission does not mean Core inspected the plaintext.
     CheckContextBeforeRelease:
       type: object
       additionalProperties: false
@@ -9899,6 +9920,11 @@ components:
         payload:
           $ref: '#/components/schemas/ModelJsonPayload'
         completion: {type: string, enum: [complete]}
+        conversation_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Trusted conversation of the request; receipts are issued only when it is present.
     CheckContextRequest:
       oneOf:
         - $ref: '#/components/schemas/CheckContextBeforeSend'
@@ -9940,6 +9966,13 @@ components:
           minLength: 1
           maxLength: 65536
           description: Present only for allow, bound to this phase, identity, target, policy, and exact payload.
+        receipt:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          description: >-
+            Present on a before_release allow when the response carries encrypted values for a target that admits
+            them and the request named a conversation. It records their digests for that conversation for one hour.
     ContextProtectionCapabilities:
       type: object
       additionalProperties: false

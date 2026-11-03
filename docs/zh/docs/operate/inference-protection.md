@@ -63,6 +63,19 @@ Server 可通过 `POWERCONTEXT_SERVER_INFERENCE_PROTECTION` 设置相同对象�
 真实禁止值放在受保护的部署配置中，不写入提交的示例。若响应中的模型名不同于请求别名，
 需要在 `response_models` 中明确列出获准别名。
 
+`openai-responses` 目标可以把 `admit_encrypted_items` 设为 `["reasoning"]`、`["agent_message"]` 或两者，默认为空。
+Codex 等客户端发送 `store: false` 并请求 `include: ["reasoning.encrypted_content"]`，因此响应带有之后请求会重放的加密
+推理；子代理收到的任务也是 `agent_message` 中的加密部分。Core 无法检查这些值：
+
+- 在 `before_release`，Core 放行响应中的加密推理。请求带有会话时，Core 返回一个 `receipt`，记录这些值以及响应中
+  函数调用参数的摘要，绑定该主体、Scope、目标和会话，有效期一小时。
+- 在 `before_send`，位于准入位置的加密值（根级 `reasoning` 条目的 `encrypted_content`，或根级 `agent_message` 的
+  `encrypted_content` 部分）只有在随请求提交的回执中包含其摘要时才放行。回执必须签发给本请求的会话或其
+  `parent_conversation_id`；否则请求以 `encrypted-origin-unverified` 被扣留。
+- 其他位置的加密值仍按 `content_unsupported` 处理。
+
+放行只证明值的来源，不代表 Core 检查过其中的明文。PowerContext 网关按会话保存并提交回执。
+
 规则检查配置的准确值，以及可选的有限格式：`email`、`private_key`、`api_token`。
 检查覆盖原始 JSON、解码文本、工具参数和数字词法表示。重复 JSON 键、不透明图片/音频/文件、
 未知请求字段、不完整输出和不支持的目标无法取得完整覆盖。

@@ -70,6 +70,23 @@ Keep secret values in the deployment's protected configuration. Never put real c
 Exact model aliases returned by a provider must be explicitly listed in `response_models` when they differ from
 the requested model.
 
+An `openai-responses` target can set `admit_encrypted_items` to `["reasoning"]`, `["agent_message"]`, or both.
+It is empty by default. Clients such as Codex send `store: false` with `include: ["reasoning.encrypted_content"]`,
+so responses carry encrypted reasoning that later requests replay, and a subagent receives its task as an encrypted
+`agent_message` part. Core cannot inspect these values:
+
+- At `before_release`, Core admits the encrypted reasoning in the response. When the request names a conversation, it
+  returns a `receipt` with the digests of those values and of the response's function-call arguments, for that
+  principal, Scope, target and conversation, valid for one hour.
+- At `before_send`, an encrypted value at an admitted position (the `encrypted_content` of a root `reasoning` item,
+  or an `encrypted_content` part of a root `agent_message`) is admitted only when a presented receipt contains its
+  digest. The receipt must have been issued to the request's conversation, or to its `parent_conversation_id`.
+  Otherwise the request is withheld with `encrypted-origin-unverified`.
+- Encrypted values at any other position stay `content_unsupported`.
+
+Admission proves where a value came from, not what it contains: Core has not inspected the plaintext. The PowerContext
+gateway keeps and presents receipts per conversation.
+
 The supported rules match configured exact values and optional bounded formats: `email`, `private_key`, and
 `api_token`. Both raw JSON and decoded text, tool arguments, and numeric spellings are inspected. Duplicate JSON
 keys, opaque image/audio/file carriers, unknown request fields, incomplete output, and unsupported targets cannot

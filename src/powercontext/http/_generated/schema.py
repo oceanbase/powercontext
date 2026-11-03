@@ -10196,6 +10196,97 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "array",
                         "maxItems": 16,
                     },
+                    "conversation_id": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "description": "Trusted conversation of the request, as resolved by the executor.",
+                    },
+                    "parent_conversation_id": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "description": "For "
+                        "a "
+                        "subagent, "
+                        "the "
+                        "conversation "
+                        "that "
+                        "handed "
+                        "it "
+                        "its "
+                        "task. "
+                        "Receipts "
+                        "issued "
+                        "to "
+                        "that "
+                        "conversation "
+                        "also "
+                        "prove "
+                        "the "
+                        "origin "
+                        "of "
+                        "encrypted "
+                        "items "
+                        "in "
+                        "this "
+                        "request.",
+                    },
+                    "encrypted_receipts": {
+                        "items": {"type": "string", "maxLength": 65536, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Receipts "
+                        "from "
+                        "earlier "
+                        "before_release "
+                        "results. "
+                        "For "
+                        "a "
+                        "target "
+                        "that "
+                        "admits "
+                        "encrypted "
+                        "items, "
+                        "each "
+                        "admitted "
+                        "encrypted "
+                        "value "
+                        "must "
+                        "appear "
+                        "in "
+                        "a "
+                        "receipt "
+                        "for "
+                        "the "
+                        "same "
+                        "principal, "
+                        "Scope "
+                        "and "
+                        "target, "
+                        "issued "
+                        "to "
+                        "this "
+                        "conversation "
+                        "or "
+                        "its "
+                        "parent; "
+                        "otherwise "
+                        "the "
+                        "request "
+                        "is "
+                        "withheld "
+                        "with "
+                        "encrypted-origin-unverified. "
+                        "Admission "
+                        "does "
+                        "not "
+                        "mean "
+                        "Core "
+                        "inspected "
+                        "the "
+                        "plaintext.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -10209,6 +10300,24 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "request_binding": {"type": "string", "maxLength": 65536, "minLength": 1},
                     "payload": {"$ref": "#/components/schemas/ModelJsonPayload"},
                     "completion": {"type": "string", "enum": ["complete"]},
+                    "conversation_id": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "description": "Trusted "
+                        "conversation "
+                        "of "
+                        "the "
+                        "request; "
+                        "receipts "
+                        "are "
+                        "issued "
+                        "only "
+                        "when "
+                        "it "
+                        "is "
+                        "present.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -10268,6 +10377,43 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "and "
                         "exact "
                         "payload.",
+                    },
+                    "receipt": {
+                        "type": "string",
+                        "maxLength": 65536,
+                        "minLength": 1,
+                        "description": "Present "
+                        "on a "
+                        "before_release "
+                        "allow "
+                        "when "
+                        "the "
+                        "response "
+                        "carries "
+                        "encrypted "
+                        "values "
+                        "for "
+                        "a "
+                        "target "
+                        "that "
+                        "admits "
+                        "them "
+                        "and "
+                        "the "
+                        "request "
+                        "named "
+                        "a "
+                        "conversation. "
+                        "It "
+                        "records "
+                        "their "
+                        "digests "
+                        "for "
+                        "that "
+                        "conversation "
+                        "for "
+                        "one "
+                        "hour.",
                     },
                 },
                 "additionalProperties": False,

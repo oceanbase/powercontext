@@ -91,6 +91,14 @@ pub enum ContextCheckRequest {
         payload: ModelJsonPayload,
         /// 线格式必填：无复用块时也必须显式携带空数组。
         prepared_contexts: Vec<PreparedContextLocation>,
+        /// 可信会话 ID；子代理另带派发任务的父会话 ID（#2420）。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        conversation_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent_conversation_id: Option<String>,
+        /// 证明请求中加密内容来源的回执（来自之前的 before_release）。
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        encrypted_receipts: Vec<String>,
     },
     BeforeRelease {
         scope_id: String,
@@ -99,6 +107,9 @@ pub enum ContextCheckRequest {
         request_binding: String,
         payload: ModelJsonPayload,
         completion: String,
+        /// 可信会话 ID；有它时 Core 才会为响应中的加密内容签发回执。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        conversation_id: Option<String>,
     },
 }
 
@@ -121,6 +132,9 @@ pub struct ContextCheckResult {
     /// 仅 allow 有：不透明绑定字符串。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,
+    /// before_release allow 且响应带有已准入的加密内容时由 Core 签发（#2420）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

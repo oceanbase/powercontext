@@ -250,6 +250,7 @@ async fn ingress_common(
             conversation.is_some(),
         ),
         conversation_id: conversation,
+        parent_conversation_id: parent_conversation_id(&headers, &format),
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
@@ -472,6 +473,32 @@ fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
     }
 }
 
+/// 子代理的父会话，按与 [`conversation_id`] 相同的来源和前缀解析：Claude Code 的父代理（顶层子代理的父会话是主会话），
+/// OpenCode 的父会话，Responses 入口上 Codex 的父线程。宿主提供 `X-PowerContext-Conversation-ID` 时没有父会话。
+/// 父会话只决定转交哪些回执；Core 仍要求回执属于同一主体、Scope 和目标。
+fn parent_conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
+    if header_id(headers, CONVERSATION_ID_HEADER).is_some() {
+        return None;
+    }
+    if let Some(session) = header_id(headers, CLAUDE_CODE_SESSION_HEADER) {
+        header_id(headers, CLAUDE_CODE_AGENT_HEADER)?;
+        return Some(match header_id(headers, CLAUDE_CODE_PARENT_AGENT_HEADER) {
+            Some(parent) => format!("claude-code:{session} {parent}"),
+            None => format!("claude-code:{session}"),
+        });
+    }
+    if header_id(headers, OPENCODE_SESSION_HEADER).is_some() {
+        return header_id(headers, OPENCODE_PARENT_SESSION_HEADER)
+            .map(|id| format!("opencode:{id}"));
+    }
+    match format {
+        Format::Responses => {
+            header_id(headers, CODEX_PARENT_THREAD_HEADER).map(|id| format!("codex-thread:{id}"))
+        }
+        Format::Chat => None,
+    }
+}
+
 fn header_id<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     let value = headers.get(name)?.to_str().ok()?;
     let valid =
@@ -484,6 +511,9 @@ const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
 const CODEX_THREAD_ID_HEADER: &str = "thread-id";
+const CLAUDE_CODE_PARENT_AGENT_HEADER: &str = "x-claude-code-parent-agent-id";
+const OPENCODE_PARENT_SESSION_HEADER: &str = "x-opencode-parent-session-id";
+const CODEX_PARENT_THREAD_HEADER: &str = "x-codex-parent-thread-id";
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
     if key.is_empty() {
@@ -1253,6 +1283,55 @@ mod tests {
         affinity_only.insert("x-opencode-session", affinity.parse().unwrap());
         affinity_only.insert("x-session-affinity", affinity.parse().unwrap());
         assert_eq!(conversation_id(&affinity_only, &Format::Chat), None);
+    }
+
+    #[test]
+    fn a_subagent_names_the_conversation_that_handed_it_the_task() {
+        let mut codex = codex_headers("child");
+        codex.insert(CODEX_PARENT_THREAD_HEADER, "root".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&codex, &Format::Responses).as_deref(),
+            Some("codex-thread:root")
+        );
+        assert_eq!(parent_conversation_id(&codex, &Format::Chat), None);
+        assert_eq!(
+            parent_conversation_id(&codex_headers("root"), &Format::Responses),
+            None
+        );
+
+        let mut claude = HeaderMap::new();
+        claude.insert(CLAUDE_CODE_SESSION_HEADER, "session-1".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat),
+            None,
+            "the main agent"
+        );
+        claude.insert(CLAUDE_CODE_AGENT_HEADER, "agent-a".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat).as_deref(),
+            Some("claude-code:session-1"),
+            "a top-level subagent's parent is the main session"
+        );
+        claude.insert(CLAUDE_CODE_PARENT_AGENT_HEADER, "agent-a".parse().unwrap());
+        claude.insert(CLAUDE_CODE_AGENT_HEADER, "agent-b".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat).as_deref(),
+            Some("claude-code:session-1 agent-a")
+        );
+
+        let mut opencode = HeaderMap::new();
+        opencode.insert(OPENCODE_SESSION_HEADER, "ses_child".parse().unwrap());
+        opencode.insert(
+            OPENCODE_PARENT_SESSION_HEADER,
+            "ses_parent".parse().unwrap(),
+        );
+        assert_eq!(
+            parent_conversation_id(&opencode, &Format::Chat).as_deref(),
+            Some("opencode:ses_parent")
+        );
+
+        codex.insert(CONVERSATION_ID_HEADER, "host-1".parse().unwrap());
+        assert_eq!(parent_conversation_id(&codex, &Format::Responses), None);
     }
 
     #[test]

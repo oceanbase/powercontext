@@ -1530,6 +1530,10 @@ class Phase1(StrEnum):
     BEFORE_SEND = "before_send"
 
 
+class EncryptedReceipt(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
+
+
 class CheckContextBeforeSend(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1539,6 +1543,29 @@ class CheckContextBeforeSend(BaseModel):
     target_profile: Annotated[StrictStr, Field(max_length=128, min_length=1)]
     payload: ModelJsonPayload
     prepared_contexts: Annotated[list[PreparedContextLocation], Field(max_length=16)]
+    conversation_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Trusted conversation of the request, as resolved by the executor.",
+            max_length=512,
+            min_length=1,
+        ),
+    ] = None
+    parent_conversation_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="For a subagent, the conversation that handed it its task. Receipts issued to that conversation also prove the origin of encrypted items in this request.",
+            max_length=512,
+            min_length=1,
+        ),
+    ] = None
+    encrypted_receipts: Annotated[
+        list[EncryptedReceipt] | None,
+        Field(
+            description="Receipts from earlier before_release results. For a target that admits encrypted items, each admitted encrypted value must appear in a receipt for the same principal, Scope and target, issued to this conversation or its parent; otherwise the request is withheld with encrypted-origin-unverified. Admission does not mean Core inspected the plaintext.",
+            max_length=32,
+        ),
+    ] = None
 
 
 class Phase2(StrEnum):
@@ -1559,6 +1586,14 @@ class CheckContextBeforeRelease(BaseModel):
     request_binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
     payload: ModelJsonPayload
     completion: Completion
+    conversation_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Trusted conversation of the request; receipts are issued only when it is present.",
+            max_length=512,
+            min_length=1,
+        ),
+    ] = None
 
 
 class CheckContextRequest(RootModel[CheckContextBeforeSend | CheckContextBeforeRelease]):
@@ -1615,6 +1650,14 @@ class ContextCheckResult(BaseModel):
         StrictStr | None,
         Field(
             description="Present only for allow, bound to this phase, identity, target, policy, and exact payload.",
+            max_length=65536,
+            min_length=1,
+        ),
+    ] = None
+    receipt: Annotated[
+        StrictStr | None,
+        Field(
+            description="Present on a before_release allow when the response carries encrypted values for a target that admits them and the request named a conversation. It records their digests for that conversation for one hour.",
             max_length=65536,
             min_length=1,
         ),

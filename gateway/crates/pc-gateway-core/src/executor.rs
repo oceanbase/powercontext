@@ -28,6 +28,7 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::receipt_store::ReceiptStore;
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
 use crate::{GateClient, GateError};
@@ -62,6 +63,8 @@ pub struct ManagedCall {
     pub inject_context: bool,
     /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
     pub conversation_id: Option<String>,
+    /// 子代理的父会话（派发任务的会话）：父会话的加密内容回执也随请求转交。
+    pub parent_conversation_id: Option<String>,
     pub sediment: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
@@ -101,6 +104,7 @@ pub struct Executor<G, T> {
     max_attempts: NonZeroU32,
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
+    receipts: ReceiptStore,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -122,6 +126,7 @@ where
             transport,
             max_attempts,
             replays: ReplayCache::default(),
+            receipts: ReceiptStore::default(),
         }
     }
 
@@ -162,12 +167,7 @@ where
             content_headers(&call.headers, payload.content_type),
             payload_body,
         );
-        let check = ContextCheckRequest::BeforeSend {
-            scope_id: call.scope_id.clone(),
-            target_profile: call.target_profile.clone(),
-            payload: model_payload,
-            prepared_contexts: call.prepared_contexts.clone(),
-        };
+        let check = self.send_check(&call, model_payload);
 
         let admission = match self.gate.check(check).await {
             Err(e) => {
@@ -184,6 +184,7 @@ where
                             degrade_policy: DegradePolicy::Pause,
                             inject_context: false,
                             conversation_id: None,
+                            parent_conversation_id: None,
                             sediment: false,
                             prepared_contexts: Vec::new(),
                         };
@@ -248,15 +249,13 @@ where
                             let _ = sent_binding;
                         }
                         // P1-4：重试前重新准入——撤销在这里被看见。
-                        let recheck = ContextCheckRequest::BeforeSend {
-                            scope_id: call.scope_id.clone(),
-                            target_profile: call.target_profile.clone(),
-                            payload: ModelJsonPayload::new(
+                        let recheck = self.send_check(
+                            &call,
+                            ModelJsonPayload::new(
                                 content_headers(&call.headers, payload.content_type),
                                 String::from_utf8(payload.bytes.to_vec()).unwrap_or_default(),
                             ),
-                            prepared_contexts: call.prepared_contexts.clone(),
-                        };
+                        );
                         match self.gate.check(recheck).await {
                             Ok(r) if r.decision == CheckDecision::Allow => {
                                 match validate_allow(&r, CheckPhase::BeforeSend) {
@@ -305,6 +304,7 @@ where
                 release_body.clone(),
             ),
             completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
+            conversation_id: call.conversation_id.clone(),
         };
         match self.gate.check(release_check).await {
             Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
@@ -318,6 +318,13 @@ where
                         };
                     // P1-4：释放前验 release verdict 的 valid_until（fail-closed）。
                     let release_deadline = parse_rfc3339_ms(&result.valid_until).unwrap_or(0);
+                    // 响应里的加密内容之后会被重放：保存 Core 签发的回执，后续 before_send 转交。
+                    if let (Some(receipt), Some(conversation)) =
+                        (result.receipt.clone(), call.conversation_id.as_deref())
+                    {
+                        self.receipts
+                            .add(&call.scope_id, conversation, receipt, now_ms());
+                    }
                     if now_ms() >= release_deadline {
                         return ManagedOutcome::AdmissionExpired;
                     }
@@ -388,6 +395,31 @@ where
                     reason_codes: result.reason_codes,
                 },
             },
+        }
+    }
+
+    /// before_send 请求：带上可信会话、父会话，以及它们的加密内容回执。
+    fn send_check(&self, call: &ManagedCall, payload: ModelJsonPayload) -> ContextCheckRequest {
+        let encrypted_receipts = call
+            .conversation_id
+            .as_deref()
+            .map(|conversation| {
+                self.receipts.for_request(
+                    &call.scope_id,
+                    conversation,
+                    call.parent_conversation_id.as_deref(),
+                    now_ms(),
+                )
+            })
+            .unwrap_or_default();
+        ContextCheckRequest::BeforeSend {
+            scope_id: call.scope_id.clone(),
+            target_profile: call.target_profile.clone(),
+            payload,
+            prepared_contexts: call.prepared_contexts.clone(),
+            conversation_id: call.conversation_id.clone(),
+            parent_conversation_id: call.parent_conversation_id.clone(),
+            encrypted_receipts,
         }
     }
 

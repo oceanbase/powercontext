@@ -243,6 +243,11 @@ Server. On the Chat route the added limit uses `max_completion_tokens`. The limi
 checked, and the Server checks the final request as usual; a limit the client sets, and its field, are kept. Without a
 configured limit for the target nothing is added.
 
+For a target whose Server configuration sets `admit_encrypted_items`, the gateway keeps the encrypted-content
+receipts that Core returns at release, per conversation, for one hour. It presents them with later requests of the
+same conversation, and of subagent conversations started from it (`x-codex-parent-thread-id`, Claude Code parent
+agent, OpenCode parent session). Requests without a conversation never inherit receipts.
+
 ### Gateway instruction
 
 `PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the

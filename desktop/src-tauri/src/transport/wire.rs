@@ -870,6 +870,10 @@ pub struct ContextProtectionCapabilities {
     pub enforcing: bool,
     #[serde(rename = "limits")]
     pub limits: ContextProtectionCapabilitiesLimits,
+    /// Configured `max_output_tokens` by target profile, for targets that declare one. A colocated gateway uses the value of its own target when a client request omits an output limit; the final request is still checked against the same limit.
+    #[ts(optional)]
+    #[serde(rename = "output_limits", skip_serializing_if = "Option::is_none")]
+    pub output_limits: Option<std::collections::HashMap<String, i32>>,
 }
 
 impl ContextProtectionCapabilities {
@@ -889,6 +893,7 @@ impl ContextProtectionCapabilities {
             reuse_families,
             enforcing,
             limits,
+            output_limits: None,
         }
     }
 }

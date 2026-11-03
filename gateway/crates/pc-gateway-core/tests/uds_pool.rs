@@ -37,6 +37,9 @@ fn check_request() -> ContextCheckRequest {
         target_profile: "p".into(),
         payload: ModelJsonPayload::new(BTreeMap::new(), "{}".into()),
         prepared_contexts: Vec::new(),
+        conversation_id: None,
+        parent_conversation_id: None,
+        encrypted_receipts: Vec::new(),
     }
 }
 

@@ -29,6 +29,12 @@ from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
+from powercontext.builtin.inference.encrypted_items import (
+    MAX_RECEIPT_VALUES,
+    admitted_encrypted,
+    released_argument_strings,
+    value_digest,
+)
 from powercontext.builtin.inference.model_payload import parse_model_json
 from powercontext.builtin.inference.privacy import (
     InferenceProtectionConfig,
@@ -46,6 +52,10 @@ MAX_CHECK_BODY_BYTES = 1_048_576
 MAX_PREPARED_CONTEXTS = 16
 _SEND_PURPOSE = "context-check.before_send"
 _RELEASE_PURPOSE = "context-check.before_release"
+_RECEIPT_PURPOSE = "context-check.encrypted-origin"
+# Encrypted items are replayed for the rest of a conversation, beyond one response's correlation window.
+RECEIPT_VALIDITY = timedelta(hours=1)
+MAX_ENCRYPTED_RECEIPTS = 32
 _MARKERS = ("BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1", "BEGIN_POWERCONTEXT_PREPARED_TEXT_V1")
 _ALLOWED_HEADERS = frozenset({"content-type", "anthropic-version", "anthropic-beta"})
 _MESSAGE_LOCATION = re.compile(r"^/(messages|input)/(0|[1-9][0-9]*)/content(?:/(0|[1-9][0-9]*)/text)?$")
@@ -104,6 +114,20 @@ class CheckContextBeforeSend(_CheckModel):
     prepared_contexts: Annotated[
         tuple[PreparedContextLocation, ...], Field(max_length=MAX_PREPARED_CONTEXTS, strict=False)
     ]
+    # Trusted conversation of the request and, for a subagent, the conversation that started it.
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=512, strict=True)
+    parent_conversation_id: str | None = Field(default=None, min_length=1, max_length=512, strict=True)
+    # Receipts from earlier releases that prove the origin of admitted encrypted items in this request.
+    encrypted_receipts: Annotated[
+        tuple[Annotated[str, Field(min_length=1, max_length=65536)], ...],
+        Field(default=(), max_length=MAX_ENCRYPTED_RECEIPTS, strict=False),
+    ] = ()
+
+    @field_validator("encrypted_receipts", mode="before")
+    @classmethod
+    def absent_receipts(cls, value: object) -> object:
+        # The HTTP transport serializes an omitted optional field as null.
+        return () if value is None else value
 
 
 class CheckContextBeforeRelease(_CheckModel):
@@ -112,6 +136,7 @@ class CheckContextBeforeRelease(_CheckModel):
     payload: ModelJsonPayload
     request_binding: str = Field(min_length=1, max_length=65536, strict=True)
     completion: Literal["complete"]
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=512, strict=True)
 
 
 CheckContextRequest: TypeAlias = Annotated[
@@ -132,6 +157,8 @@ class ContextCheckResult(_CheckModel):
     valid_until: datetime
     correlate_until: datetime | None = None
     binding: str | None = None
+    # Issued at release when the response carries encrypted values for an opted-in target.
+    receipt: str | None = None
 
 
 def _fingerprint(config: InferenceProtectionConfig) -> str:
@@ -337,7 +364,7 @@ async def _correlate(
         await validate_reuse(binding)
 
 
-async def check_context(
+async def check_context(  # noqa: C901 - each admission stage returns its own withhold
     request: CheckContextRequest,
     *,
     scope_id: str,
@@ -360,7 +387,11 @@ async def check_context(
         return _withheld(request, config, now, "enforcement-not-configured")
     policy = PrivacyPolicy(config)
     assessed = policy.inspect_json(
-        body, phase=request.phase, target_profile=request.target_profile, headers=request.payload.headers
+        body,
+        phase=request.phase,
+        target_profile=request.target_profile,
+        headers=request.payload.headers,
+        admit_encrypted=True,
     )
     if assessed.decision != "allow" or not assessed.coverage.complete:
         return ContextCheckResult(
@@ -388,6 +419,11 @@ async def check_context(
             )
     except (ContextBindingError, ContextReuseError):
         return _withheld(request, config, now, "context-refresh-required")
+    withheld, receipt = _encrypted_admission(
+        request, body, config, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
+    )
+    if withheld is not None:
+        return _withheld(request, config, now, withheld)
     deadline = now + SEND_VALIDITY
     if expiry is not None:
         deadline = min(deadline, expiry)
@@ -421,4 +457,109 @@ async def check_context(
         valid_until=deadline,
         correlate_until=correlate_until,
         binding=binding,
+        receipt=receipt,
     )
+
+
+def _encrypted_admission(
+    request: CheckContextRequest,
+    body: bytes,
+    config: InferenceProtectionConfig,
+    *,
+    codec: BindingCodec,
+    scope_id: str,
+    binding_identity: str,
+    now: datetime,
+) -> tuple[str | None, str | None]:
+    """Verify receipts for admitted encrypted items before send, or issue one at release.
+
+    Returns a withhold reason, if any, and the receipt to return with a release.
+    """
+
+    kinds = config.targets[request.target_profile].admit_encrypted_items
+    if not kinds:
+        return None, None
+    parsed = parse_model_json(body, max_depth=config.max_json_depth)
+    _, encrypted = admitted_encrypted(parsed, kinds)
+    if isinstance(request, CheckContextBeforeSend):
+        receipted = _receipted_digests(
+            request, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
+        )
+        if any(value_digest(value) not in receipted for value in encrypted):
+            return "encrypted-origin-unverified", None
+        return None, None
+    receipt = _issue_receipt(
+        request,
+        (*encrypted, *released_argument_strings(parsed)),
+        codec=codec,
+        scope_id=scope_id,
+        binding_identity=binding_identity,
+        now=now,
+    )
+    return None, receipt
+
+
+def _issue_receipt(
+    request: CheckContextBeforeRelease,
+    values: tuple[str, ...],
+    *,
+    codec: BindingCodec,
+    scope_id: str,
+    binding_identity: str,
+    now: datetime,
+) -> str | None:
+    """Seal the digests of encrypted values a released response carried, for this conversation only.
+
+    Without a trusted conversation nothing is receipted, so encrypted items are never inherited across requests.
+    A response with more values than one receipt holds gets none; later requests replaying them are withheld.
+    """
+
+    digests = sorted({value_digest(value) for value in values})
+    if not digests or request.conversation_id is None or len(digests) > MAX_RECEIPT_VALUES:
+        return None
+    try:
+        return codec.seal(
+            {
+                "identity": binding_identity,
+                "scope_id": scope_id,
+                "target_profile": request.target_profile,
+                "conversation_id": request.conversation_id,
+                "digests": digests,
+            },
+            purpose=_RECEIPT_PURPOSE,
+            expires_at=now + RECEIPT_VALIDITY,
+        )
+    except ContextBindingError:
+        return None
+
+
+def _receipted_digests(
+    request: CheckContextBeforeSend,
+    *,
+    codec: BindingCodec,
+    scope_id: str,
+    binding_identity: str,
+    now: datetime,
+) -> frozenset[str]:
+    """Digests proven by the presented receipts for the same principal, Scope and target.
+
+    A receipt counts when it was issued to this conversation or, for a subagent, to the parent conversation that
+    handed the encrypted task over. Invalid, expired or foreign receipts are ignored.
+    """
+
+    conversations = {request.conversation_id, request.parent_conversation_id} - {None}
+    digests: set[str] = set()
+    for token in request.encrypted_receipts:
+        try:
+            claims = codec.open(token, purpose=_RECEIPT_PURPOSE, now=now)
+        except ContextBindingError:
+            continue
+        if (
+            claims.get("identity") == binding_identity
+            and claims.get("scope_id") == scope_id
+            and claims.get("target_profile") == request.target_profile
+            and claims.get("conversation_id") in conversations
+            and isinstance(claims.get("digests"), list)
+        ):
+            digests.update(digest for digest in claims["digests"] if isinstance(digest, str))
+    return frozenset(digests)
