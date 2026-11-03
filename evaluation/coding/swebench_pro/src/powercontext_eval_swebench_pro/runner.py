@@ -38,6 +38,7 @@ from powercontext_eval_swebench_pro.adapter import (
 from powercontext_eval_swebench_pro.artifacts import ArmState, ArtifactStore
 from powercontext_eval_swebench_pro.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT, is_safe_codex_model
 from powercontext_eval_swebench_pro.context_trace import write_context_trace
+from powercontext_eval_swebench_pro.egress import EgressPolicy, codex_provider_hosts, model_hosts, validated_hosts
 from powercontext_eval_swebench_pro.errors import CommandFailed
 from powercontext_eval_swebench_pro.evaluator import OfficialEvaluation, OfficialEvaluator
 from powercontext_eval_swebench_pro.git_source import GitSource
@@ -160,6 +161,10 @@ class RunConfig:
     tokensflow_user_home: Path | None = None
     tokensflow_egress_network: str | None = None
     proxy_url: str | None = None
+    # "allowlist" confines the run network to package indexes during prewarm and the model endpoint during the agent
+    # run; "native" leaves it unrestricted. A proxy_url uses the deployment's own proxy instead.
+    egress: str = "allowlist"
+    allow_hosts: tuple[str, ...] = ()
     docker_network_pool: str = DEFAULT_DOCKER_NETWORK_POOL
     extra_no_proxy_hosts: tuple[str, ...] = ()
     codex_config: Path | None = None
@@ -185,8 +190,15 @@ class RunConfig:
             raise ValueError("TokensFlow inputs are required when enabled")
         if not self.tokensflow_enabled and self.finalization_registrar is not None:
             raise ValueError("TokensFlow finalization requires TokensFlow to be enabled")
-        if self.proxy_url is None and self.extra_no_proxy_hosts:
-            raise ValueError("Additional no-proxy hosts require the evaluation proxy")
+        if self.egress not in {"allowlist", "native"}:
+            raise ValueError("Egress must be allowlist or native")
+        validated_hosts(self.allow_hosts)
+        if self.proxy_url is None and self.egress == "native" and self.extra_no_proxy_hosts:
+            raise ValueError("Additional no-proxy hosts require the evaluation proxy or the egress allowlist")
+        if self.tokensflow_enabled and self.proxy_url is None and self.egress == "allowlist":
+            raise ValueError(
+                "TokensFlow attaches an unrestricted egress network to the agent; use --egress native or disable it"
+            )
 
 
 @dataclass(frozen=True)
@@ -406,6 +418,15 @@ def _run_swebench_pro_instance(
             source_checkout=materialized,
             plugin_checkout_sha=resolved.sha,
             proxy=ProxyRelayConfig(config.proxy_url) if config.proxy_url is not None else None,
+            egress=(
+                EgressPolicy(
+                    agent=model_hosts(config.auth_json)
+                    | codex_provider_hosts(config.codex_config)
+                    | validated_hosts(config.allow_hosts)
+                )
+                if config.proxy_url is None and config.egress == "allowlist"
+                else None
+            ),
             docker_network_pool=config.docker_network_pool,
             extra_no_proxy_hosts=config.extra_no_proxy_hosts,
             tokensflow_enabled=config.tokensflow_enabled,
@@ -499,6 +520,8 @@ def _run_swebench_pro_instance(
             "docker_network_pool": config.docker_network_pool,
             "extra_no_proxy_hosts": ",".join(config.extra_no_proxy_hosts),
             "proxy": "enabled" if config.proxy_url is not None else "disabled",
+            "egress": "proxy" if config.proxy_url is not None else config.egress,
+            "allow_hosts": ",".join(config.allow_hosts),
             "tokensflow": "enabled" if config.tokensflow_enabled else "disabled",
             "treatment_mode": config.treatment_mode.value,
         },
@@ -570,6 +593,10 @@ class MinimalRunConfig:
     tokensflow_user_home: Path | None = None
     tokensflow_egress_network: str | None = None
     proxy_url: str | None = None
+    # "allowlist" confines the run network to package indexes during prewarm and the model endpoint during the agent
+    # run; "native" leaves it unrestricted. A proxy_url uses the deployment's own proxy instead.
+    egress: str = "allowlist"
+    allow_hosts: tuple[str, ...] = ()
     docker_network_pool: str = DEFAULT_DOCKER_NETWORK_POOL
     extra_no_proxy_hosts: tuple[str, ...] = ()
     codex_config: Path | None = None
@@ -590,8 +617,15 @@ class MinimalRunConfig:
             raise ValueError("TokensFlow inputs are required when enabled")
         if not self.tokensflow_enabled and self.finalization_registrar is not None:
             raise ValueError("TokensFlow finalization requires TokensFlow to be enabled")
-        if self.proxy_url is None and self.extra_no_proxy_hosts:
-            raise ValueError("Additional no-proxy hosts require the evaluation proxy")
+        if self.egress not in {"allowlist", "native"}:
+            raise ValueError("Egress must be allowlist or native")
+        validated_hosts(self.allow_hosts)
+        if self.proxy_url is None and self.egress == "native" and self.extra_no_proxy_hosts:
+            raise ValueError("Additional no-proxy hosts require the evaluation proxy or the egress allowlist")
+        if self.tokensflow_enabled and self.proxy_url is None and self.egress == "allowlist":
+            raise ValueError(
+                "TokensFlow attaches an unrestricted egress network to the agent; use --egress native or disable it"
+            )
 
 
 def run_minimal_swebench_pro(
@@ -623,6 +657,8 @@ def run_minimal_swebench_pro(
             registry_binary=config.registry_binary,
             auth_json=config.auth_json,
             proxy_url=config.proxy_url,
+            egress=config.egress,
+            allow_hosts=config.allow_hosts,
             run_id=run_id,
             docker_network_pool=config.docker_network_pool,
             extra_no_proxy_hosts=config.extra_no_proxy_hosts,
