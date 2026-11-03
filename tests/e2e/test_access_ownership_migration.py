@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -170,6 +171,14 @@ def test_background_plan_accounts_for_static_preset_without_granting_bindings(
                 headers={"Authorization": "Bearer static-test-token"},
             ) as client,
         ):
+            # SQLite normally accepts oversized VARCHAR values. Enforce the strict
+            # relationship-key limit here without claiming a native MySQL run.
+            with sqlite3.connect(tmp_path / "static-background.db") as connection:
+                connection.execute(
+                    "CREATE TRIGGER reject_oversized_static_key BEFORE INSERT ON pc_access_relationships "
+                    "WHEN length(NEW.idempotency_key) > 255 "
+                    "BEGIN SELECT RAISE(ABORT, 'idempotency_key too long'); END"
+                )
             access = app.state.access_control
             context = AccessAuditContext(transport="background", operation="test.background")
             if profile_owner in {"server-token", "other"}:

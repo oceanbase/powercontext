@@ -84,6 +84,15 @@ _STATIC_SCOPE_ROLES = (
 )
 
 
+def _static_scope_receipt_keys(
+    deployment_id: str, principal_id: str, scope_id: str, role: AccessRole
+) -> tuple[str, str]:
+    legacy = f"static-preset:{deployment_id}:{principal_id}:{scope_id}:{role.value}"
+    # The relationship schema stores keys in VARCHAR(255), including internal presets.
+    key = legacy if len(legacy) <= 255 else f"static-preset:sha256:{hashlib.sha256(legacy.encode()).hexdigest()}"
+    return key, legacy
+
+
 @dataclass(frozen=True, slots=True)
 class AuthorizedResourceFilter:
     """Complete bounded identities and parent constraints produced before data access."""
@@ -919,10 +928,12 @@ class AccessControlService:
         for role in _STATIC_SCOPE_ROLES:
             if action not in actions[role]:
                 continue
-            # Match bootstrap's complete internal receipt key, not public request-key limits.
-            key = f"static-preset:{self.deployment_id}:{principal.id}:{resource.scope_id}:{role.value}"
-            if not await _access_call(repository.static_scope_initialized(principal, (key,))):
-                return True
+            key, legacy = _static_scope_receipt_keys(self.deployment_id, principal.id, resource.scope_id, role)
+            if await _access_call(repository.static_scope_initialized(principal, (key,))):
+                continue
+            if key != legacy and await _access_call(repository.static_scope_initialized(principal, (legacy,))):
+                continue
+            return True
         return False
 
     async def bootstrap_static_scope(
@@ -941,14 +952,20 @@ class AccessControlService:
 
         resource = ResourceRef.scope(scope_id)
         keys = tuple(
-            f"static-preset:{self.deployment_id}:{actor.id}:{scope_id}:{role.value}" for role in _STATIC_SCOPE_ROLES
+            _static_scope_receipt_keys(self.deployment_id, actor.id, scope_id, role)[0] for role in _STATIC_SCOPE_ROLES
         )
         repository = self._relationship_writer()
         if type(repository) is RelationalAccessRepository and await repository.static_scope_initialized(actor, keys):
             return
         now = self._clock()
         for role in _STATIC_SCOPE_ROLES:
-            key = f"static-preset:{self.deployment_id}:{actor.id}:{scope_id}:{role.value}"
+            key, legacy = _static_scope_receipt_keys(self.deployment_id, actor.id, scope_id, role)
+            if (
+                key != legacy
+                and type(repository) is RelationalAccessRepository
+                and await _access_call(repository.static_scope_initialized(actor, (legacy,)))
+            ):
+                continue
             binding = AccessBinding(
                 binding_id=str(uuid4()),
                 subject=actor,
