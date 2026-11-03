@@ -16,10 +16,10 @@
 
 // Read configuration using the installed DSH's parser and patch algorithm.
 // Never prepare/load the real profile: native normalization runs only on disposable metadata.
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
-import { dirname, extname, join, resolve } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const plugin = 'powercontext-dsh'
@@ -80,7 +80,7 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
     boot = await import(pathToFileURL(bootPath).href)
   }
   catch { fail('Installed DSH cannot provide its dsh-app-boot configuration APIs; upgrade or reinstall DSH', anchor) }
-  for (const name of ['readProfileManifest', 'loadProfileDirectory', 'loadOverlayPatches', 'composeEntries']) {
+  for (const name of ['readProfileManifest', 'resolveBundleDir', 'loadProfileDirectory', 'loadOverlayPatches', 'composeEntries']) {
     if (typeof boot[name] !== 'function') fail(`Installed DSH does not expose ${name}; upgrade or reinstall DSH`, anchor)
   }
   const dir = join(home, 'profiles', profile)
@@ -126,9 +126,29 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
     writeFileSync(join(snapshot, 'package.json'), existsSync(manifestPath)
       ? read(manifestPath, () => readFileSync(manifestPath))
       : JSON.stringify({ private: true, dsh: { profile: { bundles } } }), { mode: 0o600 })
-    const modules = join(dir, 'node_modules')
-    if (existsSync(modules)) symlinkSync(resolve(modules), join(snapshot, 'node_modules'),
-      process.platform === 'win32' ? 'junction' : 'dir')
+    const modules = join(snapshot, 'node_modules')
+    for (const name of new Set(bundles)) {
+      const parts = name.split('/')
+      const target = resolve(modules, name)
+      if (parts.some(part => !part || part === '.' || part === '..') || name.includes('\\') || name.includes(':')
+        || parts.length > 2 || (parts.length === 1 && name.startsWith('@'))
+        || (parts.length === 2 && !parts[0].startsWith('@'))
+        || !target.startsWith(modules + sep)) {
+        fail('DSH bundle names must be package identifiers', manifestPath)
+      }
+      let packageDir
+      try { packageDir = boot.resolveBundleDir('powercontext', name, anchor, dir) }
+      catch {
+        // Shadow unrelated temporary-directory ancestors while retaining native skip handling.
+        mkdirSync(target, { recursive: true })
+        writeFileSync(join(target, 'package.json'), '{}', { mode: 0o600 })
+        continue
+      }
+      // Resolve before changing the profile anchor, preserving native installation/
+      // ancestor precedence and support for packages without exported manifests.
+      mkdirSync(dirname(target), { recursive: true })
+      symlinkSync(resolve(packageDir), target, process.platform === 'win32' ? 'junction' : 'dir')
+    }
     const compatibility = join(dir, 'compatibility.json')
     if (existsSync(compatibility)) writeFileSync(join(snapshot, 'compatibility.json'),
       read(compatibility, () => readFileSync(compatibility)), { mode: 0o600 })
