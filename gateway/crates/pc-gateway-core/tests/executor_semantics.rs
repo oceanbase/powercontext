@@ -86,6 +86,8 @@ struct FakeGate {
     /// 每次 before_release 携带的会话。
     release_conversations: Mutex<Vec<Option<String>>>,
     captured: Mutex<Vec<(String, String)>>,
+    /// 每次 capture 携带的 Source 元数据。
+    captured_metadata: Mutex<Vec<Option<serde_json::Value>>>,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
@@ -183,6 +185,10 @@ impl GateClient for FakeGate {
         &self,
         request: CaptureContentSourceRequest,
     ) -> Result<serde_json::Value, GateError> {
+        self.captured_metadata
+            .lock()
+            .unwrap()
+            .push(request.metadata);
         self.captured
             .lock()
             .unwrap()
@@ -274,6 +280,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         headers: vec![("authorization".into(), "Bearer secret".into())],
         degrade_policy: degrade,
         inject_context: false,
+        capture_prefix: false,
         conversation_id: None,
         parent_conversation_id: None,
         sediment: false,
@@ -366,6 +373,7 @@ fn harness(
         send_identities: Mutex::new(Vec::new()),
         release_conversations: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
+        captured_metadata: Mutex::new(Vec::new()),
         capture_error: Mutex::new(None),
     });
     let executor = Executor::new(
@@ -2079,6 +2087,55 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
         })
     );
     assert_no_transport_metadata(&captured[0].1);
+}
+
+#[tokio::test]
+async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
+    let output = serde_json::json!([
+        reasoning_item(),
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, transport, gate) = harness(
+        allow_runs(2),
+        vec![
+            responses_output(output.clone()),
+            responses_output(output.clone()),
+        ],
+        2,
+    );
+    for capture_prefix in [true, false] {
+        let mut c = tool_loop_call("fix the bug", 0, true);
+        c.sediment = true;
+        c.capture_prefix = capture_prefix;
+        let outcome = executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    let metadata = gate.captured_metadata.lock().unwrap().clone();
+    assert!(
+        metadata[1].as_ref().unwrap().get("prefix_handle").is_none(),
+        "without opt-in nothing is kept"
+    );
+    let handle = metadata[0].as_ref().unwrap()["prefix_handle"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let prefix = executor.prefix(&handle, "project:test").unwrap();
+    assert_eq!(prefix.conversation_id, "conversation-a");
+    assert_eq!(prefix.target_profile, "openai:test");
+    assert_eq!(
+        prefix.request_body,
+        transport.sends.lock().unwrap()[0],
+        "the prefix is the exact body sent upstream"
+    );
+    assert_eq!(serde_json::Value::from(prefix.response_output), output);
+    assert!(executor.prefix(&handle, "project:other").is_none());
 }
 
 #[tokio::test]

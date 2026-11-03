@@ -28,6 +28,7 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::prefix_store::{PrefixEntry, PrefixStore};
 use crate::receipt_store::{Presented, ReceiptStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
@@ -65,6 +66,8 @@ pub struct ManagedCall {
     pub conversation_id: Option<String>,
     /// 子代理的父会话（派发任务的会话）：父会话的加密内容回执也随请求转交。
     pub parent_conversation_id: Option<String>,
+    /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
+    pub capture_prefix: bool,
     pub sediment: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
@@ -105,6 +108,7 @@ pub struct Executor<G, T> {
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     receipts: ReceiptStore,
+    prefixes: PrefixStore,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -127,6 +131,7 @@ where
             max_attempts,
             replays: ReplayCache::default(),
             receipts: ReceiptStore::default(),
+            prefixes: PrefixStore::default(),
         }
     }
 
@@ -185,6 +190,7 @@ where
                             inject_context: false,
                             conversation_id: None,
                             parent_conversation_id: None,
+                            capture_prefix: false,
                             sediment: false,
                             prepared_contexts: Vec::new(),
                         };
@@ -352,14 +358,23 @@ where
                                 .map(simple_digest)
                                 .unwrap_or_else(|| simple_digest(&release_body))
                         });
+                        let mut metadata = serde_json::json!({
+                            "kind": "gateway_turn",
+                            "target_profile": call.target_profile,
+                        });
+                        if let Some(handle) = self.keep_prefix(
+                            &call,
+                            &payload.bytes,
+                            &release_body,
+                            renderer.message_list_key(),
+                        ) {
+                            metadata["prefix_handle"] = handle.into();
+                        }
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
                             source_id: format!("gw-turn-{digest}"),
                             content: transcript,
-                            metadata: Some(serde_json::json!({
-                                "kind": "gateway_turn",
-                                "target_profile": call.target_profile,
-                            })),
+                            metadata: Some(metadata),
                         };
                         match self.gate.capture(capture).await {
                             Ok(_) => {}
@@ -400,6 +415,38 @@ where
                 },
             },
         }
+    }
+
+    /// Core 凭句柄取回的前缀（同一 Scope、未过期）。
+    pub fn prefix(&self, handle: &str, scope_id: &str) -> Option<PrefixEntry> {
+        self.prefixes.get(handle, scope_id, now_ms())
+    }
+
+    /// 保留一个 Responses 回合的终止请求与响应输出，返回句柄。只用于可信会话：前缀里重放的加密内容要凭
+    /// 该会话的回执放行。
+    fn keep_prefix(
+        &self,
+        call: &ManagedCall,
+        sent: &bytes::Bytes,
+        release_body: &str,
+        list_key: &str,
+    ) -> Option<String> {
+        if !call.capture_prefix || list_key != "input" {
+            return None;
+        }
+        let conversation_id = call.conversation_id.clone()?;
+        let response: serde_json::Value = serde_json::from_str(release_body).ok()?;
+        let response_output = response.get("output")?.as_array()?.clone();
+        self.prefixes.add(
+            PrefixEntry {
+                scope_id: call.scope_id.clone(),
+                target_profile: call.target_profile.clone(),
+                conversation_id,
+                request_body: sent.clone(),
+                response_output,
+            },
+            now_ms(),
+        )
     }
 
     /// before_send 请求：带上可信会话、父会话，以及它们的加密内容回执；同时返回转交了哪些本会话回执。
