@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@deepseek-ai/dsh-app-boot": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-app-boot": "0.2.2-alpha.2"
+  },
+  "engines": {
+    "node": ">=24.9.0"
   }
 }

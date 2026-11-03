@@ -21,11 +21,11 @@ The test package pins `@deepseek-ai/dsh-sdk-client@0.2.2-alpha.2` and the resolv
 lockfile. Use Node 24.9+ (CI: 24.22.1). Install peers in this isolated package;
 the plugin's ordinary unit-test installation deliberately does not install its optional host peers.
 
-`../config-runtime` separately pins `@deepseek-ai/dsh-app-boot@0.2.0-rc.2` for native configuration/compatibility
+`../config-runtime` separately pins `@deepseek-ai/dsh-app-boot@0.2.2-alpha.2` (Node 24.9+) for native configuration/compatibility
 checks; install it with `pnpm --dir integrations/dsh/plugins/powercontext/tests/config-runtime install --frozen-lockfile`.
 Its dependency graph remains separate from the current SDK host.
 `tests/test_dsh_transport.py` loads those real APIs through a synthetic carrier in disposable profiles; those
-checks do not execute a 0.2 CLI installation or a Desktop host. They verify omitted incompatible third-party
+checks do not execute a CLI installation or a Desktop host. They verify omitted incompatible third-party
 layers, rejected incompatible PowerContext bundles, and explicit version exemptions. The SDK continues to use
 its matched 0.2.2 runtime. Setup reads the selected installation's own configuration APIs, not this test copy.
 

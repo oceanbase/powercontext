@@ -87,6 +87,9 @@ Setup 不会启动 Server。安装完成后重启 DSH。
 
 首次安装可在目标 profile 尚未初始化时检查已有的 home/profile patch。预检读取所选宿主的默认 bundle 模板，不会为检查而创建 profile。
 
+
+Setup 合成所选宿主实际使用的 bundle 层。已退役或被宿主跳过的第三方 bundle 不提供传输覆盖；PowerContext bundle 不可用时仍会报错。原生元数据归一化仅在临时副本中执行，保留已安装 profile 和用户 patch。
+
 ## 启动 Server 和宿主
 
 需要自动将 Source 提取为 Memory 时，生成并校验 Server 配置：

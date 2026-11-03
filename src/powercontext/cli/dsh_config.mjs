@@ -15,10 +15,11 @@
  */
 
 // Read configuration using the installed DSH's parser and patch algorithm.
-// Never call loadProfile/prepareProfile: those initialize or rewrite host files.
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+// Never prepare/load the real profile: native normalization runs only on disposable metadata.
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
-import { dirname, extname, join, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const plugin = 'powercontext-dsh'
@@ -79,7 +80,7 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
     boot = await import(pathToFileURL(bootPath).href)
   }
   catch { fail('Installed DSH cannot provide its dsh-app-boot configuration APIs; upgrade or reinstall DSH', anchor) }
-  for (const name of ['readProfileManifest', 'resolveBundleDir', 'loadOverlayPatches', 'composeEntries']) {
+  for (const name of ['readProfileManifest', 'resolveBundleDir', 'loadProfileDirectory', 'loadOverlayPatches', 'composeEntries']) {
     if (typeof boot[name] !== 'function') fail(`Installed DSH does not expose ${name}; upgrade or reinstall DSH`, anchor)
   }
   const dir = join(home, 'profiles', profile)
@@ -115,37 +116,73 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
     fail('Cannot determine the DSH profile bundle list', manifestPath)
   }
   if (requireInstalled && !bundles.includes(plugin)) fail('PowerContext is not enabled in this profile', manifestPath)
-  const exemptions = typeof boot.readProfileVersionExemptions === 'function'
-    ? read(dir, () => boot.readProfileVersionExemptions(dir)) : {}
-  const skippedBundles = []
-  function bundle(name, packageDir) {
-    const file = join(packageDir, 'package.json')
-    const metadata = read(file, () => boot.readProfileManifest('powercontext', packageDir))
-    if (typeof boot.evaluatePluginCompatibility === 'function') {
-      const issue = read(file, () => boot.evaluatePluginCompatibility(metadata, exemptions))
-      if (issue && !issue.exempted) {
-        if (name === plugin) fail('PowerContext is incompatible with the installed DSH; resolve its version compatibility', file)
-        // Native DSH omits incompatible bundle layers. Composing their patches after
-        // merely warning would validate transport settings the host will never use.
-        skippedBundles.push(`DSH skipped an incompatible third-party bundle; its patches were not applied: ${file}`)
-        return []
+  // The native reader may normalize retired bundles by rewriting package.json.
+  // Give it disposable metadata while resolving the real installed dependencies.
+  // In the tested hosts, readProfileManifest/bundlePatchPaths only read bundle files;
+  // only dropRetiredBundles writes, and it receives the snapshot profile directory.
+  const snapshot = mkdtempSync(join(tmpdir(), 'powercontext-dsh-inspect-'))
+  let composition
+  try {
+    writeFileSync(join(snapshot, 'package.json'), existsSync(manifestPath)
+      ? read(manifestPath, () => readFileSync(manifestPath))
+      : JSON.stringify({ private: true, dsh: { profile: { bundles } } }), { mode: 0o600 })
+    const modules = join(snapshot, 'node_modules')
+    for (const name of new Set(bundles)) {
+      const parts = name.split('/')
+      const target = resolve(modules, name)
+      if (parts.some(part => !part || part === '.' || part === '..') || name.includes('\\') || name.includes(':')
+        || parts.length > 2 || (parts.length === 1 && name.startsWith('@'))
+        || (parts.length === 2 && !parts[0].startsWith('@'))
+        || !target.startsWith(modules + sep)) {
+        fail('DSH bundle names must be package identifiers', manifestPath)
       }
+      let packageDir
+      try { packageDir = boot.resolveBundleDir('powercontext', name, anchor, dir) }
+      catch (error) {
+        // Supported hosts report missing bundles with a plain Error, without a code.
+        const missing = `powercontext: cannot resolve profile bundle ${JSON.stringify(name)} from the dsh installation or `
+        if (!(error instanceof Error) || !error.message.startsWith(missing)) {
+          fail('Installed DSH cannot resolve bundle metadata; inspect its installation and permissions', manifestPath)
+        }
+        // Shadow unrelated temporary-directory ancestors while retaining native skip handling.
+        mkdirSync(target, { recursive: true })
+        writeFileSync(join(target, 'package.json'), '{}', { mode: 0o600 })
+        continue
+      }
+      if (typeof packageDir !== 'string' || !isAbsolute(packageDir)
+        || !read(manifestPath, () => statSync(packageDir, { throwIfNoEntry: false })?.isDirectory())) {
+        fail('Installed DSH returned an unsupported bundle path; upgrade or reinstall DSH', anchor)
+      }
+      // Resolve before changing the profile anchor, preserving native installation/
+      // ancestor precedence and support for packages without exported manifests.
+      mkdirSync(dirname(target), { recursive: true })
+      symlinkSync(resolve(packageDir), target, process.platform === 'win32' ? 'junction' : 'dir')
     }
-    let files
-    if (typeof boot.bundlePatchPaths === 'function') {
-      files = read(file, () => boot.bundlePatchPaths(packageDir, metadata.dsh?.bundle))
-    } else {
-      // Older DSH releases accept one patch path, not the newer list form.
-      const patch = metadata.dsh?.bundle?.patch
-      if (typeof patch !== 'string' || !patch) fail('DSH bundle has no supported patch declaration', file)
-      files = [join(packageDir, patch)]
-    }
-    return files.flatMap(path => read(path, () => boot.loadOverlayPatches('powercontext', path)))
+    const compatibility = join(dir, 'compatibility.json')
+    if (existsSync(compatibility)) writeFileSync(join(snapshot, 'compatibility.json'),
+      read(compatibility, () => readFileSync(compatibility)), { mode: 0o600 })
+    composition = read(dir, () => boot.loadProfileDirectory('powercontext', snapshot, anchor, { userLayer: false }))
+  } finally {
+    try { rmSync(snapshot, { recursive: true, force: true, maxRetries: 3 }) }
+    catch { /* Temporary-file cleanup must not replace the inspection result. */ }
   }
-  const layers = bundles.map(name => {
-    const packageDir = read(manifestPath, () => boot.resolveBundleDir('powercontext', name, anchor, dir))
-    return bundle(name, packageDir)
+  if (!Array.isArray(composition?.layers) || composition.layers.some(layer => !Array.isArray(layer?.patches))) {
+    fail('Installed DSH does not expose the expected profile composition; upgrade or reinstall DSH', anchor)
+  }
+  const skipped = composition.skippedBundles ?? []
+  if (!Array.isArray(skipped) || skipped.some(entry => !entry || typeof entry.packageName !== 'string'
+    || typeof entry.reason !== 'string')) {
+    fail('Installed DSH does not expose the expected profile composition; upgrade or reinstall DSH', anchor)
+  }
+  const skippedBundles = skipped.map(({ packageName, reason }) => {
+    const incompatible = /incompatible with (?:@deepseek-ai\/)?dsh\b/.test(reason)
+    if (packageName === plugin) fail(incompatible
+      ? 'PowerContext is incompatible with the installed DSH; resolve its version compatibility'
+      : 'PowerContext cannot be loaded by the installed DSH; check host compatibility and reinstall its bundle', manifestPath)
+    // Native reasons can contain raw YAML and credentials. Report only the omitted identity.
+    return `DSH skipped ${incompatible ? 'an incompatible' : 'a'} bundle; its patches were not applied: ${packageName}`
   })
+  const layers = composition.layers.map(layer => layer.patches)
   // Expose the future plugin id to user patches before native installation.
   if (!bundles.includes(plugin) && prospective) layers.push([{ insert: [{ id: plugin, name: plugin, config: {} }] }])
   const userFiles = [join(dir, 'cordis.patch.yml'), join(home, 'cordis.patch.yml')]

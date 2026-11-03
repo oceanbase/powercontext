@@ -90,6 +90,9 @@ Recall queries exclude DSH runtime-context snapshots, including cleared-context 
 
 First setup can inspect an existing home/profile patch before the target profile has been initialized. It reads the selected host’s default bundle templates without creating the profile during preflight.
 
+
+Setup composes the selected host’s effective bundle layers. Retired and host-skipped third-party bundles do not contribute transport overrides; an unavailable PowerContext bundle remains an error. Native metadata normalization is confined to a disposable snapshot, preserving the installed profile and user patches.
+
 ## Start the Server and the host
 
 For automatic Source-to-Memory extraction, generate and validate a Server configuration:

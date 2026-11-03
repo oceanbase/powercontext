@@ -724,14 +724,17 @@ def test_installed_bundle_uses_the_native_transport_override(dsh_profile, tmp_pa
         dsh_profile,
         "- id: powercontext-dsh\n  config:\n    baseUrl: http://memory.example\n    allowInsecureHttp: true\n",
     )
+    original = {path: path.read_bytes() for path in dsh_profile.rglob("*") if path.is_file()}
     assert read_dsh_settings()["baseUrl"] == "http://memory.example"
     assert resolve_host_transport("dsh") == ("http://memory.example", True)
 
+    assert {path: path.read_bytes() for path in dsh_profile.rglob("*") if path.is_file()} == original
 
-def test_unreadable_bundle_is_not_assumed_to_be_unrelated(dsh_profile):
+
+def test_unreadable_third_party_bundle_is_skipped_with_warning(dsh_profile, capsys):
     (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["missing-bundle"]}}}))
-    with pytest.raises(ValueError, match="Cannot read"):
-        read_dsh_settings(prospective=True)
+    assert read_dsh_settings(prospective=True) == {}
+    assert "skipped a bundle" in capsys.readouterr().err
 
 
 def test_remote_http_consent_and_environment_precedence(dsh_profile, monkeypatch):
@@ -960,7 +963,7 @@ def test_incompatible_third_party_bundle_is_excluded_from_first_and_repeated_set
         )
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["hosts"]["dsh"]["setup"] == "complete"
-        assert "incompatible third-party bundle" in result.stderr
+        assert "incompatible bundle" in result.stderr
         assert json.loads((tmp_path / "clients.json").read_text())["hosts"]["dsh"]["server_url"] == (
             "https://selected.example"
         )
@@ -982,11 +985,14 @@ def test_incompatible_powercontext_bundle_is_rejected(dsh_native_api_profile, tm
     assert not (tmp_path / "clients.json").exists()
 
 
-def test_version_exemption_keeps_third_party_transport_overrides(dsh_native_api_profile, tmp_path, monkeypatch):
+def test_version_exemption_keeps_third_party_transport_overrides(
+    dsh_native_api_profile, dsh_config_boot, tmp_path, monkeypatch
+):
     from powercontext.cli import dsh
 
     source = compatibility_profile(dsh_native_api_profile, tmp_path)
-    (dsh_native_api_profile / "compatibility.json").write_text(json.dumps({"custom-bundle@1.0.0": ["0.2.0-rc.2"]}))
+    version = json.loads((dsh_config_boot.parent.parent / "package.json").read_text())["version"]
+    (dsh_native_api_profile / "compatibility.json").write_text(json.dumps({"custom-bundle@1.0.0": [version]}))
     installer = Mock()
     monkeypatch.setattr(dsh, "_run_dsh", installer)
     result = CliRunner().invoke(
@@ -1081,3 +1087,134 @@ def test_uninitialized_profile_with_existing_patch_uses_native_templates(dsh_pro
     assert read_dsh_settings(prospective=True) == {}
     assert not manifest.exists()
     assert {path: path.read_bytes() for path in (tmp_path / "dsh").rglob("*") if path.is_file()} == original
+
+
+def test_retired_bundle_is_omitted_without_rewriting_profile(dsh_profile):
+    manifest = dsh_profile / "package.json"
+    manifest.write_text(
+        json.dumps({
+            "private": True,
+            "dsh": {
+                "profile": {
+                    "bundles": [
+                        "@deepseek-ai/dsh-experimental-schedule-bundle",
+                    ]
+                }
+            },
+        })
+    )
+    original = manifest.read_bytes()
+    assert read_dsh_settings(prospective=True) == {}
+    assert manifest.read_bytes() == original
+
+
+def test_unreadable_powercontext_bundle_is_not_treated_as_optional(dsh_profile):
+    (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["powercontext-dsh"]}}}))
+    with pytest.raises(ValueError, match="PowerContext cannot be loaded"):
+        read_dsh_settings(require_installed=True)
+
+
+def test_host_platform_skipped_bundle_does_not_create_transport_conflicts(dsh_native_api_profile, tmp_path):
+    profile = dsh_native_api_profile
+    compatibility_profile(profile, tmp_path, incompatible="none")
+    custom = profile / "node_modules/custom-bundle"
+    manifest = json.loads((custom / "package.json").read_text())
+    manifest["dsh"]["bundle"]["platforms"] = ["win32" if os.name != "nt" else "darwin"]
+    (custom / "package.json").write_text(json.dumps(manifest))
+    original = {path: path.read_bytes() for path in profile.rglob("*") if path.is_file()}
+    assert read_dsh_settings(require_installed=True) == {}
+    assert {path: path.read_bytes() for path in profile.rglob("*") if path.is_file()} == original
+
+
+@pytest.mark.parametrize("ancestor", [1, 2, 3], ids=["profiles", "home", "parent"])
+@pytest.mark.parametrize("package_name", ["custom-bundle", "@example/transport-bundle"])
+def test_ancestor_bundle_transport_matches_native_host(dsh_profile, tmp_path, ancestor, package_name):
+    from powercontext.cli.dsh import dsh_executable
+
+    profile = dsh_profile
+    compatibility_profile(profile, tmp_path, incompatible="none")
+    hoisted = profile.parents[ancestor - 1] / "node_modules" / package_name
+    hoisted.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(profile / "node_modules/custom-bundle"), hoisted)
+    package = hoisted / "package.json"
+    metadata = json.loads(package.read_text())
+    metadata["name"] = package_name
+    package.write_text(json.dumps(metadata))
+    manifest = profile / "package.json"
+    metadata = json.loads(manifest.read_text())
+    metadata["dsh"]["profile"]["bundles"] = ["powercontext-dsh", package_name]
+    metadata["dependencies"][package_name] = metadata["dependencies"].pop("custom-bundle")
+    manifest.write_text(json.dumps(metadata))
+
+    executable = dsh_executable()
+    command = [executable, "--profile", "web", "--dump-config"]
+    if Path(executable).suffix == ".js":
+        node = which("node")
+        assert node is not None
+        command.insert(0, node)
+    native = subprocess.run(command, capture_output=True, text=True, check=True, timeout=60)
+    assert "https://unexpected.example" in native.stdout
+    original = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+
+    settings = read_dsh_settings(require_installed=True)
+    assert settings["baseUrl"] == "https://unexpected.example"
+    with pytest.raises(ValueError, match="baseUrl conflicts"):
+        validate_dsh_setup_transport(settings, "https://selected.example", False)
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == original
+
+
+def test_invalid_scope_bundle_cannot_write_through_a_projection(dsh_profile, tmp_path):
+    profile = dsh_profile
+    compatibility_profile(profile, tmp_path, incompatible="none")
+    scope = profile.parent.parent / "node_modules/@example"
+    scope.parent.mkdir(parents=True)
+    shutil.move(str(profile / "node_modules/custom-bundle"), scope)
+    manifest = profile / "package.json"
+    manifest.write_text(json.dumps({"dsh": {"profile": {"bundles": ["@example", "@example/child"]}}}))
+    original = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    with pytest.raises(ValueError, match="bundle names must be package identifiers"):
+        read_dsh_settings(prospective=True)
+    assert not (scope / "child").exists()
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == original
+
+
+def test_hoisted_powercontext_loads_without_profile_local_modules(dsh_profile, tmp_path):
+    profile = dsh_profile
+    installed = profile.parent.parent / "node_modules/powercontext-dsh"
+    shutil.copytree(plugin_source(tmp_path), installed)
+    (profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["powercontext-dsh"]}}}))
+    write_patch(profile, "- id: powercontext-dsh\n  config:\n    baseUrl: https://hoisted.example\n")
+    original = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    assert read_dsh_settings(require_installed=True)["baseUrl"] == "https://hoisted.example"
+    assert not (profile / "node_modules").exists()
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == original
+
+
+@pytest.mark.parametrize("resolution", ["error", "relative-path", "missing-path", "file-path"])
+def test_unexpected_bundle_resolution_fails_closed(dsh_native_api_profile, dsh_config_boot, tmp_path, resolution):
+    import powercontext.cli.dsh as dsh
+
+    profile = dsh_native_api_profile
+    compatibility_profile(profile, tmp_path, incompatible="none")
+    boot = tmp_path / "carrier/node_modules/@deepseek-ai/dsh-app-boot"
+    wrapper = boot / "wrapper.mjs"
+    native = json.dumps(dsh_config_boot.as_uri())
+    failure = {
+        "error": 'throw new Error("private-upstream-detail")',
+        "relative-path": 'return "relative-bundle"',
+        "missing-path": f"return {json.dumps(str(tmp_path / 'missing-bundle'))}",
+        "file-path": f"return {json.dumps(str(wrapper))}",
+    }[resolution]
+    wrapper.write_text(
+        f"export * from {native};\n"
+        f"import {{ resolveBundleDir as resolveNative }} from {native};\n"
+        "export function resolveBundleDir(bin, name, anchor, profile) {\n"
+        f"  if (name === 'custom-bundle') {{ {failure}; }}\n"
+        "  return resolveNative(bin, name, anchor, profile);\n}\n"
+    )
+    (boot / "package.json").write_text(json.dumps({"type": "module", "main": str(wrapper)}))
+    original = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    with pytest.raises(ValueError, match="Installed DSH") as error:
+        read_dsh_settings(executable=dsh.dsh_executable(), require_installed=True)
+    assert "private-upstream-detail" not in str(error.value)
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == original

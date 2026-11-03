@@ -31,6 +31,8 @@ powercontext setup claude-code --server-url http://192.0.2.10:8000 --allow-insec
 拒绝或未提供同意时，在安装操作前退出。风险警告写入 stderr，不污染 stdout 的 JSON。
 安装成功后保存地址及同意状态，新会话无需重复手贴这两项配置；鉴权凭据仍需单独配置。
 
+PowerContext 的 DSH 集成支持经过验证的 Session v4 宿主 0.2.1-rc.5 和 0.2.2-alpha.2。缺少原生 `loadProfileDirectory` API 的旧宿主需要先升级；配置检查会在安装写入前给出升级提示。
+
 ## 配置与优先级
 
 配置文件为 `~/.config/powercontext/clients.json`，可用 `POWERCONTEXT_CLIENT_CONFIG_FILE` 指定其他位置。

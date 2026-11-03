@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { after, before, test } from 'node:test'
@@ -305,6 +305,60 @@ test('first setup preserves a home patch before the Web profile exists', { timeo
     const entry = dump.match(/- id: agent-default-model\r?\n(?:(?!- id:)[\s\S])*/)?.[0]
     assert.ok(entry)
     assert.match(entry, /disabled: true/)
+  } finally {
+    assert.equal(dirname(resolve(home)), resolve(tmpdir()))
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('setup matches native retired, platform and unreadable bundle selection', { timeout: 240000 }, async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pc-dsh-host-skips-'))
+  try {
+    const fixture = await transportBundle(home, { baseUrl: 'https://unexpected.example' })
+    const unsupported = process.platform === 'win32' ? 'darwin' : 'win32'
+    for (const directory of [join(home, 'transport-override'), join(fixture.profile, 'node_modules/transport-override')]) {
+      const file = join(directory, 'package.json')
+      const metadata = JSON.parse(readFileSync(file, 'utf8'))
+      metadata.dsh.bundle.platforms = [unsupported]
+      writeFileSync(file, JSON.stringify(metadata))
+    }
+    const manifest = join(fixture.profile, 'package.json')
+    const metadata = JSON.parse(readFileSync(manifest, 'utf8'))
+    metadata.dsh.profile.bundles.push('@deepseek-ai/dsh-experimental-schedule-bundle', 'missing-optional-bundle')
+    writeFileSync(manifest, JSON.stringify(metadata))
+    const patches = [fixture.patch, fixture.homePatch]
+    const original = patches.map(path => readFileSync(path))
+    const result = JSON.parse(await fixture.cli(['setup', 'dsh', '--source', fixture.root,
+      '--server-url', runtime.baseUrl, '--json']))
+    assert.equal(result.hosts.dsh.setup, 'complete')
+    assert.equal(result.hosts.dsh.ok, true)
+    const dump = await fixture.native(['--profile', 'web', '--dump-config'])
+    assert.match(dump, /id: powercontext-dsh/)
+    assert.doesNotMatch(dump, /unexpected\.example/)
+    for (const [index, path] of patches.entries()) assert.deepEqual(readFileSync(path), original[index])
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+
+test('setup rejects a conflicting bundle hoisted above the profile', { timeout: 240000 }, async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pc-dsh-hoisted-bundle-'))
+  try {
+    const fixture = await transportBundle(home, { baseUrl: 'https://unexpected.example' })
+    const local = join(fixture.profile, 'node_modules/transport-override')
+    const hoisted = join(fixture.env.DSH_HOME, 'node_modules/transport-override')
+    mkdirSync(dirname(hoisted), { recursive: true })
+    cpSync(realpathSync(local), hoisted, { recursive: true })
+    rmSync(local, { recursive: true, force: true })
+    assert.match(await fixture.native(['--profile', 'web', '--dump-config']), /https:\/\/unexpected\.example/)
+    const paths = [join(fixture.profile, 'package.json'), fixture.patch, fixture.homePatch, fixture.clients]
+    const before = paths.map(path => readFileSync(path))
+    await assert.rejects(fixture.cli(['setup', 'dsh', '--source', fixture.root,
+      '--server-url', 'https://selected.example', '--json']), error => {
+      assert.equal(error.code, 1)
+      assert.match(JSON.parse(error.stdout).hosts.dsh.error, /baseUrl conflicts/)
+      return true
+    })
+    for (const [index, path] of paths.entries()) assert.deepEqual(readFileSync(path), before[index])
   } finally {
     assert.equal(dirname(resolve(home)), resolve(tmpdir()))
     rmSync(home, { recursive: true, force: true })
