@@ -87,7 +87,29 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
   const manifest = existsSync(manifestPath)
     ? read(manifestPath, () => boot.readProfileManifest('powercontext', dir))
     : undefined
-  const template = boot.PROFILE_TEMPLATES?.[profile]
+  let template
+  if (!manifest) {
+    let templates = boot.PROFILE_TEMPLATES
+    if (!templates?.[profile]) {
+      try {
+        let catalogPath
+        for (const resolver of [require, createRequire(bootPath)]) {
+          try { catalogPath = resolver.resolve('@deepseek-ai/dsh-official-bundles'); break }
+          catch { /* The catalog belongs to either the CLI or its app-boot dependency. */ }
+        }
+        if (!catalogPath) fail('Installed DSH cannot provide its profile templates; upgrade or reinstall DSH', anchor)
+        templates = (await import(pathToFileURL(catalogPath).href)).PROFILE_TEMPLATES
+        if (!templates || typeof templates !== 'object' || Array.isArray(templates)) {
+          fail('Installed DSH has no supported profile template catalog; upgrade or reinstall DSH', catalogPath)
+        }
+      } catch (error) {
+        if (error instanceof InspectionError) throw error
+        fail('Installed DSH cannot provide its profile templates; upgrade or reinstall DSH', anchor)
+      }
+    }
+    template = templates?.[profile]
+    if (!template) fail("Installed DSH has no default template for this profile; upgrade or reinstall DSH", anchor)
+  }
   const bundles = manifest?.dsh?.profile?.bundles ?? (manifest ? [] : template?.bundles ?? template)
   if (!Array.isArray(bundles) || bundles.some(name => typeof name !== 'string')) {
     fail('Cannot determine the DSH profile bundle list', manifestPath)

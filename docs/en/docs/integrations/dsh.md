@@ -88,6 +88,8 @@ The model-facing PowerContext surface is registered through DSH's native `@deeps
 
 Recall queries exclude DSH runtime-context snapshots, including cleared-context markers, so host catalogs cannot displace the user request.
 
+First setup can inspect an existing home/profile patch before the target profile has been initialized. It reads the selected host’s default bundle templates without creating the profile during preflight.
+
 ## Start the Server and the host
 
 For automatic Source-to-Memory extraction, generate and validate a Server configuration:

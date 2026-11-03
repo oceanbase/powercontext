@@ -1067,3 +1067,17 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(dsh_profi
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--profile", "web", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["hosts"]["dsh"]["ok"] is True
+
+
+@pytest.mark.parametrize("relative", ["cordis.patch.yml", "profiles/web/cordis.patch.yml"])
+def test_uninitialized_profile_with_existing_patch_uses_native_templates(dsh_profile, tmp_path, relative):
+    manifest = dsh_profile / "package.json"
+    manifest.unlink()
+    patch = tmp_path / "dsh" / relative
+    patch.parent.mkdir(parents=True, exist_ok=True)
+    patch.write_text("[]\n")
+    original = {path: path.read_bytes() for path in (tmp_path / "dsh").rglob("*") if path.is_file()}
+
+    assert read_dsh_settings(prospective=True) == {}
+    assert not manifest.exists()
+    assert {path: path.read_bytes() for path in (tmp_path / "dsh").rglob("*") if path.is_file()} == original

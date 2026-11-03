@@ -85,6 +85,8 @@ Setup 不会启动 Server。安装完成后重启 DSH。
 
 召回查询会排除 DSH 的 runtime-context snapshot 及其清空标记，避免宿主目录内容挤掉用户问题。
 
+首次安装可在目标 profile 尚未初始化时检查已有的 home/profile patch。预检读取所选宿主的默认 bundle 模板，不会为检查而创建 profile。
+
 ## 启动 Server 和宿主
 
 需要自动将 Source 提取为 Memory 时，生成并校验 Server 配置：

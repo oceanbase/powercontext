@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { after, before, test } from 'node:test'
@@ -282,6 +282,29 @@ test('an inactive transport bundle stays excluded during setup', { timeout: 2400
     const metadata = JSON.parse(readFileSync(join(fixture.profile, 'package.json'), 'utf8'))
     assert.ok(!metadata.dsh.profile.bundles.includes('transport-override'))
     assert.doesNotMatch(await fixture.native(['--profile', 'web', '--dump-config']), /unexpected\.example/)
+  } finally {
+    assert.equal(dirname(resolve(home)), resolve(tmpdir()))
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('first setup preserves a home patch before the Web profile exists', { timeout: 240000 }, async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pc-dsh-first-setup-'))
+  try {
+    const fixture = setupFixture(home)
+    assert.equal(existsSync(join(fixture.profile, 'package.json')), false)
+    mkdirSync(dirname(fixture.homePatch), { recursive: true })
+    writeFileSync(fixture.homePatch, '- id: agent-default-model\n  name: "@deepseek-ai/dsh-agent-default-model"\n  disabled: true\n')
+    const patch = readFileSync(fixture.homePatch)
+    const result = JSON.parse(await fixture.cli(['setup', 'dsh', '--source', fixture.root,
+      '--server-url', runtime.baseUrl, '--json']))
+    assert.equal(result.hosts.dsh.setup, 'complete')
+    assert.equal(readFileSync(fixture.homePatch).compare(patch), 0)
+    const dump = await fixture.native(['--profile', 'web', '--dump-config'])
+    assert.match(dump, /id: powercontext-dsh/)
+    const entry = dump.match(/- id: agent-default-model\r?\n(?:(?!- id:)[\s\S])*/)?.[0]
+    assert.ok(entry)
+    assert.match(entry, /disabled: true/)
   } finally {
     assert.equal(dirname(resolve(home)), resolve(tmpdir()))
     rmSync(home, { recursive: true, force: true })
