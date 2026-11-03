@@ -79,6 +79,9 @@ powercontext observability check --exercise
 第一条命令读取已有配置中的地址、端口和 Bearer token，不修改该文件，也不启动第二个业务 Server。
 第二条命令替代原来的 Server 启动命令；先正常停止旧进程，再使用相同配置、相同数据库启动。
 CLI 不会自动停止业务进程。`--observability` 只加载遥测配置；显式遥测配置冲突时会报错，且不打印凭证。
+环境文件和进程环境中的 `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_{ENDPOINT,HEADERS,TIMEOUT}` 专用配置，
+以及 `OTEL_SDK_DISABLED`，都会被拒绝。使用 `--observability` 前应移除这些设置；如需保留，
+请手动配置遥测并省略该标志。
 如果没有环境文件，使用 `observability up` 和 `server run --observability`。
 非默认地址可通过首次 `up --server-url http://127.0.0.1:8000` 指定。
 

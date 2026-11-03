@@ -65,13 +65,16 @@ def profile_environment(existing: Mapping[str, str]) -> dict[str, str]:
             raise ObservabilityError(  # noqa: TRY003
                 f"Explicit {key} conflicts with the observability profile; remove the conflict or configure telemetry manually"
             )
-    explicit_trace_overrides = {
+    explicit_signal_overrides = {
         "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
         "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
         "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+        "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
         "OTEL_SDK_DISABLED",
     }
-    if explicit_trace_overrides & (file_values.keys() | process_values.keys()):
+    if explicit_signal_overrides & (file_values.keys() | process_values.keys()):
         raise ObservabilityError(  # noqa: TRY003
             "Signal-specific OTLP settings or OTEL_SDK_DISABLED conflict with managed observability; configure telemetry manually"
         )

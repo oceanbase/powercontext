@@ -82,6 +82,9 @@ Stop the old foreground process normally before running the second command. Reus
 The CLI reads the file's bind/token settings but does not change it, restart the business process, or create a demo Server.
 Without an environment file, use `observability up` and `server run --observability`. Use `--server-url` on first up for
 another existing Server origin. Explicit conflicting telemetry settings are rejected without printing values.
+Signal-specific `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_{ENDPOINT,HEADERS,TIMEOUT}` settings and `OTEL_SDK_DISABLED`
+are rejected in both environment files and the process environment. Remove these settings before using
+`--observability`, or configure telemetry manually without that flag.
 
 `--backend docker-compose` is the default. Only this backend is implemented; `local` and `kubernetes` are rejected.
 The backend selects how monitoring runs, independently of how the business Server runs.

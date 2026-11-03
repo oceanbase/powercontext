@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -429,6 +430,32 @@ def test_signal_specific_destination_cannot_silently_bypass_profile(deployment, 
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://old-destination.invalid/v1/traces")
     with pytest.raises(ServerConfigurationError, match="Signal-specific"), server_settings_context(observability=True):
         pass
+
+
+@pytest.mark.usefixtures("otlp_exporter")
+@pytest.mark.parametrize("source", ["file", "process"])
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://old-destination.invalid/v1/logs"),
+        ("OTEL_EXPORTER_OTLP_LOGS_HEADERS", "Authorization=Bearer%20private-log-export-token"),
+        ("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT", "0.25"),
+    ],
+)
+def test_log_exporter_overrides_cannot_silently_bypass_profile(deployment, monkeypatch, tmp_path, source, name, value):
+    for key in tuple(os.environ):
+        if key.startswith("OTEL_"):
+            monkeypatch.delenv(key)
+    config = tmp_path / "existing.env"
+    config.write_text(f"{name}={value}\n" if source == "file" else "")
+    if source == "process":
+        monkeypatch.setenv(name, value)
+    with (
+        pytest.raises(ServerConfigurationError, match="Signal-specific") as caught,
+        server_settings_context(env_file=config, observability=True, process_environment_overrides=True),
+    ):
+        pass
+    assert value not in str(caught.value)
 
 
 @pytest.mark.usefixtures("otlp_exporter")
