@@ -160,14 +160,28 @@ def released_argument_values(value: object, fields: Iterable[EncryptedField]) ->
     lets that later request prove the value came from a released response. Other argument values are not recorded.
     """
 
+    return _argument_values(value.get("output") if isinstance(value, dict) else None, fields)
+
+
+def replayed_argument_values(value: object, fields: Iterable[EncryptedField]) -> tuple[str, ...]:
+    """String values a request's replayed function calls carry in declared encrypted argument fields.
+
+    The conversation history replays released calls verbatim, so their encrypted values stay in ordinary
+    arguments while the client keeps talking. A value here holds its proof only through the receipts the request
+    presents; consolidation re-covers the proven ones and leaves unproven ones unreceipted.
+    """
+
+    return _argument_values(value.get("input") if isinstance(value, dict) else None, fields)
+
+
+def _argument_values(items: object, fields: Iterable[EncryptedField]) -> tuple[str, ...]:
     declared: dict[tuple[str, str], set[str]] = {}
     for namespace, name, field in fields:
         declared.setdefault((namespace, name), set()).add(field)
-    output = value.get("output") if isinstance(value, dict) else None
-    if not declared or not isinstance(output, list):
+    if not declared or not isinstance(items, list):
         return ()
     found: list[str] = []
-    for item in output:
+    for item in items:
         if not isinstance(item, dict) or item.get("type") != "function_call":
             continue
         namespace, name, raw = item.get("namespace"), item.get("name"), item.get("arguments")

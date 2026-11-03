@@ -315,6 +315,36 @@ async def test_a_subagent_keeps_its_task_after_the_parents_receipt_is_no_longer_
 
 
 @pytest.mark.anyio
+async def test_parent_continuation_keeps_a_pending_handovers_task_proof():
+    # The parent keeps talking after spawning a child, so its next send consolidates and replaces the release
+    # receipt that is the child's only proof of the task. The consolidated receipt must still cover it.
+    codec, config = BindingCodec(), _responses_config()
+    receipt = await _parent_receipt(codec, config)
+    continuation = await _check(
+        _send(
+            [TOOLS, _user("start a helper"), _reasoning(REASONING), SPAWN, _user("keep going")],
+            conversation_id=PARENT,
+            encrypted_receipts=(receipt,),
+        ),
+        codec,
+        config=config,
+    )
+    assert continuation.decision == "allow"
+    task = {"type": "agent_message", "content": [{"type": "encrypted_content", "encrypted_content": TASK}]}
+    child = await _check(
+        _send(
+            [task],
+            conversation_id=CHILD,
+            parent_conversation_id=PARENT,
+            encrypted_receipts=(continuation.receipt,),
+        ),
+        codec,
+        config=config,
+    )
+    assert child.decision == "allow"
+
+
+@pytest.mark.anyio
 async def test_ordinary_tool_arguments_do_not_displace_encrypted_values():
     codec, config = BindingCodec(), _responses_config()
     many = {

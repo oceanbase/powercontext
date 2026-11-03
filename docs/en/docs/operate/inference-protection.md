@@ -85,10 +85,12 @@ so responses carry encrypted reasoning that later requests replay, and a subagen
   content part whose only fields are `type: "encrypted_content"` and `encrypted_content`. The receipt must have been
   issued to the request's conversation, or to its `parent_conversation_id`. Otherwise the request is withheld with
   `encrypted-origin-unverified`.
-- An allowed `before_send` with a conversation also returns one `receipt` that covers exactly the encrypted values the
-  request carried, with a new one-hour validity. It replaces the receipts of that conversation the request presented,
-  so a long conversation presents a constant number of receipts, and a value stays admissible for one hour after its
-  last verified use.
+- An allowed `before_send` with a conversation also returns one `receipt`, with a new one-hour validity. It covers the
+  encrypted values the request carried, plus the values its replayed function calls carry in declared encrypted
+  argument fields when the presented receipts prove them, so a parent that keeps talking does not strand the proof a
+  pending subagent handover still needs. It replaces the receipts of that conversation the request presented, so a
+  long conversation presents a constant number of receipts, and a value stays admissible for one hour after its last
+  verified use.
 - One receipt holds at most 1,024 values. A check whose values do not fit is withheld with
   `encrypted-receipt-capacity-exceeded` rather than leaving a later request without proof.
 - Encrypted values at any other position, and an `agent_message` part with any other field, stay

@@ -37,6 +37,7 @@ from powercontext.builtin.inference.encrypted_items import (
     declared_encrypted_fields,
     pack_digests,
     released_argument_values,
+    replayed_argument_values,
     unpack_digests,
     value_digest,
 )
@@ -516,13 +517,21 @@ def _encrypted_admission(
         if declared is None:
             return _RECEIPT_CAPACITY, None, ()
         digests = {value_digest(value) for value in encrypted}
-        if not digests <= _receipted_digests(
+        receipted = _receipted_digests(
             request, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
-        ):
+        )
+        if not digests <= receipted:
             return "encrypted-origin-unverified", None, ()
-        # One receipt covering exactly the values verified here replaces the receipts the executor presented.
+        # The history still replays encrypted argument values whose proof a pending handover needs, so the
+        # replacement receipt re-covers every replayed value it can prove, not just the admitted items here.
+        replayed = {value_digest(value) for value in replayed_argument_values(parsed, declared)}
         withheld, receipt = _issue_receipt(
-            request, digests, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
+            request,
+            digests | (replayed & receipted),
+            codec=codec,
+            scope_id=scope_id,
+            binding_identity=binding_identity,
+            now=now,
         )
         return withheld, receipt, declared
     released = (*encrypted, *released_argument_values(parsed, released_fields))

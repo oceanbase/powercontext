@@ -74,9 +74,10 @@ Codex 等客户端发送 `store: false` 并请求 `include: ["reasoning.encrypte
   `reasoning` 条目的 `encrypted_content`，以及只含 `type: "encrypted_content"` 和 `encrypted_content` 两个字段的
   `agent_message` 内容部分。回执必须签发给本请求的会话或其 `parent_conversation_id`；否则请求以
   `encrypted-origin-unverified` 被扣留。
-- 带会话的 `before_send` 放行时，Core 还会返回一个 `receipt`，恰好覆盖该请求携带的加密值，重新计算一小时有效期。它
-  替换该请求提交的、属于本会话的回执，因此长会话每次提交的回执数保持不变；一个值在最后一次通过验证后的一小时内
-  仍可放行。
+- 带会话的 `before_send` 放行时，Core 还会返回一个 `receipt`，重新计算一小时有效期。它覆盖该请求携带的加密值，以及
+  历史重放的函数调用中、位于声明为加密的参数字段且已由提交回执证明的值，因此父会话继续对话也不会丢失尚未交接的
+  子代理任务所需的证明。它替换该请求提交的、属于本会话的回执，因此长会话每次提交的回执数保持不变；一个值在最后
+  一次通过验证后的一小时内仍可放行。
 - 一个回执最多容纳 1024 个值。放不下的检查以 `encrypted-receipt-capacity-exceeded` 被扣留，而不是让之后的请求失去
   证明。
 - 其他位置的加密值，以及含有其他字段的 `agent_message` 部分，仍按 `content_unsupported` 处理。

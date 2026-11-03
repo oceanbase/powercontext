@@ -1657,7 +1657,7 @@ class ContextCheckResult(BaseModel):
     receipt: Annotated[
         StrictStr | None,
         Field(
-            description="For a target that admits encrypted items and a request that names a conversation. On a before_send allow it covers exactly the encrypted values the request carried and the check verified, and replaces the receipts of that conversation that the request presented. On a before_release allow it covers the response's encrypted values and the values of its function-call arguments that the checked request declared encrypted. Each receipt is valid for one hour. A check whose values do not fit one receipt is withheld with encrypted-receipt-capacity-exceeded.",
+            description="For a target that admits encrypted items and a request that names a conversation. On a before_send allow it covers the encrypted values the request carried, plus the values its replayed function calls carry in declared encrypted argument fields that the presented receipts prove, and replaces the receipts of that conversation that the request presented. On a before_release allow it covers the response's encrypted values and the values of its function-call arguments that the checked request declared encrypted. Each receipt is valid for one hour. A check whose values do not fit one receipt is withheld with encrypted-receipt-capacity-exceeded.",
             max_length=65536,
             min_length=1,
         ),
