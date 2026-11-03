@@ -471,7 +471,10 @@ jobs:
   code-seekdb:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    timeout-minutes: 30
+    # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
+    # before migrations (25m). Preserve each step's deadline and leave time
+    # for environment setup and diagnostic uploads.
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
