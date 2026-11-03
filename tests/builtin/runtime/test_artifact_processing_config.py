@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -26,6 +27,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.atomic_memory_processing import AtomicMemoryProcessingConfig
 from powercontext.builtin.runtime.composition import _topic_memory_processing_available
 from powercontext.builtin.runtime.processing_registry import dream_operations
 from powercontext.cli.app import create_cli
@@ -41,6 +43,7 @@ def test_artifact_processing_configuration_defaults_match_the_rfc() -> None:
 
     assert runtime.topic_memory_schedule_seconds is None
     assert runtime.topic_memory_source_window_limit == 10
+    assert runtime.atomic_memory_related_max_candidates == 100
     assert runtime.topic_memory_history_max_candidates == 20
     assert runtime.topic_memory_history_rrf_threshold == 70
     assert runtime.topic_memory_history_min_candidates == 5
@@ -62,6 +65,10 @@ def test_artifact_processing_configuration_rejects_invalid_bounds() -> None:
         RuntimeConfig(artifact_processing_worker_timeout_seconds=0)
     with pytest.raises(ValidationError):
         RuntimeConfig(topic_memory_history_max_candidates=21)
+    assert RuntimeConfig(atomic_memory_related_max_candidates=60).atomic_memory_related_max_candidates == 60
+    for invalid in (0, 1001, True):
+        with pytest.raises(ValidationError):
+            RuntimeConfig(atomic_memory_related_max_candidates=invalid)
     with pytest.raises(ValidationError, match="max_tokens"):
         InferenceConfig(generation_model="test", generation_model_settings={"max_tokens": True})
     with pytest.raises(ValidationError, match="output_budget_exceeded"):
@@ -74,6 +81,16 @@ def test_artifact_processing_configuration_rejects_invalid_bounds() -> None:
             generation_model="test",
             generation_model_context_window_tokens=1_000,
         )
+
+
+def test_atomic_memory_processing_config_validates_the_candidate_limit() -> None:
+    assert AtomicMemoryProcessingConfig(related_max_candidates=60).related_max_candidates == 60
+    assert AtomicMemoryProcessingConfig(related_max_candidates=1000).related_max_candidates == 1000
+    assert AtomicMemoryProcessingConfig().related_max_candidates == 100
+    assert AtomicMemoryProcessingConfig.from_runtime(RuntimeConfig()).related_max_candidates == 100
+    for invalid in (0, -1, 1001, True, 3.0, "3"):
+        with pytest.raises(ValueError):
+            AtomicMemoryProcessingConfig(**cast(Any, {"related_max_candidates": invalid}))
 
 
 @pytest.mark.parametrize(

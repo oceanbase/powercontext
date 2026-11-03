@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -150,6 +152,20 @@ class _SymmetricEmbedding:
 
     async def embed(self, texts, /):
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+class _NumberedEmbedding:
+    """Order fixture memories by the number each text carries."""
+
+    profile = PROFILE
+
+    async def embed(self, texts, /):
+        vectors = []
+        for text in texts:
+            number = int(re.findall(r"\d+", text)[-1])
+            angle = number * 0.01
+            vectors.append((math.cos(angle), math.sin(angle), 0.0))
+        return EmbeddingResult(vectors=tuple(vectors))
 
 
 class _ConfiguredArtifactProvider:
@@ -680,6 +696,53 @@ def test_related_fts_fallback_does_not_hide_document_embedding_failure(tmp_path,
             if operation == "revise":
                 assert recovered.artifact.artifact_id == before[0].artifact.artifact_id
                 assert recovered.artifact.revision == before[0].artifact.revision + 1
+
+    asyncio.run(scenario())
+
+
+def test_source_flush_applies_the_related_candidate_limit_from_runtime_configuration(tmp_path):
+    async def related_texts(database, cap):
+        reconciler = _RecordingCreateReconciler()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
+            runtime=RuntimeConfig(
+                atomic_memory_related_mode="vector",
+                atomic_memory_related_max_distance=1.0,
+                atomic_memory_related_max_candidates=cap,
+            ),
+        )
+        async with open_builtin_contexts(
+            config, embedding_model=_NumberedEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            execution, _ = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            await contexts.records.create_atomic_memories(
+                "project",
+                tuple(
+                    {
+                        "kind": "fact",
+                        "text": f"rollout strategy {number}",
+                        "description": "Fixture memory summary",
+                    }
+                    for number in range(1, 5)
+                ),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=100)
+            reconciler.inputs.clear()
+            await contexts.records.create_source("project", "content", "rollout strategy 0")
+            await context.triggers.flush(limit=1, atomic_context=execution)
+            assert reconciler.inputs
+            return tuple(item.text for item in reconciler.inputs[-1].related)
+
+    async def scenario():
+        complete = await related_texts(tmp_path / "complete.db", None)
+        capped = await related_texts(tmp_path / "capped.db", 2)
+        assert len(complete) == 4
+        assert capped == complete[:2]
 
     asyncio.run(scenario())
 
