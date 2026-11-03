@@ -320,6 +320,45 @@ def test_builtin_model_rerank_captures_effective_settings_and_bound_prompt(tmp_p
     assert receipt["retrieval"]["reranks"][0]["config_id"] == config["config_digest"]
 
 
+def test_inherited_rerank_receipt_omits_sampling_the_anthropic_adapter_drops(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "pydantic_ai.models.infer_model",
+        lambda model, **_kwargs: (
+            model
+            if isinstance(model, Model)
+            else TestModel(
+                custom_output_text='{"selected_ranks":[1]}',
+                settings={"temperature": 0.4},
+                profile={"anthropic_disallows_sampling_settings": True},
+            )
+        ),
+    )
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'model.db'}"),
+            runtime=RuntimeConfig(memory_rerank_enabled=True),
+            inference=InferenceConfig(generation_model="test"),
+            mcp=McpConfig(enabled=False),
+        ),
+    )
+    with TestClient(app) as client:
+        scope_id = client.get("/v1/scopes/default").json()["scope_id"]
+        remembered = client.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope_id, "kind": "fact", "text": "Budget review is on Thursday."},
+        )
+        assert remembered.status_code == 200
+        response = client.post(
+            "/v1/context/prepare", json={"scope_id": scope_id, "query": "budget review", "include_receipt": True}
+        )
+    assert response.status_code == 200, response.text
+    receipt = response.json().get("receipt")
+    assert receipt is not None
+    (config,) = receipt["retrieval"]["rerank_configs"]
+    assert config["model"] is not None
+    assert "temperature" not in config["effective_settings"]
+
+
 def test_empty_rerank_fallback_accounts_for_candidates_dropped_before_assembly(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
