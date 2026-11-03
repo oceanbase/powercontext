@@ -275,9 +275,15 @@ def _parse_jsonl(raw: str) -> tuple[dict[str, Any], ...]:
     return tuple(events)
 
 
-# Commands that reach the network: download tools, Git remote operations, or any explicit URL.
+# Commands that reach the network: download tools, Git remote operations, or any explicit URL. Git global options
+# (`-C <dir>`, `-c <key=value>`, `--git-dir=...` and similar) may precede the subcommand.
+_GIT_GLOBAL_OPTION = (
+    r"(?:-[Cc]\s+\S+|--(?:git-dir|work-tree|namespace|exec-path|config-env)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)"
+)
 _NETWORK_COMMAND = re.compile(
-    r"\b(?:curl|wget|aria2c)\b|\bgit\s+(?:clone|fetch|pull|ls-remote)\b|\bhttps?://",
+    r"\b(?:curl|wget|aria2c)\b"
+    rf"|\bgit(?:\s+{_GIT_GLOBAL_OPTION})*\s+(?:clone|fetch|pull|ls-remote|remote\s+update|submodule\s+update)\b"
+    r"|\bhttps?://",
     re.IGNORECASE,
 )
 

@@ -203,6 +203,25 @@ def _completed(item: dict[str, object]) -> str:
             ],
             ("network_command",),
         ),
+        *(
+            ([{"type": "command_execution", "command": f"/bin/bash -lc '{command}'"}], ("network_command",))
+            for command in (
+                "git -C /workspace fetch origin",
+                "git -c protocol.version=2 fetch origin",
+                "git --git-dir=/workspace/.git ls-remote origin",
+                "git -C /workspace -c http.extraHeader=x pull --ff-only",
+                "git remote update",
+            )
+        ),
+        (
+            [
+                {
+                    "type": "command_execution",
+                    "command": "/bin/bash -lc 'git -C /workspace log --oneline -5 && git status'",
+                }
+            ],
+            (),
+        ),
         (
             [
                 {"type": "command_execution", "command": "/bin/bash -lc \"rg -n 'host_label' lib && git log -5\""},
