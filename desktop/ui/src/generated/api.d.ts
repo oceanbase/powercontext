@@ -723,6 +723,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/context/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a final model request or complete raw response
+         * @description Read-only privacy and current context-reuse admission. This operation does not retrieve, rewrite, call a model, or grant model execution authority. Only allow with complete coverage permits the corresponding phase. The execution adapter must send or release exactly the approved bytes before their deadline.
+         */
+        post: operations["check_context"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/context/bootstrap": {
         parameters: {
             query?: never;
@@ -3479,6 +3499,7 @@ export interface components {
             handoff_generation: boolean;
             search_modes: components["schemas"]["MemorySearchMode"][];
             context_versions: components["schemas"]["PreparedContextSchema"][];
+            context_protection?: components["schemas"]["ContextProtectionCapabilities"];
         };
         ExtractionStatus: {
             /**
@@ -4023,12 +4044,232 @@ export interface components {
         /** @enum {string} */
         HandoffPromptKey: "handoff.generate";
         PreparedContext: {
-            schema: components["schemas"]["PreparedContextSchema"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            schema: "powercontext.prepared-context.v1";
             status: components["schemas"]["PreparedContextStatus"];
             content: string | null;
             content_bytes: number;
-            /** @description Why this preparation lost a retrieval channel it would otherwise have used. Absent unless the request asked with `explain` and a channel was lost, so a response a Host injects keeps its four fields. The values are the two inference failures among RFC 1435's four `SearchGroup.fallback_reason` spellings, so a later Receipt reuses them instead of restating the cause. `none` travels as absence, and `reused_fts_fallback` is not a cause here: a later round reusing a failed round's keyword-only outcome is still explained by that round's `inference_*` value, which outranks it. */
-            reason?: components["schemas"]["PreparedContextReason"] | null;
+            /** @description Present only when requested and successfully assembled. */
+            receipt?: components["schemas"]["PreparedContextReceipt"];
+        };
+        PreparedContextReceipt: {
+            /** @enum {string} */
+            schema: "powercontext.prepared-context-receipt.v1";
+            /** Format: uuid */
+            receipt_id: string;
+            /** @enum {string} */
+            policy_id: "powercontext.prepared-context-receipt.v1";
+            query_digest: string;
+            content_digest: string | null;
+            requested_max_bytes: number;
+            used_bytes: number;
+            truncated: boolean;
+            non_deterministic: boolean;
+            retrieval: components["schemas"]["PreparedContextRetrieval"];
+            selected: components["schemas"]["PreparedContextSelectedItem"][];
+            omitted: components["schemas"]["PreparedContextOmittedGroup"][];
+            stages: components["schemas"]["PreparedContextStageTiming"][];
+        };
+        PreparedContextRetrieval: {
+            rounds: components["schemas"]["PreparedContextRecallRound"][];
+            searches: components["schemas"]["PreparedContextSearchGroup"][];
+            rerank_configs: components["schemas"]["PreparedContextRerankConfig"][];
+            reranks: components["schemas"]["PreparedContextRerankGroup"][];
+        };
+        PreparedContextRecallRound: {
+            round: number;
+            /** @enum {string} */
+            outcome: "completed" | "expansion_failed";
+            retained: boolean;
+        };
+        PreparedContextSearchGroup: {
+            round: number;
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            mode: "fts" | "vector" | "hybrid" | "snapshot" | "code" | "none";
+            /** @enum {string} */
+            outcome: "completed" | "not_run" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "inference_unavailable" | "inference_timeout" | "reused_fts_fallback";
+            count: number;
+        };
+        PreparedContextRerankConfig: {
+            config_id: string;
+            policy_id: string;
+            model: string | null;
+            effective_settings: {
+                [key: string]: string | number | boolean;
+            };
+            timeout_seconds: number;
+            max_requests: number;
+            config_digest: string;
+            prompt: components["schemas"]["PreparedContextPromptIdentity"];
+            non_deterministic: boolean;
+        };
+        PreparedContextPromptIdentity: {
+            scope_id: string;
+            key: string;
+            definition_version: string;
+            builtin_version: string;
+            /** @enum {string} */
+            selection: "built_in" | "artifact";
+            selected_version: string;
+            compiled_digest: string;
+            artifact_address: components["schemas"]["PreparedContextPromptArtifactAddress"];
+        } | null;
+        PreparedContextPromptArtifactAddress: {
+            scope_id: string;
+            artifact: components["schemas"]["ArtifactReference"];
+        } | null;
+        PreparedContextRerankGroup: {
+            round: number;
+            config_id: string;
+            /** @enum {string} */
+            outcome: "selected" | "fallback" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "empty_selection" | "inference_unavailable" | "inference_timeout" | "invalid_output";
+            count: number;
+        };
+        /** @enum {string} */
+        PreparedContextFamily: "atomic-memory" | "topic-memory" | "experience" | "profile" | "code";
+        PreparedContextCodeEvidence: {
+            scope_id: string;
+            fingerprint: string;
+            path: string;
+            file_sha256: string;
+            start_line: number;
+            end_line: number;
+            snippet_sha256: string;
+        };
+        PreparedContextSelectedItem: {
+            kind: components["schemas"]["PreparedContextFamily"];
+            artifact_address?: components["schemas"]["ArtifactAddress"];
+            code_evidence?: components["schemas"]["PreparedContextCodeEvidence"];
+            rendered_bytes: number;
+            truncated: boolean;
+        };
+        PreparedContextOmittedGroup: {
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            reason: "duplicate" | "blank" | "family_limit" | "entry_limit" | "below_min_bytes" | "no_fitting_truncation" | "rerank_not_selected" | "not_retrieved";
+            count: number;
+        };
+        PreparedContextStageTiming: {
+            stage: string;
+            duration_ms: number;
+            count: number;
+        };
+        PrepareContextResult: components["schemas"]["PreparedContext"] | components["schemas"]["PreparedContextWithReuse"];
+        PreparedContextWithReuse: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            schema: "powercontext.prepared-context-with-reuse.v1";
+            context: components["schemas"]["PreparedContext"];
+            reuse: components["schemas"]["ContextReuse"];
+        };
+        ContextReuse: {
+            /** @enum {string} */
+            schema: "powercontext.context-reuse.v1";
+            constraints: components["schemas"]["ContextReuseConstraints"];
+            /** Format: date-time */
+            expires_at: string;
+            binding: string;
+        };
+        ContextReuseConstraints: {
+            preserve: ("content" | "citations" | "trust" | "order")[];
+            refresh_on: ("permission_change" | "source_ineligible" | "context_boundary")[];
+        };
+        ModelJsonPayload: {
+            /** @enum {string} */
+            schema: "powercontext.model-json-payload.v1";
+            /** @description Content and protocol headers only; credentials and transport override headers are forbidden. */
+            headers: {
+                [key: string]: string;
+            };
+            /** @description Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported. */
+            body: string;
+        };
+        ModelJsonTextLocation: {
+            /** @enum {string} */
+            schema: "powercontext.model-json-text-location.v1";
+            pointer: string;
+            start_byte: number;
+            end_byte: number;
+        };
+        PreparedContextLocation: {
+            binding: string;
+            location: components["schemas"]["ModelJsonTextLocation"];
+        };
+        CheckContextBeforeSend: {
+            scope_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            phase: "before_send";
+            target_profile: string;
+            payload: components["schemas"]["ModelJsonPayload"];
+            prepared_contexts: components["schemas"]["PreparedContextLocation"][];
+        };
+        CheckContextBeforeRelease: {
+            scope_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            phase: "before_release";
+            target_profile: string;
+            request_binding: string;
+            payload: components["schemas"]["ModelJsonPayload"];
+            /** @enum {string} */
+            completion: "complete";
+        };
+        CheckContextRequest: components["schemas"]["CheckContextBeforeSend"] | components["schemas"]["CheckContextBeforeRelease"];
+        ContextCheckCoverage: {
+            /** @enum {string} */
+            profile: "text-and-tools.v1";
+            complete: boolean;
+        };
+        ContextCheckResult: {
+            /** @enum {string} */
+            schema: "powercontext.context-check.v1";
+            /** @enum {string} */
+            phase: "before_send" | "before_release";
+            /** @enum {string} */
+            decision: "allow" | "block" | "withhold";
+            reason_codes: string[];
+            coverage: components["schemas"]["ContextCheckCoverage"];
+            policy_version: string;
+            /** Format: date-time */
+            valid_until: string;
+            /**
+             * Format: date-time
+             * @description Present only for a before_send allow; this deadline never permits a new send.
+             */
+            correlate_until?: string;
+            /** @description Present only for allow, bound to this phase, identity, target, policy, and exact payload. */
+            binding?: string;
+        };
+        ContextProtectionCapabilities: {
+            check_versions: string[];
+            payload_versions: string[];
+            reuse_versions: string[];
+            reuse_families: string[];
+            enforcing: boolean;
+            limits: components["schemas"]["ContextProtectionCapabilitiesLimits"];
+        };
+        ContextProtectionCapabilitiesLimits: {
+            payload_bytes: number;
+            binding_bytes: number;
+            prepared_contexts: number;
+            dependencies: number;
+            send_seconds: number;
+            correlate_seconds: number;
         };
         BootstrapContextItem: {
             kind: components["schemas"]["BootstrapContextItemKind"];
@@ -4782,10 +5023,15 @@ export interface components {
              */
             include_code: boolean;
             /**
-             * @description Opt into reporting which retrieval channel this preparation lost, as `reason` on the response. Off by default, because a response a Host injects keeps its four fields.
+             * @description Return a versioned context and reuse envelope. Supported for single-Scope Atomic Memory with complete bounded dependencies; unsupported selected families, code, or references are rejected explicitly.
              * @default false
              */
-            explain: boolean;
+            include_reuse: boolean;
+            /**
+             * @description Opt into a bounded, content-free PreparedContext Receipt.
+             * @default false
+             */
+            include_receipt: boolean | null;
             assembly?: components["schemas"]["ContextAssembly"];
             /** @description Optional exact receipt for the last successfully injected bootstrap package. Only fully delivered Atomic Memory revisions from an injected same-Scope receipt are removed before candidate limiting and sufficiency assessment; Artifacts whose bootstrap bodies were truncated remain eligible. */
             bootstrap_receipt_id?: string;
@@ -5413,8 +5659,6 @@ export interface components {
         BootstrapContextItemKind: "atomic-memory" | "handoff";
         /** @enum {string} */
         BootstrapReceiptState: "pending" | "injected" | "skipped" | "failed";
-        /** @enum {string} */
-        PreparedContextReason: "inference_timeout" | "inference_unavailable";
         /** @enum {string} */
         BootstrapSkipReason: "disabled" | "no_eligible_context" | "already_delivered" | "preparation_failed";
         /** @enum {string} */
@@ -7318,11 +7562,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PreparedContext"];
+                    "application/json": components["schemas"]["PrepareContextResult"];
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    check_context: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckContextRequest"];
+            };
+        };
+        responses: {
+            /** @description A phase-specific allow, block, or withhold decision; HTTP success alone is not approval. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextCheckResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The complete payload exceeds the configured admission limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

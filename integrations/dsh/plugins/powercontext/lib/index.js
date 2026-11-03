@@ -632,6 +632,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	check_context: {
+		method: "POST",
+		path: "/v1/context/check",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	prepare_bootstrap_context: {
 		method: "POST",
 		path: "/v1/context/bootstrap",
@@ -4041,7 +4052,7 @@ function isRuntimeContextSnapshot(message) {
 	const source = message.source;
 	if (!source || typeof source !== "object") return false;
 	const value = source;
-	return value.kind === "plugin" && value.plugin === "@deepseek-ai/dsh-system-prompt" && value.form === "snapshot";
+	return value.kind === "runtime-context" || value.kind === "plugin" && value.plugin === "@deepseek-ai/dsh-system-prompt" && value.form === "snapshot";
 }
 function messagesToQuery(messages) {
 	return messagesToText(messages.filter((message) => !isRuntimeContextSnapshot(message)));

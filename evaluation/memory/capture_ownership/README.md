@@ -164,6 +164,8 @@ unsupported/false attribution, semantic duplicates, required fact/literal retent
 and generation latency. Pending labels remain unknown. Mixed support is not automatically clean. Input occupancy and
 cost/latency improvements cannot pass the quality gate.
 
+The v1 `provider_usage` artifact contains only `requests`, `input_tokens`, and `output_tokens`; additional inference
+diagnostics such as cache, reasoning, model, and input-encoding metadata are outside this evaluation contract.
 Usage aggregation includes completed and generation-failed rows. `provider_input_tokens` and `provider_output_tokens`
 are complete totals only when both token counts are known for every attempted extraction; otherwise they are null.
 `known_provider_input_tokens` and `known_provider_output_tokens` retain the available subtotals (null when none are

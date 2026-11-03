@@ -25,6 +25,7 @@ from datetime import timedelta
 from functools import partial
 from ipaddress import ip_address
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlsplit
 
@@ -95,6 +96,8 @@ from powercontext.builtin.evidence.resolver import AuthorizationContext
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
+from powercontext.builtin.inference.input_encoding import INPUT_ENCODING_SCHEMA_V2
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy
 from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
@@ -161,6 +164,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
+from powercontext.builtin.runtime.atomic_memory_input import render_atomic_memory_input
 from powercontext.builtin.runtime.atomic_memory_processing import AtomicMemoryProcessingConfig
 from powercontext.builtin.runtime.atomic_memory_search import AtomicArtifactSearcher
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
@@ -182,6 +186,7 @@ from powercontext.builtin.runtime.decision_projection import (
 from powercontext.builtin.runtime.experience_search import ExperienceArtifactSearcher
 from powercontext.builtin.runtime.extraction_diagnostics import ExtractionDiagnostics
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
+from powercontext.builtin.runtime.input_preparation import render_input
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import DreamOperationCapability, MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.processing_contracts import (
@@ -204,6 +209,7 @@ from powercontext.builtin.runtime.readiness import (
     dependency_readiness_probe,
 )
 from powercontext.builtin.runtime.recall_sufficiency import RecallSufficiencyPolicy
+from powercontext.builtin.runtime.receipt_capture import current_receipt_evidence
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
@@ -244,6 +250,9 @@ class BuiltinConfigurationError(RuntimeError):
                 "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier"
             ),
             "inference-profile": "validated inference profile is incomplete",
+            "inference-protection-injected-provider": (
+                "enforcing inference protection requires owned provider transports; custom inference injection is unsupported"
+            ),
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
@@ -310,6 +319,10 @@ class _TracingMemoryReranker:
         self.policy_id = delegate.policy_id
         self.supports_atomic_memory = getattr(delegate, "supports_atomic_memory", False)
 
+    def receipt_configuration(self) -> dict[str, object] | None:
+        configuration = getattr(self._delegate, "receipt_configuration", None)
+        return configuration() if callable(configuration) else None
+
     async def rerank(
         self,
         query: str,
@@ -317,20 +330,26 @@ class _TracingMemoryReranker:
         limit: int,
         /,
     ) -> MemoryRerankDecision:
-        with self._tracing.stage(
-            "memory.rerank",
-            attributes={
-                "powercontext.memory.rerank.candidate_count": len(candidates),
-                "powercontext.memory.rerank.limit": limit,
-            },
-        ) as span:
-            decision = await self._delegate.rerank(query, candidates, limit)
-            span.set_attributes({
-                "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
-                "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
-                "powercontext.memory.rerank.used_fallback": decision.used_fallback,
-            })
-            return decision
+        evidence = current_receipt_evidence()
+        started = perf_counter() if evidence is not None else None
+        try:
+            with self._tracing.stage(
+                "memory.rerank",
+                attributes={
+                    "powercontext.memory.rerank.candidate_count": len(candidates),
+                    "powercontext.memory.rerank.limit": limit,
+                },
+            ) as span:
+                decision = await self._delegate.rerank(query, candidates, limit)
+                span.set_attributes({
+                    "powercontext.memory.rerank.selected_count": len(decision.selected_ranks),
+                    "powercontext.memory.rerank.discarded_rank_count": decision.discarded_rank_count,
+                    "powercontext.memory.rerank.used_fallback": decision.used_fallback,
+                })
+                return decision
+        finally:
+            if evidence is not None and started is not None:
+                evidence.stage("memory.rerank", (perf_counter() - started) * 1000)
 
 
 class _TracingDecisionModel:
@@ -492,6 +511,11 @@ def _artifact_merge_application(contexts: RelationalContexts, config: RuntimeCon
     )
 
 
+def _validate_protected_inference(protection: InferenceProtectionConfig, *dependencies: object) -> None:
+    if protection.mode == "enforcing" and any(dependency is not None for dependency in dependencies):
+        raise BuiltinConfigurationError("inference-protection-injected-provider")
+
+
 @asynccontextmanager
 async def open_builtin_runtime(
     config: BuiltinConfig,
@@ -549,6 +573,20 @@ async def open_builtin_runtime(
     """
 
     async with AsyncExitStack() as resources:
+        _validate_protected_inference(
+            config.inference.protection,
+            candidate_pipeline,
+            experience_pipeline,
+            experience_generator,
+            profile_generator,
+            skill_generator,
+            dream_generator,
+            handoff_pipeline,
+            embedding_model,
+            memory_reranker,
+            decision_model,
+            memory_write_gate,
+        )
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         resolved_decision_request_sanitizer = decision_request_sanitizer
         _validate_processing_source_registry(config, artifact_processing_bindings, configured_source_registry)
@@ -764,6 +802,7 @@ async def open_builtin_runtime(
         )
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
+                inference_protection=config.inference.protection,
                 code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
                 provider=contexts,
                 primary_database=contexts.database,
@@ -1447,6 +1486,7 @@ async def _dream_generator(
         disable_provider_retries=True,
         streaming=settings.generation_streaming,
         stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+        protection=settings.protection,
     )
     model_settings = cast(ModelSettings, dict(settings.generation_model_settings))
     model_settings["max_tokens"] = min(int(model_settings.get("max_tokens") or 4096), budget.max_output_tokens)
@@ -1568,6 +1608,7 @@ async def _generation_pipelines(
             instrumentation=instrumentation,
             streaming=settings.generation_streaming,
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+            protection=settings.protection,
         )
         generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
         generation_limits = InferenceLimits(
@@ -1607,6 +1648,22 @@ async def _generation_pipelines(
                 )
             )
         )
+        memory_estimator = character_token_estimator()
+        input_policy = PrivacyPolicy(settings.protection)
+        memory_modes = {
+            stage: settings.input_encoding_mode(stage) for stage in ("atomic_memory.extract", "atomic_memory.reconcile")
+        }
+        memory_input_renderer = (
+            None
+            if all(mode == "off" for mode in memory_modes.values())
+            else partial(
+                render_atomic_memory_input,
+                modes=memory_modes,
+                estimator=memory_estimator,
+                policy=input_policy,
+            )
+        )
+        memory_send_renderer = None if memory_input_renderer is None else partial(memory_input_renderer, observe=True)
         memory_generator = PydanticAIStructuredGenerator(
             model=generation_model,
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
@@ -1616,6 +1673,7 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            input_renderer=memory_send_renderer,
         )
         memory_reconciler = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1627,6 +1685,7 @@ async def _generation_pipelines(
             name="atomic_memory_reconciliation",
             prompt_key="atomic_memory.reconcile",
             output_check=validate_reconciliation_decision,
+            input_renderer=memory_send_renderer,
         )
         experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1637,6 +1696,19 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="experience_incubation",
             prompt_key="experience.incubate",
+            input_renderer=(
+                partial(
+                    render_input,
+                    stage="experience.incubate",
+                    schema=INPUT_ENCODING_SCHEMA_V2,
+                    mode=settings.input_encoding_mode("experience.incubate"),
+                    estimator=memory_estimator,
+                    policy=input_policy,
+                    observe=True,
+                )
+                if settings.input_encoding_mode("experience.incubate") != "off"
+                else None
+            ),
         )
         explicit_experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1647,6 +1719,19 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="experience_generation",
             prompt_key="experience.generate",
+            input_renderer=(
+                partial(
+                    render_input,
+                    stage="experience.generate",
+                    schema=INPUT_ENCODING_SCHEMA_V2,
+                    mode=settings.input_encoding_mode("experience.generate"),
+                    estimator=memory_estimator,
+                    policy=input_policy,
+                    observe=True,
+                )
+                if settings.input_encoding_mode("experience.generate") != "off"
+                else None
+            ),
         )
         skill_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -1671,8 +1756,9 @@ async def _generation_pipelines(
         generated_memory = AtomicMemoryGenerationPipeline(
             extractor=UsageReportingStructuredGenerator(memory_generator),
             reconciler=UsageReportingStructuredGenerator(memory_reconciler),
-            estimator=character_token_estimator(),
+            estimator=memory_estimator,
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
+            input_renderer=memory_input_renderer,
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))
@@ -1718,6 +1804,7 @@ async def _generation_pipelines(
                 instrumentation=instrumentation,
                 streaming=settings.generation_streaming,
                 stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+                protection=settings.protection,
             )
         if rerank_provider_model is not None and rerank_model is not None:
             rerank_values = (
@@ -1841,6 +1928,7 @@ async def _generation_decision(
             instrumentation=instrumentation,
             streaming=settings.generation_streaming,
             stream_idle_timeout_seconds=settings.generation_stream_idle_timeout_seconds,
+            protection=settings.protection,
         )
     if decision_provider_model is None or decision_model is None:
         return None, None
@@ -1945,6 +2033,7 @@ async def _open_pydantic_ai_model(
     disable_provider_retries: bool = False,
     streaming: Literal["auto", "disabled"] = "disabled",
     stream_idle_timeout_seconds: float = 60.0,
+    protection: InferenceProtectionConfig | None = None,
 ) -> tuple[Model, Model]:
     from pydantic_ai.models import infer_model
     from pydantic_ai.models.instrumented import InstrumentedModel
@@ -1953,7 +2042,10 @@ async def _open_pydantic_ai_model(
         raise BuiltinConfigurationError("inference-endpoint-provider")
     inferred_model = (
         infer_model(model_name)
-        if base_url is None and not headers and not disable_provider_retries
+        if base_url is None
+        and not headers
+        and not disable_provider_retries
+        and (protection is None or protection.mode == "disabled")
         else infer_model(
             model_name,
             provider_factory=_provider_factory(
@@ -1962,6 +2054,7 @@ async def _open_pydantic_ai_model(
                 workload="generation",
                 resources=resources,
                 disable_retries=disable_provider_retries,
+                protection=protection,
             ),
         )
     )
@@ -2000,7 +2093,17 @@ def _provider_factory(
     workload: Literal["generation", "embedding"],
     resources: AsyncExitStack,
     disable_retries: bool = False,
+    protection: InferenceProtectionConfig | None = None,
 ) -> Callable[[str], Provider[Any]]:
+    if protection is not None and protection.mode != "disabled":
+        return _protected_provider_factory(
+            base_url,
+            headers,
+            workload=workload,
+            resources=resources,
+            protection=protection,
+            disable_retries=disable_retries or protection.mode == "enforcing",
+        )
     create = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
     if not disable_retries:
         return create
@@ -2018,6 +2121,66 @@ def _provider_factory(
         return provider
 
     return bounded
+
+
+def _protected_provider_factory(
+    base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
+    *,
+    workload: Literal["generation", "embedding"],
+    resources: AsyncExitStack,
+    protection: InferenceProtectionConfig,
+    disable_retries: bool,
+) -> Callable[[str], Provider[Any]]:
+    """Own the final transport, including SDK defaults and auxiliary models."""
+
+    import httpx
+
+    from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
+
+    def create(provider_name: str) -> Provider[Any]:
+        # Explicit client injection avoids SDK cached clients, redirect behavior,
+        # hidden transport retries and provider-side request inspection bypasses.
+        client = httpx.AsyncClient(
+            transport=ProtectedAsyncTransport(protection),
+            follow_redirects=False,
+            headers={"Accept-Encoding": "identity"},
+        )
+        resources.push_async_callback(client.aclose)
+        if provider_name in {"openai", "openai-chat", "openai-responses"}:
+            from openai import AsyncOpenAI
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            sdk = AsyncOpenAI(
+                base_url=None if base_url is None else str(base_url),
+                api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
+                default_headers=_resolve_headers(headers),
+                http_client=client,
+            )
+            if disable_retries:
+                sdk.max_retries = 0
+            resources.push_async_callback(sdk.close)
+            return OpenAIProvider(openai_client=sdk)
+        if provider_name == "anthropic" and workload == "generation":
+            from anthropic import AsyncAnthropic
+            from pydantic_ai.providers.anthropic import AnthropicProvider
+
+            resolved = _resolve_headers(headers)
+            api_key = _pop_header(resolved, "x-api-key") or os.getenv("ANTHROPIC_API_KEY")
+            has_authorization = any(name.casefold() == "authorization" for name in resolved)
+            sdk = AsyncAnthropic(
+                base_url=None if base_url is None else str(base_url),
+                api_key=api_key or (None if has_authorization else "api-key-not-set"),
+                default_headers=resolved,
+                http_client=client,
+            )
+            if disable_retries:
+                sdk.max_retries = 0
+            resources.push_async_callback(sdk.close)
+            return AnthropicProvider(anthropic_client=sdk)
+        raise BuiltinConfigurationError("inference-endpoint-provider")
+
+    return create
 
 
 def _unbounded_provider_factory(
@@ -2207,6 +2370,7 @@ async def _embedding_models(
         workload="embedding",
         resources=resources,
         disable_retries=disable_provider_retries,
+        protection=settings.protection,
     )
 
     def provider_factory(provider_name: str) -> Provider[Any]:
@@ -2277,6 +2441,7 @@ def _minimax_embedding_models(
             profile=profile,
             batch_size=settings.embedding_batch_size,
             timeout_seconds=settings.embedding_timeout_seconds,
+            protection=settings.protection,
         )
         resources.push_async_callback(model.aclose)
         return model

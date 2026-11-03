@@ -161,6 +161,7 @@ async def _approved_contexts(database: Path) -> dict[str, PreparedContext]:
                 ProposeExperienceRequest(proposal=task.experience, sources=(source.source_ref,))
             )
             pending = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query=task.query))
+            assert isinstance(pending, PreparedContext)
             if pending.status != "empty":
                 _fail(f"pending Experience entered PreparedContext for {task.name}")
             approved = await runtime.review.for_scope(scope_id).approve(
@@ -172,6 +173,7 @@ async def _approved_contexts(database: Path) -> dict[str, PreparedContext]:
             if approved.result_artifact is None:
                 _fail(f"Experience approval wrote no Artifact for {task.name}")
             value = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query=task.query))
+            assert isinstance(value, PreparedContext)
             if value.status != "ready" or value.content is None or '"kind":"experience"' not in value.content:
                 _fail(f"approved Experience was not recalled for {task.name}")
             prepared[task.name] = value

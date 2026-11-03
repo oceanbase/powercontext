@@ -84,6 +84,7 @@ _OPERATIONAL_FIELDS = (
     "operation",
     "outcome",
     "request_id",
+    "receipt_id",
     "transport",
     "unit",
     "duration_ms",

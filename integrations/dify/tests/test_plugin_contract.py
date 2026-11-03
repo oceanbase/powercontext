@@ -131,6 +131,50 @@ def test_atomic_revise_sends_content_cas_and_preserves_precondition_conflict(reg
     assert result["status"] == "error" and result["error"]["code"] == "conflict"
 
 
+@pytest.mark.parametrize("tool", ["pc_remember", "pc_memory_revise"])
+@pytest.mark.parametrize("kind", ["preference", "team:deployment-policy", "agent-note", "类" * 128])
+def test_memory_tools_declare_and_preserve_open_kinds(registry, transport, tool, kind):
+    declaration = registry.tools_mapping["powercontext"][2][tool][0]
+    parameter = next(item for item in declaration.parameters if item.name == "kind")
+    assert parameter.type.value == "string"
+    assert not parameter.options
+    content = {"kind": kind, "text": "Use uv for Python."}
+    receipt = (
+        {
+            "changed": True,
+            "records": [
+                {"artifact": ATOMIC_REF, **content, "state": "active", "state_version": 0, "merged_into_id": None}
+            ],
+        }
+        if tool == "pc_remember"
+        else {**ATOMIC_REVISION, "content": content}
+    )
+    calls = transport(lambda _request: httpx.Response(200, json=receipt))
+    parameters = dict(content)
+    if tool == "pc_memory_revise":
+        parameters.update(artifact=json.dumps(ATOMIC_REF), if_match='"revision:1"')
+
+    result = run(registry, tool, parameters)
+
+    assert result["ok"] is True
+    assert result["data"] == receipt
+    payload = calls[-1][1]
+    assert (payload if tool == "pc_remember" else payload["content"])["kind"] == kind
+
+
+@pytest.mark.parametrize("tool", ["pc_remember", "pc_memory_revise"])
+@pytest.mark.parametrize("kind", ["", " \t\n", "x" * 129, None, 1])
+def test_invalid_memory_kinds_are_rejected_before_writing(registry, transport, tool, kind):
+    transport(lambda _request: pytest.fail("Invalid kind must not write"))
+    parameters = {"kind": kind, "text": "Use uv for Python."}
+    if tool == "pc_memory_revise":
+        parameters.update(artifact=json.dumps(ATOMIC_REF), if_match='"revision:1"')
+
+    result = run(registry, tool, parameters)
+
+    assert result["error"]["code"] == "invalid_request"
+
+
 def test_atomic_retire_uses_zero_state_version_and_recoverable_forgotten_state(registry, transport):
     receipt = {
         "changed": True,
@@ -207,6 +251,7 @@ def test_sdk_registers_exact_catalog_and_json_text_inputs(registry):
         ("pc_prepare_context", {"query": "scope"}, "scope_id", "scope-B"),
         ("pc_prepare_context", {"query": "scope"}, "max_bytes", 1),
         ("pc_prepare_context", {"query": "scope"}, "include_code", True),
+        ("pc_prepare_context", {"query": "scope"}, "include_reuse", True),
         ("pc_prepare_context", {"query": "scope"}, "assembly", {}),
         ("pc_prepare_context", {"query": "scope"}, "bootstrap_receipt_id", "receipt-1"),
         ("pc_search", {"query": "scope"}, "tag_filter", {"tags": ["private"]}),
@@ -282,6 +327,33 @@ def test_context_workflow_output_preserves_success_and_empty_content(registry, t
     assert result["data"] == body
 
 
+def test_context_rejects_unrequested_reuse_envelope(registry, transport):
+    body = {
+        "schema": "powercontext.prepared-context-with-reuse.v1",
+        "context": {
+            "schema": "powercontext.prepared-context.v1",
+            "status": "ready",
+            "content": "Retained context",
+            "content_bytes": len(b"Retained context"),
+        },
+        "reuse": {
+            "schema": "powercontext.context-reuse.v1",
+            "constraints": {
+                "preserve": ["content", "citations", "trust", "order"],
+                "refresh_on": ["permission_change", "source_ineligible", "context_boundary"],
+            },
+            "expires_at": "2026-10-26T12:00:00Z",
+            "binding": "opaque-binding",
+        },
+    }
+    transport(lambda _request: httpx.Response(200, json=body))
+
+    result = run(registry, "pc_prepare_context", {"query": "scope"})
+
+    assert result["status"] == "error"
+    assert result["error"]["code"] == "invalid_response"
+
+
 @pytest.mark.parametrize("body", [None, {}, [], "not-json"])
 def test_empty_or_malformed_write_receipt_never_reports_success(registry, transport, body):
     def respond(_request):
@@ -339,7 +411,6 @@ def test_capture_rejects_nested_and_mixed_text_secrets_before_write(registry, tr
     "parameters",
     [
         {"kind": "decision", "text": "中" * 2731},
-        {"kind": "unknown", "text": "Not a supported memory kind."},
         {"kind": "decision", "text": "   "},
         {"kind": "decision", "text": "Override attempt", "scope_id": "scope-B"},
     ],

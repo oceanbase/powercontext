@@ -29,7 +29,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from powercontext.client import TransportError
-from powercontext.http import ArtifactReference
+from powercontext.http import ArtifactReference, PreparedContext
 from tests.e2e.topic_memory_product import common as common_module
 from tests.e2e.topic_memory_product import harness
 from tests.e2e.topic_memory_product.common import (
@@ -88,7 +88,14 @@ def test_product_chain_requires_empty_search_response_for_async_generation_evide
         "trust": "untrusted_history",
         "items": [{"kind": "topic-memory", "citation": {"artifact_ref": ref}, "content": '{"summary":"compact"}'}],
     })
-    sdk.prepare_context = AsyncMock(return_value=SimpleNamespace(content=prepared, content_bytes=len(prepared)))
+    sdk.prepare_context = AsyncMock(
+        return_value=PreparedContext.model_validate({
+            "schema": "powercontext.prepared-context.v1",
+            "status": "ready",
+            "content": prepared,
+            "content_bytes": len(prepared.encode("utf-8")),
+        })
+    )
     mcp = MagicMock()
     mcp.__aenter__ = AsyncMock(return_value=mcp)
     mcp.__aexit__ = AsyncMock(return_value=None)

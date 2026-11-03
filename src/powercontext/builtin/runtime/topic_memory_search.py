@@ -244,7 +244,7 @@ class TopicMemorySearcher:
         """Why an abandoned embedding gave way to FTS.
 
         The same value is the ``topic_memory.search.embedding_fallback`` ``error_code`` and, when a
-        preparation asked for it, ``PreparedContext.reason``. RFC 1435 spells this vocabulary
+        preparation asks for a Receipt, its search ``fallback_reason``. RFC 1435 spells this vocabulary
         ``inference_*`` because the failure belongs to the inference provider, not to the channel it
         was going to feed.
         """

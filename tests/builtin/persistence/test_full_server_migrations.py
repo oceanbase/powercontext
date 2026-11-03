@@ -189,12 +189,18 @@ def test_incompatible_processing_declaration_blocks_before_writes(source):
     assert not source.evidence_path.exists()
 
 
-def test_unknown_database_object_is_not_ignored(source):
+def test_unrelated_database_object_and_data_survive_upgrade(source):
     with closing(sqlite3.connect(source.database)) as connection, connection:
         connection.execute("CREATE TABLE user_extension (id INTEGER PRIMARY KEY)")
-    with pytest.raises(MigrationError, match="unknown_baseline"):
-        source.plan()
+        connection.execute("INSERT INTO user_extension VALUES (42)")
+    before = dump(source.database)
+    assert source.plan().state == "migration_required"
+    assert dump(source.database) == before
     assert not source.evidence_path.exists()
+    apply(source)
+    assert source.verify().state == "ready"
+    with closing(sqlite3.connect(source.database)) as connection:
+        assert connection.execute("SELECT * FROM user_extension").fetchall() == [(42,)]
 
 
 def test_recorded_head_does_not_authorize_schema_repair_at_startup(source):
@@ -327,3 +333,24 @@ def test_unregistered_processing_intent_blocks_before_any_upgrade(source):
         source.plan()
     assert dump(source.database) == before
     assert not source.evidence_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("definition", "matches"),
+    [
+        ("TEXT COLLATE NOCASE DEFAULT 'MiXeD'", 1),
+        ("TEXT COLLATE NOCASE GENERATED ALWAYS AS ('MiXeD') VIRTUAL", 1),
+        ("TEXT GENERATED ALWAYS AS ('MiXeD' COLLATE NOCASE) VIRTUAL", 0),
+    ],
+)
+def test_extension_column_collation_survives_rebuild(source, definition, matches):
+    runner = source
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_artifacts ADD COLUMN extension_value " + definition)
+        before = connection.execute("SELECT extension_value = 'mixed' FROM pc_artifacts").fetchall()
+        assert before and all(row == (matches,) for row in before)
+    apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT extension_value = 'mixed' FROM pc_artifacts").fetchall() == before
+    assert not apply(runner).changed
