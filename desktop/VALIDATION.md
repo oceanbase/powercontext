@@ -1,5 +1,64 @@
 # Desktop validation
 
+## Authenticated Server 112db11e current-client qualification
+
+`sqlite-atomic-112db11e-v1` retains its original Server source, contract, wheel digest,
+eleven operations and evidence. Its `authenticatedClients` entry separately qualifies those
+same operations for Desktop contract
+`32d75b58058ae0a9a3e159f47d67ab421649cefe86f662e12e75b4215f1f35d9`.
+A saved selection stays available in Bearer mode after checking a valid Principal; this
+entry cannot qualify anonymous access or add `get_connection_identity`. Other historical
+records remain unavailable without their own current-client evidence.
+
+On 2026-11-03, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 ran the ordinary product
+`ConnectionManager::new` against SQLite Server source
+`112db11e885c38b997da2177e03a4065a7e35dc3`, using a rebuilt
+`powercontext-1.4.2.dev132+g112db11e8-py3-none-any.whl`, SHA-256
+`93be983401f6103b55f4992ffeccb14b223820125f666e16ccd1e2b26ebf30b9`.
+This rebuilt archive differs from the original recorded wheel; the original wheel was not
+rerun. All 679 `powercontext/` runtime files match the exact Git source byte for byte,
+and their sorted manifest digest matches the original qualification:
+`b74203e2071a6216813da33f26e05baf8b9fdbbb666f1b7d7bbdd15a5cd69707`.
+The Server OpenAPI digest remains
+`83dc68194770a41facea55a3fe2279bc0e8b01812a82a1d838334232c67bedc7`.
+The original qualification identities have not been replaced by the rebuilt artifact.
+
+Static Bearer, HTTPS with explicit CA/base path, and Provider/enforced-access modes all
+passed. The actual old Server returns 404 for `get_connection_identity`; the product
+manager qualifies only the original eleven operations through `get_access_principal`.
+The probe covers inactive save/passive check, explicit activation/readiness/Scope selection,
+Memory save/search/exact reads, committed writes with lost replies without replay,
+Principal changes, same-identity revocation and 51 same-title Scopes. Servers remain alive
+after client exit and are shut down by the harness. Anonymous old-Server access is excluded
+from this qualification and remains upgrade-required.
+
+The debug probe SHA-256 is
+`80061811653dfde0455fd4cb0064f99fc5d11a732bdcaf0de5b78edd459b2567`.
+The Desktop working tree is based on `17145bb1` with the client/catalog changes applied;
+Server runtime sources come from the clean old Git archive. Reports are retained under
+ignored `.artifacts/nov3-legacy/` and `.artifacts/nov3-legacy-real-server.log`.
+Reproduce the product run with the rebuilt wheel at its evidence path:
+
+```sh
+python desktop/tests/real_server.py --product-qualification --wheel desktop/.artifacts/nov3-legacy/powercontext-1.4.2.dev132+g112db11e8-py3-none-any.whl --qualification-profile sqlite-atomic-112db11e-v1
+```
+
+The bundled-profile native regression fails with the old digest gate and passes with
+current-client evidence. Native regressions preserve Principal invalidation and deny
+anonymous use; the UI regression preserves a saved selection only in Bearer mode.
+The complete native suite passes 96 tests plus its spawned-process proxy recheck;
+all 153 frontend tests pass. Eight Python contract/fixture tests, Clippy, IPC/generated drift, lint and production build pass. The current 0d89e591 Server also passes all four product-manager harness modes. All pre-commit file hooks and Linux-target type checks pass; the default Windows type hook retains its 89 platform diagnostics. Frontend tests use jsdom/mocked IPC. This evidence covers
+SQLite protocol behavior; installed WebView, system vault, signed packages and actual
+Windows 11/macOS acceptance require their separate checks.
+
+该配置保留原始 Server 源码、契约、wheel、十一项操作和证据，仅追加当前客户端的独立已认证验证记录。
+已保存的选择在 Bearer 模式且 Principal 有效时可用；不增加轻量身份操作，也不允许匿名旧版使用。
+实际重建 wheel 的摘要与原 wheel 不同，未重新运行原 wheel；679 个运行时文件与准确旧源码逐字节一致，
+其排序清单摘要也与原验证记录相同。静态 Bearer、HTTPS 自定义 CA／路径前缀和强制 Provider 三种真实
+SQLite 模式均通过，覆盖完整记忆读写、响应丢失不重放、Principal 变化、撤权及 Scope 分页。
+旧摘要门禁已复现回归失败，修复后通过；原生 96 项及独立进程代理复核、前端 153 项通过。
+这些结果不代替安装后 WebView、系统凭据库、签名安装包和 Windows 11／macOS 平台验收。
+
 ## Diagnostic and context interaction
 
 The Connections readiness action owns independent pending/error state. It does not enter
@@ -230,7 +289,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The `sqlite-atomic-112db11e-v1` record matches the bundled API contract and qualifies its eleven recorded SQLite protocol operations against the exact Server source and wheel below. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The `sqlite-atomic-112db11e-v1` record qualifies its eleven recorded SQLite protocol operations against the exact Server source and wheel below. Separate `authenticatedClients` evidence qualifies those operations for the current client contract in Bearer mode with a valid Principal; it does not replace the original Server contract or qualify anonymous access. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest remain disabled unless separate authenticated-client evidence covers the current contract and selected authentication mode. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit.
 

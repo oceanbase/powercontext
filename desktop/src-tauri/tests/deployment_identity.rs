@@ -81,6 +81,9 @@ fn record() -> Value {
 }
 impl Fixture {
     async fn new(authenticated: bool) -> Self {
+        Self::with_profile(authenticated, None).await
+    }
+    async fn with_profile(authenticated: bool, compatibility: Option<&str>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let state = Arc::new(Mutex::new(State {
@@ -207,16 +210,19 @@ impl Fixture {
             }
         });
         let directory = tempfile::tempdir().unwrap();
-        let manager = Arc::new(common::connection_manager(
-            ProfileRepository::open(
-                directory.path().join("profiles.json"),
-                Arc::new(NativeVault),
-            )
-            .unwrap(),
-        ));
+        let repository = ProfileRepository::open(
+            directory.path().join("profiles.json"),
+            Arc::new(NativeVault),
+        )
+        .unwrap();
+        let manager = Arc::new(if compatibility.is_some() {
+            ConnectionManager::new(repository)
+        } else {
+            common::connection_manager(repository)
+        });
         let saved = manager.save_profile(serde_json::from_value(json!({"id":null,"revision":null,"name":"Synthetic",
             "endpoint":endpoint,"authentication":if authenticated {"bearer"} else {"unauthenticated_loopback"},
-            "caPem":null,"compatibility":common::PROFILE_ID,"keepCredential":false,
+            "caPem":null,"compatibility":compatibility.unwrap_or(common::PROFILE_ID),"keepCredential":false,
             "credential":if authenticated {json!({"secret":"synthetic-token","storage":"session_only"})} else {Value::Null}})).unwrap()).unwrap();
         Self {
             manager,
@@ -257,6 +263,79 @@ impl Fixture {
                 .reports
                 .iter()
                 .all(|report| report.connection_id != self.id)
+        );
+    }
+}
+
+#[tokio::test]
+async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal_fence() {
+    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
+    fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("connection.identity");
+    let generation = fixture.select().await;
+    let report = fixture.manager.state().unwrap().active.unwrap().report;
+    assert!(report.connection_identity.is_none());
+    assert!(!report.anonymous_access);
+    assert_eq!(report.supported_operations.len(), 11);
+    assert!(
+        !report
+            .supported_operations
+            .iter()
+            .any(|op| op == "get_connection_identity")
+    );
+    assert_eq!(
+        fixture
+            .manager
+            .remember(generation, "legacy authenticated note")
+            .await
+            .unwrap()
+            .record
+            .status,
+        WriteStatus::Succeeded
+    );
+    fixture.state.lock().unwrap().principal = Some("changed-principal".into());
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "private")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
+    );
+}
+
+#[tokio::test]
+async fn authenticated_client_evidence_requires_bearer_mode_and_a_valid_principal() {
+    for bearer in [false, true] {
+        let fixture = Fixture::with_profile(bearer, Some("sqlite-atomic-112db11e-v1")).await;
+        fixture.state.lock().unwrap().principal = None;
+        let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+        let report = state.active.unwrap().report;
+        assert!(!report.compatibility_verified);
+        assert!(!report.anonymous_access);
+        assert_eq!(
+            fixture
+                .manager
+                .scopes(state.generation, "", None)
+                .await
+                .err()
+                .unwrap()
+                .code,
+            SafeError::CompatibilityUnverified
         );
     }
 }

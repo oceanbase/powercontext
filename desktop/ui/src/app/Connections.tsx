@@ -21,6 +21,7 @@ import type {
   ProfileView,
   StorageChoice,
   Fact,
+  CompatibilityProfile,
 } from "../generated/ipc";
 import { contractSha256 } from "../generated/operations";
 import { desktopApi } from "../shared/ipc";
@@ -262,18 +263,19 @@ export function Connections({
     (profile.credentialState === "stored" ||
       profile.credentialState === "session_only") &&
     !invalidated.current;
-  const availableProfiles = state?.compatibilityProfiles.filter(
-    (p) => p.contractSha256 === contractSha256,
-  );
+  const available = (p: CompatibilityProfile) =>
+    p.contractSha256 === contractSha256 ||
+    (authentication === "bearer" && !!p.authenticatedClients?.[contractSha256]);
+  const availableProfiles = state?.compatibilityProfiles.filter(available);
   const historicalProfiles = state?.compatibilityProfiles.filter(
-    (p) => p.contractSha256 !== contractSha256,
+    (p) => !available(p),
   );
   const selectedCompatibility = state?.compatibilityProfiles.find(
     (p) => p.id === compatibility,
   );
   const unavailableCompatibility =
     compatibility !== "" &&
-    selectedCompatibility?.contractSha256 !== contractSha256;
+    (!selectedCompatibility || !available(selectedCompatibility));
   return (
     <div className="connection-grid">
       {confirmation}

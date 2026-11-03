@@ -21,6 +21,7 @@ No product command starts a Server. This explicit test harness owns its disposab
 # ruff: noqa: S603, S607
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import json
@@ -330,18 +331,31 @@ def retained_fixture_server(
                 print("Fixture Server diagnostics could not be retained.", file=sys.stderr)
 
 
-def main(*, product_qualification: bool = False) -> None:
-    import httpx
+def selected_qualification(desktop: Path, qualification_id: str | None, *, product: bool):
     from fixture_qualification import fixture_profile
+
+    if qualification_id is None:
+        return fixture_profile()
+    if not product:
+        raise HarnessFailure("product_profile_requires_product_manager")
+    catalog = json.loads((desktop / "src-tauri/src/connections/compatibility.json").read_text(encoding="utf-8"))
+    return next(profile for profile in catalog if profile["id"] == qualification_id)
+
+
+def main(
+    *, product_qualification: bool = False, wheel_path: Path | None = None, qualification_id: str | None = None
+) -> None:
+    import httpx
 
     root = Path(__file__).resolve().parents[2]
     desktop = root / "desktop"
     artifact_dir = desktop / ".artifacts"
-    wheels = list((artifact_dir / "server-wheel").glob("*.whl"))
+    wheels = [wheel_path] if wheel_path else list((artifact_dir / "server-wheel").glob("*.whl"))
     if len(wheels) != 1:
         raise HarnessFailure("wheel_count")
     wheel = wheels[0]
-    compatibility = fixture_profile()
+    compatibility = selected_qualification(desktop, qualification_id, product=product_qualification)
+    authenticated_legacy = "get_connection_identity" not in compatibility["operations"]
     executable = (
         desktop / "src-tauri/target/debug/examples" / ("server_probe.exe" if os.name == "nt" else "server_probe")
     )
@@ -353,6 +367,8 @@ def main(*, product_qualification: bool = False) -> None:
             archive.extractall(wheel_root)
         subprocess.run([str(executable), "certificates", str(temp)], check=True, capture_output=True)
         for mode in ("loopback-anonymous", "loopback-bearer", "https-bearer-base-path", "loopback-provider"):
+            if authenticated_legacy and mode == "loopback-anonymous":
+                continue
             case = temp / mode
             case.mkdir()
             with socket.socket() as reservation:
@@ -480,7 +496,8 @@ def main(*, product_qualification: bool = False) -> None:
         },
         "serverWheel": wheel.name,
         "serverWheelSha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
-        "contractSha256": hashlib.sha256(
+        "contractSha256": compatibility["contractSha256"],
+        "clientContractSha256": hashlib.sha256(
             (root / "openapi/powercontext.yaml").read_text(encoding="utf-8").replace("\r\n", "\n").encode()
         ).hexdigest(),
         "desktopCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
@@ -500,4 +517,13 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--serve":
         serve(Path(sys.argv[2]))
     else:
-        main(product_qualification="--product-qualification" in sys.argv[1:])
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument("--product-qualification", action="store_true")
+        parser.add_argument("--wheel", type=Path)
+        parser.add_argument("--qualification-profile")
+        args = parser.parse_args()
+        main(
+            product_qualification=args.product_qualification,
+            wheel_path=args.wheel,
+            qualification_id=args.qualification_profile,
+        )

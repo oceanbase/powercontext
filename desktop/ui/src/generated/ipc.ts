@@ -84,7 +84,11 @@ export type CompatibilityStatus = "qualified" | "unsupported" | "unverified";
 export type OperationCompatibility = { status: CompatibilityStatus, reason: CompatibilityReason, qualificationId: string | null, };
 export type DiscoveryResult = { status: DiscoveryStatus, server: ServerInfo | null, error: ApiFailure | null, reason: CompatibilityReason | null, operations: { [key in string]: OperationCompatibility }, };
 export type CheckReport = { connectionId: string, revision: number, checkedAt: number, liveness: Fact<HealthResponse>, readiness: Fact<ReadinessResponse>, readinessCheckedAt?: number, identity: Fact<AccessMeResponse>, connectionIdentity?: Fact<ConnectionIdentity>, capabilities: Fact<Capabilities>, compatibilityVerified: boolean, anonymousAccess: boolean, supportedOperations: Array<string>, discovery?: DiscoveryResult, };
-export type CompatibilityProfile = { id: string, serverCommit: string, contractSha256: string, artifactSha256: string, operations: Array<string>, evidence: string, };
+export type CompatibilityProfile = { id: string, serverCommit: string, contractSha256: string, artifactSha256: string, operations: Array<string>, evidence: string,
+/**
+ * Separate current-client evidence; the original Server qualification remains unchanged.
+ */
+authenticatedClients?: { [key in string]: string }, };
 export type ActiveView = { connectionId: string, generation: number, report: CheckReport, scope: ScopeDescriptor | null, };
 export type MemoryContext = { connectionId: string, endpoint: string, serverId: string | null, principal: AccessPrincipal | null, generation: number, scopeId: string, };
 export type WriteStatus = "pending" | "succeeded" | "failed" | "unknown";

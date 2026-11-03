@@ -86,9 +86,25 @@ async fn main() {
         return;
     }
     api.live().await.unwrap();
-    let identity = api.connection_identity().await.unwrap();
-    assert_eq!(identity.server_id, server_id);
-    assert_eq!(identity.principal.is_some(), has_token);
+    let legacy = !fixture
+        .compatibility_profile
+        .operations
+        .iter()
+        .any(|op| op == "get_connection_identity");
+    if legacy {
+        assert!(
+            has_token,
+            "legacy qualification requires authenticated identity"
+        );
+        assert_eq!(
+            api.connection_identity().await.err().unwrap().code,
+            SafeError::NotFound
+        );
+    } else {
+        let identity = api.connection_identity().await.unwrap();
+        assert_eq!(identity.server_id, server_id);
+        assert_eq!(identity.principal.is_some(), has_token);
+    }
     api.readiness().await.unwrap();
     if has_token {
         api.principal().await.unwrap();
@@ -190,6 +206,16 @@ async fn main() {
             .any(|report| report.connection_id == profile)
     );
     let state = manager.check(&profile, true).await.unwrap();
+    if legacy {
+        let report = &state.active.as_ref().unwrap().report;
+        assert!(report.compatibility_verified);
+        assert!(report.connection_identity.is_none());
+        assert!(!report.anonymous_access);
+        assert_eq!(
+            report.supported_operations.len(),
+            fixture.compatibility_profile.operations.len()
+        );
+    }
     let generation = state.generation;
     let revision = state.active.as_ref().unwrap().report.revision;
     let probed = manager.probe_readiness(&profile, revision).await.unwrap();

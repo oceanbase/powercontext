@@ -635,7 +635,10 @@
       "remember_memory",
       "search_memory"
     ],
-    "evidence": "desktop/VALIDATION.md#server-112db11e-protocol-qualification"
+    "evidence": "desktop/VALIDATION.md#server-112db11e-protocol-qualification",
+    "authenticatedClients": {
+      "32d75b58058ae0a9a3e159f47d67ab421649cefe86f662e12e75b4215f1f35d9": "desktop/VALIDATION.md#authenticated-server-112db11e-current-client-qualification"
+    }
   },
   {
     "id": "sqlite-atomic-9624761b-v1",

@@ -84,6 +84,10 @@ pub struct CompatibilityProfile {
     pub artifact_sha256: String,
     pub operations: Vec<String>,
     pub evidence: String,
+    /// Separate current-client evidence; the original Server qualification remains unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub authenticated_clients: Option<BTreeMap<String, String>>,
 }
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -351,7 +355,14 @@ impl ConnectionManager {
                     .map_err(|_| SafeError::InvalidResponse)?;
             let compatible = self.compatibility.iter().find(|c| {
                 profile.compatibility.as_ref() == Some(&c.id)
-                    && contract["contractSha256"].as_str() == Some(&c.contract_sha256)
+                    && (contract["contractSha256"].as_str() == Some(&c.contract_sha256)
+                        || (profile.authentication == super::profiles::Authentication::Bearer
+                            && identity.is_ok()
+                            && contract["contractSha256"].as_str().is_some_and(|digest| {
+                                c.authenticated_clients
+                                    .as_ref()
+                                    .is_some_and(|clients| clients.contains_key(digest))
+                            })))
                     && !identity
                         .as_ref()
                         .is_err_and(|e| e.code == SafeError::InvalidResponse)

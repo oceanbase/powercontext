@@ -40,6 +40,7 @@ pub fn connection_manager(profiles: ProfileRepository) -> ConnectionManager {
         server_commit: "synthetic-http-fixture-not-a-server-release".into(),
         contract_sha256: contract["contractSha256"].as_str().unwrap().into(),
         artifact_sha256: format!("{:x}", Sha256::digest(include_bytes!("mod.rs"))),
+        authenticated_clients: Default::default(),
         operations: contract["operations"].as_object().unwrap().keys().cloned().collect(),
         evidence: "Synthetic HTTP fixtures in tests/memory.rs and tests/session.rs; not release qualification".into(),
     };

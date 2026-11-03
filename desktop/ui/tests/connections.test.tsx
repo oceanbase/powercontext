@@ -317,6 +317,47 @@ test("new connections offer only current-contract profiles and keep no selection
   expect(desktopApi.save).not.toHaveBeenCalled();
   expect(desktopApi.check).not.toHaveBeenCalled();
 });
+test("a saved authenticated legacy profile remains selectable only in its qualified authentication mode", async () => {
+  const user = userEvent.setup();
+  const legacy = qualifications.find(
+    (p) => p.id === "sqlite-atomic-112db11e-v1",
+  )!;
+  const saved = { ...profile, compatibility: legacy.id };
+  vi.mocked(desktopApi.invalidate).mockResolvedValue(state(saved));
+  render(
+    <Connections
+      state={{ ...state(saved), compatibilityProfiles: [legacy] }}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: /Original/ }));
+  const selector = screen.getByLabelText(
+    "Verified compatibility profile",
+  ) as HTMLSelectElement;
+  const option = within(selector).getByRole("option", {
+    name: legacy.id,
+  }) as HTMLOptionElement;
+  expect(selector.value).toBe(legacy.id);
+  expect(option.disabled).toBe(false);
+  expect(screen.queryByRole("alert")).toBeNull();
+  await user.selectOptions(
+    screen.getByLabelText("Authentication"),
+    "unauthenticated_loopback",
+  );
+  expect(
+    (
+      within(selector).getByRole("option", {
+        name: (text) => text.includes(legacy.id),
+      }) as HTMLOptionElement
+    ).disabled,
+  ).toBe(true);
+  expect(screen.getByRole("alert")).toBeTruthy();
+  expect(selector.value).toBe(legacy.id);
+  expect(desktopApi.save).not.toHaveBeenCalled();
+  expect(desktopApi.check).not.toHaveBeenCalled();
+});
 test("a saved historical profile shows the contract mismatch and can be explicitly replaced before rechecking", async () => {
   const user = userEvent.setup();
   const saved = { ...profile, compatibility: historicalCompatibility.id };
