@@ -16,26 +16,51 @@
 
 Codex sends ``store: false`` with ``include: ["reasoning.encrypted_content"]``, so every response carries
 encrypted reasoning that later requests replay, and a subagent receives its task as an encrypted ``agent_message``
-payload that the parent's model produced inside ``spawn_agent`` arguments. Core cannot inspect these values. For a
-target that opts in, they are admitted only at these exact positions and only when a receipt shows that Core
-released them earlier; everything else stays opaque.
+payload that the parent's model produced inside ``spawn_agent`` arguments. Codex declares such arguments with
+``"encrypted": true`` in the tool definition. Core cannot inspect these values. For a target that opts in, they are
+admitted only at these exact positions and only when a receipt shows that Core released them earlier; everything
+else stays opaque.
 """
 
 from __future__ import annotations
 
+import base64
 import json
+from collections.abc import Iterable
 from hashlib import sha256
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 EncryptedItemKind = Literal["reasoning", "agent_message"]
 
-# Bounds for one receipt: values recorded from one released response.
-MAX_RECEIPT_VALUES = 64
-_MAX_ARGUMENT_DEPTH = 8
+# Values one receipt holds: the encrypted values one request carries, or one response releases. With 16-byte
+# digests a full receipt seals to about 30 KB, inside the binding codec's 64 KiB token limit.
+MAX_RECEIPT_VALUES = 1024
+# Encrypted argument fields one request may declare.
+MAX_ENCRYPTED_FIELDS = 32
+_DIGEST_BYTES = 16
+
+EncryptedField = tuple[str, str, str]
+"""A declared encrypted argument: tool namespace (empty when none), tool name and top-level parameter."""
 
 
-def value_digest(value: str) -> str:
-    return sha256(value.encode("utf-8")).hexdigest()
+def value_digest(value: str) -> bytes:
+    return sha256(value.encode("utf-8")).digest()[:_DIGEST_BYTES]
+
+
+def pack_digests(digests: Iterable[bytes]) -> str:
+    return base64.urlsafe_b64encode(b"".join(sorted(set(digests)))).decode("ascii")
+
+
+def unpack_digests(packed: object) -> frozenset[bytes]:
+    if not isinstance(packed, str):
+        return frozenset()
+    try:
+        raw = base64.urlsafe_b64decode(packed.encode("ascii"))
+    except (ValueError, UnicodeError):
+        return frozenset()
+    if len(raw) % _DIGEST_BYTES:
+        return frozenset()
+    return frozenset(raw[i : i + _DIGEST_BYTES] for i in range(0, len(raw), _DIGEST_BYTES))
 
 
 def admitted_encrypted(value: object, kinds: tuple[EncryptedItemKind, ...]) -> tuple[object, tuple[str, ...]]:
@@ -69,8 +94,15 @@ def _strip_item(item: object, kinds: tuple[EncryptedItemKind, ...], found: list[
     if kind == "agent_message" and "agent_message" in kinds and isinstance(content, list):
         kept = []
         for part in content:
-            payload = part.get("encrypted_content") if isinstance(part, dict) else None
-            if isinstance(part, dict) and part.get("type") == "encrypted_content" and isinstance(payload, str):
+            # Only a part that is exactly the ciphertext is set aside; any other field keeps the whole part in the
+            # normal inspection.
+            fields = cast("dict[str, Any]", part) if isinstance(part, dict) else {}
+            payload = fields.get("encrypted_content")
+            if (
+                set(fields) == {"type", "encrypted_content"}
+                and fields.get("type") == "encrypted_content"
+                and isinstance(payload, str)
+            ):
                 found.append(payload)
             else:
                 kept.append(part)
@@ -78,37 +110,76 @@ def _strip_item(item: object, kinds: tuple[EncryptedItemKind, ...], found: list[
     return item
 
 
-def released_argument_strings(value: object) -> tuple[str, ...]:
-    """String values in the arguments of a response's function calls.
+def declared_encrypted_fields(value: object) -> tuple[EncryptedField, ...] | None:
+    """Argument fields a request's tool definitions declare ``"encrypted": true``.
 
-    A provider can return a value encrypted inside ordinary arguments, for example the task of Codex's
-    ``spawn_agent``, which the client later sends back as an ``encrypted_content`` part. Recording these strings in
-    the receipt lets that later request prove the value came from a released response.
+    Tools are read from the top-level ``tools`` and from Codex's ``additional_tools`` input items, including tools
+    grouped in a ``namespace``. Returns ``None`` when more than :data:`MAX_ENCRYPTED_FIELDS` are declared.
     """
 
+    if not isinstance(value, dict):
+        return ()
+    groups: list[object] = [value.get("tools")]
+    items = value.get("input")
+    if isinstance(items, list):
+        groups.extend(
+            item.get("tools") for item in items if isinstance(item, dict) and item.get("type") == "additional_tools"
+        )
+    found: set[EncryptedField] = set()
+    for group in groups:
+        _collect_fields(group, "", found)
+    return None if len(found) > MAX_ENCRYPTED_FIELDS else tuple(sorted(found))
+
+
+def _collect_fields(tools: object, namespace: str, found: set[EncryptedField]) -> None:
+    if not isinstance(tools, list):
+        return
+    for tool in tools:
+        definition = cast("dict[str, Any]", tool) if isinstance(tool, dict) else {}
+        name = definition.get("name")
+        if not isinstance(name, str):
+            continue
+        if definition.get("type") == "namespace" and not namespace:
+            _collect_fields(definition.get("tools"), name, found)
+            continue
+        parameters = definition.get("parameters")
+        properties: dict[str, Any] = parameters.get("properties", {}) if isinstance(parameters, dict) else {}
+        if isinstance(properties, dict):
+            found.update(
+                (namespace, name, field)
+                for field, schema in properties.items()
+                if isinstance(schema, dict) and schema.get("encrypted") is True
+            )
+
+
+def released_argument_values(value: object, fields: Iterable[EncryptedField]) -> tuple[str, ...]:
+    """String values a response's function calls carry in declared encrypted argument fields.
+
+    A provider returns such a value encrypted inside ordinary arguments, for example the task of Codex's
+    ``spawn_agent``, which the client later sends back as an ``encrypted_content`` part. Recording it in the receipt
+    lets that later request prove the value came from a released response. Other argument values are not recorded.
+    """
+
+    declared: dict[tuple[str, str], set[str]] = {}
+    for namespace, name, field in fields:
+        declared.setdefault((namespace, name), set()).add(field)
     output = value.get("output") if isinstance(value, dict) else None
-    if not isinstance(output, list):
+    if not declared or not isinstance(output, list):
         return ()
     found: list[str] = []
     for item in output:
-        raw = item.get("arguments") if isinstance(item, dict) and item.get("type") == "function_call" else None
-        if isinstance(raw, str):
-            try:
-                arguments = json.loads(raw)
-            except ValueError:
-                continue
-            _collect_strings(arguments, found, 0)
+        if not isinstance(item, dict) or item.get("type") != "function_call":
+            continue
+        namespace, name, raw = item.get("namespace"), item.get("name"), item.get("arguments")
+        if not isinstance(name, str) or not isinstance(raw, str):
+            continue
+        wanted = declared.get((namespace if isinstance(namespace, str) else "", name))
+        if not wanted:
+            continue
+        try:
+            arguments = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(arguments, dict):
+            found.extend(argument for field in wanted if isinstance(argument := arguments.get(field), str))
     return tuple(found)
-
-
-def _collect_strings(value: Any, found: list[str], depth: int) -> None:
-    if depth > _MAX_ARGUMENT_DEPTH:
-        return
-    if isinstance(value, str):
-        found.append(value)
-    elif isinstance(value, dict):
-        for child in value.values():
-            _collect_strings(child, found, depth + 1)
-    elif isinstance(value, list):
-        for child in value:
-            _collect_strings(child, found, depth + 1)

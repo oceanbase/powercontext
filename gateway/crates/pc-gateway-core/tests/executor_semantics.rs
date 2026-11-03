@@ -2298,6 +2298,53 @@ fn release_with_receipt(receipt: &str) -> Result<ContextCheckResult, GateError> 
 }
 
 #[tokio::test]
+async fn a_send_receipt_replaces_the_receipts_its_request_presented() {
+    let allow_send_with = |receipt: Option<&str>| {
+        let mut r = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
+        r.receipt = receipt.map(String::from);
+        Ok(r)
+    };
+    let (executor, renderer, _transport, gate) = harness(
+        vec![
+            allow_send_with(None),
+            release_with_receipt("release-1"),
+            allow_send_with(Some("merged-2")),
+            release_with_receipt("release-2"),
+            allow_send_with(Some("merged-3")),
+            release_with_receipt("release-3"),
+        ],
+        (0..3).map(|_| raw_response()).collect(),
+        2,
+    );
+    let r = RendererRef(renderer.clone());
+    for _ in 0..3 {
+        let mut c = call(DegradePolicy::Pause);
+        c.conversation_id = Some("codex-thread:root".into());
+        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "{outcome:?}"
+        );
+    }
+    let presented: Vec<Vec<String>> = gate
+        .send_identities
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, _, receipts)| receipts.clone())
+        .collect();
+    assert_eq!(
+        presented,
+        vec![
+            vec![],
+            vec!["release-1".to_string()],
+            vec!["release-2".to_string(), "merged-2".to_string()],
+        ],
+        "each request presents the latest consolidated receipt and the releases since it"
+    );
+}
+
+#[tokio::test]
 async fn release_receipts_are_presented_for_the_conversation_and_its_subagents() {
     let allow_send = || Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]));
     let (executor, renderer, _transport, gate) = harness(

@@ -221,9 +221,10 @@ enforcing 模式的 Server 要求每个生成请求都设置输出上限，而�
 因此上限只需在 Server 上配置。Chat 入口补值时使用 `max_completion_tokens`。补值发生在送检之前，Server 照常检查最终
 请求；客户端自己设置的上限及其字段保持不变。目标没有配置上限时不补值。
 
-目标在 Server 配置中设置了 `admit_encrypted_items` 时，网关按会话保存 Core 在放行时返回的加密内容回执，保留一小时，
-并随同一会话之后的请求、以及由该会话派生的子代理会话（`x-codex-parent-thread-id`、Claude Code 父代理、OpenCode
-父会话）的请求一起提交。没有会话的请求不会继承回执。
+目标在 Server 配置中设置了 `admit_encrypted_items` 时，网关按会话保存 Core 返回的加密内容回执，保留一小时，并随同一
+会话之后的请求、以及由该会话派生的子代理会话（`x-codex-parent-thread-id`、Claude Code 父代理、OpenCode 父会话）的
+请求一起提交。发送检查返回合并回执时，网关只替换该请求提交的、属于本会话的回执；此后新加入的回执和父会话的回执
+保持不变。没有会话的请求不会继承回执。
 
 ### 网关固定指令
 

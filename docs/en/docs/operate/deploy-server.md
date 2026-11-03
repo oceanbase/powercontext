@@ -244,9 +244,11 @@ checked, and the Server checks the final request as usual; a limit the client se
 configured limit for the target nothing is added.
 
 For a target whose Server configuration sets `admit_encrypted_items`, the gateway keeps the encrypted-content
-receipts that Core returns at release, per conversation, for one hour. It presents them with later requests of the
-same conversation, and of subagent conversations started from it (`x-codex-parent-thread-id`, Claude Code parent
-agent, OpenCode parent session). Requests without a conversation never inherit receipts.
+receipts that Core returns, per conversation, for one hour. It presents them with later requests of the same
+conversation, and of subagent conversations started from it (`x-codex-parent-thread-id`, Claude Code parent agent,
+OpenCode parent session). When a send check returns a consolidated receipt, the gateway replaces only the receipts of
+that conversation that the request presented; receipts added since and the parent's receipts are kept. Requests
+without a conversation never inherit receipts.
 
 ### Gateway instruction
 

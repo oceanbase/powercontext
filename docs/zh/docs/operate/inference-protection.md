@@ -67,12 +67,19 @@ Server 可通过 `POWERCONTEXT_SERVER_INFERENCE_PROTECTION` 设置相同对象�
 Codex 等客户端发送 `store: false` 并请求 `include: ["reasoning.encrypted_content"]`，因此响应带有之后请求会重放的加密
 推理；子代理收到的任务也是 `agent_message` 中的加密部分。Core 无法检查这些值：
 
-- 在 `before_release`，Core 放行响应中的加密推理。请求带有会话时，Core 返回一个 `receipt`，记录这些值以及响应中
-  函数调用参数的摘要，绑定该主体、Scope、目标和会话，有效期一小时。
-- 在 `before_send`，位于准入位置的加密值（根级 `reasoning` 条目的 `encrypted_content`，或根级 `agent_message` 的
-  `encrypted_content` 部分）只有在随请求提交的回执中包含其摘要时才放行。回执必须签发给本请求的会话或其
-  `parent_conversation_id`；否则请求以 `encrypted-origin-unverified` 被扣留。
-- 其他位置的加密值仍按 `content_unsupported` 处理。
+- 在 `before_release`，Core 放行响应中的加密推理。请求带有会话时，Core 返回一个 `receipt`，绑定该主体、Scope、目标和
+  会话，有效期一小时。回执记录响应中加密值的摘要，以及受检请求的工具定义中声明为 `"encrypted": true` 的函数调用参数
+  的值（Codex 以这种方式声明 `spawn_agent` 的任务）。其他参数值不记入回执。
+- 在 `before_send`，位于准入位置的加密值只有在随请求提交的未过期回执中包含其摘要时才放行。准入位置是根级
+  `reasoning` 条目的 `encrypted_content`，以及只含 `type: "encrypted_content"` 和 `encrypted_content` 两个字段的
+  `agent_message` 内容部分。回执必须签发给本请求的会话或其 `parent_conversation_id`；否则请求以
+  `encrypted-origin-unverified` 被扣留。
+- 带会话的 `before_send` 放行时，Core 还会返回一个 `receipt`，恰好覆盖该请求携带的加密值，重新计算一小时有效期。它
+  替换该请求提交的、属于本会话的回执，因此长会话每次提交的回执数保持不变；一个值在最后一次通过验证后的一小时内
+  仍可放行。
+- 一个回执最多容纳 1024 个值。放不下的检查以 `encrypted-receipt-capacity-exceeded` 被扣留，而不是让之后的请求失去
+  证明。
+- 其他位置的加密值，以及含有其他字段的 `agent_message` 部分，仍按 `content_unsupported` 处理。
 
 放行只证明值的来源，不代表 Core 检查过其中的明文。PowerContext 网关按会话保存并提交回执。
 

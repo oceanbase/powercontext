@@ -76,13 +76,23 @@ so responses carry encrypted reasoning that later requests replay, and a subagen
 `agent_message` part. Core cannot inspect these values:
 
 - At `before_release`, Core admits the encrypted reasoning in the response. When the request names a conversation, it
-  returns a `receipt` with the digests of those values and of the response's function-call arguments, for that
-  principal, Scope, target and conversation, valid for one hour.
-- At `before_send`, an encrypted value at an admitted position (the `encrypted_content` of a root `reasoning` item,
-  or an `encrypted_content` part of a root `agent_message`) is admitted only when a presented receipt contains its
-  digest. The receipt must have been issued to the request's conversation, or to its `parent_conversation_id`.
-  Otherwise the request is withheld with `encrypted-origin-unverified`.
-- Encrypted values at any other position stay `content_unsupported`.
+  returns a `receipt` for that principal, Scope, target and conversation, valid for one hour. The receipt holds the
+  digests of the response's encrypted values and of the function-call argument values that the checked request's tool
+  definitions declare `"encrypted": true` (Codex declares the task of `spawn_agent` this way). Other argument values
+  are not receipted.
+- At `before_send`, an encrypted value at an admitted position is admitted only when an unexpired presented receipt
+  contains its digest. The positions are the `encrypted_content` of a root `reasoning` item, and an `agent_message`
+  content part whose only fields are `type: "encrypted_content"` and `encrypted_content`. The receipt must have been
+  issued to the request's conversation, or to its `parent_conversation_id`. Otherwise the request is withheld with
+  `encrypted-origin-unverified`.
+- An allowed `before_send` with a conversation also returns one `receipt` that covers exactly the encrypted values the
+  request carried, with a new one-hour validity. It replaces the receipts of that conversation the request presented,
+  so a long conversation presents a constant number of receipts, and a value stays admissible for one hour after its
+  last verified use.
+- One receipt holds at most 1,024 values. A check whose values do not fit is withheld with
+  `encrypted-receipt-capacity-exceeded` rather than leaving a later request without proof.
+- Encrypted values at any other position, and an `agent_message` part with any other field, stay
+  `content_unsupported`.
 
 Admission proves where a value came from, not what it contains: Core has not inspected the plaintext. The PowerContext
 gateway keeps and presents receipts per conversation.

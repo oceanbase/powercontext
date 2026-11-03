@@ -28,7 +28,7 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
-use crate::receipt_store::ReceiptStore;
+use crate::receipt_store::{Presented, ReceiptStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
 use crate::{GateClient, GateError};
@@ -167,7 +167,7 @@ where
             content_headers(&call.headers, payload.content_type),
             payload_body,
         );
-        let check = self.send_check(&call, model_payload);
+        let (check, presented) = self.send_check(&call, model_payload);
 
         let admission = match self.gate.check(check).await {
             Err(e) => {
@@ -196,10 +196,13 @@ where
             }
             Ok(result) => match result.decision {
                 CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
-                    Ok((binding, deadline)) => Admission {
-                        binding,
-                        valid_until_ms: deadline,
-                    },
+                    Ok((binding, deadline)) => {
+                        self.consolidate(&call, &presented, result.receipt);
+                        Admission {
+                            binding,
+                            valid_until_ms: deadline,
+                        }
+                    }
                     Err(outcome) => return outcome,
                 },
                 CheckDecision::Block => {
@@ -249,7 +252,7 @@ where
                             let _ = sent_binding;
                         }
                         // P1-4：重试前重新准入——撤销在这里被看见。
-                        let recheck = self.send_check(
+                        let (recheck, presented) = self.send_check(
                             &call,
                             ModelJsonPayload::new(
                                 content_headers(&call.headers, payload.content_type),
@@ -260,6 +263,7 @@ where
                             Ok(r) if r.decision == CheckDecision::Allow => {
                                 match validate_allow(&r, CheckPhase::BeforeSend) {
                                     Ok((binding, deadline)) => {
+                                        self.consolidate(&call, &presented, r.receipt);
                                         current = Admission {
                                             binding,
                                             valid_until_ms: deadline,
@@ -398,9 +402,13 @@ where
         }
     }
 
-    /// before_send 请求：带上可信会话、父会话，以及它们的加密内容回执。
-    fn send_check(&self, call: &ManagedCall, payload: ModelJsonPayload) -> ContextCheckRequest {
-        let encrypted_receipts = call
+    /// before_send 请求：带上可信会话、父会话，以及它们的加密内容回执；同时返回转交了哪些本会话回执。
+    fn send_check(
+        &self,
+        call: &ManagedCall,
+        payload: ModelJsonPayload,
+    ) -> (ContextCheckRequest, Presented) {
+        let presented = call
             .conversation_id
             .as_deref()
             .map(|conversation| {
@@ -412,7 +420,8 @@ where
                 )
             })
             .unwrap_or_default();
-        ContextCheckRequest::BeforeSend {
+        let encrypted_receipts = presented.receipts.clone();
+        let check = ContextCheckRequest::BeforeSend {
             scope_id: call.scope_id.clone(),
             target_profile: call.target_profile.clone(),
             payload,
@@ -420,6 +429,20 @@ where
             conversation_id: call.conversation_id.clone(),
             parent_conversation_id: call.parent_conversation_id.clone(),
             encrypted_receipts,
+        };
+        (check, presented)
+    }
+
+    /// before_send 放行时 Core 返回的合并回执，替换这次转交的本会话回执。
+    fn consolidate(&self, call: &ManagedCall, presented: &Presented, receipt: Option<String>) {
+        if let (Some(receipt), Some(conversation)) = (receipt, call.conversation_id.as_deref()) {
+            self.receipts.consolidate(
+                &call.scope_id,
+                conversation,
+                &presented.own,
+                receipt,
+                now_ms(),
+            );
         }
     }
 
