@@ -193,7 +193,7 @@ def test_up_prints_prefilled_loki_explore_link(deployment, monkeypatch):
     ]
 
 
-def test_up_prints_prefilled_tempo_explore_link_with_search_tab(deployment, monkeypatch):
+def test_up_prints_prefilled_tempo_explore_link_with_traceql_query(deployment, monkeypatch):
     monkeypatch.setattr("powercontext.observability.cli.docker_command", lambda: "docker")
     monkeypatch.setattr(
         "powercontext.observability.cli.subprocess.run", lambda *a, **kw: subprocess.CompletedProcess(a, 0)
@@ -211,10 +211,10 @@ def test_up_prints_prefilled_tempo_explore_link_with_search_tab(deployment, monk
     tempo_url, tempo_pane = urls[index], panes[index]
     assert tempo_url.startswith("http://127.0.0.1:13000/explore")
     query = tempo_pane["queries"][0]
-    assert query["queryType"] == "traceqlSearch"
+    assert query["queryType"] == "traceql"
     assert query["datasource"] == {"type": "tempo", "uid": "tempo"}
-    assert query["filters"][0]["tag"] == "service.name"
-    assert query["filters"][0]["value"] == ["powercontext-server"]
+    # The prefilled query must already be valid TraceQL; unquoted values are rejected by Tempo.
+    assert query["query"] == '{resource.service.name="powercontext-server"}'
 
 
 def test_up_keeps_long_paths_on_aligned_own_lines(deployment, monkeypatch):

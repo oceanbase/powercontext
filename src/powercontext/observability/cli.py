@@ -198,27 +198,16 @@ def explore_logs_url(state: dict[str, Any]) -> str:
 
 
 def explore_traces_url(state: dict[str, Any]) -> str:
-    """Explore deep link; Grafana provisioning cannot set Explore default queries or tabs."""
+    """TraceQL deep link; search-tab filters lose string quoting when rebuilt from the URL and Tempo rejects them."""
     pane = {
         "datasource": "tempo",
         "queries": [
             {
                 "refId": "A",
                 "datasource": {"type": "tempo", "uid": "tempo"},
-                "queryType": "traceqlSearch",
+                "queryType": "traceql",
                 "limit": 20,
-                "tableType": "traces",
-                "metricsQueryType": "range",
-                "serviceMapUseNativeHistograms": False,
-                "filters": [
-                    {
-                        "id": "service-name",
-                        "operator": "=",
-                        "scope": "span",
-                        "tag": "service.name",
-                        "value": ["powercontext-server"],
-                    }
-                ],
+                "query": '{resource.service.name="powercontext-server"}',
             }
         ],
         "range": {"from": "now-1h", "to": "now"},
@@ -288,6 +277,12 @@ def _row(label: str, value: str, note: str) -> None:
     typer.secho(note, dim=True, color=True)
 
 
+def _status_row(label: str, value: str) -> None:
+    """One colored entry per line; long Explore URLs must not wrap into the label column."""
+    typer.secho(f"  {label:<13}", fg=typer.colors.CYAN, bold=True, nl=False, color=True)
+    typer.secho(value, fg=typer.colors.GREEN, color=True)
+
+
 def _detail(path: Path | str) -> None:
     """Print a long value on its own aligned line; wrapping must not disturb the columns."""
     typer.secho(f"  {'':<9} {path}", dim=True, color=True)
@@ -332,10 +327,11 @@ def status(backend: Backend = None) -> None:
             return
         state = load_state(directory)
         typer.echo(compose(directory, state, "ps", "--all", timeout=20))
-        typer.echo(f"Backend: {state['backend']}; Grafana: http://127.0.0.1:{state['grafana_port']}")
-        typer.echo(f"Loki logs: {explore_logs_url(state)}")
-        typer.echo(f"Tempo traces: {explore_traces_url(state)}")
-        typer.echo(f"Phoenix: http://127.0.0.1:{phoenix_port(state)}")
+        _status_row("Backend", state["backend"])
+        _status_row("Grafana", f"http://127.0.0.1:{state['grafana_port']}")
+        _status_row("Loki logs", explore_logs_url(state))
+        _status_row("Tempo traces", explore_traces_url(state))
+        _status_row("Phoenix", f"http://127.0.0.1:{phoenix_port(state)}")
     except (ObservabilityError, OSError) as error:
         _failure(error)
 
