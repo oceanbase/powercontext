@@ -17,9 +17,9 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import secrets
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -59,29 +59,27 @@ def main() -> None:
         targets[0]["labels"]["role"] = "api"
         targets.append({"targets": [args.background_target], "labels": {"role": "background"}})
     (local / "targets.json").write_text(json.dumps(targets, ensure_ascii=False, indent=2) + "\n")
-    from powercontext.observability.deployment import initialize_statistics
+    from powercontext.observability.deployment import initialize_statistics, telemetry_environment
 
     initialize_statistics(
         local.parent, server_url="http://" + args.target, token=(local / "observe-token").read_text().strip()
     )
-    authorization = base64.b64encode(f"collector:{password}".encode()).decode()
     token = (local / "observe-token").read_text().strip()
     environment = local / "server.env"
     if not environment.exists():
-        environment.write_text(
-            "POWERCONTEXT_SERVER_LOGGING_FORMAT=json\n"
-            "POWERCONTEXT_SERVER_TRACING_ENABLED=true\n"
-            "POWERCONTEXT_SERVER_ACCESS_MODE=enforced\n"
-            f"POWERCONTEXT_SERVER_AUTH_TOKEN={token}\n"
-            "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318\n"
-            f"OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20{authorization}\n"
-            "OTEL_EXPORTER_OTLP_TIMEOUT=2\n"
-            "OTEL_BSP_MAX_QUEUE_SIZE=512\n"
-            "OTEL_BSP_MAX_EXPORT_BATCH_SIZE=128\n"
-            "OTEL_BSP_SCHEDULE_DELAY=1000\n"
-            "OTEL_TRACES_SAMPLER=parentbased_traceidratio\n"
-            "OTEL_TRACES_SAMPLER_ARG=0.1\n"
+        profile = telemetry_environment(
+            log_directory=local / "logs",
+            endpoint="http://127.0.0.1:14318",
+            password=password,
+            api_target=args.target,
+            background_target=args.background_target,
         )
+        profile.update({
+            "POWERCONTEXT_SERVER_LOGGING_FORMAT": "json",
+            "POWERCONTEXT_SERVER_ACCESS_MODE": "enforced",
+            "POWERCONTEXT_SERVER_AUTH_TOKEN": token,
+        })
+        environment.write_text("".join(f"{key}={shlex.quote(value)}\n" for key, value in profile.items()))
         environment.chmod(0o600)
     if args.split:
         split = local / "split.env"

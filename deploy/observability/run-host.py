@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run an isolated host demo with bounded, collector-readable logs."""
+"""Run an isolated host demo with OTLP export and bounded offline audit logs."""
 
 from __future__ import annotations
 
@@ -40,10 +40,10 @@ def main() -> int:
     }
     if args.container:
         environment = dict(os.environ)
-    for line in [] if args.container else (local / "server.env").read_text().splitlines():
-        if line and not line.startswith("#"):
-            key, value = line.split("=", 1)
-            environment[key] = value
+    else:
+        from powercontext.cli.env_file import read_environment_file
+
+        environment.update(read_environment_file(local / "server.env"))
     if not args.container:
         environment.update({
             "POWERCONTEXT_SERVER_DATABASE_KIND": "sqlite",
@@ -73,7 +73,7 @@ def main() -> int:
         return 1
     try:
         for line in process.stdout:
-            # Collector drops non-JSON startup/library output and exports only allowlisted JSON fields.
+            # Keep process output for offline audit; the Server exports allowlisted fields through OTLP.
             with suppress(Exception):
                 handler.emit(logging.LogRecord("server", logging.INFO, "", 0, line.rstrip(), (), None))
         return process.wait()

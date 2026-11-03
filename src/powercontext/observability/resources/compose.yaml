@@ -90,7 +90,7 @@ services:
     - tempo
     - loki
   phoenix:
-    image: arizephoenix/phoenix:20.1.0
+    image: arizephoenix/phoenix:20.1.0@sha256:ba16766ace2aaadd4cda8a8d41c655c6e0eee1b3b5deccda4456184b8636bd22
     restart: unless-stopped
     mem_limit: 1024m
     cpus: 1

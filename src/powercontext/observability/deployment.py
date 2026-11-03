@@ -224,6 +224,34 @@ def initialize_statistics(directory: Path, *, server_url: str, token: str) -> No
     _private_write(local / "stats.env", f"PC_STATS_PROXY_TOKEN={proxy_token}\n")
 
 
+def telemetry_environment(
+    *, log_directory: Path, endpoint: str, password: str, api_target: str, background_target: str | None = None
+) -> dict[str, str]:
+    """Configure correlated traces and logs with bounded authenticated OTLP export."""
+    authorization = base64.b64encode(f"collector:{password}".encode()).decode()
+    return {
+        "POWERCONTEXT_SERVER_TRACING_ENABLED": "true",
+        "POWERCONTEXT_SERVER_LOGGING_DIRECTORY": str(log_directory),
+        "POWERCONTEXT_SERVER_LOGGING_OTLP_ENABLED": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": endpoint,
+        "OTEL_EXPORTER_OTLP_HEADERS": f"Authorization=Basic%20{authorization}",
+        "OTEL_EXPORTER_OTLP_TIMEOUT": "2",
+        "OTEL_BSP_MAX_QUEUE_SIZE": "512",
+        "OTEL_BSP_MAX_EXPORT_BATCH_SIZE": "128",
+        "OTEL_BSP_SCHEDULE_DELAY": "1000",
+        "OTEL_BLRP_MAX_QUEUE_SIZE": "512",
+        "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE": "128",
+        "OTEL_BLRP_SCHEDULE_DELAY": "1000",
+        "OTEL_BLRP_EXPORT_TIMEOUT": "2000",
+        "OTEL_TRACES_SAMPLER": "parentbased_traceidratio",
+        "OTEL_TRACES_SAMPLER_ARG": "0.1",
+        "OTEL_RESOURCE_ATTRIBUTES": (
+            f"powercontext.service.api_target={api_target}"
+            + (f",powercontext.service.background_target={background_target}" if background_target else "")
+        ),
+    }
+
+
 def initialize(
     directory: Path,
     *,
@@ -301,32 +329,13 @@ def initialize(
     if server_mode == "docker":
         _container_configuration(directory, state, manifest, uid=server_uid, gid=server_gid)
     compose_file.write_text(yaml.safe_dump(manifest, sort_keys=False))
-    authorization = base64.b64encode(f"collector:{password}".encode()).decode()
-    profile = {
-        "POWERCONTEXT_SERVER_TRACING_ENABLED": "true",
-        "POWERCONTEXT_SERVER_LOGGING_DIRECTORY": str(local / "logs"),
-        "POWERCONTEXT_SERVER_LOGGING_OTLP_ENABLED": "true",
-        "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{gateway_port}",
-        "OTEL_EXPORTER_OTLP_HEADERS": f"Authorization=Basic%20{authorization}",
-        "OTEL_EXPORTER_OTLP_TIMEOUT": "2",
-        "OTEL_BSP_MAX_QUEUE_SIZE": "512",
-        "OTEL_BSP_MAX_EXPORT_BATCH_SIZE": "128",
-        "OTEL_BSP_SCHEDULE_DELAY": "1000",
-        "OTEL_BLRP_MAX_QUEUE_SIZE": "512",
-        "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE": "128",
-        "OTEL_BLRP_SCHEDULE_DELAY": "1000",
-        "OTEL_BLRP_EXPORT_TIMEOUT": "2000",
-        "OTEL_TRACES_SAMPLER": "parentbased_traceidratio",
-        "OTEL_TRACES_SAMPLER_ARG": "0.1",
-        "OTEL_RESOURCE_ATTRIBUTES": (
-            f"powercontext.service.api_target={metrics_target}"
-            + (
-                f",powercontext.service.background_target={background_metrics_target}"
-                if background_metrics_target
-                else ""
-            )
-        ),
-    }
+    profile = telemetry_environment(
+        log_directory=local / "logs",
+        endpoint=f"http://127.0.0.1:{gateway_port}",
+        password=password,
+        api_target=metrics_target,
+        background_target=background_metrics_target,
+    )
     _private_write(directory / "server.env", "".join(f"{key}={shlex.quote(value)}\n" for key, value in profile.items()))
     profile["POWERCONTEXT_SERVER_LOGGING_DIRECTORY"] = "/var/log/powercontext"
     profile["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://gateway:8080"

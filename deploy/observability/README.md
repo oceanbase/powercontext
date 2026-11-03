@@ -34,6 +34,10 @@ explicit container secret mounts permit container reads; their host parent direc
 into a public directory or publish it. The demonstration's Server token is an administrator; use a dedicated
 `server.observe` Principal when connecting an existing deployment, with `scope.read` for the selected business statistics.
 
+The demo and managed deployment use the same bounded OTLP trace/log profile. If `server.env` already exists,
+ensure it contains `POWERCONTEXT_SERVER_LOGGING_OTLP_ENABLED=true`; initialization preserves that file. The Collector
+receives logs through OTLP, so the JSON audit files alone do not provide Loki correlation.
+
 In a second terminal, verify actual storage queries and correlation:
 
 ```bash
