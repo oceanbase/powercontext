@@ -219,7 +219,7 @@ def test_anthropic_custom_endpoint_uses_standard_environment_api_key(
             assert readiness.checks["inference.generation"] == "ready"
             assert server.requests
             assert server.requests[0]["path"] == "/v1/messages"
-            assert server.requests[0]["headers"]["x-api-key"] == "anthropic-standard-key"
+            assert server.requests[0]["headers"]["authorization"] == "Bearer anthropic-standard-key"
 
     asyncio.run(scenario())
 
@@ -263,7 +263,7 @@ def test_anthropic_custom_endpoint_with_authorization_header_omits_api_key_heade
     asyncio.run(scenario())
 
 
-def test_anthropic_custom_endpoint_with_bearer_header_keeps_environment_api_key(
+def test_anthropic_custom_endpoint_with_bearer_header_overrides_environment_authentication(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -287,7 +287,6 @@ def test_anthropic_custom_endpoint_with_bearer_header_keeps_environment_api_key(
             assert server.requests
             request = server.requests[0]
             assert request["path"] == "/v1/messages"
-            assert request["headers"]["x-api-key"] == "anthropic-standard-key"
             assert request["headers"]["authorization"] == "Bearer gateway-token"
 
     asyncio.run(scenario())

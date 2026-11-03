@@ -90,7 +90,9 @@ try:
     from pydantic_ai.exceptions import (
         ConcurrencyLimitExceeded,
         ModelAPIError,
+        ModelContextWindowExceededError,
         ModelHTTPError,
+        ModelRequestRejectedError,
         UnexpectedModelBehavior,
         UsageLimitExceeded,
         UserError,
@@ -653,13 +655,16 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
                     cause_exception_type=cause_type,
                 ),
             )
+    if isinstance(error, (ModelHTTPError, ModelRequestRejectedError)):
         reason = (
             ProcessingFailureReason.CONTEXT_OVERFLOW
-            if _looks_like_context_overflow(error)
+            if isinstance(error, ModelContextWindowExceededError)
             else ProcessingFailureReason.CONFIGURATION
         )
         return attach_diagnostics(
-            PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}"),
+            PydanticAIConfigurationError(
+                "provider-rejected", detail=f"HTTP {error.status_code}" if isinstance(error, ModelHTTPError) else None
+            ),
             ProcessingDiagnostics(
                 stage=stage,
                 reason=reason,
@@ -709,25 +714,6 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
             ),
         )
     return None
-
-
-def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
-    """Classify only when the provider's own response names a context limit."""
-
-    body = getattr(error, "body", None)
-    text = str(body if isinstance(body, (str, bytes)) else body or "").lower()
-    return any(
-        term in text
-        for term in (
-            "context length",
-            "context window",
-            "maximum context",
-            "too many tokens",
-            "prompt is too long",
-            "input is too long",
-            "token limit",
-        )
-    )
 
 
 __all__ = [

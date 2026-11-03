@@ -21,7 +21,7 @@ import powercontext_pydantic_ai.toolset as toolset_module
 import pytest
 from powercontext_pydantic_ai import PowerContextToolset
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 
 from powercontext.client import TransportError
@@ -121,10 +121,15 @@ def test_toolset_converts_client_failure_to_model_retry(monkeypatch: pytest.Monk
     RecordingClient.reset()
     RecordingClient.search_result = TransportError("/v1/memory/search")
     monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
-    retry_parts: list[RetryPromptPart] = []
+    retry_parts: list[ToolReturnPart] = []
 
     async def respond(messages, _info):
-        retry_parts.extend(part for message in messages for part in message.parts if isinstance(part, RetryPromptPart))
+        retry_parts.extend(
+            part
+            for message in messages
+            for part in message.parts
+            if isinstance(part, ToolReturnPart) and part.outcome == "retried"
+        )
         if retry_parts:
             return ModelResponse(parts=[TextPart("recovered from retry")])
         return ModelResponse(parts=[ToolCallPart("powercontext_search", {"query": "missing"}, "search-failure")])

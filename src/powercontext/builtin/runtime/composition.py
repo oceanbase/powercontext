@@ -2121,14 +2121,14 @@ def _protected_provider_factory(
 ) -> Callable[[str], Provider[Any]]:
     """Own the final transport, including SDK defaults and auxiliary models."""
 
-    import httpx
+    import httpx2
 
     from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
 
     def create(provider_name: str) -> Provider[Any]:
         # Explicit client injection avoids SDK cached clients, redirect behavior,
         # hidden transport retries and provider-side request inspection bypasses.
-        client = httpx.AsyncClient(
+        client = httpx2.AsyncClient(
             transport=ProtectedAsyncTransport(protection),
             follow_redirects=False,
             headers={"Accept-Encoding": "identity"},
@@ -2177,6 +2177,7 @@ def _unbounded_provider_factory(
     workload: Literal["generation", "embedding"],
     resources: AsyncExitStack,
 ) -> Callable[[str], Provider[Any]]:
+    import httpx2
     from pydantic_ai.providers import infer_provider
 
     if base_url is None and not headers:
@@ -2189,7 +2190,7 @@ def _unbounded_provider_factory(
             if headers:
                 from openai import AsyncOpenAI
 
-                http_client = _endpoint_http_client(follow_redirects=False) if base_url is not None else None
+                http_client = httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None
                 client = AsyncOpenAI(
                     base_url=None if base_url is None else str(base_url),
                     api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
@@ -2199,15 +2200,9 @@ def _unbounded_provider_factory(
                 resources.push_async_callback(client.close)
                 return OpenAIProvider(openai_client=client)
             if base_url is not None and _is_loopback_endpoint(base_url):
-                from openai import AsyncOpenAI
-
-                client = AsyncOpenAI(
-                    base_url=str(base_url),
-                    api_key=os.getenv("OPENAI_API_KEY") or "api-key-not-set",
-                    http_client=_endpoint_http_client(follow_redirects=False),
-                )
-                resources.push_async_callback(client.close)
-                return OpenAIProvider(openai_client=client)
+                http_client = httpx2.AsyncClient(follow_redirects=False)
+                resources.push_async_callback(http_client.aclose)
+                return OpenAIProvider(base_url=str(base_url), http_client=http_client)
             return OpenAIProvider(base_url=str(base_url))
         if provider_name == "anthropic" and workload == "generation":
             from anthropic import AsyncAnthropic
@@ -2222,7 +2217,7 @@ def _unbounded_provider_factory(
                     # A configured Authorization header is the credential; gateways may reject any X-Api-Key.
                     api_key=api_key or (None if has_authorization else "api-key-not-set"),
                     default_headers=default_headers,
-                    http_client=_endpoint_http_client(follow_redirects=False) if base_url is not None else None,
+                    http_client=httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None,
                 )
                 resources.push_async_callback(client.close)
                 return AnthropicProvider(anthropic_client=client)
@@ -2233,14 +2228,6 @@ def _unbounded_provider_factory(
         raise BuiltinConfigurationError("inference-endpoint-provider")
 
     return create_provider
-
-
-def _endpoint_http_client(*, follow_redirects: bool):
-    """Create the SDK transport with an explicit redirect policy for custom endpoints."""
-
-    import httpx
-
-    return httpx.AsyncClient(follow_redirects=follow_redirects)
 
 
 def _is_loopback_endpoint(endpoint: AnyHttpUrl | str | None) -> bool:

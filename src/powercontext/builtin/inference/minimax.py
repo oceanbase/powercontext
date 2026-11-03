@@ -30,7 +30,7 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
@@ -66,7 +66,7 @@ class MiniMaxEmbeddingModel:
         profile: EmbeddingProfile,
         batch_size: int = 10,
         timeout_seconds: float = 30.0,
-        http_client: httpx.AsyncClient | None = None,
+        http_client: httpx2.AsyncClient | None = None,
         protection: InferenceProtectionConfig | None = None,
     ) -> None:
         if not model or not model.strip():
@@ -91,14 +91,14 @@ class MiniMaxEmbeddingModel:
 
             if http_client is not None:
                 raise InferenceConfigurationError("protected MiniMax embedding requires an owned HTTP transport")  # noqa: TRY003
-            self._client = httpx.AsyncClient(
+            self._client = httpx2.AsyncClient(
                 timeout=timeout_seconds,
                 transport=ProtectedAsyncTransport(protection),
                 follow_redirects=False,
                 headers={"Accept-Encoding": "identity"},
             )
         else:
-            self._client = http_client or httpx.AsyncClient(timeout=timeout_seconds)
+            self._client = http_client or httpx2.AsyncClient(timeout=timeout_seconds)
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client (registered with the runtime stack)."""
@@ -140,7 +140,7 @@ class MiniMaxEmbeddingModel:
                     cause_exception_type=type(error).__name__,
                 ),
             ) from error
-        except httpx.TimeoutException as error:
+        except httpx2.TimeoutException as error:
             raise attach_diagnostics(
                 InferenceTimeoutError("embed", self._timeout),
                 ProcessingDiagnostics(
@@ -149,7 +149,7 @@ class MiniMaxEmbeddingModel:
                     cause_exception_type=type(error).__name__,
                 ),
             ) from error
-        except httpx.HTTPStatusError as error:
+        except httpx2.HTTPStatusError as error:
             status = error.response.status_code
             if status == 429:
                 reason = ProcessingFailureReason.RATE_LIMIT
@@ -169,7 +169,7 @@ class MiniMaxEmbeddingModel:
                     cause_exception_type=type(error).__name__,
                 ),
             ) from error
-        except httpx.HTTPError as error:
+        except httpx2.HTTPError as error:
             raise attach_diagnostics(
                 InferenceUnavailableError("embed"),
                 ProcessingDiagnostics(

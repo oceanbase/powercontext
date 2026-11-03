@@ -133,6 +133,8 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             request_context,
             messages=_without_powercontext_context(request_context.messages),
         )
+        # Request-only replacements no longer update the history used by later tool steps.
+        ctx.messages[:] = _without_powercontext_context(ctx.messages)
         if not query:
             return request_context
 
@@ -146,6 +148,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             run_id=ctx.run_id,
             conversation_id=ctx.conversation_id,
         )
+        ctx.messages.insert(0, context_request)
         return replace(request_context, messages=[context_request, *request_context.messages])
 
     @override

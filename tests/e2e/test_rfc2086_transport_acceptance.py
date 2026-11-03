@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, cast
 
-import httpx
+import httpx2
 import pytest
 from pydantic import SecretStr
 
@@ -88,7 +88,7 @@ def completion(content: str = "safe") -> bytes:
     }).encode()
 
 
-def protected_client(server: RecordingServer) -> httpx.AsyncClient:
+def protected_client(server: RecordingServer) -> httpx2.AsyncClient:
     target = f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
     config = InferenceProtectionConfig(
         mode="enforcing",
@@ -105,7 +105,7 @@ def protected_client(server: RecordingServer) -> httpx.AsyncClient:
             )
         },
     )
-    return httpx.AsyncClient(
+    return httpx2.AsyncClient(
         transport=ProtectedAsyncTransport(config), base_url=f"http://127.0.0.1:{server.server_port}", timeout=5
     )
 
