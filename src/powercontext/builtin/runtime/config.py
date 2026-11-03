@@ -46,6 +46,7 @@ from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.inference.input_encoding import InputEncodingMode
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig
+from powercontext.builtin.persistence.atomic_memory_index import DEFAULT_ATOMIC_MEMORY_RELATED_MAX_CANDIDATES
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -227,6 +228,13 @@ class RuntimeConfig(BaseModel):
             raise ValueError("recall embedding timeout must be a number")  # noqa: TRY003, TRY004 - Pydantic validation
         return value
 
+    @field_validator("atomic_memory_related_max_candidates", mode="before")
+    @classmethod
+    def reject_boolean_related_max_candidates(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("atomic memory related candidate limits must be integers")  # noqa: TRY003, TRY004 - Pydantic validation
+        return value
+
     @field_validator("recall_fts_weight", "recall_vector_weight", mode="before")
     @classmethod
     def reject_boolean_recall_weight(cls, value: Any) -> Any:
@@ -252,6 +260,9 @@ class RuntimeConfig(BaseModel):
     dream_max_pending_per_scope: int = Field(default=32, ge=1, le=1000)
     atomic_memory_related_mode: Literal["auto", "fts", "vector", "hybrid"] = "auto"
     atomic_memory_related_max_distance: float = Field(default=1.0, ge=0)
+    atomic_memory_related_max_candidates: int | None = Field(
+        default=DEFAULT_ATOMIC_MEMORY_RELATED_MAX_CANDIDATES, ge=1, le=1000
+    )
     atomic_memory_related_fts_fallback: bool = False
     atomic_memory_comparison_batch_size: int = Field(default=20, ge=1)
     atomic_memory_input_tokens_limit: int = Field(default=24000, ge=1)

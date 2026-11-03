@@ -49,6 +49,7 @@ from powercontext.builtin.tags import TagFilter
 
 AtomicMemorySearchMode = Literal["fts", "vector", "hybrid"]
 ATOMIC_MEMORY_RRF_CONSTANT = 60
+DEFAULT_ATOMIC_MEMORY_RELATED_MAX_CANDIDATES = 100
 # Columns of unreleased development layouts; their tables are derived and rebuilt rather than migrated.
 _OBSOLETE_PROJECTION_COLUMNS = frozenset({"read_grants", "owner_type", "owner_id"})
 
@@ -162,7 +163,7 @@ class AtomicMemorySearchRequest:
 
 @dataclass(frozen=True)
 class AtomicMemoryRelatedRequest:
-    """Complete channel enumeration; there is deliberately no candidate limit."""
+    """Complete channel enumeration when ``max_candidates`` is ``None``."""
 
     query: str
     filters: AtomicMemoryIndexFilter
@@ -171,6 +172,7 @@ class AtomicMemoryRelatedRequest:
     embedding_profile: EmbeddingProfile | None = None
     max_distance: float | None = None
     admission: AdmissionFloor | None = None
+    max_candidates: int | None = None
 
 
 class AtomicMemoryIndex(Protocol):
@@ -404,6 +406,45 @@ def atomic_memory_filter_sql(
     return " AND ".join(conditions) or "1 = 1", parameters
 
 
+ATOMIC_MEMORY_AUTHORITY_COLUMNS = (
+    "scope_id",
+    "family",
+    "artifact_id",
+    "revision",
+    "lifecycle_state",
+    "replacement_artifact_id",
+    "merged_into_id",
+    "governance_generation",
+)
+
+
+def atomic_memory_heads_select(body_sql: str, join_guard: str = "") -> str:
+    """Wrap channel rows with the current head fields and body content from one snapshot."""
+
+    authority = ", ".join(f"head.{name} AS authority_{name}" for name in ATOMIC_MEMORY_AUTHORITY_COLUMNS)
+    return (
+        f"SELECT hits.*, {authority}, body.content AS authority_content "  # noqa: S608
+        f"FROM ({body_sql}) AS hits "
+        "LEFT JOIN pc_artifact_heads AS head ON head.scope_id = :scope_id "
+        f"AND head.family = 'atomic-memory' AND head.artifact_id = hits.artifact_id {join_guard}"
+        "LEFT JOIN pc_artifacts AS body ON body.scope_id = head.scope_id "
+        "AND body.family = head.family AND body.artifact_id = head.artifact_id "
+        "AND body.revision = head.revision"
+    )
+
+
+def atomic_memory_heads_from_rows(rows: Any, /) -> dict[str, dict[str, object]]:
+    """Decode authoritative heads, skipping channel rows without a joined head."""
+
+    return {
+        str(row["artifact_id"]): {
+            name: row[f"authority_{name}"] for name in (*ATOMIC_MEMORY_AUTHORITY_COLUMNS, "content")
+        }
+        for row in rows
+        if row["authority_artifact_id"] is not None
+    }
+
+
 def atomic_memory_vector_sql(
     eligibility: str, dialect: Literal["sqlite", "mysql"], /, *, bounded: bool, threshold: bool
 ) -> str:
@@ -554,6 +595,28 @@ def combine_atomic_memory_channels(  # noqa: C901
         replace(hits[identity], score=ranks[identity])
         for identity in sorted(hits, key=lambda identity: (-ranks[identity], identity))
     )
+
+
+def atomic_memory_channel_limit(limit: int | None, /, *, fused: bool) -> int | None:
+    """Fetch one RRF window per channel when fusion can reorder candidates beyond the cap."""
+
+    if limit is None:
+        return None
+    return limit + ATOMIC_MEMORY_RRF_CONSTANT if fused else limit
+
+
+def trim_atomic_memory_related(
+    hits: tuple[AtomicMemoryIndexHit, ...],
+    heads: dict[str, dict[str, object]],
+    limit: int | None,
+) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
+    """Apply the fused candidate cap and drop heads outside the delivered identities."""
+
+    if limit is None:
+        return hits, heads
+    kept = hits[:limit]
+    artifact_ids = {hit.artifact_ref.artifact_id for hit in kept}
+    return kept, {artifact_id: head for artifact_id, head in heads.items() if artifact_id in artifact_ids}
 
 
 class RelationalAtomicMemoryIndex:
@@ -805,9 +868,14 @@ class RelationalAtomicMemoryIndex:
             raise AtomicMemoryIndexError(
                 "threshold", "Complete vector enumeration requires a finite nonnegative L2 threshold"
             )
+        if isinstance(request, AtomicMemoryRelatedRequest) and request.max_candidates is not None:
+            limit = request.max_candidates
+            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+                raise AtomicMemoryIndexError("limit", "Related candidate limit must be a positive integer up to 1000")
 
 
 __all__ = [
+    "ATOMIC_MEMORY_AUTHORITY_COLUMNS",
     "ATOMIC_MEMORY_RRF_CONSTANT",
     "AtomicMemoryIndex",
     "AtomicMemoryIndexCapabilities",
@@ -822,12 +890,16 @@ __all__ = [
     "PreparedAtomicMemoryProjection",
     "RelationalAtomicMemoryIndex",
     "atomic_memory_channel_hits",
+    "atomic_memory_channel_limit",
     "atomic_memory_embedding_input",
     "atomic_memory_embedding_input_hash",
     "atomic_memory_filter_sql",
+    "atomic_memory_heads_from_rows",
+    "atomic_memory_heads_select",
     "atomic_memory_profile_fingerprint",
     "combine_atomic_memory_channels",
     "load_atomic_memory_tags",
     "oceanbase_fts_coverage_sql",
     "sqlite_fts_coverage_sql",
+    "trim_atomic_memory_related",
 ]
