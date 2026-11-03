@@ -86,7 +86,16 @@ def _client_hello(server_name: str) -> bytes:
     return outgoing.read()
 
 
-def _tunnel(proxy_port: int, target: str, server_name: str) -> tuple[str, bytes]:
+def _split_inside_name(record: bytes, kept: str) -> bytes:
+    """Re-encode one ClientHello record as two records, split right after ``kept`` inside the server name."""
+
+    header, payload = record[:5], record[5:]
+    split = payload.index(kept.encode()) + len(kept)
+    first, second = payload[:split], payload[split:]
+    return b"".join(header[:3] + len(part).to_bytes(2, "big") + part for part in (first, second))
+
+
+def _tunnel(proxy_port: int, target: str, server_name: str, *, split_after: str | None = None) -> tuple[str, bytes]:
     """CONNECT to ``target``, send a ClientHello for ``server_name``, and return the status and echoed bytes."""
 
     status, connection = _request(proxy_port, f"CONNECT {target} HTTP/1.1\r\n\r\n".encode())
@@ -94,6 +103,8 @@ def _tunnel(proxy_port: int, target: str, server_name: str) -> tuple[str, bytes]
     with connection:
         if status.endswith("200 Connection Established"):
             hello = _client_hello(server_name)
+            if split_after is not None:
+                hello = _split_inside_name(hello, split_after)
             connection.sendall(hello)
             while len(echoed) < len(hello):
                 chunk = connection.recv(65536)
@@ -159,6 +170,25 @@ def test_a_tunnel_whose_tls_server_name_differs_from_the_connect_host_is_closed(
         assert connection.recv(1024) == b"", "a tunnel that does not start with TLS is closed"
     assert instance.decisions() == [
         {"phase": "agent", "host": "localhost (sni mismatch)", "allowed": False, "connections": 2},
+    ]
+
+
+def test_a_server_name_split_across_tls_records_is_read_in_full(
+    proxy: tuple[AllowlistProxy, int], echo_port: int
+) -> None:
+    instance, port = proxy
+    instance.allow("agent", frozenset({"localhost"}))
+    # The record boundary falls right after the allowed prefix of a longer, forbidden name.
+    status, echoed = _tunnel(port, f"localhost:{echo_port}", "localhost.evil.example.com", split_after="localhost")
+    assert status.endswith("200 Connection Established")
+    assert echoed == b"", "the reassembled name is checked, not its first fragment"
+    # A legitimate ClientHello split inside its name is reassembled and forwarded as both records.
+    status, echoed = _tunnel(port, f"localhost:{echo_port}", "localhost", split_after="local")
+    assert status.endswith("200 Connection Established")
+    assert echoed
+    assert instance.decisions() == [
+        {"phase": "agent", "host": "localhost", "allowed": True, "connections": 1},
+        {"phase": "agent", "host": "localhost (sni mismatch)", "allowed": False, "connections": 1},
     ]
 
 

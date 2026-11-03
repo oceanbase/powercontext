@@ -248,8 +248,8 @@ class AllowlistProxy:
             return await _reply(writer, b"403 Forbidden")
         writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         await writer.drain()
-        hello = await asyncio.wait_for(_read_client_hello(reader), timeout=_HEADER_SECONDS)
-        if hello is None or _server_name(hello) != host:
+        client_hello = await asyncio.wait_for(_read_client_hello(reader), timeout=_HEADER_SECONDS)
+        if client_hello is None or _server_name(client_hello[1]) != host:
             self._record(phase, f"{host} (sni mismatch)", False)
             return None
         self._record(phase, host, True)
@@ -257,7 +257,7 @@ class AllowlistProxy:
             asyncio.open_connection(host, int(port_text)), timeout=_CONNECT_SECONDS
         )
         try:
-            upstream_writer.write(hello)
+            upstream_writer.write(client_hello[0])
             await upstream_writer.drain()
             await asyncio.gather(_pipe(reader, upstream_writer), _pipe(upstream_reader, writer))
         finally:
@@ -265,38 +265,90 @@ class AllowlistProxy:
         return None
 
 
-async def _read_client_hello(reader: asyncio.StreamReader) -> bytes | None:
-    """The client's first TLS record, which must carry a complete ClientHello."""
+async def _read_client_hello(reader: asyncio.StreamReader) -> tuple[bytes, bytes] | None:
+    """Read TLS handshake records until the ClientHello is complete.
 
-    header = await reader.readexactly(5)
-    length = int.from_bytes(header[3:5], "big")
-    if header[0] != 0x16 or length > _MAX_CLIENT_HELLO_BYTES:
-        return None
-    return header + await reader.readexactly(length)
+    Returns the raw records, to forward unchanged, and the reassembled handshake message. A ClientHello may span
+    several records, and its server name must be read from the complete message: otherwise a name split at a record
+    boundary could be checked by its prefix alone.
+    """
+
+    records = bytearray()
+    handshake = bytearray()
+    while True:
+        header = await reader.readexactly(5)
+        length = int.from_bytes(header[3:5], "big")
+        if header[0] != 0x16 or len(records) + 5 + length > _MAX_CLIENT_HELLO_BYTES:
+            return None
+        payload = await reader.readexactly(length)
+        records += header + payload
+        handshake += payload
+        if len(handshake) >= 4:
+            needed = 4 + int.from_bytes(handshake[1:4], "big")
+            if needed > _MAX_CLIENT_HELLO_BYTES:
+                return None
+            if len(handshake) >= needed:
+                return bytes(records), bytes(handshake[:needed])
 
 
-def _server_name(record: bytes) -> str | None:
-    """The host name from the server_name extension of a ClientHello record, lower-cased."""
+class _Truncated(ValueError):
+    """A declared length runs past the end of its enclosing field."""
+
+
+class _Fields:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._position = 0
+
+    def take(self, size: int) -> bytes:
+        end = self._position + size
+        if end > len(self._data):
+            raise _Truncated
+        value = self._data[self._position : end]
+        self._position = end
+        return value
+
+    def number(self, size: int) -> int:
+        return int.from_bytes(self.take(size), "big")
+
+    def vector(self, length_size: int) -> bytes:
+        return self.take(self.number(length_size))
+
+    def done(self) -> bool:
+        return self._position == len(self._data)
+
+
+def _server_name(handshake: bytes) -> str | None:
+    """The host name of a complete ClientHello, lower-cased; ``None`` when it is absent or any field is malformed."""
 
     try:
-        body = memoryview(record)[5:]
-        if body[0] != 0x01:
+        message = _Fields(handshake)
+        if message.number(1) != 0x01:
             return None
-        position = 4 + 2 + 32  # handshake header, client version, random
-        position += 1 + body[position]  # session id
-        position += 2 + int.from_bytes(body[position : position + 2], "big")  # cipher suites
-        position += 1 + body[position]  # compression methods
-        end = position + 2 + int.from_bytes(body[position : position + 2], "big")
-        position += 2
-        while position + 4 <= end:
-            kind = int.from_bytes(body[position : position + 2], "big")
-            size = int.from_bytes(body[position + 2 : position + 4], "big")
-            data = body[position + 4 : position + 4 + size]
-            if kind == 0 and data[2] == 0:  # server_name list with one host_name entry
-                name_length = int.from_bytes(data[3:5], "big")
-                return bytes(data[5 : 5 + name_length]).decode("ascii").lower()
-            position += 4 + size
-    except (IndexError, UnicodeDecodeError):
+        hello = _Fields(message.vector(3))
+        if not message.done():
+            return None
+        hello.take(2 + 32)  # client version, random
+        hello.vector(1)  # session id
+        hello.vector(2)  # cipher suites
+        hello.vector(1)  # compression methods
+        extensions = _Fields(hello.vector(2))
+        if not hello.done():
+            return None
+        while not extensions.done():
+            kind = extensions.number(2)
+            data = extensions.vector(2)
+            if kind != 0:
+                continue
+            names = _Fields(data)
+            listed = _Fields(names.vector(2))
+            if not names.done() or listed.number(1) != 0:
+                return None
+            name = listed.vector(2)
+            if not listed.done():
+                return None
+            return name.decode("ascii").lower()
+    except (_Truncated, UnicodeDecodeError):
         return None
     return None
 
