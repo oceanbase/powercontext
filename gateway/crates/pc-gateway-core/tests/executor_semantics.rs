@@ -2105,9 +2105,9 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
         ],
         2,
     );
-    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
     for capture_prefix in [true, false] {
         let mut c = tool_loop_call("fix the bug", 0, true);
+        c.inject_context = false;
         c.sediment = true;
         c.capture_prefix = capture_prefix;
         c.parent_conversation_id = Some("conversation-parent".into());
@@ -2131,21 +2131,11 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
         .to_owned();
     let prefix = executor.prefix(&handle, "project:test").unwrap();
     assert_eq!(prefix.conversation_id, "conversation-a");
-    // 抽取请求沿用原请求的准入上下文：注入块的绑定与位置、父会话。
+    // 抽取请求沿用原请求的父会话，子代理任务凭父会话的回执放行。
     assert_eq!(
         prefix.parent_conversation_id.as_deref(),
         Some("conversation-parent")
     );
-    let sent: serde_json::Value =
-        serde_json::from_slice(&transport.sends.lock().unwrap()[0]).unwrap();
-    let [prepared] = prefix.prepared_contexts.as_slice() else {
-        panic!("one injected block: {:?}", prefix.prepared_contexts);
-    };
-    let injected = sent
-        .pointer(&prepared.location.pointer)
-        .and_then(|text| text.as_str())
-        .unwrap();
-    assert!(injected.len() as u64 >= prepared.location.end_byte);
     assert_eq!(prefix.target_profile, "openai:test");
     assert_eq!(
         prefix.request_body,
@@ -2157,6 +2147,63 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
     // 前缀规模取自终止响应的用量，供 Core 判断复用前缀是否更便宜。
     assert_eq!(metadata[0].as_ref().unwrap()["prefix_input_tokens"], 10);
     assert_eq!(metadata[0].as_ref().unwrap()["prefix_output_tokens"], 2);
+}
+
+#[tokio::test]
+async fn a_turn_the_source_does_not_fully_represent_keeps_no_prefix() {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(3),
+        (0..3).map(|_| responses_output(output.clone())).collect(),
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let image =
+        serde_json::json!({"type": "input_image", "image_url": "https://example.com/a.png"});
+    let long = "x".repeat(crate_max_field_bytes() + 1);
+    for case in ["injected", "image", "truncated"] {
+        let mut c = tool_loop_call(
+            if case == "truncated" {
+                &long
+            } else {
+                "fix the bug"
+            },
+            0,
+            true,
+        );
+        c.sediment = true;
+        c.capture_prefix = true;
+        c.inject_context = case == "injected";
+        if case == "image" {
+            c.request.messages[0].content.push(image.clone());
+        }
+        let outcome = executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }), "{case}");
+    }
+    // 注入的记忆块、Source 无法呈现的图片、截断的文本都不在 Source 里：不保留前缀，Core 走普通抽取。
+    for (case, metadata) in ["injected", "image", "truncated"]
+        .iter()
+        .zip(gate.captured_metadata.lock().unwrap().iter())
+    {
+        assert!(
+            metadata.as_ref().unwrap().get("prefix_handle").is_none(),
+            "{case}"
+        );
+    }
+}
+
+/// 规范化记录中单个字段的字节上限（与 transcript 模块一致）。
+fn crate_max_field_bytes() -> usize {
+    8 * 1024
 }
 
 #[tokio::test]

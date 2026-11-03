@@ -246,6 +246,8 @@ enforcing 模式的 Server 要求每个生成请求都设置输出上限，而�
 - **网关：** 设置 `PC_GATEWAY_PREFIX_EXTRACTION=on`，并开启沉淀（`PC_GATEWAY_SEDIMENT=on`）。对 Responses 会话，网关
   在内存中保留每个回合终止响应对应的、实际发出的请求及其响应输出，最多 30 分钟、最多 64 个回合，并在沉淀的 Source
   元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
+  只有沉淀的 Source 完整呈现了模型将读到的整个回合时才保留前缀：没有注入记忆，没有字段被截断或步骤被省略，也不含
+  图片、文件、服务商内置工具调用或无法识别的条目。其他回合走普通抽取。
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
   将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为
   `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`。仍需配置生成模型，因为普通抽取是回退路径。

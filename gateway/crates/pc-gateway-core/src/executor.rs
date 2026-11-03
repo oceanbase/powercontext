@@ -31,7 +31,7 @@
 use crate::prefix_store::{PrefixEntry, PrefixStore};
 use crate::receipt_store::{Presented, ReceiptStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
-use crate::transcript::turn_transcript;
+use crate::transcript::{represents_turn, turn_transcript};
 use crate::{GateClient, GateError};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
@@ -369,12 +369,25 @@ where
                             "kind": "gateway_turn",
                             "target_profile": call.target_profile,
                         });
-                        if let Some(prefix) = self.keep_prefix(
-                            &call,
-                            &payload.bytes,
-                            &release_body,
-                            renderer.message_list_key(),
-                        ) {
+                        // 只有 Source 完整呈现了模型将看到的这一回合时才保留前缀：注入的记忆块、截断或省略的内容
+                        // 都不在 Source 里，不能被当作这一回合的证据。
+                        let represented = call.prepared_contexts.is_empty()
+                            && represents_turn(
+                                &pristine_request,
+                                &transcript,
+                                renderer.message_list_key(),
+                            );
+                        if let Some(prefix) = represented
+                            .then(|| {
+                                self.keep_prefix(
+                                    &call,
+                                    &payload.bytes,
+                                    &release_body,
+                                    renderer.message_list_key(),
+                                )
+                            })
+                            .flatten()
+                        {
                             for (key, value) in prefix {
                                 metadata[key] = value;
                             }
@@ -455,7 +468,6 @@ where
                 target_profile: call.target_profile.clone(),
                 conversation_id,
                 parent_conversation_id: call.parent_conversation_id.clone(),
-                prepared_contexts: call.prepared_contexts.clone(),
                 request_body: sent.clone(),
                 response_output,
             },

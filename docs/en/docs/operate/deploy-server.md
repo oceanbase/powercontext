@@ -274,7 +274,10 @@ needs both sides:
   conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
   memory, for at most 30 minutes and at most 64 turns. It records an opaque handle in the captured Source's metadata,
   with the input and output token counts of that final response.
-  The request and response never enter the Source, evidence, or logs.
+  The request and response never enter the Source, evidence, or logs. A prefix is kept only when the captured Source
+  represents the whole turn the model would read: no memory was injected into it, no field was truncated or step
+  omitted, and it holds no images, files, provider-hosted tool calls, or unrecognized items. Other turns use normal
+  extraction.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
