@@ -15,7 +15,7 @@
  */
 
 
-import { createHash } from "node:crypto";
+import { createHash, type Hash } from "node:crypto";
 import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 function textBlocks(message: unknown): { role: string; text: string } | undefined {
@@ -67,15 +67,73 @@ export function captureTranscript(messages: unknown[], maxChars: number): string
   return undefined;
 }
 
+function updateCanonicalHash(digest: Hash, value: unknown, ancestors = new Set<object>()): void {
+  if (value === null) {
+    digest.update("null;");
+    return;
+  }
+  if (typeof value === "string") {
+    digest.update(`string:${value.length}:`).update(value).update(";");
+    return;
+  }
+  if (typeof value !== "object") {
+    const normalized = typeof value === "number" && !Number.isFinite(value) ? String(value) : value;
+    digest.update(`${typeof value}:`).update(JSON.stringify(normalized) ?? String(normalized)).update(";");
+    return;
+  }
+  if (ancestors.has(value)) {
+    digest.update("circular;");
+    return;
+  }
+
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    digest.update("array:[");
+    for (const item of value) {
+      updateCanonicalHash(digest, item, ancestors);
+    }
+    digest.update("];");
+  } else {
+    digest.update("object:{");
+    const record = value as Record<string, unknown>;
+    for (const key of Object.keys(record).sort()) {
+      digest.update(`key:${key.length}:`).update(key).update(";");
+      updateCanonicalHash(digest, record[key], ancestors);
+    }
+    digest.update("};");
+  }
+  ancestors.delete(value);
+}
+
+export function lifecycleEventIdentity(
+  messages: unknown[],
+  marker: { runId?: string; messageCount?: number; compactingCount?: number } = {},
+): string {
+  if (marker.runId) {
+    return createHash("sha256").update("run\0").update(marker.runId).digest("hex");
+  }
+  const digest = createHash("sha256")
+    .update("compaction\0")
+    .update(String(marker.messageCount ?? messages.length))
+    .update("\0")
+    .update(marker.compactingCount === undefined ? "" : String(marker.compactingCount))
+    .update("\0");
+  updateCanonicalHash(digest, messages);
+  return digest.digest("hex");
+}
+
 export function deterministicSourceId(params: {
   agentId: string;
   opaqueSessionId?: string;
+  eventIdentity: string;
   content: string;
 }): string {
   const digest = createHash("sha256")
     .update(params.agentId)
     .update("\0")
     .update(params.opaqueSessionId ?? "")
+    .update("\0")
+    .update(params.eventIdentity)
     .update("\0")
     .update(params.content)
     .digest("hex");

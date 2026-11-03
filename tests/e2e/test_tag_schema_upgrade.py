@@ -30,11 +30,15 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy.engine import make_url
 
+from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
+from powercontext.builtin.persistence.migrations.pinned import finish, pinned
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 
 @asynccontextmanager
@@ -70,6 +74,9 @@ def test_real_legacy_tags_survive_repeated_server_startup(backend, topic_family,
                 auth=BearerAuthConfig(enabled=False),
                 access=AccessControlConfig(mode="disabled"),
                 mcp=McpConfig(enabled=False),
+            )
+            await asyncio.to_thread(
+                prepare_server_database, settings, evidence_dir=tmp_path / "server-migration-evidence"
             )
 
             @asynccontextmanager
@@ -115,6 +122,21 @@ def test_real_legacy_tags_survive_repeated_server_startup(backend, topic_family,
                     "ALTER TABLE pc_artifact_tags ADD CONSTRAINT "
                     f"ck_pc_artifact_tags_family CHECK (family IN ({families}))"
                 )
+
+            def upgrade_tags():
+                def apply(connection, identity, guard):
+                    assert connection is not None
+                    guard()
+                    finish(ensure_topic_memory_tag_schema(pinned(connection)))
+                    connection.commit()
+
+                MaintenanceConnections(
+                    database,
+                    evidence_directory=tmp_path / "tag-maintenance-evidence",
+                    lock_coordination="single-host" if isinstance(database, OceanBaseConfig) else None,
+                ).run(apply, writable=True)
+
+            await asyncio.to_thread(upgrade_tags)
 
             # First startup still never uses Topic Memory; the second tests retry.
             for restart in range(2):

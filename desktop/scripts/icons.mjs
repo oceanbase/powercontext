@@ -41,14 +41,28 @@ execFileSync(
   ],
   { stdio: "pipe" },
 );
-for (const name of ["brand.png", "icon.png", "icon.ico"]) {
+// ICNS encodes a map of image chunks; chunk order is not stable across CLI runs.
+function canonicalIcon(bytes) {
+  const chunks = [];
+  for (let offset = 8; offset < bytes.length; ) {
+    const size = bytes.readUInt32BE(offset + 4);
+    if (size < 8 || offset + size > bytes.length)
+      throw new Error("Invalid ICNS chunk");
+    chunks.push(bytes.subarray(offset, offset + size));
+    offset += size;
+  }
+  return Buffer.concat([bytes.subarray(0, 8), ...chunks.sort(Buffer.compare)]);
+}
+for (const name of ["brand.png", "icon.png", "icon.ico", "icon.icns"]) {
   const expected =
     name === "brand.png"
       ? brand
       : await readFile(new URL("derived/" + name, temporary));
   const destination = new URL(name, output);
   if (process.argv.includes("--check")) {
-    if (!(await readFile(destination)).equals(expected))
+    const actual = await readFile(destination);
+    const normalize = name === "icon.icns" ? canonicalIcon : (bytes) => bytes;
+    if (!normalize(actual).equals(normalize(expected)))
       throw new Error("Brand resource drift: " + name);
   } else {
     await writeFile(destination, expected);

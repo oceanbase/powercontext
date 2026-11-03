@@ -15,13 +15,13 @@
  */
 
 //! Opt-in native test. Stores only a synthetic marker under a unique test ID, then removes it.
-use powercontext_desktop::credentials::{CredentialId, Secret, Vault, WindowsVault};
+use powercontext_desktop::credentials::{CredentialId, NativeVault, Secret, Vault};
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).is_some_and(|s| s == "read") {
         let id = CredentialId::new(args[2].clone()).unwrap();
         // Loading a valid secret after process restart proves it remained in the OS vault.
-        WindowsVault
+        NativeVault
             .read(&id)
             .expect("native credential read failed");
         return;
@@ -32,7 +32,7 @@ fn main() {
         .as_nanos();
     let name = format!("s1-probe-{}-{nonce}", std::process::id());
     let id = CredentialId::new(name.clone()).unwrap();
-    WindowsVault
+    NativeVault
         .put(
             &id,
             &Secret::new("synthetic-s1-credential-only".into()).unwrap(),
@@ -41,12 +41,12 @@ fn main() {
     let result = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["read", &name])
         .status();
-    let cleanup = WindowsVault.delete(&id);
+    let cleanup = NativeVault.delete(&id);
     cleanup.expect("test credential cleanup failed");
     assert!(result.unwrap().success(), "child read failed");
     assert!(
-        WindowsVault.read(&id).is_err(),
+        NativeVault.read(&id).is_err(),
         "test credential was not removed"
     );
-    println!("PASS: Windows vault write, new-process read, delete; no secret returned.");
+    println!("PASS: Native vault write, new-process read, delete; no secret returned.");
 }

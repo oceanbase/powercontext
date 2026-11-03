@@ -44,6 +44,8 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
 from powercontext.builtin.code.models import CodeConfig
 from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
+from powercontext.builtin.inference.input_encoding import InputEncodingMode
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -51,6 +53,9 @@ from powercontext.builtin.runtime._scope_cache import DEFAULT_SCOPE_CACHE_SIZE
 from powercontext.builtin.runtime.decision_policy import DecisionPolicyMode, DecisionPrivacyBoundary
 
 _HTTP_FIELD_NAME_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+InputEncodingOperation = Literal[
+    "atomic_memory.extract", "atomic_memory.reconcile", "experience.generate", "experience.incubate"
+]
 _RECALL_GATE_BASE_MIN_SEMANTIC_SIMILARITY = 0.3
 _RECALL_GATE_ROUND1_ORDER_ERROR = (
     "recall_gate_round1_min_semantic_similarity must be less than or equal to the round-zero floor"
@@ -180,11 +185,12 @@ class RuntimeConfig(BaseModel):
     recall_gate_allow_with_rerank: bool = False
     recall_fts_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
     recall_vector_weight: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
-    # Budget for embedding the query in each Atomic Memory or Topic Memory search of a context preparation. A
-    # preparation searches the Scope and each context reference in turn, so the waits add up inside the Hook
-    # request; when a budget expires, that search continues with lexical matching only. A remote embedding
-    # provider needs more than the default.
-    recall_embedding_timeout_seconds: float = Field(default=0.25, gt=0.0, le=60.0, allow_inf_nan=False)
+    # Budget for waiting on query embeddings in one context preparation. The Atomic Memory searches of the Scope and
+    # each context reference and the Topic Memory search share it, and only their waits are charged, so database reads
+    # and reranking in between do not take a later search's share; a search that finds it spent continues with lexical
+    # matching only. The default covers a typical remote embedding round trip and leaves the rest of a one-second Hook
+    # request to the other work.
+    recall_embedding_timeout_seconds: float = Field(default=0.5, gt=0.0, le=60.0, allow_inf_nan=False)
     profile_schedule_enabled: bool = False
     profile_cron: str = "0 2 * * *"
     profile_timezone: str = "Asia/Shanghai"
@@ -308,12 +314,18 @@ class InferenceConfig(BaseModel):
 
     model_config = ConfigDict(hide_input_in_errors=True)
 
+    protection: InferenceProtectionConfig = Field(default_factory=InferenceProtectionConfig)
+    atomic_memory_input_encoding: InputEncodingMode = "off"
+    input_encoding: dict[InputEncodingOperation, InputEncodingMode] = Field(default_factory=dict)
+
     generation_model: str | None = None
     generation_base_url: AnyHttpUrl | None = None
     generation_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
     generation_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     generation_timeout_seconds: float = Field(default=30.0, gt=0)
     generation_max_requests: int = Field(default=2, ge=1)
+    generation_streaming: Literal["auto", "disabled"] = "disabled"
+    generation_stream_idle_timeout_seconds: float = Field(default=60.0, gt=0)
     generation_model_context_window_tokens: int = Field(default=125_000, ge=1)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None
@@ -337,6 +349,14 @@ class InferenceConfig(BaseModel):
     decision_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     decision_timeout_seconds: float | None = Field(default=None, gt=0)
     decision_max_requests: int | None = Field(default=None, ge=1)
+
+    def input_encoding_mode(self, operation: InputEncodingOperation) -> InputEncodingMode:
+        """Explicit stage settings override the legacy Atomic Memory default."""
+        if operation in self.input_encoding:
+            return self.input_encoding[operation]
+        if operation in {"atomic_memory.extract", "atomic_memory.reconcile"}:
+            return self.atomic_memory_input_encoding
+        return "off"
 
     @field_validator("generation_model", "embedding_model", "embedding_profile_id", "rerank_model", "decision_model")
     @classmethod

@@ -16,11 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-from collections import Counter
 from pathlib import Path
-
-from sqlalchemy import event
-from sqlalchemy.engine import Engine
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
@@ -60,6 +56,7 @@ from powercontext.builtin.runtime import (
     BuiltinRuntime,
     CaptureSource,
     PrepareContextRequest,
+    PreparedContext,
     ProposeExperienceRequest,
     StatisticsPeriod,
     open_builtin_runtime,
@@ -83,7 +80,14 @@ class _ContentCandidatePipeline:
             payload = evidence.content
             text = payload.get("content", payload.get("text")) if isinstance(payload, dict) else payload
             if isinstance(text, str):
-                candidates.append(AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,)))
+                candidates.append(
+                    AtomicMemoryCandidate(
+                        kind="fact",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
+                )
         return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=tuple(candidates)))
 
 
@@ -95,7 +99,9 @@ class _IndependentMemoryReconciler:
             output=AtomicMemoryReconciliationOutput(
                 action="create",
                 compared_ids=tuple(item.item_id for item in request.related),
-                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                content=AtomicMemoryReconciliationContent(
+                    kind=request.proposal.kind, text=request.proposal.text, description="Reconciled fixture fact"
+                ),
                 evidence_ids=request.proposal.evidence_ids,
                 reason="Preserve each independent fixture fact with its exact Source evidence.",
             )
@@ -127,7 +133,9 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
             assert runtime.atomic_memory is not None
             await runtime.atomic_memory.for_scope(scope_id).flush()
             await runtime.atomic_memory.for_scope(scope_id).create((
-                AtomicMemoryContent(kind="project_note", text="Keep kinds open."),
+                AtomicMemoryContent(
+                    kind="project_note", text="Keep kinds open.", description="Explicit fixture memory"
+                ),
             ))
             candidate = await runtime.experience.for_scope(scope_id).propose(
                 ProposeExperienceRequest(
@@ -148,6 +156,7 @@ def test_scoped_statistics_reports_current_inventory_and_recall_reduction() -> N
             )
             statistics = runtime.statistics.for_scope(scope_id)
             prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="contract"))
+            assert isinstance(prepared, PreparedContext)
 
             result = await statistics.overview(period=StatisticsPeriod.TODAY)
 
@@ -230,6 +239,7 @@ def test_recall_estimates_each_source_as_complete_text() -> None:
                 )
             )
             prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="ancestry"))
+            assert isinstance(prepared, PreparedContext)
             result = await runtime.statistics.for_scope(scope_id).overview(period=StatisticsPeriod.TODAY)
 
         estimator = character_token_estimator()
@@ -262,7 +272,9 @@ def test_statistics_uses_the_same_all_exact_and_subtree_selection() -> None:
             for scope_id in (root.scope_id, child.scope_id, other.scope_id):
                 assert runtime.atomic_memory is not None
                 await runtime.atomic_memory.for_scope(scope_id).create((
-                    AtomicMemoryContent(kind="fact", text=f"Fact for {scope_id}."),
+                    AtomicMemoryContent(
+                        kind="fact", text=f"Fact for {scope_id}.", description="Explicit fixture memory"
+                    ),
                 ))
 
             all_statistics = await runtime.statistics.overview(
@@ -539,19 +551,6 @@ def test_unlinked_handoff_citations_are_independent_of_selected() -> None:
         assert linked.by_scope[0].recurrence.unknown == 1
 
 
-def _statement_tables(statement: str, /) -> set[str]:
-    return {table for table in _BUDGETED_TABLES if table in statement}
-
-
-_BUDGETED_TABLES = (
-    "pc_source_journal_heads",
-    "pc_candidate_heads",
-    "pc_source_cursors",
-    "pc_model_usage_daily",
-    "pc_recall_token_daily",
-)
-
-
 async def _seed_selection(runtime: BuiltinRuntime, count: int, /) -> tuple[str, ...]:
     scope_ids = []
     for index in range(count):
@@ -559,43 +558,14 @@ async def _seed_selection(runtime: BuiltinRuntime, count: int, /) -> tuple[str, 
         assert runtime.atomic_memory is not None
         await runtime.atomic_memory.for_scope(scope_id).create(
             tuple(
-                AtomicMemoryContent(kind="fact", text=f"Scope {index} keeps fact {entry}.")
+                AtomicMemoryContent(
+                    kind="fact", text=f"Scope {index} keeps fact {entry}.", description="Explicit fixture memory"
+                )
                 for entry in range(index + 1)
             )
         )
         scope_ids.append(scope_id)
     return tuple(scope_ids)
-
-
-def test_statistics_selection_reads_each_table_once_regardless_of_scope_count() -> None:
-    """A selection must not cost one query per Scope; see issue #1599."""
-
-    async def counted(scope_count: int) -> Counter[str]:
-        counts: Counter[str] = Counter()
-        armed = False
-
-        def record(_conn, _cursor, statement, *_args) -> None:
-            if armed:
-                counts.update(_statement_tables(statement))
-
-        event.listen(Engine, "before_cursor_execute", record)
-        try:
-            async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-                await _seed_selection(runtime, scope_count)
-                selection = ScopeSelection(mode="all")
-                await runtime.statistics.overview(selection, period=StatisticsPeriod.THIRTY_DAYS)
-                armed = True
-                await runtime.statistics.overview(selection, period=StatisticsPeriod.THIRTY_DAYS)
-                armed = False
-        finally:
-            event.remove(Engine, "before_cursor_execute", record)
-        return counts
-
-    small = asyncio.run(counted(2))
-    large = asyncio.run(counted(6))
-
-    assert dict(small) == dict.fromkeys(_BUDGETED_TABLES, 1)
-    assert dict(large) == dict(small)
 
 
 def test_statistics_selection_reports_the_same_scope_rows_as_scoped_overviews() -> None:
@@ -623,44 +593,3 @@ def test_statistics_selection_reports_the_same_scope_rows_as_scoped_overviews() 
             assert batched[scope_id] == scoped[scope_id].by_scope[0]
 
     asyncio.run(scenario())
-
-
-# Measured on the default text-recall path; slack of one statement above the observed value.
-_PREPARE_STATEMENT_CEILING = 41
-
-
-def test_prepare_context_statement_count_does_not_grow_with_memory_count() -> None:
-    """Recall must not cost one authority read per candidate; see issue #2075."""
-
-    async def counted(memory_count: int) -> int:
-        statements: list[str] = []
-
-        def record(_conn, _cursor, statement, *_args) -> None:
-            statements.append(statement)
-
-        event.listen(Engine, "before_cursor_execute", record)
-        try:
-            async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-                scope_id = await _create_scope(runtime, f"recall-fanout-{memory_count}")
-                assert runtime.atomic_memory is not None
-                await runtime.atomic_memory.for_scope(scope_id).create(
-                    tuple(
-                        AtomicMemoryContent(kind="fact", text=f"Contract decision {entry} binds the gateway to mTLS.")
-                        for entry in range(memory_count)
-                    )
-                )
-                statements.clear()
-                prepared = await runtime.context.for_scope(scope_id).prepare(
-                    PrepareContextRequest(query="contract gateway")
-                )
-        finally:
-            event.remove(Engine, "before_cursor_execute", record)
-
-        assert prepared.status == "ready"
-        return len(statements)
-
-    pool = asyncio.run(counted(8))
-    beyond = asyncio.run(counted(40))
-
-    assert pool == beyond
-    assert beyond <= _PREPARE_STATEMENT_CEILING

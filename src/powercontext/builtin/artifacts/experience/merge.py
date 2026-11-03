@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -73,6 +74,16 @@ class ExperienceMergeAdapter:
         if type(experience) is not Experience or prepared != experience_searchable_text(experience.content):
             raise ArtifactMergeRelationError("Experience projection does not match its exact content")  # noqa: TRY003
         await self.index.replace(connection, scope_id, experience)
+
+    async def publish_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        records: Sequence[tuple[ArtifactMergeRecord, Any]],
+        execution_context: Any,
+    ) -> None:
+        for record, prepared in records:
+            await self.publish(connection, scope_id, record, prepared, execution_context)
 
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None:
         await self.index.remove(connection, scope_id, artifact_id)

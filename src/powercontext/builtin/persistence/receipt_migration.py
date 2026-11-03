@@ -73,7 +73,7 @@ async def migrate_handoff_receipts(  # noqa: C901 - Keep receipt classification 
                 async with connection.stream(statement.execution_options(yield_per=1)) as result:
                     async for row in result.mappings():
                         seen.add(row["source_id"])
-                        source = sources._decode_row(row).value
+                        source = sources.decode_source(row).value
                         if isinstance(source, ContentSource):
                             identity = (row["scope_id"], row["source_id"])
                             if source.handoff_receipt:

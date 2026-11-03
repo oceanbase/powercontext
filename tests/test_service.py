@@ -793,6 +793,23 @@ def test_service_install_accepts_a_private_environment_file(
     assert adapter.definition.env_file.path == str(environment)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="UDS listeners are supported on Unix platforms")
+def test_service_install_rejects_uds_before_registering_or_starting(tmp_path: Path) -> None:
+    environment = tmp_path / "powercontext.env"
+    content = "POWERCONTEXT_SERVER_HTTP_UDS=/run/powercontext/core.sock\n"
+    environment.write_text(content, encoding="utf-8")
+    environment.chmod(0o600)
+    adapter = FakeAdapter(tmp_path)
+
+    with pytest.raises(ServiceError, match="require a TCP Server listener") as raised:
+        ServiceController(adapter).install(env_file=environment)
+
+    assert raised.value.exit_code == 2
+    assert adapter.events == []
+    assert adapter.definition is None
+    assert environment.read_text(encoding="utf-8") == content
+
+
 def test_service_install_does_not_inherit_an_unrecorded_shell_data_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1850,6 +1867,29 @@ def test_service_launcher_hands_control_to_the_foreground_server_runner(
     assert run_server.call_args.args[0].http.port == 8000
 
 
+@pytest.mark.skipif(os.name == "nt", reason="UDS listeners are supported on Unix platforms")
+def test_service_launcher_rejects_uds_before_probing_or_starting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    environment = tmp_path / "powercontext.env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_UDS=/run/powercontext/core.sock\n", encoding="utf-8")
+    environment.chmod(0o600)
+    definition = _definition(tmp_path, env_file=load_protected_environment_file(environment).identity)
+    probe = Mock()
+    run_server = Mock()
+    monkeypatch.setattr(service_launcher, "probe_server", probe)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
+
+    exit_code = service_launcher.main(definition.launcher_arguments()[3:])
+
+    assert exit_code == 1
+    assert "require a TCP Server listener" in caplog.text
+    probe.assert_not_called()
+    run_server.assert_not_called()
+
+
 def test_service_launcher_pins_the_recorded_data_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1931,6 +1971,35 @@ def test_service_launcher_can_redirect_server_output_to_owned_log_files(
     assert exit_code == 0
     assert stdout_path.read_text(encoding="utf-8") == "server output\n"
     assert stderr_path.read_text(encoding="utf-8") == "server error\n"
+
+
+@pytest.mark.parametrize("file_enabled", [True, False])
+def test_service_launcher_uses_bounded_file_logging_for_redirected_output(tmp_path, monkeypatch, file_enabled) -> None:
+    observed = []
+    environment = tmp_path / "service.env"
+    values = "POWERCONTEXT_SERVER_LOGGING_FORMAT=json\n" if file_enabled else "POWERCONTEXT_SERVER_LOGGING_FILE=false\n"
+    environment.write_text(values, encoding="utf-8")
+    environment.chmod(0o600)
+    _secure_windows_file(environment)
+    definition = _definition(
+        tmp_path, data_dir=str(tmp_path), env_file=load_protected_environment_file(environment).identity
+    )
+    monkeypatch.setattr(
+        service_launcher, "probe_server", lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening")
+    )
+    monkeypatch.setattr(
+        "powercontext.server.cli._run_configured_server", lambda settings: observed.append(settings.logging)
+    )
+    assert (
+        service_launcher.main([
+            *definition.launcher_arguments()[3:],
+            "--stdout",
+            str(tmp_path / "logs" / "server.stdout.log"),
+        ])
+        == 0
+    )
+    assert observed[0].file == file_enabled
+    assert observed[0].directory == tmp_path / "logs"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="launchd bootstrap retry state is POSIX-specific")

@@ -65,6 +65,7 @@ from powercontext.server.authz.composition import open_builtin_access_control, o
 from powercontext.server.authz.service import AccessControlService
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 ADMIN = PrincipalRef(type="service", id="admin")
 VIEWER = PrincipalRef(type="user", id="viewer")
@@ -111,7 +112,7 @@ async def _isolated_database(backend: str, tmp_path: Path) -> AsyncIterator[Data
         if importlib.util.find_spec("pylibseekdb") is None:
             pytest.skip("install powercontext[seekdb] for the real embedded backend")
         # Keep the embedded engine's Unix socket within sockaddr_un's limit.
-        with TemporaryDirectory(prefix="pc-search-", dir="/tmp") as directory:
+        with TemporaryDirectory(prefix="pc-search-", dir="/var/tmp") as directory:
             yield SeekDBConfig(path=Path(directory) / "db")
         return
     configured_url = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
@@ -131,16 +132,23 @@ async def _isolated_database(backend: str, tmp_path: Path) -> AsyncIterator[Data
 
 @asynccontextmanager
 async def _server(database: DatabaseConfig, provider: str, tmp_path: Path, embedding: _Embedding):
+    settings = ServerSettings(
+        database=database,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        access=AccessControlConfig(mode="enforced", deployment_id=DEPLOYMENT_ID),
+        metrics=MetricsConfig(enabled=False),
+        mcp=McpConfig(enabled=False),
+    )
+    await asyncio.to_thread(
+        prepare_server_database,
+        settings,
+        evidence_dir=tmp_path / "migration-evidence",
+        embedding_profile=embedding.profile,
+    )
     open_access = open_builtin_access_control if provider == "builtin" else open_casbin_access_control
     async with open_access(database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT_ID) as access:
         app = create_server_app(
-            settings=ServerSettings(
-                database=database,
-                runtime=RuntimeConfig(artifact_processing_families=()),
-                access=AccessControlConfig(mode="enforced", deployment_id=DEPLOYMENT_ID),
-                metrics=MetricsConfig(enabled=False),
-                mcp=McpConfig(enabled=False),
-            ),
+            settings=settings,
             scheduler_path=tmp_path / "scheduler.db",
             access_control=access,
             authentication_provider=_Authentication(),

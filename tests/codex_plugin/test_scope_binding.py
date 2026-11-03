@@ -17,7 +17,9 @@ from __future__ import annotations
 import io
 import json
 import sys
+from http.client import BadStatusLine, HTTPMessage
 from types import ModuleType
+from urllib.error import HTTPError
 
 import pytest
 
@@ -267,33 +269,169 @@ def test_pre_tool_hook_limits_handoff_report_to_the_bound_scope(
     }
 
 
-def test_pre_tool_hook_denies_data_plane_when_binding_is_unavailable(
+def _hook_payload() -> str:
+    return json.dumps({
+        "hook_event_name": "PreToolUse",
+        "session_id": "session-a",
+        "cwd": "/workspace",
+        "tool_name": "mcp__powercontext__search_memory",
+        "tool_input": {"query": "current state"},
+    })
+
+
+def _run_hook(
     bind_tools_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fail(*_args, **_kwargs):
-        raise bind_tools_module.ScopeBindingError
-
-    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", fail)
-    monkeypatch.setattr(
-        sys,
-        "stdin",
-        io.StringIO(
-            json.dumps({
-                "hook_event_name": "PreToolUse",
-                "session_id": "session-a",
-                "cwd": "/workspace",
-                "tool_name": "mcp__powercontext__search_memory",
-                "tool_input": {"query": "current state"},
-            })
-        ),
-    )
+) -> dict[str, object]:
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_hook_payload()))
     output = io.StringIO()
     monkeypatch.setattr(sys, "stdout", output)
 
     assert bind_tools_module.main() == 0
-    result = json.loads(output.getvalue())["hookSpecificOutput"]
+    return json.loads(output.getvalue())["hookSpecificOutput"]
+
+
+def _run_denied_binding_hook(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> dict[str, object]:
+    def fail(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(bind_tools_module, "resolve_scope_id", fail)
+    return _run_hook(bind_tools_module, monkeypatch)
+
+
+def test_pre_tool_hook_denies_data_plane_when_binding_is_unavailable(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_denied_binding_hook(
+        bind_tools_module,
+        monkeypatch,
+        bind_tools_module.ScopeBindingError(),
+    )
+
     assert result["permissionDecision"] == "deny"
+    assert result["permissionDecisionReason"] == bind_tools_module._BINDING_FAILURE_REASON
+
+
+def test_pre_tool_hook_names_authentication_failure(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_denied_binding_hook(
+        bind_tools_module,
+        monkeypatch,
+        bind_tools_module.ScopeBindingRejectedError(),
+    )
+
+    assert result["permissionDecision"] == "deny"
+    assert result["permissionDecisionReason"] == bind_tools_module._AUTHENTICATION_FAILURE_REASON
+    assert "401" in str(result["permissionDecisionReason"])
+
+
+def test_pre_tool_hook_names_missing_permission_for_a_denied_credential(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_denied_binding_hook(
+        bind_tools_module,
+        monkeypatch,
+        bind_tools_module.ScopeBindingStatusError(403, "/v1/scope-bindings/resolve"),
+    )
+
+    assert result["permissionDecision"] == "deny"
+    assert result["permissionDecisionReason"] == bind_tools_module._AUTHORIZATION_DENIED_REASON
+    assert "lacks permission" in str(result["permissionDecisionReason"])
+    assert "403" in str(result["permissionDecisionReason"])
+
+
+def test_pre_tool_hook_keeps_the_binding_reason_for_a_transport_failure(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scope_binding = sys.modules["scope_binding"]
+    result = _run_denied_binding_hook(
+        bind_tools_module,
+        monkeypatch,
+        scope_binding.ScopeBindingUnavailableError(),
+    )
+
+    assert result["permissionDecision"] == "deny"
+    assert result["permissionDecisionReason"] == bind_tools_module._BINDING_FAILURE_REASON
+
+
+def test_pre_tool_hook_keeps_the_binding_reason_for_a_protocol_failure(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_denied_binding_hook(
+        bind_tools_module,
+        monkeypatch,
+        BadStatusLine("SSH-2.0-OpenSSH_9.6"),
+    )
+
+    assert result["permissionDecision"] == "deny"
+    assert result["permissionDecisionReason"] == bind_tools_module._BINDING_FAILURE_REASON
+
+
+def test_pre_tool_hook_keeps_the_binding_reason_for_an_unclassified_status(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_denied_binding_hook(
+        bind_tools_module,
+        monkeypatch,
+        bind_tools_module.ScopeBindingStatusError(500, "/v1/scope-bindings/resolve"),
+    )
+
+    assert result["permissionDecision"] == "deny"
+    assert result["permissionDecisionReason"] == bind_tools_module._BINDING_FAILURE_REASON
+
+
+@pytest.mark.parametrize(
+    ("status", "reason_attribute"),
+    [
+        (401, "_AUTHENTICATION_FAILURE_REASON"),
+        (403, "_AUTHORIZATION_DENIED_REASON"),
+    ],
+)
+def test_pre_tool_hook_classifies_the_scope_service_status(
+    status: int,
+    reason_attribute: str,
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scope_binding = sys.modules["scope_binding"]
+
+    def fail(*_args, **_kwargs):
+        raise HTTPError(
+            "http://server/v1/scope-bindings/resolve",
+            status,
+            "error",
+            HTTPMessage(),
+            io.BytesIO(b"{}"),
+        )
+
+    monkeypatch.setattr(scope_binding, "open_bounded", fail)
+    result = _run_hook(bind_tools_module, monkeypatch)
+
+    assert result["permissionDecision"] == "deny"
+    assert result["permissionDecisionReason"] == getattr(bind_tools_module, reason_attribute)
+
+
+def test_pre_tool_hook_ignores_non_object_stdin(
+    bind_tools_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "stdin", io.StringIO("[]"))
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert bind_tools_module.main() == 0
+    assert output.getvalue() == ""
 
 
 class _CliSettings:

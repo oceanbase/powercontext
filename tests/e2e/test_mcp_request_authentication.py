@@ -61,6 +61,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.settings import AccessControlConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 ALICE = PrincipalRef(type="user", id="alice")
 BOB = PrincipalRef(type="user", id="bob")
@@ -356,6 +357,8 @@ def test_mcp_tcp_requests_survive_other_listener_shutdown(overlap: bool) -> None
 def test_mcp_client_writes_reconnects_and_preserves_memory_after_server_restart(tmp_path: Path) -> None:
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+        settings = ServerSettings(database=database, access=AccessControlConfig(mode="enforced"))
+        await asyncio.to_thread(prepare_server_database, settings)
         authentication = _AuthenticationProvider()
         authentication.identities["Bearer alice-token"] = AuthenticationResult(subject=ALICE)
         auth = _SwitchableAuth()
@@ -364,7 +367,7 @@ def test_mcp_client_writes_reconnects_and_preserves_memory_after_server_restart(
 
             def server_app() -> FastAPI:
                 return create_server_app(
-                    settings=ServerSettings(database=database, access=AccessControlConfig(mode="enforced")),
+                    settings=settings,
                     scheduler_path=tmp_path / "scheduler.db",
                     access_control=access,
                     authentication_provider=authentication,

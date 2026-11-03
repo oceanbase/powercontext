@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import HandoffReportConfig
@@ -150,3 +152,39 @@ def _commit_handoff(client: TestClient, scope_id: str, *, disposition: str) -> d
     )
     assert committed.status_code == 200
     return committed.json()["reference"]
+
+
+def test_handoff_report_statement_count_does_not_grow_with_scope_count(tmp_path) -> None:
+    """A selection must not read each Scope's Handoff separately."""
+
+    def counted(scope_count: int) -> tuple[int, int]:
+        app = create_server_app(
+            settings=ServerSettings(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / f'report-{scope_count}.db'}"),
+                handoff_report=HandoffReportConfig(enabled=True),
+                mcp=McpConfig(enabled=False),
+            )
+        )
+        statements: list[str] = []
+
+        def record(_conn, _cursor, statement, *_args) -> None:
+            statements.append(statement)
+
+        with TestClient(app) as client:
+            for index in range(scope_count):
+                scope_id = _create_scope(client, title=f"Scope {index}", key=f"batch-{scope_count}-{index}")
+                _commit_handoff(client, scope_id, disposition="continuable")
+            event.listen(Engine, "before_cursor_execute", record)
+            try:
+                response = client.post(
+                    "/v1/handoff-reports/get",
+                    json={"selection": {"mode": "all"}, "format": "json"},
+                )
+            finally:
+                event.remove(Engine, "before_cursor_execute", record)
+        assert response.status_code == 200
+        return len(response.json()["report"]["scope_ids"]), len(statements)
+
+    selected, statements = counted(16)
+
+    assert statements <= 2 * selected + 3

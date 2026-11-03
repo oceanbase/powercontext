@@ -319,15 +319,21 @@ def _database_config(settings: ServerSettings, output_directory: Path, backend: 
 
 
 def _oceanbase_target(url: URL) -> dict[str, Any]:
+    """Fingerprint the connection target; only the URL path selects the database."""
     if any(not isinstance(value, str) for value in url.query.values()):
         raise ValueError("OceanBase URL query parameters must not be repeated")  # noqa: TRY003
     if {key.casefold() for key in url.query} & {"read_default_file", "read_default_group", "sql_mode"}:
         raise ValueError("OceanBase external defaults and SQL mode overrides are not supported for resumable runs")  # noqa: TRY003
+    if {key.casefold() for key in url.query} & {"db", "database"}:
+        raise ValueError(  # noqa: TRY003
+            "OceanBase selects its database in the URL path; db and database query parameters are not supported"
+        )
     try:
-        # URL query values override the translated authority/path in the installed dialect.
+        # The dialect translates the URL; query parameters can only override the
+        # connection authority, never the database, which is always the URL path.
         _, options = AsyncOceanBaseDialect().create_connect_args(url)
         username = options.get("user")
-        database = options.get("db")
+        database = url.database
         host = options.get("host")
         port = int(options.get("port", 3306))
         if (

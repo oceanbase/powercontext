@@ -22,6 +22,8 @@ from powercontext.http._generated.models import (
     ArtifactCreated,
     ArtifactHandleBinding,
     ArtifactPage,
+    ArtifactPluginPage,
+    ArtifactPluginState,
     ArtifactPublication,
     ArtifactRevision,
     ArtifactRevisionPage,
@@ -45,6 +47,8 @@ from powercontext.http._generated.models import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureWorkingNoteRequest,
+    ChangeArtifactPluginStateRequest,
+    CheckContextRequest,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CodeQueryRequest,
@@ -53,6 +57,7 @@ from powercontext.http._generated.models import (
     CommitHandoffRequest,
     CommittedHandoff,
     ConnectorCheckpointState,
+    ContextCheckResult,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
@@ -66,6 +71,7 @@ from powercontext.http._generated.models import (
     DownloadRemoteSkillPackageRequest,
     DreamRun,
     DreamRunPage,
+    EnableAllArtifactPluginsResponse,
     EnrollRemoteSkillTargetRequest,
     ExperienceArtifact,
     ExternalSkillResolution,
@@ -126,6 +132,7 @@ from powercontext.http._generated.models import (
     MemoryMutationResponse,
     MergeAtomicMemoryRequest,
     PrepareContextRequest,
+    PrepareContextResult,
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
@@ -142,6 +149,8 @@ from powercontext.http._generated.models import (
     PutProfilePolicyRequest,
     QueryArtifactTagsRequest,
     ReadinessResponse,
+    RecallManifestRequest,
+    RecallManifestResponse,
     ReconcileRemoteSkillsRequest,
     ReconcileRemoteSkillsResponse,
     RecordBootstrapDeliveryRequest,
@@ -150,6 +159,7 @@ from powercontext.http._generated.models import (
     RecordTaskOutcomeRequest,
     RegisterSourceDefinitionRequest,
     RejectCandidateRequest,
+    ReloadArtifactPluginRequest,
     RememberMemoryRequest,
     RemoteSkillPublication,
     RemoteSkillReceiptResponse,
@@ -191,10 +201,28 @@ from powercontext.http._generated.models import (
     SkillGovernance,
     SkillPackageDownload,
     SkillPackageManifest,
+    SourceAddRequest,
+    SourceCapabilityQuery,
+    SourceCapabilityResponse,
+    SourceChannelOpen,
+    SourceChannelRequest,
+    SourceChannelResponse,
+    SourceConfigureRequest,
     SourceDefinitionManifest,
+    SourceInstanceExchangeRequest,
+    SourceInstanceExchangeResponse,
+    SourceInstanceSetEnabledRequest,
+    SourceInstancesQuery,
+    SourceInstancesResponse,
+    SourceInstanceStatus,
+    SourceManagementReceipt,
     SourceObservationReceipt,
     SourcePage,
     SourceRecord,
+    SourceStatusRequest,
+    SourceTargetSetEnabledRequest,
+    SourceWritePluginLoadRequest,
+    SourceWritePluginState,
     SubmitSourceObservationRequest,
     TopicMemoryArtifact,
     TopicMemoryProcessingBlock,
@@ -209,7 +237,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.4.0"
+API_VERSION = "1.5.0"
 FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
     "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
     "scope.selection": {
@@ -248,6 +276,32 @@ class AccessRequirement(BaseModel):
     scope_id_field: str | None
     resolver: str
 
+
+GET_RECALL_MANIFEST = Operation[RecallManifestRequest, RecallManifestResponse](
+    method="POST",
+    path="/v1/recall/manifest",
+    operation_id="get_recall_manifest",
+    request_type=RecallManifestRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=RecallManifestResponse,
+    success_status=200,
+    summary="Read a bounded metadata-only recall manifest",
+    tags=("atomic-memory",),
+    scope_mode="current",
+    responses={
+        200: {"description": "Operation completed."},
+        400: {"$ref": "#/components/responses/InvalidRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
 
 LIST_ATOMIC_MEMORIES = Operation[ListAtomicMemoryRequest, ListAtomicMemoryResponse](
     method="POST",
@@ -620,6 +674,181 @@ GET_SERVER_INFO = Operation[None, ServerInfo](
         503: {"$ref": "#/components/responses/Unavailable"},
     },
     access=AccessRequirement(action="server.observe", resource="server", scope_id_field=None, resolver="static"),
+)
+
+LIST_ARTIFACT_PLUGINS = Operation[None, ArtifactPluginPage](
+    method="GET",
+    path="/v1/admin/artifact-plugins",
+    operation_id="list_artifact_plugins",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=ArtifactPluginPage,
+    success_status=200,
+    summary="List Artifact plugin registrations",
+    tags=("artifact-plugins",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Durable registration states."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+GET_ARTIFACT_PLUGIN = Operation[None, ArtifactPluginState](
+    method="GET",
+    path="/v1/admin/artifact-plugins/{binding_name}",
+    operation_id="get_artifact_plugin",
+    request_type=None,
+    request_location=None,
+    path_parameters=("binding_name",),
+    response_type=ArtifactPluginState,
+    success_status=200,
+    summary="Get an Artifact plugin registration",
+    tags=("artifact-plugins",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Durable registration state without plugin configuration secrets."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+ENABLE_ALL_ARTIFACT_PLUGINS = Operation[None, EnableAllArtifactPluginsResponse](
+    method="POST",
+    path="/v1/admin/artifact-plugins/enable-all",
+    operation_id="enable_all_artifact_plugins",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=EnableAllArtifactPluginsResponse,
+    success_status=200,
+    summary="Enable the currently disabled Artifact plugins",
+    tags=("artifact-plugins",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Per-plugin acceptance, skip or failure results."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+RELOAD_ARTIFACT_PLUGIN = Operation[ReloadArtifactPluginRequest, ArtifactPluginState](
+    method="POST",
+    path="/v1/admin/artifact-plugins/{binding_name}/reload",
+    operation_id="reload_artifact_plugin",
+    request_type=ReloadArtifactPluginRequest,
+    request_location="body",
+    path_parameters=("binding_name",),
+    response_type=ArtifactPluginState,
+    success_status=202,
+    summary="Load or update a Worker-loaded Artifact plugin",
+    tags=("artifact-plugins",),
+    scope_mode="none",
+    responses={
+        202: {
+            "description": "Definition saved; poll its registration state until transition completes.",
+            "headers": {"Location": {"description": "Registration status URL.", "schema": {"type": "string"}}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+ENABLE_ARTIFACT_PLUGIN = Operation[ChangeArtifactPluginStateRequest, ArtifactPluginState](
+    method="POST",
+    path="/v1/admin/artifact-plugins/{binding_name}/enable",
+    operation_id="enable_artifact_plugin",
+    request_type=ChangeArtifactPluginStateRequest,
+    request_location="body",
+    path_parameters=("binding_name",),
+    response_type=ArtifactPluginState,
+    success_status=202,
+    summary="Enable an Artifact plugin",
+    tags=("artifact-plugins",),
+    scope_mode="none",
+    responses={
+        202: {
+            "description": "Target saved; poll its registration state until transition completes.",
+            "headers": {"Location": {"description": "Registration status URL.", "schema": {"type": "string"}}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+DISABLE_ARTIFACT_PLUGIN = Operation[ChangeArtifactPluginStateRequest, ArtifactPluginState](
+    method="POST",
+    path="/v1/admin/artifact-plugins/{binding_name}/disable",
+    operation_id="disable_artifact_plugin",
+    request_type=ChangeArtifactPluginStateRequest,
+    request_location="body",
+    path_parameters=("binding_name",),
+    response_type=ArtifactPluginState,
+    success_status=202,
+    summary="Disable an Artifact plugin",
+    tags=("artifact-plugins",),
+    scope_mode="none",
+    responses={
+        202: {
+            "description": "Target saved; poll its registration state until transition completes.",
+            "headers": {"Location": {"description": "Registration status URL.", "schema": {"type": "string"}}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+UNLOAD_ARTIFACT_PLUGIN = Operation[ChangeArtifactPluginStateRequest, ArtifactPluginState](
+    method="POST",
+    path="/v1/admin/artifact-plugins/{binding_name}/unload",
+    operation_id="unload_artifact_plugin",
+    request_type=ChangeArtifactPluginStateRequest,
+    request_location="body",
+    path_parameters=("binding_name",),
+    response_type=ArtifactPluginState,
+    success_status=202,
+    summary="Unload an Artifact plugin",
+    tags=("artifact-plugins",),
+    scope_mode="none",
+    responses={
+        202: {
+            "description": "Target saved; poll its registration state until transition completes.",
+            "headers": {"Location": {"description": "Registration status URL.", "schema": {"type": "string"}}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
 )
 
 GET_CAPABILITIES = Operation[None, Capabilities](
@@ -1088,14 +1317,14 @@ QUERY_CODE = Operation[CodeQueryRequest, CodeQueryResponse](
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
+PREPARE_CONTEXT = Operation[PrepareContextRequest, PrepareContextResult](
     method="POST",
     path="/v1/context/prepare",
     operation_id="prepare_context",
     request_type=PrepareContextRequest,
     request_location="body",
     path_parameters=(),
-    response_type=PreparedContext,
+    response_type=PrepareContextResult,
     success_status=200,
     summary="Prepare bounded context for an Agent turn",
     tags=("context",),
@@ -1107,6 +1336,33 @@ PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+CHECK_CONTEXT = Operation[CheckContextRequest, ContextCheckResult](
+    method="POST",
+    path="/v1/context/check",
+    operation_id="check_context",
+    request_type=CheckContextRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ContextCheckResult,
+    success_status=200,
+    summary="Check a final model request or complete raw response",
+    tags=("context",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "A phase-specific allow, block, or withhold decision; HTTP success alone is not approval.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        413: {"description": "The complete payload exceeds the configured admission limit."},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
@@ -3620,4 +3876,363 @@ LIST_ACCESS_AUDIT = Operation[ListAccessAuditRequest, AccessAuditPage](
         503: {"$ref": "#/components/responses/Unavailable"},
     },
     access=AccessRequirement(action="access.self", resource="server", scope_id_field=None, resolver="static"),
+)
+
+PC_SOURCE_CAPABILITIES = Operation[SourceCapabilityQuery, SourceCapabilityResponse](
+    method="POST",
+    path="/v1/source-management/capabilities",
+    operation_id="pc_source_capabilities",
+    request_type=SourceCapabilityQuery,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceCapabilityResponse,
+    success_status=200,
+    summary="pc source capabilities",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Confirmed Source management result."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+PC_SOURCE_ADD = Operation[SourceAddRequest, SourceManagementReceipt](
+    method="POST",
+    path="/v1/source-management/add",
+    operation_id="pc_source_add",
+    request_type=SourceAddRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceManagementReceipt,
+    success_status=200,
+    summary="pc source add",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Confirmed Source management result."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
+)
+
+PC_SOURCE_STATUS = Operation[SourceStatusRequest, SourceManagementReceipt](
+    method="POST",
+    path="/v1/source-management/status",
+    operation_id="pc_source_status",
+    request_type=SourceStatusRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceManagementReceipt,
+    success_status=200,
+    summary="pc source status",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Confirmed Source management result."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="source_status_access"),
+)
+
+PC_SOURCE_TARGET_SET_ENABLED = Operation[SourceTargetSetEnabledRequest, SourceManagementReceipt](
+    method="POST",
+    path="/v1/source-management/target-set-enabled",
+    operation_id="pc_source_target_set_enabled",
+    request_type=SourceTargetSetEnabledRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceManagementReceipt,
+    success_status=200,
+    summary="Stop or resume a collect target",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Confirmed Source management result."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
+)
+
+PC_SOURCE_INSTANCES = Operation[SourceInstancesQuery, SourceInstancesResponse](
+    method="POST",
+    path="/v1/source-management/instances",
+    operation_id="pc_source_instances",
+    request_type=SourceInstancesQuery,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceInstancesResponse,
+    success_status=200,
+    summary="pc source instances",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Confirmed Source management result."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="source_instances_access"),
+)
+
+PC_SOURCE_INSTANCE_SET_ENABLED = Operation[SourceInstanceSetEnabledRequest, SourceInstanceStatus](
+    method="POST",
+    path="/v1/source-management/instance-set-enabled",
+    operation_id="pc_source_instance_set_enabled",
+    request_type=SourceInstanceSetEnabledRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceInstanceStatus,
+    success_status=200,
+    summary="pc source instance set enabled",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Confirmed Source management result."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+SOURCE_CONFIGURE = Operation[SourceConfigureRequest, SourceInstanceStatus](
+    method="POST",
+    path="/v1/source-management/configure",
+    operation_id="source_configure",
+    request_type=SourceConfigureRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceInstanceStatus,
+    success_status=200,
+    summary="source configure",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Confirmed Source management result."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+LOAD_SOURCE_WRITE_PLUGIN = Operation[SourceWritePluginLoadRequest, SourceWritePluginState](
+    method="POST",
+    path="/v1/source-management/write/load",
+    operation_id="load_source_write_plugin",
+    request_type=SourceWritePluginLoadRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceWritePluginState,
+    success_status=200,
+    summary="Load a trusted Server-local Source write plugin",
+    tags=("source-management",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The Server has loaded and persisted the executable write capabilities."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="server.admin", resource="server", scope_id_field=None, resolver="static"),
+)
+
+SOURCE_CHANNEL_OPEN = Operation[SourceChannelOpen, SourceChannelResponse](
+    method="POST",
+    path="/v1/source-management/channel/open",
+    operation_id="source_channel_open",
+    request_type=SourceChannelOpen,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceChannelResponse,
+    success_status=200,
+    summary="Source manager reverse channel open",
+    tags=("source-management-channel",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Channel exchange."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action=None, resource=None, scope_id_field=None, resolver="source_management_channel_access"
+    ),
+)
+
+SOURCE_CHANNEL_CATALOG = Operation[SourceChannelRequest, SourceChannelResponse](
+    method="POST",
+    path="/v1/source-management/channel/catalog",
+    operation_id="source_channel_catalog",
+    request_type=SourceChannelRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceChannelResponse,
+    success_status=200,
+    summary="Source manager reverse channel catalog",
+    tags=("source-management-channel",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Channel exchange."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action=None, resource=None, scope_id_field=None, resolver="source_management_channel_access"
+    ),
+)
+
+SOURCE_CHANNEL_POLL = Operation[SourceChannelRequest, SourceChannelResponse](
+    method="POST",
+    path="/v1/source-management/channel/poll",
+    operation_id="source_channel_poll",
+    request_type=SourceChannelRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceChannelResponse,
+    success_status=200,
+    summary="Source manager reverse channel poll",
+    tags=("source-management-channel",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Channel exchange."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action=None, resource=None, scope_id_field=None, resolver="source_management_channel_access"
+    ),
+)
+
+SOURCE_CHANNEL_REPLY = Operation[SourceChannelRequest, SourceChannelResponse](
+    method="POST",
+    path="/v1/source-management/channel/reply",
+    operation_id="source_channel_reply",
+    request_type=SourceChannelRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceChannelResponse,
+    success_status=200,
+    summary="Source manager reverse channel reply",
+    tags=("source-management-channel",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Channel exchange."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action=None, resource=None, scope_id_field=None, resolver="source_management_channel_access"
+    ),
+)
+
+SOURCE_CHANNEL_CLOSE = Operation[SourceChannelRequest, SourceChannelResponse](
+    method="POST",
+    path="/v1/source-management/channel/close",
+    operation_id="source_channel_close",
+    request_type=SourceChannelRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=SourceChannelResponse,
+    success_status=200,
+    summary="Source manager reverse channel close",
+    tags=("source-management-channel",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Channel exchange."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action=None, resource=None, scope_id_field=None, resolver="source_management_channel_access"
+    ),
+)
+
+SOURCE_INSTANCE_EXCHANGE = Operation[SourceInstanceExchangeRequest, SourceInstanceExchangeResponse](
+    method="POST",
+    path="/v1/source-management/instances/{instance_id}/{operation}",
+    operation_id="source_instance_exchange",
+    request_type=SourceInstanceExchangeRequest,
+    request_location="body",
+    path_parameters=("instance_id", "operation"),
+    response_type=SourceInstanceExchangeResponse,
+    success_status=200,
+    summary="Authenticated instance control, permission checks and durable result exchange",
+    tags=("source-management-instance",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Instance control exchange."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action=None, resource=None, scope_id_field=None, resolver="source_instance_channel_access"
+    ),
 )

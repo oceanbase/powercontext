@@ -369,44 +369,6 @@ pub enum ShareUnit {
     MemoryEntry,
 }
 
-#[derive(
-    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
-)]
-pub enum ArtifactReadFamily {
-    #[serde(rename = "memory")]
-    #[default]
-    Memory,
-    #[serde(rename = "atomic-memory")]
-    AtomicMemory,
-    #[serde(rename = "experience")]
-    Experience,
-    #[serde(rename = "skill")]
-    Skill,
-    #[serde(rename = "handoff")]
-    Handoff,
-    #[serde(rename = "profile")]
-    Profile,
-    #[serde(rename = "prompt")]
-    Prompt,
-    #[serde(rename = "topic-memory")]
-    TopicMemory,
-}
-
-impl std::fmt::Display for ArtifactReadFamily {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Memory => write!(f, "memory"),
-            Self::AtomicMemory => write!(f, "atomic-memory"),
-            Self::Experience => write!(f, "experience"),
-            Self::Skill => write!(f, "skill"),
-            Self::Handoff => write!(f, "handoff"),
-            Self::Profile => write!(f, "profile"),
-            Self::Prompt => write!(f, "prompt"),
-            Self::TopicMemory => write!(f, "topic-memory"),
-        }
-    }
-}
-
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactReference {
@@ -435,9 +397,19 @@ pub struct ArtifactRevision {
     #[serde(rename = "scope_id")]
     pub scope_id: String,
     #[serde(rename = "family")]
-    pub family: ArtifactReadFamily,
+    pub family: String,
     #[serde(rename = "artifact_id")]
     pub artifact_id: String,
+    /// Persisted schema version for a custom Artifact family.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "schema_version",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub schema_version: Option<Option<String>>,
     #[serde(rename = "revision")]
     pub revision: i64,
     #[ts(type = "Record<string, unknown>")]
@@ -495,7 +467,7 @@ impl ArtifactRevision {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         scope_id: String,
-        family: ArtifactReadFamily,
+        family: String,
         artifact_id: String,
         revision: i64,
         content: std::collections::HashMap<String, serde_json::Value>,
@@ -507,6 +479,7 @@ impl ArtifactRevision {
             scope_id,
             family,
             artifact_id,
+            schema_version: None,
             revision,
             content,
             sources,
@@ -649,6 +622,12 @@ impl std::fmt::Display for AtomicMemoryState {
 #[serde(deny_unknown_fields)]
 pub struct Capabilities {
     #[ts(optional)]
+    #[serde(
+        rename = "custom_artifact_schemas",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub custom_artifact_schemas: Option<Vec<CustomArtifactFamilySchema>>,
+    #[ts(optional)]
     #[serde(rename = "prompts", skip_serializing_if = "Option::is_none")]
     pub prompts: Option<std::collections::HashMap<String, PromptCapability>>,
     /// Whether asynchronous Artifact Dream execution is configured.
@@ -700,6 +679,9 @@ pub struct Capabilities {
     pub search_modes: Vec<MemorySearchMode>,
     #[serde(rename = "context_versions")]
     pub context_versions: Vec<PreparedContextSchema>,
+    #[ts(optional)]
+    #[serde(rename = "context_protection", skip_serializing_if = "Option::is_none")]
+    pub context_protection: Option<ContextProtectionCapabilities>,
 }
 
 impl Capabilities {
@@ -713,6 +695,7 @@ impl Capabilities {
         context_versions: Vec<PreparedContextSchema>,
     ) -> Capabilities {
         Capabilities {
+            custom_artifact_schemas: None,
             prompts: None,
             artifact_dreaming: None,
             artifact_dreaming_operations: None,
@@ -726,6 +709,138 @@ impl Capabilities {
             handoff_generation,
             search_modes,
             context_versions,
+            context_protection: None,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ContextProtectionCapabilities {
+    #[serde(rename = "check_versions")]
+    pub check_versions: Vec<String>,
+    #[serde(rename = "payload_versions")]
+    pub payload_versions: Vec<String>,
+    #[serde(rename = "reuse_versions")]
+    pub reuse_versions: Vec<String>,
+    #[serde(rename = "reuse_families")]
+    pub reuse_families: Vec<String>,
+    #[serde(rename = "enforcing")]
+    pub enforcing: bool,
+    #[serde(rename = "limits")]
+    pub limits: ContextProtectionCapabilitiesLimits,
+}
+
+impl ContextProtectionCapabilities {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        check_versions: Vec<String>,
+        payload_versions: Vec<String>,
+        reuse_versions: Vec<String>,
+        reuse_families: Vec<String>,
+        enforcing: bool,
+        limits: ContextProtectionCapabilitiesLimits,
+    ) -> ContextProtectionCapabilities {
+        ContextProtectionCapabilities {
+            check_versions,
+            payload_versions,
+            reuse_versions,
+            reuse_families,
+            enforcing,
+            limits,
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ContextProtectionCapabilitiesLimits {
+    #[serde(rename = "payload_bytes")]
+    pub payload_bytes: i64,
+    #[serde(rename = "binding_bytes")]
+    pub binding_bytes: i64,
+    #[serde(rename = "prepared_contexts")]
+    pub prepared_contexts: i64,
+    #[serde(rename = "dependencies")]
+    pub dependencies: i64,
+    #[serde(rename = "send_seconds")]
+    pub send_seconds: i64,
+    #[serde(rename = "correlate_seconds")]
+    pub correlate_seconds: i64,
+}
+
+impl ContextProtectionCapabilitiesLimits {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        payload_bytes: i64,
+        binding_bytes: i64,
+        prepared_contexts: i64,
+        dependencies: i64,
+        send_seconds: i64,
+        correlate_seconds: i64,
+    ) -> ContextProtectionCapabilitiesLimits {
+        ContextProtectionCapabilitiesLimits {
+            payload_bytes,
+            binding_bytes,
+            prepared_contexts,
+            dependencies,
+            send_seconds,
+            correlate_seconds,
+        }
+    }
+}
+
+/// ContractVersion : A major/minor compatibility version. A major increment may remove or incompatibly change the governed contract. A minor increment only adds backward-compatible behavior or fields.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct ContractVersion {
+    #[serde(rename = "major")]
+    pub major: i64,
+    #[serde(rename = "minor")]
+    pub minor: i64,
+}
+
+impl ContractVersion {
+    /// A major/minor compatibility version. A major increment may remove or incompatibly change the governed contract. A minor increment only adds backward-compatible behavior or fields.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(major: i64, minor: i64) -> ContractVersion {
+        ContractVersion { major, minor }
+    }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct CustomArtifactFamilySchema {
+    #[serde(rename = "family")]
+    pub family: String,
+    #[serde(rename = "schema_version")]
+    pub schema_version: String,
+    #[ts(type = "Record<string, unknown>")]
+    #[serde(rename = "content_schema")]
+    pub content_schema: std::collections::HashMap<String, serde_json::Value>,
+    /// Legacy persisted text fields; new plugins use search.
+    #[serde(rename = "search_fields")]
+    pub search_fields: Vec<String>,
+    /// Persistent declarative indexes and supported search modes.
+    #[ts(type = "Record<string, unknown>")]
+    #[ts(optional)]
+    #[serde(rename = "search", skip_serializing_if = "Option::is_none")]
+    pub search: Option<std::collections::HashMap<String, serde_json::Value>>,
+}
+
+impl CustomArtifactFamilySchema {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        family: String,
+        schema_version: String,
+        content_schema: std::collections::HashMap<String, serde_json::Value>,
+        search_fields: Vec<String>,
+    ) -> CustomArtifactFamilySchema {
+        CustomArtifactFamilySchema {
+            family,
+            schema_version,
+            content_schema,
+            search_fields,
+            search: None,
         }
     }
 }
@@ -980,6 +1095,26 @@ pub enum Configuration {
     Unknown,
 }
 
+/// FeatureContract : Compatibility version for exactly the listed OpenAPI operation IDs. Adding operations or compatible semantics increments minor; removing, renaming or incompatibly changing a listed operation increments major.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct FeatureContract {
+    #[serde(rename = "version")]
+    pub version: ContractVersion,
+    #[serde(rename = "operations")]
+    pub operations: Vec<String>,
+}
+
+impl FeatureContract {
+    /// Compatibility version for exactly the listed OpenAPI operation IDs. Adding operations or compatible semantics increments minor; removing, renaming or incompatibly changing a listed operation increments major.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(version: ContractVersion, operations: Vec<String>) -> FeatureContract {
+        FeatureContract {
+            version,
+            operations,
+        }
+    }
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct HealthResponse {
@@ -1195,6 +1330,16 @@ pub struct RememberMemoryRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub expected_revision: Option<Option<i64>>,
+    /// Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "description",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub description: Option<Option<String>>,
 }
 
 impl RememberMemoryRequest {
@@ -1206,6 +1351,7 @@ impl RememberMemoryRequest {
             text,
             reason: None,
             expected_revision: None,
+            description: None,
         }
     }
 }
@@ -1379,6 +1525,57 @@ impl SearchMemoryResponse {
     }
 }
 
+/// ServerInfo : Stable deployment identity and protocol compatibility metadata. Compatible clients must ignore unknown optional fields added by a future schema minor version. This contract intentionally excludes runtime capabilities, health, limits, inventory and authorization-principal identity.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct ServerInfo {
+    /// Compatibility version for this response shape and field semantics.
+    #[serde(rename = "schema_version")]
+    pub schema_version: ContractVersion,
+    #[serde(rename = "product")]
+    pub product: Product,
+    /// Opaque identity of the durable Server deployment. It is unrelated to Access deployment_id and remains stable across restarts, upgrades, backup restore and replicas sharing the same primary database.
+    #[serde(rename = "server_id")]
+    pub server_id: String,
+    #[serde(rename = "package_version")]
+    pub package_version: String,
+    /// Major/minor projection of the OpenAPI info.version served by this package.
+    #[serde(rename = "api_contract_version")]
+    pub api_contract_version: ContractVersion,
+    /// Stable feature groups keyed by contract name.
+    #[serde(rename = "feature_contracts")]
+    pub feature_contracts: std::collections::HashMap<String, FeatureContract>,
+}
+
+impl ServerInfo {
+    /// Stable deployment identity and protocol compatibility metadata. Compatible clients must ignore unknown optional fields added by a future schema minor version. This contract intentionally excludes runtime capabilities, health, limits, inventory and authorization-principal identity.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        schema_version: ContractVersion,
+        product: Product,
+        server_id: String,
+        package_version: String,
+        api_contract_version: ContractVersion,
+        feature_contracts: std::collections::HashMap<String, FeatureContract>,
+    ) -> ServerInfo {
+        ServerInfo {
+            schema_version,
+            product,
+            server_id,
+            package_version,
+            api_contract_version,
+            feature_contracts,
+        }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum Product {
+    #[serde(rename = "powercontext")]
+    #[default]
+    Powercontext,
+}
+
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct SourceTypeReference {
@@ -1452,7 +1649,7 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <AccessRole as ts_rs::TS>::decl(config),
         <ArtifactDreamingOperationCapability as ts_rs::TS>::decl(config),
         <ArtifactFamilyAccessCapability as ts_rs::TS>::decl(config),
-        <ArtifactReadFamily as ts_rs::TS>::decl(config),
+        format!("type ArtifactReadFamily = {};", <String as ts_rs::TS>::name(config)),
         <ArtifactReference as ts_rs::TS>::decl(config),
         <ArtifactRevision as ts_rs::TS>::decl(config),
         <AtomicMemoryRecord as ts_rs::TS>::decl(config),
@@ -1462,6 +1659,10 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <BuiltinProfile as ts_rs::TS>::decl(config),
         <Capabilities as ts_rs::TS>::decl(config),
         <Configuration as ts_rs::TS>::decl(config),
+        <ContextProtectionCapabilities as ts_rs::TS>::decl(config),
+        <ContextProtectionCapabilitiesLimits as ts_rs::TS>::decl(config),
+        <ContractVersion as ts_rs::TS>::decl(config),
+        <CustomArtifactFamilySchema as ts_rs::TS>::decl(config),
         <DreamOperation as ts_rs::TS>::decl(config),
         <Effect as ts_rs::TS>::decl(config),
         <ExtractionBackground as ts_rs::TS>::decl(config),
@@ -1469,6 +1670,7 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <ExtractionObservation as ts_rs::TS>::decl(config),
         <ExtractionObservationStatus as ts_rs::TS>::decl(config),
         <ExtractionStatus as ts_rs::TS>::decl(config),
+        <FeatureContract as ts_rs::TS>::decl(config),
         <HealthResponse as ts_rs::TS>::decl(config),
         <Location as ts_rs::TS>::decl(config),
         <MatchedBy as ts_rs::TS>::decl(config),
@@ -1476,6 +1678,7 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <MemorySearchMode as ts_rs::TS>::decl(config),
         <OutputKind as ts_rs::TS>::decl(config),
         <PreparedContextSchema as ts_rs::TS>::decl(config),
+        <Product as ts_rs::TS>::decl(config),
         <PromptCapability as ts_rs::TS>::decl(config),
         <PromptCapabilityStatus as ts_rs::TS>::decl(config),
         <ReadinessResponse as ts_rs::TS>::decl(config),
@@ -1489,6 +1692,7 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <ScopeQueryField as ts_rs::TS>::decl(config),
         <SearchMemoryRequest as ts_rs::TS>::decl(config),
         <SearchMemoryResponse as ts_rs::TS>::decl(config),
+        <ServerInfo as ts_rs::TS>::decl(config),
         <ShareUnit as ts_rs::TS>::decl(config),
         <SourceTypeReference as ts_rs::TS>::decl(config),
         <Stage as ts_rs::TS>::decl(config),

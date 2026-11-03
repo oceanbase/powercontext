@@ -88,10 +88,36 @@ Older libraries are rejected before database initialization or accepting writes.
 
 Server settings use the `POWERCONTEXT_SERVER_` prefix.
 
+Each Server process admits at most 64 concurrent external HTTP requests, including REST, MCP, Dashboard, and health
+requests. A request occupies a slot while its body is read and until its response finishes, including streaming
+responses. Saturation returns `503` with error code `server_overloaded` and `Retry-After: 1` immediately, without
+queueing or reading the rejected request body. Exceptions and cancellation release the slot. Trusted in-process
+MCP-to-HTTP projections reuse the external request's admission.
+
+Before downstream parsing, the Server checks the actual body against a 16 MiB limit, including chunked uploads.
+An oversized declared `Content-Length` is rejected early; an absent or smaller declared length cannot bypass the
+actual-byte check. Oversized requests return `413` with error code `request_too_large`, and reading stops at the
+first excess chunk. This deployment-level cap is configurable and does not change domain field limits. The default
+fits the current 5 MiB Skill archive limit, whose base64 representation takes at most 6,990,508 characters, plus its
+JSON envelope. Lower caps can reject otherwise valid operations. Both HTTP limits must be positive integers.
+Size them for available memory: 64 requests retaining 16 MiB each already represent 1 GiB of body data, before
+parsing and application overhead; replay briefly copies each accepted body once before releasing its input buffer.
+Reverse proxies own request-rate quotas, upload timeouts, connection limits,
+and aggregate limits across Server processes.
+
+MCP uses stateless Streamable HTTP so each tool execution receives the current request's authenticated identity.
+It does not issue transport session IDs or retain resumable cross-request SSE sessions. Reconnect clients after
+upgrading from a stateful Server. Persisted Scope, Memory and Handoff data are unaffected. A long-lived response
+still occupies an HTTP slot until it finishes; reserve other slots for concurrent requests.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | Listener address |
-| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | Listener port; the configuration wizard suggests `17429` for new setups |
+| `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | TCP listener address; ignored when `HTTP_UDS` is set |
+| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | TCP listener port; ignored when `HTTP_UDS` is set; the configuration wizard suggests `17429` for new setups |
+| `POWERCONTEXT_SERVER_HTTP_UDS` | unset | HTTP Unix socket path for `server run` on Linux/macOS; selects UDS only, with no TCP listener; absolute path, at most 103 filesystem-encoded bytes, without `..` or NUL |
+| `POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME` | unset | Operator-declared external `http` or `https` scheme for a trusted proxy on the private UDS; requires `HTTP_UDS`. Set `https` only with trusted TLS termination. Forwarded scheme and client-IP headers remain ignored |
+| `POWERCONTEXT_SERVER_HTTP_MAX_REQUEST_BODY_BYTES` | `16777216` | Maximum external HTTP body bytes before parsing, including chunked uploads |
+| `POWERCONTEXT_SERVER_HTTP_MAX_CONCURRENT_REQUESTS` | `64` | Per-process external HTTP requests in flight, including full streaming responses |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP path |
@@ -109,6 +135,11 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | Operational log level |
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` or structured `json` output |
 | `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | Log external HTTP and logical MCP request completion |
+| `POWERCONTEXT_SERVER_LOGGING_FILE` | `false` | Write managed files instead of stdout; enabled by default for macOS/Windows personal services |
+| `POWERCONTEXT_SERVER_LOGGING_DIRECTORY` | User data directory + `logs/` | Managed log directory |
+| `POWERCONTEXT_SERVER_LOGGING_MAX_BYTES` | `20971520` | Positive size threshold for rotation |
+| `POWERCONTEXT_SERVER_LOGGING_BACKUP_COUNT` | `10` | Positive maximum archive count per active file |
+| `POWERCONTEXT_SERVER_LOGGING_COMPRESSION` | `gzip` | Archive compression: `gzip` or `none` |
 | `POWERCONTEXT_SERVER_METRICS_ENABLED` | `true` | Expose Prometheus metrics at `/metrics` |
 | `POWERCONTEXT_SERVER_METRICS_BACKGROUND_PORT` | `8001` | Background-role infrastructure listener port; uses `HTTP_HOST` and is disabled with metrics |
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | Enable span recording and OTLP export |
@@ -116,6 +147,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekdb |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekdb path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DATABASE_DATABASE` | `powercontext` | seekDB database name; explicitly set `test` to retain legacy data |
 | `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | Milliseconds a business connection waits for SQLite's single write lock before raising; it does not govern usage accounting, which has its own bounded budget |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Source journal positions per activation; Memory reduces its window after generation timeouts |
@@ -146,7 +178,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | Relative FTS contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes FTS-only matches from hybrid results |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | Relative vector contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes vector-only matches from hybrid results |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.25` | Seconds each Atomic Memory or Topic Memory search inside a context preparation waits for the query embedding, at most `60`. A preparation searches the Scope and each of its context references in turn, so the waits add up. When a budget expires, that search continues with lexical matching only and logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback`. A remote embedding provider needs more than the default; keep the summed waits inside the host's Hook request timeout, 3 seconds on most hosts |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code, ZCode, and DSH |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -179,6 +211,8 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS` | `{}` | JSON object of Pydantic AI generation model settings |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Timeout in seconds for one structured generation operation |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | Maximum provider requests for one structured generation operation, including retries |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING` | `disabled` | When `auto`, only generation models whose provider prefix is `anthropic`, `openai`, `openai-chat`, or `openai-responses` use a streamed request aggregated locally into one complete response. Other prefixes stay on non-streaming requests. `disabled` keeps every model on non-streaming requests |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS` | `60` | Maximum idle seconds while aggregating a streamed request: while the stream opens and waits for its first model event, and between model events (text, thinking, or tool-call parts). Provider heartbeat frames do not reset this timer; a longer gap fails as a timeout |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` | `125000` | Total generation-model context window used to budget Topic processing |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | unset | Pydantic AI embedding model; requires profile ID and dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider default | Custom OpenAI-compatible embeddings base URL |
@@ -276,9 +310,20 @@ key. Configure the same `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` on every rep
 restart or when the next request reaches another replica. Never expose or rotate this value while issued cursors
 must remain valid.
 
+Set `HttpConfig.uds`, `POWERCONTEXT_SERVER_HTTP_UDS`, or `server run --uds /absolute/path/core.sock` to select UDS.
+The JSON form `POWERCONTEXT_SERVER_HTTP='{"uds":"/absolute/private/core.sock"}'` also selects UDS.
+Flat `HTTP_UDS` values override JSON within one source; for `server run` and Agent setup, process HTTP settings
+override environment-file settings. The wizard/template reject UDS in the edited file or effective process configuration,
+and Agent setup never infers a TCP URL from a UDS listener.
+The CLI option takes precedence; explicit `--host` or `--port` options conflict with an effective UDS setting. UDS is
+supported for roles `all` and `api` (the latter still requires OceanBase), and rejected for `background`. Personal
+services and local ops/Desktop management require TCP. See [Listen on a Unix domain socket](deploy-server.md#listen-on-a-unix-domain-socket)
+for directory ownership, permissions, safe restart behavior, and authenticated clients. UDS does not enable the proposed
+Rust Gateway or change API authorization.
+
 Access Control is disabled by default. In `enforced` mode, API and MCP requests must establish a Principal through the
 selected Authentication Provider; the liveness and readiness endpoints remain public. The built-in `static-bearer`
-Provider accepts `Authorization: Bearer <token>`. Plain HTTP is trusted only on a
+Provider accepts `Authorization: Bearer <token>`, including over UDS. Plain HTTP over TCP is trusted only on a
 loopback address (`localhost`, `::1`, or any address in `127.0.0.0/8`). The Server refuses to start when it binds to a
 non-loopback address while authentication is disabled; either enable authentication, keep the bind on loopback, or,
 when TLS is terminated upstream or the network is otherwise controlled, set
@@ -480,6 +525,18 @@ The built-in reranker is an LLM listwise reranker, not a dedicated cross-encoder
 generation model and its provider settings. Set `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` to give that LLM operation
 an independent model, base URL, headers, settings, timeout, and request limit.
 
+Python deployments can inject the optional `JevMemoryReranker` with a
+`JevRerankConfig` and a caller-owned HTTPX client into
+`open_builtin_runtime(memory_reranker=...)`. It requires a dedicated API key,
+System One endpoint, and pinned model such as `jev-1.13.0`. Its total deadline
+and concurrency/request-size bounds are explicit. Provider failures propagate as
+inference errors under RFC 0080, including timeouts, unavailable providers, invalid
+scores, missing usage receipts, and model-version drift. Injected rerankers also
+disable recall expansion unless the existing `RECALL_GATE_ALLOW_WITH_RERANK`
+setting enables it. The Server environment switch above selects the existing LLM
+reranker. See `evaluation/memory/locomo/README.md` in the repository for Jev
+configuration, the three-arm comparison, and execution coverage.
+
 The same configured generation model gates explicit Experience generation, managed Skill generation, and semantic
 Skill fork/evolution. Exact external Skill import and complete package upload do not use a model: PowerContext validates
 and stores the canonical package bytes, then creates a pending Candidate with the same package digest. Without a
@@ -569,8 +626,18 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase
 export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 ```
 
-The URL must use the `mysql+aoceanbase` driver, include an explicit port and database, and set `charset=utf8mb4`. The
-tenant must use MySQL compatibility mode.
+The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
+defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
+
+seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
+without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;
+other connection errors do not trigger fallback. seekDB detects PowerContext-named tables in the old `test` database
+when no name was explicitly configured and requires an explicit choice before initializing a new database.
+Both backends reject database names containing backticks during configuration validation, before any database writes.
+Choose a name without backticks, such as `team_context`.
+Full OceanBase Server deployments require a prepared database and explicit Server schema maintenance before startup;
+database auto-provisioning does not replace that admission contract.
+See [Install and run](../get-started/install-and-run.md) for custom names, permissions, and old seekDB data handling.
 
 ### Embeddings and SQLite vector search
 

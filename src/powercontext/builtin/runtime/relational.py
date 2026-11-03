@@ -24,16 +24,10 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import uuid4
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError
-from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
-from jsonschema.protocols import Validator
-from referencing import Registry
-from referencing.exceptions import Unresolvable
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -179,6 +173,7 @@ from powercontext.builtin.persistence.tags import RelationalTagService
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
+from powercontext.builtin.portability import PortableBundleService
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -231,6 +226,10 @@ from powercontext.builtin.sources import (
     SourceJournalEntry,
     validate_scope_id,
 )
+from powercontext.builtin.sources.observation_validation import (
+    validate_source_definition_manifest,
+    validate_source_observation,
+)
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose, RecallTokenMeasurement
 from powercontext.builtin.triggers import (
     HANDOFF_BOUNDARY_TRIGGER_NAME,
@@ -245,12 +244,10 @@ from powercontext.context import PowerContext
 from powercontext.errors import (
     ArtifactNotFoundError,
     InvalidSourceDefinitionError,
-    InvalidSourceObservationError,
     SourceConflictError,
     SourceDefinitionNotFoundError,
     SourceNotFoundError,
 )
-from powercontext.limits import MAX_SOURCE_OBSERVATION_BYTES
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     ConnectorBinding,
@@ -260,7 +257,6 @@ from powercontext.sources import (
     SourceDefinitionRegistry,
     SourceObservation,
     SourceRef,
-    TextEvidence,
 )
 
 IdFactory = Callable[[str], str]
@@ -276,6 +272,18 @@ ExperienceCommitHook = Callable[[AsyncConnection, tuple[Candidate[ExperienceCont
 
 def _artifact_identity(ref: ArtifactRef) -> tuple[str, str, int]:
     return ref.family, ref.artifact_id, ref.revision
+
+
+BUILTIN_ARTIFACT_TYPES = (Handoff, AtomicMemory, Experience, Skill, Profile, Prompt, TopicMemory)
+BUILTIN_CANDIDATE_PROPOSAL_TYPES = {
+    Experience.family: ExperienceContent,
+    Skill.family: SkillContent,
+    Profile.family: ProfileCandidateProposal,
+    AtomicMemory.family: AtomicMemoryContent,
+    TopicMemory.family: TopicMemoryContent,
+    Handoff.family: HandoffContent,
+    Prompt.family: PromptContent,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,7 +534,7 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            (Handoff, AtomicMemory, Experience, Skill, Profile, Prompt, TopicMemory),
+            BUILTIN_ARTIFACT_TYPES,
             sources=source_repository,
         )
         if atomic_memory_index is None:
@@ -577,15 +585,7 @@ class RelationalContexts:
             sources=source_repository,
             artifacts=artifact_repository,
             governance=ArtifactGovernanceRepository(),
-            candidates=CandidateRepository({
-                Experience.family: ExperienceContent,
-                Skill.family: SkillContent,
-                Profile.family: ProfileCandidateProposal,
-                AtomicMemory.family: AtomicMemoryContent,
-                TopicMemory.family: TopicMemoryContent,
-                Handoff.family: HandoffContent,
-                Prompt.family: PromptContent,
-            }),
+            candidates=CandidateRepository(BUILTIN_CANDIDATE_PROPOSAL_TYPES),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),
             cursors=SourceCursorRepository(),
@@ -600,6 +600,15 @@ class RelationalContexts:
             processing_binding_states=ArtifactProcessingBindingStateRepository(),
             topic_memories=topic_memory_repository,
             decision_observations=DecisionObservationRepository(),
+        )
+        self.portability = PortableBundleService(
+            database,
+            projection_rebuilder=self.rebuild_portable_projections,
+            supported_source_types=tuple(definition.name for definition in self.source_registry.definitions),
+            supported_artifact_families=artifact_repository.families,
+            artifact_content_decoder=artifact_repository.decode_content,
+            candidate_decoder=self.repositories.candidates.decode_candidate,
+            source_decoder=source_repository.decode_source,
         )
         self.list_skills = SkillArtifactSearcher(database, self.repositories.artifacts, self.experience_index)
         self._model_usage = _ModelUsageRecorder(
@@ -734,6 +743,10 @@ class RelationalContexts:
         self._scope_states: dict[str, _ScopeState] = {}
 
     @property
+    def handoff_artifact_id(self) -> str:
+        return self._handoff_artifact_id
+
+    @property
     def token_estimator(self) -> TokenEstimator:
         """Return the deployment-fixed estimator used by internal processors."""
 
@@ -865,7 +878,13 @@ class RelationalContexts:
     ) -> SourceDefinitionManifest:
         """Register one immutable declarative Definition supplied by a worker."""
 
-        _validate_source_definition_manifest(manifest, self.source_registry)
+        validate_source_definition_manifest(manifest)
+        try:
+            self.source_registry.definition_for_name(manifest.name)
+        except SourceDefinitionNotFoundError:
+            pass
+        else:
+            raise InvalidSourceDefinitionError(type(manifest), "name", "must not replace an active Source Definition")
         try:
             async with self.database.transaction() as connection:
                 stored = await self.repositories.source_definitions.register(connection, manifest)
@@ -897,7 +916,7 @@ class RelationalContexts:
                 )
         except RepositoryNotFoundError:
             raise SourceDefinitionNotFoundError(observation.source_type, observation.definition_version) from None
-        _validate_source_observation(observation, manifest)
+        validate_source_observation(observation, manifest)
         services = self._services_for(request.scope_id)
         source_store, source_catalog = services.sources()
         stored = await source_store.add(observation)
@@ -1339,7 +1358,7 @@ class RelationalContexts:
             await self.repositories.skill_packages.add(connection, scope, capture.package)
             stored, created = await self.repositories.sources.add_with_status(connection, scope, source)
             if created:
-                await self.repositories.processing_pending.raise_source(
+                await self.repositories.processing_pending.note_source(
                     connection,
                     scope,
                     TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
@@ -1399,6 +1418,97 @@ class RelationalContexts:
                 )
             ).scalars()
             return tuple(str(value) for value in values)
+
+    async def rebuild_portable_projections(self, scope_ids: tuple[str, ...], /) -> None:
+        """Rebuild target-local search projections after a logical restore."""
+
+        for scope_id in scope_ids:
+            async with self.database.transaction() as connection:
+                await self.atomic_memory_index.initialize(connection)
+                await connection.execute(
+                    self.atomic_memory_index.table.delete().where(self.atomic_memory_index.table.c.scope_id == scope_id)
+                )
+            after = ""
+            rebuilt = 0
+            while True:
+                async with self.database.transaction() as connection:
+                    heads = ARTIFACT_HEADS_TABLE
+                    statement = with_artifact_content(
+                        select(heads)
+                        .where(
+                            heads.c.scope_id == scope_id,
+                            heads.c.family == AtomicMemory.family,
+                            heads.c.lifecycle_state == "active",
+                            heads.c.merged_into_id.is_(None),
+                            heads.c.artifact_id > after,
+                        )
+                        .order_by(heads.c.artifact_id)
+                        .limit(100),
+                        heads,
+                    )
+                    rows = (await connection.execute(statement)).mappings().all()
+                    records = await self.atomic_memory.service.read_many(connection, scope_id, rows)
+                if not records:
+                    break
+                for record in records:
+                    prepared = await self.atomic_memory.publisher.prepare(record.artifact.content)
+                    async with self.database.transaction() as connection:
+                        await self.atomic_memory.publisher.publish(connection, scope_id, record, prepared)
+                    rebuilt += 1
+                after = records[-1].artifact.artifact_id
+            async with self.database.transaction() as connection:
+                projected = int(
+                    await connection.scalar(
+                        select(func.count())
+                        .select_from(self.atomic_memory_index.table)
+                        .where(self.atomic_memory_index.table.c.scope_id == scope_id)
+                    )
+                    or 0
+                )
+                if projected != rebuilt:
+                    raise RuntimeError("restored Atomic Memory projection is incomplete")  # noqa: TRY003
+                topic_heads = tuple(
+                    (
+                        await connection.execute(
+                            select(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
+                            .where(
+                                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                                ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family,
+                            )
+                            .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
+                        )
+                    ).all()
+                )
+            for artifact_id, revision in topic_heads:
+                ref = ArtifactRef(
+                    family=TopicMemory.family,
+                    artifact_id=str(artifact_id),
+                    revision=int(revision),
+                )
+                async with self.database.transaction() as connection:
+                    topic = await self.repositories.artifacts.get(connection, scope_id, ref)
+                if not isinstance(topic, TopicMemory):
+                    raise TypeError("restored Topic Memory decoded to the wrong Artifact type")  # noqa: TRY003
+                projection = await self._topic_memory_writer.prepare(topic.content, usage_scope_id=scope_id)
+                async with self.database.transaction() as connection:
+                    await self.repositories.topic_memories.rebuild_current(connection, scope_id, topic, projection)
+        async with self.database.transaction() as connection:
+            await self.topic_memory_index.validate_current(connection)
+        async with self.database.transaction() as connection:
+            await self.experience_index.rebuild(connection)
+            if self.experience_index.families:
+                missing = await connection.scalar(
+                    select(ARTIFACT_HEADS_TABLE.c.artifact_id)
+                    .where(
+                        ARTIFACT_HEADS_TABLE.c.scope_id.in_(scope_ids),
+                        ARTIFACT_HEADS_TABLE.c.family.in_(tuple(self.experience_index.families)),
+                        ARTIFACT_HEADS_TABLE.c.searchable_text.is_(None),
+                    )
+                    .limit(1)
+                )
+                if missing is not None:
+                    message = "restored approved Artifact projection is incomplete"
+                    raise RuntimeError(message)
 
     async def commit_handoff(self, scope_id: str, prepared, *, on_commit) -> Handoff:
         return await self._services_for(scope_id).handoff(on_commit=on_commit).commit(prepared)
@@ -1544,7 +1654,7 @@ class _RelationalSources:
                 async with self._database.connection(self._bound_connection) as connection:
                     stored, created = await self._repository.add_with_status(connection, self._scope_id, source)
                     if created:
-                        await self._processing_pending.raise_source(
+                        await self._processing_pending.note_source(
                             connection,
                             self._scope_id,
                             TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
@@ -1795,14 +1905,7 @@ class _RelationalExperienceIncubator:
                 if processing is not None:
                     await processing.guard(connection)
                 review = self._services.review(connection)
-                for plan in plans:
-                    candidate = await review.propose_experience(
-                        plan.proposal,
-                        sources=plan.sources,
-                        artifacts=prompt_refs,
-                        target=None,
-                        reason=plan.reason,
-                    )
+                for candidate in await review.propose_experience_batch(plans, artifacts=prompt_refs):
                     candidate_ids.append(candidate.candidate_id)
                     candidates.append(candidate)
                 for proposal in await self._services.recurrence_ledger().record_window(connection, eligible_rows):
@@ -1863,70 +1966,6 @@ def _validate_experience_plans(
             "experience-incubate",
             "pipeline cited a Source outside the current incubation window",
         )
-
-
-def _validate_source_definition_manifest(
-    manifest: SourceDefinitionManifest,
-    source_registry: SourceDefinitionRegistry,
-) -> None:
-    if len(manifest.model_dump_json(by_alias=True).encode()) > 64 * 1024:
-        raise InvalidSourceDefinitionError(type(manifest), "manifest", "must not exceed 64 KiB")
-    try:
-        source_registry.definition_for_name(manifest.name)
-    except SourceDefinitionNotFoundError:
-        pass
-    else:
-        raise InvalidSourceDefinitionError(type(manifest), "name", "must not replace an active Source Definition")
-    _json_schema_validator(manifest.name, manifest.source_schema)
-    standard_text_schema = TextEvidence.model_json_schema()
-    for projection in manifest.projections:
-        _json_schema_validator(projection.key.name, projection.schema_)
-        if projection.key == TEXT_EVIDENCE_PROJECTION_KEY and projection.schema_ != standard_text_schema:
-            raise InvalidSourceDefinitionError(
-                type(manifest),
-                "projection",
-                f"{projection.key.name!r} must use the standard schema",
-            )
-
-
-def _validate_source_observation(source: SourceObservation, manifest: SourceDefinitionManifest) -> None:
-    if source.source_type != manifest.name or source.definition_version != manifest.version:
-        raise InvalidSourceObservationError("definition", "does not match the registered manifest identity")
-    if source.definition_fingerprint != manifest.fingerprint:
-        raise InvalidSourceObservationError("fingerprint", "does not match the registered manifest")
-    if len(source.model_dump_json().encode()) > MAX_SOURCE_OBSERVATION_BYTES:
-        raise InvalidSourceObservationError("size", "must not exceed 4 MiB")
-    _validate_schema_value(manifest.name, manifest.source_schema, source.payload)
-
-    declarations = {projection.key: projection for projection in manifest.projections}
-    supplied = {projection.key: projection.value for projection in source.projections}
-    if declarations.keys() != supplied.keys():
-        raise InvalidSourceObservationError("projections", "must exactly match the registered manifest")
-    for key, declaration in declarations.items():
-        value = supplied[key]
-        _validate_schema_value(key.name, declaration.schema_, value)
-        if key == TEXT_EVIDENCE_PROJECTION_KEY:
-            evidence = TextEvidence.model_validate(value)
-            if evidence.source_type != source.source_type or evidence.source_id != source.name:
-                raise InvalidSourceObservationError(
-                    "text-evidence",
-                    "source identity does not match the observation envelope",
-                )
-
-
-def _json_schema_validator(name: str, schema: Mapping[str, Any]) -> Validator:
-    try:
-        Draft202012Validator.check_schema(schema)
-        return Draft202012Validator(schema, registry=Registry())
-    except SchemaError as error:
-        raise InvalidSourceDefinitionError(type(schema), "schema", f"{name!r} is not valid JSON Schema") from error
-
-
-def _validate_schema_value(name: str, schema: Mapping[str, Any], value: object) -> None:
-    try:
-        _json_schema_validator(name, schema).validate(value)
-    except (JsonSchemaValidationError, Unresolvable) as error:
-        raise InvalidSourceObservationError("schema", f"value does not match {name!r}") from error
 
 
 def _scoped_id_factory(delegate: IdFactory | None) -> IdFactory:

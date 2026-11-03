@@ -91,7 +91,13 @@ def test_hint_delivery_preserves_full_prepared_and_committed_handoffs(tmp_path: 
             assert hint_data["selection"] == "prepared"
             assert hint_data["evidence_scope_id"] == scope_id
             assert hint_data["selected_evidence"][0]["source_ref"]["source_id"] == source.source.source_id
-            assert set(hint.model_dump(by_alias=True)) == {"schema", "status", "content", "content_bytes"}
+            # ``explain`` was not asked for, so the published envelope keeps exactly these four keys.
+            assert set(hint.model_dump(by_alias=True, exclude_unset=True)) == {
+                "schema",
+                "status",
+                "content",
+                "content_bytes",
+            }
             assert (
                 await client.prepare_handoff_hint(request.model_copy(update={"max_bytes": hint.content_bytes}))
             ) == hint
@@ -147,6 +153,7 @@ def test_hint_delivery_preserves_full_prepared_and_committed_handoffs(tmp_path: 
                 assert tools["prepare_handoff_hint"].annotations.readOnlyHint is True
                 delivered = await mcp.call_tool("prepare_handoff_hint", exact_request.model_dump(mode="json"))
                 assert not delivered.is_error
-                assert delivered.structured_content == exact.model_dump(mode="json", by_alias=True)
+                # The hint publishes the keys it built: no ``reason``, since a hint runs no retrieval.
+                assert delivered.structured_content == exact.model_dump(mode="json", by_alias=True, exclude_unset=True)
 
     asyncio.run(scenario())

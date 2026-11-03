@@ -17,13 +17,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 from sqlalchemy import and_, insert, literal, select, true, tuple_, union_all, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction
 from sqlalchemy.sql import FromClause, Select
 
 from powercontext.artifacts import (
@@ -35,6 +36,7 @@ from powercontext.artifacts import (
 )
 from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance, InvalidArtifactLifecycleError
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes, validate_json_model
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
     InvalidPublicationLineageError,
@@ -47,6 +49,7 @@ from powercontext.builtin.persistence.revision_meta import (
     meta_from_row,
     rollback_columns,
 )
+from powercontext.builtin.persistence.sources import _SourceReadSet
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
@@ -85,6 +88,36 @@ class RepositoryArtifactDraft(BaseModel):
     content: BaseModel
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidatedLineageSources:
+    connection: AsyncConnection
+    transaction: AsyncTransaction | None
+    nested_transaction: AsyncTransaction | None
+    scope_id: str
+    target: ArtifactRef
+    sources: tuple[SourceRef, ...]
+    allow_working_notes: bool
+
+    def matches(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        target: ArtifactRef,
+        sources: tuple[SourceRef, ...],
+        allow_working_notes: bool,
+    ) -> bool:
+        return (
+            self.connection is connection
+            and self.transaction is not None
+            and self.transaction is connection.get_transaction()
+            and self.nested_transaction is connection.get_nested_transaction()
+            and self.scope_id == scope_id
+            and self.target == target
+            and self.sources == sources
+            and self.allow_working_notes == allow_working_notes
+        )
 
 
 class ArtifactRepository:
@@ -127,49 +160,91 @@ class ArtifactRepository:
         /,
         *,
         allow_working_notes: bool = False,
+        validated_sources: _ValidatedLineageSources | None = None,
     ) -> Artifact[Any]:
         """Create revision one, rejecting an already existing lifecycle."""
 
-        _require_scope(scope_id)
-        artifact_type = self._artifact_type(draft.family)
-        self._require_content(draft.family, draft.content)
-        ref = ArtifactRef(family=draft.family, artifact_id=artifact_id, revision=1)
-        await self._validate_lineage_sources(
-            connection,
-            scope_id,
-            ref,
-            draft.sources,
-            allow_working_notes=allow_working_notes,
-        )
-        conflict = await self._head_conflict(connection, scope_id, ref, draft)
-        if conflict is not None:
-            raise conflict
-        try:
-            artifact = await self._insert_revision(
+        return (
+            await self.create_many(
                 connection,
                 scope_id,
+                ((artifact_id, draft, validated_sources),),
+                allow_working_notes=allow_working_notes,
+            )
+        )[0]
+
+    async def create_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[str, ArtifactDraft[Any] | RepositoryArtifactDraft, _ValidatedLineageSources | None]],
+        /,
+        *,
+        allow_working_notes: bool = False,
+    ) -> tuple[Artifact[Any], ...]:
+        """Insert independent new revisions by table after their Source checks."""
+
+        _require_scope(scope_id)
+        revisions = []
+        new_targets = {(draft.family, artifact_id) for artifact_id, draft, _ in items}
+        for artifact_id, draft, validated_sources in items:
+            if len(items) > 1 and any(
+                (upstream.family, upstream.artifact_id) in new_targets for upstream in draft.artifacts
+            ):
+                raise InvalidRepositoryArgumentError("items", "bulk create cannot reference another new target")
+            artifact_type = self._artifact_type(draft.family)
+            self._require_content(draft.family, draft.content)
+            ref = ArtifactRef(family=draft.family, artifact_id=artifact_id, revision=1)
+            if validated_sources is None or not validated_sources.matches(
+                connection, scope_id, ref, draft.sources, allow_working_notes
+            ):
+                await self._validate_lineage_sources(
+                    connection, scope_id, ref, draft.sources, allow_working_notes=allow_working_notes
+                )
+            revisions.append((
                 artifact_type,
                 ref,
                 draft.content,
                 ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
-            )
-            await connection.execute(
-                insert(ARTIFACT_HEADS_TABLE).values(
-                    scope_id=scope_id,
-                    family=ref.family,
-                    artifact_id=ref.artifact_id,
-                    revision=ref.revision,
-                )
-            )
+            ))
+        if not revisions:
+            return ()
+        try:
+            artifacts = await self._insert_revisions(connection, scope_id, revisions)
         except IntegrityError:
-            # Another writer may have committed this lifecycle after the head
-            # read above. Only a committed head proves the draft is stale; any
-            # other constraint violation stays an integrity failure.
-            conflict = await self._head_conflict(connection, scope_id, ref, draft)
-            if conflict is None:
-                raise
-            raise conflict from None
-        return artifact
+            # No new head has been inserted yet. Classify an existing lifecycle
+            # collision without prechecking every proposed ID on the success path.
+            existing = set(
+                (
+                    await connection.execute(
+                        select(ARTIFACT_HEADS_TABLE.c.family, ARTIFACT_HEADS_TABLE.c.artifact_id).where(
+                            ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                            tuple_(ARTIFACT_HEADS_TABLE.c.family, ARTIFACT_HEADS_TABLE.c.artifact_id).in_(
+                                tuple((draft.family, artifact_id) for artifact_id, draft, _ in items)
+                            ),
+                        )
+                    )
+                ).all()
+            )
+            for artifact_id, draft, _ in items:
+                if (draft.family, artifact_id) in existing and (
+                    conflict := await self._head_conflict(
+                        connection,
+                        scope_id,
+                        ArtifactRef(family=draft.family, artifact_id=artifact_id, revision=1),
+                        draft,
+                    )
+                ) is not None:
+                    raise conflict from None
+            raise
+        await connection.execute(
+            insert(ARTIFACT_HEADS_TABLE),
+            [
+                {"scope_id": scope_id, "family": artifact.family, "artifact_id": artifact.artifact_id, "revision": 1}
+                for artifact in artifacts
+            ],
+        )
+        return artifacts
 
     async def create_merge_result(
         self,
@@ -179,6 +254,8 @@ class ArtifactRepository:
         draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
         inputs: Sequence[tuple[ArtifactRef, int]],
         /,
+        *,
+        validated_sources: _ValidatedLineageSources | None = None,
     ) -> Artifact[Any]:
         """Create a result with explicit exact input membership; the caller freezes its inputs."""
 
@@ -218,7 +295,7 @@ class ArtifactRepository:
                 raise InvalidArtifactLifecycleError(  # noqa: TRY003
                     "merge inputs must retain their expected active head and generation"
                 )
-        result = await self.create(connection, scope_id, artifact_id, draft)
+        result = await self.create(connection, scope_id, artifact_id, draft, validated_sources=validated_sources)
         await connection.execute(
             update(ARTIFACT_LINEAGE_ARTIFACTS_TABLE)
             .where(
@@ -279,6 +356,7 @@ class ArtifactRepository:
         /,
         *,
         allow_working_notes: bool = False,
+        validated_sources: _ValidatedLineageSources | None = None,
     ) -> Artifact[Any]:
         """Commit a next revision only when ``artifact`` remains the head."""
 
@@ -288,6 +366,7 @@ class ArtifactRepository:
             artifact,
             draft,
             allow_working_notes=allow_working_notes,
+            validated_sources=validated_sources,
         )
 
     async def revise_for_restoration(
@@ -298,6 +377,8 @@ class ArtifactRepository:
         draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
         expected: ArtifactGovernance,
         /,
+        *,
+        validated_sources: _ValidatedLineageSources | None = None,
     ) -> Artifact[Any]:
         """Append to a frozen input under the restoration service's exact governance dependency.
 
@@ -307,7 +388,9 @@ class ArtifactRepository:
 
         if expected.artifact != artifact.as_ref():
             raise StoredPayloadConflictError("artifact-governance", (scope_id, artifact.family, artifact.artifact_id))
-        return await self._revise(connection, scope_id, artifact, draft, restoration=expected)
+        return await self._revise(
+            connection, scope_id, artifact, draft, restoration=expected, validated_sources=validated_sources
+        )
 
     async def _revise(
         self,
@@ -318,6 +401,7 @@ class ArtifactRepository:
         *,
         restoration: ArtifactGovernance | None = None,
         allow_working_notes: bool = False,
+        validated_sources: _ValidatedLineageSources | None = None,
     ) -> Artifact[Any]:
         _require_scope(scope_id)
         artifact_type = self._artifact_type(artifact.family)
@@ -329,13 +413,16 @@ class ArtifactRepository:
             artifact_id=artifact.artifact_id,
             revision=artifact.revision + 1,
         )
-        await self._validate_lineage_sources(
-            connection,
-            scope_id,
-            target,
-            draft.sources,
-            allow_working_notes=allow_working_notes,
-        )
+        if validated_sources is None or not validated_sources.matches(
+            connection, scope_id, target, draft.sources, allow_working_notes
+        ):
+            await self._validate_lineage_sources(
+                connection,
+                scope_id,
+                target,
+                draft.sources,
+                allow_working_notes=allow_working_notes,
+            )
 
         locked = await connection.execute(
             update(ARTIFACT_HEADS_TABLE)
@@ -378,14 +465,20 @@ class ArtifactRepository:
             artifact_id=artifact.artifact_id,
             revision=artifact.revision + 1,
         )
-        revised = await self._insert_revision(
-            connection,
-            scope_id,
-            artifact_type,
-            ref,
-            draft.content,
-            ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
-        )
+        revised = (
+            await self._insert_revisions(
+                connection,
+                scope_id,
+                (
+                    (
+                        artifact_type,
+                        ref,
+                        draft.content,
+                        ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
+                    ),
+                ),
+            )
+        )[0]
         advanced = await connection.execute(
             update(ARTIFACT_HEADS_TABLE)
             .where(
@@ -530,24 +623,33 @@ class ArtifactRepository:
     ) -> None:
         """Lock current logical identities in deterministic order, independent of revisions.
 
-        A no-op UPDATE takes a write lock on SQLite as well as row locks on
-        OceanBase. Callers must perform current reads and validate their saved
-        revisions after all of these locks have been acquired.
+        SQLite uses a no-op UPDATE; MySQL uses an ordered SELECT FOR UPDATE.
+        Callers validate their saved revisions after all locks are acquired.
         """
 
         _require_scope(scope_id)
-        for family, artifact_id in sorted({(ref.family, ref.artifact_id) for ref in refs}):
-            locked = await connection.execute(
-                update(ARTIFACT_HEADS_TABLE)
-                .where(
-                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                    ARTIFACT_HEADS_TABLE.c.family == family,
-                    ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+        identities = sorted({(ref.family, ref.artifact_id) for ref in refs})
+        table = ARTIFACT_HEADS_TABLE
+        for offset in range(0, len(identities), SELECTION_BATCH_SIZE // 2):
+            selected = identities[offset : offset + SELECTION_BATCH_SIZE // 2]
+            condition = (table.c.scope_id == scope_id) & tuple_(table.c.family, table.c.artifact_id).in_(selected)
+            statement = select(table.c.family, table.c.artifact_id).where(condition)
+            if connection.dialect.name == "mysql":
+                present = set(
+                    (
+                        await connection.execute(
+                            statement.order_by(table.c.family, table.c.artifact_id).with_for_update()
+                        )
+                    ).all()
                 )
-                .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
-            )
-            if locked.rowcount != 1:
-                raise RepositoryNotFoundError("artifact-head", (scope_id, family, artifact_id))
+            else:
+                locked = await connection.execute(update(table).where(condition).values(revision=table.c.revision))
+                if locked.rowcount == len(selected):
+                    continue
+                present = set((await connection.execute(statement)).all())
+            if len(present) != len(selected):
+                missing = next(item for item in selected if item not in present)
+                raise RepositoryNotFoundError("artifact-head", (scope_id, *missing))
 
     async def validate_lineage_sources(
         self,
@@ -556,10 +658,21 @@ class ArtifactRepository:
         target: ArtifactRef,
         sources: tuple[SourceRef, ...],
         /,
-    ) -> None:
-        """Validate prospective evidence using the same rules as create/revise."""
+        *,
+        source_read_set: _SourceReadSet | None = None,
+    ) -> _ValidatedLineageSources:
+        """Validate prospective evidence for reuse within this transaction."""
 
-        await self._validate_lineage_sources(connection, scope_id, target, sources)
+        await self._validate_lineage_sources(connection, scope_id, target, sources, source_read_set=source_read_set)
+        return _ValidatedLineageSources(
+            connection,
+            connection.get_transaction(),
+            connection.get_nested_transaction(),
+            scope_id,
+            target,
+            sources,
+            False,
+        )
 
     async def revisions(
         self,
@@ -606,17 +719,23 @@ class ArtifactRepository:
         _require_scope(target_scope_id)
         artifact_type = self._artifact_type(source.family)
         ref = ArtifactRef(family=source.family, artifact_id=target_artifact_id, revision=1)
-        copied = await self._insert_revision(
-            connection,
-            target_scope_id,
-            artifact_type,
-            ref,
-            source.content,
-            ArtifactLineage(
-                publication_source=source.lineage.publication_source or source_address,
-                publication_digest=source.lineage.publication_digest or content_digest,
-            ),
-        )
+        copied = (
+            await self._insert_revisions(
+                connection,
+                target_scope_id,
+                (
+                    (
+                        artifact_type,
+                        ref,
+                        source.content,
+                        ArtifactLineage(
+                            publication_source=source.lineage.publication_source or source_address,
+                            publication_digest=source.lineage.publication_digest or content_digest,
+                        ),
+                    ),
+                ),
+            )
+        )[0]
         await connection.execute(
             insert(ARTIFACT_HEADS_TABLE).values(
                 scope_id=target_scope_id,
@@ -627,74 +746,57 @@ class ArtifactRepository:
         )
         return copied
 
-    async def _insert_revision(
+    async def _insert_revisions(
         self,
         connection: AsyncConnection,
         scope_id: str,
-        artifact_type: type[Artifact[Any]],
-        ref: ArtifactRef,
-        content: object,
-        lineage: ArtifactLineage,
-    ) -> Artifact[Any]:
-        if not isinstance(content, BaseModel):
-            raise TypeError("artifact content must be a BaseModel")  # noqa: TRY003
-        payload = dump_model(content, kind="artifact", name=artifact_type.family)
-        created_at = datetime.now(UTC)
-        stamped = rollback_columns(ref.family, ref.artifact_id, ref.revision)
-        await connection.execute(
-            insert(ARTIFACTS_TABLE).values(
-                scope_id=scope_id,
-                family=ref.family,
-                artifact_id=ref.artifact_id,
-                revision=ref.revision,
-                content=payload,
-                created_at=created_at,
+        revisions: Sequence[tuple[type[Artifact[Any]], ArtifactRef, object, ArtifactLineage]],
+    ) -> tuple[Artifact[Any], ...]:
+        bodies, sources, artifact_refs, artifacts = [], [], [], []
+        for artifact_type, ref, content, lineage in revisions:
+            if not isinstance(content, BaseModel):
+                raise TypeError("artifact content must be a BaseModel")  # noqa: TRY003
+            created_at = datetime.now(UTC)
+            stamped = rollback_columns(ref.family, ref.artifact_id, ref.revision)
+            identity = {
+                "scope_id": scope_id,
+                "family": ref.family,
+                "artifact_id": ref.artifact_id,
+                "revision": ref.revision,
+            }
+            bodies.append({
+                **identity,
+                "content": dump_model(content, kind="artifact", name=artifact_type.family),
+                "created_at": created_at,
                 **stamped,
+            })
+            sources.extend(
+                {**identity, "ordinal": ordinal, "source_type": source.source_type, "source_id": source.source_id}
+                for ordinal, source in enumerate(lineage.sources)
             )
-        )
-        if lineage.sources:
-            await connection.execute(
-                insert(ARTIFACT_LINEAGE_SOURCES_TABLE),
-                [
-                    {
-                        "scope_id": scope_id,
-                        "family": ref.family,
-                        "artifact_id": ref.artifact_id,
-                        "revision": ref.revision,
-                        "ordinal": ordinal,
-                        "source_type": source.source_type,
-                        "source_id": source.source_id,
-                    }
-                    for ordinal, source in enumerate(lineage.sources)
-                ],
+            artifact_refs.extend(
+                {
+                    **identity,
+                    "ordinal": ordinal,
+                    "upstream_family": upstream.family,
+                    "upstream_artifact_id": upstream.artifact_id,
+                    "upstream_revision": upstream.revision,
+                }
+                for ordinal, upstream in enumerate(lineage.artifacts)
             )
-        if lineage.artifacts:
-            await connection.execute(
-                insert(ARTIFACT_LINEAGE_ARTIFACTS_TABLE),
-                [
-                    {
-                        "scope_id": scope_id,
-                        "family": ref.family,
-                        "artifact_id": ref.artifact_id,
-                        "revision": ref.revision,
-                        "ordinal": ordinal,
-                        "upstream_family": upstream.family,
-                        "upstream_artifact_id": upstream.artifact_id,
-                        "upstream_revision": upstream.revision,
-                    }
-                    for ordinal, upstream in enumerate(lineage.artifacts)
-                ],
+            artifact = artifact_type(
+                artifact_id=ref.artifact_id, revision=ref.revision, content=content, lineage=lineage
             )
-        artifact = artifact_type(
-            artifact_id=ref.artifact_id,
-            revision=ref.revision,
-            content=content,
-            lineage=lineage,
-        )
-        attach_revision_meta(artifact, meta_from_row({"created_at": created_at, **stamped}))
-        if artifact.as_ref() != ref:
-            raise IdentityMismatchError("artifact", ref, artifact.as_ref())
-        return artifact
+            attach_revision_meta(artifact, meta_from_row({"created_at": created_at, **stamped}))
+            if artifact.as_ref() != ref:
+                raise IdentityMismatchError("artifact", ref, artifact.as_ref())
+            artifacts.append(artifact)
+        await connection.execute(insert(ARTIFACTS_TABLE), bodies)
+        if sources:
+            await connection.execute(insert(ARTIFACT_LINEAGE_SOURCES_TABLE), sources)
+        if artifact_refs:
+            await connection.execute(insert(ARTIFACT_LINEAGE_ARTIFACTS_TABLE), artifact_refs)
+        return tuple(artifacts)
 
     def _decode_artifact(
         self,
@@ -974,11 +1076,23 @@ class ArtifactRepository:
         sources: tuple[SourceRef, ...],
         *,
         allow_working_notes: bool = False,
+        source_read_set: _SourceReadSet | None = None,
     ) -> None:
         if self._sources is None:
             return
+        missing = tuple(
+            source_ref
+            for source_ref in sources
+            if source_read_set is None or source_read_set.find(connection, scope_id, source_ref) is None
+        )
+        fetched = {
+            (item.ref.source_type, item.ref.source_id): item
+            for item in await self._sources.get_many(connection, scope_id, missing)
+        }
         for source_ref in sources:
-            stored = await self._sources.get(connection, scope_id, source_ref)
+            stored = None if source_read_set is None else source_read_set.find(connection, scope_id, source_ref)
+            if stored is None:
+                stored = fetched[(source_ref.source_type, source_ref.source_id)]
             require_source_eligible(
                 source_ref,
                 stored.value,

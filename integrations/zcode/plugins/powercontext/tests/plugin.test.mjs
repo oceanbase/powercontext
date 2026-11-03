@@ -25,15 +25,67 @@ import { after, before, beforeEach, test } from 'node:test'
 
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const hookPath = join(pluginRoot, 'hooks', 'user_prompt_submit.mjs')
+const { cases: privacyCases } = JSON.parse(await readFile(
+  new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',
+))
+const { cases: queryBoundCases } = JSON.parse(await readFile(
+  new URL('../../../../../tests/fixtures/recall_query_bound.json', import.meta.url), 'utf8',
+))
+const expand = segments => segments.map(({ text, repeat = 1 }) => text.repeat(repeat)).join('')
 let server
 let serverUrl
 const requests = []
 let override = {}
 let dataDir
 
+test('automatic prompt privacy preserves preparation and original accepted events', async t => {
+  const scenarios = [
+    ...privacyCases.map(sample => ({ sample, capture: true })),
+    ...privacyCases.filter(sample => sample.id.endsWith('-header')).map(sample => ({ sample, capture: false })),
+  ]
+  for (const { sample, capture } of scenarios) {
+    await t.test(`${sample.id}-capture-${capture}`, async () => {
+      requests.length = 0
+      const result = await invoke({
+        hookEventName: 'UserPromptSubmit', cwd: dataDir, sessionId: `privacy-${sample.id}`,
+        turnId: '1', prompt: sample.prompt,
+      }, {
+        POWERCONTEXT_ZCODE_AUTHORIZATION: sample.authorization ?? '',
+        POWERCONTEXT_ZCODE_CAPTURE_PROMPTS: String(capture),
+      })
+      const prepares = requests.filter(item => item.path === '/v1/context/prepare')
+      const captures = requests.filter(item => item.path === '/v1/sources/content')
+      assert.equal(prepares.length, 1, result.stderr)
+      assert.equal(captures.length, sample.sensitive || !capture ? 0 : 1)
+      if (sample.sensitive) {
+        assert.doesNotMatch(JSON.stringify(requests), /synthetic[-_]value[-_]2084/)
+        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]value[-_]2084/)
+      } else {
+        assert.equal(captures[0].body.content, sample.prompt)
+        assert.equal(prepares[0].body.query, sample.prompt)
+      }
+    })
+  }
+})
+
 beforeEach(() => {
   requests.length = 0
   override = {}
+})
+
+test('the recall query keeps the end of a long prompt', async t => {
+  for (const sample of queryBoundCases) {
+    await t.test(sample.id, async () => {
+      requests.length = 0
+      const result = await invoke({
+        hookEventName: 'UserPromptSubmit', cwd: dataDir, sessionId: `query-${sample.id}`,
+        turnId: '1', prompt: expand(sample.prompt),
+      })
+      const prepares = requests.filter(item => item.path === '/v1/context/prepare')
+      assert.equal(prepares.length, 1, result.stderr)
+      assert.equal(prepares[0].body.query, expand(sample.query))
+    })
+  }
 })
 
 before(async () => {

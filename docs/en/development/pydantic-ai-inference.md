@@ -135,6 +135,12 @@ The generator serializes Pydantic input models and validates structured output a
 Memory validation still runs after generation, so a schema-valid candidate is not automatically accepted for
 persistence.
 
+Pass `output_check` for a rule that relates the output to its input and cannot be expressed in the output schema. The
+callable receives the input and the validated output and raises `InvalidInferenceOutputError` when the output breaks
+the rule. Its detail is returned to the model as retry feedback, and the retry shares the `max_requests` budget with
+schema errors. When the budget is spent, `generate()` raises that last `InvalidInferenceOutputError`. Because the
+detail is sent to the provider, name the rule and never include input content in it.
+
 ## Compose embeddings directly
 
 ```python

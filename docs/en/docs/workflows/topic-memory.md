@@ -141,6 +141,41 @@ The response contains only `status`. Source capture, topic generation, and index
 configured worker. Without a generation model or background processing capability, `flush` cannot create topics by itself.
 Whether vector or hybrid retrieval is available is a deployment choice; the caller does not select it in this request.
 
+## Generated content admission
+
+A Source must contain durable information to justify a new Topic or revision. A vague request such as “check the
+dashboard” does not establish a result. When there is no durable addition or correction, processing may complete
+without publishing a Topic and advance the Source cursor normally.
+
+Before secondary retrieval and after reconciliation, the worker rejects recognizable numbered placeholder bodies
+and content consisting only of internal identity-coordination boilerplate. It checks combinations of fields rather
+than banning identifiers: a genuine protocol named `T-19` or an investigation quoting `candidate-0001` remains valid.
+Ordinary identity-preservation rules need no literal match to evidence. Template detection additionally requires
+generated section labels or supplied internal IDs within the bounded boilerplate vocabulary; coordination language
+alone is insufficient. Common sentence endings, paired emphasis, whole-field inline code, and block quotes do not exempt numbered
+placeholder templates. Quote support first checks the original field, then permits removal of these outer display
+wrappers without deleting punctuation or joining evidence fields. Known stage IDs, including work, component, and
+temporary proposal IDs, remain available to admission after compaction and reconciliation. For quoted templates, summary and detail may match different cited Sources or the selected
+exact history. Titles need no special keywords; uncited Sources and unselected history cannot supply quote support.
+Pure numbered placeholder bodies remain rejected.
+These conservative checks do not verify every assertion or guarantee semantic quality.
+
+A rejected proposal fails the entire Window. Existing heads, search projections and the cursor remain unchanged;
+the worker records `invalid_topic_placeholder` or `invalid_topic_coordination_content` and may retry within the
+existing attempt and provider budgets. Exhaustion retains the Sources and pending frontier for operator remediation.
+Repeated flushes and restarts do not replenish that budget. Rejection is not a successful no-op.
+
+Admission applies to automatic generation, including custom Prompts. Direct generic Artifact writes retain their
+structural validation. Existing revisions are not scanned, deleted or rewritten automatically; inspect exact
+revisions before restoring useful content through the generic replacement interface.
+
+Custom demonstration checks use only explicit evidence bodies and the selected historical Topic as support for
+quoted templates. Intermediate proposals carry references, not Source evidence. In `reduce`, `reconcile`, or an
+`evolve` example without sufficient explicit evidence or selected history, a template quotation is rejected even
+when it repeats intermediate input. Use concrete explanatory content instead, or supply supporting evidence where
+the stage input permits it. Ordinary business content remains allowed. Saved custom Prompts are checked again when
+resolved; unsupported examples fail with `prompt_definition_incompatible`. Example JSON and stage schemas are unchanged.
+
 ## Search current topics
 
 Search requires `scope.read` access. Send a non-empty `scope_id` and `query`, with an optional `limit` from 1 to 20

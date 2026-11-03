@@ -22,6 +22,7 @@ from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
 
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactDraft, ArtifactLineage, ArtifactRef
@@ -37,10 +38,16 @@ from powercontext.builtin.artifacts.merge_models import (
     PreparedArtifactMerge,
 )
 from powercontext.builtin.artifacts.merge_restoration import ArtifactMergePreviewSigner, calculate_restoration
-from powercontext.builtin.persistence.artifact_governance import ArtifactGovernanceRepository, ArtifactLifecycleState
-from powercontext.builtin.persistence.artifacts import ArtifactRepository
-from powercontext.builtin.persistence.errors import RepositoryNotFoundError
-from powercontext.builtin.persistence.sources import SourceRepository
+from powercontext.builtin.persistence.artifact_governance import (
+    ArtifactGovernance,
+    ArtifactGovernanceRepository,
+    ArtifactLifecycleState,
+    decode_artifact_governance,
+)
+from powercontext.builtin.persistence.artifacts import ArtifactRepository, _ValidatedLineageSources
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
+from powercontext.builtin.persistence.sources import SourceRepository, _SourceReadSet
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
 from powercontext.builtin.sources.content import (
     ArtifactRestorationOutcome,
     ArtifactRestorationWrite,
@@ -70,8 +77,12 @@ class ArtifactMergeSecurity(Protocol):
         self, connection: AsyncConnection, scope_id: str, context: Any, sources: tuple[SourceRef, ...]
     ) -> None: ...
 
-    async def establish_owner(
-        self, connection: AsyncConnection, scope_id: str, artifact_id: str, context: Any
+    async def authorize_creates(
+        self, connection: AsyncConnection, scope_id: str, context: Any, refs: Sequence[ArtifactRef]
+    ) -> None: ...
+
+    async def establish_owners(
+        self, connection: AsyncConnection, scope_id: str, artifact_ids: Sequence[str], context: Any
     ) -> None: ...
 
 
@@ -94,6 +105,13 @@ class ArtifactMergeAdapter(Protocol):
         scope_id: str,
         record: ArtifactMergeRecord,
         prepared: Any,
+        execution_context: Any,
+    ) -> None: ...
+    async def publish_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        records: Sequence[tuple[ArtifactMergeRecord, Any]],
         execution_context: Any,
     ) -> None: ...
     async def remove(self, connection: AsyncConnection, scope_id: str, artifact_id: str) -> None: ...
@@ -165,18 +183,63 @@ class ArtifactMergeService:
         expected_state_version: int | None = None,
         lineage: ArtifactLineage | None = None,
         reads: Sequence[ArtifactMergeRead] = (),
+        source_read_set: _SourceReadSet | None = None,
+    ) -> ArtifactMergePlan:
+        return await self._inspect_change(
+            connection,
+            scope_id,
+            artifact_id,
+            content,
+            context,
+            expected_revision=expected_revision,
+            expected_state_version=expected_state_version,
+            lineage=lineage,
+            reads=reads,
+            source_read_set=source_read_set,
+            create_authorized=False,
+        )
+
+    async def inspect_creates(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[str, BaseModel]],
+        context: Any,
+    ) -> tuple[ArtifactMergePlan, ...]:
+        if not items:
+            return ()
+        await self.security.authorize_creates(
+            connection,
+            scope_id,
+            context,
+            tuple(ArtifactRef(family=self.family, artifact_id=artifact_id, revision=1) for artifact_id, _ in items),
+        )
+        return tuple([
+            await self._inspect_change(connection, scope_id, artifact_id, content, context, create_authorized=True)
+            for artifact_id, content in items
+        ])
+
+    async def _inspect_change(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_id: str,
+        content: BaseModel,
+        context: Any,
+        *,
+        expected_revision: int | None = None,
+        expected_state_version: int | None = None,
+        lineage: ArtifactLineage | None = None,
+        reads: Sequence[ArtifactMergeRead] = (),
+        source_read_set: _SourceReadSet | None = None,
+        create_authorized: bool,
     ) -> ArtifactMergePlan:
         draft = self.adapter.draft(content, lineage or ArtifactLineage())
         current = None
         if expected_revision is None:
             target = ArtifactRef(family=self.family, artifact_id=artifact_id, revision=1)
-            await self.security.authorize(connection, scope_id, context, "create", target)
-            try:
-                stored = await self.artifacts.latest(connection, scope_id, self.family, artifact_id)
-            except RepositoryNotFoundError:
-                pass
-            else:
-                raise RevisionConflictError(draft, stored)
+            if not create_authorized:
+                await self.security.authorize(connection, scope_id, context, "create", target)
             state = ArtifactLifecycleState.ACTIVE
         else:
             current = await self.get(connection, scope_id, artifact_id, context)
@@ -190,7 +253,7 @@ class ArtifactMergeService:
             target = ArtifactRef(family=self.family, artifact_id=artifact_id, revision=current.artifact.revision + 1)
             state = current.state.lifecycle_state
             draft = draft.model_copy(update={"artifacts": _unique_refs((*draft.artifacts, current.ref))})
-        await self._validate_draft(connection, scope_id, target, draft, context)
+        await self._validate_draft(connection, scope_id, target, draft, context, source_read_set=source_read_set)
         dependencies = (*reads, *((current.as_read(),) if current is not None else ()))
         await self._check_dependencies(connection, scope_id, dependencies, context)
         return ArtifactMergePlan(
@@ -262,6 +325,7 @@ class ArtifactMergeService:
         *,
         lineage: ArtifactLineage | None = None,
         reads: Sequence[ArtifactMergeRead] = (),
+        source_read_set: _SourceReadSet | None = None,
     ) -> ArtifactMergePlan:
         selected = tuple(inputs)
         ids = tuple(read.ref.artifact_id for read in selected)
@@ -274,12 +338,6 @@ class ArtifactMergeService:
             raise self.errors.relation("merge needs at least two distinct inputs and a new result identity")  # noqa: TRY003
         target = ArtifactRef(family=self.family, artifact_id=artifact_id, revision=1)
         await self.security.authorize(connection, scope_id, context, "create", target)
-        try:
-            stored = await self.artifacts.latest(connection, scope_id, self.family, artifact_id)
-        except RepositoryNotFoundError:
-            pass
-        else:
-            raise RevisionConflictError(content, stored)
         current_inputs: list[ArtifactMergeRecord] = []
         for expected in selected:
             current = await self.get(connection, scope_id, expected.ref.artifact_id, context)
@@ -300,7 +358,7 @@ class ArtifactMergeService:
         if lineage is None:
             draft = draft.model_copy(update={"artifacts": tuple(read.ref for read in selected)})
         self._require_merge_draft(artifact_id, draft, selected)
-        await self._validate_draft(connection, scope_id, target, draft, context)
+        await self._validate_draft(connection, scope_id, target, draft, context, source_read_set=source_read_set)
         dependencies = self._unique_reads((*reads, *selected))
         await self._check_dependencies(connection, scope_id, dependencies, context)
         writes = (
@@ -491,20 +549,38 @@ class ArtifactMergeService:
         *,
         read_set: Sequence[ArtifactMergeRead] = (),
         direct_source: SourceRef | None = None,
+        direct_sources: Sequence[SourceRef | None] | None = None,
+        source_read_set: _SourceReadSet | None = None,
     ) -> tuple[ArtifactMergeMutationResult, ...]:
         """Validate all window dependencies before publishing any of its final decisions."""
 
         plans = tuple(item.plan for item in prepared)
+        if direct_sources is not None and (direct_source is not None or len(direct_sources) != len(prepared)):
+            raise ValueError("direct sources must match the prepared window")  # noqa: TRY003
+        operation_sources = (direct_source,) * len(prepared) if direct_sources is None else tuple(direct_sources)
         subject = self.security.subject(context)
         self._require_window(plans, scope_id, subject)
         for item in prepared:
             for _, projection in item.projections:
                 self.projections.validate_prepared(projection)
+            projections = dict(item.projections)
+            if any(
+                write.state is ArtifactLifecycleState.ACTIVE and projections.get(write.artifact_id) is None
+                for write in item.plan.writes
+            ):
+                raise self.errors.relation("active publication requires a prepared projection")  # noqa: TRY003
         reads = self._unique_reads((*read_set, *(read for plan in plans for read in plan.reads)))
         await self.artifacts.lock_heads(connection, scope_id, tuple(read.ref for read in reads))
         for plan in plans:
             await self._validate_preview(connection, plan, context)
-        current = await self._check_dependencies(connection, scope_id, reads, context, for_update=True)
+        full_records = {
+            identity
+            for plan in plans
+            for identity in (plan.primary_artifact_id, *(write.artifact_id for write in plan.writes))
+        }
+        current = await self._check_dependencies(
+            connection, scope_id, reads, context, for_update=True, full_records=full_records
+        )
         for plan in plans:
             if plan.operation in {"restore", "undo_merge"}:
                 verified = await self.inspect_restore(
@@ -518,9 +594,26 @@ class ArtifactMergeService:
                 )
                 if verified != plan:
                     raise self.errors.conflict("restoration relations changed; prepare the whole group again")  # noqa: TRY003
-        results: list[ArtifactMergeMutationResult] = []
-        for item in prepared:
-            results.append(await self._commit_locked(connection, item, current, context, direct_source))
+        independent_creates = all(
+            item.plan.operation == "change"
+            and len(item.plan.writes) == 1
+            and item.plan.writes[0].current is None
+            and item.plan.writes[0].draft is not None
+            and not item.plan.writes[0].draft.artifacts
+            and item.plan.writes[0].state is ArtifactLifecycleState.ACTIVE
+            and not item.plan.writes[0].merge_input_ids
+            and item.plan.writes[0].merged_into_id is None
+            and item.plan.writes[0].replacement_artifact_id is None
+            for item in prepared
+        )
+        groups = (
+            (tuple(zip(prepared, operation_sources, strict=True)),)
+            if independent_creates
+            else tuple(((item, source),) for item, source in zip(prepared, operation_sources, strict=True))
+        )
+        results = []
+        for group in groups:
+            results.extend(await self._commit_locked(connection, group, current, context, source_read_set))
         return tuple(results)
 
     def _require_window(self, plans: Sequence[ArtifactMergePlan], scope_id: str, subject: str) -> None:
@@ -552,55 +645,70 @@ class ArtifactMergeService:
     async def _commit_locked(
         self,
         connection: AsyncConnection,
-        prepared: PreparedArtifactMerge,
+        prepared: Sequence[tuple[PreparedArtifactMerge, SourceRef | None]],
         current: dict[str, ArtifactMergeRecord],
         context: Any,
-        direct_source: SourceRef | None,
-    ) -> ArtifactMergeMutationResult:
-        """Apply a plan against the already verified initial window state."""
+        source_read_set: _SourceReadSet | None,
+    ) -> tuple[ArtifactMergeMutationResult, ...]:
+        """Apply independent plans through the same validated write lifecycle."""
 
-        plan = prepared.plan
-        projections = dict(prepared.projections)
-        records: dict[str, ArtifactMergeRecord] = {}
-        restoration = await self._record_restoration(connection, plan, current)
-        for write in plan.writes:
-            record = await self._commit_write(
-                connection,
-                plan.scope_id,
-                write,
-                current.get(write.artifact_id),
-                projections.get(write.artifact_id),
-                context,
-                direct_source,
-                tuple(
+        if not prepared:
+            return ()
+        scope_id = prepared[0][0].plan.scope_id
+        writes = []
+        projections = {}
+        system_sources = {}
+        merge_inputs = {}
+        restorations = []
+        for item, direct_source in prepared:
+            plan = item.plan
+            restoration = await self._record_restoration(connection, plan, current)
+            restorations.append(restoration)
+            projections.update(item.projections)
+            for write in plan.writes:
+                writes.append(write)
+                restoration_source = (
+                    restoration[1]
+                    if restoration is not None and write.artifact_id == plan.primary_artifact_id
+                    else None
+                )
+                system_sources[write.artifact_id] = tuple(
+                    source for source in (direct_source, restoration_source) if source is not None
+                )
+                merge_inputs[write.artifact_id] = tuple(
                     (read.ref, read.state_version)
                     for read in plan.reads
                     if read.ref.artifact_id in write.merge_input_ids
-                ),
-                restoration_source=None
-                if restoration is None or write.artifact_id != plan.primary_artifact_id
-                else restoration[1],
-            )
-            records[write.artifact_id] = record
-        if plan.primary_artifact_id not in records:
-            records[plan.primary_artifact_id] = current[plan.primary_artifact_id]
-        if restoration is not None and any(
-            records[write.after_ref.artifact_id].ref != write.after_ref
-            or records[write.after_ref.artifact_id].state.lifecycle_state.value != write.lifecycle_state
-            for write in restoration[0].writes
-        ):
-            raise self.errors.relation("restoration outcome differs from committed revisions")  # noqa: TRY003
-        return ArtifactMergeMutationResult(
-            changed=bool(plan.writes),
-            records=tuple(records[identity] for identity in sorted(records)),
-            primary_artifact_id=plan.primary_artifact_id,
-            retired=tuple(
-                record.ref
-                for record in records.values()
-                if record.state.lifecycle_state is ArtifactLifecycleState.RETIRED
-            ),
-            undo_merge_results=plan.undo_merge_results,
+                )
+        committed = await self._commit_writes(
+            connection, scope_id, writes, current, projections, context, system_sources, merge_inputs, source_read_set
         )
+        results = []
+        for (item, _), restoration in zip(prepared, restorations, strict=True):
+            plan = item.plan
+            records = {write.artifact_id: committed[write.artifact_id] for write in plan.writes}
+            if plan.primary_artifact_id not in records:
+                records[plan.primary_artifact_id] = current[plan.primary_artifact_id]
+            if restoration is not None and any(
+                records[write.after_ref.artifact_id].ref != write.after_ref
+                or records[write.after_ref.artifact_id].state.lifecycle_state.value != write.lifecycle_state
+                for write in restoration[0].writes
+            ):
+                raise self.errors.relation("restoration outcome differs from committed revisions")  # noqa: TRY003
+            results.append(
+                ArtifactMergeMutationResult(
+                    changed=bool(plan.writes),
+                    records=tuple(records[identity] for identity in sorted(records)),
+                    primary_artifact_id=plan.primary_artifact_id,
+                    retired=tuple(
+                        record.ref
+                        for record in records.values()
+                        if record.state.lifecycle_state is ArtifactLifecycleState.RETIRED
+                    ),
+                    undo_merge_results=plan.undo_merge_results,
+                )
+            )
+        return tuple(results)
 
     async def _record_restoration(
         self,
@@ -651,77 +759,126 @@ class ArtifactMergeService:
         )
         return outcome, source.ref
 
-    async def _commit_write(
+    async def _commit_writes(  # noqa: C901 - One boundary owns validation, persistence, governance and publication.
         self,
         connection: AsyncConnection,
         scope_id: str,
-        write: ArtifactMergeWrite,
-        before: ArtifactMergeRecord | None,
-        projection: Any | None,
+        writes: Sequence[ArtifactMergeWrite],
+        current: dict[str, ArtifactMergeRecord],
+        projections: dict[str, Any],
         context: Any,
-        direct_source: SourceRef | None,
-        merge_inputs: tuple[tuple[ArtifactRef, int], ...] = (),
-        *,
-        restoration_source: SourceRef | None = None,
-    ) -> ArtifactMergeRecord:
-        """Publish one identity after the whole plan's locks and checks are complete."""
-
-        draft = write.draft
-        if draft is not None:
+        system_sources: dict[str, tuple[SourceRef, ...]],
+        merge_inputs: dict[str, tuple[tuple[ArtifactRef, int], ...]],
+        source_read_set: _SourceReadSet | None,
+    ) -> dict[str, ArtifactMergeRecord]:
+        drafts = {}
+        creates = []
+        create_refs = []
+        for write in writes:
+            draft = write.draft
+            if draft is None:
+                continue
+            before = current.get(write.artifact_id)
             target = ArtifactRef(
                 family=self.family,
                 artifact_id=write.artifact_id,
                 revision=1 if before is None else before.artifact.revision + 1,
             )
-            system_sources = tuple(source for source in (direct_source, restoration_source) if source is not None)
-            if system_sources:
-                sources = {
-                    (source.source_type, source.source_id): source for source in (*draft.sources, *system_sources)
-                }
-                draft = draft.model_copy(update={"sources": tuple(sources.values())})
-            await self._validate_draft(connection, scope_id, target, draft, context, system_sources=system_sources)
+            sources = system_sources[write.artifact_id]
+            if sources:
+                unique = {(source.source_type, source.source_id): source for source in (*draft.sources, *sources)}
+                draft = draft.model_copy(update={"sources": tuple(unique.values())})
+            validated = await self._validate_draft(
+                connection, scope_id, target, draft, context, system_sources=sources, source_read_set=source_read_set
+            )
+            drafts[write.artifact_id] = (draft, validated)
             if before is None:
-                await self.security.authorize(connection, scope_id, context, "create", target)
-                if write.merge_input_ids:
-                    artifact = await self.artifacts.create_merge_result(
-                        connection, scope_id, write.artifact_id, draft, merge_inputs
+                create_refs.append(target)
+                if not write.merge_input_ids:
+                    creates.append((write.artifact_id, draft, validated))
+        await self.security.authorize_creates(connection, scope_id, context, create_refs)
+        created = {
+            artifact.artifact_id: artifact
+            for artifact in await self.artifacts.create_many(connection, scope_id, creates)
+        }
+        if created:
+            await self.security.establish_owners(connection, scope_id, tuple(created), context)
+        records = {}
+        for write in writes:
+            before = current.get(write.artifact_id)
+            if write.draft is not None:
+                draft, validated = drafts[write.artifact_id]
+                if before is None:
+                    if write.merge_input_ids:
+                        artifact = await self.artifacts.create_merge_result(
+                            connection,
+                            scope_id,
+                            write.artifact_id,
+                            draft,
+                            merge_inputs[write.artifact_id],
+                            validated_sources=validated,
+                        )
+                        await self.security.establish_owners(connection, scope_id, (write.artifact_id,), context)
+                        await self.merge_tags(connection, scope_id, write.artifact_id, write.merge_input_ids)
+                    else:
+                        artifact = created[write.artifact_id]
+                    state = ArtifactGovernance(
+                        artifact=artifact.as_ref(),
+                        lifecycle_state=ArtifactLifecycleState.ACTIVE,
+                        governance_generation=0,
                     )
                 else:
-                    artifact = await self.artifacts.create(connection, scope_id, write.artifact_id, draft)
-                state = await self.states.get(connection, scope_id, self.family, write.artifact_id, for_update=True)
-                await self.security.establish_owner(connection, scope_id, write.artifact_id, context)
-                if write.merge_input_ids:
-                    await self.merge_tags(connection, scope_id, write.artifact_id, write.merge_input_ids)
+                    state = before.state
+                    if state.merged_into_id is not None:
+                        artifact = await self.artifacts.revise_for_restoration(
+                            connection, scope_id, before.artifact, draft, state, validated_sources=validated
+                        )
+                    else:
+                        artifact = await self.artifacts.revise(
+                            connection, scope_id, before.artifact, draft, validated_sources=validated
+                        )
             else:
-                state = before.state
-                if state.merged_into_id is not None:
-                    artifact = await self.artifacts.revise_for_restoration(
-                        connection, scope_id, before.artifact, draft, state
-                    )
+                if before is None:
+                    raise self.errors.relation("state transitions require an existing Artifact")  # noqa: TRY003
+                artifact, state = before.artifact, before.state
+            if (
+                before is not None
+                or write.state is not ArtifactLifecycleState.ACTIVE
+                or write.merged_into_id is not None
+                or write.replacement_artifact_id is not None
+            ):
+                state = await self.states.transition_merge(
+                    connection,
+                    scope_id,
+                    self.family,
+                    write.artifact_id,
+                    state,
+                    write.state,
+                    write.merged_into_id,
+                    write.replacement_artifact_id,
+                )
+            records[write.artifact_id] = ArtifactMergeRecord(artifact=artifact, state=state)
+        if (
+            created
+            and len(created) == len(writes)
+            and all(record.state.lifecycle_state is ArtifactLifecycleState.ACTIVE for record in records.values())
+        ):
+            await self.projections.publish_many(
+                connection,
+                scope_id,
+                tuple((record, projections[artifact_id]) for artifact_id, record in records.items()),
+                context,
+            )
+        else:
+            for artifact_id, record in records.items():
+                if record.state.lifecycle_state is ArtifactLifecycleState.ACTIVE:
+                    projection = projections.get(artifact_id)
+                    if projection is None:
+                        raise self.errors.relation("active publication requires a prepared projection")  # noqa: TRY003
+                    await self.projections.publish(connection, scope_id, record, projection, context)
                 else:
-                    artifact = await self.artifacts.revise(connection, scope_id, before.artifact, draft)
-        else:
-            if before is None:
-                raise self.errors.relation("state transitions require an existing Artifact")  # noqa: TRY003
-            artifact, state = before.artifact, before.state
-        state = await self.states.transition_merge(
-            connection,
-            scope_id,
-            self.family,
-            write.artifact_id,
-            state,
-            write.state,
-            write.merged_into_id,
-            write.replacement_artifact_id,
-        )
-        record = ArtifactMergeRecord(artifact=artifact, state=state)
-        if state.lifecycle_state is ArtifactLifecycleState.ACTIVE:
-            if projection is None:
-                raise self.errors.relation("active publication requires a prepared projection")  # noqa: TRY003
-            await self.projections.publish(connection, scope_id, record, projection, context)
-        else:
-            await self.projections.remove(connection, scope_id, write.artifact_id)
-        return record
+                    await self.projections.remove(connection, scope_id, artifact_id)
+        return records
 
     async def _check_dependencies(
         self,
@@ -731,9 +888,42 @@ class ArtifactMergeService:
         context: Any,
         *,
         for_update: bool = False,
+        full_records: set[str] | None = None,
     ) -> dict[str, ArtifactMergeRecord]:
         records: dict[str, ArtifactMergeRecord] = {}
+        head_states: dict[str, ArtifactGovernance] = {}
+        if full_records is not None:
+            read_only = tuple(read.ref.artifact_id for read in reads if read.ref.artifact_id not in full_records)
+            for offset in range(0, len(read_only), SELECTION_BATCH_SIZE):
+                rows = (
+                    await connection.execute(
+                        select(ARTIFACT_HEADS_TABLE).where(
+                            ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                            ARTIFACT_HEADS_TABLE.c.family == self.family,
+                            ARTIFACT_HEADS_TABLE.c.artifact_id.in_(read_only[offset : offset + SELECTION_BATCH_SIZE]),
+                        )
+                    )
+                ).mappings()
+                head_states.update({row["artifact_id"]: decode_artifact_governance(row) for row in rows})
         for expected in self._unique_reads(reads):
+            if expected.ref.artifact_id in head_states:
+                # The exact body and lineage were checked while preparing the plan.
+                # After the ordered head locks, only this mutable summary can differ.
+                await self.security.authorize(connection, scope_id, context, "read", expected.ref)
+                state = head_states[expected.ref.artifact_id]
+                await self.security.authorize(connection, scope_id, context, "write", state.artifact)
+                if (
+                    ArtifactMergeRead(
+                        ref=state.artifact,
+                        lifecycle_state=state.lifecycle_state,
+                        state_version=state.governance_generation,
+                        merged_into_id=state.merged_into_id,
+                        replacement_artifact_id=state.replacement_artifact_id,
+                    )
+                    != expected
+                ):
+                    raise self.errors.conflict("Artifact content, state or merge relation changed; prepare again")  # noqa: TRY003
+                continue
             current = await self.get(connection, scope_id, expected.ref.artifact_id, context, for_update=for_update)
             await self.security.authorize(connection, scope_id, context, "write", current.ref)
             if current.as_read() != expected:
@@ -754,15 +944,19 @@ class ArtifactMergeService:
         context: Any,
         *,
         system_sources: tuple[SourceRef, ...] = (),
-    ) -> None:
+        source_read_set: _SourceReadSet | None = None,
+    ) -> _ValidatedLineageSources:
         # The host creates a lineage_only Source bound to this exact new target.
         # It is not caller-supplied evidence and need not grant Scope body read.
         ordinary_sources = tuple(source for source in draft.sources if source not in system_sources)
         await self.security.authorize_sources(connection, scope_id, context, ordinary_sources)
-        await self.artifacts.validate_lineage_sources(connection, scope_id, target, draft.sources)
+        validated_sources = await self.artifacts.validate_lineage_sources(
+            connection, scope_id, target, draft.sources, source_read_set=source_read_set
+        )
         for ref in draft.artifacts:
             await self.security.authorize(connection, scope_id, context, "read", ref)
-            await self.artifacts.get(connection, scope_id, ref)
+        await self.artifacts.get_many(connection, scope_id, draft.artifacts)
+        return validated_sources
 
     def _expected(
         self, current: ArtifactMergeRecord, revision: int, state_version: int | None, requested: Any = None

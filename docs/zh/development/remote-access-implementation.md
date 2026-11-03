@@ -130,15 +130,7 @@ SQLite 存储分类使用 dialect 的实际连接参数和解码后的 URI，包
 不会归一化大写 scheme、前导空格或文件名中的控制字符。`SQLiteConfig.is_in_memory` 区分内存存储；`SQLiteConfig.is_persistent` 同时排除内存与临时
 存储。非持久存储的连接池保留一个连接；离线维护、cursor secret 持久化及子进程 worker 统一使用该持久性分类。
 
-[RFC #1771](../rfcs/1771-unified-database-migrations.md) 对应的统一迁移实现目前只覆盖已注册的四张 Artifact 表。
-它尚未管理 `pc_server_identity`、接管普通 Server 启动检查或证明完整 Server readiness；维护命令会拒绝包含未管理表的
-完整业务数据库。不能使用这个局部 bundle 迁移 Server 数据库。
-
-统一迁移接管完整 Server schema 时，identity table 创建必须从启动 DDL 移到不可变的受管 revision，并在 Runtime
-组装前验证 schema。若 discovery 已发布，支持的历史 baseline 必须包含现有 identity table，并保留 singleton 值；
-若在框架启用时仍未合并，discovery 必须随 model 一起提交该 revision。deployment identity 与 `pc_schema_revision`
-保持独立，schema 纳管或升级不能轮换 `server_id`。clone 轮换仍是显式离线操作，identity 不另设 schema version 或
-migration readiness marker。
+[完整 Server 迁移](../docs/operate/database-migrations.md)已将 `pc_server_identity` 纳入冻结的 1.3.0 基线和共享版本链，并在 Runtime 组装前检查结构。迁移保留原有 singleton 值；deployment identity 与 `pc_schema_revision` 独立，升级不会轮换 `server_id`。clone 轮换仍是显式离线操作，identity 不另设 schema version 或 readiness marker。局部 Artifact bundle 不能证明完整 Server 就绪。
 
 把备份恢复为原 deployment 时应保留原 ID。若用备份创建独立 clone，请停止所有使用 clone 数据库的 Server
 进程，然后只在 clone 上轮换：

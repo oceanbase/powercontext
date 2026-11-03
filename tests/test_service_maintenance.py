@@ -23,9 +23,17 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from alembic import command
+from sqlalchemy import create_engine
 from typer.testing import CliRunner
 
 import powercontext.service.cli as service_cli
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner, server_bundle
+from powercontext.builtin.persistence.migrations.models import MigrationError
+from powercontext.cli.app import create_cli
+from powercontext.server import database_migration
+from powercontext.server.cli import app as server_app
+from powercontext.server.configuration import server_settings_context
 from powercontext.service.adapters.base import service_python_executable
 from powercontext.service.adapters.systemd import SystemdUserAdapter
 from powercontext.service.adapters.windows import WindowsTaskSchedulerAdapter
@@ -41,7 +49,183 @@ from powercontext.service.model import (
     ServiceError,
 )
 from powercontext.service.probe import probe_readiness
-from tests.test_service import FakeAdapter, _definition, _LivenessHandler, _manager_probe, _serve
+from tests.test_service import FakeAdapter, _definition, _LivenessHandler, _manager_probe, _secure_windows_file, _serve
+
+
+@pytest.fixture
+def managed_upgrade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    for name in tuple(os.environ):
+        if name == "POWERCONTEXT_HOME" or name.startswith("POWERCONTEXT_SERVER_"):
+            monkeypatch.delenv(name)
+    database = tmp_path / "server.db"
+    environment = tmp_path / "deployment.env"
+    environment.write_text(
+        f"POWERCONTEXT_HOME={tmp_path.as_posix()}\n"
+        "POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\n"
+        f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database.as_posix()}\n",
+        encoding="utf-8",
+    )
+    environment.chmod(0o600)
+    _secure_windows_file(environment)
+    with server_settings_context(env_file=environment) as settings:
+        runner = deployment_runner(settings)
+    bundle = server_bundle()
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.begin() as connection:
+            config = bundle.config(connection)
+            config.attributes["configuration"] = runner.configuration
+            command.upgrade(config, "s1300")
+            connection.exec_driver_sql("DROP TABLE pc_schema_revision")
+    finally:
+        engine.dispose()
+    controller, adapter = _installed(tmp_path)
+    assert adapter.definition is not None
+    from powercontext.service.environment import load_protected_environment_file
+
+    adapter.definition = replace(
+        adapter.definition,
+        data_dir=str(tmp_path),
+        env_file=load_protected_environment_file(environment).identity,
+    )
+    adapter.content = adapter.render(adapter.definition)
+    adapter.loaded_definition = adapter.definition
+    monkeypatch.setattr(database_migration, "ServiceController", lambda: controller)
+    cli = create_cli([server_app])
+
+    def invoke(action: str, *options: str):
+        return CliRunner().invoke(
+            cli,
+            ["server", "db-migrate", action, "--env-file", str(environment), "--manage-service", *options],
+        )
+
+    def apply(plan):
+        return invoke(
+            "apply",
+            "--backup",
+            "auto",
+            "--plan-id",
+            plan["plan_id"],
+            "--yes",
+            "--maintenance-confirmed",
+        )
+
+    return controller, adapter, runner, environment, invoke, apply
+
+
+@pytest.mark.parametrize("running", [True, False])
+def test_full_server_migration_switches_service_and_preserves_original_running_state(managed_upgrade, running):
+    controller, adapter, runner, _environment, invoke, apply = managed_upgrade
+    if not running:
+        controller.stop()
+    original = adapter.definition
+    planned = invoke("plan")
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["service"]["originally_running"] is running
+    assert adapter.definition == original
+    assert runner.plan().state == "migration_required"
+
+    migrated = apply(plan)
+
+    assert migrated.exit_code == 0, migrated.output
+    assert json.loads(migrated.output)["server_ready"] is True
+    assert runner.verify().state == "ready"
+    assert adapter.definition is not None
+    assert adapter.definition.python_executable == service_python_executable()
+    assert adapter.manager is (ManagerState.ACTIVE if running else ManagerState.INACTIVE)
+    assert adapter.suspended is not running
+
+
+def test_failed_full_server_migration_keeps_service_stopped_and_can_resume(managed_upgrade, monkeypatch):
+    controller, adapter, runner, _environment, invoke, apply = managed_upgrade
+    original = adapter.definition
+    planned = invoke("plan")
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    from powercontext.builtin.persistence.migrations.domains import DomainRegistry
+
+    original_invoke = DomainRegistry._invoke
+
+    def interrupted(registry, step, operation, connection, configuration):
+        original_invoke(registry, step, operation, connection, configuration)
+        if step.id == "server_upgrade" and operation == "verify":
+            raise MigrationError("injected_failure", "Interrupted domain verification")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(DomainRegistry, "_invoke", interrupted)
+        failed = apply(plan)
+    assert failed.exit_code != 0
+    assert json.loads(failed.output)["error"] == "injected_failure"
+    assert adapter.definition == original
+    assert adapter.manager is ManagerState.INACTIVE
+    assert adapter.suspended
+    with pytest.raises(ServiceError, match="not been verified"):
+        controller.start()
+    retry = invoke("plan")
+    assert retry.exit_code == 0, retry.output
+    resumed = apply(json.loads(retry.output))
+    assert resumed.exit_code == 0, resumed.output
+    assert runner.verify().state == "ready"
+    assert adapter.manager is ManagerState.ACTIVE
+
+
+def test_service_start_failure_reports_ready_database_and_retries_only_service(managed_upgrade, monkeypatch):
+    controller, adapter, runner, _environment, invoke, apply = managed_upgrade
+    planned = invoke("plan")
+    assert planned.exit_code == 0, planned.output
+    with monkeypatch.context() as fault:
+        fault.setattr(controller, "_readiness_probe", lambda _: ProbeResult(ProbeState.CONFLICT, "startup failed"))
+        failed = apply(json.loads(planned.output))
+    assert failed.exit_code != 0
+    result = json.loads(failed.output)
+    assert result["error"] == "service_start_failed"
+    assert result["database_state"] == "ready"
+    assert adapter.suspended
+    assert adapter.manager is ManagerState.INACTIVE
+    before = runner.database.read_bytes()
+    assert controller.start().ok
+    assert runner.database.read_bytes() == before
+
+
+def test_database_ready_before_service_switch_can_complete_managed_retry(managed_upgrade):
+    controller, adapter, runner, environment, invoke, apply = managed_upgrade
+    summary = controller.maintenance_summary(env_file=environment)
+    with controller.maintenance(expected_fingerprint=summary.fingerprint, env_file=environment):
+        plan = runner.plan()
+        runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+    original = adapter.definition
+    before = runner.database.read_bytes()
+    planned = invoke("plan")
+    assert planned.exit_code == 0, planned.output
+    completed = apply(json.loads(planned.output))
+    assert completed.exit_code == 0, completed.output
+    assert adapter.definition != original
+    assert adapter.manager is ManagerState.ACTIVE
+    assert not controller.maintenance_path.exists()
+    assert runner.database.read_bytes() == before
+
+
+def test_managed_migration_rejects_a_different_database_before_stopping_service(managed_upgrade, tmp_path):
+    controller, adapter, runner, _environment, _invoke, _apply = managed_upgrade
+    different = tmp_path / "different.env"
+    different.write_text(
+        "POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\n"
+        f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{(tmp_path / 'other.db').as_posix()}\n",
+        encoding="utf-8",
+    )
+    different.chmod(0o600)
+    _secure_windows_file(different)
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "db-migrate", "plan", "--env-file", str(different), "--manage-service"],
+    )
+    assert result.exit_code != 0
+    assert adapter.manager is ManagerState.ACTIVE
+    assert not adapter.suspended
+    assert not controller.maintenance_path.exists()
+    assert not (tmp_path / "other.db").exists()
+    assert runner.plan().state == "migration_required"
 
 
 def _installed(tmp_path: Path, *, running: bool = True) -> tuple[ServiceController, FakeAdapter]:

@@ -25,11 +25,13 @@ import githubStars from '../../.generated/github-stars.json';
 const labels = {
   en: {
     docs: 'Docs',
+    blog: 'Blog',
     benchmarks: 'Benchmarks',
     changelog: 'Changelog',
   },
   zh: {
     docs: '文档',
+    blog: '博客',
     benchmarks: '基准测试',
     changelog: '更新日志',
   },
@@ -47,6 +49,7 @@ export function baseOptions(lang: Language): BaseLayoutProps {
       { text: label.docs, url: `/${lang}/docs` },
       { text: label.benchmarks, url: `/${lang}/benchmarks` },
       { text: label.changelog, url: `/${lang}/changelog` },
+      { text: label.blog, url: `/${lang}/blog` },
       {
         type: 'custom',
         secondary: true,

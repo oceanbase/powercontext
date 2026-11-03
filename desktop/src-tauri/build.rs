@@ -35,6 +35,14 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "foundation_info",
             "local_diagnostics",
+            "ops_references",
+            "ops_inspect",
+            "ops_config_validate",
+            "ops_preflight",
+            "ops_apply",
+            "ops_operation_status",
+            "ops_cancel",
+            "ops_resume",
             "remember_memory",
             "search_memory",
             "atomic_memory_entry",
@@ -49,6 +57,9 @@ fn main() {
             "cancel_scope_reads",
             "default_scope",
             "select_scope",
+            "session_summary",
+            "reset_session_observations",
+            "preview_session_diagnostics",
         ]),
     ))
     .expect("desktop build configuration is invalid");

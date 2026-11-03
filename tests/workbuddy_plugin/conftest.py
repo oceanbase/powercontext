@@ -30,6 +30,7 @@ _PLUGIN_MODULE_NAMES = (
     "powercontext_client_config",
     "powercontext_scope_binding",
     "prepared_context",
+    "prompt_privacy",
     "workbuddy_settings",
     "workspace_scope",
 )

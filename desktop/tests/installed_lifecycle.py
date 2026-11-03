@@ -35,12 +35,8 @@ def exercise_forced_exit(client: httpx.Client, prefix: str, app: subprocess.Pope
         page.button("保存")
         # The preceding workflow intentionally leaves an unknown last write. A new
         # explicit write must still pass the product's duplicate-risk confirmation.
-        alert = client.get(prefix + "/alert/text")
-        alert.raise_for_status()
         expected_prompt = "上次提交结果未知，再次保存可能产生重复记录。仍要提交这次输入吗？"  # noqa: RUF001 - exact localized UI
-        if alert.json()["value"] != expected_prompt:
-            raise HarnessFailure("installed_unknown_retry_confirmation_missing")
-        page.post("/alert/accept", {})
+        page.confirm(expected_prompt, accept=True)
         page.wait_text("保存成功。")
         reference = page.search_read(note, "desktoplifecyclectest")
         if app.poll() is not None:
@@ -92,7 +88,13 @@ def exercise_single_instance(client: httpx.Client, prefix: str, app: subprocess.
         ):
             raise HarnessFailure("installed_second_launch_changed_draft")
     page.button("总览")
-    page.post("/alert/dismiss", {})
+    page.confirm("丢弃尚未保存的输入？", accept=False)  # noqa: RUF001 - exact localized UI
+    if (
+        page.observe("return arguments[0].value;", [{ELEMENT: page.field("连接名称")}])
+        != "single-instance unsaved draft"
+    ):
+        raise HarnessFailure("installed_cancel_navigation_lost_draft")
     page.button("总览")
-    page.post("/alert/accept", {})
+    page.confirm("丢弃尚未保存的输入？", accept=True)  # noqa: RUF001 - exact localized UI
+    page.element("//main//h1[normalize-space(.)='总览']")
     return {"secondLaunchesExited": 3, "originalEditorAndDraftPreserved": True}

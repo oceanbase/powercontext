@@ -47,7 +47,7 @@ from powercontext.builtin.persistence.tables import (
 VALID_URL = "mysql+aoceanbase://root%40tenant:secret@127.0.0.1:2881/powercontext?charset=utf8mb4"
 
 
-async def _skip_dream_preflight(_engine: AsyncEngine) -> None:
+async def _skip_dream_preflight(_engine: AsyncEngine, *, _archive_recovery: bool = False) -> None:
     """These profile unit tests use engine doubles; read-only preflight has integration coverage."""
 
 
@@ -61,6 +61,9 @@ class _Result:
     def all(self) -> list[tuple[object, ...]]:
         return list(self._rows)
 
+    def scalar_one(self) -> object:
+        return self._rows[0][0]
+
 
 class _Connection:
     def __init__(self, row: tuple[str, str] | None = ("ob_compatibility_mode", "MYSQL")) -> None:
@@ -70,6 +73,8 @@ class _Connection:
 
     async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> _Result:
         self.statements.append(statement)
+        if statement == "SELECT DATABASE()":
+            return _Result((("powercontext",),))
         if "ob_compatibility_mode" in statement:
             return _Result(() if self.row is None else (self.row,))
         return _Result(())
@@ -82,6 +87,8 @@ class _SchemaConnection(_Connection):
 
     async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> _Result:
         self.statements.append(statement)
+        if statement == "SELECT DATABASE()":
+            return _Result((("powercontext",),))
         if "ob_compatibility_mode" in statement:
             return _Result((("ob_compatibility_mode", "MYSQL"),))
         if "LEFT(TABLE_NAME" in statement:
@@ -106,6 +113,8 @@ class _Begin(AbstractAsyncContextManager[_Connection]):
 
 
 class _Engine:
+    dialect = mysql_dialect()
+
     def __init__(
         self,
         *,
@@ -116,6 +125,9 @@ class _Engine:
         self.connection = connection or _Connection(row)
 
     def begin(self) -> _Begin:
+        return _Begin(self.connection)
+
+    def connect(self) -> _Begin:
         return _Begin(self.connection)
 
     async def dispose(self) -> None:
@@ -129,7 +141,6 @@ class _Engine:
         "mysql+aiomysql://root:secret@127.0.0.1:2881/powercontext?charset=utf8mb4",
         "postgresql+asyncpg://root:secret@127.0.0.1:2881/powercontext?charset=utf8mb4",
         "mysql+aoceanbase://root:secret@127.0.0.1/powercontext?charset=utf8mb4",
-        "mysql+aoceanbase://root:secret@127.0.0.1:2881/?charset=utf8mb4",
         "mysql+aoceanbase://root:secret@127.0.0.1:2881/powercontext",
     ],
 )
@@ -207,6 +218,32 @@ def test_profile_requires_an_oceanbase_mysql_tenant(
         with pytest.raises(UnsupportedOceanBaseTenantError):
             async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=()):
                 pass
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("version", ["5.7.25-OceanBase seekdb-v1.4.0.0", "8.0.40", "unknown"])
+def test_profile_recognizes_mysql_only_seekdb_without_tenant_variable(version, monkeypatch) -> None:
+    class Connection(_Connection):
+        async def exec_driver_sql(self, statement, parameters=None):
+            if statement == "SELECT VERSION()":
+                return _Result(((version,),))
+            return await super().exec_driver_sql(statement, parameters)
+
+    async def create_no_tables(_connection, _tables):
+        pass
+
+    async def scenario():
+        engine = _Engine(connection=Connection(row=None))
+        monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_no_tables)
+        monkeypatch.setattr(oceanbase_profile_module, "assert_dream_schema_ready", _skip_dream_preflight)
+        if "seekdb" in version:
+            async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=()):
+                pass
+        else:
+            with pytest.raises(UnsupportedOceanBaseTenantError):
+                async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=()):
+                    pass
 
     asyncio.run(scenario())
 

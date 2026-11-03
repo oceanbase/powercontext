@@ -31,6 +31,7 @@ _PLUGIN_MODULE_NAMES = (
     "hooks",
     "hooks.bootstrap_context",
     "hooks.prepared_context",
+    "hooks.prompt_privacy",
     "scripts",
     "scripts.workspace_scope",
     "workspace_scope",

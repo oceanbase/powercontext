@@ -15,13 +15,20 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+import json
+import logging
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import cast
 
+import httpx
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from pydantic import BaseModel, ValidationError
 from pydantic_ai import Embedder
 from pydantic_ai.embeddings import (
     EmbeddingModel as PydanticAIEmbeddingModelBase,
@@ -34,11 +41,24 @@ from pydantic_ai.embeddings import (
     TestEmbeddingModel,
 )
 from pydantic_ai.embeddings.result import EmbedInputType
-from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage, ModelResponse, RetryPromptPart, TextPart
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.messages import (
+    FinishReason,
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    TextPart,
+    ToolCallPart,
+    UserPromptPart,
+)
+from pydantic_ai.models import Model, ModelRequestParameters, ModelResponseState, StreamedResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
@@ -52,7 +72,14 @@ from powercontext.builtin.inference.pydantic_ai import (
     PydanticAIConfigurationError,
     PydanticAIEmbeddingModel,
     PydanticAIStructuredGenerator,
+    StreamingAggregateModel,
+    _map_error,
     probe_pydantic_ai_model,
+)
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
 )
 
 
@@ -206,6 +233,68 @@ def test_structured_generator_passes_explicit_model_settings() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    ("model_name", "overrides"),
+    [
+        ("o3", {}),
+        ("gpt-4o", {}),
+        ("gpt-5.1", {}),
+        ("gpt-5.1", {"openai_reasoning_effort": "low"}),
+        ("gpt-5.1", {"openai_reasoning_effort": "none"}),
+        ("gpt-5.1", {"thinking": "medium"}),
+        ("gpt-5.1", {"thinking": False}),
+        ("gpt-5.1", {"openai_reasoning_effort": "none", "thinking": "medium"}),
+    ],
+)
+@pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
+def test_structured_generator_receipt_uses_reasoning_provider_settings(
+    model_name: str, overrides: OpenAIChatModelSettings
+) -> None:
+    requests: list[dict[str, object]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "receipt-settings",
+                "object": "chat.completion",
+                "created": 0,
+                "model": model_name,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": '{"value":"stable"}'},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            settings: OpenAIChatModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
+            settings.update(overrides)
+            generator = PydanticAIStructuredGenerator(
+                model=OpenAIChatModel(model_name, provider=OpenAIProvider(api_key="test", http_client=client)),
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                model_settings=settings,
+            )
+            result = await generator.generate(Question("settings evidence"))
+            assert result.output == Answer("stable")
+            effective = cast(dict[str, object], generator.receipt_configuration()["effective_settings"])
+            sent = requests[0]
+            for key in ("temperature", "top_p"):
+                assert (key in effective) == (key in sent)
+                assert effective.get(key) == sent.get(key)
+            assert effective["max_tokens"] == sent["max_completion_tokens"] == 512
+
+    asyncio.run(scenario())
+
+
 def test_structured_generator_enforces_wire_and_cumulative_output_limits() -> None:
     observed_max_tokens: list[int | None] = []
 
@@ -300,6 +389,11 @@ def test_structured_generator_maps_rate_limit_without_exposing_provider_body() -
             await generator.generate(Question("bounded evidence"))
         assert "secret" not in str(error.value)
         assert isinstance(error.value.__cause__, ModelHTTPError)
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.GENERATION
+        assert diagnostics.reason is ProcessingFailureReason.RATE_LIMIT
+        assert diagnostics.cause_exception_type == "ModelHTTPError"
 
     asyncio.run(scenario())
 
@@ -331,6 +425,301 @@ def test_structured_generator_times_out_and_cancels_underlying_call() -> None:
         with pytest.raises(InferenceTimeoutError):
             await generation
         assert cleaned_up.is_set()
+
+    asyncio.run(scenario())
+
+
+class _ScriptedStream(StreamedResponse):
+    """Stream scripted chunk events to exercise aggregation edge cases."""
+
+    def __init__(
+        self,
+        script,
+        final_state: ModelResponseState = "complete",
+        finish_reason: FinishReason | None = "stop",
+        usage: RequestUsage | None = None,
+    ) -> None:
+        super().__init__(ModelRequestParameters())
+        self._script = script
+        self._final_state = final_state
+        self._finish_reason = finish_reason
+        self._usage = RequestUsage() if usage is None else usage
+
+    async def _get_event_iterator(self):
+        async for event in self._script(self):
+            yield event
+        self.state = self._final_state
+        self.finish_reason = self._finish_reason
+
+    @property
+    def model_name(self) -> str:
+        return "scripted-stream"
+
+    @property
+    def provider_name(self) -> str:
+        return "test"
+
+    @property
+    def provider_url(self) -> str | None:
+        return None
+
+    async def close_stream(self) -> None:
+        return None
+
+    @property
+    def timestamp(self) -> datetime:
+        return datetime.now(tz=UTC)
+
+
+class _ScriptedModel(Model):
+    """Serve one scripted stream and reject the non-streaming request path."""
+
+    system = "scripted"
+
+    def __init__(self, factory, open_delay_seconds: float = 0.0) -> None:
+        self._factory = factory
+        self._open_delay_seconds = open_delay_seconds
+
+    @property
+    def model_name(self) -> str:
+        return "scripted-model"
+
+    async def request(self, messages, model_settings, model_request_parameters, run_context=None) -> ModelResponse:
+        raise AssertionError("non-streaming path")  # noqa: TRY003
+
+    @asynccontextmanager
+    async def request_stream(self, messages, model_settings, model_request_parameters, run_context=None):
+        await asyncio.sleep(self._open_delay_seconds)
+        yield self._factory()
+
+
+def test_streaming_aggregate_model_aggregates_chunks_usage_and_identity(caplog) -> None:
+    async def chunked_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content=""):
+            yield event
+        for word in ("aggregated ", "value"):
+            for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content=word):
+                yield event
+
+    async def scenario() -> None:
+        stream = _ScriptedStream(chunked_script, usage=RequestUsage(input_tokens=5, output_tokens=7))
+        model = StreamingAggregateModel(_ScriptedModel(lambda: stream), idle_timeout_seconds=5)
+
+        with caplog.at_level(logging.WARNING, logger="powercontext.builtin.inference.pydantic_ai"):
+            response = await model.request(
+                [ModelRequest(parts=[UserPromptPart("bounded evidence")])],
+                ModelSettings(),
+                ModelRequestParameters(),
+            )
+
+        assert list(response.parts) == [TextPart("aggregated value")]
+        assert response.state == "complete"
+        assert response.usage == RequestUsage(input_tokens=5, output_tokens=7)
+        assert response.model_name == "scripted-stream"
+        assert response.provider_name == "test"
+        assert not [record for record in caplog.records if record.levelno == logging.WARNING]
+
+    asyncio.run(scenario())
+
+
+def test_streaming_aggregate_model_warns_when_provider_usage_is_missing(caplog) -> None:
+    async def silent_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content="aggregated value"):
+            yield event
+
+    async def scenario() -> None:
+        # The default RequestUsage reports zero tokens: no final usage chunk arrived.
+        stream = _ScriptedStream(silent_script)
+        model = StreamingAggregateModel(_ScriptedModel(lambda: stream), idle_timeout_seconds=5)
+
+        with caplog.at_level(logging.WARNING, logger="powercontext.builtin.inference.pydantic_ai"):
+            response = await model.request(
+                [ModelRequest(parts=[UserPromptPart("bounded evidence")])],
+                ModelSettings(),
+                ModelRequestParameters(),
+            )
+
+        assert response.state == "complete"
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert warnings[0].event == "inference.generation.usage_missing"
+        assert warnings[0].operation == "generate"
+        assert warnings[0].unit == "inference"
+
+    asyncio.run(scenario())
+
+
+def test_streaming_aggregate_model_times_out_when_chunks_stall() -> None:
+    cleaned_up = asyncio.Event()
+
+    async def stalling_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content=""):
+            yield event
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned_up.set()
+
+    async def scenario() -> None:
+        stream = _ScriptedStream(stalling_script)
+        model = StreamingAggregateModel(_ScriptedModel(lambda: stream), idle_timeout_seconds=0.1)
+
+        with pytest.raises(TimeoutError):
+            await model.request(
+                [ModelRequest(parts=[UserPromptPart("bounded evidence")])],
+                ModelSettings(),
+                ModelRequestParameters(),
+            )
+        assert await asyncio.wait_for(cleaned_up.wait(), timeout=2)
+
+    asyncio.run(scenario())
+
+
+def test_streaming_aggregate_model_rejects_incomplete_provider_response() -> None:
+    async def partial_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content="partial"):
+            yield event
+
+    async def scenario() -> None:
+        stream = _ScriptedStream(partial_script, final_state="incomplete")
+        model = StreamingAggregateModel(_ScriptedModel(lambda: stream), idle_timeout_seconds=5)
+
+        with pytest.raises(InvalidInferenceOutputError):
+            await model.request(
+                [ModelRequest(parts=[UserPromptPart("bounded evidence")])],
+                ModelSettings(),
+                ModelRequestParameters(),
+            )
+
+    asyncio.run(scenario())
+
+
+def test_streaming_aggregate_model_keeps_interleaved_part_deltas() -> None:
+    async def interleaved_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        manager = stream._parts_manager
+        if (
+            event := manager.handle_tool_call_delta(
+                vendor_part_id=0, tool_name="get_weather", args='{"city":', tool_call_id="call_0"
+            )
+        ) is not None:
+            yield event
+        if (
+            event := manager.handle_tool_call_delta(
+                vendor_part_id=1, tool_name="get_time", args='{"tz":', tool_call_id="call_1"
+            )
+        ) is not None:
+            yield event
+        # The first tool call keeps receiving argument deltas after the second one started.
+        if (event := manager.handle_tool_call_delta(vendor_part_id=0, args=' "Beijing"}')) is not None:
+            yield event
+        if (event := manager.handle_tool_call_delta(vendor_part_id=1, args=' "UTC"}')) is not None:
+            yield event
+
+    async def scenario() -> None:
+        stream = _ScriptedStream(interleaved_script)
+        model = StreamingAggregateModel(_ScriptedModel(lambda: stream), idle_timeout_seconds=5)
+
+        response = await model.request(
+            [ModelRequest(parts=[UserPromptPart("weather and time")])],
+            ModelSettings(),
+            ModelRequestParameters(),
+        )
+
+        assert [(part.tool_name, part.args) for part in response.parts if isinstance(part, ToolCallPart)] == [
+            ("get_weather", '{"city": "Beijing"}'),
+            ("get_time", '{"tz": "UTC"}'),
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_streaming_aggregate_model_times_out_while_opening_the_stream() -> None:
+    async def scripted_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content="late first chunk"):
+            yield event
+
+    async def scenario() -> None:
+        stream = _ScriptedStream(scripted_script)
+        # Opening the stream stalls before any chunk exists; the watchdog must
+        # cover that phase instead of waiting for the overall generation timeout.
+        model = StreamingAggregateModel(
+            _ScriptedModel(lambda: stream, open_delay_seconds=0.3), idle_timeout_seconds=0.05
+        )
+
+        with pytest.raises(TimeoutError):
+            await model.request(
+                [ModelRequest(parts=[UserPromptPart("bounded evidence")])],
+                ModelSettings(),
+                ModelRequestParameters(),
+            )
+
+    asyncio.run(scenario())
+
+
+def test_streaming_aggregate_model_rejects_eof_without_completion_signal() -> None:
+    async def truncated_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content="partial answer"):
+            yield event
+
+    async def scenario() -> None:
+        # The stream ends cleanly but never carried a finish reason, like an
+        # OpenAI-compatible gateway dropping the connection before the final chunk.
+        stream = _ScriptedStream(truncated_script, finish_reason=None)
+        model = StreamingAggregateModel(_ScriptedModel(lambda: stream), idle_timeout_seconds=5)
+
+        with pytest.raises(InvalidInferenceOutputError):
+            await model.request(
+                [ModelRequest(parts=[UserPromptPart("bounded evidence")])],
+                ModelSettings(),
+                ModelRequestParameters(),
+            )
+
+    asyncio.run(scenario())
+
+
+def test_streaming_aggregate_model_accepts_unmapped_raw_finish_reason() -> None:
+    async def exotic_script(stream: _ScriptedStream) -> AsyncIterator[object]:
+        stream.provider_details = {"finish_reason": "eos"}
+        for event in stream._parts_manager.handle_text_delta(vendor_part_id=0, content="done"):
+            yield event
+
+    async def scenario() -> None:
+        # The gateway reported a finish reason that pydantic_ai does not map to a
+        # known value; the raw signal still proves the provider finished generating.
+        stream = _ScriptedStream(exotic_script, finish_reason=None)
+        model = StreamingAggregateModel(_ScriptedModel(lambda: stream), idle_timeout_seconds=5)
+
+        response = await model.request(
+            [ModelRequest(parts=[UserPromptPart("bounded evidence")])],
+            ModelSettings(),
+            ModelRequestParameters(),
+        )
+
+        assert response.state == "complete"
+        assert [part.content for part in response.parts if isinstance(part, TextPart)] == ["done"]
+
+    asyncio.run(scenario())
+
+
+def test_structured_generator_runs_the_aggregate_wrapper_end_to_end() -> None:
+    async def chunked_stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        del messages, info
+        for word in ('{"value":', ' "chunked"}'):
+            yield word
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=StreamingAggregateModel(FunctionModel(stream_function=chunked_stream), idle_timeout_seconds=5),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            limits=InferenceLimits(timeout_seconds=10, max_requests=2),
+        )
+
+        result = await generator.generate(Question("bounded evidence"))
+
+        assert result.output == Answer("chunked")
+        assert result.usage.requests == 1
 
     asyncio.run(scenario())
 
@@ -537,6 +926,10 @@ def test_embedding_adapter_maps_provider_errors_and_preserves_cause() -> None:
             await adapter.embed(("bounded text",))
         assert error.value.__cause__ is provider_error
         assert "secret" not in str(error.value)
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.EMBEDDING
+        assert diagnostics.reason is ProcessingFailureReason.PROVIDER_UNAVAILABLE
 
     asyncio.run(scenario())
 
@@ -555,6 +948,65 @@ def test_embedding_adapter_maps_a_rejected_request_to_a_stable_reason_without_le
         assert error.value.detail == "HTTP 400"
         assert "HTTP 400" in str(error.value)
         assert "secret provider body" not in str(error.value)
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.reason is ProcessingFailureReason.CONFIGURATION
+
+    asyncio.run(scenario())
+
+
+def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_the_body() -> None:
+    async def scenario() -> None:
+        provider_error = ModelHTTPError(
+            400,
+            "result-model",
+            {"error": {"message": "maximum context length is 8192 tokens, body secret-provider-body"}},
+        )
+        adapter = PydanticAIEmbeddingModel(
+            embedder=Embedder(ResultEmbeddingModel((), error=provider_error)),
+            profile=TEST_PROFILE,
+        )
+
+        with pytest.raises(PydanticAIConfigurationError) as error:
+            await adapter.embed(("bounded text",))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.EMBEDDING
+        assert diagnostics.reason is ProcessingFailureReason.CONTEXT_OVERFLOW
+        assert "secret-provider-body" not in str(error.value)
+
+    asyncio.run(scenario())
+
+
+def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output() -> None:
+    async def truncated(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del messages, info
+        return ModelResponse(
+            parts=[TextPart("partial")],
+            provider_response_id="req-truncated",
+            finish_reason="length",
+            state="incomplete",
+        )
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(truncated),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            limits=InferenceLimits(allow_continuations=False),
+        )
+
+        with pytest.raises(InvalidInferenceOutputError) as error:
+            await generator.generate(Question("bounded evidence"))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.GENERATION
+        assert diagnostics.reason is ProcessingFailureReason.OUTPUT_TRUNCATED
+        assert diagnostics.finish_reason == "length"
+        assert diagnostics.provider_request_id == "req-truncated"
 
     asyncio.run(scenario())
 
@@ -598,5 +1050,152 @@ def test_embedding_adapter_maps_empty_provider_data_to_unavailable() -> None:
 
         with pytest.raises(InferenceUnavailableError):
             await adapter.embed(("bounded text",))
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("status_code", [409, 425])
+def test_structured_generator_keeps_transient_provider_conflicts_unavailable(status_code) -> None:
+    async def conflict(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del messages, info
+        raise ModelHTTPError(status_code, "test-model", {"error": "try again"})
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(conflict),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+        )
+
+        with pytest.raises(InferenceUnavailableError) as error:
+            await generator.generate(Question("bounded evidence"))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.reason is ProcessingFailureReason.PROVIDER_UNAVAILABLE
+        assert diagnostics.cause_exception_type == "ModelHTTPError"
+
+    asyncio.run(scenario())
+
+
+def test_usage_limit_maps_to_the_originating_generation_stage() -> None:
+    mapped = _map_error(UsageLimitExceeded("request limit"), operation="generate", timeout_seconds=1.0)
+
+    assert mapped is not None
+    diagnostics = classify_processing_error(mapped)
+
+    assert diagnostics is not None
+    assert diagnostics.stage is ProcessingStage.GENERATION
+    assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+    assert diagnostics.cause_exception_type == "UsageLimitExceeded"
+
+
+def test_usage_limit_public_generate_path_reports_generation_stage() -> None:
+    async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del messages, info
+        return ModelResponse(parts=[TextPart('{"value":"stable"}')], usage=RequestUsage(output_tokens=11))
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(respond),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            limits=InferenceLimits(output_tokens_limit=10),
+        )
+
+        with pytest.raises(InvalidInferenceOutputError) as error:
+            await generator.generate(Question("bounded evidence"))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.GENERATION
+        assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+        assert diagnostics.cause_exception_type == "UsageLimitExceeded"
+
+    asyncio.run(scenario())
+
+
+def test_a_413_without_context_evidence_is_not_context_overflow() -> None:
+    mapped = _map_error(
+        ModelHTTPError(413, "test-model", {"error": "upload too large"}),
+        operation="generate",
+        timeout_seconds=1.0,
+    )
+
+    assert mapped is not None
+    diagnostics = classify_processing_error(mapped)
+
+    assert diagnostics is not None
+    assert diagnostics.reason is ProcessingFailureReason.CONFIGURATION
+
+
+def test_non_length_incomplete_response_does_not_claim_truncation() -> None:
+    async def filtered(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        del messages, info
+        return ModelResponse(parts=[TextPart("partial")], finish_reason="content_filter", state="incomplete")
+
+    async def scenario() -> None:
+        generator = PydanticAIStructuredGenerator(
+            model=FunctionModel(filtered),
+            instructions="Return a value.",
+            input_type=Question,
+            output_type=Answer,
+            limits=InferenceLimits(allow_continuations=False),
+        )
+
+        with pytest.raises(InvalidInferenceOutputError) as error:
+            await generator.generate(Question("bounded evidence"))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.reason is None
+        assert diagnostics.finish_reason == "content_filter"
+
+    asyncio.run(scenario())
+
+
+def test_embedding_public_path_maps_validation_error_to_invalid_output() -> None:
+    class Payload(BaseModel):
+        value: int
+
+    with pytest.raises(ValidationError) as captured:
+        Payload.model_validate({"value": "not-an-integer"})
+    validation_error = captured.value
+
+    async def scenario() -> None:
+        adapter = PydanticAIEmbeddingModel(
+            embedder=Embedder(ResultEmbeddingModel((), error=validation_error)),
+            profile=TEST_PROFILE,
+        )
+
+        with pytest.raises(InvalidInferenceOutputError) as error:
+            await adapter.embed(("bounded text",))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.EMBEDDING
+        assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+        assert diagnostics.cause_exception_type == "ValidationError"
+
+    asyncio.run(scenario())
+
+
+def test_embedding_public_path_reports_usage_limit_in_embedding_stage() -> None:
+    async def scenario() -> None:
+        adapter = PydanticAIEmbeddingModel(
+            embedder=Embedder(ResultEmbeddingModel((), error=UsageLimitExceeded("limit"))),
+            profile=TEST_PROFILE,
+        )
+
+        with pytest.raises(InvalidInferenceOutputError) as error:
+            await adapter.embed(("bounded text",))
+
+        diagnostics = classify_processing_error(error.value)
+        assert diagnostics is not None
+        assert diagnostics.stage is ProcessingStage.EMBEDDING
+        assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+        assert diagnostics.cause_exception_type == "UsageLimitExceeded"
 
     asyncio.run(scenario())

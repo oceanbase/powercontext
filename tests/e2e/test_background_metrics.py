@@ -19,20 +19,17 @@ from pathlib import Path
 
 import pytest
 
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
-from powercontext.builtin.runtime.composition import open_builtin_runtime
-from powercontext.builtin.runtime.config import BuiltinConfig, RuntimeConfig
-from powercontext.server.authz import PrincipalRef
-from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.builtin.runtime.config import RuntimeConfig
+from powercontext.server.settings import ServerSettings
+from tests.e2e.atomic_memory_migration_backend import migration_profile
 
 
-async def _initialize_background_database(config: BuiltinConfig) -> None:
-    principal = PrincipalRef(type="service", id="server-token", description="PowerContext static bearer")
-    async with (
-        open_builtin_access_control(config.database, bootstrap_administrators=(principal,)),
-        open_builtin_runtime(config),
-    ):
-        pass
+async def _database_objects(config: OceanBaseConfig) -> tuple[tuple[str, str], ...]:
+    async with migration_profile(config) as profile, profile.database.transaction() as connection:
+        rows = await connection.exec_driver_sql("SHOW FULL TABLES")
+        return tuple(sorted((row[0], row[1]) for row in rows))
 
 
 @pytest.mark.parametrize("migration_backend", ["oceanbase"], indirect=True)
@@ -47,15 +44,6 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
     import httpx
 
     assert isinstance(migration_backend.config, OceanBaseConfig)
-    # Complete cold OceanBase schema/index creation before timing the listener lifecycle.
-    asyncio.run(
-        _initialize_background_database(
-            BuiltinConfig(
-                database=migration_backend.config,
-                runtime=RuntimeConfig(artifact_processing_role="background"),
-            )
-        )
-    )
     with socket.socket() as candidate:
         candidate.bind(("127.0.0.1", 0))
         port = candidate.getsockname()[1]
@@ -68,19 +56,47 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
         "POWERCONTEXT_SERVER_METRICS_BACKGROUND_PORT": str(port),
         "POWERCONTEXT_SERVER_METRICS_ENABLED": "true",
     })
+    command = [
+        sys.executable,
+        "-c",
+        "from powercontext.server.cli import app; app()",
+        "run",
+        "--role",
+        "background",
+        "--no-env-file",
+    ]
+    before = asyncio.run(_database_objects(migration_backend.config))
+    assert before == ()
+    rejected = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=60, check=False)
+    assert rejected.returncode != 0, rejected.stdout + rejected.stderr
+    assert "migration_required" in rejected.stdout + rejected.stderr
+    assert asyncio.run(_database_objects(migration_backend.config)) == before
+
+    # Explicit initialization must finish before either split Server role can serve.
+    runner = deployment_runner(
+        ServerSettings(
+            database=migration_backend.config,
+            runtime=RuntimeConfig(artifact_processing_role="background"),
+        ),
+        evidence_dir=tmp_path / "migration-evidence",
+        lock_coordination="single-host",
+    )
+    plan = runner.plan(backup_policy="skip")
+    initialized = runner.apply(
+        plan_id=plan.plan_id,
+        accepted=True,
+        maintenance_confirmed=True,
+        backup_policy="skip",
+        accept_no_backup=True,
+    )
+    assert initialized.state == "ready"
+    assert initialized.readiness_scope == "server"
     reports = os.environ.get("MIGRATION_REPORTS")
     log_path = Path(reports) / "background-metrics" / "background.log" if reports else tmp_path / "background.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w") as output:
         process = subprocess.Popen(
-            [
-                os.path.join(os.path.dirname(sys.executable), "powercontext"),
-                "server",
-                "run",
-                "--role",
-                "background",
-                "--no-env-file",
-            ],
+            command,
             env=environment,
             stdout=output,
             stderr=subprocess.STDOUT,

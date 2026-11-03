@@ -28,6 +28,7 @@ vi.mock("../src/shared/ipc", () => ({
     cancelScopes: vi.fn(),
     state: vi.fn(),
     selectScope: vi.fn(),
+    cancelMemory: vi.fn().mockResolvedValue(undefined),
   },
 }));
 afterEach(() => {
@@ -56,10 +57,157 @@ const state: DesktopState = {
       capabilities: emptyFact,
       compatibilityVerified: true,
       anonymousAccess: true,
-      supportedOperations: ["list_scopes"],
+      supportedOperations: ["list_scopes", "get_scope"],
     },
   },
 };
+
+test("a stale Scope result cannot finish the journey after its state is rejected", async () => {
+  const user = userEvent.setup();
+  const selected = {
+    scope_id: "scope-a",
+    title: "Exact Scope",
+    summary: "",
+    context_references: [],
+    external_references: [],
+    version: 1,
+  };
+  const onSelected = vi.fn();
+  vi.mocked(desktopApi.scopes).mockResolvedValueOnce({
+    items: [selected],
+    next_cursor: null,
+  });
+  vi.mocked(desktopApi.selectScope).mockResolvedValueOnce({
+    ...state,
+    generation: 2,
+    active: { ...state.active!, generation: 2, scope: selected },
+  });
+  render(
+    <Scopes
+      state={state}
+      language="en"
+      onState={() => false}
+      confirmSwitch={() => true}
+      onSelected={onSelected}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Find scopes" }));
+  await user.click(screen.getByRole("button", { name: "Exact Scope" }));
+  expect(screen.getByRole("alert").textContent).toContain("changed");
+  expect(onSelected).not.toHaveBeenCalled();
+});
+test("unsupported Scope selection leaves lookup and pagination available", async () => {
+  const user = userEvent.setup();
+  const active = state.active!;
+  const partial: DesktopState = {
+    ...state,
+    active: {
+      ...active,
+      report: {
+        ...active.report,
+        supportedOperations: ["list_scopes"],
+        discovery: {
+          status: "supported",
+          reason: null,
+          error: null,
+          server: null,
+          operations: {
+            get_scope: {
+              status: "unsupported",
+              reason: "operation_missing",
+              qualificationId: null,
+            },
+          },
+        },
+      },
+    },
+  };
+  vi.mocked(desktopApi.scopes).mockResolvedValue({
+    items: [
+      {
+        scope_id: "scope-a",
+        title: "Listed scope",
+        summary: "",
+        context_references: [],
+        external_references: [],
+        version: 1,
+      },
+    ],
+    next_cursor: "opaque-next",
+  });
+  render(
+    <Scopes
+      state={partial}
+      language="zh"
+      onState={vi.fn()}
+      confirmSwitch={() => true}
+    />,
+  );
+  expect(screen.getByText(/Server 未声明支持此操作/)).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "查找范围" }));
+  const choice = screen.getByRole("button", {
+    name: "Listed scope",
+  }) as HTMLButtonElement;
+  expect(choice.disabled).toBe(true);
+  await user.click(choice);
+  expect(desktopApi.selectScope).not.toHaveBeenCalled();
+  const more = screen.getByRole("button", {
+    name: "下一页",
+  }) as HTMLButtonElement;
+  expect(more.disabled).toBe(false);
+  await user.click(more);
+  expect(desktopApi.scopes).toHaveBeenLastCalledWith(1, "", "opaque-next");
+});
+test("missing Scope lookup is disabled without claiming selection is unsupported", async () => {
+  const user = userEvent.setup();
+  const active = state.active!;
+  const partial: DesktopState = {
+    ...state,
+    active: {
+      ...active,
+      report: {
+        ...active.report,
+        supportedOperations: ["get_scope"],
+        discovery: {
+          status: "supported",
+          reason: null,
+          error: null,
+          server: null,
+          operations: {
+            list_scopes: {
+              status: "unsupported",
+              reason: "operation_missing",
+              qualificationId: null,
+            },
+          },
+        },
+      },
+    },
+  };
+  render(
+    <Scopes
+      state={partial}
+      language="en"
+      onState={vi.fn()}
+      confirmSwitch={() => true}
+    />,
+  );
+  expect(
+    (screen.getByLabelText("Find scopes by title") as HTMLInputElement)
+      .disabled,
+  ).toBe(true);
+  const find = screen.getByRole("button", {
+    name: "Find scopes",
+  }) as HTMLButtonElement;
+  expect(find.disabled).toBe(true);
+  expect(screen.getByText("Scope search is unavailable")).toBeTruthy();
+  expect(
+    screen.getByText(/Server does not declare support for this operation/),
+  ).toBeTruthy();
+  expect(screen.queryByText("Scope selection is unavailable")).toBeNull();
+  await user.click(find);
+  expect(desktopApi.scopes).not.toHaveBeenCalled();
+});
 test("editing a query cancels the native read and hides a late response", async () => {
   const user = userEvent.setup();
   let finish!: (page: ScopePage) => void;
@@ -106,6 +254,57 @@ test("editing a query cancels the native read and hides a late response", async 
   await user.click(screen.getByRole("button", { name: "Find scopes" }));
   expect(desktopApi.scopes).toHaveBeenLastCalledWith(1, "new", null);
   expect(screen.getByText("No accessible scopes on this page.")).toBeTruthy();
+});
+
+test("a late Scope page cannot populate a different connection or reuse its cursor", async () => {
+  const user = userEvent.setup();
+  let finish!: (page: ScopePage) => void;
+  vi.mocked(desktopApi.scopes).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const props = {
+    language: "en" as const,
+    onState: vi.fn(),
+    confirmSwitch: () => true,
+  };
+  const { rerender } = render(<Scopes {...props} state={state} />);
+  await user.click(screen.getByRole("button", { name: "Find scopes" }));
+  rerender(
+    <Scopes
+      {...props}
+      state={{
+        ...state,
+        generation: 2,
+        active: { ...state.active!, connectionId: "other", generation: 2 },
+      }}
+    />,
+  );
+  await act(async () => {
+    finish({
+      items: [
+        {
+          scope_id: "old-private",
+          title: "Old private Scope",
+          summary: "",
+          context_references: [],
+          external_references: [],
+          version: 1,
+        },
+      ],
+      next_cursor: "old-cursor",
+    });
+  });
+  expect(screen.queryByText("Old private Scope")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
+  vi.mocked(desktopApi.scopes).mockResolvedValueOnce({
+    items: [],
+    next_cursor: null,
+  });
+  await user.click(screen.getByRole("button", { name: "Find scopes" }));
+  expect(desktopApi.scopes).toHaveBeenLastCalledWith(2, "", null);
 });
 
 test("failed scope identity verification propagates the disconnected native state", async () => {

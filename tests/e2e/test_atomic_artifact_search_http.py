@@ -38,6 +38,7 @@ from powercontext.server.authz import AccessAction, GroupRef, PrincipalRef, Reso
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 ADMIN = PrincipalRef(type="service", id="atomic-search-admin")
 VIEWER = PrincipalRef(type="user", id="atomic-search-viewer")
@@ -91,16 +92,24 @@ def sqlite_expression_limit(monkeypatch):
 def test_supported_long_query_preserves_all_terms_in_both_http_searches(
     migration_backend, query, mode, sqlite_expression_limit
 ):
+    settings = ServerSettings(
+        database=migration_backend.config,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        metrics=MetricsConfig(enabled=False),
+        mcp=McpConfig(enabled=False),
+    )
+    embedding = _Embedding()
+    prepare_server_database(
+        settings,
+        evidence_dir=migration_backend.directory / "migration-evidence",
+        embedding_profile=embedding.profile,
+    )
+
     async def scenario():
         app = create_server_app(
-            settings=ServerSettings(
-                database=migration_backend.config,
-                runtime=RuntimeConfig(artifact_processing_families=()),
-                metrics=MetricsConfig(enabled=False),
-                mcp=McpConfig(enabled=False),
-            ),
+            settings=settings,
             scheduler_path=migration_backend.directory / "scheduler.db",
-            embedding_model=_Embedding(),
+            embedding_model=embedding,
         )
         async with (
             app.router.lifespan_context(app),
@@ -197,6 +206,7 @@ def test_composed_atomic_search_returns_full_content_scores_and_trusted_local_id
                 "schema": "powercontext.atomic-memory.v1",
                 "kind": "decision",
                 "text": "Release rollback uses a reviewed plan.",
+                "description": "Release rollback uses a reviewed plan.",
                 "creation": None,
             }
             assert "scores" not in plain_item
@@ -247,6 +257,7 @@ def test_unified_atomic_search_preserves_authenticated_subject_actor_groups_and_
 
     async def scenario() -> None:
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'authenticated.db'}")
+        await asyncio.to_thread(prepare_server_database, ServerSettings(database=database))
         async with open_builtin_access_control(
             database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT
         ) as access:

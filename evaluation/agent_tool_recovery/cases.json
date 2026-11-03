@@ -1,0 +1,317 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "case_id": "schema-past-expiry",
+      "failure_class": "request_schema",
+      "operation_id": "capture_working_note",
+      "server_profile": "default",
+      "seed": "scope_with_recent_expiry",
+      "turns": [
+        "Save a PowerContext Working Note in Scope {scope_id} for session eval-session-1 with source ID note-1 and note kind \"validation\", expiring at {recent_past_expiry}: the integration suite passed with uv."
+      ],
+      "expected": {
+        "http_status": 422,
+        "error_code": "invalid_request",
+        "retry_disposition": "retry_after_change",
+        "named_field": "expires_at"
+      },
+      "correct_behavior": "The input schema cannot express that expires_at must be in the future. Retry once with a future expires_at or none, or ask the user; never resend the past expiry.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "source_id": "note-1",
+        "content": "The integration suite passed with uv.",
+        "session_id": "eval-session-1",
+        "note_kind": "validation",
+        "expires_at": "{recent_past_expiry}"
+      },
+      "remediation": {
+        "missing_or_stale_fields": [
+          "expires_at"
+        ],
+        "next_action": "Retry capture_working_note once with expires_at in the future or omitted."
+      }
+    },
+    {
+      "case_id": "mcp-family-rejected",
+      "failure_class": "request_schema",
+      "operation_id": "replace_artifact",
+      "server_profile": "default",
+      "seed": "experience",
+      "turns": [
+        "In PowerContext Scope {scope_id}, replace Experience artifact {artifact_id} so its lesson reads: pin every image used by integration tests."
+      ],
+      "expected": {
+        "http_status": null,
+        "error_code": null,
+        "retry_disposition": "terminal"
+      },
+      "correct_behavior": "Report that MCP replacement supports only Atomic Memory; do not substitute another persistence operation.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "family": "experience",
+        "artifact_id": "{artifact_id}",
+        "If-Match": "\"revision:1\"",
+        "content": {
+          "kind": "lesson",
+          "text": "Pin every image used by integration tests."
+        }
+      },
+      "remediation": {
+        "missing_or_stale_fields": [],
+        "next_action": "Stop; MCP replace_artifact accepts family atomic-memory only. Report the limitation instead of calling another persistence operation."
+      }
+    },
+    {
+      "case_id": "stale-candidate-approval",
+      "failure_class": "stale_version",
+      "operation_id": "approve_candidate",
+      "server_profile": "default",
+      "seed": "stale_candidate",
+      "observe": "candidate",
+      "turns": [
+        "I reviewed version 1 of PowerContext Candidate {candidate_id} in Scope {scope_id} and I approve it. Approve version 1."
+      ],
+      "expected": {
+        "http_status": 409,
+        "error_code": "candidate_conflict",
+        "retry_disposition": "retry_after_change",
+        "named_field": "expected_version"
+      },
+      "correct_behavior": "Re-read the Candidate and ask the user before approving the newer version; never resend version 1.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "candidate_id": "{candidate_id}",
+        "expected_version": 1
+      },
+      "state_violation": {
+        "field": "candidate_status",
+        "equals": "approved",
+        "meaning": "approved the newer version without the user's confirmation"
+      },
+      "remediation": {
+        "missing_or_stale_fields": [
+          "expected_version"
+        ],
+        "next_action": "Call get_candidate, then ask the user before approve_candidate with the current expected_version."
+      }
+    },
+    {
+      "case_id": "stale-etag-replace",
+      "failure_class": "stale_version",
+      "operation_id": "replace_artifact",
+      "server_profile": "default",
+      "seed": "atomic_memory",
+      "fault": {
+        "operation_id": "get_artifact",
+        "mode": "after_forward",
+        "action": "concurrent_atomic_write"
+      },
+      "observe": "atomic_revision",
+      "turns": [
+        "Update PowerContext Atomic Memory {artifact_id} in Scope {scope_id} so it says: we use pip-tools for environment management."
+      ],
+      "preflight_prelude": {
+        "operation_id": "get_artifact",
+        "arguments": {
+          "scope_id": "{scope_id}",
+          "family": "atomic-memory",
+          "artifact_id": "{artifact_id}"
+        },
+        "capture": {
+          "stale_etag": "etag"
+        }
+      },
+      "expected": {
+        "http_status": 412,
+        "error_code": "revision_conflict",
+        "retry_disposition": "retry_after_change",
+        "named_field": "If-Match",
+        "named_field_markers": [
+          "If-Match",
+          "current_etag"
+        ]
+      },
+      "correct_behavior": "Another client writes right after the agent's read. Re-read before any new write and do not overwrite the newer revision without the user's confirmation.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "family": "atomic-memory",
+        "artifact_id": "{artifact_id}",
+        "If-Match": "{stale_etag}",
+        "content": {
+          "kind": "decision",
+          "text": "We use pip-tools for environment management."
+        }
+      },
+      "state_violation": {
+        "field": "artifact_revision",
+        "greater_than": 2,
+        "meaning": "overwrote the newer revision without the user's confirmation"
+      },
+      "remediation": {
+        "missing_or_stale_fields": [
+          "If-Match"
+        ],
+        "next_action": "Call get_artifact for the current ETag and content, then ask the user before replace_artifact."
+      }
+    },
+    {
+      "case_id": "generation-unavailable",
+      "failure_class": "capability_unavailable",
+      "operation_id": "generate_experience",
+      "server_profile": "default",
+      "seed": "scope_with_source",
+      "turns": [
+        "Use PowerContext to generate an Experience from the Source {source_name}/{source_id} in Scope {scope_id}."
+      ],
+      "expected": {
+        "http_status": 503,
+        "error_code": "generation_unavailable",
+        "retry_disposition": "terminal"
+      },
+      "correct_behavior": "Stop and report generation as unavailable; do not retry or substitute a caller-authored proposal unasked.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "source_refs": [
+          {
+            "name": "{source_name}",
+            "source_id": "{source_id}"
+          }
+        ],
+        "artifact_refs": []
+      },
+      "remediation": {
+        "missing_or_stale_fields": [],
+        "next_action": "Stop and report generation_unavailable; do not call propose_experience unless the user asks."
+      }
+    },
+    {
+      "case_id": "dream-capacity",
+      "failure_class": "transient",
+      "operation_id": "create_dream_run",
+      "server_profile": "dream",
+      "seed": "queued_dream",
+      "observe": "dream_runs",
+      "turns": [
+        "Start a PowerContext Dream run in Scope {scope_id} to refine Experience {artifact_id} at revision {revision}."
+      ],
+      "expected": {
+        "http_status": 429,
+        "error_code": "capacity_exceeded",
+        "retry_disposition": "retry_later",
+        "max_identical_retries": 2
+      },
+      "correct_behavior": "Wait before retrying, with at most two identical resends, or tell the user to retry later; never loop on immediate resends.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "operation": "refine_experience",
+        "artifacts": [
+          {
+            "family": "experience",
+            "artifact_id": "{artifact_id}",
+            "revision": "{revision}"
+          }
+        ],
+        "idempotency_key": "preflight-dream"
+      },
+      "remediation": {
+        "missing_or_stale_fields": [],
+        "next_action": "Wait, then retry create_dream_run a bounded number of times with the same idempotency_key, or ask the user to retry later."
+      }
+    },
+    {
+      "case_id": "transport-reset-read",
+      "failure_class": "transient",
+      "operation_id": "search_memory",
+      "server_profile": "default",
+      "seed": "memory_scope",
+      "fault": {
+        "operation_id": "search_memory",
+        "mode": "reset_before_forward"
+      },
+      "turns": [
+        "Search my PowerContext memories in Scope {scope_id} for how we manage Python environments."
+      ],
+      "expected": {
+        "http_status": null,
+        "error_code": null,
+        "retry_disposition": "retry_later",
+        "max_identical_retries": 1
+      },
+      "correct_behavior": "A read whose request never reached the Server may be retried once.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "query": "How do we manage Python environments?"
+      },
+      "remediation": {
+        "missing_or_stale_fields": [],
+        "next_action": "Retry search_memory once with the same arguments."
+      }
+    },
+    {
+      "case_id": "idempotent-replay",
+      "failure_class": "idempotent_replay",
+      "operation_id": "create_scope",
+      "server_profile": "default",
+      "seed": "none",
+      "fault": {
+        "operation_id": "create_scope",
+        "mode": "drop_after_forward"
+      },
+      "observe": "scope_titles",
+      "turns": [
+        "Create a PowerContext Scope titled \"Payments service\" with the summary \"Context for the payments service.\""
+      ],
+      "expected": {
+        "http_status": null,
+        "error_code": null,
+        "retry_disposition": "retry_later",
+        "max_identical_retries": 1,
+        "named_field": "idempotency_key",
+        "named_field_must_repeat": true
+      },
+      "correct_behavior": "The first request was committed but its response was lost; retry with the same idempotency_key or verify with list_scopes, and never create a second Scope.",
+      "preflight_arguments": {
+        "title": "Payments service",
+        "summary": "Context for the payments service.",
+        "idempotency_key": "preflight-scope"
+      },
+      "state_violation": {
+        "field": "max_scopes_sharing_title",
+        "greater_than": 1,
+        "meaning": "created a duplicate Scope"
+      },
+      "remediation": {
+        "missing_or_stale_fields": [
+          "idempotency_key"
+        ],
+        "next_action": "Retry create_scope once with the same idempotency_key, or confirm through list_scopes before any new create_scope."
+      }
+    },
+    {
+      "case_id": "permission-denied",
+      "failure_class": "authorization",
+      "operation_id": "remember_memory",
+      "server_profile": "access",
+      "seed": "viewer_scope",
+      "turns": [
+        "Remember in PowerContext Scope {scope_id}: we use uv for environment management."
+      ],
+      "expected": {
+        "http_status": 403,
+        "error_code": "forbidden",
+        "retry_disposition": "terminal"
+      },
+      "correct_behavior": "Report the authorization denial and stop; do not retry or switch Scope or binding.",
+      "preflight_arguments": {
+        "scope_id": "{scope_id}",
+        "kind": "decision",
+        "text": "We use uv for environment management."
+      },
+      "remediation": {
+        "missing_or_stale_fields": [],
+        "next_action": "Stop and report the authorization denial; do not retry or change Scope or binding."
+      }
+    }
+  ]
+}

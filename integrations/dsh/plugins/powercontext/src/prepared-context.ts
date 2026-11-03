@@ -61,3 +61,26 @@ export function validatePreparedContext(
   }
   return { schema: PREPARED_CONTEXT_SCHEMA, status, content, content_bytes: contentBytes }
 }
+
+// `POST /v1/context/prepare` bounds `query` at 8,192 characters. The byte bound is the hosts' own
+// margin, shared with the hook-based hosts, so a recall also fits a server that measures bytes.
+export const MAX_QUERY_CHARACTERS = 8_192
+export const MAX_QUERY_BYTES = 8_192
+
+/**
+ * Reduce a prompt to the recall query. A prompt within both bounds is sent as submitted, trimmed.
+ * A longer prompt keeps its most recent text, which holds the turn in hand, cut between characters
+ * so that the query fits both bounds and splits no character.
+ */
+export function boundedRecallQuery(prompt: string): string {
+  const characters = Array.from(prompt.trim())
+  let start = characters.length
+  let bytes = 0
+  while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+    const size = Buffer.byteLength(characters[start - 1]!, 'utf8')
+    if (bytes + size > MAX_QUERY_BYTES) break
+    bytes += size
+    start -= 1
+  }
+  return characters.slice(start).join('').trim()
+}

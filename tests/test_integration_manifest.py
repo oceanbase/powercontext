@@ -152,6 +152,106 @@ def test_manifest_defines_each_availability_state() -> None:
     assert set(manifest.availability_definitions) == set(IntegrationAvailability)
 
 
+def test_manifest_v2_declares_pre_compaction_mode_for_every_maintained_agent_host() -> None:
+    manifest = load_integration_manifest()
+
+    assert manifest.schema_version == 2
+    modes = {
+        integration.id: integration.lifecycle.pre_compaction.mode.value
+        for integration in manifest.integrations
+        if integration.kind is IntegrationKind.AGENT_HOST and integration.lifecycle is not None
+    }
+    assert modes == {
+        "codex": "unsupported",
+        "claude-code": "unsupported",
+        "dsh": "unsupported",
+        "hermes": "unsupported",
+        "openclaw": "best_effort",
+        "opencode": "unsupported",
+        "pi": "best_effort",
+        "workbuddy": "unsupported",
+        "zcode": "unsupported",
+        "kimi-code": "unsupported",
+    }
+
+
+@pytest.mark.parametrize(
+    ("integration_id", "mutation"),
+    [
+        ("codex", lambda integration: integration.pop("lifecycle")),
+        (
+            "codex",
+            lambda integration: integration.__setitem__(
+                "lifecycle", {"pre_compaction": {"mode": "unsupported", "surface": "SessionStart"}}
+            ),
+        ),
+        (
+            "openclaw",
+            lambda integration: integration["lifecycle"]["pre_compaction"].__setitem__(
+                "surface", "private_compaction_callback"
+            ),
+        ),
+        (
+            "openclaw",
+            lambda integration: integration["lifecycle"].__setitem__(
+                "pre_compaction",
+                {"mode": "required_capable", "surface": "before_compaction"},
+            ),
+        ),
+        (
+            "openclaw",
+            lambda integration: integration["lifecycle"].__setitem__(
+                "pre_compaction",
+                {"mode": "unsupported"},
+            ),
+        ),
+    ],
+)
+def test_manifest_rejects_invalid_pre_compaction_declarations(integration_id: str, mutation) -> None:
+    payload = load_integration_manifest().model_dump(mode="json")
+    integration = next(item for item in payload["integrations"] if item["id"] == integration_id)
+    mutation(integration)
+
+    with pytest.raises(ValidationError):
+        IntegrationManifest.model_validate(payload)
+
+
+def test_manifest_rejects_lifecycle_declarations_from_non_agent_integrations() -> None:
+    payload = load_integration_manifest().model_dump(mode="json")
+    integration = next(item for item in payload["integrations"] if item["id"] == "langchain")
+    integration["lifecycle"] = {"pre_compaction": {"mode": "unsupported"}}
+
+    with pytest.raises(ValidationError):
+        IntegrationManifest.model_validate(payload)
+
+
+def test_manifest_rejects_required_mode_opt_in_for_best_effort() -> None:
+    payload = load_integration_manifest().model_dump(mode="json")
+    integration = next(item for item in payload["integrations"] if item["id"] == "openclaw")
+    integration["lifecycle"]["pre_compaction"]["required_mode_opt_in"] = "POWERCONTEXT_REQUIRED_CHECKPOINT"
+
+    with pytest.raises(ValidationError, match="only required_capable"):
+        IntegrationManifest.model_validate(payload)
+
+
+@pytest.mark.parametrize("pointer", ["", "missing/required-capable-evidence.ts", "docs"])
+def test_lifecycle_evidence_must_reference_existing_files(pointer: str, tmp_path: Path) -> None:
+    payload = load_integration_manifest().model_dump(mode="json")
+    integration = next(item for item in payload["integrations"] if item["id"] == "openclaw")
+    integration["lifecycle"]["pre_compaction"]["evidence"]["implementation"] = [pointer]
+
+    if not pointer:
+        with pytest.raises(ValidationError):
+            IntegrationManifest.model_validate(payload)
+        return
+
+    (tmp_path / "docs").mkdir()
+    manifest = IntegrationManifest.model_validate(payload)
+    errors = evidence_path_errors(manifest, tmp_path)
+
+    assert f"openclaw: missing lifecycle implementation evidence: {pointer}" in errors
+
+
 @pytest.mark.parametrize("locale", ["en", "zh"])
 def test_generated_capability_matrix_is_current(locale: str) -> None:
     manifest = load_integration_manifest()
@@ -236,6 +336,7 @@ def test_prompt_hook_probe_follows_registered_command(
                 "persistent_scope_binding",
             ],
             "toolsets": ["prompt-hooks"],
+            "lifecycle": {"pre_compaction": {"mode": "unsupported"}},
             "evidence": {
                 "implementation": ["integrations/codex/plugins/powercontext/hooks/recall.py"],
                 "documentation": ["integrations/codex/README.md"],
@@ -373,6 +474,12 @@ def integration_tree(tmp_path: Path) -> Path:
                 path = tmp_path / pointer
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("evidence\n", encoding="utf-8")
+        if integration.lifecycle is not None:
+            for paths in integration.lifecycle.pre_compaction.evidence.model_dump().values():
+                for pointer in paths:
+                    path = tmp_path / pointer
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("lifecycle evidence\n", encoding="utf-8")
     for name in manifest.directory_exclusions:
         (tmp_path / "integrations" / name).mkdir(parents=True)
     return tmp_path

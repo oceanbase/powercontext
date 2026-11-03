@@ -579,25 +579,43 @@ Server 把 ownership 与普通 `AccessBinding` 分开保存。`ArtifactOwnerRela
 `PrincipalRef`、可信创建时间、policy revision 和 idempotency key，刻意不包含 Artifact Revision。Owner relation
 不可变；只有相同 owner 和 key 的重复建立才是幂等操作，不同 owner 返回 conflict。本 RFC 不定义 ownership transfer。
 
-在 enforced mode 下，owner relation 建立前的 Artifact authorization 以 `artifact_owner_pending` fail closed。新 Memory
+在 enforced mode 下，要求建立所有权的写入在 owner relation 建立前以 `artifact_owner_pending` fail closed。新 Memory
 Entry 和首次 Handoff commit 由创建者拥有。新 Experience/Skill Candidate 记录 Server-side proposed-owner attestation，
 批准后再建立 ownership；以已有 identity 为 target 的 Candidate 必须保留原 owner。跨 Scope publication 的新 target
 identity 归 publisher 所有。
 
-首版假设 deployment 在持久化第一个 Artifact 前就已启用 enforced mode。它不会为 access control disabled 期间已写入的
-catalog 回填或推断 owner，也不提供通用 owner repair 流程。未经过独立 operator migration 就把这类 catalog 切换到
-enforced mode 时，其中的 Artifact 按设计保持不可用。
+建议在持久化第一个 Artifact 前启用 enforced mode。Server 不会为 access control disabled 期间已写入的 catalog
+回填或推断 owner。没有可信归属证据的历史记录保持 unknown，需要显式 operator policy；当前管理员身份不能证明历史 owner。
+独立的读取授权仍可允许读取，但不会因此成为所有权。
 
 标准关系型 repository 同时负责 relationship 和 audit，且与业务共用数据库时，Artifact 创建、首次 Handoff commit、跨 Scope
 publication，以及 Experience/Skill Candidate 创建，会在业务事务内提交 owner relation 或 proposed-owner attestation。
 这包括生成、上传、导入和定时处理产生的 Candidate。所有权写入失败时，相关业务写入一起回滚；定时 incubation 的
 Source cursor 也保持不变，供后续重试。Atomic Memory、Profile 生成、Dream 和 supervisor worker 保留各自领域已有的事务回调。
 
-外部 relationship writer 和独立 audit store 无法加入该事务。这类组合中，若 domain persistence 已成功但 owner
-establishment 失败，请求仍 fail closed；只有明确支持幂等重放的业务流程才能通过重试修复 relation。同库已有的 owner 缺失记录
-不会被归给当前调用者，也不会根据内容重建 owner；它们保持不可用，直到独立 operator migration 能根据可信持久化证据确认
-原始身份。同库 publication 重放和 Handoff no-op 重放会对这类记录返回 `artifact_owner_pending`，不会创建 owner。
-通用 transactional outbox 和 operator recovery 流程属于本 RFC 之外的未来工作。
+外部 relationship writer 和独立 audit store 无法加入业务事务。标准组合的 Server 为具备 domain commit hook 的创建路径，
+在业务库保存 `pc_access_owner_recovery`：包括基础 Artifact 创建、首次 Handoff commit、publication、Candidate
+提交/生成/上传/导入、定时 incubation 和 Profile flush。不可变 intent 与业务对象同事务提交，仅保存可信发起者的
+Principal type/ID、精确逻辑 resource 或 Candidate identity/target、幂等键和最小化审计上下文；
+不保存 Artifact/Source 正文、模型输出、token 或凭据。
+
+Server 在业务事务结束后交付 intent，全部成功后才返回成功。交付失败返回 503，intent 持久保留。
+后台任务每五秒重试有界分页，并越过失败项。重启或并发重放保留原始身份；不同 owner/key/target 返回冲突，不转移所有权。
+Artifact 恢复要求外部 audit store 提供 `append_audit_once(AccessAuditEvent)`：相同 event ID 和字段返回原事件，
+同 ID 不同字段返回冲突；标准关系型 audit store 已实现该能力。缺少该能力时，commit hook 在业务提交前失败回滚。
+Candidate intent 保留不可变拟定归属凭证，不会建立已有 target 的新所有权。完成的恢复 receipt 持续保留，
+关联 identity 尚存在时不能独立清理这些 receipt。
+
+运营者可通过可信嵌入代码调用 `app.state.owner_recovery.pending()`、分页 `inventory_gaps(scope_id)` 和
+`replay(operation_id)`；没有新增 owner 赋权 HTTP/MCP 接口或 recovery CLI。清单仅读取 head identity，
+区分 pending、unknown、已完成 receipt 对应 relation 缺失，以及需要 entry selector 的旧 Memory collection。
+重放只接受已有 intent ID，不接受调用者指定 Principal；unknown 历史不能重放。同库 publication 和 Handoff no-op
+重放不会把历史缺失 owner 归给当前调用者；已有独立授权保留原来的读取语义。
+
+Candidate approval 已保存原拟定归属凭证及 approved result；对同一终态 approval 的重试可恢复拟定 owner，不会再次批准。
+不具备事务 commit hook 的自组装 Runtime/RecordService 保留各自明确的业务重试保证，
+不会仅因注入外部 writer 就获得持久恢复能力。Atomic Memory、Dream 和 supervisor worker security 保留各自领域的事务要求。
+操作方法和验证边界见[外部所有权写入恢复](../docs/workflows/scopes-and-access.md#恢复外部所有权写入)。
 
 ### 内置关系型存储
 

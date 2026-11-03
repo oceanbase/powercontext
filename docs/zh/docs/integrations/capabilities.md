@@ -23,22 +23,28 @@ candidate_review 仅可列举和读取候选材料，不授予决策权限。
 - **Recommended**：Minimal 加上 Work Contract、Handoff、acknowledgement 和 Task Outcome。
 - **Full**：Recommended 加上 Experience、Skill、Candidate review 和 External Skill。
 
+## 压缩前生命周期
+
+- `unsupported`：没有受维护的公开宿主压缩前边界。
+- `best_effort`：公开边界会执行有界 checkpoint 工作，但失败不会阻止压缩。
+- `required_capable`：显式启用 required 模式后，宿主可在捕获的 Source position 获得确认前停止压缩。
+
 ## 当前矩阵
 
-| ID | Kind | Availability | Profiles | Capabilities |
-| --- | --- | --- | --- | --- |
-| codex | Agent 宿主 | 仅 master | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
-| claude-code | Agent 宿主 | 仅 master | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
-| dsh | Agent 宿主 | 仅 master | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding<br>slash_command |
-| hermes | Agent 宿主 | 仅 master | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill<br>slash_command<br>persistent_scope_binding |
-| openclaw | Agent 宿主 | 仅 master | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>pre_compaction_capture |
-| opencode | Agent 宿主 | 仅 master | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection<br>handoff<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review |
-| pi | Agent 宿主 | 仅 master | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill<br>topic_memory_read<br>pre_compaction_capture<br>slash_command |
-| workbuddy | Agent 宿主 | 仅 master | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
-| zcode | Agent 宿主 | 仅 master | minimal, recommended, full | flush_or_checkpoint<br>memory_read<br>memory_write<br>source_capture<br>context_injection<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
-| pydantic-ai | 框架适配器 | 实验性 | — | memory_read<br>memory_write<br>context_injection |
-| langchain | 框架适配器 | 仅 master | — | source_capture<br>context_injection |
-| langgraph | 框架适配器 | 仅 master | — | memory_read<br>memory_write<br>context_injection |
-| bub | 评测 harness | 仅 master | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint |
-| dify | 框架适配器 | 实验性 | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>handoff<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review |
-| kimi-code | Agent 宿主 | 实验性 | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>persistent_scope_binding<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill |
+| ID | Kind | Availability | Profiles | Pre-compaction mode | Public surface | Capabilities |
+| --- | --- | --- | --- | --- | --- | --- |
+| codex | Agent 宿主 | 仅 master | minimal, recommended, full | unsupported | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
+| claude-code | Agent 宿主 | 仅 master | minimal, recommended, full | unsupported | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
+| dsh | Agent 宿主 | 仅 master | minimal, recommended, full | unsupported | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding<br>slash_command |
+| hermes | Agent 宿主 | 仅 master | minimal, recommended, full | unsupported | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill<br>slash_command<br>persistent_scope_binding |
+| openclaw | Agent 宿主 | 仅 master | minimal | best_effort | before_compaction | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>pre_compaction_capture |
+| opencode | Agent 宿主 | 仅 master | minimal | unsupported | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>handoff<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review |
+| pi | Agent 宿主 | 仅 master | minimal, recommended, full | best_effort | session_before_compact | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill<br>topic_memory_read<br>pre_compaction_capture<br>slash_command |
+| workbuddy | Agent 宿主 | 仅 master | minimal, recommended, full | unsupported | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
+| zcode | Agent 宿主 | 仅 master | minimal, recommended, full | unsupported | — | flush_or_checkpoint<br>memory_read<br>memory_write<br>source_capture<br>context_injection<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>experience_read_or_generate<br>skill_read_or_generate<br>external_skill<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
+| pydantic-ai | 框架适配器 | 实验性 | — | — | — | memory_read<br>memory_write<br>context_injection |
+| langchain | 框架适配器 | 仅 master | — | — | — | source_capture<br>context_injection |
+| langgraph | 框架适配器 | 仅 master | — | — | — | memory_read<br>memory_write<br>context_injection |
+| bub | 评测 harness | 仅 master | — | — | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint |
+| dify | 框架适配器 | 实验性 | — | — | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>handoff<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review |
+| kimi-code | Agent 宿主 | 实验性 | minimal, recommended, full | unsupported | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>persistent_scope_binding<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill |

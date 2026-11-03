@@ -35,7 +35,7 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.tables import ARTIFACT_PUBLICATIONS_TABLE
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
-from powercontext.builtin.scope import ScopeApplication
+from powercontext.builtin.scope import ScopeApplication, ScopeNotFoundError
 from powercontext.errors import PowerContextError
 from powercontext.limits import MAX_SCOPE_IDEMPOTENCY_KEY_LENGTH
 
@@ -119,8 +119,11 @@ class ArtifactPublicationApplication:
     ) -> ArtifactPublication:
         if request.source.artifact.family == "atomic-memory":
             raise ArtifactPublicationUnsupportedError("atomic-memory")
-        await self._scopes.get(request.source.scope_id)
-        await self._scopes.get(request.target_scope_id)
+        scope_ids = (request.source.scope_id, request.target_scope_id)
+        existing_scopes = {scope.scope_id for scope in await self._scopes.list(scope_ids=scope_ids)}
+        for scope_id in scope_ids:
+            if scope_id not in existing_scopes:
+                raise ScopeNotFoundError(scope_id)
         projection = None
         if request.source.artifact.family == TopicMemory.family:
             writer = self._topic_memory_writer

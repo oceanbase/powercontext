@@ -14,54 +14,146 @@
  * limitations under the License.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { messages, type Language } from "./messages";
 import { getFoundationInfo, desktopApi } from "../shared/ipc";
-import type { FoundationInfo, DesktopState } from "../generated/ipc";
+import type {
+  FoundationInfo,
+  DesktopState,
+  WriteRecord,
+} from "../generated/ipc";
 import logo from "../../../src-tauri/icons/brand.png";
 import homeIcon from "../assets/overview.svg";
 import connectionsIcon from "../assets/connections.svg";
 import memoryIcon from "../assets/memory.svg";
 import settingsIcon from "../assets/settings.svg";
+import observationIcon from "../assets/retrieval.svg";
 
 import { TopBar } from "./TopBar";
 import { Overview } from "./Overview";
-import { MemoryWorkspace } from "./MemoryWorkspace";
+import {
+  MemoryWorkspace,
+  SubmittedDraftRecovery,
+  type SubmittedDraft,
+} from "./MemoryWorkspace";
+import { LocalServerSettings } from "./LocalServerSettings";
+import { Help } from "./Help";
 import { Diagnostics } from "./Diagnostics";
 import { Connections } from "./Connections";
 import { Scopes } from "./Scopes";
-import { connectionMessages, connectionError } from "./connection-messages";
+import { Observation, type ObservationTab } from "./Observation";
+import { connectionMessages } from "./connection-messages";
+import { PageFeedback, ErrorFeedback } from "./PageFeedback";
+import { activeCheckReport } from "./context";
+import { Modal } from "./Modal";
+import { useConfirmation } from "./useConfirmation";
 
-type Page = "home" | "connections" | "memories" | "settings";
+type Page = "home" | "connections" | "memories" | "observation" | "settings";
 type Theme = "light" | "dark" | "system";
 export function App() {
   const [language, setLanguage] = useState<Language>("zh");
   const [theme, setTheme] = useState<Theme>("system");
   const [page, setPage] = useState<Page>("home");
+  const [observationTab, setObservationTab] =
+    useState<ObservationTab>("runtime");
   const [menu, setMenu] = useState(false);
   const [host, setHost] = useState<FoundationInfo | null>(null);
   const [desktop, setDesktop] = useState<DesktopState | null>(null);
+  const currentState = useRef<DesktopState | null>(null);
   const [nativeError, setNativeError] = useState<unknown>(null);
+  const [stateError, setStateError] = useState<unknown>(null);
+  const [stateLoading, setStateLoading] = useState(true);
+  const stateRequest = useRef(0);
   const [dirty, setDirty] = useState(false);
+  const [submittedDrafts, setSubmittedDrafts] = useState<SubmittedDraft[]>([]);
+  const submissionSequence = useRef(0);
+  function beginSubmission(text: string, target: SubmittedDraft["target"]) {
+    const id = ++submissionSequence.current;
+    setSubmittedDrafts((current) => [
+      ...current,
+      { id, text, target, phase: "pending" },
+    ]);
+    return (record: WriteRecord | null) => {
+      // Update only a retained intent. Explicit discard removes its identity,
+      // so late receipts cannot revive it or clear a different submission.
+      setSubmittedDrafts((current) =>
+        current.flatMap((draft) => {
+          if (draft.id !== id) return [draft];
+          if (record?.status === "succeeded") return [];
+          return [
+            {
+              ...draft,
+              target: record?.context ?? draft.target,
+              phase: record?.status ?? "unconfirmed",
+            },
+          ];
+        }),
+      );
+    };
+  }
+  const [connectionDraftReset, setConnectionDraftReset] = useState(0);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  function receiveState(next: DesktopState) {
-    setDesktop((current) =>
-      !current || next.generation >= current.generation ? next : current,
-    );
+  const [connectionSelection, setConnectionSelection] = useState<{
+    id: string;
+    request: number;
+  } | null>(null);
+  const [pendingConnections, setPendingConnections] = useState(0);
+  const [pendingScopes, setPendingScopes] = useState(0);
+  const contextPending = pendingConnections > 0 || pendingScopes > 0;
+  function scopePending(pending: boolean) {
+    if (pending) setNativeError(null);
+    setPendingScopes((current) => current + (pending ? 1 : -1));
   }
-  function confirmSwitch() {
-    return !dirty || window.confirm(connectionMessages[language].discard);
+  function connectionPending(pending: boolean) {
+    // Pending operations may finish after their editor has unmounted.
+    setPendingConnections((current) => current + (pending ? 1 : -1));
+  }
+  function receiveState(next: DesktopState) {
+    if (
+      currentState.current &&
+      next.generation < currentState.current.generation
+    )
+      return false;
+    currentState.current = next;
+    setDesktop(next);
+    return true;
+  }
+  const { confirm, confirmation } = useConfirmation(language);
+  async function confirmSwitch() {
+    if (
+      (dirty || submittedDrafts.length > 0) &&
+      !(await confirm(connectionMessages[language].discard))
+    )
+      return false;
+    setSubmittedDrafts([]);
+    return true;
   }
   const activeProfile = desktop?.profiles.find(
     (p) => p.id === desktop.active?.connectionId,
   );
-  const activeReport = desktop?.active?.report;
+  const activeReport = activeCheckReport(desktop);
   const heading = useRef<HTMLHeadingElement>(null);
+  const localServerHeading = useRef<HTMLHeadingElement>(null);
+  const settingsSection = useRef<"local-server" | undefined>(undefined);
+  const scopeReturnFocus = useRef<HTMLElement | null>(null);
+  const scopeToMemory = useRef(false);
   const t = messages[language];
   const ct = connectionMessages[language];
+  async function loadState() {
+    const request = ++stateRequest.current;
+    setStateLoading(true);
+    setStateError(null);
+    try {
+      receiveState(await desktopApi.state());
+    } catch (error) {
+      if (request === stateRequest.current) setStateError(error);
+    } finally {
+      if (request === stateRequest.current) setStateLoading(false);
+    }
+  }
   useEffect(() => {
-    desktopApi.state().then(receiveState).catch(setNativeError);
+    void loadState();
     getFoundationInfo()
       .then(setHost)
       .catch(() => setHost(null));
@@ -72,29 +164,50 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-  useEffect(() => {
-    if (!scopeOpen) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setScopeOpen(false);
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [scopeOpen]);
-  function navigate(next: Page) {
-    if (next === page || !confirmSwitch()) return;
+  useLayoutEffect(() => {
+    const localServer =
+      page === "settings" && settingsSection.current === "local-server";
+    const target = localServer ? localServerHeading.current : heading.current;
+    target?.focus();
+    if (localServer) target?.scrollIntoView?.({ block: "start" });
+  }, [page, connectionSelection]);
+  function openScopes(trigger: HTMLElement, toMemory = false) {
+    scopeReturnFocus.current = trigger;
+    scopeToMemory.current = toMemory;
+    setScopeOpen(true);
+  }
+  async function navigate(
+    next: Page,
+    target?: { section?: "local-server"; profileId?: string },
+  ) {
+    if (
+      (next === page && target?.profileId === undefined) ||
+      !(await confirmSwitch())
+    )
+      return;
+    settingsSection.current = target?.section;
+    setConnectionSelection((current) =>
+      target?.profileId === undefined
+        ? null
+        : { id: target.profileId, request: (current?.request ?? 0) + 1 },
+    );
     setDirty(false);
     setPage(next);
     setMenu(false);
-    requestAnimationFrame(() => heading.current?.focus());
   }
-  function disconnect() {
-    if (!confirmSwitch()) return;
-    setDirty(false);
-    void desktopApi.disconnect().then(receiveState).catch(setNativeError);
+  async function disconnect() {
+    if (!(await confirmSwitch())) return;
+    connectionPending(true);
+    void desktopApi
+      .disconnect()
+      .then(receiveState)
+      .catch(setNativeError)
+      .finally(() => connectionPending(false));
   }
   async function refresh() {
     setRefreshing(true);
     setNativeError(null);
+    connectionPending(true);
     try {
       receiveState(
         desktop?.active
@@ -104,6 +217,7 @@ export function App() {
     } catch (e) {
       setNativeError(e);
     } finally {
+      connectionPending(false);
       setRefreshing(false);
     }
   }
@@ -131,20 +245,26 @@ export function App() {
         </div>
         <span className="brand-badge">{t.foundation}</span>
         <nav aria-label={t.menu}>
-          {(["home", "connections", "memories"] as const).map((item, index) => (
-            <button
-              key={item}
-              aria-current={page === item ? "page" : undefined}
-              onClick={() => navigate(item)}
-            >
-              <img
-                className="nav-symbol"
-                alt=""
-                src={[homeIcon, connectionsIcon, memoryIcon][index]}
-              />
-              {t[item]}
-            </button>
-          ))}
+          {(["home", "connections", "memories", "observation"] as const).map(
+            (item, index) => (
+              <button
+                key={item}
+                aria-current={page === item ? "page" : undefined}
+                onClick={() => navigate(item)}
+              >
+                <img
+                  className="nav-symbol"
+                  alt=""
+                  src={
+                    [homeIcon, connectionsIcon, memoryIcon, observationIcon][
+                      index
+                    ]
+                  }
+                />
+                {t[item]}
+              </button>
+            ),
+          )}
         </nav>
         <div className="sidebar-bottom">
           <button
@@ -156,11 +276,13 @@ export function App() {
           </button>
           <div className="sidebar-status">
             <p className="status">
-              <span
-                aria-hidden="true"
-                className={desktop?.active ? "dot ok" : "dot"}
-              />
-              {activeProfile?.name ?? t.disconnected}
+              <span aria-hidden="true" className="dot" />
+              {activeProfile?.name ??
+                (stateLoading
+                  ? t.loadingState
+                  : desktop
+                    ? t.disconnected
+                    : t.stateUnavailable)}
             </p>
             <p className="caption">{t.sidebarRunning}</p>
           </div>
@@ -170,16 +292,55 @@ export function App() {
         <TopBar
           state={desktop}
           language={language}
-          onManageConnections={() => navigate("connections")}
-          onOpenScopes={() => setScopeOpen(true)}
+          loading={stateLoading}
+          contextPending={contextPending}
+          onManageConnections={(profileId) =>
+            navigate("connections", { profileId })
+          }
+          onOpenScopes={openScopes}
           onDisconnect={disconnect}
         />
         <main id="main">
           <h1 className="sr-only" tabIndex={-1} ref={heading}>
             {t[page]}
           </h1>
+          {contextPending && (
+            <PageFeedback
+              kind="loading"
+              title={
+                pendingScopes > 0 ? t.selectingScope : t.connectionUpdating
+              }
+            >
+              <p>
+                {pendingScopes > 0
+                  ? t.scopeUpdatingHint
+                  : t.connectionUpdatingHint}
+              </p>
+            </PageFeedback>
+          )}
+          {stateLoading && (
+            <PageFeedback kind="loading" title={t.loadingState} />
+          )}
+          {!stateLoading && stateError != null && (
+            <ErrorFeedback
+              error={stateError}
+              language={language}
+              title={t.stateFailed}
+              action={
+                <button onClick={() => void loadState()}>{t.retryState}</button>
+              }
+            />
+          )}
           {nativeError != null && (
-            <p role="alert">{connectionError(nativeError, language)}</p>
+            <ErrorFeedback
+              error={nativeError}
+              language={language}
+              action={
+                <button onClick={() => navigate("connections")}>
+                  {t.manageConnections}
+                </button>
+              }
+            />
           )}
           {page === "memories" && desktop?.active && (
             <div className="context-line">
@@ -188,6 +349,9 @@ export function App() {
               <span>{activeProfile?.endpoint}</span>
               <span aria-hidden="true">·</span>
               <span>{desktop.active.scope?.title ?? t.noScopeSelected}</span>
+              {desktop.active.scope && (
+                <code>{desktop.active.scope.scope_id}</code>
+              )}
               <span className={ready ? "badge success" : "badge subtle"}>
                 {ready ? t.serviceReady : t.unverified}
               </span>
@@ -203,20 +367,58 @@ export function App() {
             />
           )}
           {page === "memories" && (
-            <MemoryWorkspace
-              key={`memory-${desktop?.active?.generation ?? "none"}`}
-              state={desktop}
-              language={language}
-              onState={receiveState}
-              onDirty={setDirty}
-            />
+            <>
+              {submittedDrafts
+                .filter(
+                  (draft) =>
+                    draft.target.generation !== desktop?.active?.generation,
+                )
+                .map((draft) => (
+                  <SubmittedDraftRecovery
+                    key={draft.id}
+                    draft={draft}
+                    language={language}
+                    onDiscard={() =>
+                      setSubmittedDrafts((current) =>
+                        current.filter((item) => item.id !== draft.id),
+                      )
+                    }
+                  />
+                ))}
+              <MemoryWorkspace
+                key={`memory-${desktop?.active?.generation ?? "none"}`}
+                state={desktop}
+                language={language}
+                onState={receiveState}
+                onDirty={setDirty}
+                onSubmission={beginSubmission}
+                onManageConnections={() => navigate("connections")}
+                onOpenScopes={openScopes}
+                onOpenLocalServer={() =>
+                  navigate("settings", { section: "local-server" })
+                }
+                contextPending={contextPending}
+              />
+            </>
           )}
           {page === "connections" && (
             <Connections
+              key={connectionSelection?.request ?? 0}
+              initialProfileId={connectionSelection?.id}
               state={desktop}
               language={language}
               onState={receiveState}
               onDirty={setDirty}
+              onPendingChange={connectionPending}
+              onActivated={(trigger) => openScopes(trigger, true)}
+              discardDraft={connectionDraftReset}
+            />
+          )}
+          {page === "observation" && (
+            <Observation
+              language={language}
+              tab={observationTab}
+              onTabChange={setObservationTab}
             />
           )}
           {page === "settings" && (
@@ -246,13 +448,19 @@ export function App() {
                   </select>
                 </div>
               </section>
+              <LocalServerSettings
+                language={language}
+                headingRef={localServerHeading}
+                onManageConnections={() => navigate("connections")}
+              />
+              <Help language={language} />
               <Diagnostics language={language} />
               <section className="card">
                 <h2>{t.version}</h2>
                 <dl>
                   <div>
                     <dt>{t.version}</dt>
-                    <dd>{host?.version ?? "0.1.0"}</dd>
+                    <dd>{host?.version ?? t.unknown}</dd>
                   </div>
                   <div>
                     <dt>{t.native}</dt>
@@ -268,39 +476,43 @@ export function App() {
         </main>
       </div>
       {scopeOpen && (
-        <div
-          className="modal-backdrop"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setScopeOpen(false);
-          }}
+        <Modal
+          label={ct.scope}
+          onClose={() => setScopeOpen(false)}
+          returnFocus={() => scopeReturnFocus.current}
         >
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={ct.scope}
-          >
-            <div className="modal-heading">
-              <h2>{ct.scope}</h2>
-              <button onClick={() => setScopeOpen(false)}>
-                {t.closeDialog}
-              </button>
-            </div>
-            <Scopes
-              key={`scopes-${desktop?.active?.generation ?? "none"}`}
-              state={desktop}
-              language={language}
-              onState={receiveState}
-              confirmSwitch={confirmSwitch}
-              onSelected={() => {
-                setDirty(false);
-                setScopeOpen(false);
-              }}
-              hideHeading
-            />
+          <div className="modal-heading">
+            <h2>{ct.scope}</h2>
+            <button onClick={() => setScopeOpen(false)}>{t.closeDialog}</button>
           </div>
-        </div>
+          <Scopes
+            key={`scopes-${desktop?.active?.generation ?? "none"}`}
+            state={desktop}
+            language={language}
+            onState={receiveState}
+            confirmSwitch={confirmSwitch}
+            onPendingChange={scopePending}
+            onSelectionError={setNativeError}
+            onSelected={() => {
+              if (page === "connections" && dirty)
+                setConnectionDraftReset((current) => current + 1);
+              setDirty(false);
+              setScopeOpen(false);
+              if (scopeToMemory.current) {
+                scopeReturnFocus.current = null;
+                setPage("memories");
+              }
+            }}
+            hideHeading
+            onManageConnections={() => {
+              scopeReturnFocus.current = heading.current;
+              setScopeOpen(false);
+              navigate("connections");
+            }}
+          />
+        </Modal>
       )}
+      {confirmation}
     </div>
   );
 }

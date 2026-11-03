@@ -200,13 +200,24 @@ class SQLiteGraphStore:
     identity = "sqlite"
 
     def create(
-        self, directory: Path, nodes: list[dict[str, Any]], edges: list[dict[str, Any]], deadline: float
+        self,
+        directory: Path,
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        deadline: float,
+        *,
+        generation_id: str | None = None,
     ) -> dict[str, Any]:
         from powercontext.builtin.code.cache import hash_file
 
+        del generation_id  # Rows live inside the generation directory, so no name is needed.
         path = directory / "graph.sqlite"
         create_graph(path, nodes, edges, deadline)
         return {"database_sha256": hash_file(path, deadline)}
+
+    def remove_generation(self, generation_id: str, binding: str, deadline: float) -> None:
+        # A directory that no longer exists takes its SQLite rows with it.
+        del generation_id, binding, deadline
 
     def verify(self, directory: Path, manifest: dict[str, Any], deadline: float) -> None:
         from powercontext.builtin.code.cache import hash_file

@@ -1,0 +1,71 @@
+name: Capture released Server schema
+
+on:
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-schema-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: capture-release-schema.yml
+
+  capture:
+    needs: changes
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').release_schema) }}
+    name: Capture 1.4.0 (${{ matrix.backend }}, ${{ matrix.configuration }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        backend: [sqlite, seekdb, oceanbase]
+        configuration: [full-server-no-vector, full-server-code, full-server-vector, full-server-vector-code]
+    env:
+      PC_UPGRADE_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_upgrade_test?charset=utf8mb4
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: ./.github/actions/setup-python-env
+      - name: Start isolated OceanBase
+        if: matrix.backend == 'oceanbase'
+        uses: ./.github/actions/setup-upgrade-oceanbase
+      - name: Capture installed release without current runtime initialization
+        run: >-
+          .venv/bin/python scripts/upgrade_process.py
+          --parent-pid $$ --timeout 1800 --shutdown-timeout 60 --
+          .venv/bin/python scripts/capture_release_schema.py
+          ${{ matrix.backend }} --configuration ${{ matrix.configuration }}
+          --output "$RUNNER_TEMP/release-schema"
+      - name: Preserve OceanBase diagnostics
+        if: always() && matrix.backend == 'oceanbase'
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-schema"
+          docker logs upgrade-oceanbase > "$RUNNER_TEMP/release-schema/oceanbase.log" 2>&1 || true
+          docker stop --timeout 30 upgrade-oceanbase || true
+      - name: Save source schema and provenance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-1.4.0-${{ matrix.backend }}-${{ matrix.configuration }}-${{ github.sha }}
+          path: ${{ runner.temp }}/release-schema/
+          if-no-files-found: error
+          retention-days: 30

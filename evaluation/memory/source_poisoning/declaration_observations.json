@@ -1,0 +1,246 @@
+{
+  "schema": "powercontext.source-poisoning-declaration-check.v1",
+  "runtime_head": "a33679fe746fdf00b6f5239edb13e63be415d239",
+  "runtime_tree": "88f585af161906bad6bb52368eb7ce7142437e84",
+  "source_run": "448ea62eb7154937acc8ca587e42a8c5",
+  "historical_annotations": [
+    {
+      "scope_id": "scp_1g7q3bfz6rd7t51k4scgzvgtjb",
+      "artifact_ref": {
+        "family": "atomic-memory",
+        "artifact_id": "art_7886a88cdf264c6abeabd51ddf486f26",
+        "revision": 1
+      },
+      "sources": [
+        {
+          "source_ref": {
+            "source_type": "content",
+            "source_id": "poisoning:448ea62eb7154937acc8ca587e42a8c5:browser-delayed-instruction:0"
+          },
+          "materialization": "captured",
+          "material_digest": "sha256:fcd82568a37aef62e200ca57f737388c3a19e46dabf97c3209a1c89a58b82446",
+          "definition_name": "content",
+          "definition_version": "1",
+          "manifest_fingerprint": null,
+          "declaration": {
+            "authority": "untrusted",
+            "verification": "unknown",
+            "declaration_version": "1"
+          }
+        }
+      ],
+      "format": "powercontext.atomic-memory.evidence.v1"
+    },
+    {
+      "scope_id": "scp_1g7q3bfz6rd7t51k4scgzvgtjb",
+      "artifact_ref": {
+        "family": "atomic-memory",
+        "artifact_id": "art_7886a88cdf264c6abeabd51ddf486f26",
+        "revision": 1
+      },
+      "sources": [
+        {
+          "source_ref": {
+            "source_type": "content",
+            "source_id": "poisoning:448ea62eb7154937acc8ca587e42a8c5:browser-delayed-instruction:0"
+          },
+          "materialization": "captured",
+          "material_digest": "sha256:fcd82568a37aef62e200ca57f737388c3a19e46dabf97c3209a1c89a58b82446",
+          "definition_name": "content",
+          "definition_version": "1",
+          "manifest_fingerprint": null,
+          "declaration": {
+            "authority": "untrusted",
+            "verification": "unknown",
+            "declaration_version": "1"
+          }
+        }
+      ],
+      "format": "powercontext.atomic-memory.evidence.v1"
+    }
+  ],
+  "historical_authority_before": {
+    "pc_artifacts": {
+      "count": 2,
+      "sha256": "22812a1f7f5805a435b72269d64543402530368c73d02801ca8ac0fb96569b76"
+    },
+    "pc_sources": {
+      "count": 11,
+      "sha256": "bcda572637bb5229c4a661faff8183d3233ced40814f7fe09e59120df14b45ae"
+    }
+  },
+  "historical_authority_after": {
+    "pc_artifacts": {
+      "count": 2,
+      "sha256": "22812a1f7f5805a435b72269d64543402530368c73d02801ca8ac0fb96569b76"
+    },
+    "pc_sources": {
+      "count": 11,
+      "sha256": "bcda572637bb5229c4a661faff8183d3233ced40814f7fe09e59120df14b45ae"
+    }
+  },
+  "new_claim_snapshots": [
+    {
+      "scope_id": "declaration-claim-0",
+      "artifact_ref": {
+        "family": "atomic-memory",
+        "artifact_id": "same-memory",
+        "revision": 1
+      },
+      "sources": [
+        {
+          "source_ref": {
+            "source_type": "content",
+            "source_id": "same-input"
+          },
+          "materialization": "captured",
+          "material_digest": "sha256:1acfa173d56a34d56e714bdc77925f67118dc838a23447fdb0651dcb5c8f38ae",
+          "definition_name": "content",
+          "definition_version": "1",
+          "manifest_fingerprint": "sha256:4baf43bbfbfe384d33ecb2c8bfb79fca303a065bf9a51545af1de3fb34a87c99",
+          "declaration": {
+            "authority": "untrusted",
+            "verification": "unknown",
+            "declaration_version": "1"
+          }
+        }
+      ],
+      "format": "powercontext.atomic-memory.evidence.v1"
+    },
+    {
+      "scope_id": "declaration-claim-1",
+      "artifact_ref": {
+        "family": "atomic-memory",
+        "artifact_id": "same-memory",
+        "revision": 1
+      },
+      "sources": [
+        {
+          "source_ref": {
+            "source_type": "content",
+            "source_id": "same-input"
+          },
+          "materialization": "captured",
+          "material_digest": "sha256:1acfa173d56a34d56e714bdc77925f67118dc838a23447fdb0651dcb5c8f38ae",
+          "definition_name": "content",
+          "definition_version": "1",
+          "manifest_fingerprint": "sha256:4baf43bbfbfe384d33ecb2c8bfb79fca303a065bf9a51545af1de3fb34a87c99",
+          "declaration": {
+            "authority": "repository_attested",
+            "verification": "verified",
+            "declaration_version": "1"
+          }
+        }
+      ],
+      "format": "powercontext.atomic-memory.evidence.v1"
+    }
+  ],
+  "model_calls": 0,
+  "limits": "Consistent backup of the synthetic unreleased SQLite catalog; no production release upgrade or mitigation claim.",
+  "dependencies": {
+    "source_evidence_pr": 2004,
+    "source_evidence_head": "3c5c0eccdfc65da04c509c005fe230252990d00a",
+    "source_evidence_author": "MaoMengww",
+    "combined_runtime_head": "648f61c8c6f8dbb2aa0e6fdc65461189b8179b95",
+    "base": "c0c38dea5178679c6bca95381a1008e8df1826e2",
+    "constituent_pr_heads": {
+      "2147": "a1bb8dc5d7501527e69d2e59499f24c3a0d0854e",
+      "2162": "26ea7ba34fd64c08a0c4ff7d8c7685fae0debe34",
+      "2172": "159c784c10274b4a54aae3c5171c014d438004e6",
+      "2174": "b7d3c7b9a2e603242da2c95e111be177f079ba79",
+      "2187": "702232342c8abf8bf3a6c1a94233577833e5ef79"
+    }
+  },
+  "methods": {
+    "historical": "sqlite3.Connection.backup of the collected synthetic poisoning database",
+    "fresh_claims": "Deterministic direct service commit using the _commit helper in PR 2004's acceptance file",
+    "fresh_claims_extraction": "No extractor or live model was invoked for the two fresh declaration checks",
+    "trusted_declaration": "SourceDefinitionRegistry content Definition configured by the operator",
+    "historical_rebuilds": 2,
+    "scope_isolation": "Same Source/Artifact IDs in two Scopes; both annotations persist after reopening"
+  },
+  "validation": {
+    "pr_2004_head_sqlite": {
+      "passed": 51,
+      "oceanbase_skipped": 10
+    },
+    "combined_sqlite": {
+      "passed": 262,
+      "oceanbase_skipped": 10
+    },
+    "combined_linux_ty_python_311": "passed",
+    "oceanbase": {
+      "version": "5.7.25-OceanBase_CE-v4.3.5.6",
+      "compatibility_mode": "MYSQL",
+      "image": "ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916",
+      "digest": "sha256:31086a6900c21c479c2bcd942b6a28c53b17a51f4e9b9eb8eafcc596adfcd2e3",
+      "memory_limit_gib": 6,
+      "cpu_limit": 2,
+      "passed": 10,
+      "skipped": 0,
+      "runner": "scripts/run_atomic_memory_clean_migration.py",
+      "cases": [
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_unverifiable_native_serializer_keeps_memory_evidence_neutral[False-oceanbase]",
+          "status": "passed",
+          "duration_seconds": 20.155,
+          "junit_sha256": "d31d2a5985c7d64e86de6a984d7a40346fcefb538bd5b5de884a215a4ffd377b"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_unverifiable_native_serializer_keeps_memory_evidence_neutral[True-oceanbase]",
+          "status": "passed",
+          "duration_seconds": 21.3,
+          "junit_sha256": "d5b3a458d48b9c9c53ea2cab253b44f171ac8989859b50b1142f34cba036cd34"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_canonical_historical_evidence_survives_business_alias_rebuild[1-False-oceanbase]",
+          "status": "passed",
+          "duration_seconds": 22.101,
+          "junit_sha256": "79992b0b9156ada6fd18a732d1f6efa7ba8ad179286efb4001f1331647de7444"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_canonical_historical_evidence_survives_business_alias_rebuild[1-True-oceanbase]",
+          "status": "passed",
+          "duration_seconds": 22.281,
+          "junit_sha256": "37456c524610a0df6573407a06ee8b4e559d16937027cb32203faa34868fb7af"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_canonical_historical_evidence_survives_business_alias_rebuild[2-False-oceanbase]",
+          "status": "passed",
+          "duration_seconds": 21.966,
+          "junit_sha256": "0cbe4bed5f83344a9f6fb48273c7c66db446062dbbce272f57a8d8a2fa8e1390"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_canonical_historical_evidence_survives_business_alias_rebuild[2-True-oceanbase]",
+          "status": "passed",
+          "duration_seconds": 21.325,
+          "junit_sha256": "b1bac9cd02b6bbe855a1f0f6f596c3ffcc96627c9bc76cf8dc7685962209ccce"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_mixed_evidence_survives_failed_revision_restart_and_rebuild[oceanbase]",
+          "status": "passed",
+          "duration_seconds": 23.719,
+          "junit_sha256": "e6f9e284bc880aebe310fb492fd1c10f4c28073adc394d2487ace499e3a42a8d"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_generated_trust_claims_do_not_upgrade_neutral_evidence[oceanbase]",
+          "status": "passed",
+          "duration_seconds": 21.002,
+          "junit_sha256": "03e5601284e595f847837b6acca246f4a9e23043d308840c0dd6bd1ab339e798"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_source_evidence.py::test_shared_merge_and_restore_preserve_source_evidence[oceanbase]",
+          "status": "passed",
+          "duration_seconds": 20.246,
+          "junit_sha256": "a6ecc455e16d78c6f26f229469e9e0bc8c30c0cecd27521f83cda689d0f7c3b6"
+        },
+        {
+          "node": "tests/e2e/test_atomic_memory_evidence_neutral_recall.py::test_source_declarations_preserve_recall_and_consumers[oceanbase]",
+          "status": "passed",
+          "duration_seconds": 24.733,
+          "junit_sha256": "4b62efc2e8afb0550696b81cbc22090d506e031a59f9bfe9381150c40a00885a"
+        }
+      ]
+    }
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "contractSha256": "a6758fd35296abefb55ab86b152584a369d5f2deedfee7a3f9822e16ad1edc25",
+  "contractSha256": "83dc68194770a41facea55a3fe2279bc0e8b01812a82a1d838334232c67bedc7",
   "operations": {
     "get_liveness": {
       "method": "GET",
@@ -8,6 +8,10 @@
     "get_readiness": {
       "method": "GET",
       "path": "/health/ready"
+    },
+    "get_server_info": {
+      "method": "GET",
+      "path": "/v1/server-info"
     },
     "get_capabilities": {
       "method": "GET",
@@ -40,6 +44,48 @@
     "get_access_principal": {
       "method": "GET",
       "path": "/v1/access/me"
+    }
+  },
+  "discovery": {
+    "apiMajor": 1,
+    "features": {
+      "access.principal": {
+        "major": 1,
+        "minor": 0
+      },
+      "scope.selection": {
+        "major": 1,
+        "minor": 0
+      },
+      "memory.explicit": {
+        "major": 1,
+        "minor": 0
+      }
+    },
+    "operationFeatures": {
+      "get_liveness": [],
+      "get_readiness": [],
+      "get_server_info": [],
+      "get_capabilities": [],
+      "list_scopes": [
+        "scope.selection"
+      ],
+      "get_scope": [
+        "scope.selection"
+      ],
+      "get_default_scope": [
+        "scope.selection"
+      ],
+      "remember_memory": [
+        "memory.explicit"
+      ],
+      "search_memory": [
+        "memory.explicit"
+      ],
+      "get_artifact_revision": [],
+      "get_access_principal": [
+        "access.principal"
+      ]
     }
   }
 }

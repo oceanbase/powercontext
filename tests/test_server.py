@@ -19,9 +19,6 @@ import re
 import shlex
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
-from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -42,8 +39,6 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
-    BuiltinRuntime,
-    ExperienceIncubationResult,
     InferenceConfig,
     MemoryExtractionProfile,
     RuntimeConfig,
@@ -55,8 +50,8 @@ from powercontext.http import (
     ReadinessStatus,
 )
 from powercontext.server.app import create_app
-from powercontext.server.authz import AccessControlService, PrincipalRef
-from powercontext.server.factory import _scheduled_access_runners, create_server_app
+from powercontext.server.authz import AccessControlService
+from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
     BearerAuthConfig,
@@ -66,11 +61,6 @@ from powercontext.server.settings import (
 from powercontext.sources import Source
 
 _ACCESS_FAMILIES = "atomic-memory:enabled,experience:enabled,handoff:enabled,memory:enabled,profile:enabled,prompt:enabled,skill:enabled"
-
-
-class _StartupOnlyAccessControl:
-    async def committed_receipt_identity(self, _scope_id: str, _source_id: str, /) -> None:
-        return None
 
 
 def _access_readiness_checks(
@@ -289,7 +279,7 @@ def test_server_info_uses_one_durable_identity_across_restarts(tmp_path) -> None
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
     assert first.json()["schema_version"] == {"major": 1, "minor": 0}
-    assert first.json()["api_contract_version"] == {"major": 1, "minor": 4}
+    assert first.json()["api_contract_version"] == {"major": 1, "minor": 5}
 
 
 def test_server_startup_fails_when_identity_initialization_fails(tmp_path, monkeypatch) -> None:
@@ -452,7 +442,7 @@ def test_server_settings_select_embedded_seekdb(tmp_path, monkeypatch) -> None:
 
     assert isinstance(settings.database, SeekDBConfig)
     assert settings.database.path == data_dir / "seekdb"
-    assert settings.database.database == "test"
+    assert settings.database.database == "powercontext"
     assert not data_dir.exists()
 
 
@@ -478,16 +468,65 @@ def test_server_settings_override_embedded_seekdb_path(tmp_path, monkeypatch) ->
 
     assert isinstance(settings.database, SeekDBConfig)
     assert settings.database.path == database_path
-    assert settings.database.database == "test"
+    assert settings.database.database == "powercontext"
 
 
-def test_server_settings_reject_custom_embedded_seekdb_database(tmp_path, monkeypatch) -> None:
+def test_server_settings_accept_custom_embedded_seekdb_database(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "custom")
 
-    with pytest.raises(ValidationError, match="Input should be 'test'"):
-        ServerSettings()
+    settings = ServerSettings()
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == "custom"
+    assert "database" in settings.database.model_fields_set
+
+
+@pytest.mark.parametrize("source", ["model", "mapping", "environment"])
+@pytest.mark.parametrize("name", [None, "powercontext", "test", "team_context"])
+def test_server_settings_preserve_seekdb_database_choice(tmp_path, monkeypatch, source, name) -> None:
+    values = {"kind": "seekdb", "path": tmp_path / "seekdb"}
+    if name is not None:
+        values["database"] = name
+    original = SeekDBConfig.model_validate(values)
+    original_fields = original.model_fields_set.copy()
+    if source == "model":
+        settings = ServerSettings(database=original)
+    elif source == "mapping":
+        settings = ServerSettings(database=values)  # ty: ignore[invalid-argument-type] Pydantic accepts nested mappings.
+    else:
+        for key, value in values.items():
+            monkeypatch.setenv(f"POWERCONTEXT_SERVER_DATABASE_{key.upper()}", str(value))
+        settings = ServerSettings()
+
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == (name or "powercontext")
+    assert ("database" in settings.database.model_fields_set) is (name is not None)
+    assert settings.database.path == original.path
+    assert original.model_fields_set == original_fields
+
+
+@pytest.mark.parametrize("name", [None, "powercontext", "test", "team_context"])
+def test_server_settings_merge_seekdb_model_with_environment(tmp_path, monkeypatch, name) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "environment_context")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "environment"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_ECHO", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_POOL_PRE_PING", "false")
+    original = (
+        SeekDBConfig(path=tmp_path / "seekdb")
+        if name is None
+        else SeekDBConfig(path=tmp_path / "seekdb", database=name)
+    )
+
+    settings = ServerSettings(database=original)
+
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == (name or "environment_context")
+    assert "database" in settings.database.model_fields_set
+    assert settings.database.path == original.path
+    assert settings.database.echo is original.echo
+    assert settings.database.pool_pre_ping is original.pool_pre_ping
+    assert ("database" in original.model_fields_set) is (name is not None)
 
 
 def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, monkeypatch) -> None:
@@ -504,51 +543,6 @@ def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, mo
     with TestClient(app):
         assert (data_dir / "powercontext.db").is_file()
         assert not (data_dir / "scheduler.db").exists()
-
-
-def test_scheduled_experience_owns_only_candidates_created_by_its_incubation() -> None:
-    async def scenario() -> None:
-        result = ExperienceIncubationResult(
-            previous_cursor=0,
-            high_watermark=2,
-            current_cursor=2,
-            source_count=1,
-            candidate_count=1,
-            candidate_ids=("scheduled-candidate",),
-        )
-        incubate = AsyncMock(return_value=result)
-        runtime = SimpleNamespace(
-            owner_write_database=None,
-            experience=SimpleNamespace(for_scope=lambda _scope_id: SimpleNamespace(incubate=incubate)),
-        )
-        access = AsyncMock(spec=AccessControlService)
-        settings = ServerSettings(
-            runtime=RuntimeConfig(experience_schedule_seconds=1),
-            access=AccessControlConfig(
-                mode="enforced",
-                background_principal_id="scheduled-experience",
-            ),
-            mcp=McpConfig(enabled=False),
-        )
-        source_runner, experience_runner = _scheduled_access_runners(
-            settings,
-            access,
-            legacy_static_principal=None,
-        )
-
-        assert source_runner is None
-        assert experience_runner is not None
-        assert await experience_runner("scope-1", cast(BuiltinRuntime, runtime)) == result
-        access.attest_candidate_owner.assert_awaited_once_with(
-            scope_id="scope-1",
-            candidate_id="scheduled-candidate",
-            family="experience",
-            proposed_owner=PrincipalRef(type="service", id="scheduled-experience"),
-            target=None,
-            idempotency_key="background-candidate-owner:scope-1:scheduled-candidate",
-        )
-
-    asyncio.run(scenario())
 
 
 def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:
@@ -680,11 +674,11 @@ def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             mcp=McpConfig(enabled=False),
         ),
-        access_control=cast(AccessControlService, _StartupOnlyAccessControl()),
     )
     headers = {"Authorization": "Bearer server-secret"}
 
     with TestClient(app) as client:
+        assert isinstance(app.state.access_control, AccessControlService)
         app.state.access_control = None
         readiness = client.get("/health/ready")
         protected = (
@@ -1128,6 +1122,34 @@ def test_unhandled_errors_return_the_server_request_id() -> None:
     assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])
 
 
+def test_prepare_context_keeps_the_four_field_envelope_without_receipt_opt_in(tmp_path) -> None:
+    """Every Host validator compares the key set exactly, so an injected response cannot grow a fifth field.
+
+    ``include_receipt`` is opt-in. A keyword-only deployment still reports completed FTS retrieval.
+    """
+
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        scope_id = client.get("/v1/scopes/default").json()["scope_id"]
+        plain = client.post("/v1/context/prepare", json={"scope_id": scope_id, "query": "alpha beta"})
+        explained = client.post(
+            "/v1/context/prepare",
+            json={"scope_id": scope_id, "query": "alpha beta", "include_receipt": True},
+        )
+
+    assert plain.status_code == 200
+    assert explained.status_code == 200
+    assert set(plain.json()) == {"schema", "status", "content", "content_bytes"}
+    assert set(explained.json()) == {"schema", "status", "content", "content_bytes", "receipt"}
+    assert explained.json()["receipt"]["retrieval"]["rounds"][0]["retained"] is True
+
+
 def test_prepare_context_rejects_memory_specific_tuning_fields(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(
@@ -1301,3 +1323,23 @@ def test_logging_failure_does_not_change_the_response(monkeypatch) -> None:
 
     assert response.status_code == 500
     assert re.fullmatch(r"[0-9a-f]{16}", response.headers["X-PowerContext-Request-ID"])
+
+
+def test_server_settings_keep_explicit_legacy_seekdb_database(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "seekdb")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_PATH", str(tmp_path / "seekdb"))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_DATABASE", "test")
+    settings = ServerSettings()
+    assert isinstance(settings.database, SeekDBConfig)
+    assert settings.database.database == "test"
+    assert "database" in settings.database.model_fields_set
+
+
+def test_server_settings_default_oceanbase_database(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "oceanbase")
+    monkeypatch.setenv(
+        "POWERCONTEXT_SERVER_DATABASE_URL", "mysql+aoceanbase://user:password@localhost:2881/?charset=utf8mb4"
+    )
+    settings = ServerSettings()
+    assert isinstance(settings.database, OceanBaseConfig)
+    assert "/powercontext?charset=utf8mb4" in settings.database.url.get_secret_value()

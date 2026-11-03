@@ -29,6 +29,7 @@ from powercontext.builtin.persistence.migration_resources.dream_expansion.upgrad
     upgrade_dream_storage,
     validate_dream_processing_manifest,
 )
+from powercontext.builtin.persistence.migrations import MigrationError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import PROFILE_POLICIES_TABLE
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
@@ -415,7 +416,7 @@ def test_partial_framework_bundle_cannot_become_a_server_database(tmp_path):
             connection.execute("CREATE TABLE pc_schema_revision (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
             connection.execute("INSERT INTO pc_schema_revision VALUES ('p0003')")
         before = snapshot(path)
-        with pytest.raises(DreamSchemaNotReadyError, match="migration_framework_not_ready"):
+        with pytest.raises(MigrationError, match="migration_required"):
             async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{path}"))):
                 pytest.fail("A version-table marker cannot establish Server readiness")
         assert snapshot(path) == before

@@ -14,10 +14,45 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from pydantic import ValidationError
 
+from powercontext.artifacts import ArtifactLineage
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.service import AtomicMemoryMergeAdapter
+
+
+def test_historical_restore_preserves_absent_description() -> None:
+    adapter = AtomicMemoryMergeAdapter(cast(Any, None))
+    content = {"kind": "fact", "text": "A fact"}
+    restored = adapter.draft(content, ArtifactLineage(), historical=True)
+    assert restored.content.description is None
+
+
+def test_new_write_preserves_description() -> None:
+    adapter = AtomicMemoryMergeAdapter(cast(Any, None))
+    draft = adapter.draft({"kind": "fact", "text": "A fact", "description": "A summary"}, ArtifactLineage())
+    assert draft.content.description == "A summary"
+
+
+def test_legacy_content_serialization_preserves_missing_description() -> None:
+    payload = {"schema": "powercontext.atomic-memory.v1", "kind": "fact", "text": "A fact", "creation": None}
+    content = AtomicMemoryContent.model_validate(payload)
+    assert content.description is None
+    assert content.model_dump(mode="json", by_alias=True) == payload
+
+
+def test_content_serialization_preserves_description() -> None:
+    content = AtomicMemoryContent(kind="fact", text="A complete fact", description="A summary")
+    assert content.model_dump(mode="json")["description"] == "A summary"
+
+
+@pytest.mark.parametrize("description", ["", "   ", "a\nb", "a\rb", "a" * 201])
+def test_content_rejects_invalid_description(description: str) -> None:
+    with pytest.raises(ValidationError):
+        AtomicMemoryContent(kind="fact", text="A fact", description=description)
 
 
 def test_atomic_memory_content_decodes_legacy_text_that_expands_under_nfc() -> None:
@@ -43,3 +78,15 @@ def test_atomic_memory_content_measures_byte_limit_after_normalization(text: str
 def test_atomic_memory_content_rejects_empty_or_oversized_normalized_text(text: str) -> None:
     with pytest.raises(ValidationError):
         AtomicMemoryContent(kind="fact", text=text)
+
+
+def test_legacy_candidate_proposal_remains_transport_readable() -> None:
+    from powercontext.server.mapping import reviewed_proposal
+
+    legacy = AtomicMemoryContent(kind="fact", text="A historical candidate")
+    mapped = reviewed_proposal(legacy)
+    from powercontext.http import AtomicMemoryReadContent
+
+    assert isinstance(mapped, AtomicMemoryReadContent)
+    assert mapped.text == legacy.text
+    assert mapped.description is None

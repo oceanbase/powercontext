@@ -14,6 +14,17 @@ legacy entry tables; complete per-entry verification is the job of `verify`.
 
 ## Run the maintenance task
 
+On a database with `pc_schema_revision` or a Server identity marker, this compatibility command delegates
+`plan`, `apply` and `verify` to `server db-migrate --bundle server`. The shared framework validates registered
+1.3.0 and 1.4.0 sources; the identity marker selects this path without accepting unknown layouts or configurations. It returns the shared plan/result format
+and uses the same maintenance lock, backup policy and recovery evidence. Review the plan, then pass its `--plan-id`,
+an explicit `--backup` policy, `--yes` and `--maintenance-confirmed` when changes are required. OceanBase also requires
+the fixed-host coordination/evidence options described in [Database migrations](./database-migrations.md).
+Already-ready storage is a read-only no-op. Candidate and Owner decision files apply only to the unmanaged legacy
+conversion and are rejected on this registered Server path. This does not register pre-1.3.0 Memory layouts.
+
+The remaining instructions describe domain-only conversion for unmanaged databases:
+
 Inspect the read-only plan with the new deployment's configuration:
 
 ```shell
@@ -230,6 +241,15 @@ conversion has been accepted. Atomic
 Memory content restoration is a separate operation.
 
 ## Rebuild the current search projection
+
+On managed Server storage, this command delegates to
+[`db-migrate --bundle atomic-projection`](./database-migrations.md#atomic-memory-projection-maintenance).
+Use `--action plan` to inspect without writes, then apply with `--plan-id`, explicit `--backup`, `--yes` and
+`--maintenance-confirmed`. The registered no-vector repair retains a recovery point, commits the complete repair
+in one transaction and returns the shared Server result. `--action verify` checks current readiness; an already
+ready projection is a read-only no-op. This path does not register vector-profile changes.
+
+The remaining steps describe standalone repair on unmanaged storage:
 
 After changing the embedding model, profile, dimension or normalization, or repairing current search data,
 back up the database and stop every API, host and Worker, their automatic restart and all input writes.

@@ -156,3 +156,7 @@ uv run pytest tests/test_cli_kimi_code.py
 设置 KIMI_CLI_BIN 指向真实二进制或构建后的 main.mjs，再运行 uv run pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py。该 opt-in 验收使用隔离 Kimi home、workspace、Server 数据库与本地推理，不需要线上模型 key，也不修改用户宿主配置。未设置变量时跳过宿主验收，跳过不代表通过。
 
 [Kimi Code acceptance 工作流](https://github.com/oceanbase/powercontext/actions/workflows/kimi-code-acceptance.yml) 固定 Kimi 2.1.1 和 Node 24.21.0，在 PR 和 master 更新时于 Linux、Windows 执行 Hook 测试与真实宿主验收。两处推理服务均受控，不需要线上模型 Key；宿主测试被跳过时 CI 失败。产物仅保留 CLI 版本来源、JUnit 结果和验收摘要，不上传 Kimi profile 或数据库。
+
+## 自动输入隐私
+
+本宿主的捕获默认值、关闭方式、凭据识别局限及独立只读查询行为见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。识别到凭据的输入会跳过捕获，已接受的 Source 正文和事件身份不被改写。

@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: version-check workflow-actions-check integration-manifest-check integration-guidance-check ## Run code quality tools.
+check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check ## Run code quality tools.
 
 .PHONY: integration-guidance integration-guidance-check
 integration-guidance: ## Refresh the managed regions of packaged integration guidance.
@@ -33,6 +33,8 @@ workflow-actions-check: ## Verify third-party GitHub Actions use immutable commi
 	@uv run python scripts/check_workflow_actions.py .github/workflows .github/actions
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"
 	@uv lock --locked
+	@uv lock --project e2e/bub --locked
+	@uv lock --project evaluation --locked
 	@echo "🚀 Linting code: Running prek"
 	@uv run prek run -a
 	@echo "🚀 Static type checking: Running ty"
@@ -57,13 +59,16 @@ e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e
 
 .PHONY: evaluation-unit-test
-evaluation-unit-test: ## Run the evaluation project's unit tests, the work-continuity benchmark included.
-	@uv sync --project evaluation --frozen
-	@uv run --project evaluation pytest -c evaluation/pyproject.toml \
+evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and agent tool recovery suites included.
+	@uv sync --project evaluation --frozen --extra capture-ownership
+	@uv run --project evaluation --extra capture-ownership pytest -c evaluation/pyproject.toml \
 		evaluation/artifact_evolution/tests \
 		evaluation/coding/swebench_pro/tests/unit \
 		evaluation/coding/work_continuity/tests/unit \
-		evaluation/memory/longmemeval_v2/tests -m "not live" -q
+		evaluation/memory/longmemeval_v2/tests \
+		evaluation/memory/capture_ownership/tests -m "not live" -q
+	@# Agent tool recovery drives the real Server package, so it runs in the root project environment.
+	@uv run --frozen pytest evaluation/agent_tool_recovery/tests -q
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
@@ -176,6 +181,14 @@ dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a
 	@pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
 
+.PHONY: cindy-test
+cindy-test: ## Build and test the standalone Cindy hook adapter; no DSH runtime is packaged.
+	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+	@pnpm --dir integrations/dsh/plugins/powercontext exec tsdown --config ../../../cindy/tsdown.config.ts
+	@git diff --exit-code -- integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+	@node --test integrations/cindy/tests/*.test.cjs
+	@uv run python integrations/cindy/scripts/package.py
+
 .PHONY: openclaw-plugin-build
 openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build
@@ -192,11 +205,12 @@ openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext pack:local
 
 .PHONY: opencode-test
-opencode-test: ## Install, test, type-check, and build the OpenCode plugin.
+opencode-test: ## Install, test, type-check, and build the OpenCode plugin; verify the committed bundle is current.
 	@pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
 	@pnpm --dir integrations/opencode/plugins/powercontext test
 	@pnpm --dir integrations/opencode/plugins/powercontext run typecheck
 	@pnpm --dir integrations/opencode/plugins/powercontext run build
+	@git diff --exit-code -- integrations/opencode/plugins/powercontext/lib
 
 .PHONY: pi-test
 pi-test: ## Install and test the Pi package.
@@ -236,8 +250,16 @@ version-check: ## Check release references and generated API code; optionally as
 	@$(MAKE) api-generate-check js-api-generate-check
 
 .PHONY: release-check
-release-check: version-check docs-install ## Check version references and require matching bilingual notes for a stable release.
+release-check: version-check upgrade-policy-check docs-install ## Check version references and require matching bilingual notes for a stable release.
 	@cd website && node --import tsx --test tests/releases.test.ts
+
+.PHONY: upgrade-policy-check
+upgrade-policy-check: ## Verify the declared upgrade matrix, persistence review, and installation guidance.
+	@uv run python scripts/upgrade_release_gate.py
+
+.PHONY: upgrade-release-test
+upgrade-release-test: ## Validate distributions in dist and require successful installed-release upgrades.
+	@uv run python scripts/run_upgrade_release_gate.py
 
 .PHONY: clean-build
 clean-build: ## Clean build artifacts
@@ -245,9 +267,8 @@ clean-build: ## Clean build artifacts
 	@uv run python -c "import shutil; import os; shutil.rmtree('dist') if os.path.exists('dist') else None"
 
 .PHONY: publish
-publish: ## Publish a release to PyPI.
-	@echo "🚀 Publishing."
-	@uv publish dist/*
+publish: ## Publish after release upgrade acceptance; UPGRADE_RELEASE_NOTES must name the reviewed release notes file.
+	@uv run python scripts/run_upgrade_release_gate.py --release --publish --release-notes "$$UPGRADE_RELEASE_NOTES"
 
 .PHONY: build-and-publish
 build-and-publish: build publish ## Build and publish.

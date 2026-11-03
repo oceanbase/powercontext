@@ -38,6 +38,7 @@ from powercontext.service.model import (
     ServiceError,
     SupportState,
 )
+from powercontext.service.native_command import run_native_command
 
 _METADATA = re.compile(rb"^# X-PowerContext-Metadata: ([A-Za-z0-9_=-]+)$", re.MULTILINE)
 _LEGACY_DEFINITION_VERSION = 1
@@ -289,7 +290,10 @@ class SystemdUserAdapter:
     def _run(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         command = ["systemctl", "--user", *arguments]
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)  # noqa: S603
+            if arguments and arguments[0] in {"daemon-reload", "enable", "disable", "start", "restart", "stop"}:
+                result = run_native_command(command, text=True, timeout=30)
+            else:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)  # noqa: S603
         except (OSError, subprocess.SubprocessError) as error:
             raise ServiceError(f"failed to execute systemctl --user: {error}") from error  # noqa: TRY003
         if check and result.returncode != 0:

@@ -47,6 +47,7 @@ from powercontext.builtin.artifacts.memory import (
 )
 from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCandidateError
 from powercontext.builtin.inference import EmbeddingResult, GenerationResult, InferenceConfigurationError
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -143,7 +144,12 @@ class ContentCandidatePipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="decision", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="decision",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                 )
@@ -201,15 +207,38 @@ def _server_settings(
     )
 
 
+def _initialize_remote_server_storage(
+    settings: ServerSettings, tmp_path: Path, *, embedding_profile: EmbeddingProfile | None = None
+) -> None:
+    if not isinstance(settings.database, OceanBaseConfig):
+        return
+    runner = deployment_runner(
+        settings,
+        evidence_dir=tmp_path / "migration-evidence",
+        lock_coordination="single-host",
+        embedding_profile=embedding_profile,
+    )
+    plan = runner.plan(backup_policy="skip")
+    result = runner.apply(
+        plan_id=plan.plan_id,
+        backup_policy="skip",
+        accepted=True,
+        maintenance_confirmed=True,
+        accept_no_backup=True,
+    )
+    assert result.state == "ready"
+    assert result.readiness_scope == "server"
+
+
 @pytest.mark.parametrize("database_kind", ["sqlite", "oceanbase"])
 def test_server_databases_share_source_to_memory_search_behavior(
     database: SQLiteConfig | OceanBaseConfig,
+    tmp_path: Path,
 ) -> None:
+    settings = ServerSettings(database=database, mcp=McpConfig(enabled=False))
+    _initialize_remote_server_storage(settings, tmp_path)
     app = create_server_app(
-        settings=ServerSettings(
-            database=database,
-            mcp=McpConfig(enabled=False),
-        ),
+        settings=settings,
         candidate_pipeline=atomic_memory_pipeline(ContentCandidatePipeline()),
     )
 
@@ -346,6 +375,17 @@ def test_working_note_http_and_sdk_capture_stays_out_of_memory(tmp_path: Path) -
                         expires_at=datetime.now(UTC) - timedelta(days=1),
                     )
                 )
+            naive_expiry = await transport.post(
+                "/v1/sources/working-notes",
+                json={
+                    "scope_id": scope.scope_id,
+                    "source_id": "note-naive-expiry",
+                    "content": "The expiry has no time zone.",
+                    "session_id": "session-1",
+                    "note_kind": "validation",
+                    "expires_at": "2000-01-01T00:00:00",
+                },
+            )
             flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope.scope_id))
             entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope.scope_id))
 
@@ -358,6 +398,12 @@ def test_working_note_http_and_sdk_capture_stays_out_of_memory(tmp_path: Path) -
         assert captured.position == flushed.current_cursor
         assert expired.value.status_code == 422
         assert expired.value.code == "invalid_request"
+        assert expired.value.details == {"field": "expires_at", "reason": "not_in_future"}
+        assert naive_expiry.status_code == 422
+        naive_details = naive_expiry.json()["error"]["details"]["errors"]
+        assert [(entry["loc"], entry["type"]) for entry in naive_details] == [
+            (["body", "expires_at"], "timezone_aware"),
+        ]
         assert flushed.memory is None
         assert entries.entries == []
 
@@ -367,12 +413,13 @@ def test_working_note_http_and_sdk_capture_stays_out_of_memory(tmp_path: Path) -
 @pytest.mark.parametrize("database_kind", ["sqlite", "oceanbase"])
 def test_server_databases_keep_case_and_accent_variant_identities_distinct(
     database: SQLiteConfig | OceanBaseConfig,
+    tmp_path: Path,
 ) -> None:
     marker = uuid4().hex[:12]
     memory_text = "Rotate the production signing key every ninety days."
-    app = create_server_app(
-        settings=ServerSettings(database=database, mcp=McpConfig(enabled=False)),
-    )
+    settings = ServerSettings(database=database, mcp=McpConfig(enabled=False))
+    _initialize_remote_server_storage(settings, tmp_path)
+    app = create_server_app(settings=settings)
 
     async def scenario() -> None:
         async with (
@@ -427,7 +474,9 @@ def test_server_databases_keep_case_and_accent_variant_identities_distinct(
             }
             assert len(scope_ids) == 5
             await client.remember_memory(
-                RememberMemoryRequest(scope_id=writer_scope.scope_id, kind="fact", text=memory_text)
+                RememberMemoryRequest(
+                    scope_id=writer_scope.scope_id, kind="fact", text=memory_text, description="Explicit fixture memory"
+                )
             )
             leaked = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=reader_scope.scope_id))
             await client.remember_memory(
@@ -435,6 +484,7 @@ def test_server_databases_keep_case_and_accent_variant_identities_distinct(
                     scope_id=accent_scope.scope_id,
                     kind="fact",
                     text="Espresso is on the third floor.",
+                    description="Explicit fixture memory",
                 )
             )
             accent_leaked = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=plain_scope.scope_id))
@@ -803,12 +853,12 @@ def test_sdk_closes_the_delegation_handoff_and_outcome_loop(tmp_path: Path) -> N
 @pytest.mark.parametrize("database_kind", ["sqlite", "oceanbase"])
 def test_server_databases_share_vector_and_hybrid_search_behavior(
     database: SQLiteConfig | OceanBaseConfig,
+    tmp_path: Path,
 ) -> None:
+    settings = ServerSettings(database=database, mcp=McpConfig(enabled=False))
+    _initialize_remote_server_storage(settings, tmp_path, embedding_profile=EMBEDDING_PROFILE)
     app = create_server_app(
-        settings=ServerSettings(
-            database=database,
-            mcp=McpConfig(enabled=False),
-        ),
+        settings=settings,
         candidate_pipeline=atomic_memory_pipeline(ContentCandidatePipeline()),
         embedding_model=KeywordEmbeddingModel(),
     )
@@ -882,7 +932,12 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             scope_id = (await client.get_default_scope()).scope_id
             remembered = await client.remember_memory(
-                RememberMemoryRequest(scope_id=scope_id, kind="decision", text="Use strict transport models.")
+                RememberMemoryRequest(
+                    scope_id=scope_id,
+                    kind="decision",
+                    text="Use strict transport models.",
+                    description="Explicit fixture memory",
+                )
             )
             assert len(remembered.records) == 1
             original = remembered.records[0]
@@ -895,7 +950,11 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
                 ref.family,
                 ref.artifact_id,
                 ReplaceArtifactRequest.model_validate({
-                    "content": {"kind": "decision", "text": "Keep strict Pydantic transport models."}
+                    "content": {
+                        "kind": "decision",
+                        "text": "Keep strict Pydantic transport models.",
+                        "description": "Explicit fixture memory",
+                    }
                 }),
                 expected_etag=head.headers["ETag"],
             )
@@ -989,7 +1048,9 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             remembered = await client.remember_memory(
-                RememberMemoryRequest(scope_id=scope_id, kind="decision", text="first")
+                RememberMemoryRequest(
+                    scope_id=scope_id, kind="decision", text="first", description="Explicit fixture memory"
+                )
             )
             with pytest.raises(ServerResponseError) as caught:
                 await client.remember_memory(
@@ -998,6 +1059,7 @@ def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> No
                         kind="decision",
                         text="stale",
                         expected_revision=remembered.records[0].artifact.revision + 1,
+                        description="Explicit fixture memory",
                     )
                 )
         assert caught.value.status_code == 422
@@ -1054,7 +1116,12 @@ def test_runtime_server_rejects_non_strict_transport_values(tmp_path: Path) -> N
             ),
             transport.post(
                 "/v1/memory/remember",
-                json={"scope_id": scope_id, "kind": "decision", "text": "🧠" * 3_000},
+                json={
+                    "scope_id": scope_id,
+                    "kind": "decision",
+                    "text": "🧠" * 3_000,
+                    "description": "Explicit fixture memory",
+                },
             ),
         ]
 
@@ -1072,7 +1139,12 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path, t
         scope_id = default_scope.json()["scope_id"]
         remembered = transport.post(
             "/v1/memory/remember",
-            json={"scope_id": scope_id, "kind": "decision", "text": "Keep canonical errors actionable."},
+            json={
+                "scope_id": scope_id,
+                "kind": "decision",
+                "text": "Keep canonical errors actionable.",
+                "description": "Explicit fixture memory",
+            },
         )
         remembered.raise_for_status()
         before = transport.post("/v1/memory/entries/list", json={"scope_id": scope_id})
@@ -1080,7 +1152,7 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path, t
         responses = [
             transport.post(
                 "/v1/memory/remember",
-                json={"scope_id": scope_id, "kind": "decision", "text": text},
+                json={"scope_id": scope_id, "kind": "decision", "text": text, "description": "Explicit fixture memory"},
             ),
             transport.post(
                 "/v1/memory/entries/revise",
@@ -1134,14 +1206,19 @@ def test_runtime_server_accepts_normalized_memory_byte_limit(tmp_path: Path, tex
     with TestClient(app) as transport:
         scope = transport.get("/v1/scopes/default")
         scope.raise_for_status()
-        payload = {"scope_id": scope.json()["scope_id"], "kind": "decision", "text": text}
+        payload = {
+            "scope_id": scope.json()["scope_id"],
+            "kind": "decision",
+            "text": text,
+            "description": "Explicit fixture memory",
+        }
         remembered = transport.post("/v1/memory/remember", json=payload)
         remembered.raise_for_status()
         assert remembered.json()["records"][0]["text"] == normalized
         revised = transport.post(
             "/v1/memory/entries/revise",
             json={
-                **payload,
+                **{key: value for key, value in payload.items() if key != "description"},
                 "citation": {
                     "memory_ref": {"family": "memory", "artifact_id": "legacy-collection", "revision": 1},
                     "entry_id": "legacy-entry",
@@ -1163,7 +1240,13 @@ def test_runtime_server_rejects_legacy_memory_tag_targets(tmp_path: Path) -> Non
         scope.raise_for_status()
         scope_id = scope.json()["scope_id"]
         remembered = transport.post(
-            "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": "Tagged migrations."}
+            "/v1/memory/remember",
+            json={
+                "scope_id": scope_id,
+                "kind": "fact",
+                "text": "Tagged migrations.",
+                "description": "Explicit fixture memory",
+            },
         )
         remembered.raise_for_status()
         artifact_id = remembered.json()["records"][0]["artifact"]["artifact_id"]
@@ -1216,6 +1299,7 @@ def test_runtime_server_keeps_unstructured_memory_errors_private(
                 "scope_id": default_scope.json()["scope_id"],
                 "kind": "decision",
                 "text": "valid text",
+                "description": "Explicit fixture memory",
             },
         )
 

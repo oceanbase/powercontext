@@ -18,9 +18,9 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { authorization, diagnostic, Failure, loadSettings, MAX_CONTEXT_BYTES, preparedText, request, resolveScope } from '../shared/runtime.mjs'
 import { startObservation } from '../shared/observations.mjs'
+import { scrubSecrets } from '../shared/prompt-privacy.mjs'
 
 const MAX_SOURCE_CHARACTERS = 200000
-const SECRET_PATTERN = /(?:\b(?:api[_-]?key|access[_-]?token|token|authorization|password|secret|private[_-]?key)["']?\s*[:=]\s*\S+|\bbearer\s+\S+|\bsk-[A-Za-z0-9_-]{8,}|-----BEGIN [^-]*PRIVATE KEY-----)/iu
 const signal = AbortSignal.timeout(4000)
 let emitted = false
 let observation
@@ -69,15 +69,15 @@ async function run(input) {
     throw error
   }
   let context = ''
+  const safePrompt = scrubSecrets(prompt, settings.authorization)
   try {
     const { value } = await request(settings, 'POST', '/v1/context/prepare', {
-      scope_id: scopeId, query: boundedQuery(prompt), max_bytes: MAX_CONTEXT_BYTES,
+      scope_id: scopeId, query: boundedQuery(safePrompt), max_bytes: MAX_CONTEXT_BYTES,
     }, signal)
     context = preparedText(value)
     observation?.record('prepare', context ? 'ready' : 'empty', { content_bytes: value.content_bytes })
   } catch (error) { observation?.fail('prepare', error); diagnostic('context_prepare', error) }
-  if (settings.capturePrompts && prompt.length <= MAX_SOURCE_CHARACTERS && !SECRET_PATTERN.test(prompt) &&
-      !(settings.authorization && prompt.includes(settings.authorization.slice(7))) && !signal.aborted) {
+  if (settings.capturePrompts && prompt.length <= MAX_SOURCE_CHARACTERS && safePrompt === prompt && !signal.aborted) {
     const sourceId = 'kimi-user-prompt:' + randomUUID()
     try {
       const { status, value } = await request(settings, 'POST', '/v1/sources/content', {

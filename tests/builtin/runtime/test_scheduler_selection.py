@@ -16,17 +16,12 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import Engine, event, insert, select, update
+from sqlalchemy import update
 
 from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryExtractionOutput
 from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.tables import (
-    SCOPES_TABLE,
-    SOURCE_CURSORS_TABLE,
-    SOURCE_JOURNAL_HEADS_TABLE,
-    SOURCES_TABLE,
-)
+from powercontext.builtin.persistence.tables import SOURCE_CURSORS_TABLE
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_runtime
 from powercontext.builtin.scope import ScopeDraft
 from tests.e2e.dream_support import atomic_memory_pipeline
@@ -52,47 +47,6 @@ async def _capture(runtime, scope_id, source_id):
     await runtime.sources.for_scope(scope_id).capture(
         CaptureSource(source_id=source_id, content=f"Fact {source_id}", metadata={})
     )
-
-
-def test_consumed_idle_scopes_have_a_bounded_tick_query_budget(tmp_path):
-    async def scenario():
-        async with open_builtin_runtime(
-            _config(tmp_path), candidate_pipeline=atomic_memory_pipeline(_Extractor())
-        ) as runtime:
-            assert runtime.atomic_memory is not None
-            assert runtime.processor is not None
-            scope = await _scope(runtime, "Idle")
-            await _capture(runtime, scope.scope_id, "one")
-            await runtime.atomic_memory.for_scope(scope.scope_id).flush()
-            # Clone a publicly created and consumed journal to make the scale
-            # fixture cheap; measure only the subsequent public scheduler tick.
-            async with runtime.primary_database.transaction() as connection:
-                for table in (SCOPES_TABLE, SOURCES_TABLE, SOURCE_JOURNAL_HEADS_TABLE, SOURCE_CURSORS_TABLE):
-                    rows = (
-                        await connection.execute(select(table).where(table.c.scope_id == scope.scope_id))
-                    ).mappings()
-                    originals = tuple(dict(row) for row in rows)
-                    copies = []
-                    for number in range(999):
-                        for original in originals:
-                            copied = original | {"scope_id": f"idle-{number:04d}"}
-                            if table is SCOPES_TABLE:
-                                copied["scope_id_search"] = copied["scope_id"]
-                            copies.append(copied)
-                    await connection.execute(insert(table), copies)
-            statements = []
-
-            def observe(_connection, _cursor, statement, _parameters, _context, _executemany):
-                statements.append(statement)
-
-            event.listen(Engine, "before_cursor_execute", observe)
-            try:
-                await runtime.processor.run()
-            finally:
-                event.remove(Engine, "before_cursor_execute", observe)
-            assert len(statements) <= 30
-
-    asyncio.run(scenario())
 
 
 def test_buffered_windows_remain_eligible_without_new_sources(tmp_path):

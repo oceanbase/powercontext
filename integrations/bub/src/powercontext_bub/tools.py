@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, SecretStr
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     PrepareContextRequest,
+    PreparedContext,
     RememberMemoryRequest,
     ScopeBindingKey,
     SearchMemoryRequest,
@@ -119,7 +120,7 @@ async def prepare_context(query: str, *, context: Any) -> str:
             max_bytes=settings.get("max_bytes", 8000),
             **({"assembly": assembly} if assembly is not None else {}),
         )
-        response = await client.prepare_context(request)
+        response = cast(PreparedContext, await client.prepare_context(request))
     return response.content or "(no relevant PowerContext context)"
 
 

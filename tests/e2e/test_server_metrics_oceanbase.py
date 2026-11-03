@@ -22,6 +22,7 @@ not a live model provider. Each case creates and drops its own database.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import socket
@@ -98,6 +99,45 @@ def test_real_oceanbase_cli_supervisor_metrics_auth_and_shutdown(oceanbase_url, 
         "POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS": "1",
         "POWERCONTEXT_SERVER_METRICS_BACKGROUND_PORT": str(port),
     })
+    migration_command = [sys.executable, "-c", "from powercontext.server.cli import app; app()", "db-migrate"]
+    migration_options = [
+        "--evidence-dir",
+        str(tmp_path / "migration-evidence"),
+        "--lock-coordination",
+        "single-host",
+        "--backup",
+        "skip",
+    ]
+    planned = subprocess.run(
+        [*migration_command, "plan", *migration_options],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    assert planned.returncode == 0, planned.stdout + planned.stderr
+    applied = subprocess.run(
+        [
+            *migration_command,
+            "apply",
+            *migration_options,
+            "--plan-id",
+            json.loads(planned.stdout)["plan_id"],
+            "--yes",
+            "--maintenance-confirmed",
+            "--accept-no-backup",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    assert applied.returncode == 0, applied.stdout + applied.stderr
+    assert json.loads(applied.stdout)["server_ready"] is True
     log_path = tmp_path / "server.log"
     with log_path.open("w+") as output:
         process = subprocess.Popen(

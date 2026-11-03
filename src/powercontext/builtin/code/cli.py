@@ -23,6 +23,7 @@ from powercontext.builtin.code.configuration import open_code_service
 from powercontext.builtin.code.errors import CodeError
 from powercontext.builtin.code.models import CodeQueryRequest
 from powercontext.builtin.code.service import CodeService
+from powercontext.builtin.persistence.seekdb import LegacySeekDBDatabaseError
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 
 app = typer.Typer(name="code", help="Index and query a configured local Git worktree.", no_args_is_help=True)
@@ -45,6 +46,15 @@ def _run(operation: str, scope_id: str, env_file: Path | None, request_file: Pat
                     return await asyncio.to_thread(_execute, service, operation, scope_id, request_file)
 
             result = asyncio.run(run())
+    except LegacySeekDBDatabaseError as error:
+        typer.echo(
+            json.dumps(
+                {"error": {"code": "explicit_database_required", "message": str(error)}},
+                ensure_ascii=False,
+            ),
+            err=True,
+        )
+        raise typer.Exit(2) from None
     except CodeError as error:
         typer.echo(json.dumps({"error": {"code": error.code}}, ensure_ascii=False), err=True)
         raise typer.Exit(1) from None

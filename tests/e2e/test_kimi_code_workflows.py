@@ -112,7 +112,10 @@ def test_real_kimi_profiles_handoff_review_and_external_skills(tmp_path: Path, m
 
     gateway.choose_tool = choose
     try:
-        with serving(app) as (_, endpoint, _), httpx.Client(base_url=endpoint, timeout=10) as client:
+        with (
+            serving(app, startup_diagnostic=tmp_path / "server-startup.json") as (_, endpoint, _),
+            httpx.Client(base_url=endpoint, timeout=10) as client,
+        ):
             scope = client.post(
                 "/v1/scopes",
                 json={"title": "Kimi workflows", "summary": "Native acceptance", "idempotency_key": "kimi-workflows"},

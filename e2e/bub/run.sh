@@ -90,6 +90,33 @@ show_startup_diagnostics() {
     docker compose $compose_files logs --no-color --timestamps --tail 200 >&2 || true
 }
 
+initialize_database() {
+    if [ "$database" != oceanbase ]; then
+        return
+    fi
+    docker compose $compose_files up --detach --wait oceanbase || return
+    # Plan/apply/verify share one container, fixed host and evidence directory.
+    # Remote Server startup only verifies storage; it cannot initialize it.
+    docker compose $compose_files run --rm --no-deps --entrypoint python powercontext -c '
+import json
+import subprocess
+
+common = [
+    "--evidence-dir", "/data/migration-state",
+    "--lock-coordination", "single-host",
+]
+command = ["powercontext", "server", "db-migrate"]
+plan = json.loads(subprocess.check_output([*command, "plan", *common, "--backup", "auto"], text=True))
+print(json.dumps(plan), flush=True)
+subprocess.run([
+    *command, "apply", *common,
+    "--backup", "auto", "--plan-id", plan["plan_id"],
+    "--yes", "--maintenance-confirmed",
+], check=True)
+subprocess.run([*command, "verify", *common], check=True)
+'
+}
+
 start_services() {
     attempt=1
     max_attempts=1
@@ -98,7 +125,7 @@ start_services() {
     fi
 
     while :; do
-        if docker compose $compose_files up --detach --wait powercontext; then
+        if initialize_database && docker compose $compose_files up --detach --wait powercontext; then
             return
         else
             status=$?

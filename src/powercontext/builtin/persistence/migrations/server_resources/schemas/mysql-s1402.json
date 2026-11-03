@@ -1,0 +1,956 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "s1402": {
+      "statements": [
+        "CREATE TABLE pc_portable_restore_receipts (\n\tbundle_id VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tformat_version INTEGER NOT NULL, \n\ttotal_digest VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trecord_count BIGINT NOT NULL, \n\tstatus VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tinserted BIGINT NOT NULL, \n\talready_present BIGINT NOT NULL, \n\tprojections_ready TINYINT(1) NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (bundle_id), \n\tCONSTRAINT ck_pc_portable_restore_receipts_status CHECK (status IN ('authoritative_restored', 'ready')), \n\tCONSTRAINT ck_pc_portable_restore_receipts_record_count CHECK (record_count >= 0), \n\tCONSTRAINT ck_pc_portable_restore_receipts_inserted CHECK (inserted >= 0), \n\tCONSTRAINT ck_pc_portable_restore_receipts_existing CHECK (already_present >= 0)\n)",
+        "ALTER TABLE `pc_artifacts` MODIFY COLUMN `created_at` DATETIME(6) NULL",
+        "ALTER TABLE `pc_profile_policies` MODIFY COLUMN `updated_at` DATETIME(6) NOT NULL",
+        "ALTER TABLE `pc_topic_memory_revision_publications` MODIFY COLUMN `published_at` DATETIME(6) NOT NULL",
+        "ALTER TABLE `pc_artifact_tags` MODIFY COLUMN `assigned_at` DATETIME(6) NOT NULL"
+      ],
+      "changes": [
+        {
+          "pc_portable_restore_receipts": {
+            "columns": {
+              "bundle_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "format_version": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "total_digest": {
+                "type": [
+                  "varchar",
+                  [
+                    "71"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "record_count": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "status": {
+                "type": [
+                  "varchar",
+                  [
+                    "32"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "inserted": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "already_present": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "projections_ready": {
+                "type": [
+                  "tinyint",
+                  [
+                    "1"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "updated_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "bundle_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_portable_restore_receipts_status": {
+                "expression": [
+                  "in",
+                  [
+                    "column",
+                    "status"
+                  ],
+                  [
+                    [
+                      "literal",
+                      "authoritative_restored"
+                    ],
+                    [
+                      "literal",
+                      "ready"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_portable_restore_receipts_record_count": {
+                "expression": [
+                  "binary",
+                  ">=",
+                  [
+                    "column",
+                    "record_count"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_portable_restore_receipts_inserted": {
+                "expression": [
+                  "binary",
+                  ">=",
+                  [
+                    "column",
+                    "inserted"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_portable_restore_receipts_existing": {
+                "expression": [
+                  "binary",
+                  ">=",
+                  [
+                    "column",
+                    "already_present"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_artifacts": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "content": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "created_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "created_by": {
+                "type": [
+                  "varchar",
+                  [
+                    "2048"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "restored_from_revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "rollback_reason": {
+                "type": [
+                  "varchar",
+                  [
+                    "1024"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "family",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "revision",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {}
+          }
+        },
+        {
+          "pc_profile_policies": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "generation_enabled": {
+                "type": [
+                  "tinyint",
+                  [
+                    "1"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "activation_mode": {
+                "type": [
+                  "varchar",
+                  [
+                    "32"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "pending_candidate_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "version": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "updated_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [
+              {
+                "columns": [
+                  "scope_id"
+                ],
+                "referred_schema": null,
+                "referred_table": "pc_scopes",
+                "referred_columns": [
+                  "scope_id"
+                ],
+                "ondelete": "cascade",
+                "onupdate": "restrict"
+              },
+              {
+                "columns": [
+                  "scope_id",
+                  "pending_candidate_id"
+                ],
+                "referred_schema": null,
+                "referred_table": "pc_candidate_heads",
+                "referred_columns": [
+                  "scope_id",
+                  "candidate_id"
+                ],
+                "ondelete": "restrict",
+                "onupdate": "restrict"
+              }
+            ],
+            "checks": {
+              "ck_pc_profile_policies_activation_mode": {
+                "expression": [
+                  "in",
+                  [
+                    "column",
+                    "activation_mode"
+                  ],
+                  [
+                    [
+                      "literal",
+                      "automatic"
+                    ],
+                    [
+                      "literal",
+                      "review_required"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_profile_policies_version_positive": {
+                "expression": [
+                  "binary",
+                  ">",
+                  [
+                    "column",
+                    "version"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_revision_publications": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "published_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "family",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "revision",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [
+              {
+                "columns": [
+                  "scope_id",
+                  "family",
+                  "artifact_id",
+                  "revision"
+                ],
+                "referred_schema": null,
+                "referred_table": "pc_artifacts",
+                "referred_columns": [
+                  "scope_id",
+                  "family",
+                  "artifact_id",
+                  "revision"
+                ],
+                "ondelete": "restrict",
+                "onupdate": "restrict"
+              }
+            ],
+            "checks": {
+              "ck_pc_topic_memory_publications_family": {
+                "expression": [
+                  "binary",
+                  "=",
+                  [
+                    "column",
+                    "family"
+                  ],
+                  [
+                    "literal",
+                    "topic-memory"
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_memory_publications_revision_positive": {
+                "expression": [
+                  "binary",
+                  ">",
+                  [
+                    "column",
+                    "revision"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_artifact_tags": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_type": {
+                "type": [
+                  "varchar",
+                  [
+                    "12"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "tag_key_hash": {
+                "type": [
+                  "binary",
+                  [
+                    "32"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tag_key": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "tag": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "assigned_at": {
+                "type": [
+                  "datetime",
+                  [
+                    "6"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "family",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "target_type",
+                null,
+                "asc"
+              ],
+              [
+                "target_id",
+                null,
+                "asc"
+              ],
+              [
+                "tag_key_hash",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [
+              {
+                "columns": [
+                  "scope_id",
+                  "family",
+                  "artifact_id"
+                ],
+                "referred_schema": null,
+                "referred_table": "pc_artifact_heads",
+                "referred_columns": [
+                  "scope_id",
+                  "family",
+                  "artifact_id"
+                ],
+                "ondelete": "cascade",
+                "onupdate": "restrict"
+              }
+            ],
+            "checks": {
+              "ck_pc_artifact_tags_target": {
+                "expression": [
+                  "binary",
+                  "or",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "=",
+                      [
+                        "column",
+                        "target_type"
+                      ],
+                      [
+                        "literal",
+                        "artifact"
+                      ]
+                    ],
+                    [
+                      "binary",
+                      "=",
+                      [
+                        "column",
+                        "target_id"
+                      ],
+                      [
+                        "column",
+                        "artifact_id"
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "=",
+                      [
+                        "column",
+                        "target_type"
+                      ],
+                      [
+                        "literal",
+                        "memory_entry"
+                      ]
+                    ],
+                    [
+                      "binary",
+                      "=",
+                      [
+                        "column",
+                        "family"
+                      ],
+                      [
+                        "literal",
+                        "memory"
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {
+              "ix_pc_artifact_tags_key": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "tag_key_hash",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "family",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "target_type",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "artifact_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "target_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              },
+              "ix_pc_artifact_tags_family_key": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "family",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "tag_key_hash",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "target_type",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "artifact_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "target_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

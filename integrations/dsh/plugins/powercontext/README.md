@@ -5,8 +5,8 @@ This plugin is a thin DeepSeek Harness integration for a running PowerContext Se
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.4.0
+uv tool install --force "powercontext[cli,server]==1.5.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.5.0
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.
@@ -17,8 +17,9 @@ uv tool install --force ".[cli,server]"
 powercontext setup dsh --source .
 ```
 
-Run those development commands from the PowerContext repository root. Repeating remote setup with `--ref master`
-reuses the cached checkout without fetching; update a local checkout and reinstall both components to refresh it.
+Run those development commands from the PowerContext repository root. Each remote setup with `--ref master` creates a new checkout and clones the requested ref. Reinstall the Server
+from the same ref and restart DSH after updating the plugin. For a local source, update that checkout before
+reinstalling both components.
 
 Use [the DSH setup guide](../../../../docs/en/docs/integrations/dsh.md) for generation/processing configuration.
 Run `powercontext server run --env-file powercontext.env` in one terminal, then set
@@ -121,3 +122,8 @@ Use Desktop's **Manage dsh Command…** menu or pass `--dsh-command` with its in
 `powercontext doctor dsh --profile desktop` checks registration without launching the reserved profile; reopen
 Desktop and run `/pc doctor` to inspect the active session. Connection settings and URL-bound credentials remain shared.
 See [the installation guide](../../../../docs/en/docs/integrations/dsh.md) for paths and complete examples.
+
+With `powercontext setup dsh --json`, distinguish `hosts.dsh.setup: "complete"` and
+`hosts.dsh.checks.plugin.checks.registration: "present"` from top-level `ok`. Separate Server diagnostics can
+still fail with exit code 1 after installation completes. Inspect `hosts.dsh.checks`, start or correct the Server,
+and rerun `powercontext doctor dsh --json`; restart DSH and use `/pc doctor` to verify the active session.

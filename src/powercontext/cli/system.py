@@ -83,6 +83,7 @@ _CODEX_FULL_MCP_TOOLS = frozenset({
     "get_experience",
     "get_handoff_report",
     "get_memory_entry",
+    "get_recall_manifest",
     "get_scope",
     "get_skill",
     "get_topic_memory",
@@ -95,6 +96,12 @@ _CODEX_FULL_MCP_TOOLS = frozenset({
     "list_memory_entries",
     "list_scopes",
     "merge_atomic_memories",
+    "pc_source_add",
+    "pc_source_capabilities",
+    "pc_source_instance_set_enabled",
+    "pc_source_instances",
+    "pc_source_status",
+    "pc_source_target_set_enabled",
     "preview_atomic_memory_restoration",
     "propose_experience",
     "propose_skill",
@@ -696,26 +703,105 @@ def _resolve_codex_native_authorization(
     )
 
 
+def _codex_search_path() -> str:
+    """Return the PATH value to search, mirroring which()'s unset-PATH fallback roots."""
+    path = os.environ.get("PATH")
+    if path is not None:
+        return path
+    confstr = getattr(os, "confstr", None)
+    if confstr is None:
+        return os.defpath
+    try:
+        return confstr("CS_PATH")
+    except ValueError:
+        # CS_PATH is not a known confstr variable on this platform.
+        return os.defpath
+
+
+def _codex_path_executable() -> str | None:
+    """Resolve Codex from PATH directories without the implicit current-directory preference.
+
+    ``shutil.which`` inserts the current directory first on Windows (unconditionally
+    before Python 3.12, and unless ``NoDefaultCurrentDirectoryInExePath`` is set from
+    3.12 on), which lets a ``codex.cmd`` in the working directory shadow the PATH
+    executable. Discovery per #2184 is about PATH, so enumerate PATH entries directly
+    while keeping which()'s matching semantics across Python 3.11-3.14: PATHEXT
+    candidates on Windows, the bare name with an executable-bit check on POSIX.
+    Explicit PATH entries - including ``.`` and empty entries - keep their usual meaning.
+    An unset PATH falls back to which()'s search roots (``os.confstr("CS_PATH")``, then
+    ``os.defpath``), and an empty PATH value means no search at all, like which().
+    """
+    name = "codex"
+    if sys.platform == "win32":
+        extensions = [
+            extension.rstrip(".")
+            for extension in (os.getenv("PATHEXT") or ".COM;.EXE;.BAT;.CMD").split(os.pathsep)
+            if extension
+        ]
+        candidates = [name + extension for extension in extensions]
+        if name.upper().endswith(tuple(extension.upper() for extension in extensions)):
+            candidates.insert(0, name)
+    else:
+        candidates = [name]
+    path = _codex_search_path()
+    # Parity with which() (bpo-35755): an empty PATH value means no search at all,
+    # while empty entries inside a non-empty PATH keep their usual cwd meaning.
+    if not path:
+        return None
+    seen: set[str] = set()
+    for directory in path.split(os.pathsep):
+        key = os.path.normcase(directory)
+        if key in seen:
+            continue
+        seen.add(key)
+        for candidate in candidates:
+            resolved = os.path.join(directory, candidate)
+            if os.path.isfile(resolved) and (sys.platform == "win32" or os.access(resolved, os.X_OK)):
+                return resolved
+    return None
+
+
+def _codex_command(*arguments: str) -> list[str]:
+    """Resolve Codex and reject inputs that Windows batch parsing can reinterpret."""
+    executable = _codex_path_executable()
+    if executable is None:
+        raise SetupError("Codex CLI is not installed or is not on PATH.")  # noqa: TRY003
+    command = [executable, *arguments]
+    # shell=False does not prevent cmd.exe from interpreting a batch launcher's inputs.
+    # Windows also launches PATHEXT aliases ending in spaces or dots as batch files.
+    if sys.platform == "win32" and Path(executable.rstrip(" .")).suffix.casefold() in {".cmd", ".bat"}:
+        if any(character in '&|<>()^%!"\x7f' or ord(character) < 32 for value in command for character in value):
+            raise SetupError(  # noqa: TRY003
+                "Codex CLI Windows batch launchers cannot safely pass shell metacharacters or ASCII control characters "
+                "in their path or arguments. Use a native Codex executable, or a batch-launcher path and arguments "
+                "without these characters."
+            )
+    return command
+
+
 def _run_codex_mcp_list() -> list[dict[str, Any]]:
     """Read Codex's resolved native MCP configuration without exposing header values."""
 
-    command = ["codex", "mcp", "list", "--json"]
+    command = _codex_command("mcp", "list", "--json")
     try:
         completed = subprocess.run(  # noqa: S603 - arguments are fixed and do not contain credentials.
             command,
             check=False,
             capture_output=True,
-            text=True,
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise SetupError(f"Cannot run {' '.join(command[:-1])}: {error}") from error  # noqa: TRY003
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        detail = (
+            completed.stderr.decode("utf-8", errors="replace").strip()
+            or completed.stdout.decode("utf-8", errors="replace").strip()
+            or f"exit code {completed.returncode}"
+        )
         raise SetupError(f"`{' '.join(command[:-1])}` failed: {detail}")  # noqa: TRY003
     try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError as error:
+        payload = json.loads(completed.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SetupError(f"`{' '.join(command[:-1])}` returned invalid JSON") from error  # noqa: TRY003
     if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
         raise SetupError(f"`{' '.join(command[:-1])}` returned an unexpected result")  # noqa: TRY003
@@ -725,15 +811,12 @@ def _run_codex_mcp_list() -> list[dict[str, Any]]:
 def _probe_codex_mcp_status(*, authorization: str | None = None) -> dict[str, Any]:  # noqa: C901
     """Initialize Codex app-server and return its PowerContext MCP status."""
 
-    executable = which("codex")
-    if executable is None:
-        raise SetupError("Codex CLI is not installed or is not on PATH.")  # noqa: TRY003
+    command = _codex_command("app-server", "--listen", "stdio://")
     environment = os.environ.copy()
     if authorization is None:
         environment.pop("POWERCONTEXT_CODEX_AUTHORIZATION", None)
     else:
         environment["POWERCONTEXT_CODEX_AUTHORIZATION"] = authorization
-    command = [executable, "app-server", "--listen", "stdio://"]
     try:
         process = subprocess.Popen(  # noqa: S603 - arguments are fixed and contain no credentials.
             command,
@@ -1116,23 +1199,26 @@ def _is_powercontext_statusline(value: object) -> bool:
 
 
 def _run_codex_json(*arguments: str) -> dict[str, Any]:
-    command = ["codex", *arguments, "--json"]
+    command = _codex_command(*arguments, "--json")
     try:
         completed = subprocess.run(  # noqa: S603 - arguments are passed directly to the fixed Codex executable.
             command,
             check=False,
             capture_output=True,
-            text=True,
             timeout=120,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise SetupError(f"Cannot run {' '.join(command[:-1])}: {error}") from error  # noqa: TRY003
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        detail = (
+            completed.stderr.decode("utf-8", errors="replace").strip()
+            or completed.stdout.decode("utf-8", errors="replace").strip()
+            or f"exit code {completed.returncode}"
+        )
         raise SetupError(f"`{' '.join(command[:-1])}` failed: {detail}")  # noqa: TRY003
     try:
-        result = json.loads(completed.stdout)
-    except json.JSONDecodeError as error:
+        result = json.loads(completed.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise SetupError(f"`{' '.join(command[:-1])}` returned invalid JSON") from error  # noqa: TRY003
     if not isinstance(result, dict):
         raise SetupError(f"`{' '.join(command[:-1])}` returned an unexpected result")  # noqa: TRY003
@@ -1194,7 +1280,7 @@ __all__ = ["Diagnostic", "DiagnosticStatus", "SetupError", "doctor_app", "run_di
 
 class CodexInstaller:
     def install(self, source):
-        if which("codex") is None:
+        if _codex_path_executable() is None:
             raise SetupError("Codex CLI is not installed or is not on PATH.")  # noqa: TRY003
         marketplace_source, local = _normalize_marketplace_source(source.location)
         arguments = ["plugin", "marketplace", "add", marketplace_source]
@@ -1242,7 +1328,7 @@ class CodexInstaller:
     def verify(self) -> dict[str, Diagnostic]:
         """Collect plugin and native MCP diagnostics for the optional Codex integration."""
 
-        executable = which("codex")
+        executable = _codex_path_executable()
         if executable is None:
             return {
                 "codex": Diagnostic(

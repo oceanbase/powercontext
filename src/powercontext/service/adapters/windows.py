@@ -34,7 +34,6 @@ from powercontext.service.adapters.base import (
     decode_metadata,
     encode_metadata,
     inspect_artifact,
-    service_python_executable,
 )
 from powercontext.service.model import (
     DEFINITION_VERSION,
@@ -102,10 +101,6 @@ class WindowsTaskSchedulerAdapter:
             return SupportState.UNSUPPORTED, "schtasks.exe is not installed or is not on PATH"
         try:
             account, sid = self._user_identity()
-        except ServiceError as error:
-            return SupportState.UNSUPPORTED, str(error)
-        try:
-            service_python_executable()
         except ServiceError as error:
             return SupportState.UNSUPPORTED, str(error)
         if _is_service_account(account, sid):

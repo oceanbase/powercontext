@@ -253,7 +253,7 @@ def test_atomic_restoration_uses_marked_refs_without_creation_payload(historical
                     ),
                     tuple((record.ref, record.state.state_version) for record in reversed(originals)),
                 )
-                await application.security.establish_owner(connection, "project", result.artifact_id, None)
+                await application.security.establish_owners(connection, "project", (result.artifact_id,), None)
                 for record in originals:
                     await application.service.states.transition(
                         connection,

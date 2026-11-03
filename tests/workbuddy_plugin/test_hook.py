@@ -32,6 +32,9 @@ _CONTEXT_BLOCK_BYTES = 20_000
 _SCOPE_BODY = json.dumps({"scope_id": "scope-1"}).encode()
 _DRIP_INTERVAL_SECONDS = 0.05
 _DRIP_WRITES = 60
+_RECALL_QUERY_BOUND = json.loads(
+    (Path(__file__).resolve().parents[2] / "tests/fixtures/recall_query_bound.json").read_text(encoding="utf-8")
+)
 
 
 def _prepared(content: str | None = "prepared context", *, status: str = "ready") -> dict[str, object]:
@@ -48,6 +51,10 @@ def _host_message(question: str, *, context_bytes: int = _CONTEXT_BLOCK_BYTES) -
 
     reminder = "<system-reminder>" + "x" * context_bytes + "</system-reminder>"
     return f"{reminder}\n<user_query>{question}</user_query>"
+
+
+def _expand(segments: list[dict[str, Any]]) -> str:
+    return "".join(segment["text"] * segment.get("repeat", 1) for segment in segments)
 
 
 def _payload(prompt: str) -> dict[str, object]:
@@ -174,6 +181,24 @@ def test_recall_query_keeps_a_multibyte_prompt_within_the_byte_bound(
     assert len(query) < len(joined)
     assert len(query.encode("utf-8")) <= 8192
     assert joined.strip().endswith(query)
+
+
+@pytest.mark.parametrize(
+    "case", _RECALL_QUERY_BOUND["cases"], ids=[case["id"] for case in _RECALL_QUERY_BOUND["cases"]]
+)
+def test_recall_query_bounds_the_joined_prompt_like_the_other_hooks(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    case: dict[str, Any],
+) -> None:
+    """The joined prompt keeps its end the way every host that reads the shared fixture keeps it."""
+
+    queries: list[str] = []
+    _stub_recall(hook_module, monkeypatch, queries)
+
+    _run_main(hook_module, monkeypatch, _payload(_expand(case["prompt"])))
+
+    assert queries == [_expand(case["query"])]
 
 
 def test_recall_query_passes_a_plain_prompt_through_unchanged(
@@ -595,13 +620,28 @@ def test_prompt_hook_refuses_redirects(
     assert target_headers == []
 
 
+_UNTRUSTED_BODY = b"untrusted response body"
+_UNCODED_404_BODY = json.dumps({"detail": "Not Found"}).encode()
+_SCOPE_NOT_FOUND_BODY = json.dumps({
+    "error": {"code": "scope_not_found", "message": "The requested Scope was not found.", "details": None}
+}).encode()
+
+
 @pytest.mark.parametrize(
-    ("status", "outcome"),
+    ("status", "body", "outcome", "fields"),
     [
-        (401, "authentication_failed"),
-        (403, "invalid_response"),
-        (404, "version_mismatch"),
-        (503, "server_unavailable"),
+        pytest.param(401, _UNTRUSTED_BODY, "authentication_failed", {}, id="401"),
+        pytest.param(403, _UNTRUSTED_BODY, "invalid_response", {"http_status": 403}, id="403"),
+        pytest.param(404, _UNTRUSTED_BODY, "version_mismatch", {"http_status": 404}, id="404-non-json"),
+        pytest.param(404, _UNCODED_404_BODY, "version_mismatch", {"http_status": 404}, id="404-uncoded"),
+        pytest.param(
+            404,
+            _SCOPE_NOT_FOUND_BODY,
+            "invalid_response",
+            {"http_status": 404, "error_code": "scope_not_found"},
+            id="404-coded",
+        ),
+        pytest.param(503, _UNTRUSTED_BODY, "server_unavailable", {}, id="503"),
     ],
 )
 def test_scope_resolution_failure_emits_the_documented_diagnostic(
@@ -609,8 +649,16 @@ def test_scope_resolution_failure_emits_the_documented_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     status: int,
+    body: bytes,
     outcome: str,
+    fields: dict[str, object],
 ) -> None:
+    """Only a 404 without an error code means the Server lacks the route.
+
+    A configured Scope that does not exist is a coded 404, for which the version-mismatch advice to
+    reinstall from one ref does not help.
+    """
+
     paths: list[str] = []
 
     class RejectedBindingHandler(BaseHTTPRequestHandler):
@@ -619,7 +667,7 @@ def test_scope_resolution_failure_emits_the_documented_diagnostic(
             paths.append(self.path)
             self.send_response(status)
             self.end_headers()
-            self.wfile.write(b"untrusted response body")
+            self.wfile.write(body)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             pass
@@ -644,5 +692,50 @@ def test_scope_resolution_failure_emits_the_documented_diagnostic(
         "component": "powercontext.workbuddy.recall",
         "event": "context_prepare",
         "outcome": outcome,
-        **({"http_status": status} if status not in {401, 503} else {}),
+        **fields,
+    }
+
+
+@pytest.mark.parametrize(
+    ("body", "outcome", "fields"),
+    [
+        pytest.param(_UNCODED_404_BODY, "version_mismatch", {}, id="uncoded"),
+        pytest.param(_SCOPE_NOT_FOUND_BODY, "invalid_response", {"error_code": "scope_not_found"}, id="coded"),
+    ],
+)
+def test_prepare_404_is_a_version_mismatch_only_without_an_error_code(
+    hook_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    body: bytes,
+    outcome: str,
+    fields: dict[str, object],
+) -> None:
+    class MissingScopeHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            if self.path == "/v1/scope-bindings/resolve":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(_SCOPE_BODY)
+                return
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    with _serve(MissingScopeHandler) as server_url:
+        monkeypatch.setenv("POWERCONTEXT_WORKBUDDY_SERVER_URL", server_url)
+        monkeypatch.setenv("POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS", "false")
+        output, errors = _run_main(hook_module, monkeypatch, {**_payload("what did we decide?"), "cwd": str(tmp_path)})
+
+    assert json.loads(output)["hookSpecificOutput"]["additionalContext"] == ""
+    assert json.loads(errors) == {
+        "component": "powercontext.workbuddy.recall",
+        "event": "context_prepare",
+        "outcome": outcome,
+        "http_status": 404,
+        **fields,
     }

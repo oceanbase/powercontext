@@ -37,7 +37,51 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
 from powercontext.builtin.inference.pydantic_ai import PydanticAIStructuredGenerator
 from powercontext.sources import SourceRef
 
-from .e2e.zcode_acceptance.protocol import CaptureResponseGate, HostModelFixture, ObserveServer, WireEvidence
+from .e2e.zcode_acceptance.protocol import (
+    CaptureResponseGate,
+    HostModelFixture,
+    ObserveServer,
+    WireEvidence,
+    decode_response,
+)
+
+
+@pytest.mark.parametrize("streamed", [False, True], ids=["json", "sse"])
+def test_wire_decoder_preserves_json_rpc_errors(streamed):
+    response = {"jsonrpc": "2.0", "id": 7, "error": {"code": -32603, "message": "Synthetic tool failure"}}
+    encoded = json.dumps(response)
+    raw = ("event: message\ndata: " + encoded + "\n\n") if streamed else encoded
+
+    assert decode_response(raw.encode()) == response
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"result": {"isError": False}},
+        {"result": {"isError": True}},
+        {"error": {"code": -32603, "message": "Synthetic tool failure"}},
+    ],
+)
+def test_wire_tool_calls_exclude_redirects_and_preserve_matching_rpc_errors(response):
+    wire = WireEvidence()
+    request = {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "replace_artifact"}}
+    redirect = {"path": "/mcp", "status": 307, "request": request, "response": {}}
+    unrelated = {
+        "path": "/mcp/",
+        "status": 200,
+        "request": request,
+        "response": {"jsonrpc": "2.0", "id": 8, **response},
+    }
+    executed = {
+        "path": "/mcp/",
+        "status": 200,
+        "request": request,
+        "response": {"jsonrpc": "2.0", "id": 7, **response},
+    }
+    wire.records.extend([redirect, unrelated, executed])
+
+    assert wire.calls("replace_artifact") == [executed]
 
 
 @pytest.mark.parametrize("tool", ["pc_work_contract", "Bash", "mcp__powercontext__create_work_contract"])

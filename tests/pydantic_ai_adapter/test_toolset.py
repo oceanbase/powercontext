@@ -97,6 +97,7 @@ def test_toolset_exposes_exact_schemas_instructions_request_mapping_and_full_res
         "text": "Use the public client.",
         "reason": "shared contract",
         "expected_revision": None,
+        "description": None,
     }
     assert "assembly" not in client.prepare_requests[0].model_fields_set
     assert client.prepare_requests[0].model_dump(mode="json", exclude_unset=True) == {

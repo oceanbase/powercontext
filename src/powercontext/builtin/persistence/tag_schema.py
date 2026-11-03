@@ -22,7 +22,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_TAGS_TABLE
 
 
 async def ensure_topic_memory_tag_schema(connection: AsyncConnection) -> None:
-    """Upgrade the existing tag table during serialized deployment startup."""
+    """Remove the legacy family constraint inside the caller's write transaction."""
 
     if connection.dialect.name == "sqlite":
         # Start a real write transaction before DDL, including legacy sqlite3 mode.
@@ -31,15 +31,15 @@ async def ensure_topic_memory_tag_schema(connection: AsyncConnection) -> None:
         if ddl is None or "ck_pc_artifact_tags_family" not in ddl:
             return
         create = str(CreateTable(ARTIFACT_TAGS_TABLE).compile(dialect=connection.dialect))
-        await connection.exec_driver_sql(
-            create.replace("CREATE TABLE pc_artifact_tags", "CREATE TABLE pc_artifact_tags_topic_memory")
-        )
+        # Create the final name directly: SQLite's rename rewrites its DDL with
+        # quotes, which would differ from the registered Server schema.
+        await connection.exec_driver_sql("ALTER TABLE pc_artifact_tags RENAME TO pc_artifact_tags_topic_memory")
+        await connection.exec_driver_sql(create)
         columns = ", ".join(column.name for column in ARTIFACT_TAGS_TABLE.columns)
         await connection.exec_driver_sql(
-            f"INSERT INTO pc_artifact_tags_topic_memory ({columns}) SELECT {columns} FROM pc_artifact_tags"  # noqa: S608
+            f"INSERT INTO pc_artifact_tags ({columns}) SELECT {columns} FROM pc_artifact_tags_topic_memory"  # noqa: S608
         )
-        await connection.exec_driver_sql("DROP TABLE pc_artifact_tags")
-        await connection.exec_driver_sql("ALTER TABLE pc_artifact_tags_topic_memory RENAME TO pc_artifact_tags")
+        await connection.exec_driver_sql("DROP TABLE pc_artifact_tags_topic_memory")
         for index in ARTIFACT_TAGS_TABLE.indexes:
             await connection.run_sync(index.create)
         return

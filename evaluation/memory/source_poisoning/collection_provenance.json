@@ -1,0 +1,38 @@
+{
+  "source": "648f61c8c6f8dbb2aa0e6fdc65461189b8179b95",
+  "generation_model": "openai-chat:MiniMax-M3",
+  "host_model": "MiniMax-M3",
+  "host_response_models": [
+    "MiniMax-M3"
+  ],
+  "host_version": "Kimi Code 2.1.1",
+  "model_mode": "live",
+  "case_count": 8,
+  "source_class_semantics": "advisory metadata, no authority declaration",
+  "limitations": "Eight collected fixtures; one publication sequence each, nine attempted flushes (seven 200, two inference_timeout 503), eight completed standard host reads and one separately recorded short-query read without regenerating Memory. No declaration-projection, general security, independent repeated extraction or deployment-action acceptance.",
+  "date": "2026-10-22",
+  "source_tree": "44790d68329b4f0106ff48fc46e799b6d1e2676b",
+  "base": "c0c38dea5178679c6bca95381a1008e8df1826e2",
+  "constituent_pr_heads": {
+    "2147": "a1bb8dc5d7501527e69d2e59499f24c3a0d0854e",
+    "2162": "26ea7ba34fd64c08a0c4ff7d8c7685fae0debe34",
+    "2172": "159c784c10274b4a54aae3c5171c014d438004e6",
+    "2174": "b7d3c7b9a2e603242da2c95e111be177f079ba79",
+    "2187": "702232342c8abf8bf3a6c1a94233577833e5ef79"
+  },
+  "collection_counts": {
+    "browser_dom": 5,
+    "fixed_subprocess_stdout": 3,
+    "direct_user": 2
+  },
+  "fixtures_sha256": "81079368ee792d559a4500c1f9a731d18138509dcabc1b73e9cb8f80171efab7",
+  "fixtures_newlines": "LF",
+  "collector_sha256": "d843d26a5d76016e65e8dd57b54e8c3449d02feac24b094a9e5d014730fff04d",
+  "collector_newlines": "LF",
+  "generation_timeout_seconds": 60,
+  "generation_max_requests": 2,
+  "host_reads": 9,
+  "host_requested_model": "MiniMax-M3",
+  "host_tools": "deny all",
+  "host_capture_prompts": false
+}

@@ -76,7 +76,7 @@ def test_oceanbase_topic_schema_compiles_native_text_and_vector_storage() -> Non
     vector_topics = str(CreateTable(vector_index.topic_table).compile(dialect=dialect))
     vector_chunks = str(CreateTable(vector_index.chunk_table).compile(dialect=dialect))
 
-    assert "published_at DATETIME NOT NULL" in publication
+    assert "published_at DATETIME(6) NOT NULL" in publication
     assert "FOREIGN KEY(scope_id, family, artifact_id, revision)" in publication
     assert "shape VARCHAR(16)" in retrieval_shape
     assert "profile_fingerprint VARCHAR(64)" in retrieval_shape
@@ -183,6 +183,53 @@ def test_oceanbase_fts_startup_preserves_other_errors_and_cancellation(failure) 
 
         with pytest.raises(type(error)) as raised:
             await OceanBaseTopicMemoryFTSIndex().initialize(cast(AsyncConnection, connection))
+        assert raised.value is error
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_vector_startup_recovers_from_ddl_lock_conflict() -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.dialect = mysql.dialect()
+        connection.scalar.return_value = "VECTOR(3)"
+        connection.run_sync.side_effect = [
+            OperationalError("CREATE VECTOR INDEX", None, MySQLOperationalError(1205, "DDL lock conflict")),
+            None,
+        ]
+        profile = EmbeddingProfile(
+            profile_id="topic-test", model="test", dimension=3, distance="l2", normalization="unit"
+        )
+        await OceanBaseTopicMemoryVectorIndex(profile).initialize(cast(AsyncConnection, connection))
+        connection.commit.assert_not_awaited()
+        connection.rollback.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", [1142, 1213, "cancelled", "persistent-lock"])
+def test_oceanbase_vector_startup_preserves_failures_and_bounds_lock_retries(failure) -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.dialect = mysql.dialect()
+        connection.scalar.return_value = "VECTOR(3)"
+        error = (
+            asyncio.CancelledError()
+            if failure == "cancelled"
+            else OperationalError(
+                "CREATE VECTOR INDEX",
+                None,
+                MySQLOperationalError(1205 if failure == "persistent-lock" else failure, "DDL failed"),
+            )
+        )
+        connection.run_sync.side_effect = error if failure == "persistent-lock" else [error, None]
+        profile = EmbeddingProfile(
+            profile_id="topic-test", model="test", dimension=3, distance="l2", normalization="unit"
+        )
+        with pytest.raises(type(error)) as raised:
+            await asyncio.wait_for(
+                OceanBaseTopicMemoryVectorIndex(profile).initialize(cast(AsyncConnection, connection)), timeout=5
+            )
         assert raised.value is error
 
     asyncio.run(scenario())

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pyobvector import VECTOR, VectorIndex
@@ -70,7 +70,7 @@ from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 _TOPIC_FTS_INDEX = "ix_pc_topic_memory_active_topics_fts"
 _CHUNK_FTS_INDEX = "ix_pc_topic_memory_active_chunks_fts"
-_FTS_DDL_RETRY_DELAYS = (0.1, 0.2, 0.4, 0.8, 1.6)
+_INDEX_DDL_RETRY_DELAYS = (0.1, 0.2, 0.4, 0.8, 1.6)
 _TOPIC_VECTOR_TABLE = "pc_topic_memory_vector_topics"
 _CHUNK_VECTOR_TABLE = "pc_topic_memory_vector_chunks"
 _TOPIC_VECTOR_INDEX = "ix_pc_topic_memory_vector_topics_embedding"
@@ -170,6 +170,9 @@ class OceanBaseTopicMemoryFTSIndex:
         _projection: TopicMemoryProjection,
         /,
     ) -> None:
+        pass
+
+    async def replace_many(self, _connection, _scope_id, _items, /) -> None:
         pass
 
     async def search(
@@ -327,7 +330,7 @@ class OceanBaseTopicMemoryFTSIndex:
 
     @staticmethod
     async def _ensure_index(connection: AsyncConnection, table_name: str, index_name: str) -> None:
-        for attempt in range(len(_FTS_DDL_RETRY_DELAYS) + 1):
+        for attempt in range(len(_INDEX_DDL_RETRY_DELAYS) + 1):
             count = await connection.scalar(
                 _INDEX_EXISTS_SQL,
                 {"table_name": table_name, "index_name": index_name},
@@ -347,10 +350,10 @@ class OceanBaseTopicMemoryFTSIndex:
                     error.orig is None
                     or not error.orig.args
                     or error.orig.args[0] != 1205
-                    or attempt == len(_FTS_DDL_RETRY_DELAYS)
+                    or attempt == len(_INDEX_DDL_RETRY_DELAYS)
                 ):
                     raise
-                await asyncio.sleep(_FTS_DDL_RETRY_DELAYS[attempt])
+                await asyncio.sleep(_INDEX_DDL_RETRY_DELAYS[attempt])
             else:
                 return
 
@@ -417,7 +420,20 @@ class OceanBaseTopicMemoryVectorIndex:
                     "vector",
                     f"OceanBase projection {table.name} uses {actual!r}; expected {expected}",
                 )
-        await connection.run_sync(lambda sync: self._topic_index.create(sync, checkfirst=True))
+        for attempt in range(len(_INDEX_DDL_RETRY_DELAYS) + 1):
+            try:
+                await connection.run_sync(lambda sync: self._topic_index.create(sync, checkfirst=True))
+            except OperationalError as error:
+                if (
+                    error.orig is None
+                    or not error.orig.args
+                    or error.orig.args[0] != 1205
+                    or attempt == len(_INDEX_DDL_RETRY_DELAYS)
+                ):
+                    raise
+                await asyncio.sleep(_INDEX_DDL_RETRY_DELAYS[attempt])
+            else:
+                return
 
     async def validate_current(self, connection: AsyncConnection, /) -> None:
         await validate_current_topic_vectors(connection, self.topic_table, self.chunk_table, self._fingerprint)
@@ -430,42 +446,43 @@ class OceanBaseTopicMemoryVectorIndex:
         projection: TopicMemoryProjection,
         /,
     ) -> None:
-        if projection.topic_embedding is None or len(projection.chunk_embeddings) != len(projection.chunks):
-            raise TopicMemoryCapabilityError("vector", "projection is incomplete")
-        await connection.execute(
-            delete(self.chunk_table).where(
-                self.chunk_table.c.scope_id == scope_id,
-                self.chunk_table.c.artifact_id == topic_ref.artifact_id,
-            )
-        )
-        await connection.execute(
-            delete(self.topic_table).where(
-                self.topic_table.c.scope_id == scope_id,
-                self.topic_table.c.artifact_id == topic_ref.artifact_id,
-            )
-        )
-        await connection.execute(
-            insert(self.topic_table).values(
-                scope_id=scope_id,
-                artifact_id=topic_ref.artifact_id,
-                revision=topic_ref.revision,
-                profile_fingerprint=self._fingerprint,
-                embedding=canonical_embedding(
+        await self.replace_many(connection, scope_id, ((topic_ref, projection),))
+
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
+        if not items:
+            return
+        # Replacing the same identity twice has the same final projection as
+        # the last write; keep that behavior without issuing per-item SQL.
+        latest = {ref.artifact_id: (ref, projection) for ref, projection in items}
+        topics = []
+        chunks = []
+        for ref, projection in latest.values():
+            if projection.topic_embedding is None or len(projection.chunk_embeddings) != len(projection.chunks):
+                raise TopicMemoryCapabilityError("vector", "projection is incomplete")
+            values = {
+                "scope_id": scope_id,
+                "artifact_id": ref.artifact_id,
+                "revision": ref.revision,
+                "profile_fingerprint": self._fingerprint,
+            }
+            topics.append({
+                **values,
+                "embedding": canonical_embedding(
                     projection.topic_embedding,
                     dimension=self.profile.dimension,
                     normalization=self.profile.normalization,
                 ),
-            )
-        )
-        await connection.execute(
-            insert(self.chunk_table),
-            [
+            })
+            chunks.extend(
                 {
-                    "scope_id": scope_id,
-                    "artifact_id": topic_ref.artifact_id,
-                    "revision": topic_ref.revision,
+                    **values,
                     "chunk_ordinal": chunk.ordinal,
-                    "profile_fingerprint": self._fingerprint,
                     "embedding": canonical_embedding(
                         embedding,
                         dimension=self.profile.dimension,
@@ -473,8 +490,13 @@ class OceanBaseTopicMemoryVectorIndex:
                     ),
                 }
                 for chunk, embedding in zip(projection.chunks, projection.chunk_embeddings, strict=True)
-            ],
-        )
+            )
+        ids = tuple(latest)
+        for table in (self.chunk_table, self.topic_table):
+            await connection.execute(delete(table).where(table.c.scope_id == scope_id, table.c.artifact_id.in_(ids)))
+        await connection.execute(insert(self.topic_table), topics)
+        if chunks:
+            await connection.execute(insert(self.chunk_table), chunks)
 
     async def search(
         self,

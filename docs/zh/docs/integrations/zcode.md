@@ -409,3 +409,7 @@ Server URL 时作为 Hook 的回退值，不能用于修改正常安装的 MCP �
 从 `~/.zcode/cli/config.json` 的 `plugins.dirs` 中只移除 PowerContext 路径；确认
 `~/.zcode/cli/plugins/powercontext` 中存在 `.powercontext-owned` 后，再删除该受管理目录。
 最后完全退出并重启 ZCode。卸载插件不会删除 Server 数据或 ZCode 模型配置。
+
+## 自动输入隐私
+
+本宿主的捕获默认值、关闭方式、凭据识别局限及独立只读查询行为见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。识别到凭据的输入会跳过捕获，已接受的 Source 正文和事件身份不被改写。

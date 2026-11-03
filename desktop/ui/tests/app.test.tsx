@@ -14,15 +14,31 @@
  * limitations under the License.
  */
 
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/app/App";
+vi.mock("../src/shared/ipc", () => ({
+  getFoundationInfo: vi.fn().mockResolvedValue(null),
+  desktopApi: {
+    state: vi.fn().mockResolvedValue({
+      generation: 0,
+      profiles: [],
+      reports: [],
+      active: null,
+      compatibilityProfiles: [],
+      pendingCredentialCleanup: 0,
+      lastWrite: null,
+    }),
+  },
+}));
 afterEach(cleanup);
 test("disconnected shell prevents writes and search and explains the boundary", async () => {
   const user = userEvent.setup();
   render(<App />);
-  expect(screen.getByRole("heading", { name: "尚未连接服务" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "尚未连接服务" }),
+  ).toBeTruthy();
   await user.click(screen.getByRole("button", { name: /连接已有服务/ }));
   expect(screen.getByRole("heading", { name: "添加连接" })).toBeTruthy();
   expect(

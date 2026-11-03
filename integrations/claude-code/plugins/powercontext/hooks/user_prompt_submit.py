@@ -37,6 +37,7 @@ from bootstrap_state import clear_receipt, load_receipt  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
+from hooks.prompt_privacy import scrub_secrets  # noqa: E402
 from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -118,7 +119,7 @@ def _decode_error_code(raw: bytes) -> str | None:
     return code if isinstance(code, str) else None
 
 
-def main(settings: ClaudeCodePluginSettings | None = None) -> int:
+def main(settings: ClaudeCodePluginSettings | None = None) -> int:  # noqa: C901 - One fail-open hook lifecycle.
     """Process one Claude Code hook payload and fail open."""
 
     try:
@@ -149,7 +150,8 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
         )
         bootstrap_receipt_id = load_receipt(session_id, scope_id)
         clear_receipt(session_id)
-        query = _bounded_recall_query(prompt)
+        safe_prompt = scrub_secrets(prompt, settings.authorization)
+        query = _bounded_recall_query(safe_prompt)
         context = None
         with suppress(Exception):
             context = _recall_context(
@@ -162,7 +164,10 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
                 diagnostic_events=diagnostic_events,
             )
 
-        if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
+        if safe_prompt != prompt:
+            with suppress(Exception):
+                _emit_context_event("skipped", event_name="capture_source", reason="sensitive_content")
+        elif settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
             try:
                 captured = _capture_prompt(
                     payload,
@@ -469,6 +474,7 @@ def _emit_context_event(
     context_status: str | None = None,
     content_bytes: int | None = None,
     recovery: str | None = None,
+    reason: str | None = None,
     emitted_diagnostics: set[str] | None = None,
     diagnostic_events: list[dict[str, object]] | None = None,
 ) -> None:
@@ -492,8 +498,7 @@ def _emit_context_event(
         event["context_status"] = context_status
     if content_bytes is not None:
         event["content_bytes"] = content_bytes
-    if recovery is not None:
-        event["recovery"] = recovery
+    event.update({key: value for key, value in (("recovery", recovery), ("reason", reason)) if value is not None})
     if diagnostic_events is None or outcome not in _FAILURE_OUTCOMES:
         sys.stderr.write(json.dumps(event, separators=(",", ":")) + "\n")
     else:

@@ -175,3 +175,38 @@ def test_capabilities_keeps_independent_scope_outcomes_until_restart(tmp_path, f
         assert restarted["since"] > recovered["since"]
         assert restarted["last_failure"] is None
         assert restarted["last_success_at"] is None
+
+
+def test_blank_content_source_is_rejected_before_it_can_wedge_a_flush(tmp_path) -> None:
+    extractor = _RecoveringExtractor(failure=InferenceTimeoutError("memory.extract", 0.01))
+    extractor.failure = None
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'blank-content.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=()),
+            mcp=McpConfig(enabled=False),
+        ),
+        candidate_pipeline=AtomicMemoryGenerationPipeline(
+            extractor=extractor,
+            reconciler=_UnusedReconciler(),
+            estimator=character_token_estimator(),
+        ),
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        scope_id = client.get("/v1/scopes/default").json()["scope_id"]
+        for blank in ("", "   "):
+            rejected = client.post(f"/v1/scopes/{scope_id}/sources", json={"content": blank})
+            assert rejected.status_code == 422, rejected.text
+            assert rejected.json()["error"]["code"] == "invalid_request"
+            assert rejected.json()["error"]["details"] == {
+                "field": "content",
+                "reason": "content text must not be blank",
+            }
+
+        accepted = client.post(
+            f"/v1/scopes/{scope_id}/sources", json={"content": "A normal note that should be flushed."}
+        )
+        assert accepted.status_code == 201, accepted.text
+        flushed = client.post("/v1/memory/flush", json={"scope_id": scope_id})
+        assert flushed.status_code == 200, flushed.text
+        assert flushed.json()["processed_source_count"] == 1

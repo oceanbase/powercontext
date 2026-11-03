@@ -26,6 +26,7 @@ from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.builtin.runtime.test_topic_memory_terminal_frontier import _budget, _seed
+from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_access_control_regressions import ADMIN, _Authentication, _grant, _scope, _server
 from tests.e2e.test_topic_memory_terminal_frontier import _Handler, _Provider
 
@@ -38,17 +39,19 @@ async def _recovery_server(tmp_path, backend, inference):
             yield app, client
         return
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'recovery.db'}")
+    settings = ServerSettings(
+        database=database,
+        inference=inference,
+        runtime=RuntimeConfig(artifact_processing_families=("topic-memory",)),
+        access=AccessControlConfig(mode="enforced", deployment_id="recovery", background_principal_id=ADMIN.id),
+        mcp=McpConfig(enabled=False),
+        metrics=MetricsConfig(enabled=False),
+    )
+    await asyncio.to_thread(prepare_server_database, settings)
     async with open_builtin_access_control(database, bootstrap_administrators=(ADMIN,), deployment_id="recovery"):
         pass
     app = create_server_app(
-        settings=ServerSettings(
-            database=database,
-            inference=inference,
-            runtime=RuntimeConfig(artifact_processing_families=("topic-memory",)),
-            access=AccessControlConfig(mode="enforced", deployment_id="recovery", background_principal_id=ADMIN.id),
-            mcp=McpConfig(enabled=False),
-            metrics=MetricsConfig(enabled=False),
-        ),
+        settings=settings,
         authentication_provider=_Authentication(),
         scheduler_path=tmp_path / "scheduler.db",
     )

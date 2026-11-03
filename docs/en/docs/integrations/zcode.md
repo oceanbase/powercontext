@@ -463,3 +463,7 @@ Server URL was saved; it cannot change the MCP endpoint in a normal installation
 Remove only the PowerContext path from `plugins.dirs` in `~/.zcode/cli/config.json`. Delete
 `~/.zcode/cli/plugins/powercontext` only after confirming it contains `.powercontext-owned`. Fully quit and reopen
 ZCode. Uninstalling the plugin does not remove Server data or ZCode model configuration.
+
+## Automatic input privacy
+
+See [Automatic prompt privacy](index.md#automatic-prompt-privacy) for this host's capture default, disable control, credential recognition limits and independent read-only query handling. Recognized inputs are skipped for capture; accepted Source content and event identity are not rewritten.

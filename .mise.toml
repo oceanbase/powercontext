@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+[tool_alias]
+# Keep the same pnpm layout for root and desktop tools on every supported host.
+pnpm = "npm:pnpm"
+
 [tools]
 node = "22.19.0"
 pnpm = "11.13.1"

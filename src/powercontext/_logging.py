@@ -43,12 +43,16 @@ def current_log_context() -> Mapping[str, str | int | None]:
 def is_inference_failure_code(code: str) -> bool:
     """Report whether a diagnostic code names an inference failure observed at a boundary.
 
-    Covers the registered ``model_*`` codes and ``invalid_model_output``, which names the
-    same failure family without carrying a prefix.
+    Covers the registered ``model_*`` codes and invalid generated output codes,
+    which name the same failure family without carrying a prefix.
     """
 
     value = code.lower()
-    return value.startswith(("model_", "inference")) or value == "invalid_model_output"
+    return value.startswith(("model_", "inference")) or value in {
+        "invalid_model_output",
+        "invalid_topic_placeholder",
+        "invalid_topic_coordination_content",
+    }
 
 
 def error_category(code: str | None, *, status_code: int | None = None, outcome: str | None = None) -> str | None:

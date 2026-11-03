@@ -170,27 +170,131 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         self.validate_request(request)
         return await self._channels(connection, scope_id, request, limit=request.limit)
 
-    async def enumerate_related(
+    async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
-    ) -> tuple[AtomicMemoryIndexHit, ...]:
+    ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
         self.validate_request(request)
-        return combine_atomic_memory_channels(await self._channels(connection, scope_id, request, limit=None))
+        eligibility, parameters = atomic_memory_filter_sql(request.filters, "mysql")
+        parameters["scope_id"] = scope_id
+        lexical = request.mode in {"fts", "hybrid"}
+        vector = request.mode in {"vector", "hybrid"}
+        max_distance = request.max_distance
+        terms, required = fts_query_requirements(request.query, floor=request.admission) if lexical else ((), 0)
+        if not terms and not vector:
+            return (), {}
+        if terms:
+            coverage, coverage_parameters = oceanbase_fts_coverage_sql(terms)
+            parameters.update(coverage_parameters)
+            parameters["fts_query"] = " ".join(terms)
+            score = "MATCH(searchable_text) AGAINST (:fts_query)"
+        else:
+            coverage = "0"
+            score = "0.0"
+        profile = self.profile
+        if vector:
+            query_vector = self._require_vectors(request)
+            if profile is None:
+                raise AtomicMemoryIndexError("embedding-profile", "Vector profile is unavailable")
+            if max_distance is None:
+                raise AtomicMemoryIndexError("threshold", "Complete vector enumeration requires an L2 threshold")
+            parameters.update(
+                query_vector=query_vector,
+                profile=atomic_memory_profile_fingerprint(profile),
+                projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
+                max_distance=max_distance,
+            )
+            invalid = (
+                "embedding IS NULL OR profile_fingerprint IS NULL OR profile_fingerprint <> :profile "
+                "OR embedding_input_hash IS NULL OR projection_format <> :projection_format"
+            )
+            distance = f"CASE WHEN {invalid} THEN NULL ELSE l2_distance(embedding, :query_vector) END"
+            readiness = f"SUM(CASE WHEN {invalid} THEN 1 ELSE 0 END) OVER ()"
+        else:
+            distance = "NULL"
+            readiness = "0"
+        query = (
+            f"SELECT {_HIT_COLUMNS}, {score} AS score, {score} AS raw_score, "  # noqa: S608
+            "'oceanbase_match' AS score_metric, "
+            f"{coverage} AS coverage, {distance} AS distance, {readiness} AS invalid_vectors "
+            "FROM pc_atomic_memory_current WHERE scope_id = :scope_id "
+            f"AND ({eligibility})"
+        )
+        admission = []
+        if terms:
+            parameters["fts_required"] = required
+            admission.append("(scored.score > 0 AND scored.coverage >= :fts_required)")
+        if vector:
+            admission.append("scored.distance <= :max_distance")
+            admission.append("scored.invalid_vectors > 0")
+        query = f"SELECT * FROM ({query}) AS scored WHERE {' OR '.join(admission)}"  # noqa: S608
+        columns = (
+            "scope_id",
+            "family",
+            "artifact_id",
+            "revision",
+            "lifecycle_state",
+            "replacement_artifact_id",
+            "merged_into_id",
+            "governance_generation",
+        )
+        authority = ", ".join(f"head.{name} AS authority_{name}" for name in columns)
+        join_guard = "AND hits.invalid_vectors = 0 " if vector else ""
+        query = (
+            f"SELECT hits.*, {authority}, body.content AS authority_content FROM ({query}) AS hits "  # noqa: S608
+            "LEFT JOIN pc_artifact_heads AS head ON head.scope_id = :scope_id "
+            f"AND head.family = 'atomic-memory' AND head.artifact_id = hits.artifact_id {join_guard}"
+            "LEFT JOIN pc_artifacts AS body ON body.scope_id = head.scope_id "
+            "AND body.family = head.family AND body.artifact_id = head.artifact_id "
+            "AND body.revision = head.revision"
+        )
+        statement = text(query)
+        if vector and profile is not None:
+            statement = statement.bindparams(bindparam("query_vector", type_=VECTOR(profile.dimension)))
+        rows = tuple((await connection.execute(statement, parameters)).mappings())
+        if vector and any(int(row["invalid_vectors"]) for row in rows):
+            raise AtomicMemoryIndexError(
+                "incomplete-vector", "Eligible Atomic Memory vectors are incomplete or use another profile"
+            )
+        fts_rows = sorted(
+            (row for row in rows if terms and float(row["score"] or 0) > 0 and int(row["coverage"]) >= required),
+            key=lambda row: (-float(row["score"]), str(row["artifact_id"])),
+        )
+        vector_rows = sorted(
+            (
+                row
+                for row in rows
+                if vector
+                and max_distance is not None
+                and row["distance"] is not None
+                and float(row["distance"]) <= max_distance
+            ),
+            key=lambda row: (float(row["distance"]), str(row["artifact_id"])),
+        )
+        channels = AtomicMemorySearchChannels(
+            fts=atomic_memory_channel_hits(fts_rows),
+            vector=atomic_memory_channel_hits(vector_rows, vector=True),
+        )
+        heads = {
+            str(row["artifact_id"]): {name: row[f"authority_{name}"] for name in (*columns, "content")}
+            for row in rows
+            if row["authority_artifact_id"] is not None
+        }
+        return combine_atomic_memory_channels(channels), heads
 
     async def _channels(
         self,
         connection: AsyncConnection,
         scope_id: str,
-        request: AtomicMemorySearchRequest | AtomicMemoryRelatedRequest,
+        request: AtomicMemorySearchRequest,
         *,
-        limit: int | None,
+        limit: int,
     ) -> AtomicMemorySearchChannels:
         if connection.dialect.name != "mysql":
             raise AtomicMemoryIndexError("oceanbase", "OceanBase Atomic Memory requires an OceanBase tenant")
         eligibility, parameters = atomic_memory_filter_sql(request.filters, "mysql")
         parameters["scope_id"] = scope_id
-        limit_sql = "" if limit is None else " LIMIT :result_limit"
-        if limit is not None:
-            parameters["result_limit"] = limit
+        limit_sql = " LIMIT :result_limit"
+        parameters["result_limit"] = limit
         fts: tuple[AtomicMemoryIndexHit, ...] = ()
         vector: tuple[AtomicMemoryIndexHit, ...] = ()
         if request.mode in {"fts", "hybrid"}:
@@ -223,20 +327,15 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                 profile=atomic_memory_profile_fingerprint(profile),
                 projection_format=ATOMIC_MEMORY_PROJECTION_FORMAT,
                 ef_search=self._ef_search,
-                max_distance=request.max_distance if isinstance(request, AtomicMemoryRelatedRequest) else None,
+                max_distance=None,
                 min_semantic_similarity=(
                     DEFAULT_ADMISSION_FLOOR if request.admission is None else request.admission
                 ).min_semantic_similarity,
             )
             statement = text(
                 oceanbase_atomic_memory_vector_sql(eligibility)
-                if limit is not None and limit <= 16384
-                else atomic_memory_vector_sql(
-                    eligibility,
-                    "mysql",
-                    bounded=limit is not None,
-                    threshold=isinstance(request, AtomicMemoryRelatedRequest),
-                )
+                if limit <= 16384
+                else atomic_memory_vector_sql(eligibility, "mysql", bounded=True, threshold=False)
             ).bindparams(bindparam("query_vector", type_=VECTOR(profile.dimension)))
             rows = (await connection.execute(statement, parameters)).mappings()
             vector = atomic_memory_channel_hits(rows, vector=True)

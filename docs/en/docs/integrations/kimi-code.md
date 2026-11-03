@@ -156,3 +156,7 @@ uv run pytest tests/test_cli_kimi_code.py
 Set KIMI_CLI_BIN to the installed real binary or built main.mjs, then run uv run pytest tests/e2e/test_kimi_code_host.py tests/e2e/test_kimi_code_workflows.py. This opt-in test uses disposable Kimi homes, workspaces, Server database and local inference; it needs no live model key and does not modify the user's Kimi profile. An unset variable skips host acceptance and is not a passing qualification.
 
 The [Kimi Code acceptance workflow](https://github.com/oceanbase/powercontext/actions/workflows/kimi-code-acceptance.yml) pins Kimi 2.1.1 and Node 24.21.0 and runs Hook tests plus real-host acceptance on Linux and Windows for pull requests and master updates. Both inference services are controlled; no live provider key is required. A skipped host test fails CI. Artifacts contain CLI provenance, JUnit results and acceptance summaries, excluding Kimi profiles and databases.
+
+## Automatic input privacy
+
+See [Automatic prompt privacy](index.md#automatic-prompt-privacy) for this host's capture default, disable control, credential recognition limits and independent read-only query handling. Recognized inputs are skipped for capture; accepted Source content and event identity are not rewritten.

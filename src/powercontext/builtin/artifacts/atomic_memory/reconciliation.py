@@ -20,13 +20,20 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Any, Literal, NoReturn
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
 from powercontext.builtin.artifacts.atomic_memory.extraction import LANGUAGE_RULES, TIME_RULES, AtomicMemoryEvidence
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent, AtomicMemoryRead
+from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RULES
 from powercontext.builtin.inference import InvalidInferenceOutputError
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.sources import SourceRef
 
 ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS = f"""
@@ -43,7 +50,9 @@ combine that published evidence with new Sources. Cite the evidence that support
 their effective/event dates and conditions. Artifact publication time does not date facts.
 Citing Artifact evidence does not by itself consume that published identity.
 Choose create to retain an independent proposal without consuming related items; it continues to later batches.
-Choose revise to absorb the proposal into one related identity, returning full final kind/text and evidence_ids.
+Choose revise to combine the proposal with exactly one related item, returning full final kind/text and evidence_ids.
+The combined original_refs must contain exactly one distinct published Artifact identity; an empty original_refs
+has no published identity. Revise is invalid when all combined items are unpublished.
 Choose merge to combine the proposal and one or more related items, returning full final kind/text and evidence_ids.
 Multiple existing original_refs require merge; multiple unpublished candidates can merge without creating history.
 Choose noop with one target_id when that item already expresses the proposal, without changing the target content.
@@ -58,6 +67,10 @@ historical and late old evidence must not become current. Keep facts that can ch
 different applicability separate. Keep each identity's final decision consistent with previously combined working
 content. Preserve independent historical events, conditions, exceptions and effective dates.
 Never request approval or store conflict markers.
+For every create, revise or merge action, return content containing kind, text and description.
+Apply these rules to the final text:
+{DESCRIPTION_RULES}
+For noop, keep content null.
 {LANGUAGE_RULES}
 Preserve the language of retained, unchanged published facts. Express genuinely new or corrected facts in the
 language of their supporting Source statements; unrelated new evidence must not cause existing facts to be translated.
@@ -70,6 +83,7 @@ class AtomicMemoryComparisonItem(BaseModel):
     item_id: str
     kind: str
     text: str
+    description: str | None = None
     original_refs: tuple[AtomicMemoryRead, ...]
     evidence_ids: tuple[str, ...]
 
@@ -99,6 +113,7 @@ class AtomicMemoryReconciliationContent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     kind: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1)
+    description: str = Field(min_length=1, max_length=200)
 
     @model_validator(mode="before")
     @classmethod
@@ -110,7 +125,7 @@ class AtomicMemoryReconciliationContent(BaseModel):
         content = AtomicMemoryContent.model_validate(value)
         if content.creation is not None:
             raise ValueError("creation metadata is constructed only by the merge service")  # noqa: TRY003
-        return {"kind": content.kind, "text": content.text}
+        return {"kind": content.kind, "text": content.text, "description": content.description}
 
 
 class AtomicMemoryReconciliationOutput(BaseModel):
@@ -125,7 +140,10 @@ class AtomicMemoryReconciliationOutput(BaseModel):
     )
     content: AtomicMemoryReconciliationContent | None = None
     evidence_ids: tuple[str, ...] = ()
-    reason: str = Field(min_length=1)
+    reason: str = Field(
+        min_length=1,
+        description="One brief sentence explaining the action. Do not repeat the memory content.",
+    )
 
 
 @dataclass(frozen=True)
@@ -146,6 +164,7 @@ class AtomicMemoryWorkingItem:
             item_id=self.key,
             kind=self.content.kind,
             text=self.content.text,
+            description=self.content.description,
             original_refs=self.origins,
             evidence_ids=tuple(item.evidence_id for item in self.evidence),
         )
@@ -200,22 +219,16 @@ class AtomicMemoryWindowWorkset:
         output: AtomicMemoryReconciliationOutput,
     ) -> str:
         request = self.request(proposal_key, related)
-        validate_reconciliation_output(request, output)
+        validate_reconciliation_decision(request, output)
         key = self.resolve(proposal_key)
         proposal = self.items[key]
         supplied = {item.key: item for item in related}
         targets = tuple(supplied[identifier] for identifier in output.target_ids)
         if output.action == "noop":
             if not targets:
-                if proposal.origins:
-                    _invalid("noop cannot discard previously coordinated published identities")
                 self.items[key] = replace(proposal, retain=False)
                 return key
             target = targets[0]
-            if proposal.origins and not {
-                (read.ref.family, read.ref.artifact_id, read.ref.revision) for read in proposal.origins
-            } <= {(read.ref.family, read.ref.artifact_id, read.ref.revision) for read in target.origins}:
-                _invalid("noop cannot discard a published identity; use merge")
             self.items[target.key] = replace(target, evidence=unique_evidence((*target.evidence, *proposal.evidence)))
             del self.items[key]
             self.aliases[key] = target.key
@@ -223,11 +236,21 @@ class AtomicMemoryWindowWorkset:
 
         if output.content is None:
             _invalid("write content is missing")
-        content = AtomicMemoryContent(kind=output.content.kind, text=output.content.text)
+        try:
+            content = AtomicMemoryContent(
+                kind=output.content.kind, text=output.content.text, description=output.content.description
+            )
+        except ValidationError as error:
+            raise attach_diagnostics(
+                InvalidInferenceOutputError("atomic-memory-reconcile", "write content is invalid"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.BUSINESS_VALIDATION,
+                    reason=ProcessingFailureReason.INVALID_OUTPUT,
+                    failure_location="atomic-memory-reconcile",
+                ),
+            ) from error
         inputs = (proposal, *targets)
         origins = tuple({read.ref.artifact_id: read for item in inputs for read in item.origins}.values())
-        if output.action == "revise" and len(origins) != 1:
-            _invalid("revise must have exactly one published identity; use merge for multiple identities")
         evidence_by_id = {item.evidence_id: item for item in request.evidence}
         selected = tuple(evidence_by_id[identifier] for identifier in dict.fromkeys(output.evidence_ids))
         sources = tuple(
@@ -293,6 +316,34 @@ def validate_reconciliation_output(
         _invalid("write must have supported content and only supplied evidence")
 
 
+def validate_reconciliation_decision(
+    request: AtomicMemoryReconciliationInput, output: AtomicMemoryReconciliationOutput
+) -> None:
+    """Also enforce how a decision may consume or keep the published identities named by ``original_refs``.
+
+    The request alone determines these rules, so generation can return them to the model before the workset applies
+    the decision. Demonstration validation keeps the structural rules of ``validate_reconciliation_output``.
+    """
+
+    validate_reconciliation_output(request, output)
+    related = {item.item_id: item for item in request.related}
+    targets = tuple(related[identifier] for identifier in output.target_ids)
+    proposal_refs = _published(request.proposal)
+    if output.action == "noop":
+        if not targets and proposal_refs:
+            _invalid("noop cannot discard previously coordinated published identities")
+        if targets and not proposal_refs <= _published(targets[0]):
+            _invalid("noop cannot discard a published identity; use merge")
+    elif output.action == "revise":
+        identities = {read.ref.artifact_id for item in (request.proposal, *targets) for read in item.original_refs}
+        if len(identities) != 1:
+            _invalid("revise must have exactly one published identity; use merge for multiple identities")
+
+
+def _published(item: AtomicMemoryComparisonItem) -> set[tuple[str, str, int]]:
+    return {(read.ref.family, read.ref.artifact_id, read.ref.revision) for read in item.original_refs}
+
+
 def unique_evidence(
     items: Iterable[AtomicMemoryReconciliationEvidence],
 ) -> tuple[AtomicMemoryReconciliationEvidence, ...]:
@@ -305,4 +356,11 @@ def unique_evidence(
 
 
 def _invalid(reason: str) -> NoReturn:
-    raise InvalidInferenceOutputError("atomic-memory-reconcile", reason)
+    raise attach_diagnostics(
+        InvalidInferenceOutputError("atomic-memory-reconcile", reason),
+        ProcessingDiagnostics(
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
+            failure_location="atomic-memory-reconcile",
+        ),
+    )

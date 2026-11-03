@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Check installed role behavior; run with the isolated wheel environment's Python -I."""
+"""Check installed roles, including the CLI's builtin dependency for offline archives, using Python -I."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import os
 import subprocess
 import sys
@@ -63,7 +64,7 @@ def _check_cli(root: Path, extras: set[str]) -> None:
     environment: dict[str, str] = {**os.environ, "POWERCONTEXT_HOME": str(root / "home"), "NO_COLOR": "1"}
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
-    commands = [(), ("config",), ("setup",), ("doctor",), ("skill", "remote-sync")]
+    commands = [(), ("config",), ("setup",), ("doctor",), ("skill", "remote-sync"), ("archive",)]
     if extras & {"builtin", "server"}:
         commands.append(("code",))
     if "server" in extras:
@@ -99,8 +100,22 @@ def _check_cli(root: Path, extras: set[str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("extras", choices=("builtin", "cli", "builtin,cli", "server,cli"))
-    extras = set(parser.parse_args().extras.split(","))
+    parser.add_argument("extras", choices=("core", "builtin", "cli", "builtin,cli", "server,cli"))
+    role = parser.parse_args().extras
+    extras = set() if role == "core" else set(role.split(","))
+    import powercontext
+
+    if powercontext.PowerContext is None or powercontext.ArtifactRef is None:
+        raise RuntimeError("Core public exports are unavailable")  # noqa: TRY003
+    if not extras and importlib.util.find_spec("httpx") is not None:
+        raise RuntimeError("Core installation unexpectedly includes httpx")  # noqa: TRY003
+    if extras:
+        from powercontext import artifact_plugins
+
+        if powercontext.artifact_plugins is not artifact_plugins or artifact_plugins.ArtifactFamily is None:
+            raise RuntimeError("Plugin public export is unavailable")  # noqa: TRY003
+    if "cli" in extras:
+        extras.add("builtin")
     with tempfile.TemporaryDirectory(prefix="powercontext-role-") as temporary:
         root = Path(temporary)
         if extras & {"builtin", "server"}:

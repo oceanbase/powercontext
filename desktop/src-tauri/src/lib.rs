@@ -19,9 +19,14 @@ pub mod connections;
 pub mod credentials;
 #[cfg(windows)]
 mod diagnostic_process;
+#[cfg(target_os = "macos")]
+#[path = "diagnostic_process_macos.rs"]
+mod diagnostic_process;
 pub mod diagnostics;
 pub mod error;
 pub mod ipc;
+pub mod ops_bridge;
+pub mod session_observations;
 pub mod transport;
 
 use tauri::Manager;
@@ -39,6 +44,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::foundation_info,
             commands::local_diagnostics,
+            commands::ops_references,
+            commands::ops_inspect,
+            commands::ops_config_validate,
+            commands::ops_preflight,
+            commands::ops_apply,
+            commands::ops_operation_status,
+            commands::ops_cancel,
+            commands::ops_resume,
             commands::remember_memory,
             commands::search_memory,
             commands::atomic_memory_entry,
@@ -52,7 +65,10 @@ pub fn run() {
             commands::list_scopes,
             commands::cancel_scope_reads,
             commands::default_scope,
-            commands::select_scope
+            commands::select_scope,
+            commands::session_summary,
+            commands::reset_session_observations,
+            commands::preview_session_diagnostics
         ])
         .setup(|app| {
             let manager = app
@@ -62,7 +78,7 @@ pub fn run() {
                 .and_then(|dir| {
                     connections::profiles::ProfileRepository::open(
                         dir.join("profiles.json"),
-                        std::sync::Arc::new(credentials::WindowsVault),
+                        std::sync::Arc::new(credentials::NativeVault),
                     )
                 })
                 .map(connections::session::ConnectionManager::new);
@@ -73,9 +89,19 @@ pub fn run() {
                     std::io::Error::other("Desktop profile storage is already in use").into(),
                 );
             }
+            let observations = manager
+                .as_ref()
+                .map(|manager| manager.observations().clone())
+                .unwrap_or_default();
+            app.manage(observations);
             app.manage(commands::HostState { manager });
             app.manage(diagnostics::DiagnosticHost::new(
                 app.path().app_data_dir().ok(),
+            ));
+            app.manage(ops_bridge::OpsHost::new(
+                app.path().resource_dir().ok(),
+                app.path().local_data_dir().ok(),
+                app.path().home_dir().ok(),
             ));
             let config = &app.config().app.windows[0];
             tauri::WebviewWindowBuilder::from_config(app, config)?
@@ -83,6 +109,22 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("desktop host failed");
+        .build(tauri::generate_context!())
+        .expect("desktop host failed")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit)
+                && let Some(host) = app.try_state::<diagnostics::DiagnosticHost>()
+            {
+                // Tauri exits directly after this callback; worker Drop alone
+                // cannot supervise child processes once the application exits.
+                host.shutdown();
+            }
+            if matches!(event, tauri::RunEvent::Exit)
+                && let Some(host) = app.try_state::<ops_bridge::OpsHost>()
+            {
+                // Ops owns its durable operation journal and service locks. Closing Desktop
+                // stops new IPC admission but never signals a service-manager process.
+                host.shutdown();
+            }
+        });
 }

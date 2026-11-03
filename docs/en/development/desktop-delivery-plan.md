@@ -36,7 +36,7 @@ Assign named maintainers and link producer work before the corresponding phase e
 | Platform | Proposed status | Qualification |
 | --- | --- | --- |
 | Windows 11 x64 + SQLite | First target; current project Windows support is experimental | Signed standard-user install, WebView2 absent/present, Credential Manager, Task Scheduler/login, notifications/activation, non-ASCII paths |
-| macOS | Follow-up | Named architectures, Keychain, LaunchAgent, signing/notarization, WebView/notification behavior |
+| macOS | Internal native preview; release qualification open | Named architectures, Keychain, LaunchAgent, signing/notarization, WebView/notification behavior |
 | Linux | Follow-up per distro/desktop | WebKitGTK/system libraries, Secret Service, systemd session, tray, package/activation |
 
 Windows ARM and Windows embedded seekdb are excluded. Compiling a framework does not qualify a platform. P0 names
@@ -150,3 +150,11 @@ claims of implemented functionality or a reason to withhold this design from rev
 | Which Server versions work, and how do restore/clone affect identity? | D1 explicit versions/lifecycle; qualify 1.0.0 as legacy candidate | P0 contract agreement before dependent controls |
 | Who supplies installation/delivery and when? | D3–D6 producers own schemas/recovery; no private desktop replacement | Before P3/P4 commitments |
 | How fast and small must the complete product be? | Measure named hardware, publish numeric budgets including Python/WebView | P0 exit before P2 expansion |
+
+## macOS internal preview
+
+The native shell supports Keychain, macOS local navigation, bounded diagnostic process groups and
+app/DMG packaging. See the [macOS build instructions](https://github.com/oceanbase/powercontext/blob/master/desktop/README.md#build-on-macos).
+CI includes native Apple Silicon and Intel jobs. Signing, notarization, clean-machine installation,
+IME, accessibility and installed-app credential prompts remain qualification requirements.
+No LaunchAgent installation or independent Server management is added.

@@ -126,6 +126,12 @@ make harness-compose-acceptance \
 ARGS='--id locomo-support-group --id project-database-decision'
 ```
 
+For OceanBase, Compose runs public `db-migrate plan/apply/verify` commands before starting the Server, including
+configurations with embedding or Code enabled. The commands use the Server container's configuration, one maintenance
+container, and `/data/migration-state`; ordinary remote Server startup only checks readiness. The harness owns disposable
+volumes and stops business writers during setup. A maintenance failure fails startup rather than allowing a partially
+initialized Server to run.
+
 Each selected workload writes the same layout:
 
 ```text

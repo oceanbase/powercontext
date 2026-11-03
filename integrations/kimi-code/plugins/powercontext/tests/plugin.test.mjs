@@ -27,6 +27,53 @@ import { promisify } from 'node:util'
 
 const plugin = fileURLToPath(new URL('..', import.meta.url))
 const prompt = 'The deployment color is teal-731.'
+const { cases: privacyCases } = JSON.parse(await readFile(
+  new URL('../../../../../tests/fixtures/automatic_prompt_privacy.json', import.meta.url), 'utf8',
+))
+const { cases: queryBoundCases } = JSON.parse(await readFile(
+  new URL('../../../../../tests/fixtures/recall_query_bound.json', import.meta.url), 'utf8',
+))
+const expand = segments => segments.map(({ text, repeat = 1 }) => text.repeat(repeat)).join('')
+
+test('automatic prompt privacy preserves preparation and original accepted events', async t => {
+  const scenarios = [
+    ...privacyCases.map(sample => ({ sample, capture: true })),
+    ...privacyCases.filter(sample => sample.id.endsWith('-header')).map(sample => ({ sample, capture: false })),
+  ]
+  for (const { sample, capture } of scenarios) {
+    await t.test(`${sample.id}-capture-${capture}`, async t => {
+      const state = await fixture(t, {}, { use_token: Boolean(sample.authorization), capture_prompts: capture })
+      const result = await state.invoke({
+        hook_event_name: 'UserPromptSubmit', cwd: state.workspace,
+        session_id: `privacy-${sample.id}`, prompt: sample.prompt,
+      }, sample.authorization ? { POWERCONTEXT_KIMI_TOKEN: sample.authorization.slice(7) } : {})
+      const prepares = state.requests.filter(item => item.path === '/v1/context/prepare')
+      assert.equal(prepares.length, 1, result.stderr)
+      assert.equal(state.captures.length, sample.sensitive || !capture ? 0 : 1)
+      if (sample.sensitive) {
+        assert.doesNotMatch(JSON.stringify(state.requests.map(item => item.body)), /synthetic[-_]value[-_]2084/)
+        assert.doesNotMatch(JSON.stringify(result), /synthetic[-_]value[-_]2084/)
+      } else {
+        assert.equal(state.captures[0].content, sample.prompt)
+        assert.equal(prepares[0].body.query, sample.prompt)
+      }
+    })
+  }
+})
+test('the recall query keeps the end of a long prompt', async t => {
+  for (const sample of queryBoundCases) {
+    await t.test(sample.id, async t => {
+      const state = await fixture(t)
+      const result = await state.invoke({
+        hook_event_name: 'UserPromptSubmit', cwd: state.workspace,
+        session_id: `query-${sample.id}`, prompt: expand(sample.prompt),
+      })
+      const prepares = state.requests.filter(item => item.path === '/v1/context/prepare')
+      assert.equal(prepares.length, 1, result.stderr)
+      assert.equal(prepares[0].body.query, expand(sample.query))
+    })
+  }
+})
 async function fixture(t, overrides = {}, settings = {}, listenHost = '127.0.0.1') {
   const root = await mkdtemp(join(tmpdir(), 'pc-kimi-'))
   const installed = join(root, 'plugin')

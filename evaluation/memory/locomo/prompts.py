@@ -21,6 +21,7 @@ ANSWER_SOURCE_INSTRUCTIONS_VERSION = "powercontext.benchmark.locomo.answer.sourc
 ANSWER_SOURCE_INFERENCE_INSTRUCTIONS_VERSION = "powercontext.benchmark.locomo.answer.source.inference.v1"
 ANSWER_SOURCE_UNKNOWN_FALLBACK_INSTRUCTIONS_VERSION = "powercontext.benchmark.locomo.answer.source.unknown_fallback.v1"
 JUDGE_INSTRUCTIONS_VERSION = "powercontext.benchmark.locomo.judge.v1"
+ABSTENTION_JUDGE_INSTRUCTIONS_VERSION = "powercontext.benchmark.locomo.judge.strict_abstention.v1"
 TOPICAL_JUDGE_INSTRUCTIONS_VERSION = "powercontext.benchmark.locomo.judge.topical.v1"
 
 ANSWER_INSTRUCTIONS = f"""
@@ -107,6 +108,21 @@ Rules:
 - Judge only correctness; do not reward style and do not use outside knowledge.
 """.strip()
 
+ABSTENTION_JUDGE_INSTRUCTIONS = f"""
+You grade a generated answer against its gold answer, including explicit unanswerable questions.
+
+Instruction version: {ABSTENTION_JUDGE_INSTRUCTIONS_VERSION}
+
+Rules:
+- When the gold answer is "Unknown", return CORRECT only for an explicit abstention with no invented answer.
+- When the gold answer supplies a fact, return WRONG for "Unknown", another abstention, or a missing answer.
+- Otherwise return CORRECT when the generated answer expresses the same fact as the gold answer.
+- Be generous about wording, aliases, singular/plural forms, and concise versus expanded phrasing.
+- Treat equivalent absolute and relative time expressions as correct only when they identify the same period.
+- Return WRONG for contradictions or unsupported additions that change the answer.
+- Judge only correctness; do not reward style and do not use outside knowledge.
+""".strip()
+
 TOPICAL_JUDGE_INSTRUCTIONS = f"""
 You grade a generated answer to a LoCoMo question against its gold answer using a topical-equivalence policy.
 
@@ -128,6 +144,7 @@ class JudgeProfile(StrEnum):
     """Versioned LLM-judge policies kept explicit in each run manifest."""
 
     STRICT = "strict"
+    STRICT_ABSTENTION = "strict-abstention"
     TOPICAL = "topical"
 
 
@@ -136,6 +153,8 @@ def judge_instructions(profile: JudgeProfile) -> tuple[str, str]:
 
     if profile is JudgeProfile.STRICT:
         return JUDGE_INSTRUCTIONS, JUDGE_INSTRUCTIONS_VERSION
+    if profile is JudgeProfile.STRICT_ABSTENTION:
+        return ABSTENTION_JUDGE_INSTRUCTIONS, ABSTENTION_JUDGE_INSTRUCTIONS_VERSION
     if profile is JudgeProfile.TOPICAL:
         return TOPICAL_JUDGE_INSTRUCTIONS, TOPICAL_JUDGE_INSTRUCTIONS_VERSION
     raise AssertionError
@@ -172,6 +191,8 @@ def answer_policy_version(
 
 
 __all__ = [
+    "ABSTENTION_JUDGE_INSTRUCTIONS",
+    "ABSTENTION_JUDGE_INSTRUCTIONS_VERSION",
     "ANSWER_INSTRUCTIONS",
     "ANSWER_INSTRUCTIONS_VERSION",
     "ANSWER_SOURCE_INFERENCE_INSTRUCTIONS",

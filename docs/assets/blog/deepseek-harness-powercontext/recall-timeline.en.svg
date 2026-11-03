@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="837" viewBox="0 0 1000 837" lang="en" role="img" aria-labelledby="title"><title id="title">Recall and capture before a model step</title><rect width="1000" height="837" rx="18" fill="#f7f5ef"/><style>text{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#14213a}</style>
+<text x="48" y="43" font-size="18" font-weight="700" style="fill:#1769d2">PowerContext</text>
+<text x="48" y="88" font-size="30" font-weight="700" style="fill:#14213a">Recall and capture before a model step</text>
+<rect x="48.0" y="156" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="198" font-size="22" font-weight="700" style="fill:#1769d2">01 User message</text>
+<text x="72.0" y="250" font-size="20" font-weight="400" style="fill:#14213a">The user message enters Harness.</text>
+<rect x="512.0" y="156" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="536.0" y="198" font-size="22" font-weight="700" style="fill:#1769d2">02 prepare_context</text>
+<text x="536.0" y="250" font-size="20" font-weight="400" style="fill:#14213a">Fetch bounded context from the</text>
+<text x="536.0" y="279" font-size="20" font-weight="400" style="fill:#14213a">Server.</text>
+<rect x="48.0" y="348" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="390" font-size="22" font-weight="700" style="fill:#1769d2">03 Inject evidence</text>
+<text x="72.0" y="442" font-size="20" font-weight="400" style="fill:#14213a">Treat recalled content as untrusted</text>
+<text x="72.0" y="471" font-size="20" font-weight="400" style="fill:#14213a">history, not instructions.</text>
+<rect x="512.0" y="348" width="440.0" height="168" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="536.0" y="390" font-size="22" font-weight="700" style="fill:#1769d2">04 capture_source</text>
+<text x="536.0" y="442" font-size="20" font-weight="400" style="fill:#14213a">Store the user input as Source.</text>
+<rect x="48.0" y="540" width="440.0" height="197" rx="14" fill="white" stroke="#cbd3dc"/>
+<text x="72.0" y="582" font-size="22" font-weight="700" style="fill:#1769d2">05 Use memory when needed</text>
+<text x="72.0" y="634" font-size="20" font-weight="400" style="fill:#14213a">The model explicitly reads or</text>
+<text x="72.0" y="663" font-size="20" font-weight="400" style="fill:#14213a">writes through pc_remember /</text>
+<text x="72.0" y="692" font-size="20" font-weight="400" style="fill:#14213a">pc_search.</text>
+</svg>

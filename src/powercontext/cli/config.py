@@ -194,6 +194,8 @@ _BASE_ENVIRONMENT: dict[str, str] = {
     "POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE": "coding",
     "POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS": "30",
     "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS": "2",
+    "POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAMING": "disabled",
+    "POWERCONTEXT_SERVER_INFERENCE_GENERATION_STREAM_IDLE_TIMEOUT_SECONDS": "60",
     "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION": "unit",
     "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE": "10",
     "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS": "30",
@@ -371,10 +373,19 @@ def init_command(
         run_wizard(output, language=None if language is None else language.value, advanced=advanced)
         return
 
+    from powercontext.server.configuration import ServerConfigurationError, has_uds_configuration
+
     if output.exists() and not force:
         _fail(f"{output} already exists; use --force")
     try:
         existing = output.read_text(encoding="utf-8") if output.exists() else ""
+        values = parse_environment(existing, source=str(output))
+        if has_uds_configuration(values) or has_uds_configuration(values, os.environ):
+            raise ConfigError(  # noqa: TRY003, TRY301
+                "The template supports TCP listeners; edit UDS configuration directly in the environment file "
+                "and clear process UDS overrides before using the template. "
+                "/ 模板目前仅支持 TCP 监听。UDS 配置请直接编辑环境文件。请在使用模板前清除进程中的 UDS 配置。"
+            )
         configuration = collect_configuration(advanced=advanced)
         _validate_operational_configuration(configuration)
         _print_summary(configuration)
@@ -383,7 +394,14 @@ def init_command(
             typer.echo("No changes written.")
             return
         backup = write_environment(output, content, backup=output.exists())
-    except (ConfigError, EnvironmentFileError, OSError, UnicodeError, ValidationError) as error:
+    except (
+        ConfigError,
+        EnvironmentFileError,
+        OSError,
+        UnicodeError,
+        ValidationError,
+        ServerConfigurationError,
+    ) as error:
         _fail(str(error))
     _report_written(output, backup)
     _print_next_steps(output)

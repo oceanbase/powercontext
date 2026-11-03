@@ -20,8 +20,12 @@ import asyncio
 import io
 import json
 import logging
+import multiprocessing
+import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -31,6 +35,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
+from prometheus_client import CollectorRegistry
 
 from powercontext.builtin.code.telemetry import stage
 from powercontext.builtin.inference import (
@@ -43,6 +48,12 @@ from powercontext.builtin.persistence.processing_intents import ArtifactProcessi
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
 from powercontext.builtin.persistence.tables import SHARED_TABLES
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
@@ -55,15 +66,263 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkAssignment,
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerFailure,
+    WorkerInitializerPreparation,
 )
 from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 from powercontext.server.factory import create_server_app
-from powercontext.server.logging import JsonFormatter, OperationalContextFilter, WorkerLogging
+from powercontext.server.logging import JsonFormatter, OperationalContextFilter, WorkerLogging, worker_logging
+from powercontext.server.operational_metrics import OperationalMetricsCollector
 from powercontext.server.settings import McpConfig, ServerLoggingConfig, ServerSettings
 from powercontext.server.telemetry import service_resource
 from powercontext.server.tracing import ServerTracing
 
 _PRIVATE = "private worker source/query/credential sentinel"
+_MULTILINE_MESSAGE = "child record\ncontinued café"
+
+
+def _file_logging_probe(initializer: WorkerLogging) -> None:
+    initializer()
+    logging.getLogger("powercontext.worker.probe").info(_MULTILINE_MESSAGE, extra={"source_body": lambda: None})
+
+
+def _waiting_logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion:
+    logging.getLogger("powercontext.worker.probe").info("Ready for termination", extra={"event": "probe.ready"})
+    time.sleep(60)
+    return ArtifactProcessingWorkerCompletion()
+
+
+def _noisy_logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion:
+    for index in range(2000):
+        logging.getLogger("powercontext.worker.probe").info(
+            "Worker observation %s %s", index, "x" * 2000, extra={"source_body": _PRIVATE}
+        )
+    return ArtifactProcessingWorkerCompletion()
+
+
+def _closing_logging_probe(initializer: WorkerLogging, *, truncate: bool) -> None:
+    initializer()
+    logging.getLogger("powercontext.worker.probe").info("Delivered observation")
+    if truncate:
+        assert initializer.channel is not None
+        # Leave one incomplete envelope before the process closes its socket.
+        initializer.channel.sendall(b'"' + _PRIVATE.encode("utf-8"))
+
+
+@pytest.mark.parametrize("truncate", [False, True])
+def test_worker_stream_close_preserves_output_and_counts_discards(tmp_path, capfd, truncate) -> None:
+    registry = CollectorRegistry()
+    registry.register(OperationalMetricsCollector(role="background"))
+    metric = "powercontext_server_telemetry_log_records_dropped_total"
+    before = registry.get_sample_value(metric)
+    assert before is not None
+    config = ServerLoggingConfig(file=True, directory=tmp_path, format="json")
+    with worker_logging(config, role="background") as initializer:
+        assert isinstance(initializer, WorkerInitializerPreparation)
+        with initializer.prepare() as child_initializer:
+            assert isinstance(child_initializer, WorkerLogging)
+            process = multiprocessing.get_context("spawn").Process(
+                target=_closing_logging_probe, args=(child_initializer,), kwargs={"truncate": truncate}
+            )
+            process.start()
+        try:
+            process.join(timeout=30)
+            assert process.exitcode == 0
+        finally:
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=5)
+            process.close()
+    assert registry.get_sample_value(metric) == before + int(truncate)
+    output = capfd.readouterr()
+    assert ("observability.log_failed" in output.err) == truncate
+    records = (tmp_path / "background.log").read_text(encoding="utf-8")
+    assert [record["message"] for record in _json_records(records)] == ["Delivered observation"]
+    assert output.out == ""
+    assert _PRIVATE not in records + output.err
+
+
+def test_worker_completion_does_not_wait_for_slow_log_consumer(tmp_path) -> None:
+    script = """
+import asyncio
+import logging
+import sys
+from pathlib import Path
+from tests.e2e.test_worker_logging import _noisy_logging_worker
+from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
+from powercontext.builtin.runtime.artifact_processing import SpawnArtifactProcessingWorkerLauncher
+from powercontext.builtin.runtime.processing_contracts import (
+    ArtifactProcessingWorkAssignment, ArtifactProcessingWorkerCompletion,
+)
+from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
+from powercontext.server.settings import ServerLoggingConfig
+
+blocked = Path(sys.argv[3])
+original_emit = logging.FileHandler.emit
+def slow_emit(handler, record):
+    if not blocked.exists():
+        blocked.write_text("blocked", encoding="utf-8")
+        sys.stdin.read(1)
+    original_emit(handler, record)
+logging.FileHandler.emit = slow_emit
+
+config = ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format="json")
+configure_server_logging(config, role="all")
+async def run(initializer):
+    assignment = ArtifactProcessingWorkAssignment(
+        binding_name="memory-source-window", scope_id="success", artifact_family="memory",
+        claimed_request_generation=1, worker_id="noisy-attempt",
+        fence=ArtifactProcessingFence(
+            supervisor_group="global", holder_id="owner", supervisor_generation=1, lease_mode="single-process",
+        ),
+    )
+    handle = await SpawnArtifactProcessingWorkerLauncher(_noisy_logging_worker, initializer=initializer).start(assignment)
+    try:
+        assert await asyncio.wait_for(handle.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+    finally:
+        await handle.terminate()
+with worker_logging(config, role="all") as initializer:
+    asyncio.run(run(initializer))
+Path(sys.argv[2]).write_text("completed", encoding="utf-8")
+shutdown_server_logging()
+"""
+    completed = tmp_path / "completed"
+    blocked = tmp_path / "blocked"
+    log_directory = tmp_path / "logs"
+    process = subprocess.Popen(
+        [sys.executable, "-c", script, str(log_directory), str(completed), str(blocked)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 45
+        # Hold file writes until the business result is available, then release the sink.
+        while not completed.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        finished_without_draining = completed.exists() and blocked.exists()
+        stdout, stderr = process.communicate(input="\n", timeout=30)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+    assert process.returncode == 0, stderr
+    assert finished_without_draining
+    assert completed.read_text(encoding="utf-8") == "completed"
+    output = (log_directory / "all.log").read_text(encoding="utf-8")
+    assert "Worker observation" in output
+    assert stdout == ""
+    assert _PRIVATE not in output + stderr
+
+
+def test_terminated_worker_does_not_interrupt_shared_log_output(tmp_path, capfd) -> None:
+    config = ServerLoggingConfig(file=True, directory=tmp_path, format="json")
+
+    async def run(initializer: Callable[[], None] | WorkerInitializerPreparation) -> None:
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name="memory-source-window",
+            scope_id="success",
+            artifact_family="memory",
+            claimed_request_generation=1,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global", holder_id="owner", supervisor_generation=1, lease_mode="single-process"
+            ),
+            worker_id="terminated-attempt",
+        )
+        handle = await SpawnArtifactProcessingWorkerLauncher(_waiting_logging_worker, initializer=initializer).start(
+            assignment
+        )
+        try:
+            async with asyncio.timeout(30):
+                while True:
+                    output = (tmp_path / "background.log").read_text(encoding="utf-8")
+                    if any(record.get("event") == "probe.ready" for record in _json_records(output)):
+                        break
+                    await asyncio.sleep(0.01)
+        finally:
+            await handle.terminate()
+        surviving = await SpawnArtifactProcessingWorkerLauncher(_logging_worker, initializer=initializer).start(
+            ArtifactProcessingWorkAssignment(
+                binding_name=assignment.binding_name,
+                scope_id="success",
+                artifact_family="memory",
+                claimed_request_generation=1,
+                fence=assignment.fence,
+                worker_id="surviving-attempt",
+            )
+        )
+        try:
+            assert await asyncio.wait_for(surviving.wait(), timeout=30) == ArtifactProcessingWorkerCompletion()
+        finally:
+            await surviving.terminate()
+
+    with worker_logging(config, role="background") as initializer:
+        asyncio.run(run(initializer))
+    output = capfd.readouterr()
+    assert output.out == "" and output.err == ""
+    records = _json_records((tmp_path / "background.log").read_text(encoding="utf-8"))
+    assert any(
+        record.get("event") == "probe.ready" and record["worker_id"] == "terminated-attempt" for record in records
+    )
+    assert any(
+        record.get("event") == "artifact_processing.worker.returned" and record["worker_id"] == "surviving-attempt"
+        for record in records
+    )
+
+
+@pytest.mark.parametrize("log_format", ["json", "console"])
+def test_configured_file_sink_remains_open_after_spawned_worker_cleanup(tmp_path, log_format) -> None:
+    script = """
+import logging
+import multiprocessing
+import sys
+from pathlib import Path
+from tests.e2e.test_worker_logging import _file_logging_probe
+from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
+from powercontext.server.settings import ServerLoggingConfig
+
+config = ServerLoggingConfig(file=True, directory=Path(sys.argv[1]), format=sys.argv[2])
+configure_server_logging(config, role="all")
+logging.getLogger("powercontext.parent").info("parent before")
+with worker_logging(config, role="all") as initializer:
+    with initializer.prepare() as child_initializer:
+        process = multiprocessing.get_context("spawn").Process(target=_file_logging_probe, args=(child_initializer,))
+        process.start()
+    try:
+        process.join(timeout=30)
+        assert process.exitcode == 0
+    finally:
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=5)
+        process.close()
+logging.getLogger("powercontext.parent").info("parent after")
+shutdown_server_logging()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), log_format],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.stdout == "" and result.stderr == ""
+    output = (tmp_path / "all.log").read_text(encoding="utf-8")
+    assert "source_body" not in output
+    if log_format == "console":
+        assert _MULTILINE_MESSAGE in output
+        assert output.count("parent before") == output.count("parent after") == 1
+        assert 'service_role="worker"' in output and 'service_role="all"' in output
+        return
+    records = _json_records(output)
+    assert len(records) == 3
+    by_message = {record["message"]: record for record in records}
+    assert set(by_message) == {"parent before", _MULTILINE_MESSAGE, "parent after"}
+    assert by_message["parent before"]["service_instance_id"] == by_message["parent after"]["service_instance_id"]
+    assert by_message["parent before"]["service_instance_id"] != by_message[_MULTILINE_MESSAGE]["service_instance_id"]
+    assert by_message["parent before"]["service_role"] == by_message["parent after"]["service_role"] == "all"
+    assert by_message[_MULTILINE_MESSAGE]["service_role"] == "worker"
+    assert all("source_body" not in record for record in records)
 
 
 class _WorkerCancelled(asyncio.CancelledError):
@@ -85,6 +344,23 @@ def _raise_inference_failure(scope_id: str) -> None:
         raise InferenceUnavailableError("generation", _PRIVATE)
     if scope_id == "invalid-output":
         raise InvalidInferenceOutputError("memory-extract", _PRIVATE)
+    if scope_id == "diagnosed-failure":
+        raise attach_diagnostics(
+            InvalidInferenceOutputError(
+                "atomic-memory-input-budget", "A complete comparison input exceeds its token budget"
+            ),
+            ProcessingDiagnostics(
+                stage=ProcessingStage.BUSINESS_VALIDATION,
+                reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
+                input_item_count=3,
+                estimated_input_tokens=120,
+                token_estimator_id="character:weighted",  # noqa: S106 - estimator identity, not a secret
+                effective_budget=100,
+                provider_request_id="req-1",
+                finish_reason="length",
+                failure_location="atomic_memory.extract",
+            ),
+        )
 
 
 def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion:
@@ -188,6 +464,7 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
         ("cancellation", "cancelled", "cancelled"),
         ("cancellation-subclass", "cancelled", "cancelled"),
         ("cancellation-name-collision", "internal", "failure"),
+        ("diagnosed-failure", "dependency", "failure"),
     ],
 )
 def test_supervisor_logs_isolate_request_identity_and_preserve_child_cancellation(
@@ -247,6 +524,17 @@ def test_supervisor_logs_isolate_request_identity_and_preserve_child_cancellatio
     if scope_id == "cancellation-subclass":
         assert failure["exception_type"] == child["exception_type"] == "_WorkerCancelled"
     assert "request_id" not in failure
+    if scope_id == "diagnosed-failure":
+        for record in (failure, child):
+            assert record["processing_stage"] == "business_validation"
+            assert record["failure_reason"] == "context_overflow"
+            assert record["input_item_count"] == 3
+            assert record["estimated_input_tokens"] == 120
+            assert record["token_estimator_id"] == "character:weighted"  # noqa: S105 - estimator identity
+            assert record["effective_budget"] == 100
+            assert record["provider_request_id"] == "req-1"
+            assert record["finish_reason"] == "length"
+            assert record["failure_location"] == "atomic_memory.extract"
     caller = next(record for record in records if record.get("event") == "caller.observed")
     assert caller["request_id"] == "unrelated-parent-request"
     assert _PRIVATE not in output.getvalue() + child_output.out + child_output.err
@@ -464,11 +752,22 @@ def test_unconfigured_sdk_worker_does_not_enable_global_logging(capfd) -> None:
     assert output.out == "" and output.err == ""
 
 
-def test_server_composition_initializes_logging_in_the_real_family_worker(capfd, tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("file_logging", [False, True])
+def test_server_composition_initializes_logging_in_the_real_family_worker(
+    capfd, tmp_path, monkeypatch, file_logging
+) -> None:
+    completed = threading.Event()
+
+    def observe_completion(record: logging.LogRecord) -> bool:
+        if getattr(record, "event", None) in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}:
+            completed.set()
+        return True
+
     parent_logger = logging.getLogger("powercontext")
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
     handler.addFilter(OperationalContextFilter(role="all"))
+    handler.addFilter(observe_completion)
     monkeypatch.setattr(parent_logger, "handlers", [handler])
     monkeypatch.setattr(parent_logger, "level", logging.INFO)
     monkeypatch.setattr(parent_logger, "propagate", False)
@@ -477,28 +776,24 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(capfd,
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'worker-logging.db'}"),
             inference=InferenceConfig(generation_model="test"),
             runtime=RuntimeConfig(artifact_processing_families=("memory",), memory_schedule_seconds=0.05),
-            logging=ServerLoggingConfig(format="json"),
+            logging=ServerLoggingConfig(format="json", file=file_logging, directory=tmp_path / "logs"),
             mcp=McpConfig(enabled=False),
         )
     )
-    records: list[dict[str, Any]] = []
     with TestClient(app) as client:
         scope_id = client.get("/v1/scopes/default").json()["scope_id"]
         response = client.post(
             "/v1/sources/content", json={"scope_id": scope_id, "source_id": "logging-source", "content": _PRIVATE}
         )
         assert response.status_code == 202
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            records.extend(_json_records(capfd.readouterr().out))
-            if any(
-                record.get("event") in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}
-                for record in records
-            ):
-                break
-            time.sleep(0.05)
-    records.extend(_json_records(capfd.readouterr().out))
-    child = [record for record in records if record.get("event") == "artifact_processing.worker.started"]
+        # Do not reset/truncate fd capture while spawned processes still write
+        # through inherited descriptors. Observe completion without consuming it.
+        assert completed.wait(timeout=60), "The real family worker must report completion"
+    records = _json_records(capfd.readouterr().out)
+    worker_records = (
+        _json_records((tmp_path / "logs" / "all.log").read_text(encoding="utf-8")) if file_logging else records
+    )
+    child = [record for record in worker_records if record.get("event") == "artifact_processing.worker.started"]
     assert child, "Server must configure logging in its actual built-in child, not a substituted entrypoint"
     assert child[0]["service_role"] == "worker" and child[0]["family"] == "memory"
     assert "request_id" not in child[0]
@@ -511,4 +806,54 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(capfd,
     assert controller[0]["worker_id"] == child[0]["worker_id"]
     assert controller[0]["service_role"] == "all"
     assert controller[0]["service_instance_id"] != child[0]["service_instance_id"]
-    assert _PRIVATE not in json.dumps(records)
+    assert _PRIVATE not in json.dumps([*records, *worker_records])
+
+
+@pytest.mark.parametrize("log_format", ["json", "console"])
+def test_concurrent_spawned_workers_share_file_output(tmp_path, capfd, log_format) -> None:
+    config = ServerLoggingConfig(file=True, directory=tmp_path, format=log_format)
+
+    async def run(initializer: Callable[[], None] | WorkerInitializerPreparation) -> None:
+        launcher = SpawnArtifactProcessingWorkerLauncher(_logging_worker, initializer=initializer)
+        assignments = [
+            ArtifactProcessingWorkAssignment(
+                binding_name="memory-source-window",
+                scope_id="success",
+                artifact_family="memory",
+                claimed_request_generation=1,
+                fence=ArtifactProcessingFence(
+                    supervisor_group="global", holder_id="owner", supervisor_generation=1, lease_mode="single-process"
+                ),
+                worker_id=f"file-attempt-{index}",
+            )
+            for index in range(3)
+        ]
+        handles = await asyncio.gather(*(launcher.start(assignment) for assignment in assignments))
+        try:
+            results = await asyncio.wait_for(asyncio.gather(*(handle.wait() for handle in handles)), timeout=30)
+            assert results == [ArtifactProcessingWorkerCompletion()] * 3
+        finally:
+            await asyncio.gather(*(handle.terminate() for handle in handles))
+
+    with worker_logging(config, role="background") as initializer:
+        asyncio.run(run(initializer))
+    output = (tmp_path / "background.log").read_text(encoding="utf-8")
+    assert _PRIVATE not in output
+    captured = capfd.readouterr()
+    assert captured.out == "" and captured.err == ""
+    if log_format == "json":
+        records = _json_records(output)
+        assert len(records) == 9
+        assert len({record["service_instance_id"] for record in records}) == 3
+        for index in range(3):
+            attempt = [record for record in records if record["worker_id"] == f"file-attempt-{index}"]
+            assert {record["event"] for record in attempt} == {
+                "artifact_processing.worker.started",
+                "artifact_processing.domain",
+                "artifact_processing.worker.returned",
+            }
+        assert all(record["service_role"] == "worker" and "request_id" not in record for record in records)
+    else:
+        assert len(output.splitlines()) == 9
+        for index in range(3):
+            assert output.count(f'worker_id="file-attempt-{index}"') == 3

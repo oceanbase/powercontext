@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import struct
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -102,6 +103,17 @@ class _SwitchableIndex:
         /,
     ) -> None:
         await self.delegate.replace(connection, scope_id, topic_ref, projection)
+        if self.fail_replace:
+            raise RuntimeError("injected projection failure")  # noqa: TRY003
+
+    async def replace_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
+        /,
+    ) -> None:
+        await self.delegate.replace_many(connection, scope_id, items)
         if self.fail_replace:
             raise RuntimeError("injected projection failure")  # noqa: TRY003
 
@@ -227,6 +239,15 @@ def test_topic_search_deployment_weights_change_results_and_request_fusion_repla
             _scope_id: str,
             _topic_ref: ArtifactRef,
             _projection: TopicMemoryProjection,
+            /,
+        ) -> None:
+            pass
+
+        async def replace_many(
+            self,
+            _connection: AsyncConnection,
+            _scope_id: str,
+            _items: Sequence[tuple[ArtifactRef, TopicMemoryProjection]],
             /,
         ) -> None:
             pass

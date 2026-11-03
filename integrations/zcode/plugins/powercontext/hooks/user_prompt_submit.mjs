@@ -20,11 +20,12 @@ import { bindingKeys, resolveScope, sessionIdentity, sha256 } from '../shared/sc
 import { failureResult, stageResult, startObservation } from '../shared/observations.mjs'
 import { beginCaptureTracking } from '../shared/pending.mjs'
 import { failureCode, HOOK_BUDGET_MS, request } from '../shared/transport.mjs'
+import { scrubSecrets } from '../shared/prompt-privacy.mjs'
 
 const SETTINGS = loadSettings()
 const MAX_QUERY_CHARACTERS = 8_192
+const MAX_QUERY_BYTES = 8_192
 const MAX_SOURCE_CHARACTERS = 200_000
-const SECRET_PATTERN = /(?:\b(?:api[_-]?key|access[_-]?token|token|authorization|password|secret|private[_-]?key)["']?\s*[:=]\s*\S+|\bbearer\s+\S+|\bsk-[A-Za-z0-9_-]{8,}|-----BEGIN [^-]*PRIVATE KEY-----)/iu
 
 function diagnostic(stage, code) {
   process.stderr.write(`${JSON.stringify({ component: 'powercontext.zcode', stage, code })}\n`)
@@ -38,12 +39,15 @@ function emit(output) {
 
 function boundedQuery(prompt) {
   const characters = Array.from(prompt.trim())
-  let query = characters.slice(-MAX_QUERY_CHARACTERS).join('')
-  const encoded = Buffer.from(query, 'utf8')
-  if (encoded.length > MAX_QUERY_CHARACTERS) {
-    query = encoded.subarray(-MAX_QUERY_CHARACTERS).toString('utf8').replace(/^\uFFFD/u, '')
+  let start = characters.length
+  let bytes = 0
+  while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+    const size = Buffer.byteLength(characters[start - 1], 'utf8')
+    if (bytes + size > MAX_QUERY_BYTES) break
+    bytes += size
+    start -= 1
   }
-  return query.trim()
+  return characters.slice(start).join('').trim()
 }
 
 function sourceId(input, scopeId, prompt) {
@@ -87,7 +91,8 @@ async function run(input) {
   // binding separate from recalled history so explicit MCP calls can reuse the exact identity.
   const binding = bindingContext(scopeId, keys)
   let context = ''
-  const query = boundedQuery(input.prompt)
+  const safePrompt = scrubSecrets(input.prompt, SETTINGS.authorization)
+  const query = boundedQuery(safePrompt)
   if (query) {
     try {
       await observe('prepare', stageResult('running'))
@@ -105,7 +110,7 @@ async function run(input) {
   }
 
   if (SETTINGS.capturePrompts && input.prompt.length <= MAX_SOURCE_CHARACTERS &&
-      !SECRET_PATTERN.test(input.prompt)) {
+      safePrompt === input.prompt) {
     let tracking, trackingIncomplete = false
     try {
       await observe('capture', stageResult('running'))

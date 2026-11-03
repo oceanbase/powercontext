@@ -16,6 +16,26 @@
 
 // Generated from openapi/powercontext.yaml. Do not edit.
 export interface paths {
+    "/v1/recall/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a bounded metadata-only recall manifest
+         * @description Lists active Atomic Memory metadata only. Empty inventory never proves the Scope has no context or authorizes skipping prepare_context. Fetch selected exact refs with get_artifact_revision. Pagination is live keyset order, not a cross-request snapshot.
+         */
+        post: operations["get_recall_manifest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/atomic-memory/list": {
         parameters: {
             query?: never;
@@ -235,6 +255,131 @@ export interface paths {
         get: operations["get_server_info"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Artifact plugin registrations */
+        get: operations["list_artifact_plugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get an Artifact plugin registration */
+        get: operations["get_artifact_plugin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/enable-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable the currently disabled Artifact plugins
+         * @description Captures registrations and generations at request start, then accepts each eligible enable independently. Enabled, unloaded, failed and transitioning plugins are skipped. Concurrent changes and validation failures are reported per plugin without rolling back successes. Does not discover or reload plugins; poll each status URL for the asynchronous outcome.
+         */
+        post: operations["enable_all_artifact_plugins"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load or update a Worker-loaded Artifact plugin
+         * @description Reads the binding's direct child entry under POWERCONTEXT_SERVER_ARTIFACT_PLUGINS_DIR and fixes its resolved immutable directory. The manifest binding_name must match the directory entry and request path. Saves validated configuration and declarations without creating a pipeline. Existing enabled or disabled plugins keep their state; initial, unloaded or failed registrations become disabled. This initial path supports the global SQLite Supervisor. Plugin code is loaded only in child processes.
+         */
+        post: operations["reload_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable an Artifact plugin */
+        post: operations["enable_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable an Artifact plugin */
+        post: operations["disable_artifact_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/artifact-plugins/{binding_name}/unload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unload an Artifact plugin */
+        post: operations["unload_artifact_plugin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -572,6 +717,26 @@ export interface paths {
          * @description Prepare final, ephemeral context from Runtime-owned sources without persisting or injecting it. Retrieve bounded, query-specific PowerContext when additional assembled context is needed. Automatic recall already attempts this on supported lifecycle events; do not repeat it routinely or to satisfy an explicit save. A returned context value is not proof of host injection. Empty context is normal; use only the evidence actually returned.
          */
         post: operations["prepare_context"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/context/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a final model request or complete raw response
+         * @description Read-only privacy and current context-reuse admission. This operation does not retrieve, rewrite, call a model, or grant model execution authority. Only allow with complete coverage permits the corresponding phase. The execution adapter must send or release exactly the approved bytes before their deadline.
+         */
+        post: operations["check_context"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1868,7 +2033,7 @@ export interface paths {
         };
         /**
          * List public Sources in one Scope
-         * @description List a snapshot-bounded page of public Content Sources in ascending journal position.
+         * @description List public Content Sources and registered Source Observations in one Scope in ascending journal position. Subsequent pages retain the Source type selection and journal upper bound recorded in the cursor.
          */
         get: operations["list_sources"];
         put?: never;
@@ -2283,6 +2448,265 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/source-management/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** pc source capabilities */
+        post: operations["pc_source_capabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source add
+         * @description Use the discovered write or collect capability and version. Collect capabilities require an explicit instance_id. Write runs in the Server using loaded Definition and Projection implementations, without an instance or management service. Write waits for Source references or an error in the original call; no durable request or status query is created. Collect establishes or reuses a persistent target and never resumes a stopped target. No mode or idempotency_key is accepted; write retries use the underlying Source identity rules.
+         */
+        post: operations["pc_source_add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source status
+         * @description Query a collect target by scope_id and target_id. Result view requires scope.read and returns received Source references and submission time, not per-round completion. Control view requires scope.contribute and returns enabled and tracking without input or results.
+         */
+        post: operations["pc_source_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/target-set-enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop or resume a collect target
+         * @description Set collect target enabled state using scope.contribute. Repeating the current state is safe. Resume requires stopped confirmation; it does not restart an ended apply or enable a disabled instance. No revision or retry key is required.
+         */
+        post: operations["pc_source_target_set_enabled"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source instances
+         * @description Discover instances with scope_id from the Server capability catalog. Control view requires instance_id and server.admin, and returns enabled, actual and availability without business configuration.
+         */
+        post: operations["pc_source_instances"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/instance-set-enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * pc source instance set enabled
+         * @description Set instance business enabled state using server.admin. Repeating the same state does not restart apply. Restarting an ended run requires disable, confirmed stopped, then enable. The Runtime process stays online.
+         */
+        post: operations["pc_source_instance_set_enabled"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/configure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** source configure */
+        post: operations["source_configure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/write/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load a trusted Server-local Source write plugin
+         * @description Requires server.admin. The Server imports the local directory or module, validates and registers its Source Definitions, and persists its entry for restart. An identical deployment is reusable; conflicting configurations fail. Existing code is replaced only through controlled Server restart.
+         */
+        post: operations["load_source_write_plugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel open */
+        post: operations["source_channel_open"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel catalog */
+        post: operations["source_channel_catalog"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel poll */
+        post: operations["source_channel_poll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel reply */
+        post: operations["source_channel_reply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/channel/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Source manager reverse channel close */
+        post: operations["source_channel_close"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-management/instances/{instance_id}/{operation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authenticated instance control, permission checks and durable result exchange
+         * @description Served by the optional standalone Source manager. Instances initiate every exchange; this is not a Server or public MCP endpoint. The operation path chooses owner/connect/poll/reply/sync/execution/results/stopped-targets/close and the applicable fields. Source observations continue to go directly to the PC Server.
+         */
+        post: operations["source_instance_exchange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2313,14 +2737,47 @@ export interface components {
                 [key: string]: components["schemas"]["FeatureContract"];
             };
         };
+        RecallManifestRequest: {
+            scope_id: string;
+            kind?: string | null;
+            tags?: string[];
+            tag_match?: components["schemas"]["TagMatch"];
+            /** @default 50 */
+            limit: number;
+            cursor?: string | null;
+        };
+        RecallManifestEntry: {
+            ref: components["schemas"]["ArtifactReference"];
+            kind: string;
+            /** @description Stored summary, or null for historical records awaiting explicit summary completion. No body is read to synthesize it. */
+            description: string | null;
+            state_version: number;
+        };
+        RecallManifestResponse: {
+            items: components["schemas"]["RecallManifestEntry"][];
+            next_cursor: string | null;
+            /** @enum {string} */
+            code: "page" | "empty_inventory";
+        };
         /** @enum {string} */
         AtomicMemoryState: "active" | "forgotten" | "merged" | "retired";
+        AtomicMemoryReadContent: {
+            /** @default powercontext.atomic-memory.v1 */
+            schema: components["schemas"]["AtomicMemoryContentSchema"];
+            kind: string;
+            /** @description Memory text is NFC-normalized and trimmed before enforcing an 8192 UTF-8 byte limit. */
+            text: string;
+            /** @description A concise single-line summary of final text, in the same language. Required for new writes. */
+            description?: string | null;
+        };
         AtomicMemoryWriteContent: {
             /** @default powercontext.atomic-memory.v1 */
             schema: components["schemas"]["AtomicMemoryContentSchema"];
             kind: string;
             /** @description Memory text is NFC-normalized and trimmed before enforcing an 8192 UTF-8 byte limit. */
             text: string;
+            /** @description Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model. */
+            description?: string | null;
         };
         CreateAtomicMemoryArtifactRequest: {
             /**
@@ -2573,6 +3030,8 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
+            /** @description Persisted schema version for a custom Artifact family. */
+            schema_version?: string | null;
             revision: number;
             sources: components["schemas"]["SourceTypeReference"][];
             artifacts: components["schemas"]["ArtifactReference"][];
@@ -2614,6 +3073,8 @@ export interface components {
             scope_id: string;
             family: components["schemas"]["ArtifactReadFamily"];
             artifact_id: string;
+            /** @description Persisted schema version for a custom Artifact family. */
+            schema_version?: string | null;
             revision: number;
             content: {
                 [key: string]: unknown;
@@ -2914,7 +3375,7 @@ export interface components {
             version: number;
             family: components["schemas"]["CandidateFamily"];
             status: components["schemas"]["CandidateStatus"];
-            proposal: components["schemas"]["ExperienceProposal"] | components["schemas"]["SkillProposal"] | components["schemas"]["ProfileCandidateProposal"] | components["schemas"]["AtomicMemoryWriteContent"] | components["schemas"]["TopicMemoryDreamProposal"] | components["schemas"]["HandoffContent"] | components["schemas"]["PromptContent"] | components["schemas"]["CatalogChangeProposal"];
+            proposal: components["schemas"]["ExperienceProposal"] | components["schemas"]["SkillProposal"] | components["schemas"]["ProfileCandidateProposal"] | components["schemas"]["AtomicMemoryReadContent"] | components["schemas"]["TopicMemoryDreamProposal"] | components["schemas"]["HandoffContent"] | components["schemas"]["PromptContent"] | components["schemas"]["CatalogChangeProposal"];
             /** @description Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references. */
             source_refs: components["schemas"]["SourceReference"][];
             /** @description Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references. */
@@ -2947,7 +3408,58 @@ export interface components {
             /** @enum {string} */
             effect: "review_then_publish" | "review_then_publish_configuration" | "review_then_replace_tags";
         };
+        CustomArtifactFamilySchema: {
+            family: string;
+            schema_version: string;
+            content_schema: {
+                [key: string]: unknown;
+            };
+            /** @description Legacy persisted text fields; new plugins use search. */
+            search_fields: string[];
+            /** @description Persistent declarative indexes and supported search modes. */
+            search?: {
+                [key: string]: unknown;
+            };
+        };
+        ReloadArtifactPluginRequest: {
+            expected_generation: number;
+        };
+        ChangeArtifactPluginStateRequest: {
+            expected_generation: number;
+        };
+        ArtifactPluginState: {
+            binding_name: string;
+            plugin_id: string;
+            family: string;
+            binding_generation: number;
+            /** @enum {string} */
+            desired_state: "enabled" | "disabled" | "unloaded";
+            /** @enum {string} */
+            phase: "activating" | "enabled" | "stopping" | "disabled" | "unloading" | "unloaded" | "failed";
+            last_error: string | null;
+        };
+        ArtifactPluginPage: {
+            items: components["schemas"]["ArtifactPluginState"][];
+        };
+        EnableArtifactPluginResult: {
+            binding_name: string;
+            /** @enum {string} */
+            outcome: "accepted" | "skipped" | "failed";
+            /** @description Registration status URL for the asynchronous result. */
+            status_url: string;
+            state: components["schemas"]["ArtifactPluginState"];
+            /**
+             * @description Safe per-plugin failure code; null for accepted or skipped entries.
+             * @enum {string|null}
+             */
+            error: "conflict" | "invalid_plugin" | "unavailable" | null;
+        };
+        EnableAllArtifactPluginsResponse: {
+            items: components["schemas"]["EnableArtifactPluginResult"][];
+        };
         Capabilities: {
+            /** @default [] */
+            custom_artifact_schemas: components["schemas"]["CustomArtifactFamilySchema"][];
             /** @default {} */
             prompts: {
                 [key: string]: components["schemas"]["PromptCapability"];
@@ -2987,6 +3499,7 @@ export interface components {
             handoff_generation: boolean;
             search_modes: components["schemas"]["MemorySearchMode"][];
             context_versions: components["schemas"]["PreparedContextSchema"][];
+            context_protection?: components["schemas"]["ContextProtectionCapabilities"];
         };
         ExtractionStatus: {
             /**
@@ -3531,10 +4044,232 @@ export interface components {
         /** @enum {string} */
         HandoffPromptKey: "handoff.generate";
         PreparedContext: {
-            schema: components["schemas"]["PreparedContextSchema"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            schema: "powercontext.prepared-context.v1";
             status: components["schemas"]["PreparedContextStatus"];
             content: string | null;
             content_bytes: number;
+            /** @description Present only when requested and successfully assembled. */
+            receipt?: components["schemas"]["PreparedContextReceipt"];
+        };
+        PreparedContextReceipt: {
+            /** @enum {string} */
+            schema: "powercontext.prepared-context-receipt.v1";
+            /** Format: uuid */
+            receipt_id: string;
+            /** @enum {string} */
+            policy_id: "powercontext.prepared-context-receipt.v1";
+            query_digest: string;
+            content_digest: string | null;
+            requested_max_bytes: number;
+            used_bytes: number;
+            truncated: boolean;
+            non_deterministic: boolean;
+            retrieval: components["schemas"]["PreparedContextRetrieval"];
+            selected: components["schemas"]["PreparedContextSelectedItem"][];
+            omitted: components["schemas"]["PreparedContextOmittedGroup"][];
+            stages: components["schemas"]["PreparedContextStageTiming"][];
+        };
+        PreparedContextRetrieval: {
+            rounds: components["schemas"]["PreparedContextRecallRound"][];
+            searches: components["schemas"]["PreparedContextSearchGroup"][];
+            rerank_configs: components["schemas"]["PreparedContextRerankConfig"][];
+            reranks: components["schemas"]["PreparedContextRerankGroup"][];
+        };
+        PreparedContextRecallRound: {
+            round: number;
+            /** @enum {string} */
+            outcome: "completed" | "expansion_failed";
+            retained: boolean;
+        };
+        PreparedContextSearchGroup: {
+            round: number;
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            mode: "fts" | "vector" | "hybrid" | "snapshot" | "code" | "none";
+            /** @enum {string} */
+            outcome: "completed" | "not_run" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "inference_unavailable" | "inference_timeout" | "reused_fts_fallback";
+            count: number;
+        };
+        PreparedContextRerankConfig: {
+            config_id: string;
+            policy_id: string;
+            model: string | null;
+            effective_settings: {
+                [key: string]: string | number | boolean;
+            };
+            timeout_seconds: number;
+            max_requests: number;
+            config_digest: string;
+            prompt: components["schemas"]["PreparedContextPromptIdentity"];
+            non_deterministic: boolean;
+        };
+        PreparedContextPromptIdentity: {
+            scope_id: string;
+            key: string;
+            definition_version: string;
+            builtin_version: string;
+            /** @enum {string} */
+            selection: "built_in" | "artifact";
+            selected_version: string;
+            compiled_digest: string;
+            artifact_address: components["schemas"]["PreparedContextPromptArtifactAddress"];
+        } | null;
+        PreparedContextPromptArtifactAddress: {
+            scope_id: string;
+            artifact: components["schemas"]["ArtifactReference"];
+        } | null;
+        PreparedContextRerankGroup: {
+            round: number;
+            config_id: string;
+            /** @enum {string} */
+            outcome: "selected" | "fallback" | "failed";
+            /** @enum {string} */
+            fallback_reason: "none" | "empty_selection" | "inference_unavailable" | "inference_timeout" | "invalid_output";
+            count: number;
+        };
+        /** @enum {string} */
+        PreparedContextFamily: "atomic-memory" | "topic-memory" | "experience" | "profile" | "code";
+        PreparedContextCodeEvidence: {
+            scope_id: string;
+            fingerprint: string;
+            path: string;
+            file_sha256: string;
+            start_line: number;
+            end_line: number;
+            snippet_sha256: string;
+        };
+        PreparedContextSelectedItem: {
+            kind: components["schemas"]["PreparedContextFamily"];
+            artifact_address?: components["schemas"]["ArtifactAddress"];
+            code_evidence?: components["schemas"]["PreparedContextCodeEvidence"];
+            rendered_bytes: number;
+            truncated: boolean;
+        };
+        PreparedContextOmittedGroup: {
+            family: components["schemas"]["PreparedContextFamily"];
+            /** @enum {string} */
+            reason: "duplicate" | "blank" | "family_limit" | "entry_limit" | "below_min_bytes" | "no_fitting_truncation" | "rerank_not_selected" | "not_retrieved";
+            count: number;
+        };
+        PreparedContextStageTiming: {
+            stage: string;
+            duration_ms: number;
+            count: number;
+        };
+        PrepareContextResult: components["schemas"]["PreparedContext"] | components["schemas"]["PreparedContextWithReuse"];
+        PreparedContextWithReuse: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            schema: "powercontext.prepared-context-with-reuse.v1";
+            context: components["schemas"]["PreparedContext"];
+            reuse: components["schemas"]["ContextReuse"];
+        };
+        ContextReuse: {
+            /** @enum {string} */
+            schema: "powercontext.context-reuse.v1";
+            constraints: components["schemas"]["ContextReuseConstraints"];
+            /** Format: date-time */
+            expires_at: string;
+            binding: string;
+        };
+        ContextReuseConstraints: {
+            preserve: ("content" | "citations" | "trust" | "order")[];
+            refresh_on: ("permission_change" | "source_ineligible" | "context_boundary")[];
+        };
+        ModelJsonPayload: {
+            /** @enum {string} */
+            schema: "powercontext.model-json-payload.v1";
+            /** @description Content and protocol headers only; credentials and transport override headers are forbidden. */
+            headers: {
+                [key: string]: string;
+            };
+            /** @description Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported. */
+            body: string;
+        };
+        ModelJsonTextLocation: {
+            /** @enum {string} */
+            schema: "powercontext.model-json-text-location.v1";
+            pointer: string;
+            start_byte: number;
+            end_byte: number;
+        };
+        PreparedContextLocation: {
+            binding: string;
+            location: components["schemas"]["ModelJsonTextLocation"];
+        };
+        CheckContextBeforeSend: {
+            scope_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            phase: "before_send";
+            target_profile: string;
+            payload: components["schemas"]["ModelJsonPayload"];
+            prepared_contexts: components["schemas"]["PreparedContextLocation"][];
+        };
+        CheckContextBeforeRelease: {
+            scope_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            phase: "before_release";
+            target_profile: string;
+            request_binding: string;
+            payload: components["schemas"]["ModelJsonPayload"];
+            /** @enum {string} */
+            completion: "complete";
+        };
+        CheckContextRequest: components["schemas"]["CheckContextBeforeSend"] | components["schemas"]["CheckContextBeforeRelease"];
+        ContextCheckCoverage: {
+            /** @enum {string} */
+            profile: "text-and-tools.v1";
+            complete: boolean;
+        };
+        ContextCheckResult: {
+            /** @enum {string} */
+            schema: "powercontext.context-check.v1";
+            /** @enum {string} */
+            phase: "before_send" | "before_release";
+            /** @enum {string} */
+            decision: "allow" | "block" | "withhold";
+            reason_codes: string[];
+            coverage: components["schemas"]["ContextCheckCoverage"];
+            policy_version: string;
+            /** Format: date-time */
+            valid_until: string;
+            /**
+             * Format: date-time
+             * @description Present only for a before_send allow; this deadline never permits a new send.
+             */
+            correlate_until?: string;
+            /** @description Present only for allow, bound to this phase, identity, target, policy, and exact payload. */
+            binding?: string;
+        };
+        ContextProtectionCapabilities: {
+            check_versions: string[];
+            payload_versions: string[];
+            reuse_versions: string[];
+            reuse_families: string[];
+            enforcing: boolean;
+            limits: components["schemas"]["ContextProtectionCapabilitiesLimits"];
+        };
+        ContextProtectionCapabilitiesLimits: {
+            payload_bytes: number;
+            binding_bytes: number;
+            prepared_contexts: number;
+            dependencies: number;
+            send_seconds: number;
+            correlate_seconds: number;
         };
         BootstrapContextItem: {
             kind: components["schemas"]["BootstrapContextItemKind"];
@@ -4287,6 +5022,16 @@ export interface components {
              * @default false
              */
             include_code: boolean;
+            /**
+             * @description Return a versioned context and reuse envelope. Supported for single-Scope Atomic Memory with complete bounded dependencies; unsupported selected families, code, or references are rejected explicitly.
+             * @default false
+             */
+            include_reuse: boolean;
+            /**
+             * @description Opt into a bounded, content-free PreparedContext Receipt.
+             * @default false
+             */
+            include_receipt: boolean | null;
             assembly?: components["schemas"]["ContextAssembly"];
             /** @description Optional exact receipt for the last successfully injected bootstrap package. Only fully delivered Atomic Memory revisions from an injected same-Scope receipt are removed before candidate limiting and sufficiency assessment; Artifacts whose bootstrap bodies were truncated remain eligible. */
             bootstrap_receipt_id?: string;
@@ -4409,6 +5154,8 @@ export interface components {
             text: string;
             reason?: string | null;
             expected_revision?: number | null;
+            /** @description Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model. */
+            description?: string | null;
         };
         RetireMemoryEntryRequest: {
             scope_id: string;
@@ -4463,8 +5210,32 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description Existing embedding space identity shared with Memory; no additional modality or version fields. */
+        EmbeddingProfile: {
+            profile_id: string;
+            model: string;
+            dimension: number;
+            /**
+             * @default l2
+             * @enum {string}
+             */
+            distance: "l2";
+            /**
+             * @default unit
+             * @enum {string}
+             */
+            normalization: "none" | "unit";
+        };
         SearchArtifactsRequest: {
-            query: string;
+            query?: string;
+            query_vector?: {
+                profile: components["schemas"]["EmbeddingProfile"];
+                vector: number[];
+            };
+            indexes?: {
+                text?: string[];
+                vector?: string[];
+            };
             /** @default 10 */
             limit: number;
             mode?: string;
@@ -4631,7 +5402,7 @@ export interface components {
              * @enum {string}
              */
             source_type: "content";
-            /** @description JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. */
+            /** @description JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow. String values that are empty or whitespace-only are rejected. */
             content: unknown;
         };
         /**
@@ -4834,8 +5605,8 @@ export interface components {
             /** @description Server-owned identity attestation when this Source contains an enforced-mode Handoff Receipt. */
             receipt_identity?: components["schemas"]["HandoffReceiptIdentity"];
             scope_id: string;
-            /** @enum {string} */
-            source_type: "content";
+            /** @description Built-in content or a registered Source Observation type. */
+            source_type: string;
             source_id: string;
             /** @description Persisted canonical JSON content. */
             content: unknown;
@@ -4861,8 +5632,7 @@ export interface components {
         CaptureStatus: "accepted";
         /** @enum {string} */
         BaseArtifactFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
-        /** @enum {string} */
-        ArtifactReadFamily: "memory" | "atomic-memory" | "experience" | "skill" | "handoff" | "profile" | "prompt" | "topic-memory";
+        ArtifactReadFamily: string;
         /** @enum {string} */
         StatsPeriod: "today" | "7d" | "30d";
         /** @enum {string} */
@@ -5200,6 +5970,183 @@ export interface components {
             /** @default [] */
             versions: components["schemas"]["Candidate"][];
         };
+        SourceCapabilityQuery: {
+            scope_id: string;
+            capability?: string;
+            instance_id?: string;
+            input?: {
+                [key: string]: unknown;
+            };
+        };
+        SourceWritePluginLoadRequest: {
+            id: string;
+            entry: string;
+        };
+        SourceWritePluginState: {
+            id: string;
+            entry: string;
+            capabilities: {
+                [key: string]: unknown;
+            }[];
+        };
+        SourceAddRequest: {
+            scope_id: string;
+            capability: string;
+            capability_version: string;
+            instance_id?: string;
+            input: {
+                [key: string]: unknown;
+            };
+        };
+        SourceStatusRequest: {
+            scope_id: string;
+            target_id: string;
+            /**
+             * @default result
+             * @enum {string}
+             */
+            view: "result" | "control";
+        };
+        SourceInstanceSetEnabledRequest: {
+            instance_id: string;
+            enabled: boolean;
+        };
+        SourceConfigureRequest: {
+            /** @default false */
+            update: boolean;
+            registration: {
+                [key: string]: unknown;
+            };
+        };
+        SourceCapabilityResponse: {
+            capabilities: {
+                [key: string]: unknown;
+            }[];
+            /** @enum {string} */
+            management: "not-configured" | "online" | "unavailable";
+        };
+        SourceInstancesResponse: {
+            instances: {
+                [key: string]: unknown;
+            }[];
+            capabilities?: {
+                [key: string]: unknown;
+            }[];
+            /** @enum {string} */
+            management?: "not-configured" | "online" | "unavailable";
+        };
+        SourceCollectionResult: {
+            /** @enum {string} */
+            outcome: "saved" | "unchanged";
+            source_refs: components["schemas"]["SourceTypeReference"][];
+        };
+        SourceManagementReceipt: {
+            target_id?: string;
+            /** @enum {string} */
+            tracking?: "enabled" | "stopping" | "stopped";
+            result?: components["schemas"]["SourceCollectionResult"];
+            error?: string;
+            instance_id?: string;
+            capability?: string;
+            capability_version?: string;
+            /** @enum {string} */
+            availability?: "online" | "offline" | "unavailable";
+            updated_at?: string;
+            /** @enum {string} */
+            kind?: "collect" | "write";
+            enabled?: boolean;
+            /** @description Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history. */
+            source_refs?: components["schemas"]["SourceTypeReference"][];
+            /** @description Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses. */
+            last_submitted_at?: string | null;
+        };
+        SourceInstanceStatus: {
+            targets_initialized?: boolean;
+            target_id?: string;
+            instance_id: string;
+            enabled?: boolean;
+            actual?: string;
+            run_id?: string | null;
+            availability?: string;
+            reused?: boolean;
+        };
+        SourceChannelOpen: {
+            protocol: string;
+            deployment_id: string;
+            manager_id: string;
+        };
+        SourceChannelRequest: {
+            generation: string;
+            message_id?: string;
+            response?: {
+                [key: string]: unknown;
+            };
+            catalog?: {
+                [key: string]: unknown;
+            };
+        };
+        SourceChannelResponse: {
+            generation?: string;
+            protocol?: string;
+            confirmed?: boolean;
+            messages?: {
+                [key: string]: unknown;
+            }[];
+        };
+        SourceInstanceExchangeRequest: {
+            generation?: string;
+            protocol?: string;
+            message_id?: string;
+            execution_location?: string;
+            configuration_digest?: string;
+            run_id?: string;
+            execution?: string;
+            target_id?: string;
+            capabilities?: {
+                [key: string]: unknown;
+            }[];
+            response?: {
+                [key: string]: unknown;
+            };
+            owner?: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            status?: "running" | "complete" | "completed" | "pending" | "failed" | "stopped" | "cleanup-failed";
+            /** @description One confirmed Source submission reported by the Runtime; not a batch or historical reference list. */
+            source_refs?: components["schemas"]["SourceTypeReference"][];
+            error?: string;
+            targets?: {
+                [key: string]: unknown;
+            }[];
+            cursor?: string;
+            owner_exited?: boolean;
+            previous_owner?: {
+                [key: string]: unknown;
+            };
+            submitted_at?: string;
+        };
+        SourceInstanceExchangeResponse: {
+            [key: string]: unknown;
+        };
+        SourceTargetSetEnabledRequest: {
+            scope_id: string;
+            target_id: string;
+            enabled: boolean;
+        };
+        SourceInstancesQuery: {
+            scope_id?: string;
+            capability?: string;
+            instance_id?: string;
+            input?: {
+                [key: string]: unknown;
+            };
+            /**
+             * @default discovery
+             * @enum {string}
+             */
+            view: "discovery" | "control";
+        };
     };
     responses: {
         /** @description This response requires a coordinated client supporting Dream contract 2. Upgrade the Python SDK, CLI or integration and send X-PowerContext-Dream-Contract: 2. Original operations and compatible candidate shapes remain available without the header. */
@@ -5349,6 +6296,38 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_recall_manifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecallManifestRequest"];
+            };
+        };
+        responses: {
+            /** @description Operation completed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecallManifestResponse"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     list_atomic_memories: {
         parameters: {
             query?: never;
@@ -5780,6 +6759,217 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_artifact_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable registration states. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable registration state without plugin configuration secrets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    enable_all_artifact_plugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-plugin acceptance, skip or failure results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnableAllArtifactPluginsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    reload_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReloadArtifactPluginRequest"];
+            };
+        };
+        responses: {
+            /** @description Definition saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    enable_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    disable_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    unload_artifact_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                binding_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeArtifactPluginStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Target saved; poll its registration state until transition completes. */
+            202: {
+                headers: {
+                    /** @description Registration status URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };
     };
@@ -6372,11 +7562,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PreparedContext"];
+                    "application/json": components["schemas"]["PrepareContextResult"];
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    check_context: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckContextRequest"];
+            };
+        };
+        responses: {
+            /** @description A phase-specific allow, block, or withhold decision; HTTP success alone is not approval. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextCheckResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The complete payload exceeds the configured admission limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];
@@ -8506,7 +9735,7 @@ export interface operations {
             header?: never;
             path: {
                 scope_id: string;
-                source_type: "content";
+                source_type: string;
                 source_id: string;
             };
             cookie?: never;
@@ -9328,6 +10557,436 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCapabilityQuery"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceCapabilityResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceAddRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceManagementReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceManagementReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_target_set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTargetSetEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceManagementReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_instances: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceInstancesQuery"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstancesResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    pc_source_instance_set_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceInstanceSetEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstanceStatus"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_configure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceConfigureRequest"];
+            };
+        };
+        responses: {
+            /** @description Confirmed Source management result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstanceStatus"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    load_source_write_plugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceWritePluginLoadRequest"];
+            };
+        };
+        responses: {
+            /** @description The Server has loaded and persisted the executable write capabilities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceWritePluginState"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_open: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelOpen"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_poll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_reply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_channel_close: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description Channel exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceChannelResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    source_instance_exchange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: string;
+                operation: "owner" | "connect" | "poll" | "reply" | "sync" | "execution" | "results" | "stopped-targets" | "close";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceInstanceExchangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Instance control exchange. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceInstanceExchangeResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };

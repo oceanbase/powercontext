@@ -114,7 +114,7 @@ async def _open_store(tmp_path: Path, backend: str, *, vector: bool) -> AsyncIte
             pytest.importorskip("pylibseekdb")
             # Unix socket paths must fit sockaddr_un even in deeply nested CI
             # workspaces. Both profiles own separate engines and native handles.
-            directory = stack.enter_context(TemporaryDirectory(prefix="pc-integrity-", dir="/tmp"))
+            directory = stack.enter_context(TemporaryDirectory(prefix="pc-integrity-", dir="/var/tmp"))
             seekdb_config = SeekDBConfig(path=Path(directory) / "db")
             index = CompositeTopicMemoryIndex(
                 OceanBaseTopicMemoryFTSIndex(), *((OceanBaseTopicMemoryVectorIndex(_PROFILE),) if vector else ())
@@ -159,6 +159,46 @@ async def _open_store(tmp_path: Path, backend: str, *, vector: bool) -> AsyncIte
             store.first = await store.publish(connection, None, "scope-a")
             await store.publish(connection, None, "scope-b")
         yield store
+
+
+@pytest.mark.parametrize("backend", [_SEEKDB, _OB])
+def test_mysql_topic_vector_bulk_publication_is_readable(tmp_path: Path, backend: str) -> None:
+    async def scenario() -> None:
+        async with _open_store(tmp_path, backend, vector=True) as store:
+            content = TopicMemoryContent(title="Batch", summary="Shared evidence", detail="Evidence " * 400)
+            plain = prepare_topic_memory_projection(content)
+            projection = prepare_topic_memory_projection(
+                content,
+                topic_embedding=_VECTOR,
+                chunk_embeddings=(_VECTOR,) * len(plain.chunks),
+                embedding_profile=_PROFILE,
+            )
+            items = tuple((f"bulk-{number}", TopicMemoryDraft(content=content), projection) for number in range(3))
+            async with store.database.transaction() as connection:
+                published = await store.repository.publish_creates(connection, "scope-a", items)
+            assert len(published) == 3
+            async with store.reader.transaction() as connection:
+                current = await store.repository.browse_current(connection, "scope-a", limit=20)
+                assert {item.artifact_ref.artifact_id for item in current} == {
+                    "shared-id",
+                    *(f"bulk-{number}" for number in range(3)),
+                }
+                result = await store.repository.search(
+                    connection,
+                    "scope-a",
+                    "evidence",
+                    limit=20,
+                    mode="vector",
+                    query_vector=_VECTOR,
+                    embedding_profile=_PROFILE,
+                )
+                assert {hit.artifact_ref.artifact_id for hit in result.hits} == {
+                    "shared-id",
+                    *(f"bulk-{number}" for number in range(3)),
+                }
+                await store.repository.initialize(connection, configure_retrieval_shape=False)
+
+    asyncio.run(scenario())
 
 
 class _ReadBarrier:

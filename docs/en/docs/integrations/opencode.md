@@ -83,3 +83,7 @@ powercontext doctor opencode
 
 The integration-specific doctor checks the OpenCode version, resolved plugin configuration, and the owned Skill.
 An unavailable Server does not block OpenCode and is checked separately by the default doctor command.
+
+## Automatic input privacy
+
+See [Automatic prompt privacy](index.md#automatic-prompt-privacy) for this host's capture default, disable control, credential recognition limits and independent read-only query handling. Recognized inputs are skipped for capture; accepted Source content and event identity are not rewritten.

@@ -3,6 +3,11 @@
 Source, data locks, configuration, documentation, and tests for the LongMemEval-V2 suite live here.
 The suite is installed through the shared `evaluation/` environment and provides the independent `longmemeval-v2` command.
 
+The evaluation-only `lineage-fixture` command measures Scope-local lineage concentration,
+near-duplicate occupancy and final Context fact coverage using disposable native backends.
+See [the fixture and report contract](docs/lineage-occupancy.md) /
+[中文说明](docs/lineage-occupancy.zh.md) for prerequisites, commands and interpretation.
+
 ## LongMemEval-V2 smoke workload
 
 The LongMemEval-V2 commands run a fixed ten-question smoke subset end to end: preflight

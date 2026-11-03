@@ -35,8 +35,10 @@ import tempfile
 import threading
 import time
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import IO
+from typing import IO, TextIO
 
 
 class HarnessFailure(RuntimeError):
@@ -132,6 +134,46 @@ async def forward_with_response_gate(app, scope, receive, send, gate):
         await send(message)
 
 
+def measured_requests(app):
+    """Observe synthetic HTTP completion without recording request content."""
+    request_number = 0
+
+    async def measured_proxy(scope, receive, send):
+        nonlocal request_number
+        if scope["type"] != "http":
+            await app(scope, receive, send)
+            return
+        request_number += 1
+        number = request_number
+        started = time.perf_counter()
+        status = None
+        complete = False
+        print(json.dumps({"request": number, "phase": "start", "method": scope["method"]}), flush=True)
+
+        async def observed_send(message):
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+            await send(message)
+
+        try:
+            await app(scope, receive, observed_send)
+            complete = True
+        finally:
+            print(
+                json.dumps({
+                    "request": number,
+                    "phase": "finish",
+                    "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                    "status": status,
+                    "complete": complete,
+                }),
+                flush=True,
+            )
+
+    return measured_proxy
+
+
 def serve(config_path: Path) -> None:
     config = json.loads(config_path.read_text(encoding="utf-8"))
     sys.path.insert(0, config["wheel_root"])
@@ -175,10 +217,10 @@ def serve(config_path: Path) -> None:
 
     server = uvicorn.Server(
         uvicorn.Config(
-            proxy,
+            measured_requests(proxy),
             host="127.0.0.1",
             port=config["port"],
-            log_level="critical",
+            log_level=config.get("uvicorn_log_level", "critical"),
             access_log=False,
             ssl_keyfile=config["key"] if config["tls"] else None,
             ssl_certfile=config["certificate"] if config["tls"] else None,
@@ -196,12 +238,15 @@ def serve(config_path: Path) -> None:
         if not config.get("provider"):
             await server.serve()
             return
+        from powercontext.builtin.persistence.migrations.server_readiness import prepare_server_storage
         from powercontext.server.authz import PrincipalRef
         from powercontext.server.authz.composition import open_builtin_access_control
         from powercontext.server.settings import AccessControlConfig
 
         admin = PrincipalRef(type="service", id="desktop-fixture-admin")
 
+        # Bootstrap the complete Server before the separate Access context opens it.
+        await asyncio.to_thread(prepare_server_storage, settings)
         async with open_builtin_access_control(
             settings.database, bootstrap_administrators=(admin,), deployment_id="desktop-fixture"
         ) as access:
@@ -223,6 +268,66 @@ def control_pipe(process: subprocess.Popen[bytes]) -> IO[bytes]:
         process.wait(timeout=10)
         raise HarnessFailure("missing_control_pipe")
     return process.stdin
+
+
+@contextmanager
+def retained_fixture_server(
+    process: subprocess.Popen[bytes],
+    log: TextIO,
+    log_path: Path,
+    artifact_dir: Path,
+    *,
+    label: str,
+    port: int,
+    wheel_sha256: str,
+) -> Iterator[None]:
+    """Retain bounded synthetic diagnostics before either harness removes storage."""
+    control = control_pipe(process)
+    report = {
+        "pid": process.pid,
+        "port": port,
+        "wheel_sha256": wheel_sha256,
+        "outcome": "failed",
+        "forced_kill": False,
+    }
+    try:
+        yield
+        report["outcome"] = "passed"
+    except BaseException as error:
+        report["exception_type"] = type(error).__name__
+        error.add_note(f"Fixture {label} Server pid={process.pid}, port={port}")
+        raise
+    finally:
+        report["before_cleanup_returncode"] = process.poll()
+        try:
+            if process.poll() is None:
+                with suppress(BrokenPipeError):
+                    control.write(b"stop\n")
+                    control.flush()
+                try:
+                    process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    report["forced_kill"] = True
+                    process.kill()
+                    process.wait(timeout=10)
+        finally:
+            report["after_cleanup_returncode"] = process.poll()
+            with suppress(BrokenPipeError):
+                control.close()
+            # Databases, credentials and configuration stay in disposable storage.
+            try:
+                log.flush()
+                with log_path.open("rb") as source:
+                    size = source.seek(0, os.SEEK_END)
+                    source.seek(max(0, size - 256 * 1024))
+                    tail = source.read(256 * 1024)
+                report["log_bytes"] = size
+                report["log_truncated"] = size > len(tail)
+                retained = Path(tempfile.mkdtemp(prefix=label + "-", dir=artifact_dir))
+                (retained / "server.log").write_bytes(tail)
+                (retained / "process.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+            except OSError:
+                print("Fixture Server diagnostics could not be retained.", file=sys.stderr)
 
 
 def main() -> None:
@@ -269,6 +374,7 @@ def main() -> None:
                 "prefix": prefix,
                 "port": port,
                 "tls": tls,
+                "uvicorn_log_level": "warning",
                 "key": str(temp / "server-key.pem"),
                 "certificate": str(temp / "server.pem"),
             }
@@ -290,81 +396,78 @@ def main() -> None:
                     env=allowed_env,
                     creationflags=flags,
                 )
-                control = control_pipe(process)
                 context = ssl.create_default_context(cafile=str(temp / "ca.pem")) if tls else True
-                try:
-                    with httpx.Client(
+                with (
+                    retained_fixture_server(
+                        process,
+                        log,
+                        case / "server.log",
+                        artifact_dir,
+                        label=f"real-server-{mode}",
+                        port=port,
+                        wheel_sha256=hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                    ),
+                    httpx.Client(
                         base_url=endpoint,
                         verify=context,
                         trust_env=False,
                         timeout=3,
                         headers={"Authorization": f"Bearer {token}"} if token else {},
-                    ) as client:
-                        for _ in range(100):
-                            if process.poll() is not None:
-                                raise HarnessFailure(
-                                    "startup", (case / "server.log").read_text(encoding="utf-8")[-3000:]
-                                )
-                            try:
-                                if client.get("/health/ready").status_code == 200:
-                                    break
-                            except httpx.HTTPError:
-                                pass
-                            time.sleep(0.2)
-                        else:
-                            raise HarnessFailure("readiness_timeout")
-                        result = client.post(
-                            "/v1/scopes",
-                            json={
-                                "title": "Desktop synthetic fixture",
-                                "summary": "Dedicated no-model validation",
-                                "idempotency_key": "desktop-fixture-scope",
-                            },
-                        )
-                        result.raise_for_status()
-                        scope_id = result.json()["scope_id"]
-                        fixture = {
-                            "compatibility_profile": compatibility,
-                            "response_loss_path": config["response_loss_path"],
-                            "reader_token": config["reader_token"] if config["provider"] else None,
-                            "identity_change_path": config["identity_change_path"] if config["provider"] else None,
-                            "endpoint": endpoint,
-                            "scope_id": scope_id,
-                            "token": token,
-                            "ca_pem": (temp / "ca.pem").read_text(encoding="utf-8") if tls else None,
-                        }
-                        fixture_path = case / "client.json"
-                        fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
-                        probe = subprocess.run(
-                            [str(executable), str(fixture_path)],
-                            capture_output=True,
-                            text=True,
-                            timeout=120,
-                            creationflags=flags,
-                        )
-                        if probe.returncode:
-                            raise HarnessFailure(mode, probe.stderr[-2000:])
-                        client.get("/health/live").raise_for_status()
-                        reports.append({
-                            "mode": mode,
-                            "result": "passed",
-                            "serverAliveAfterClientExit": True,
-                            "committedWriteWithLostResponseUnknownWithoutReplay": True,
-                            "providerIdentityChangeInvalidatesContext": bool(config["provider"]),
-                            "sameIdentityRevocationDeniesExactMemoryRead": bool(config["provider"]),
-                            "sameTitleScopePagination51": bool(config["provider"]),
-                            "performance": probe_measurement(probe.stdout),
-                        })
-                finally:
-                    if process.poll() is None:
-                        control.write(b"stop\n")
-                        control.flush()
+                    ) as client,
+                ):
+                    for _ in range(100):
+                        if process.poll() is not None:
+                            raise HarnessFailure("startup", (case / "server.log").read_text(encoding="utf-8")[-3000:])
                         try:
-                            process.wait(timeout=30)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                            process.wait(timeout=10)
-                    control.close()
+                            if client.get("/health/ready").status_code == 200:
+                                break
+                        except httpx.HTTPError:
+                            pass
+                        time.sleep(0.2)
+                    else:
+                        raise HarnessFailure("readiness_timeout")
+                    result = client.post(
+                        "/v1/scopes",
+                        json={
+                            "title": "Desktop synthetic fixture",
+                            "summary": "Dedicated no-model validation",
+                            "idempotency_key": "desktop-fixture-scope",
+                        },
+                    )
+                    result.raise_for_status()
+                    scope_id = result.json()["scope_id"]
+                    fixture = {
+                        "compatibility_profile": compatibility,
+                        "response_loss_path": config["response_loss_path"],
+                        "reader_token": config["reader_token"] if config["provider"] else None,
+                        "identity_change_path": config["identity_change_path"] if config["provider"] else None,
+                        "endpoint": endpoint,
+                        "scope_id": scope_id,
+                        "token": token,
+                        "ca_pem": (temp / "ca.pem").read_text(encoding="utf-8") if tls else None,
+                    }
+                    fixture_path = case / "client.json"
+                    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+                    probe = subprocess.run(
+                        [str(executable), str(fixture_path)],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        creationflags=flags,
+                    )
+                    if probe.returncode:
+                        raise HarnessFailure(mode, probe.stderr[-2000:])
+                    client.get("/health/live").raise_for_status()
+                    reports.append({
+                        "mode": mode,
+                        "result": "passed",
+                        "serverAliveAfterClientExit": True,
+                        "committedWriteWithLostResponseUnknownWithoutReplay": True,
+                        "providerIdentityChangeInvalidatesContext": bool(config["provider"]),
+                        "sameIdentityRevocationDeniesExactMemoryRead": bool(config["provider"]),
+                        "sameTitleScopePagination51": bool(config["provider"]),
+                        "performance": probe_measurement(probe.stdout),
+                    })
     report = {
         "environment": {
             "os": platform.platform(),

@@ -108,3 +108,22 @@ def test_cleanup_failure_does_not_replace_the_migration_error(tmp_path: Path, mo
     assert error.value is failure
     with local_migration_lock(target):
         pass
+
+
+def test_startup_lock_probe_does_not_create_or_modify_files(tmp_path):
+    from powercontext.builtin.persistence.migrations.locking import assert_no_local_migration
+
+    target = tmp_path / "absent" / "database"
+    assert_no_local_migration(target)
+    assert not list(tmp_path.iterdir())
+    target = tmp_path / "database"
+    lock_path = target.with_name(target.name + ".pc-migration.lock")
+    with local_migration_lock(target):
+        original = lock_path.read_bytes()
+        before = lock_path.stat()
+        with pytest.raises(MigrationError, match="migration_locked"):
+            assert_no_local_migration(target)
+        assert lock_path.read_bytes() == original
+        assert lock_path.stat().st_mtime_ns == before.st_mtime_ns
+    assert_no_local_migration(target)
+    assert not target.exists()

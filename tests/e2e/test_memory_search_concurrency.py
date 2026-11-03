@@ -35,8 +35,10 @@ from powercontext.builtin.artifacts.memory.reranking import MemoryRerankText
 from powercontext.builtin.inference import EmbeddingResult, InferenceUsage
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     BuiltinConfig,
+    RuntimeConfig,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
@@ -249,3 +251,53 @@ def _database_config(
         return OceanBaseConfig(url=SecretStr(url))
 
     return SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / f'memory-search-{mode}.db'}")
+
+
+@pytest.mark.parametrize("operation", ["create", "create_artifact", "replace", "merge", "restore"])
+def test_explicit_memory_writes_complete_while_generation_capacity_is_occupied(operation: str) -> None:
+    async def scenario() -> None:
+        reranker = _PausingReranker()
+        async with open_builtin_runtime(
+            BuiltinConfig(runtime=RuntimeConfig(generation_concurrency=1)), memory_reranker=reranker
+        ) as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Explicit writes", summary="Independent of generation", idempotency_key="writes")
+            )
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            records = runtime.records.for_scope(scope.scope_id)
+            initial = await memory.create((
+                AtomicMemoryContent(kind="fact", text="Stable searchable fact."),
+                AtomicMemoryContent(kind="fact", text="Another stable fact."),
+            ))
+            original = initial.records[0]
+            if operation == "restore":
+                await memory.forget(original.ref.artifact_id, expected_revision=1, expected_state_version=0)
+            searching = asyncio.create_task(memory.search("stable", mode="text", limit=1))
+            try:
+                await asyncio.wait_for(reranker.paused.wait(), timeout=TIMEOUT_SECONDS)
+                content = AtomicMemoryContent(kind="fact", text="Explicitly saved fact.")
+                write = ArtifactWrite(content=content.model_dump(mode="json", exclude_none=True))
+                if operation == "create":
+                    pending = memory.create((content,))
+                elif operation == "create_artifact":
+                    pending = records.create_artifact("atomic-memory", write)
+                elif operation == "replace":
+                    pending = records.replace_artifact("atomic-memory", original.ref.artifact_id, '"revision:1"', write)
+                elif operation == "merge":
+                    pending = memory.merge(tuple(item.as_read() for item in initial.records), content)
+                else:
+                    pending = memory.restore(original.ref.artifact_id)
+                await asyncio.wait_for(pending, timeout=2)
+                assert not searching.done()
+                current = (await memory.list()).items
+                assert any(
+                    item.artifact.content.text
+                    == (original.artifact.content.text if operation == "restore" else content.text)
+                    for item in current
+                )
+            finally:
+                reranker.resume.set()
+                await asyncio.wait_for(searching, timeout=TIMEOUT_SECONDS)
+
+    asyncio.run(scenario())

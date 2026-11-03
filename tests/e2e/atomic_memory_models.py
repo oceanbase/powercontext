@@ -40,7 +40,7 @@ def independent_atomic_memory_model(text: str, *, kind: str = "decision") -> Fun
             value = {
                 "action": "create",
                 "compared_ids": [item["item_id"] for item in request["related"]],
-                "content": {"kind": proposal["kind"], "text": proposal["text"]},
+                "content": {"kind": proposal["kind"], "text": proposal["text"], "description": proposal["description"]},
                 "evidence_ids": proposal["evidence_ids"],
                 "reason": "Preserve the independent host workflow fact.",
             }
@@ -50,6 +50,7 @@ def independent_atomic_memory_model(text: str, *, kind: str = "decision") -> Fun
                     {
                         "kind": kind,
                         "text": text,
+                        "description": "Independent workflow fact",
                         "evidence_ids": [request["evidence"][0]["evidence_id"]],
                     }
                 ]

@@ -27,12 +27,23 @@ export const memoryMessages = {
     noScope: "请先启用连接并选择精确范围。",
     hint: "保存为纯文本笔记。Enter 用于换行，点击按钮才会提交。",
     empty: "请输入非空正文。",
-    success: "保存成功。",
-    noEntry:
-      "保存操作成功，Server 未返回可打开的记忆；不据此认定创建了新记录。",
+    savedSection: "本次保存返回的记录",
+    savedReturned: (count: number) => `保存成功。Server 返回 ${count} 条记录。`,
+    savedOpen: "每条都可以直接打开其精确版本。",
+    openSaved: "打开保存的记录",
+    noEntry: "保存成功。Server 未返回可打开的记忆；不据此认定创建了新记录。",
     unknown:
       "提交结果未知。请不要直接重复保存；可以回到原连接和范围查询，但相同文字不能证明本次提交成功。",
     retry: "上次提交结果未知，再次保存可能产生重复记录。仍要提交这次输入吗？",
+    recovery: "提交草稿恢复",
+    submittedText: "原始提交文本",
+    recoveryHint:
+      "原始输入仅在当前窗口内保留，供手动复制，不会自动提交到新目标。关闭窗口会丢失这些草稿。",
+    unconfirmed:
+      "这次尝试未取得提交回执。请核对原目标后再决定是否重新提交；之前的未知提交仍需单独核查。",
+    discardSubmitted: "丢弃提交文本",
+    discardSubmittedConfirm:
+      "丢弃保留的原始输入吗？这不会撤销提交或修改 Server 上的记录。",
     failed: "保存未完成，输入已保留。",
     original: "上次提交目标",
     pending: "原目标的提交仍在进行。",
@@ -82,13 +93,26 @@ export const memoryMessages = {
     noScope: "Activate a connection and select an exact scope first.",
     hint: "Save as a plain-text note. Enter adds a line; only the button submits.",
     empty: "Enter nonblank text.",
-    success: "Saved successfully.",
+    savedSection: "Records returned by this save",
+    savedReturned: (count: number) =>
+      `Saved successfully. ${count} record${count === 1 ? "" : "s"} returned.`,
+    savedOpen: "Each can open its exact revision directly.",
+    openSaved: "Open saved record",
     noEntry:
-      "The save succeeded, but the Server returned no memory to open. This does not establish that a new record was created.",
+      "Saved successfully. The Server returned no memory to open; this does not establish that a new record was created.",
     unknown:
       "The submission outcome is unknown. Avoid saving again immediately. You can inspect the original connection and scope, but matching text does not prove this submission succeeded.",
     retry:
       "The last submission has an unknown outcome. Saving again may create a duplicate. Submit this input anyway?",
+    recovery: "Submitted draft recovery",
+    submittedText: "Original submitted text",
+    recoveryHint:
+      "Original inputs stay in this window for manual copying and are never submitted to a new target automatically. Closing the window loses these drafts.",
+    unconfirmed:
+      "No submission receipt was received for this attempt. Inspect the original target before resubmitting; any earlier unknown submission still needs separate verification.",
+    discardSubmitted: "Discard submitted text",
+    discardSubmittedConfirm:
+      "Discard the retained original input? This does not undo the submission or change records on the Server.",
     failed: "Saving did not complete; your input is preserved.",
     original: "Previous submission target",
     pending: "Submission to the original target is still in progress.",

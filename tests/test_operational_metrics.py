@@ -186,9 +186,10 @@ def test_collection_cost_and_labels_depend_on_registered_families_not_scope_coun
     assert abs(len(metrics.render().decode()) - size) < 100
 
 
+@pytest.mark.parametrize("prior_failure", [False, True])
 @pytest.mark.parametrize("observation_failure", ["error", "timeout"])
 def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # noqa: C901 - lifecycle regression
-    tmp_path, monkeypatch, observation_failure
+    tmp_path, monkeypatch, observation_failure, prior_failure
 ):
     # Fault injection is confined to the worker boundary. API, runtime, database,
     # supervisor, durable requests and Prometheus rendering are real components.
@@ -214,12 +215,23 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
 
         class Intents(ArtifactProcessingIntentRepository):
             fail_observation = False
+            fail_once = False
+            hold_next = False
+            observation_entered = asyncio.Event()
+            release_observation = asyncio.Event()
 
             async def pending_observation(self, connection, binding_name):
+                if self.fail_once:
+                    self.fail_once = False
+                    raise RuntimeError("earlier pending observation failure")  # noqa: TRY003
                 if self.fail_observation:
                     if observation_failure == "timeout":
                         await asyncio.Event().wait()
                     raise RuntimeError("isolated pending observation failure")  # noqa: TRY003
+                if self.hold_next:
+                    self.hold_next = False
+                    self.observation_entered.set()
+                    await self.release_observation.wait()
                 return await super().pending_observation(connection, binding_name)
 
         intents = Intents()
@@ -261,19 +273,41 @@ def test_healthy_combined_api_exposes_idle_stalled_and_stopped_processing(  # no
                 _assert_no_exact_pending_age(stalled)
                 assert _value(stalled, "artifact_processing_oldest_observed_pending_age_seconds", family="memory") >= 0
 
+            if prior_failure:
+
+                async def prepare_inflight_observation():
+                    # Reproduce an earlier failure followed by a successful read
+                    # that is still in flight when fault injection begins.
+                    intents.fail_once = True
+                    intents.hold_next = True
+                    await asyncio.wait_for(intents.observation_entered.wait(), 3)
+
+                client.portal.call(prepare_inflight_observation)
+
             async def fail_observation():
+                failures_before = supervisor.family_status["memory"]["pending_observation_failures"]
                 intents.fail_observation = True
+                intents.release_observation.set()
                 async with asyncio.timeout(3):
-                    while supervisor.family_status["memory"]["pending_observation_failures"] == 0:  # noqa: ASYNC110
-                        await asyncio.sleep(0.01)
-                    # A successful read already in flight when the flag changed
-                    # may publish first. After one failure, the cache is stable.
-                    previous = supervisor.family_status["memory"]
                     while (  # noqa: ASYNC110
-                        supervisor.family_status["memory"]["pending_observation_failures"]
-                        == previous["pending_observation_failures"]
+                        supervisor.family_status["memory"]["pending_observation_failures"] == failures_before
                     ):
                         await asyncio.sleep(0.01)
+                    # A successful read already in flight when the flag changed
+                    # may publish first. Wait for a new failure, then let the cached
+                    # snapshot timestamp settle before comparing it with metrics.
+                    stable_for = 0.0
+                    previous = supervisor.family_status["memory"]
+                    while stable_for < 0.5:
+                        await asyncio.sleep(0.02)
+                        current = supervisor.family_status["memory"]
+                        if (
+                            current["requested_snapshot_timestamp_seconds"]
+                            == previous["requested_snapshot_timestamp_seconds"]
+                        ):
+                            stable_for += 0.02
+                        else:
+                            previous, stable_for = current, 0.0
                 return previous
 
             previous = client.portal.call(fail_observation)

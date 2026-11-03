@@ -45,11 +45,16 @@ MAX_TOPIC_MEMORY_WORK_TOKENS = 64_000_000
 
 # Recorded rejections a later attempt can still clear. ``related_history_limit`` is
 # measured against the *generated* proposals' secondary candidates, so the next
-# generation can be narrow enough to fit the stage limit. Such a code is kept on the
-# row for diagnosis but must not end the frontier: the window that hit it is the only
-# way forward for every later Source in the Scope. The ceilings above still bound how
-# many retries it may spend.
-RECOVERABLE_TOPIC_MEMORY_REJECTIONS = frozenset({"related_history_limit"})
+# generation can be narrow enough to fit the stage limit. Invalid generated content
+# must leave the Window pending, and a fresh bounded attempt may generate valid content.
+# Such a code is kept on the row for diagnosis but must not end the frontier: the window
+# that hit it is the only way forward for every later Source in the Scope. The ceilings
+# above still bound how many retries it may spend.
+RECOVERABLE_TOPIC_MEMORY_REJECTIONS = frozenset({
+    "related_history_limit",
+    "invalid_topic_placeholder",
+    "invalid_topic_coordination_content",
+})
 
 
 def exhausted_reason(row: Mapping[Any, Any]) -> str:

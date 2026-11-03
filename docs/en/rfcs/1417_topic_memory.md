@@ -396,6 +396,40 @@ The server holds the target ArtifactRef for an UpdateWorkItem and generates the 
 The server also determines the operation type, Revision, lineage, and publication state. NOOP stores neither an entity
 nor a reason; logs may record only the code-known `no_change` and processing context.
 
+## Generated content admission
+
+Final proposals pass conservative content admission before secondary retrieval and again after reconciliation, before
+projection preparation. Recognizable numbered placeholder bodies and identity-coordination-only boilerplate reject
+the whole Window. The checks use cited canonical evidence, selected exact history and server-issued IDs; identifiers
+alone, short text, stopwords, and lexical dissimilarity are not rejection criteria. Ordinary identity-preservation rules need no literal match to evidence. Template detection additionally requires
+generated section labels or supplied internal IDs within the bounded boilerplate vocabulary; coordination language
+alone is insufficient. Common sentence endings, paired emphasis, whole-field inline code, and block quotes do not exempt numbered
+placeholder templates. Quote support first checks the original field, then permits removal of these outer display
+wrappers without deleting punctuation or joining evidence fields. Known stage IDs, including work, component, and
+temporary proposal IDs, remain available to admission after compaction and reconciliation. For quoted templates, summary and detail may match different cited Sources or the selected
+exact history. Titles need no special keywords; uncited Sources and unselected history cannot supply quote support.
+Pure numbered placeholder bodies are still rejected. This is not a general grounding verifier or a proof of semantic quality.
+
+`invalid_topic_placeholder` and `invalid_topic_coordination_content` are recorded recoverable generation rejections.
+They preserve heads, projections and the Source cursor; subsequent attempts consume the same durable allowance.
+Exhaustion follows the existing terminal-frontier policy. A rejection cannot be filtered into a successful NOOP or
+partially publish a Window. Ordinary empty results keep normal NOOP semantics. No additional model calls are required.
+Admission inspects only the current bounded proposals, Window evidence and selected history; it performs no Scope scan.
+Evidence normalization is shared within a validation batch. Topic content and persistence schemas are unchanged.
+
+All seven built-in stage prompts include concrete-content guidance, evidence boundaries and stage-specific empty
+output rules. Their built-in versions are `v2`; custom invariants retain the same content requirements, and custom
+examples use the runtime admission policy. Auto compilation and other Artifact families remain unchanged. All token
+budgets account for the actual selected instructions and schemas. Direct generic writes and stored historical revisions
+retain their existing contracts; automatic historical repair is outside this processing operation.
+
+Custom demonstration checks use only explicit evidence bodies and the selected historical Topic as support for
+quoted templates. Intermediate proposals carry references, not Source evidence. In `reduce`, `reconcile`, or an
+`evolve` example without sufficient explicit evidence or selected history, a template quotation is rejected even
+when it repeats intermediate input. Use concrete explanatory content instead, or supply supporting evidence where
+the stage input permits it. Ordinary business content remains allowed. Saved custom Prompts are checked again when
+resolved; unsupported examples fail with `prompt_definition_incompatible`. Example JSON and stage schemas are unchanged.
+
 ## Detail chunks and deployment-enabled retrieval channels
 
 Public TopicMemoryContent stores only `title`, `summary`, and `detail`. A Detail chunk is a rebuildable internal

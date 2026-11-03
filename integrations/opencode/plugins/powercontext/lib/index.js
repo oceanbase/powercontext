@@ -69,6 +69,17 @@ var ServerResponseError = class extends ClientError {
 //#endregion
 //#region src/operations.generated.ts
 const OPERATIONS = {
+	get_recall_manifest: {
+		method: "POST",
+		path: "/v1/recall/manifest",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_atomic_memories: {
 		method: "POST",
 		path: "/v1/atomic-memory/list",
@@ -221,6 +232,83 @@ const OPERATIONS = {
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_artifact_plugins: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_plugin: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins/{binding_name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	enable_all_artifact_plugins: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/enable-all",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	reload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	enable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	disable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	unload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
 		emptyStatuses: []
 	},
 	get_capabilities: {
@@ -452,6 +540,39 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	check_context: {
+		method: "POST",
+		path: "/v1/context/check",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	prepare_bootstrap_context: {
+		method: "POST",
+		path: "/v1/context/bootstrap",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	record_bootstrap_delivery: {
+		method: "POST",
+		path: "/v1/context/bootstrap/receipts",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	create_work_contract: {
 		method: "POST",
 		path: "/v1/work/contracts/create",
@@ -579,6 +700,39 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "none",
 		pathParameters: ["scope_id", "family"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory_processing_status: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/status",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory_processing_block: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/blocks/get",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	retry_topic_memory_processing: {
+		method: "POST",
+		path: "/v1/topic-memory/processing/retry",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1181,6 +1335,36 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	resolve_artifact_handle: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifact-handles/{family}/{key}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"key"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	bind_artifact_handle: {
+		method: "PUT",
+		path: "/v1/scopes/{scope_id}/artifact-handles/{family}/{key}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"key"
+		],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_artifact: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
@@ -1429,6 +1613,160 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "none",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_capabilities: {
+		method: "POST",
+		path: "/v1/source-management/capabilities",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/source-management/add",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_status: {
+		method: "POST",
+		path: "/v1/source-management/status",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/target-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instances: {
+		method: "POST",
+		path: "/v1/source-management/instances",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instance_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/instance-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_configure: {
+		method: "POST",
+		path: "/v1/source-management/configure",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	load_source_write_plugin: {
+		method: "POST",
+		path: "/v1/source-management/write/load",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_open: {
+		method: "POST",
+		path: "/v1/source-management/channel/open",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_catalog: {
+		method: "POST",
+		path: "/v1/source-management/channel/catalog",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_poll: {
+		method: "POST",
+		path: "/v1/source-management/channel/poll",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_reply: {
+		method: "POST",
+		path: "/v1/source-management/channel/reply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_close: {
+		method: "POST",
+		path: "/v1/source-management/channel/close",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_instance_exchange: {
+		method: "POST",
+		path: "/v1/source-management/instances/{instance_id}/{operation}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["instance_id", "operation"],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1879,15 +2217,18 @@ async function requestMemoryOperation(client, operationId, payload, scopeId, sig
 //#region src/secrets.ts
 const SECRET_PATTERNS = [
 	/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/giu,
-	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?key|client[_ -]?secret|secret(?:[_ -]?key)?|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
+	/(?<![\w-])["']?\b(?:authorization|proxy-authorization|cookie|set-cookie)\b["']?[ \t]*[:=][ \t]*[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/giu,
+	/(?<![\w-])["']?\b(?:api[_ -]?key|access[_ -]?(?:key|token)|client[_ -]?secret|secret(?:[_ -]?key)?|private[_ -]?key|password|passwd|passphrase|token|authorization|cookie)\b["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|`[^`\r\n]*`|[^\s,;}\]]+)/giu,
 	/(?<![\w-])bearer\s+[A-Za-z0-9._~+/=-]{8,}(?![\w-])/giu,
 	/(?<![\w-])(?:sk-[A-Za-z0-9][A-Za-z0-9_-]{7,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})(?![\w-])/giu
 ];
-function scrubSecrets(text) {
+function scrubSecrets(text, authorization) {
+	const credential = authorization?.replace(/^Bearer\s+/iu, "");
+	if (credential) text = text.replaceAll(credential, "[REDACTED]");
 	return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, "[REDACTED]"), text);
 }
-function containsSecret(text) {
-	return scrubSecrets(text) !== text;
+function containsSecret(text, authorization) {
+	return scrubSecrets(text, authorization) !== text;
 }
 
 //#endregion
@@ -1957,9 +2298,9 @@ function errorResult(error) {
 		message: "PowerContext is unavailable; continue the task."
 	};
 }
-async function invokeOperation(client, operationId, payload, scopeId, signal) {
+function scopedPayload(operationId, payload, scopeId) {
 	const mode = OPERATIONS[operationId].scopeMode;
-	const body = mode === "selection" ? {
+	return mode === "selection" ? {
 		...payload,
 		selection: {
 			mode: "exact",
@@ -1969,6 +2310,9 @@ async function invokeOperation(client, operationId, payload, scopeId, signal) {
 		...payload,
 		scope_id: scopeId
 	} : payload;
+}
+async function invokeOperation(client, operationId, payload, scopeId, signal) {
+	const body = scopedPayload(operationId, payload, scopeId);
 	if (operationMutates(operationId) && hasSecret(body)) return {
 		ok: false,
 		code: "secret_rejected",
@@ -2016,6 +2360,25 @@ function validatePreparedContext(value, maxBytes) {
 		content: record.content,
 		content_bytes: Number(record.content_bytes)
 	};
+}
+const MAX_QUERY_CHARACTERS = 8192;
+const MAX_QUERY_BYTES = 8192;
+/**
+* Reduce a prompt to the recall query. A prompt within both bounds is sent as submitted, trimmed.
+* A longer prompt keeps its most recent text, which holds the turn in hand, cut between characters
+* so that the query fits both bounds and splits no character.
+*/
+function boundedRecallQuery(prompt) {
+	const characters = Array.from(prompt.trim());
+	let start = characters.length;
+	let bytes = 0;
+	while (start > 0 && characters.length - start < MAX_QUERY_CHARACTERS) {
+		const size = Buffer.byteLength(characters[start - 1], "utf8");
+		if (bytes + size > MAX_QUERY_BYTES) break;
+		bytes += size;
+		start -= 1;
+	}
+	return characters.slice(start).join("").trim();
 }
 
 //#endregion
@@ -2135,7 +2498,15 @@ async function flushThrough(runtime, scopeId, position, signal) {
 	} catch {}
 }
 async function capturePrompt(runtime, input) {
-	if (!runtime.config.capturePrompts || Buffer.byteLength(input.prompt, "utf8") > MAX_SOURCE_BYTES || containsSecret(input.prompt)) return;
+	const reason = !runtime.config.capturePrompts ? "capture_disabled" : Buffer.byteLength(input.prompt, "utf8") > MAX_SOURCE_BYTES ? "source_too_long" : containsSecret(input.prompt, runtime.config.authorization) ? "sensitive_content" : void 0;
+	if (reason) {
+		await runtime.log({
+			event: "capture_content_source",
+			outcome: "skipped",
+			reason
+		});
+		return;
+	}
 	try {
 		const position = sourcePosition((await runtime.client.request("capture_content_source", {
 			scope_id: input.scopeId,
@@ -2166,7 +2537,7 @@ async function prepareTurn(runtime, input) {
 		try {
 			const prepared = validatePreparedContext((await runtime.client.request("prepare_context", {
 				scope_id: context.scopeId,
-				query: input.prompt,
+				query: boundedRecallQuery(scrubSecrets(input.prompt, runtime.config.authorization)),
 				max_bytes: runtime.config.maxBytes,
 				...runtime.config.contextAssembly === void 0 ? {} : { assembly: runtime.config.contextAssembly }
 			}, signal)).value, runtime.config.maxBytes);

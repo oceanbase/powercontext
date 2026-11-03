@@ -51,6 +51,7 @@ from powercontext.server.authz.service import (
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 ADMIN = PrincipalRef(type="service", id="admin")
 VIEWER = PrincipalRef(type="user", id="viewer")
@@ -136,7 +137,7 @@ async def _isolated_database(backend: str, tmp_path: Path) -> AsyncIterator[Data
     if backend == "seekdb":
         if importlib.util.find_spec("pylibseekdb") is None:
             pytest.skip("install powercontext[seekdb] for the real embedded backend")
-        with TemporaryDirectory(prefix="pc-topic-", dir="/tmp") as directory:
+        with TemporaryDirectory(prefix="pc-topic-", dir="/var/tmp") as directory:
             yield SeekDBConfig(path=Path(directory) / "db")
         return
     configured_url = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
@@ -159,6 +160,19 @@ async def _server(
     tmp_path, provider, embedding, *, database=None, external_policy=None, access_factory=None, access_database=None
 ):
     database = database or SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'topics.db'}")
+    settings = ServerSettings(
+        database=database,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        access=AccessControlConfig(mode="enforced", deployment_id="topic-snapshot"),
+        metrics=MetricsConfig(enabled=False),
+        mcp=McpConfig(enabled=False),
+    )
+    await asyncio.to_thread(
+        prepare_server_database,
+        settings,
+        evidence_dir=tmp_path / "migration-evidence",
+        embedding_profile=embedding.profile,
+    )
     opener = open_casbin_access_control if provider == "casbin" else open_builtin_access_control
 
     async def evaluate(request):
@@ -200,13 +214,7 @@ async def _server(
         if access_factory is not None:
             access = await access_factory(access)
         app = create_server_app(
-            settings=ServerSettings(
-                database=database,
-                runtime=RuntimeConfig(artifact_processing_families=()),
-                access=AccessControlConfig(mode="enforced", deployment_id="topic-snapshot"),
-                metrics=MetricsConfig(enabled=False),
-                mcp=McpConfig(enabled=False),
-            ),
+            settings=settings,
             scheduler_path=tmp_path / "scheduler.db",
             authentication_provider=_Authentication(),
             access_control=access,

@@ -14,15 +14,20 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import socket
 import subprocess
+import sys
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
 from powercontext.service.adapters.launchd import LaunchdUserAdapter
-from powercontext.service.model import ServiceError, SupportState
+from powercontext.service.model import ProbeState, ServiceError, SupportState
+from powercontext.service.probe import probe_server
 from tests.native import test_personal_service_lifecycle as lifecycle
 
 
@@ -64,3 +69,40 @@ def test_native_startup_failure_preserves_diagnostics_after_cleanup(
     assert snapshot == {"retry_token_present": True, "retry_state": '{"attempts":[1]}'}
     assert "state = running\npid = 123" in (logs / "launchd-before-cleanup.log").read_text(encoding="utf-8")
     assert (logs / "launchd-process-sample.log").read_text(encoding="utf-8") == "Service process stack sample"
+
+
+@pytest.mark.parametrize("startup_raises", [False, True], ids=["normal-exit", "failed-start"])
+def test_native_startup_fault_drains_probes_and_releases_port(
+    monkeypatch: pytest.MonkeyPatch, startup_raises: bool
+) -> None:
+    port = lifecycle._unused_loopback_port()
+    address = ("127.0.0.1", port)
+    adapter = Mock()
+
+    def start(*, reload_definition: bool) -> None:
+        # The native manager boundary is modeled; port ownership and probes are real.
+        with socket.socket() as contender:
+            with pytest.raises(OSError) as conflict:
+                contender.bind(address)
+            assert conflict.value.errno == errno.EADDRINUSE
+        if startup_raises:
+            raise ServiceError("fixture start failed")  # noqa: TRY003
+
+    adapter.start.side_effect = start
+    expected = pytest.raises(ServiceError, match="fixture start failed") if startup_raises else nullcontext()
+    with expected, lifecycle._native_upgrade_fault(adapter, port, "startup", monkeypatch):
+        adapter.start(reload_definition=False)
+        # A controller and retried native launches can probe more often than
+        # the listener backlog; every probe must still see a port conflict.
+        for _ in range(40):
+            assert probe_server(f"http://127.0.0.1:{port}").state is ProbeState.CONFLICT
+        with socket.create_connection(address, timeout=2):
+            pass
+
+    # Exiting the fault, including a failed adapter.start(), releases the endpoint
+    # so the subsequent native recovery can bind it normally.
+    with socket.socket() as recovered:
+        if sys.platform != "win32":
+            recovered.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        recovered.bind(address)
+        recovered.listen()

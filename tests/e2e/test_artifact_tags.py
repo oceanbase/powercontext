@@ -443,3 +443,52 @@ async def exercise_tag_http(app, *, token: str | None = None) -> str:
         )
         assert cleared.tag_set.tags == []
         return scope
+
+
+@pytest.mark.parametrize("operation", ["manifest", "list", "search"])
+def test_atomic_http_tag_filters_unwrap_transport_values(tmp_path, operation):
+    from tests.e2e.test_access_control_regressions import _scope, _server
+
+    async def scenario():
+        async with _server(tmp_path) as (_, client, _):
+            scope = await _scope(client)
+            identifiers = []
+            for number, tags in enumerate((["release", "客户A"], ["release"], [])):
+                created = await client.post(
+                    f"/v1/scopes/{scope}/artifacts",
+                    json={
+                        "family": "atomic-memory",
+                        "content": {"kind": "fact", "text": f"Release checklist item {number}."},
+                    },
+                )
+                assert created.status_code == 201, created.text
+                identifier = created.json()["artifact_id"]
+                identifiers.append(identifier)
+                path = f"/v1/scopes/{scope}/artifacts/atomic-memory/{identifier}/tags"
+                current = await client.get(path)
+                tagged = await client.put(path, json={"tags": tags}, headers={"If-Match": current.headers["ETag"]})
+                assert tagged.status_code == 200, tagged.text
+            path = "/v1/recall/manifest" if operation == "manifest" else f"/v1/atomic-memory/{operation}"
+            base = {"scope_id": scope}
+            if operation == "search":
+                base.update(query="checklist", mode="text")
+            cases = (
+                ({}, set(identifiers)),
+                ({"tags": ["RELEASE"]}, set(identifiers[:2])),
+                ({"tags": ["release", "客户A"], "tag_match": "all"}, {identifiers[0]}),
+                ({"tags": ["客户A", "missing"], "tag_match": "any"}, {identifiers[0]}),
+                ({"tags": ["missing"]}, set()),
+            )
+            for filters, expected in cases:
+                response = await client.post(path, json={**base, **filters})
+                assert response.status_code == 200, response.text
+                body = response.json()
+                if operation == "manifest":
+                    actual = {item["ref"]["artifact_id"] for item in body["items"]}
+                elif operation == "list":
+                    actual = {item["artifact"]["artifact_id"] for item in body["items"]}
+                else:
+                    actual = {item["memory"]["artifact"]["artifact_id"] for item in body["hits"]}
+                assert actual == expected, (operation, filters, body)
+
+    asyncio.run(scenario())

@@ -17,10 +17,13 @@
 This domain check does not replace RFC 1771's full-database readiness gate.
 """
 
+from pathlib import Path
+
 from sqlalchemy import CheckConstraint, Connection, inspect
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from powercontext.builtin.persistence.database import begin_mysql_read_snapshot
 from powercontext.builtin.persistence.tables import CANDIDATE_HEADS_TABLE, CANDIDATE_VERSIONS_TABLE
 
 
@@ -31,26 +34,37 @@ class DreamSchemaNotReadyError(RuntimeError):
         self.reason = reason
         super().__init__(
             f"{reason}: {detail}. Startup never migrates Dream storage. The versioned bundle accepts only empty "
-            "targets and registered historical layouts, so it cannot upgrade a complete Server database yet; see "
+            "targets and registered historical layouts; select the full Server bundle for supported upgrades. See "
             "docs/operate/database-migrations.md for the current acceptance boundary."
         )
 
 
-async def assert_dream_schema_ready(engine: AsyncEngine) -> None:
+async def assert_dream_schema_ready(engine: AsyncEngine, *, _archive_recovery: bool = False) -> None:
     """Check before create_all, domain initializers, or workers; never execute DDL."""
     async with engine.connect() as connection:
-        await connection.run_sync(check_dream_schema)
+        if connection.dialect.name == "sqlite":
+            from powercontext.builtin.persistence.migrations.locking import assert_no_local_migration
+
+            for _, name, filename in await connection.exec_driver_sql("PRAGMA database_list"):
+                if name == "main" and filename:
+                    assert_no_local_migration(Path(filename))
+            # SQLite's legacy transaction mode does not begin a transaction for
+            # SELECTs. Pin one read snapshot before checking authority against
+            # projections, while still allowing concurrent WAL writers.
+            await connection.exec_driver_sql("BEGIN")
+        elif connection.dialect.name == "mysql":
+            await begin_mysql_read_snapshot(connection)
+        await connection.run_sync(check_dream_schema, _archive_recovery=_archive_recovery)
 
 
-def check_dream_schema(connection: Connection) -> None:
+def check_dream_schema(connection: Connection, *, _archive_recovery: bool = False) -> None:
     inspector = inspect(connection)
     names = set(inspector.get_table_names())
     if "pc_schema_revision" in names:
-        # Until RFC 1771's complete Server gate is integrated, never turn the
-        # four-table acceptance prototype into a business DB using create_all.
-        raise DreamSchemaNotReadyError(
-            "migration_framework_not_ready", "Full Server readiness for versioned databases is not integrated"
-        )
+        from powercontext.builtin.persistence.migrations.server_readiness import check_server_schema
+
+        check_server_schema(connection, _archive_recovery=_archive_recovery, _startup=True)
+        return
     if names & {"pc_catalog_change_candidate_heads", "pc_catalog_change_candidate_versions"}:
         raise DreamSchemaNotReadyError("unknown_baseline", "Unpublished Catalog Change storage is unsupported")
     old = names & {"pc_artifact_candidate_heads", "pc_artifact_candidate_versions"}

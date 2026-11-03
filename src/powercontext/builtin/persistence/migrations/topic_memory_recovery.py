@@ -357,6 +357,11 @@ class TopicMemoryRecoveryMigrationRunner:
     def _inspect(self, connection: Connection | None, identity: BackendIdentity, **options) -> MigrationPlan:
         if _resource_checksum() != self.checksum:
             raise MigrationError("plan_changed", "Topic recovery migration resources changed after planning.")
+        if connection is not None and inspect(connection).has_table("pc_schema_revision"):
+            raise MigrationError(
+                "unsupported_target",
+                "Managed Server storage requires the full Server bundle or registered maintenance.",
+            )
         evidence = self._evidence(identity)
         active = evidence is not None and evidence.get("state") != "complete"
         if evidence and (

@@ -48,6 +48,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     chunk_topic_memory_detail,
     prepare_topic_memory_projection,
 )
+from powercontext.builtin.artifacts.topic_memory.admission import TopicMemoryContentAdmission
 from powercontext.builtin.artifacts.topic_memory.generation import (
     MAX_TOPIC_MEMORY_STAGE_ITEMS,
     TOPIC_MEMORY_PROBE_INSTRUCTIONS,
@@ -419,16 +420,11 @@ class TopicMemoryAtomicPublisher:
                 SourceCursor(sequence=assignment.source_through),
                 expected_generation=assignment.cursor_generation,
             )
-            for operation in sorted(operations, key=_operation_order):
-                if operation.current is None:
-                    await self._topics.publish_create(
-                        connection,
-                        assignment.scope_id,
-                        operation.artifact_id,
-                        operation.draft,
-                        operation.projection,
-                    )
-                else:
+            ordered = sorted(operations, key=_operation_order)
+            position = 0
+            while position < len(ordered):
+                operation = ordered[position]
+                if operation.current is not None:
                     await self._topics.publish_revision(
                         connection,
                         assignment.scope_id,
@@ -436,6 +432,19 @@ class TopicMemoryAtomicPublisher:
                         operation.draft,
                         operation.projection,
                     )
+                    position += 1
+                    continue
+                next_position = position + 1
+                while next_position < len(ordered) and ordered[next_position].current is None:
+                    next_position += 1
+                creates = ordered[position:next_position]
+                await self._topics.publish_creates(
+                    connection,
+                    assignment.scope_id,
+                    tuple((item.artifact_id, item.draft, item.projection) for item in creates),
+                    known_sources=stored,
+                )
+                position = next_position
             if commit_hook is not None:
                 await commit_hook(connection)
             await self._leases.require_fence(connection, assignment.fence)
@@ -654,6 +663,8 @@ class TopicMemoryProcessor:
         if not probes:
             return (), {}
         probe_candidates, candidates, planner_history = await self._history(scope_id, probes)
+        # Keep stage identities local to this generation, including inputs later compacted away.
+        internal_ids = {item.probe_id for item in probe_candidates}
         global_input = TopicMemoryGlobalInput(
             evidence=evidence,
             probes=probe_candidates,
@@ -663,10 +674,12 @@ class TopicMemoryProcessor:
             with self._usage(ModelUsagePurpose.TOPIC_MEMORY_GENERATION):
                 global_output = (await self._stages.global_evolver.generate(global_input)).output
             if not global_output.ambiguous and self._global_targets_bind(global_output.proposals, candidates):
-                proposals = self._validate_proposals(global_output.proposals, evidence, candidates)
-                return await self._coordinate(scope_id, proposals, candidates, evidence)
-        proposals = await self._plan(probe_candidates, planner_history, evidence, candidates)
-        return await self._coordinate(scope_id, proposals, candidates, evidence)
+                proposals = self._validate_proposals(
+                    global_output.proposals, evidence, candidates, internal_ids=internal_ids
+                )
+                return await self._coordinate(scope_id, proposals, candidates, evidence, internal_ids=internal_ids)
+        proposals = await self._plan(probe_candidates, planner_history, evidence, candidates, internal_ids=internal_ids)
+        return await self._coordinate(scope_id, proposals, candidates, evidence, internal_ids=internal_ids)
 
     async def _probe(self, evidence: tuple[TopicMemoryEvidence, ...]) -> tuple[TopicMemoryProbe, ...]:
         batches = self._evidence_batches(evidence, "probe")
@@ -920,7 +933,11 @@ class TopicMemoryProcessor:
         planner_history: tuple[TopicMemoryHistoricalPreview, ...],
         evidence: tuple[TopicMemoryEvidence, ...],
         candidates: Mapping[str, PublishedTopicMemory],
+        *,
+        internal_ids: set[str] | None = None,
     ) -> tuple[TopicMemoryProposal, ...]:
+        known_ids = set() if internal_ids is None else internal_ids
+        known_ids.update(item.probe_id for item in probes)
         planner_input = _bounded_planner_input(probes, planner_history)
         if self._stages.fits(planner_input, "planner"):
             with self._usage(ModelUsagePurpose.TOPIC_MEMORY_GENERATION):
@@ -966,6 +983,7 @@ class TopicMemoryProcessor:
                 evidence=work_evidence,
                 historical=historical,
             )
+            known_ids.add(evolve_input.work_id)
             if self._stages.fits(evolve_input, "evolve"):
                 with self._usage(ModelUsagePurpose.TOPIC_MEMORY_GENERATION):
                     proposal = (await self._stages.evolver.generate(evolve_input)).output.proposal
@@ -985,11 +1003,9 @@ class TopicMemoryProcessor:
                     for temp in output.proposals:
                         if temp.candidate_id is not None or not set(temp.evidence_ids) <= allowed_evidence:
                             raise TopicMemoryGenerationError("invalid_temporary")
-                        temporary.append(
-                            temp.model_copy(
-                                update={"proposal_id": (f"temp-{index:04d}-{batch_index:04d}-{len(temporary):04d}")}
-                            )
-                        )
+                        temporary_id = f"temp-{index:04d}-{batch_index:04d}-{len(temporary):04d}"
+                        known_ids.add(temporary_id)
+                        temporary.append(temp.model_copy(update={"proposal_id": temporary_id}))
                         temporary = list(
                             cast(
                                 tuple[TopicMemoryProposal, ...],
@@ -1015,7 +1031,7 @@ class TopicMemoryProcessor:
                 if proposal.candidate_id != item.candidate_id or not set(proposal.evidence_ids) <= set(ids):
                     raise TopicMemoryGenerationError("invalid_work_item")
                 proposals.append(proposal)
-        return self._validate_proposals(tuple(proposals), evidence, candidates)
+        return self._validate_proposals(tuple(proposals), evidence, candidates, internal_ids=known_ids)
 
     async def _coordinate(
         self,
@@ -1023,11 +1039,15 @@ class TopicMemoryProcessor:
         proposals: tuple[TopicMemoryProposal, ...],
         candidates: dict[str, PublishedTopicMemory],
         evidence: tuple[TopicMemoryEvidence, ...],
+        *,
+        internal_ids: Iterable[str] = (),
     ) -> tuple[tuple[TopicMemoryProposal, ...], dict[str, PublishedTopicMemory]]:
+        known_ids = set(internal_ids)
         proposals = tuple(
             proposal.model_copy(update={"proposal_id": f"proposal-{index:04d}"})
             for index, proposal in enumerate(proposals, start=1)
         )
+        known_ids.update(item.proposal_id for item in proposals if item.proposal_id is not None)
         secondary: list[frozenset[str]] = []
         vectors: list[tuple[float, ...] | None] = []
         signatures = tuple(topic_memory_lexical_signature(proposal.content) for proposal in proposals)
@@ -1103,6 +1123,7 @@ class TopicMemoryProcessor:
             )
             if not self._stages.fits(reconcile_input, "reconcile"):
                 raise TopicMemoryGenerationError("input_budget_exceeded")
+            known_ids.add(reconcile_input.component_id)
             with self._usage(ModelUsagePurpose.TOPIC_MEMORY_GENERATION):
                 reconciled = (await self._stages.reconciler.generate(reconcile_input)).output.proposals
             self._validate_reconciliation(
@@ -1111,9 +1132,15 @@ class TopicMemoryProcessor:
                 candidates,
                 evidence,
                 allowed_targets=set(history_ids),
+                internal_ids=known_ids,
             )
             coordinated.extend(reconciled)
-        validated = self._validate_proposals(tuple(coordinated), evidence, candidates)
+        validated = self._validate_proposals(
+            tuple(coordinated),
+            evidence,
+            candidates,
+            internal_ids=known_ids,
+        )
         return validated, candidates
 
     async def _signature_vector(self, content: TopicMemoryContent) -> tuple[float, ...] | None:
@@ -1202,10 +1229,24 @@ class TopicMemoryProcessor:
         proposals: tuple[TopicMemoryProposal, ...],
         evidence: tuple[TopicMemoryEvidence, ...],
         candidates: Mapping[str, PublishedTopicMemory],
+        *,
+        internal_ids: Iterable[str] = (),
     ) -> tuple[TopicMemoryProposal, ...]:
         if len(proposals) > MAX_TOPIC_MEMORY_STAGE_ITEMS:
             raise TopicMemoryGenerationError("proposal_limit")
+        if not proposals:
+            return ()
         allowed = {item.evidence_id for item in evidence}
+        selected = {item.candidate_id for item in proposals}
+        admission = TopicMemoryContentAdmission(
+            {item.evidence_id: item.content for item in evidence},
+            {key: value.topic.content for key, value in candidates.items() if key in selected},
+            internal_ids=(
+                *internal_ids,
+                *candidates,
+                *(item.proposal_id for item in proposals if item.proposal_id is not None),
+            ),
+        )
         targets: set[str] = set()
         proposal_ids: set[str] = set()
         for proposal in proposals:
@@ -1219,6 +1260,9 @@ class TopicMemoryProcessor:
                 if proposal.proposal_id in proposal_ids:
                     raise TopicMemoryGenerationError("invalid_proposal")
                 proposal_ids.add(proposal.proposal_id)
+            rejection = admission.rejection(proposal.content, proposal.evidence_ids, proposal.candidate_id)
+            if rejection is not None:
+                raise TopicMemoryGenerationError(rejection)
         return proposals
 
     def _validate_reconciliation(
@@ -1229,6 +1273,7 @@ class TopicMemoryProcessor:
         evidence: tuple[TopicMemoryEvidence, ...],
         *,
         allowed_targets: set[str],
+        internal_ids: Iterable[str] = (),
     ) -> None:
         input_ids = {item.proposal_id for item in inputs}
         output_ids = [item.proposal_id for item in outputs]
@@ -1253,7 +1298,12 @@ class TopicMemoryProcessor:
             raise TopicMemoryGenerationError("identity_merge")
         if any(not set(item.evidence_ids) <= input_evidence for item in outputs):
             raise TopicMemoryGenerationError("invalid_reconciliation")
-        self._validate_proposals(outputs, evidence, candidates)
+        self._validate_proposals(
+            outputs,
+            evidence,
+            candidates,
+            internal_ids=(*internal_ids, *(item.proposal_id for item in inputs if item.proposal_id is not None)),
+        )
 
     def _usage(self, purpose: ModelUsagePurpose, *, embedding: bool = False):
         reporter = self._usage_reporter
@@ -1722,6 +1772,9 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             resources=resources,
             instrumentation=instrumentation,
             disable_provider_retries=True,
+            streaming=inference.generation_streaming,
+            stream_idle_timeout_seconds=inference.generation_stream_idle_timeout_seconds,
+            protection=inference.protection,
         )
         raw_embedding, _ = await _embedding_models(inference, resources, instrumentation, disable_provider_retries=True)
         embedding = None if raw_embedding is None else UsageReportingEmbeddingModel(raw_embedding)

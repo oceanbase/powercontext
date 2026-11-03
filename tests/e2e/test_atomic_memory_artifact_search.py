@@ -139,6 +139,7 @@ def test_unified_atomic_search_materializes_current_revision_and_family_filters(
                 "schema": "powercontext.atomic-memory.v1",
                 "kind": "preference",
                 "text": "Current atomic body.",
+                "description": "Current atomic body.",
                 "creation": None,
             }
             for request in ({"query": "obsolete"}, {"query": "current", "filters": {"kind": "fact"}}):

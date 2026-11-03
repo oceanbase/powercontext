@@ -21,8 +21,8 @@ import pytest
 from pydantic import ValidationError
 from referencing.exceptions import Unresolvable
 
-from powercontext.builtin.runtime.relational import _json_schema_validator
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture
+from powercontext.builtin.sources.observation_validation import json_schema_validator
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     Source,
@@ -96,7 +96,7 @@ def test_remote_schema_references_are_rejected_without_network_access(monkeypatc
         raise OSError("network access is forbidden")  # noqa: TRY003
 
     monkeypatch.setattr(urllib.request, "urlopen", reject_request)
-    validator = _json_schema_validator("remote", {"$ref": "http://127.0.0.1:9/schema"})
+    validator = json_schema_validator("remote", {"$ref": "http://127.0.0.1:9/schema"})
 
     with pytest.raises(Unresolvable):
         validator.validate({})

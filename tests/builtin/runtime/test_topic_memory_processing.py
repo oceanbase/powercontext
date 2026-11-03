@@ -202,8 +202,8 @@ class _FenceRevokingTopicRepository(TopicMemoryRepository):
         super().__init__(artifacts=delegate.artifacts, index=delegate.index)
         self._leases = leases
 
-    async def publish_create(self, connection, scope_id, artifact_id, draft, projection, /):
-        published = await super().publish_create(connection, scope_id, artifact_id, draft, projection)
+    async def publish_creates(self, connection, scope_id, items, /, *, known_sources=()):
+        published = await super().publish_creates(connection, scope_id, items, known_sources=known_sources)
         await self._leases.start_single_process_term(connection, "replacement-holder")
         return published
 
@@ -2341,7 +2341,8 @@ def test_oversized_source_preserves_all_evidence_and_reaches_tail_at_the_same_bu
     asyncio.run(scenario())
 
 
-def test_oversized_source_temporary_fragments_publish_atomically_with_original_lineage() -> None:
+@pytest.mark.parametrize("invalid_final", [False, True])
+def test_oversized_source_temporary_fragments_publish_atomically_with_original_lineage(invalid_final) -> None:
     class Planner:
         async def generate(self, value: TopicMemoryPlannerInput, /):
             return GenerationResult(
@@ -2379,11 +2380,12 @@ def test_oversized_source_temporary_fragments_publish_atomically_with_original_l
                 TopicMemoryProbeOutput(probes=(TopicMemoryProbe(query="segmented", evidence_ids=("evidence-0001",)),))
             )
             temporary = TemporaryGenerator(proposal)
+            evolver = _RepeatingGenerator(TopicMemoryEvolveOutput(proposal=proposal))
             stages = TopicMemoryStageSet(
                 probe=probe,
                 planner=Planner(),
                 temporary=temporary,
-                evolver=_RepeatingGenerator(TopicMemoryEvolveOutput(proposal=proposal)),
+                evolver=evolver,
                 global_evolver=_QueueGenerator(),
                 reconciler=_QueueGenerator(),
                 estimator=character_token_estimator(),
@@ -2408,6 +2410,28 @@ def test_oversized_source_temporary_fragments_publish_atomically_with_original_l
             temporary.fail_tail = False
             temporary.inputs.clear()
             probe.inputs.clear()
+            if invalid_final:
+                evolver.output = TopicMemoryEvolveOutput(
+                    proposal=TopicMemoryProposal(
+                        content=TopicMemoryContent(
+                            title="T-19",
+                            summary="S-19 coordinated without merging historical identities.",
+                            detail="D-19 coordinated detail preserving distinct historical identity.",
+                        ),
+                        evidence_ids=("evidence-0001",),
+                    )
+                )
+                with pytest.raises(TopicMemoryGenerationError, match="invalid_topic_placeholder"):
+                    await processor.process(assignment)
+                async with profile.database.transaction() as connection:
+                    assert await topics.browse_current(connection, "scope-a", limit=10) == ()
+                    assert (
+                        await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                        is None
+                    )
+                evolver.output = TopicMemoryEvolveOutput(proposal=proposal)
+                temporary.inputs.clear()
+                probe.inputs.clear()
             assert (await processor.process(assignment)).outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
             for inputs, stage in ((probe.inputs, "probe"), (temporary.inputs, "temporary")):
                 assert len(inputs) > 1
