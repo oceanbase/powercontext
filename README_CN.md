@@ -107,12 +107,12 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 
 ## 效果怎么样
 
-![PowerContext 在 LoCoMo 和 SWE-bench Pro 上的紧凑对比图](docs/assets/readme-benchmark-summary.svg)
+![PowerContext 与基线在 LoCoMo 准确率和 SWE-bench Pro 每 100 题输入 token 消耗上的对比](docs/assets/readme-benchmark-summary.svg)
 
-- **长对话记忆（LoCoMo；类别 1–4 的 1,540 个计分问题）：准确率 90.78%**，PowerMem 为 87.79%，全量上下文
-  重放为 52.9% —— 相对后者 **+37.88 个百分点**。
-- **编码任务（SWE-bench Pro；731 个公开 v2 任务的配对项目运行，非官方提交）：开启 PowerContext 后任务解决率
-  86.73%，关闭时 82.35%** —— **+4.38 个百分点**，多解出 32 题。
+- **长对话记忆（LoCoMo；类别 1–4 的 1,540 个计分问题）：准确率 90.78%**，全量上下文重放为 52.9% —— 相对后者
+  **+37.88 个百分点**。
+- **编码任务（SWE-bench Pro 配对对照）：开启 PowerContext 后每 100 题约消耗 2.2532 亿输入 token，关闭时约为
+  3.0218 亿** —— 输入 token 约减少 **25.4%**，即每 100 题约少用 7,686 万。
 - **召回质量（LoCoMo Plus）**：原生 PowerContext 对比检索后用 Jev 做候选筛选。每组模型同时用于 Memory 抽取与回答，向量模型为 `qwen3.7-text-embedding`（1024 维）：
 
   | 模型 | PowerContext | PowerContext + Jev | 差值 |
