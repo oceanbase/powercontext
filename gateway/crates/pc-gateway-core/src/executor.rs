@@ -447,6 +447,8 @@ where
                 scope_id: call.scope_id.clone(),
                 target_profile: call.target_profile.clone(),
                 conversation_id,
+                parent_conversation_id: call.parent_conversation_id.clone(),
+                prepared_contexts: call.prepared_contexts.clone(),
                 request_body: sent.clone(),
                 response_output,
             },

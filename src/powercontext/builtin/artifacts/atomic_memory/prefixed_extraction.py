@@ -182,9 +182,12 @@ def _json_object(response: httpx.Response) -> dict[str, Any]:
 
 
 def _refusal_reason(payload: dict[str, Any]) -> str:
-    reason = _GATEWAY_REASONS.get(payload.get("error"))  # type: ignore[arg-type]
-    if reason is not None:
-        return reason
+    error = payload.get("error")
+    if isinstance(error, str) and error in _GATEWAY_REASONS:
+        return _GATEWAY_REASONS[error]
+    # The gateway passes a released provider error through unchanged, such as an OpenAI rate-limit object.
+    if isinstance(error, dict):
+        return "provider_error"
     if payload.get("decision") in {"block", "withhold"}:
         return "check_rejected"
     return "gateway_error"

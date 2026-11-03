@@ -32,6 +32,10 @@ pub struct PrefixEntry {
     pub scope_id: String,
     pub target_profile: String,
     pub conversation_id: String,
+    /// 原请求的准入上下文，抽取请求原样沿用：前缀里注入的准备块要凭原绑定通过检查，子代理前缀里的任务密文要凭父会话的
+    /// 回执放行。
+    pub parent_conversation_id: Option<String>,
+    pub prepared_contexts: Vec<pc_gateway_types::PreparedContextLocation>,
     /// 发给上游的原始请求体（终止响应对应的那次请求）。
     pub request_body: bytes::Bytes,
     /// 终止响应的 output 条目。
@@ -82,6 +86,8 @@ mod tests {
             scope_id: scope.into(),
             target_profile: "codex".into(),
             conversation_id: "codex-thread:a".into(),
+            parent_conversation_id: None,
+            prepared_contexts: Vec::new(),
             request_body: bytes::Bytes::from_static(b"{}"),
             response_output: Vec::new(),
         }

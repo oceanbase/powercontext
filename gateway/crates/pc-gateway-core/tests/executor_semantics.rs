@@ -2104,10 +2104,12 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
         ],
         2,
     );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
     for capture_prefix in [true, false] {
         let mut c = tool_loop_call("fix the bug", 0, true);
         c.sediment = true;
         c.capture_prefix = capture_prefix;
+        c.parent_conversation_id = Some("conversation-parent".into());
         let outcome = executor
             .run(
                 c,
@@ -2128,6 +2130,21 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
         .to_owned();
     let prefix = executor.prefix(&handle, "project:test").unwrap();
     assert_eq!(prefix.conversation_id, "conversation-a");
+    // 抽取请求沿用原请求的准入上下文：注入块的绑定与位置、父会话。
+    assert_eq!(
+        prefix.parent_conversation_id.as_deref(),
+        Some("conversation-parent")
+    );
+    let sent: serde_json::Value =
+        serde_json::from_slice(&transport.sends.lock().unwrap()[0]).unwrap();
+    let [prepared] = prefix.prepared_contexts.as_slice() else {
+        panic!("one injected block: {:?}", prefix.prepared_contexts);
+    };
+    let injected = sent
+        .pointer(&prepared.location.pointer)
+        .and_then(|text| text.as_str())
+        .unwrap();
+    assert!(injected.len() as u64 >= prepared.location.end_byte);
     assert_eq!(prefix.target_profile, "openai:test");
     assert_eq!(
         prefix.request_body,

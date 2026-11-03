@@ -142,8 +142,8 @@ pub struct ExtractRequest {
 
 const MAX_EXTRACT_INSTRUCTION_BYTES: usize = 64 * 1024;
 
-/// 在保留的前缀后追加 Core 的抽取指令并发送。请求照常经过 before_send/before_release 检查并转交该会话的
-/// 回执；不注入、不沉淀、不保留前缀。前缀不可用时返回 404，由 Core 回退到普通抽取。
+/// 在保留的前缀后追加 Core 的抽取指令并发送。请求照常经过 before_send/before_release 检查，沿用原请求的准入
+/// 上下文（准备块绑定、会话与父会话的回执）；不再注入、不沉淀、不保留前缀。前缀不可用时返回 404，由 Core 回退到普通抽取。
 pub async fn extract(
     State((state, _)): State<SharedProxy>,
     headers: HeaderMap,
@@ -184,10 +184,10 @@ pub async fn extract(
         degrade_policy: pc_gateway_core::DegradePolicy::Pause,
         inject_context: false,
         capture_prefix: false,
-        conversation_id: Some(prefix.conversation_id),
-        parent_conversation_id: None,
+        conversation_id: Some(prefix.conversation_id.clone()),
+        parent_conversation_id: prefix.parent_conversation_id.clone(),
         sediment: false,
-        prepared_contexts: Vec::new(),
+        prepared_contexts: prefix.prepared_contexts.clone(),
     };
     let renderer = pc_gateway_protocol::GatewayRenderer::Responses(Default::default());
     match state
@@ -985,6 +985,8 @@ mod tests {
             scope_id: "s".into(),
             target_profile: "codex".into(),
             conversation_id: "codex-thread:a".into(),
+            parent_conversation_id: None,
+            prepared_contexts: Vec::new(),
             request_body: serde_json::to_vec(&sent).unwrap().into(),
             response_output: output,
         };

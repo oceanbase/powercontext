@@ -87,7 +87,7 @@ class _CreatingReconciler:
 class _Gateway:
     """The gateway's extraction route: records requests and returns a scripted reply."""
 
-    def __init__(self, status: int, payload: dict[str, object]) -> None:
+    def __init__(self, status: int, payload: object) -> None:
         self.status = status
         self.payload = payload
         self.requests: list[dict[str, object]] = []
@@ -179,6 +179,12 @@ def test_a_gateway_turn_is_extracted_over_its_prefix_without_resending_the_trans
         (409, {"error": "target_mismatch"}, "target_mismatch"),
         (409, {"decision": "withhold", "reason_codes": ["encrypted-origin-unverified"]}, "check_rejected"),
         (502, {"decision": "not_sent", "attempts": 2}, "gateway_error"),
+        (
+            429,
+            {"error": {"message": "Rate limit reached", "type": "rate_limit_error", "code": "rate_limit_exceeded"}},
+            "provider_error",
+        ),
+        (500, ["not", "an", "object"], "gateway_error"),
         (200, {"text": "These are the memories: none."}, "invalid_output"),
         (200, {"text": json.dumps({"candidates": [{**CANDIDATE, "evidence_ids": ["source:9"]}]})}, "invalid_output"),
     ],
