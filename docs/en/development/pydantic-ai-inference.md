@@ -105,6 +105,8 @@ export GITHUB_COPILOT_API_KEY="$(gh auth token)"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="github-copilot:<model-name>"
 ```
 
+Choose a Copilot model that supports Chat Completions. Models available only through the Responses API cannot use the `github-copilot:` prefix.
+
 You can also reuse an existing `GITHUB_COPILOT_API_TOKEN` or `COPILOT_GITHUB_TOKEN` environment variable; the Server reads them in that order as fallbacks. The general-purpose `GITHUB_TOKEN` and `GH_TOKEN` variables are not used for Copilot authentication. Run the example's `gh auth token` command before starting the service. The Server does not load CLI configuration or renew tokens automatically. When the token changes, update the service's environment and restart the Server. See [Pydantic AI's Copilot configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/github-copilot.md).
 
 These configurations support generation for Memory, Experience, and Profile. Topic Memory and Dream are unavailable with Codex and Copilot. If you have explicitly enabled Topic Memory processing or its automatic schedule, remove that configuration before switching providers. Enabling built-in inference protection prevents startup with these providers.

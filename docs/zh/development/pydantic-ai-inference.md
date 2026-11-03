@@ -105,6 +105,8 @@ export GITHUB_COPILOT_API_KEY="$(gh auth token)"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="github-copilot:<model-name>"
 ```
 
+请选择支持 Chat Completions 的 Copilot 模型。仅支持 Responses API 的模型不能使用 `github-copilot:` 前缀。
+
 也可以沿用环境中已有的 `GITHUB_COPILOT_API_TOKEN` 或 `COPILOT_GITHUB_TOKEN`，它们会依次作为备用变量读取。Server 使用这些专用变量，通用的 `GITHUB_TOKEN` 和 `GH_TOKEN` 不用于 Copilot 认证。示例中的 `gh auth token` 需要在启动服务前执行，Server 不会自动读取 CLI 配置或续期 token。token 更新后，更新服务进程的环境并重启 Server。详见 [Pydantic AI 的 Copilot 配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/github-copilot.md)。
 
 这些配置支持 Memory、Experience 和 Profile 的生成。Codex 和 Copilot 暂不支持 Topic Memory 与 Dream。如果已经显式启用 Topic Memory 处理或自动调度，切换 provider 前需要移除对应配置。已启用内置推理保护时，切换到这两个 provider 会导致启动失败。
