@@ -124,3 +124,36 @@ async fn non_regular_registered_executable_is_rejected_without_blocking_shutdown
     assert_eq!(result.unwrap_err(), SafeError::CompatibilityUnverified);
     diagnostics.shutdown();
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn non_regular_registration_is_rejected_without_blocking_shutdown() {
+    use powercontext_desktop::diagnostics::LocalDiagnostics;
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, time::Duration};
+
+    let directory = tempfile::tempdir().unwrap();
+    let registration = directory.path().join("diagnostic-cli.json");
+    let registration_name = CString::new(registration.as_os_str().as_bytes()).unwrap();
+    assert_eq!(
+        unsafe { libc::mkfifo(registration_name.as_ptr(), 0o600) },
+        0
+    );
+
+    let diagnostics = std::sync::Arc::new(LocalDiagnostics::new(registration));
+    let caller = diagnostics.clone();
+    let run = tokio::spawn(async move { caller.run(DiagnosticKind::Service).await });
+    let result = tokio::time::timeout(Duration::from_secs(1), run)
+        .await
+        .expect("FIFO registration must not block the diagnostic call")
+        .unwrap();
+    assert_eq!(result.unwrap_err(), SafeError::CompatibilityUnverified);
+
+    let shutdown = diagnostics.clone();
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        tokio::task::spawn_blocking(move || shutdown.shutdown()),
+    )
+    .await
+    .expect("shutdown must not wait on a FIFO registration")
+    .unwrap();
+}

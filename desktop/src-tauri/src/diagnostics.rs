@@ -437,8 +437,28 @@ fn execute(
     kind: DiagnosticKind,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<DiagnosticReport, SafeError> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
     use std::{io::Read, time::Duration};
-    let file = std::fs::File::open(registration).map_err(|_| SafeError::NotFound)?;
+
+    let metadata = std::fs::metadata(registration).map_err(|_| SafeError::NotFound)?;
+    if !metadata.is_file() {
+        return Err(SafeError::CompatibilityUnverified);
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NONBLOCK);
+    #[cfg(windows)]
+    options.share_mode(1);
+    let file = options
+        .open(registration)
+        .map_err(|_| SafeError::NotFound)?;
+    if !file.metadata().map_err(|_| SafeError::Storage)?.is_file() {
+        return Err(SafeError::CompatibilityUnverified);
+    }
     let mut bytes = Vec::new();
     file.take(16385)
         .read_to_end(&mut bytes)
