@@ -200,6 +200,7 @@ pub async fn extract(
                 Ok(response) => Json(serde_json::json!({
                     "text": responses_output_text(&response),
                     "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+                    "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
                 }))
                 .into_response(),
                 Err(_) => error(StatusCode::BAD_GATEWAY, "invalid_upstream_response"),

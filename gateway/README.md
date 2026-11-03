@@ -97,7 +97,9 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 # base prompt; read and validated at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_DEGRADE=passthrough (no-memory passthrough when Core is unreachable; never applies
 # to deployments with enforcing protection), PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES,
-# PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled).
+# PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled),
+# PC_GATEWAY_PREFIX_EXTRACTION=on (with PC_GATEWAY_SEDIMENT=on: keep each Responses turn's prefix in memory for
+# 30 minutes and serve POST /gateway/v1/extract, so Core extracts memory over the provider's prompt cache).
 ```
 
 Credentials live only in server-side environment variables; they are never accepted from request fields and never enter check payloads.
