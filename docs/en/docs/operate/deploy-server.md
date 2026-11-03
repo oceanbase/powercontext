@@ -289,7 +289,9 @@ and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends t
 kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields
 that would change the cached prefix, such as tools, `prompt_cache_key`, reasoning settings, and a response format, are
 not changed. The request passes the Server's normal `before_send` and `before_release` checks with the conversation's
-encrypted-content receipts; it is not injected and is not captured. The Server validates the reply with the same schema
+encrypted-content receipts, read-only: the consolidated receipt Core issues for the older prefix's contents does not
+replace the conversation's existing receipts, so the proof a later turn still replays is not dropped. It is not
+injected and is not captured. The Server validates the reply with the same schema
 and rules as normal extraction.
 
 Any other case falls back to normal extraction: a window with several Sources or no handle, a prefix that is not

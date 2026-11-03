@@ -68,6 +68,9 @@ pub struct ManagedCall {
     pub parent_conversation_id: Option<String>,
     /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
     pub capture_prefix: bool,
+    /// 后台旁路调用（如对已存旧前缀的抽取）：只借用会话回执完成验证，Core 签发的合并回执与释放回执
+    /// 都不落库，否则替换会丢掉活跃会话后续回合仍要重放的值的证明。
+    pub background: bool,
     pub sediment: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
@@ -191,6 +194,7 @@ where
                             conversation_id: None,
                             parent_conversation_id: None,
                             capture_prefix: false,
+                            background: call.background,
                             sediment: false,
                             prepared_contexts: Vec::new(),
                         };
@@ -329,11 +333,14 @@ where
                     // P1-4：释放前验 release verdict 的 valid_until（fail-closed）。
                     let release_deadline = parse_rfc3339_ms(&result.valid_until).unwrap_or(0);
                     // 响应里的加密内容之后会被重放：保存 Core 签发的回执，后续 before_send 转交。
-                    if let (Some(receipt), Some(conversation)) =
-                        (result.receipt.clone(), call.conversation_id.as_deref())
-                    {
-                        self.receipts
-                            .add(&call.scope_id, conversation, receipt, now_ms());
+                    // 后台调用的响应不会进入会话，回执同样不落库。
+                    if !call.background {
+                        if let (Some(receipt), Some(conversation)) =
+                            (result.receipt.clone(), call.conversation_id.as_deref())
+                        {
+                            self.receipts
+                                .add(&call.scope_id, conversation, receipt, now_ms());
+                        }
                     }
                     if now_ms() >= release_deadline {
                         return ManagedOutcome::AdmissionExpired;
@@ -493,8 +500,11 @@ where
         (check, presented)
     }
 
-    /// before_send 放行时 Core 返回的合并回执，替换这次转交的本会话回执。
+    /// before_send 放行时 Core 返回的合并回执，替换这次转交的本会话回执。后台调用只读，不替换。
     fn consolidate(&self, call: &ManagedCall, presented: &Presented, receipt: Option<String>) {
+        if call.background {
+            return;
+        }
         if let (Some(receipt), Some(conversation)) = (receipt, call.conversation_id.as_deref()) {
             self.receipts.consolidate(
                 &call.scope_id,

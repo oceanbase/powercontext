@@ -281,6 +281,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         degrade_policy: degrade,
         inject_context: false,
         capture_prefix: false,
+        background: false,
         conversation_id: None,
         parent_conversation_id: None,
         sediment: false,
@@ -2418,6 +2419,61 @@ async fn a_send_receipt_replaces_the_receipts_its_request_presented() {
             vec!["release-2".to_string(), "merged-2".to_string()],
         ],
         "each request presents the latest consolidated receipt and the releases since it"
+    );
+}
+
+#[tokio::test]
+async fn a_background_extraction_keeps_the_conversations_current_receipts() {
+    // 对旧前缀的后台抽取只借用会话回执过验证：Core 按该请求的内容签发合并回执（只覆盖旧回合的值），
+    // 落库它会替换掉活跃会话的回执，下一个正常请求重放新回合的值就失去证明。
+    let allow_send_with = |receipt: Option<&str>| {
+        let mut r = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
+        r.receipt = receipt.map(String::from);
+        Ok(r)
+    };
+    let (executor, renderer, _transport, gate) = harness(
+        vec![
+            allow_send_with(None),
+            release_with_receipt("release-1"),
+            allow_send_with(Some("merged-2")),
+            release_with_receipt("release-2"),
+            // 后台抽取：Core 只看到旧前缀里的值，合并回执不覆盖新回合。
+            allow_send_with(Some("merged-bg")),
+            release_with_receipt("release-bg"),
+            allow_send_with(None),
+            release_with_receipt("release-4"),
+        ],
+        (0..4).map(|_| raw_response()).collect(),
+        2,
+    );
+    let r = RendererRef(renderer.clone());
+    for background in [false, false, true, false] {
+        let mut c = call(DegradePolicy::Pause);
+        c.conversation_id = Some("codex-thread:root".into());
+        c.background = background;
+        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "{outcome:?}"
+        );
+    }
+    let presented: Vec<Vec<String>> = gate
+        .send_identities
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, _, receipts)| receipts.clone())
+        .collect();
+    assert_eq!(presented.len(), 4);
+    assert_eq!(
+        presented[2],
+        vec!["release-2".to_string(), "merged-2".to_string()],
+        "the background extraction presents the conversation's live receipts for verification"
+    );
+    assert_eq!(
+        presented[3],
+        vec!["release-2".to_string(), "merged-2".to_string()],
+        "a later request still presents the live receipts; the background run stored nothing"
     );
 }
 
