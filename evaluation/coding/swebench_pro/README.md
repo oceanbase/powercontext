@@ -90,6 +90,12 @@ commit objects remain readable. Shared object stores, linked worktrees, or retai
 The sanitized checkout is mounted at both `/workspace` and `/app`, preserving task files, staged changes, and
 absolute `/app` paths while hiding the image's original repository. This does not restrict network access.
 
+Codex runs with its provider-side web search disabled (`web_search="disabled"`), because those searches reach the model
+endpoint like any other request and no network policy can stop them. Each arm's report lists isolation flags found
+in its Codex events: `web_search` when a web search still ran, and `network_command` when the agent ran a command
+that reaches the network (`curl`, `wget`, `git clone`/`fetch`/`pull`/`ls-remote`, or any explicit `http(s)://` URL).
+A flag marks the run for review; it does not invalidate the result.
+
 To test against OceanBase, pass `--database-config /absolute/private/database.json`. This private JSON object must
 contain exactly `off` and `on`, each using the `settings.database` shape (`kind`, `url`, and optional profile
 settings). Create a separate evaluation database for each arm:

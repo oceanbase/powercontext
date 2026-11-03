@@ -768,6 +768,7 @@ def _arm_report(arm: Arm, evaluation: OfficialEvaluation, outcome: SutOutcome, p
             failed=evaluation.pass_to_pass.failed,
         ),
         log_excerpt=evaluation.log_excerpt,
+        isolation_flags=outcome.codex.isolation_flags,
         metrics=MetricSet(
             patch_bytes=patch_bytes,
             input_tokens=None if usage is None else usage.get("input_tokens"),
