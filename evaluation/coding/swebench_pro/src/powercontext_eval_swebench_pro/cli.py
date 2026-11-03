@@ -70,6 +70,16 @@ def swebench_pro_run(
     model: str = typer.Option(DEFAULT_CODEX_MODEL, "--model"),
     reasoning_effort: str = typer.Option(DEFAULT_REASONING_EFFORT, "--reasoning-effort"),
     run_id: str | None = typer.Option(None),
+    treatment_mode: Annotated[TreatmentMode, typer.Option("--treatment-mode")] = TreatmentMode.OFF_ON,
+    codex_config: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            resolve_path=True,
+            help="Private Codex config.toml copied into each arm's Codex home, e.g. a model provider for a gateway.",
+        ),
+    ] = None,
     database_config: Annotated[
         Path | None,
         typer.Option(
@@ -77,7 +87,7 @@ def swebench_pro_run(
         ),
     ] = None,
 ) -> None:
-    """Run Gold, PowerContext OFF/ON, official grading, and report generation."""
+    """Run Gold, the selected PowerContext arms, official grading, and report generation."""
 
     from powercontext_eval_swebench_pro.powercontext_sut import UnsafeSutConfiguration, validated_database_configs
     from powercontext_eval_swebench_pro.runner import RunConfig
@@ -136,6 +146,8 @@ def swebench_pro_run(
             model=model,
             reasoning_effort=reasoning_effort,
             database_configs=databases,
+            treatment_mode=treatment_mode,
+            codex_config=codex_config,
         ),
         instance=catalog.require(instance_id),
     )

@@ -164,15 +164,19 @@ def test_release140_four_sqlite_configurations_preserve_candidates_and_serve(tmp
     assert _candidate_rows(runner.database) == before
 
 
-def test_release140_extra_object_blocks_before_any_write(tmp_path):
+def test_release140_unrelated_object_survives_readonly_plan_and_upgrade(tmp_path):
     _settings, _embedding, runner = _source(tmp_path)
     with closing(sqlite3.connect(runner.database)) as connection, connection:
         connection.execute("CREATE TABLE unexpected (value TEXT)")
+        connection.execute("INSERT INTO unexpected VALUES ('preserve')")
     before = runner.database.read_bytes()
-    with pytest.raises(MigrationError, match="unknown_baseline"):
-        runner.plan()
+    assert runner.plan().source_revision == "r1400"
     assert runner.database.read_bytes() == before
     assert not runner.evidence_path.exists()
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT value FROM unexpected").fetchall() == [("preserve",)]
 
 
 @pytest.mark.parametrize("operation", ["server", "processing", "atomic-projection"])
@@ -243,3 +247,53 @@ def test_release140_current_dream_tasks_keep_their_format_or_fail_before_writes(
                 "queued",
                 before_payload,
             )
+
+
+def test_release140_bridge_preserves_ordinary_and_generated_extensions(tmp_path):
+    _, _, runner = _source(tmp_path)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("ALTER TABLE pc_artifacts ADD COLUMN extension_note TEXT COLLATE NOCASE DEFAULT 'MiXeD'")
+        connection.execute(
+            "ALTER TABLE pc_artifacts ADD COLUMN extension_value TEXT COLLATE NOCASE "
+            "GENERATED ALWAYS AS (extension_note || ':' || revision) VIRTUAL"
+        )
+        connection.execute("CREATE INDEX extension_lookup ON pc_artifacts(extension_value)")
+        before = connection.execute(
+            "SELECT artifact_id,revision,content,extension_note,extension_value FROM pc_artifacts"
+        ).fetchall()
+    assert runner.plan(backup_policy="skip").source_revision == "r1400"
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        assert (
+            connection.execute(
+                "SELECT artifact_id,revision,content,extension_note,extension_value FROM pc_artifacts"
+            ).fetchall()
+            == before
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM pc_artifacts INDEXED BY extension_lookup WHERE extension_value='mixed:1'"
+        ).fetchone() == (1,)
+        connection.execute("UPDATE pc_artifacts SET extension_note='Changed'")
+        assert connection.execute("SELECT extension_value FROM pc_artifacts").fetchone() == ("Changed:1",)
+    assert not _apply(runner).changed
+
+
+def test_release140_bridge_preserves_dependent_views(tmp_path):
+    _, _, runner = _source(tmp_path)
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("CREATE VIEW custom_artifacts AS SELECT artifact_id,content FROM pc_artifacts")
+        connection.execute("CREATE VIEW custom_nested AS SELECT * FROM custom_artifacts")
+        before = connection.execute("SELECT * FROM custom_nested").fetchall()
+        definitions = connection.execute(
+            "SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' ORDER BY name"
+        ).fetchall()
+    _apply(runner)
+    assert runner.verify().state == "ready"
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT * FROM custom_nested").fetchall() == before
+        assert (
+            connection.execute("SELECT name,sql FROM sqlite_schema WHERE name LIKE 'custom_%' ORDER BY name").fetchall()
+            == definitions
+        )
+    assert not _apply(runner).changed

@@ -33,15 +33,19 @@ from powercontext.builtin.artifacts.prompt.service import current_prompt
 from powercontext.builtin.inference.errors import (
     InferenceConfigurationError,
     InferenceError,
+    InferencePrivacyError,
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
+    find_privacy_error,
 )
 from powercontext.builtin.inference.models import (
     EmbeddingResult,
     GenerationResult,
     InferenceUsage,
+    combine_inference_usage,
 )
+from powercontext.builtin.inference.usage import approved_usage, collect_approved_usage
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
     ProcessingFailureReason,
@@ -278,6 +282,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         name: str | None = None,
         prompt_key: str | None = None,
         output_check: Callable[[InputT, OutputT], None] | None = None,
+        input_renderer: Callable[[InputT], str] | None = None,
     ) -> None:
         if isinstance(model, str) or not isinstance(model, Model):
             raise PydanticAIConfigurationError("model-instance")
@@ -287,6 +292,7 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         self._receipt_model = model
         self._input_type = input_type
         self._prompt_key = prompt_key
+        self._input_renderer = input_renderer
         try:
             self._input_adapter = TypeAdapter(input_type)
             bounded_settings = model_settings
@@ -350,10 +356,16 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         if not isinstance(value, self._input_type):
             raise PydanticAIConfigurationError("input-type", self._input_type.__qualname__)
         try:
-            prompt = self._input_adapter.dump_json(value).decode("utf-8")
+            prompt = (
+                self._input_adapter.dump_json(value).decode("utf-8")
+                if self._input_renderer is None
+                else self._input_renderer(value)
+            )
         except (PydanticSerializationError, PydanticUserError, ValidationError, UnicodeError) as error:
             raise PydanticAIConfigurationError("serialize") from error
 
+        run_usage = RunUsage()
+        raw_usage: list[InferenceUsage] = []
         try:
             selection = None if self._prompt_key is None else current_prompt(self._prompt_key)
             # Agent.override uses task-local state; concurrent Scopes never mutate a shared Agent.
@@ -362,11 +374,12 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
                 if selection is not None and selection.selection == "artifact"
                 else nullcontext()
             )
-            with override:
+            with override, collect_approved_usage() as raw_usage:
                 result = await asyncio.wait_for(
                     self._agent.run(
                         prompt,
                         deps=value,
+                        usage=run_usage,
                         usage_limits=UsageLimits(
                             request_limit=self._limits.max_requests,
                             output_tokens_limit=self._limits.output_tokens_limit,
@@ -380,16 +393,20 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         except Exception as error:
             # An exhausted retry budget reports the rule the last response broke, not a generic failure.
             rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
-            if rejected is not None:
-                raise rejected from error
-            mapped = _map_error(error, operation="generate", timeout_seconds=self._limits.timeout_seconds)
+            mapped = rejected or _map_error(error, operation="generate", timeout_seconds=self._limits.timeout_seconds)
+            if mapped is not None and raw_usage:
+                prior = approved_usage(raw_usage)
+                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+            elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
+                prior = _generation_usage(run_usage)
+                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
             if mapped is None:
                 raise
             if mapped is error:
                 raise
             raise mapped from error
 
-        usage = _generation_usage(result.usage)
+        usage = approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
         return GenerationResult(output=cast(OutputT, result.output), usage=usage)
 
 
@@ -474,19 +491,32 @@ class PydanticAIEmbeddingModel:
         self, texts: tuple[str, ...], *, input_type: Literal["document", "query"]
     ) -> EmbeddingResult:
         vectors: list[tuple[float, ...]] = []
-        requests = 0
-        input_tokens = 0
+        usage = InferenceUsage(requests=0)
         for start in range(0, len(texts), self._batch_size):
             batch = texts[start : start + self._batch_size]
-            result = await self._embedder.embed(batch, input_type=input_type)
+            try:
+                with collect_approved_usage() as raw_usage:
+                    result = await self._embedder.embed(batch, input_type=input_type)
+            except Exception as error:
+                privacy_error = find_privacy_error(error)
+                if privacy_error is not None and usage.requests:
+                    prior = usage
+                    privacy_error.usage = (
+                        prior if privacy_error.usage is None else combine_inference_usage(prior, privacy_error.usage)
+                    )
+                raise
             vectors.extend(
                 self._validated_vectors(batch, result.inputs, result.input_type, result.embeddings, input_type)
             )
-            requests += 1
-            input_tokens += result.usage.input_tokens
+            batch_usage = (
+                approved_usage(raw_usage)
+                if raw_usage
+                else InferenceUsage(requests=1, input_tokens=result.usage.input_tokens)
+            )
+            usage = combine_inference_usage(usage, batch_usage)
         return EmbeddingResult(
             vectors=tuple(vectors),
-            usage=InferenceUsage(requests=requests, input_tokens=input_tokens, output_tokens=None),
+            usage=usage,
         )
 
     def _validated_vectors(
@@ -557,6 +587,10 @@ def _generation_usage(value: RunUsage) -> InferenceUsage:
         requests=value.requests,
         input_tokens=value.input_tokens,
         output_tokens=value.output_tokens,
+        cache_read_tokens=value.cache_read_tokens or None,
+        cache_write_tokens=value.cache_write_tokens or None,
+        reasoning_tokens=value.details.get("reasoning_tokens"),
+        incomplete=value.input_tokens == 0 and value.output_tokens == 0,
     )
 
 
@@ -575,6 +609,9 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
     operation: str,
     timeout_seconds: float,
 ) -> InferenceError | None:
+    privacy_error = find_privacy_error(error)
+    if privacy_error is not None:
+        return privacy_error
     if isinstance(error, InferenceError):
         return error
     stage = stage_for_operation(operation)

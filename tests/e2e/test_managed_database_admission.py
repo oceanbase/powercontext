@@ -150,6 +150,9 @@ async def _read(config, original, latest):
 
 def test_start_restart_and_program_repair_retain_exact_memory_and_configuration(managed_database):
     ops, adapter, installer, summary = managed_database
+    with closing(sqlite3.connect(summary.database_path)) as connection, connection:
+        connection.execute("CREATE TABLE independent_notes (value TEXT)")
+        connection.execute("INSERT INTO independent_notes VALUES ('retained extension data')")
     config = _runtime(installer)
     original, latest = asyncio.run(_seed(config))
     for operation in ("start", "restart", "config_apply"):
@@ -174,6 +177,8 @@ def test_start_restart_and_program_repair_retain_exact_memory_and_configuration(
     restarted = ops.handle(_apply_request(_plan(ops, "start"), "start-repaired"))
     assert restarted["outcome"] == "succeeded", restarted
     asyncio.run(_read(config, original, latest))
+    with closing(sqlite3.connect(summary.database_path)) as connection:
+        assert connection.execute("SELECT value FROM independent_notes").fetchall() == [("retained extension data",)]
 
 
 def test_writes_invalidate_restart_approval_and_stop_then_fresh_start_preserves_them(managed_database):
@@ -243,7 +248,9 @@ def test_start_revalidates_database_configuration_evidence_and_target(managed_da
     assert adapter.events == before
 
 
-@pytest.mark.parametrize("damage", ["unknown", "future", "schema", "maintenance", "restore", "profile", "journal"])
+@pytest.mark.parametrize(
+    "damage", ["unknown", "missing-revision", "future", "schema", "maintenance", "restore", "profile", "journal"]
+)
 def test_full_server_rejects_unsupported_or_unfinished_database(managed_database, damage):
     ops, adapter, installer, summary = managed_database
     if damage == "maintenance":
@@ -265,9 +272,13 @@ def test_full_server_rejects_unsupported_or_unfinished_database(managed_database
         Path(f"{summary.database_path}-journal").write_bytes(b"hot rollback journal")
     else:
         with closing(sqlite3.connect(summary.database_path)) as connection, connection:
-            if damage == "unknown":
+            if damage in {"unknown", "missing-revision"}:
                 connection.execute("DROP TABLE pc_schema_revision")
-                connection.execute("CREATE TABLE unfamiliar (value TEXT)")
+                if damage == "unknown":
+                    # Independent objects alone no longer make a known layout unknown.
+                    connection.execute("ALTER TABLE pc_sources RENAME TO unfamiliar_sources")
+                else:
+                    connection.execute("CREATE TABLE unfamiliar (value TEXT)")
             elif damage == "future":
                 connection.execute("UPDATE pc_schema_revision SET version_num='future_unknown'")
             elif damage == "schema":
@@ -286,6 +297,7 @@ def test_full_server_rejects_unsupported_or_unfinished_database(managed_database
         result["error"]["code"]
         == {
             "unknown": "database_compatibility_unknown",
+            "missing-revision": "database_recovery_required",
             "future": "database_incompatible",
             "schema": "database_incompatible",
             "maintenance": "database_recovery_required",

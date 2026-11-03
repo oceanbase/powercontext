@@ -24,10 +24,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import probe_seekdb_migration_lock as probe
 import pytest
+from probe_seekdb_migration_lock import restart_evidence, successful_report
 
-from scripts import probe_seekdb_migration_lock as probe
-from scripts.probe_seekdb_migration_lock import restart_evidence, successful_report
 from tests import seekdb_support
 from tests.seekdb_support import RestartingInstance
 

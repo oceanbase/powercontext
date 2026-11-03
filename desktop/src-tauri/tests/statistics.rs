@@ -77,6 +77,7 @@ struct Fixture {
     requests: Arc<Mutex<Vec<serde_json::Value>>>,
     status: Arc<AtomicU16>,
     blocked: Arc<AtomicBool>,
+    server_changed: Arc<AtomicBool>,
     started: Arc<Notify>,
     release: Arc<Notify>,
     task: tokio::task::JoinHandle<()>,
@@ -95,6 +96,8 @@ async fn setup() -> Fixture {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let status = Arc::new(AtomicU16::new(200));
     let blocked = Arc::new(AtomicBool::new(false));
+    let server_changed = Arc::new(AtomicBool::new(false));
+    let changed = server_changed.clone();
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let (bodies, captured, code, block, start, finish) = (
@@ -116,6 +119,7 @@ async fn setup() -> Fixture {
                 start.clone(),
                 finish.clone(),
             );
+            let changed = changed.clone();
             tokio::spawn(async move {
                 let mut bytes = Vec::new();
                 let end = loop {
@@ -162,7 +166,7 @@ async fn setup() -> Fixture {
                         serde_json::json!({
                             "schema_version":{"major":1,"minor":0},
                             "product":"powercontext",
-                            "server_id":"synthetic-statistics-server",
+                            "server_id": if changed.load(Ordering::Relaxed) { "replacement-statistics-server" } else { "synthetic-statistics-server" },
                             "package_version":"synthetic",
                             "api_contract_version":{"major":1,"minor":4},
                             "feature_contracts":{
@@ -225,6 +229,7 @@ async fn setup() -> Fixture {
         requests,
         status,
         blocked,
+        server_changed,
         started,
         release,
         task,
@@ -408,4 +413,34 @@ async fn memory_cancellation_does_not_cancel_statistics() {
     fixture.manager.cancel_memory_reads(generation).unwrap();
     fixture.release.notify_one();
     assert!(pending.await.unwrap().is_ok());
+}
+
+#[tokio::test]
+async fn deployment_changes_before_or_during_statistics_discard_private_results() {
+    for during_read in [false, true] {
+        let fixture = setup().await;
+        let generation = fixture.manager.state().unwrap().generation;
+        fixture.blocked.store(during_read, Ordering::Relaxed);
+        if !during_read {
+            fixture.server_changed.store(true, Ordering::Relaxed);
+        }
+        let manager = fixture.manager.clone();
+        let pending =
+            tokio::spawn(async move { manager.stats(generation, StatsPeriod::Today).await });
+        if during_read {
+            fixture.started.notified().await;
+            fixture.server_changed.store(true, Ordering::Relaxed);
+            fixture.release.notify_one();
+        }
+        let result = tokio::time::timeout(std::time::Duration::from_secs(3), pending)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.unwrap_err().code, SafeError::StaleContext);
+        assert!(fixture.manager.state().unwrap().active.is_none());
+        assert_eq!(
+            fixture.requests.lock().unwrap().len(),
+            usize::from(during_read)
+        );
+    }
 }

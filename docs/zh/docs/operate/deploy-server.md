@@ -106,6 +106,125 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 缺少 model 可能影响部分制品功能，具体影响范围及配置方式请参考
 [官网配置说明](https://powercontext.oceanbase.io/en/docs/reference/configuration/)；两类 model 都已配置时不输出该提示。
 
+## 监听 Unix domain socket
+
+在 Linux 和 macOS 上，同机代理或网关可以通过 Unix domain socket（UDS）向 Server 发送 HTTP 请求。
+设置 `POWERCONTEXT_SERVER_HTTP_UDS` 即可选择该监听方式：
+
+```bash
+export POWERCONTEXT_SERVER_HTTP_UDS="$HOME/.pc-run/core.sock"
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN"
+powercontext server run
+```
+
+也可以使用 `powercontext server run --uds /absolute/path/core.sock`，CLI 参数优先于环境变量。
+启用 UDS 后，Server 不创建 TCP listener，并忽略配置中的 `HTTP_HOST` 和 `HTTP_PORT`。如果有效配置已选择 UDS，
+再显式传入 `--host` 或 `--port` 会被拒绝。未设置 UDS 时沿用 TCP 行为。UDS 支持 `all` 和 `api` role，
+其中 `api` 仍要求使用 OceanBase；`background` role 的 infrastructure listener 使用 TCP，因此拒绝 UDS 配置。
+
+仅当同用户运行的可信代理终止 HTTPS，且它是该私有 socket 的唯一外部入口时，设置
+`POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME=https`，并让代理保留浏览器所访问的 `Host` header。
+这一固定配置使 Dashboard 按 HTTPS 校验 Origin，并设置 Secure cookie。它作用于 socket 上的**每个**请求，
+因此代理同时转发外部明文 HTTP 时不得启用。直接使用 HTTP-over-UDS 时保持未设置。只接受 `http` 和 `https`，
+未设置 `HTTP_UDS` 时会拒绝该配置。即使设置 `FORWARDED_ALLOW_IPS=*`，Server 仍忽略 `X-Forwarded-Proto`
+和 `X-Forwarded-For`，不会把原生 UDS peer 替换为 loopback 身份。`PUBLIC_URL` 只声明访问地址，不建立协议信任。
+
+请选择较短的私有运行目录：
+
+- socket 路径必须是绝对路径，不含 `..` 或 NUL，按文件系统编码计算不超过 103 字节。
+  Windows 会拒绝 UDS 配置，不会回退到 TCP。
+- Server 会以 `0700` 权限创建缺失的父目录。已有的直接父目录必须是真实目录，由 Server 的有效用户拥有，且 group 和
+  other 均无访问权限；符号链接父目录会被拒绝。socket 权限为 `0600`，网关应使用同一用户运行。
+- socket 旁的 `core.sock.lock` 文件权限为 `0600`，用于串行化启动，退出后仍会保留。正常退出只删除当前进程创建的 socket。
+  崩溃后重启时，仅在 socket 身份匹配 lock 记录且连接探测确认其已失效时才回收。普通文件、符号链接、仍在监听或身份
+  未知的 socket 都会保留，并导致启动失败。请保留 lock 文件，以便崩溃恢复。
+
+使用同一用户检查 readiness 和需要鉴权的 API：
+
+```bash
+curl --fail --unix-socket "$POWERCONTEXT_SERVER_HTTP_UDS" http://localhost/health/ready
+curl --fail --unix-socket "$POWERCONTEXT_SERVER_HTTP_UDS" \
+  --header "Authorization: Bearer ${POWERCONTEXT_DEPLOYMENT_TOKEN}" \
+  http://localhost/v1/capabilities
+```
+
+Python Client 可以传入 HTTPX 的 UDS transport：
+
+```python
+import asyncio
+import os
+
+import httpx
+
+from powercontext.client import PowerContextClient
+
+
+async def main():
+    transport = httpx.AsyncHTTPTransport(uds=os.environ["POWERCONTEXT_SERVER_HTTP_UDS"], retries=0)
+    async with httpx.AsyncClient(transport=transport, trust_env=False) as http:
+        client = PowerContextClient(
+            "http://localhost",
+            token=os.environ["POWERCONTEXT_DEPLOYMENT_TOKEN"],
+            http_client=http,
+            trust_transport_security=True,
+        )
+        print((await client.get_capabilities()).model_dump_json())
+
+
+asyncio.run(main())
+```
+
+这里的 `http://localhost` 只是路由标签，实际连接通过 socket 建立。现有 API 路径、请求与响应结构、认证和授权规则
+继续适用；socket 权限不能替代 Bearer 鉴权。`create_server_app()` 负责创建应用，上述 CLI 负责监听与生命周期。
+
+个人 `service` 命令、本机 `ops` 管理和 Desktop 本机管理仅支持 TCP listener，会拒绝 UDS 配置；配置向导也仅生成 TCP
+配置。Core 使用 UDS 时，Agent 宿主接入需要显式提供代理的 HTTP(S) URL。远端 Skill Receiver endpoint 仍要求 HTTPS
+或 loopback peer；直接 UDS 连接没有 loopback peer，不会豁免该检查。
+
+Server 使用 UDS 时，通过 `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` 或
+`POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART` 启用 Source 自动部署，还需将
+`POWERCONTEXT_SERVER_PUBLIC_URL` 配置为代理地址。collect manager 和 runtime 通过该 URL 连接；未配置时会在创建
+部署凭据或进程前拒绝启动。`source load --kind write` 使用同一配置，也可显式传入 `--server-url`。UDS 模式下，
+这些命令不会根据 `HTTP_PORT` 推断 TCP 地址。
+
+这一监听入口提供 [Rust 网关设计（RFC #2199）](https://github.com/oceanbase/powercontext/pull/2199)所需的 Core 传输能力。
+Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私有路由和网关状态表仍需单独实现。设计中的网关负责原有
+公开 TCP 端口，并携带通道认证与用户认证通过 UDS 调用 Core。
+
+### 网关上下文注入
+
+网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入
+准备好的上下文。在同一会话内，每条新的用户消息只准备一次，该回合的后续请求（例如 Agent 的工具循环）精确重放同一结果。
+
+网关按以下顺序，取第一个出现的请求头确定会话：
+
+| 请求头 | 发送方 | 会话 |
+| --- | --- | --- |
+| `X-PowerContext-Conversation-ID` | 接入 PowerContext 的宿主 | 头的取值；优先于其他所有来源 |
+| `x-claude-code-session-id`，以及 `x-claude-code-agent-id` | Claude Code | 会话，每个子代理各自独立 |
+| `x-opencode-session-id` | OpenCode | 会话；子会话有自己的 ID |
+| `thread-id`（仅 Responses 入口） | Codex | 线程；子代理有自己的线程 ID |
+
+客户端在父代理与子代理之间共享的头不用于确定会话，例如 Codex 的 `session-id` 和 `prompt_cache_key`，以及 OpenCode 的
+`x-opencode-session` 和 `x-session-affinity`。Claude Code 使用 Anthropic Messages API，而网关不提供该接口，所以只有在
+网关前的代理把它的请求转换到 Chat 或 Responses 入口并转发这些头时，Claude Code 的头才会生效。设置 `PC_GATEWAY_INJECTION=on` 会注入所有
+请求（没有会话 ID 的请求各自准备），设置 `PC_GATEWAY_INJECTION=off` 关闭注入，设置
+`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有
+设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。
+
+### 网关固定指令
+
+`PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 入口
+（`/gateway/v1/responses`）的每个请求；Chat 入口的请求不受影响。网关只在启动时读取一次该文件。文件必须是 UTF-8，
+去掉首尾空白后不能为空，不超过 4096 字节，并且不能含有 PowerContext 保留的 `BEGIN_POWERCONTEXT_` 标记；否则网关在
+启动时退出，而不是不带指令运行。未设置该变量时不加入任何内容。
+
+指令文本成为客户端第一条 developer 消息之后那条 developer 消息的第一个内容块，也就是 Codex 放置自身
+`developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；
+请求中没有 developer 消息时，插在第一条用户消息之前。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它
+作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
+
 ## 使用 Docker 运行
 
 在仓库根目录构建镜像：

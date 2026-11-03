@@ -51,6 +51,43 @@ from powercontext.service.environment import protect_directory, write_protected_
 _ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_preparation_cli_runs_without_server_native_dependencies() -> None:
+    # The build host must acquire these packages as pinned inputs, not install
+    # them to invoke the producer. Exercise its command in a fresh interpreter.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            """
+import importlib.abc
+import runpy
+import sys
+from pathlib import Path
+
+class MissingNativeBuilders(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'cryptography', 'jieba', 'maturin'}:
+            raise ModuleNotFoundError(f'No module named {fullname!r}', name=fullname)
+
+sys.meta_path.insert(0, MissingNativeBuilders())
+root = Path(sys.argv[1])
+sys.path[:0] = [str(root / 'src'), str(root / 'scripts')]
+script = root / 'scripts' / 'prepare_managed_resources.py'
+sys.argv = [str(script), '--help']
+runpy.run_path(str(script), run_name='__main__')
+""",
+            str(_ROOT),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "--target" in result.stdout and "--source-ref" in result.stdout
+
+
 def _runtime_archive(path: Path, *, alias: str = "python.exe", directory_alias: bool = False) -> None:
     with tarfile.open(path, "w:gz") as archive:
         for name, content in {

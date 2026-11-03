@@ -375,7 +375,9 @@ class ArmResponse(FrozenModel):
     passed: bool | None
     treatment_valid: bool
     input_tokens: Annotated[int, Field(ge=0)] | None = None
+    cached_input_tokens: Annotated[int, Field(ge=0)] | None = None
     output_tokens: Annotated[int, Field(ge=0)] | None = None
+    reasoning_output_tokens: Annotated[int, Field(ge=0)] | None = None
     elapsed_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None = None
     patch_bytes: Annotated[int, Field(ge=0)] | None = None
 
@@ -389,7 +391,9 @@ class MetricComparison(FrozenModel):
 
 class ComparisonResponse(FrozenModel):
     input_tokens: MetricComparison | None = None
+    cached_input_tokens: MetricComparison | None = None
     output_tokens: MetricComparison | None = None
+    reasoning_output_tokens: MetricComparison | None = None
     elapsed_seconds: MetricComparison | None = None
     patch_bytes: MetricComparison | None = None
 
