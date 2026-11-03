@@ -26,6 +26,7 @@ from powercontext.http import (
     ExperienceProposal,
     GetExperienceRequest,
     PrepareContextRequest,
+    PreparedContext,
 )
 from tests.e2e.real_experience_skill.harness import _start_server, _wait_for_experience_candidate
 
@@ -74,6 +75,7 @@ def test_baseline_server_incubates_task_outcomes_before_review(tmp_path, monkeyp
             pending = await client.prepare_context(
                 PrepareContextRequest(scope_id=scope.scope_id, query=proposal.lesson)
             )
+            assert isinstance(pending, PreparedContext)
             assert pending.status == "empty"
             approved = await client.approve_candidate(
                 ApproveCandidateRequest(
@@ -91,6 +93,7 @@ def test_baseline_server_incubates_task_outcomes_before_review(tmp_path, monkeyp
             prepared = await client.prepare_context(
                 PrepareContextRequest(scope_id=scope.scope_id, query=proposal.lesson)
             )
+            assert isinstance(prepared, PreparedContext)
             assert prepared.status == "ready"
             assert prepared.content is not None
             assert approved.result_artifact.artifact_id in prepared.content

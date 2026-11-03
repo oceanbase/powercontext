@@ -193,7 +193,8 @@ class MeasuredGenerator:
     async def generate(self, value: Any, /) -> Any:
         self.usage = None
         result = await self.generator.generate(value)
-        self.usage = result.usage.model_dump(mode="json")
+        # The evaluation v1 artifact exposes only these counters, independently of SDK diagnostics.
+        self.usage = result.usage.model_dump(mode="json", include={"requests", "input_tokens", "output_tokens"})
         return result
 
 

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -144,6 +145,7 @@ class AtomicMemoryGenerationPipeline:
     reconciler: StructuredGenerator[AtomicMemoryReconciliationInput, AtomicMemoryReconciliationOutput]
     estimator: TokenEstimator
     extraction_instructions: str = atomic_memory_extraction_instructions(MemoryExtractionProfile.CODING)
+    input_renderer: Callable[[AtomicMemoryExtractionInput | AtomicMemoryReconciliationInput], str] | None = None
 
     async def extract(self, value: AtomicMemoryExtractionInput) -> tuple[AtomicMemoryCandidate, ...]:
         result = await self.extractor.generate(value)

@@ -93,6 +93,7 @@ from powercontext.http import (
     SkillProposal,
     SkillValidationItem,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
@@ -572,6 +573,7 @@ async def _run_journey(
             inbox = await _wait_for_experience_candidate(client, scope_id)
             experience_candidate = inbox.candidates[0]
             prepared = await client.prepare_context(PrepareContextRequest(scope_id=scope_id, query=proposal.lesson))
+            assert isinstance(prepared, PreparedContext)
             _require(experience_candidate.result_artifact is None, "pending Experience allocated an Artifact")
             _require(inbox.candidates == [experience_candidate], "pending Experience is absent from Review Inbox")
             _require(
@@ -636,6 +638,7 @@ async def _run_journey(
                 ListCandidatesRequest(scope_id=scope_id, family=CandidateFamily.SKILL)
             )
             prepared = await client.prepare_context(PrepareContextRequest(scope_id=scope_id, query=proposal.lesson))
+            assert isinstance(prepared, PreparedContext)
             _require(skill_candidate.result_artifact is None, "pending managed Skill allocated an Artifact")
             _require(skill_inbox.candidates == [skill_candidate], "pending managed Skill is absent from Review Inbox")
             _require(prepared.status == "ready", "approved Experience did not enter PreparedContext")
@@ -936,6 +939,7 @@ async def _run_configured_journey(
             prepared = await client.prepare_context(
                 PrepareContextRequest(scope_id=artifact_scope, query="repair permissive configuration")
             )
+            assert isinstance(prepared, PreparedContext)
             _require(experience_candidate.result_artifact is None, "pending Experience allocated an Artifact")
             _require(experience_candidate.source_refs == [task_outcome.source], "Experience lost exact task lineage")
             _require(prepared.status.value == "empty", "pending Experience entered Memory-only PreparedContext")
@@ -1093,6 +1097,7 @@ async def _run_configured_journey(
             prepared = await client.prepare_context(
                 PrepareContextRequest(scope_id=artifact_scope, query="invalid skill derived copy")
             )
+            assert isinstance(prepared, PreparedContext)
             rejected_page = await client.list_candidates(
                 ListCandidatesRequest(
                     scope_id=artifact_scope,
@@ -1639,6 +1644,7 @@ async def _verify_configured_restart(
                     query=current_experience.content.lesson,
                 )
             )
+            assert isinstance(prepared, PreparedContext)
         database_counts = await _database_scope_counts(database, state.scopes.all)
         persisted_vectors = await _persisted_memory_vector_count(
             database, state.scopes.memory, tuple(hit.memory.artifact for hit in vector.hits)

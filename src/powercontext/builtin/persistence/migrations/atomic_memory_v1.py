@@ -608,7 +608,9 @@ async def _hash_processing_table(
             optional = {LEGACY_CITATION_COLUMN} | (
                 {"consecutive_dream_attempts"} if name == "pc_artifact_processing_intents" else set()
             )
-            if set(values) - optional != _PROCESSING_COLUMNS[name] - optional:
+            # Retained extension fields participate in the complete snapshot
+            # hash below; they do not invalidate the required task contract.
+            if not (_PROCESSING_COLUMNS[name] - optional) <= set(values):
                 errors.append(f"{name}: unsupported persisted task columns; complete processing schema migration first")
             if name == "pc_source_cursors":
                 try:

@@ -1021,6 +1021,11 @@ class ServiceController:
                 clean_home_context,
                 server_settings_context(environment=loaded_env.values if loaded_env is not None else None) as settings,
             ):
+                if settings.http.uds is not None:
+                    raise ServiceError(  # noqa: TRY003
+                        "personal services require a TCP Server listener; use 'powercontext server run' for UDS",
+                        exit_code=2,
+                    )
                 host = settings.http.host
                 if not is_loopback_host(host):
                     raise ServiceError(  # noqa: TRY003

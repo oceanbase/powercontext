@@ -17,9 +17,9 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,8 @@ from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.persistence.atomic_memory_index import atomic_memory_profile_fingerprint
 
 from .models import MigrationError, digest
+
+_SQLITE_LAYOUTS: dict[str, dict[str, list[list[Any]]]] = {}
 
 
 class ServerVectorProfile:
@@ -60,64 +62,42 @@ class ServerVectorProfile:
             "profile": profile.model_dump(mode="json"),
         })
 
-    def sqlite_layouts(self, directory: Path) -> dict[str, list[list[Any]]]:  # noqa: C901 - Compose the registered revision layouts in chain order.
-        core = json.loads((directory / "schemas/sqlite.json").read_text(encoding="utf-8"))
-        archive = json.loads((directory / "schemas/sqlite-s1401.json").read_text(encoding="utf-8"))["create"]
-        layouts = {
-            self.source_revision: core["source"] + self.layout["sqlite"]["source"],
-            "s1400": core["target"] + self.layout["sqlite"]["target"],
-        }
-        # The frozen s1400 table rebuild uses ALTER TABLE RENAME, whose stored
-        # definition quotes the final name. Match those exact reviewed bytes.
-        for row in layouts["s1400"]:
-            if row[0] == "table" and row[1] in self.layout["sqlite"]["rebuilt_tables"]:
-                row[3] = row[3].replace(f"CREATE TABLE {row[1]} ", f'CREATE TABLE "{row[1]}" ', 1)
-        layouts["s1401"] = layouts["s1400"] + [
-            ["table", "pc_memory_artifact_archive", "pc_memory_artifact_archive", archive]
-        ]
-        manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
-        if "s1402" in manifest["revision_resources"]:
-            receipt = json.loads((directory / "schemas/sqlite-s1402.json").read_text(encoding="utf-8"))["create"]
-            layouts["s1402"] = layouts["s1401"] + [
-                ["table", "pc_portable_restore_receipts", "pc_portable_restore_receipts", receipt]
-            ]
-        if "v1_4_1_004" in manifest["revision_resources"]:
-            owner = json.loads((directory / "schemas/sqlite-v1_4_1_004.json").read_text(encoding="utf-8"))["create"]
-            layouts["v1_4_1_004"] = layouts["s1402"] + [
-                ["table", "pc_access_owner_recovery", "pc_access_owner_recovery", owner]
-            ]
-        if "v1_4_1_005" in manifest["revision_resources"]:
-            layouts["v1_4_1_005"] = copy.deepcopy(layouts["v1_4_1_004"])
-            statement = json.loads((directory / "schemas/sqlite-v1_4_1_005.json").read_text(encoding="utf-8"))[
-                "statement"
-            ]
-            for row in layouts["v1_4_1_005"]:
-                if row[0] == "table" and row[1] == "pc_atomic_memory_current":
-                    # SQLite records ALTER TABLE's exact rewritten definition.
-                    # Render it with SQLite while retaining every vector object.
-                    with closing(sqlite3.connect(":memory:")) as connection:
-                        connection.execute(row[3])
-                        connection.execute(statement)
-                        row[3] = connection.execute(
-                            "SELECT sql FROM sqlite_schema WHERE name='pc_atomic_memory_current'"
-                        ).fetchone()[0]
-        if "v1_4_1_006" in manifest["revision_resources"]:
-            plugin = json.loads((directory / "schemas/sqlite-v1_4_1_006.json").read_text(encoding="utf-8"))["create"]
-            layouts["v1_4_1_006"] = layouts["v1_4_1_005"] + [
-                ["table", "pc_source_write_plugins", "pc_source_write_plugins", plugin]
-            ]
-        artifact_revision = "v1_5_0_001"
-        if artifact_revision in manifest["revision_resources"]:
-            artifact = json.loads((directory / f"schemas/sqlite-{artifact_revision}.json").read_text())["layout"]
-            previous = {(row[0], row[1]): row for row in layouts["v1_4_1_006"]}
-            for row in artifact:
-                key = (row[0], row[1])
-                if key not in previous or row[1] == "pc_artifact_processing_binding_states":
-                    previous[key] = row
-            layouts[artifact_revision] = list(previous.values())
-        for entries in layouts.values():
-            entries.sort(key=lambda row: (row[0], row[1]))
-        return layouts
+    def sqlite_layouts(self, directory: Path) -> dict[str, list[list[Any]]]:
+        from alembic import command
+
+        from powercontext.builtin.runtime.config import BuiltinConfig
+        from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
+
+        from .bundle import ALEMBIC_CONTEXT_LOCK, MigrationBundle, sqlite_inventory
+        from .sqlite_compatibility import reference
+
+        resources = MigrationBundle._read_resources(directory)
+        key = digest({
+            "profile": self.checksum,
+            "resources": {name: hashlib.sha256(value).hexdigest() for name, value in resources.items()},
+        })
+        with ALEMBIC_CONTEXT_LOCK:
+            if key not in _SQLITE_LAYOUTS:
+                # Replay released schema definitions, including any later feature
+                # revisions. No version-specific suffix needs adding here.
+                base = MigrationBundle(directory)
+                layouts = {}
+                with reference([]) as connection:
+                    load_sqlite_vector_extension(connection)
+                    config = base.config(connection)
+                    config.attributes["configuration"] = {
+                        "processing_manifest": canonical_processing_manifest(BuiltinConfig()),
+                    }
+                    for revision in base.revisions:
+                        command.upgrade(config, revision)
+                        self.sqlite_upgrade(connection, revision)
+                        layouts[revision] = sqlite_inventory(
+                            connection, exclude=frozenset({"pc_schema_revision", *base.retained_objects})
+                        )
+                if len(_SQLITE_LAYOUTS) >= 16:
+                    del _SQLITE_LAYOUTS[next(iter(_SQLITE_LAYOUTS))]
+                _SQLITE_LAYOUTS[key] = layouts
+            return copy.deepcopy(_SQLITE_LAYOUTS[key])
 
     def sqlite_upgrade(self, connection: Connection, revision: str) -> None:
         operations = {self.source_revision: "initialize", "s1400": "upgrade"}

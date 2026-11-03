@@ -49,6 +49,7 @@ from powercontext.http import (
     PrepareContextRequest,
     SearchTopicMemoryRequest,
 )
+from powercontext.http._generated.models import PreparedContext
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     BearerAuthConfig,
@@ -555,6 +556,7 @@ async def exercise_http_mcp_prepared_chain(  # noqa: C901
             raise ProductChainError("exact Topic response changed the captured SourceRef")
 
         prepared = await client.prepare_context(PrepareContextRequest(scope_id=scope_id, query=query, max_bytes=8000))
+        assert isinstance(prepared, PreparedContext)
         if prepared.content is None:
             raise ProductChainError("Prepared Context omitted the generated Topic")
         prepared_envelope = _prepared_envelope(prepared.content)

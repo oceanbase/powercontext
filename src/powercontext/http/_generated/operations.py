@@ -48,6 +48,7 @@ from powercontext.http._generated.models import (
     CaptureContentSourceResponse,
     CaptureWorkingNoteRequest,
     ChangeArtifactPluginStateRequest,
+    CheckContextRequest,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CodeQueryRequest,
@@ -56,6 +57,7 @@ from powercontext.http._generated.models import (
     CommitHandoffRequest,
     CommittedHandoff,
     ConnectorCheckpointState,
+    ContextCheckResult,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
@@ -130,6 +132,7 @@ from powercontext.http._generated.models import (
     MemoryMutationResponse,
     MergeAtomicMemoryRequest,
     PrepareContextRequest,
+    PrepareContextResult,
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
@@ -234,7 +237,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.4.1"
+API_VERSION = "1.5.0"
 FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
     "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
     "scope.selection": {
@@ -1314,14 +1317,14 @@ QUERY_CODE = Operation[CodeQueryRequest, CodeQueryResponse](
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
+PREPARE_CONTEXT = Operation[PrepareContextRequest, PrepareContextResult](
     method="POST",
     path="/v1/context/prepare",
     operation_id="prepare_context",
     request_type=PrepareContextRequest,
     request_location="body",
     path_parameters=(),
-    response_type=PreparedContext,
+    response_type=PrepareContextResult,
     success_status=200,
     summary="Prepare bounded context for an Agent turn",
     tags=("context",),
@@ -1333,6 +1336,33 @@ PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+CHECK_CONTEXT = Operation[CheckContextRequest, ContextCheckResult](
+    method="POST",
+    path="/v1/context/check",
+    operation_id="check_context",
+    request_type=CheckContextRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ContextCheckResult,
+    success_status=200,
+    summary="Check a final model request or complete raw response",
+    tags=("context",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "A phase-specific allow, block, or withhold decision; HTTP success alone is not approval.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        413: {"description": "The complete payload exceeds the configured admission limit."},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
