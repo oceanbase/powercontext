@@ -253,7 +253,8 @@ export POWERCONTEXT_WORKBUDDY_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 | Server 不可用 | Hook 的恢复和采集正常降级，提示词继续执行且不注入上下文；MCP 工具报告服务不可用 |
 | 鉴权失败 | Hook 正常降级并写出 `authentication_failed` 诊断；MCP 工具不可用 |
 | 空 prepared context | 不注入任何上下文；Hook 写出 `empty` 诊断 |
-| 版本不匹配 | Hook 正常降级并写出 `version_mismatch` 诊断 |
+| 版本不匹配：不带错误码的 HTTP 404 | Hook 正常降级并写出 `version_mismatch` 诊断 |
+| 其他 HTTP 错误，包括 `scope_not_found` 这类带错误码的 404 | Hook 正常降级并写出 `invalid_response` 诊断，带上状态码和 Server 返回的错误码 |
 | 无效或超限响应 | Hook 正常降级并写出 `invalid_response` 诊断；不注入任何内容 |
 | Hook 超时（30 秒） | WorkBuddy 继续执行；hook 进程被外层 hook 超时机制终止 |
 
@@ -262,7 +263,10 @@ export POWERCONTEXT_WORKBUDDY_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 ## 诊断
 
 正常空结果或召回失败时，Hook 会向 stderr 写一行不含正文的 JSON 诊断。outcome 包括 `empty`、
-`authentication_failed`、`version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含
+`authentication_failed`、`version_mismatch`、`server_unavailable` 和 `invalid_response`。HTTP 错误的事件可能带有
+`http_status`，Server 的错误体给出错误码时还会带上 `error_code`。`version_mismatch` 表示 Server 对 Hook 依赖的路由
+返回了不带错误码的 HTTP 404，即 Server 不提供该路由；请从同一个 ref 安装 package 和插件。带
+`error_code: scope_not_found` 的 `invalid_response` 表示配置的 Scope 不存在，或者没有可解析的绑定。事件不会包含
 query、scope、prepared content、citation、response body 或 authorization value。
 
 每个提示词期间应能看到 hook 的 `Syncing PowerContext` 状态消息。使用 `powercontext doctor` 验证整体
