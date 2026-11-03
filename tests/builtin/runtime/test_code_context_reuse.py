@@ -159,6 +159,22 @@ def test_code_reuse_revalidates_cited_files_only(tmp_path):
     asyncio.run(scenario())
 
 
+def test_a_cited_file_that_leaves_the_git_inventory_stops_reuse(tmp_path):
+    async def scenario():
+        async with _code_runtime(tmp_path) as (scoped, root, fixture):
+            prepared = await scoped.prepare(_request())
+            assert isinstance(prepared, PreparedContextWithReuse)
+            assert "src/sample/budget.py" in _cited_paths(prepared)
+            # The bytes are unchanged, but the file is no longer tracked and is ignored, so it is not indexable.
+            _git(root, "rm", "--cached", "-q", "src/sample/budget.py")
+            (root / ".gitignore").write_text("src/sample/budget.py\n")
+            await asyncio.to_thread(fixture.service.index, fixture.scope_id, full=True)
+            with pytest.raises(ContextReuseError, match="source-changed"):
+                await scoped.validate_reuse(prepared.reuse.binding)
+
+    asyncio.run(scenario())
+
+
 def test_code_reuse_is_bound_to_its_scope(tmp_path):
     async def scenario():
         async with _code_runtime(tmp_path) as (scoped, _root, fixture):
@@ -205,6 +221,38 @@ def test_code_dependencies_stay_in_scope_and_within_the_bound(origins, reason):
         with pytest.raises(ContextReuseError, match=reason):
             await prepare_reuse(
                 object(),  # ty: ignore[invalid-argument-type] the limit is checked before any read.
+                "scope",
+                build,
+                build.context,
+                codec=None,  # ty: ignore[invalid-argument-type] nothing is sealed when the limit fails.
+                binding_identity="local",
+                now=datetime.now(UTC),
+                context=None,
+            )
+
+    asyncio.run(scenario())
+
+
+class _Snapshot:
+    """A Memory dependency snapshot with ancestors and Sources beyond its single selected root."""
+
+    def __init__(self, records: int) -> None:
+        self.records = records
+
+    async def read_dependency_snapshot(self, roots, *, context=None, selected=None):
+        return [{"kind": "artifact", "index": index} for index in range(self.records)]
+
+
+def test_the_full_memory_snapshot_and_code_share_the_dependency_bound():
+    build = replace(
+        PreparedContextBuild(context=PreparedContext(status="empty", content=None, content_bytes=0), origins=()),
+        code_origins=(_origin("scope", "a.py"), _origin("scope", "b.py")),
+    )
+
+    async def scenario():
+        with pytest.raises(ContextReuseError, match="dependency-limit"):
+            await prepare_reuse(
+                _Snapshot(MAX_REUSE_DEPENDENCIES - 1),  # ty: ignore[invalid-argument-type] only the snapshot is read.
                 "scope",
                 build,
                 build.context,

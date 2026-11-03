@@ -151,11 +151,14 @@ async def prepare_reuse(
     code_dependencies = _code_dependencies(scope_id, build)
     if len(roots) + len(code_dependencies) > MAX_REUSE_DEPENDENCIES:
         raise ContextReuseError("context-reuse-dependency-limit")
-    await _current_code(code, code_dependencies)
     try:
         dependencies = await memory.read_dependency_snapshot(roots, context=context, selected=build.reuse_roots)
     except AtomicMemoryDependencyError as error:
         raise ContextReuseError(f"context-reuse-{error.reason}") from error
+    # The bound covers every recorded dependency: the Memory snapshot includes ancestors and Sources, not only roots.
+    if len(dependencies) + len(code_dependencies) > MAX_REUSE_DEPENDENCIES:
+        raise ContextReuseError("context-reuse-dependency-limit")
+    await _current_code(code, code_dependencies)
     expires_at = now.astimezone(UTC) + REUSE_RETENTION
     payload = {
         "scope_id": scope_id,
@@ -212,5 +215,7 @@ async def validate_reuse(
         raise ContextReuseError(f"context-reuse-{error.reason}") from error
     if dependencies != payload.get("dependencies"):
         raise ContextReuseError("context-reuse-source-changed")
+    if len(dependencies) + len(code_dependencies) > MAX_REUSE_DEPENDENCIES:
+        raise ContextReuseError("context-reuse-dependency-limit")
     await _current_code(code, code_dependencies)
     return ValidatedContextReuse(content_digest, content_bytes, expires_at, roots)

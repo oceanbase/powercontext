@@ -342,8 +342,10 @@ def worktree_digests(
 ) -> dict[str, str | None]:
     """Return each path's current SHA-256 as the index would capture it, or `None` when it would not be indexed.
 
-    Only the listed files are read, through the same no-follow path walk and exclusion rules as a capture, so a
-    caller can tell whether specific cited files changed without re-capturing the whole repository.
+    Eligibility follows a capture: the path must be in the current Git inventory (tracked, or untracked and not
+    ignored when the repository includes untracked files), not a symlink or submodule, and not excluded. Only the
+    listed files are read, through the same no-follow path walk, so a caller can tell whether specific cited files
+    changed without re-capturing the whole repository.
     """
     try:
         root = config.root.resolve(strict=True)
@@ -352,6 +354,7 @@ def worktree_digests(
         raise CodeError("repository_unavailable") from error
     digests: dict[str, str | None] = {}
     try:
+        inventory, _invalid = _inventory(root, config, deadline)
         for path in paths:
             check_deadline(deadline)
             try:
@@ -359,7 +362,8 @@ def worktree_digests(
             except ValueError:
                 digests[path] = None
                 continue
-            if _excluded(path, config):
+            mode = inventory.get(path, (None, ""))[0]
+            if mode is None or mode in {"120000", "160000"} or _excluded(path, config):
                 digests[path] = None
                 continue
             content, reason, _size, _mode = _read_relative(root_fd, path, limits.max_file_bytes, deadline)
