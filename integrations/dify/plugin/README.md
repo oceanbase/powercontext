@@ -55,7 +55,7 @@ The model cannot supply the top-level Scope, URL, token, binding, context assemb
 
 Memory tools retain their logical operation IDs. The adapter routes listing to `list_atomic_memories`, Atomic reads to the current or exact historical Artifact endpoint, revision to `replace_artifact`, and forgetting to the Atomic lifecycle endpoint.
 
-Memory kinds are `decision`, `constraint`, `current-state`, `task-outcome`, `next-step` and `agent-note`. Memory text is checked after NFC normalization and trimming and must fit 8192 UTF-8 bytes. Search query length follows its HTTP character limit, with a default/maximum of 8 hits.
+Memory `kind` is an application-defined, nonblank string of at most 128 characters. Recommended values are `fact`, `preference`, `decision`, `constraint`, and `working_note`; existing custom kinds remain valid. Use `preference` for an explicit preference and preserve a kind supplied by the user. Both `pc_remember` and `pc_memory_revise` retain the supplied kind. Memory text is checked after NFC normalization and trimming and must fit 8192 UTF-8 bytes. Search query length follows its HTTP character limit, with a default/maximum of 8 hits.
 
 Preserve each Atomic Memory record's complete `artifact` and `state_version`. `pc_remember` returns `changed` and `records`. `pc_memory_list` supports state filters and cursor pagination; active entries are the default, while an explicit audit can include `forgotten`, `merged` and `retired`. `pc_memory_state(artifact_id)` returns the current `artifact`, `state`, `state_version` and nullable `merged_into_id`.
 
