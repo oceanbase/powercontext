@@ -10290,6 +10290,48 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "reuse_families": {"items": {"type": "string"}, "type": "array"},
                     "enforcing": {"type": "boolean"},
                     "limits": {"$ref": "#/components/schemas/ContextProtectionCapabilitiesLimits"},
+                    "output_limits": {
+                        "additionalProperties": {"type": "integer", "minimum": 1.0},
+                        "type": "object",
+                        "description": "Configured "
+                        "`max_output_tokens` "
+                        "by "
+                        "target "
+                        "profile, "
+                        "for "
+                        "targets "
+                        "that "
+                        "declare "
+                        "one. "
+                        "A "
+                        "colocated "
+                        "gateway "
+                        "uses "
+                        "the "
+                        "value "
+                        "of "
+                        "its "
+                        "own "
+                        "target "
+                        "when "
+                        "a "
+                        "client "
+                        "request "
+                        "omits "
+                        "an "
+                        "output "
+                        "limit; "
+                        "the "
+                        "final "
+                        "request "
+                        "is "
+                        "still "
+                        "checked "
+                        "against "
+                        "the "
+                        "same "
+                        "limit.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

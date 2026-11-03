@@ -236,10 +236,12 @@ without injection.
 ### Gateway output limit
 
 An enforcing Server requires every generation request to set an output limit, and some clients never send one;
-Codex 0.145, for example, sends no `max_output_tokens`. Set `PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS` to a positive
-integer to add that limit to Chat and Responses requests that set none. The gateway adds it before the request is
-checked, so the Server checks the final value against the target's `max_output_tokens`; a limit the client sets is kept.
-The value is read once at startup, and an invalid value stops the gateway.
+Codex 0.145, for example, sends no `max_output_tokens`. When a Chat or Responses request sets no limit, the gateway adds
+the `max_output_tokens` configured for its target (`PC_GATEWAY_UPSTREAM_PROFILE`) in the Server's inference protection
+settings. It reads that value from the Server's capabilities once at startup, so the limit is configured only on the
+Server. On the Chat route the added limit uses `max_completion_tokens`. The limit is added before the request is
+checked, and the Server checks the final request as usual; a limit the client sets, and its field, are kept. Without a
+configured limit for the target nothing is added.
 
 ### Gateway instruction
 

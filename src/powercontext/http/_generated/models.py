@@ -5027,6 +5027,12 @@ class ContextProtectionCapabilities(BaseModel):
     reuse_families: list[StrictStr]
     enforcing: StrictBool
     limits: ContextProtectionCapabilitiesLimits
+    output_limits: Annotated[
+        dict[str, StrictInt] | None,
+        Field(
+            description="Configured `max_output_tokens` by target profile, for targets that declare one. A colocated gateway uses the value of its own target when a client request omits an output limit; the final request is still checked against the same limit."
+        ),
+    ] = None
 
 
 class BootstrapContextItem(BaseModel):

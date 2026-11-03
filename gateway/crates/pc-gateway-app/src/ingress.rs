@@ -415,11 +415,16 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     out
 }
 
-/// 客户端没有设置输出上限时补上部署配置的默认值（例如 Codex 从不发送 `max_output_tokens`，而 enforcing 的
-/// Core 要求有上限）。补上的值会出现在送检和发送的最终请求里；客户端设置的值保持不变。
+/// 客户端没有设置输出上限时补上 Core 为本目标配置的上限（例如 Codex 从不发送 `max_output_tokens`，而 enforcing
+/// 的 Core 要求有上限）。补上的值会出现在送检和发送的最终请求里；客户端设置的值和字段保持不变。
+/// Chat 入口补值时用 `max_completion_tokens`：o 系列模型拒绝 `max_tokens`。
 fn apply_default_output_limit(request: &mut CanonicalRequest, default: Option<u32>) {
-    if request.output_limits.max_output_tokens.is_none() {
-        request.output_limits.max_output_tokens = default;
+    if request.output_limits.max_output_tokens.is_some() {
+        return;
+    }
+    if let Some(limit) = default {
+        request.output_limits.max_output_tokens = Some(limit);
+        request.token_limit_field = Some("max_completion_tokens".into());
     }
 }
 
@@ -766,16 +771,29 @@ mod tests {
             "the client's limit is kept"
         );
 
-        let chat: OpenAiChatRequest =
-            serde_json::from_str(r#"{"model":"m","messages":[{"role":"user","content":"hi"}]}"#)
+        let render_chat = |body: &str, default: Option<u32>| -> serde_json::Value {
+            let chat: OpenAiChatRequest = serde_json::from_str(body).unwrap();
+            let mut request = to_canonical_chat(chat).unwrap();
+            apply_default_output_limit(&mut request, default);
+            let payload = pc_gateway_protocol::OpenAiChatRenderer
+                .render(&request, None)
                 .unwrap();
-        let mut request = to_canonical_chat(chat).unwrap();
-        apply_default_output_limit(&mut request, Some(32000));
-        let payload = pc_gateway_protocol::OpenAiChatRenderer
-            .render(&request, None)
-            .unwrap();
-        let body: serde_json::Value = serde_json::from_slice(&payload.bytes).unwrap();
-        assert_eq!(body["max_tokens"], 32000);
+            serde_json::from_slice(&payload.bytes).unwrap()
+        };
+        // An omitted limit on an o-series Chat request is filled with the field o-series models accept.
+        let filled = render_chat(
+            r#"{"model":"o3","messages":[{"role":"user","content":"hi"}]}"#,
+            Some(32000),
+        );
+        assert_eq!(filled["max_completion_tokens"], 32000);
+        assert!(filled.get("max_tokens").is_none());
+        // A client's own field and value are kept.
+        let explicit = render_chat(
+            r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":256}"#,
+            Some(32000),
+        );
+        assert_eq!(explicit["max_tokens"], 256);
+        assert!(explicit.get("max_completion_tokens").is_none());
     }
 
     fn render_responses(client: &serde_json::Value) -> serde_json::Value {

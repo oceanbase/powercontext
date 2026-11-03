@@ -216,9 +216,10 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 ### 网关输出上限
 
 enforcing 模式的 Server 要求每个生成请求都设置输出上限，而有些客户端从不发送；例如 Codex 0.145 不发送
-`max_output_tokens`。把 `PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS` 设为正整数后，网关为没有设置上限的 Chat 和 Responses
-请求补上该值。补值发生在送检之前，因此 Server 按目标的 `max_output_tokens` 检查最终的值；客户端自己设置的上限保持不变。
-该值只在启动时读取，配置了无效值时网关拒绝启动。
+`max_output_tokens`。Chat 或 Responses 请求没有设置上限时，网关补上 Server 推理保护配置中为其目标
+（`PC_GATEWAY_UPSTREAM_PROFILE`）配置的 `max_output_tokens`。网关在启动时从 Server 的 capabilities 读取一次该值，
+因此上限只需在 Server 上配置。Chat 入口补值时使用 `max_completion_tokens`。补值发生在送检之前，Server 照常检查最终
+请求；客户端自己设置的上限及其字段保持不变。目标没有配置上限时不补值。
 
 ### 网关固定指令
 

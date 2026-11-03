@@ -63,7 +63,8 @@ pub struct AppState {
     pub sediment: bool,
     /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
     pub steering: Option<String>,
-    /// 客户端没有设置输出上限时使用的默认值（`PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS`）；未配置时不补。
+    /// 客户端没有设置输出上限时补上的值：Core 为本网关目标配置的 `max_output_tokens`，启动时从 capabilities
+    /// 读取；Core 没有为该目标配置时不补。
     pub default_max_output_tokens: Option<u32>,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
@@ -111,17 +112,9 @@ async fn main() {
         }
     };
 
-    let default_max_output_tokens = match default_output_limit(
-        std::env::var("PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS")
-            .ok()
-            .as_deref(),
-    ) {
-        Ok(limit) => limit,
-        Err(reason) => {
-            tracing::error!("PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS: {reason}");
-            std::process::exit(2);
-        }
-    };
+    let upstream_profile =
+        std::env::var("PC_GATEWAY_UPSTREAM_PROFILE").unwrap_or_else(|_| "default".into());
+    let core = resolve_core(core_link.clone(), &upstream_profile).await;
 
     let state = Arc::new(AppState {
         executor: Arc::new(Executor::new(
@@ -130,8 +123,7 @@ async fn main() {
             NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
         )),
         evidence: Arc::new(BufferedEvidenceSink::new()),
-        upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
-            .unwrap_or_else(|_| "default".into()),
+        upstream_profile,
         upstream_chat: std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_URL"))
             .unwrap_or_else(|_| "http://127.0.0.1:9000/v1/chat/completions".into()),
@@ -156,11 +148,11 @@ async fn main() {
         ),
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
         steering,
-        default_max_output_tokens,
+        default_max_output_tokens: core.output_limit,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes,
-        degradation_allowed: resolve_degradation(core_link.clone()).await,
+        degradation_allowed: core.degradation_allowed,
     });
 
     let router = Router::new()
@@ -201,62 +193,96 @@ async fn shutdown_signal() {
     tracing::info!("shutting down (draining)");
 }
 
-/// P1-3：启动时确定降级资格。
-/// capabilities 返回 enforcing=true → 不允许（Core 说了算）。
-/// 查询失败 → 不允许（fail-closed）。
-async fn resolve_degradation(link: link::CoreLink) -> bool {
+/// 启动时从 Core 的 capabilities 读取的信息。
+struct CoreStartup {
+    degradation_allowed: bool,
+    output_limit: Option<u32>,
+}
+
+/// Core 为某个目标配置的输出上限（`context_protection.output_limits`）。
+fn target_output_limit(caps: &serde_json::Value, profile: &str) -> Option<u32> {
+    caps.get("context_protection")?
+        .get("output_limits")?
+        .get(profile)?
+        .as_u64()
+        .and_then(|limit| u32::try_from(limit).ok())
+        .filter(|limit| *limit > 0)
+}
+
+/// 启动时查询 capabilities：确定降级资格，并读取本网关目标的输出上限。
+async fn resolve_core(link: link::CoreLink, profile: &str) -> CoreStartup {
     use pc_gateway_core::GateClient;
     match tokio::time::timeout(std::time::Duration::from_secs(10), link.capabilities()).await {
         Ok(Ok(caps)) => {
-            let cp = caps.get("context_protection");
-            // P2 review：验契约版本——Core 必须支持我们消费的 check/payload 契约。
-            let check_ok = cp
-                .and_then(|cp| cp.get("check_versions"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .any(|s| s.as_str() == Some("powercontext.context-check.v1"))
-                })
-                .unwrap_or(false);
-            let payload_ok = cp
-                .and_then(|cp| cp.get("payload_versions"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .any(|s| s.as_str() == Some("powercontext.model-json-payload.v1"))
-                })
-                .unwrap_or(false);
-            if !check_ok || !payload_ok {
-                tracing::error!(
-                    check_ok,
-                    payload_ok,
-                    "Core does not support the required context-check contract; \
-                     this gateway requires #2311+#2313. Startup will continue but \
-                     every /gateway/v1 request will fail until the contract is available."
-                );
-                return false; // 降级也不允许——没有 check 契约就没有安全保障
-            }
-            let enforcing = cp
-                .and_then(|cp| cp.get("enforcing"))
-                .and_then(|e| e.as_bool())
-                .unwrap_or(true); // 缺字段 → fail-closed
-            let allowed = !enforcing;
+            let output_limit = target_output_limit(&caps, profile);
             tracing::info!(
-                enforcing,
-                allowed,
-                "degradation eligibility from capabilities"
+                output_limit = output_limit.unwrap_or(0),
+                "output limit for omitted client limits (0 = none configured)"
             );
-            allowed
+            CoreStartup {
+                degradation_allowed: resolve_degradation(&caps),
+                output_limit,
+            }
         }
         Ok(Err(e)) => {
             tracing::warn!(error = %e, "capabilities error; degradation disabled (fail-closed)");
-            false
+            CoreStartup {
+                degradation_allowed: false,
+                output_limit: None,
+            }
         }
         Err(_) => {
             tracing::warn!("capabilities timeout (10s); degradation disabled (fail-closed)");
-            false
+            CoreStartup {
+                degradation_allowed: false,
+                output_limit: None,
+            }
         }
     }
+}
+
+/// P1-3：启动时确定降级资格。
+/// capabilities 返回 enforcing=true → 不允许（Core 说了算）。
+fn resolve_degradation(caps: &serde_json::Value) -> bool {
+    let cp = caps.get("context_protection");
+    // P2 review：验契约版本——Core 必须支持我们消费的 check/payload 契约。
+    let check_ok = cp
+        .and_then(|cp| cp.get("check_versions"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .any(|s| s.as_str() == Some("powercontext.context-check.v1"))
+        })
+        .unwrap_or(false);
+    let payload_ok = cp
+        .and_then(|cp| cp.get("payload_versions"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .any(|s| s.as_str() == Some("powercontext.model-json-payload.v1"))
+        })
+        .unwrap_or(false);
+    if !check_ok || !payload_ok {
+        tracing::error!(
+            check_ok,
+            payload_ok,
+            "Core does not support the required context-check contract; \
+             this gateway requires #2311+#2313. Startup will continue but \
+             every /gateway/v1 request will fail until the contract is available."
+        );
+        return false; // 降级也不允许——没有 check 契约就没有安全保障
+    }
+    let enforcing = cp
+        .and_then(|cp| cp.get("enforcing"))
+        .and_then(|e| e.as_bool())
+        .unwrap_or(true); // 缺字段 → fail-closed
+    let allowed = !enforcing;
+    tracing::info!(
+        enforcing,
+        allowed,
+        "degradation eligibility from capabilities"
+    );
+    allowed
 }
 
 async fn healthz() -> axum::Json<serde_json::Value> {
@@ -276,17 +302,6 @@ pub enum Injection {
 /// `PC_GATEWAY_INJECTION`：`on` 注入所有请求，`off` 关闭。未设置时，同机组合部署（经 UDS 连接已配置的 Core）
 /// 默认只注入带会话 ID 的请求，不会让工具循环的每一步都重新准备；独立部署默认关闭。
 /// 其他取值按关闭处理并告警，拼写错误不会意外开启注入。
-/// 默认输出上限只在启动时解析：须为正整数；配置了但无效时拒绝启动，而不是不补上限地运行。
-fn default_output_limit(setting: Option<&str>) -> Result<Option<u32>, String> {
-    let Some(value) = setting else {
-        return Ok(None);
-    };
-    match value.trim().parse::<u32>() {
-        Ok(limit) if limit > 0 => Ok(Some(limit)),
-        _ => Err("must be a positive integer".into()),
-    }
-}
-
 fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
     match setting {
         Some("on") => Injection::All,
@@ -308,12 +323,18 @@ mod injection_default_tests {
     use super::{injection_mode, Injection};
 
     #[test]
-    fn the_default_output_limit_is_a_positive_integer_or_absent() {
-        use super::default_output_limit;
-        assert_eq!(default_output_limit(None), Ok(None));
-        assert_eq!(default_output_limit(Some("32000")), Ok(Some(32000)));
-        for invalid in ["", "0", "-1", "32k", "4294967296"] {
-            assert!(default_output_limit(Some(invalid)).is_err(), "{invalid}");
+    fn the_output_limit_comes_from_this_gateway_target() {
+        use super::target_output_limit;
+        let caps = serde_json::json!({"context_protection": {"output_limits": {"codex": 32000, "other": 64}}});
+        assert_eq!(target_output_limit(&caps, "codex"), Some(32000));
+        assert_eq!(target_output_limit(&caps, "missing"), None);
+        assert_eq!(
+            target_output_limit(&serde_json::json!({"context_protection": {}}), "codex"),
+            None
+        );
+        let invalid = serde_json::json!({"context_protection": {"output_limits": {"a": 0, "b": -1, "c": "1"}}});
+        for profile in ["a", "b", "c"] {
+            assert_eq!(target_output_limit(&invalid, profile), None);
         }
     }
 

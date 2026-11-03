@@ -87,13 +87,13 @@ PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider/v1/chat/completions \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 ./target/release/pc-gateway
 
+# Requests without an output limit get the max_output_tokens the Server configures for PC_GATEWAY_UPSTREAM_PROFILE.
 # Injection (prepare + inject on the Chat and Responses routes): in the combined deployment (PC_GATEWAY_CORE_UDS)
 # requests that belong to a conversation (X-PowerContext-Conversation-ID or a recognized client session header)
 # are injected by default; standalone is off by default.
 # PC_GATEWAY_INJECTION=on injects every request, PC_GATEWAY_INJECTION=off disables injection, and
 # PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected.
-# Optional: PC_GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS (output limit added to requests that set none, for clients such as
-# Codex that never send one; an enforcing Core requires a limit), PC_GATEWAY_STEERING_FILE (a fixed operator instruction added to Responses requests after the client's
+# Optional: PC_GATEWAY_STEERING_FILE (a fixed operator instruction added to Responses requests after the client's
 # base prompt; read and validated at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_DEGRADE=passthrough (no-memory passthrough when Core is unreachable; never applies
 # to deployments with enforcing protection), PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES,

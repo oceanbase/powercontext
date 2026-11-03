@@ -920,6 +920,11 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
                 "send_seconds": int(SEND_VALIDITY.total_seconds()),
                 "correlate_seconds": int(RESPONSE_CORRELATION.total_seconds()),
             },
+            "output_limits": {
+                name: target.max_output_tokens
+                for name, target in sorted(runtime.inference_protection.targets.items())
+                if target.max_output_tokens is not None
+            },
         }),
     )
 
