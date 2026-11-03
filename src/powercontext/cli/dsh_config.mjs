@@ -19,7 +19,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
-import { dirname, extname, join, resolve, sep } from 'node:path'
+import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const plugin = 'powercontext-dsh'
@@ -138,11 +138,20 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
       }
       let packageDir
       try { packageDir = boot.resolveBundleDir('powercontext', name, anchor, dir) }
-      catch {
+      catch (error) {
+        // Supported hosts report missing bundles with a plain Error, without a code.
+        const missing = `powercontext: cannot resolve profile bundle ${JSON.stringify(name)} from the dsh installation or `
+        if (!(error instanceof Error) || !error.message.startsWith(missing)) {
+          fail('Installed DSH cannot resolve bundle metadata; inspect its installation and permissions', manifestPath)
+        }
         // Shadow unrelated temporary-directory ancestors while retaining native skip handling.
         mkdirSync(target, { recursive: true })
         writeFileSync(join(target, 'package.json'), '{}', { mode: 0o600 })
         continue
+      }
+      if (typeof packageDir !== 'string' || !isAbsolute(packageDir)
+        || !read(manifestPath, () => statSync(packageDir, { throwIfNoEntry: false })?.isDirectory())) {
+        fail('Installed DSH returned an unsupported bundle path; upgrade or reinstall DSH', anchor)
       }
       // Resolve before changing the profile anchor, preserving native installation/
       // ancestor precedence and support for packages without exported manifests.

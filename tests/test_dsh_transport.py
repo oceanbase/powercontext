@@ -1188,3 +1188,33 @@ def test_hoisted_powercontext_loads_without_profile_local_modules(dsh_profile, t
     assert read_dsh_settings(require_installed=True)["baseUrl"] == "https://hoisted.example"
     assert not (profile / "node_modules").exists()
     assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == original
+
+
+@pytest.mark.parametrize("resolution", ["error", "relative-path", "missing-path", "file-path"])
+def test_unexpected_bundle_resolution_fails_closed(dsh_native_api_profile, dsh_config_boot, tmp_path, resolution):
+    import powercontext.cli.dsh as dsh
+
+    profile = dsh_native_api_profile
+    compatibility_profile(profile, tmp_path, incompatible="none")
+    boot = tmp_path / "carrier/node_modules/@deepseek-ai/dsh-app-boot"
+    wrapper = boot / "wrapper.mjs"
+    native = json.dumps(dsh_config_boot.as_uri())
+    failure = {
+        "error": 'throw new Error("private-upstream-detail")',
+        "relative-path": 'return "relative-bundle"',
+        "missing-path": f"return {json.dumps(str(tmp_path / 'missing-bundle'))}",
+        "file-path": f"return {json.dumps(str(wrapper))}",
+    }[resolution]
+    wrapper.write_text(
+        f"export * from {native};\n"
+        f"import {{ resolveBundleDir as resolveNative }} from {native};\n"
+        "export function resolveBundleDir(bin, name, anchor, profile) {\n"
+        f"  if (name === 'custom-bundle') {{ {failure}; }}\n"
+        "  return resolveNative(bin, name, anchor, profile);\n}\n"
+    )
+    (boot / "package.json").write_text(json.dumps({"type": "module", "main": str(wrapper)}))
+    original = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    with pytest.raises(ValueError, match="Installed DSH") as error:
+        read_dsh_settings(executable=dsh.dsh_executable(), require_installed=True)
+    assert "private-upstream-detail" not in str(error.value)
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == original
