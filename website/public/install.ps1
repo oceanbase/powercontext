@@ -43,7 +43,6 @@ Usage: powershell -ExecutionPolicy Bypass -File install.ps1 [options]
   -h, --help         Show this help.
 
 Agent integration setup runs only for explicitly selected --host values.
-After installation, run powercontext setup --ref "powercontext-v$(powercontext --version)".
 Configure and register a personal service separately after installation.
 Windows personal services remain experimental.
 
@@ -71,8 +70,35 @@ function Assert-HttpsUrl([string]$Value, [string]$Option) {
     }
 }
 
-function Save-Download([string]$Url, [string]$Path, [int]$Timeout = 30) {
-    Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $Timeout -OutFile $Path
+function Save-Download([string]$Url, [string]$Path = '', [int]$Timeout = 30, [switch]$Head) {
+    $Uri = [Uri]$Url
+    for ($Redirects = 0; $Redirects -le 5; $Redirects++) {
+        if ($Uri.Scheme -ne 'https' -or -not $Uri.Host -or $Uri.UserInfo) {
+            throw 'Downloads and redirects must use HTTPS without embedded credentials.'
+        }
+        # Windows PowerShell 5.1 follows HTTPS-to-HTTP redirects by default.
+        $Request = [Net.HttpWebRequest]::CreateHttp($Uri)
+        $Request.AllowAutoRedirect = $false
+        $Request.Timeout = $Timeout * 1000
+        $Request.ReadWriteTimeout = $Timeout * 1000
+        if ($Head) { $Request.Method = 'HEAD' }
+        $Response = $Request.GetResponse()
+        try {
+            if ([int]$Response.StatusCode -in @(301, 302, 303, 307, 308)) {
+                $Location = $Response.Headers['Location']
+                if (-not $Location -or $Redirects -eq 5) { throw 'Invalid or excessive download redirects.' }
+                $Uri = [Uri]::new($Uri, $Location)
+                continue
+            }
+            if (-not $Head) {
+                $Output = [IO.File]::Create($Path)
+                try { $Response.GetResponseStream().CopyTo($Output) }
+                finally { $Output.Dispose() }
+            }
+            return
+        }
+        finally { $Response.Dispose() }
+    }
 }
 
 function Select-Region {
@@ -123,7 +149,7 @@ function Test-UvConfiguration {
 
 function Test-DownloadUrl([string]$Url) {
     try {
-        Invoke-WebRequest -Uri $Url -UseBasicParsing -Method Head -TimeoutSec 10 | Out-Null
+        Save-Download $Url -Timeout 10 -Head
         return $true
     }
     catch { return $false }
@@ -212,11 +238,13 @@ function Install-UvIfMissing {
     return $Uv
 }
 
+$SavedOutputEncoding = [Console]::OutputEncoding
 $SavedEnvironment = @{}
 foreach ($Name in @('UV_DEFAULT_INDEX', 'UV_INSTALL_DIR', 'UV_NO_MODIFY_PATH', 'UV_DOWNLOAD_URL')) {
     $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name)
 }
 try {
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     for ($Index = 0; $Index -lt $args.Count; $Index++) {
         $Option = $args[$Index]
         switch ($Option) {
@@ -306,6 +334,16 @@ try {
     # Older uv retains installed prereleases unless it resolves a fresh tool environment.
     if ($Version -eq 'latest') { $InstallArgs += @('--upgrade', '--force', '--prerelease', 'disallow') }
     else { $Requirement += "==$Version" }
+    if ($Hosts.Count -and $RuntimeProfile -eq 'client') {
+        # Verify the selected client package supports setup before replacing the installed tool.
+        $ProbeArgs = @('tool', 'run', '--isolated', '--python', $Python.Trim(), '--no-python-downloads', '--from', $Requirement)
+        if ($Version -eq 'latest') { $ProbeArgs += @('--prerelease', 'disallow') }
+        if ($IndexUrl) { $ProbeArgs += @('--default-index', $IndexUrl) }
+        & $Uv @ProbeArgs powercontext setup --help | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Client integration setup preflight failed. Check uv output, use --profile local, or omit --host.'
+        }
+    }
     $InstallArgs += $Requirement
     if ($IndexUrl) { $InstallArgs += @('--default-index', $IndexUrl) }
     & $Uv @InstallArgs
@@ -337,8 +375,10 @@ try {
     if ($Hosts.Count) {
         $SetupArgs = @('setup')
         if ($EnvFile) { $SetupArgs += @('--env-file', $EnvFile) }
-        & $Cli @SetupArgs --source oceanbase/powercontext --ref "powercontext-v$Version" @Hosts
-        $SetupStatus = $LASTEXITCODE
+        foreach ($Agent in $Hosts) {
+            & $Cli @SetupArgs $Agent --source oceanbase/powercontext --ref "powercontext-v$Version"
+            if ($LASTEXITCODE -ne 0) { $SetupStatus = $LASTEXITCODE }
+        }
     }
     if ($RuntimeProfile -eq 'local') {
         Write-Host "`nConfigure a local Server: powercontext config init --output .env"
@@ -361,6 +401,7 @@ catch {
     exit 1
 }
 finally {
+    [Console]::OutputEncoding = $SavedOutputEncoding
     foreach ($Name in $SavedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($Name, $SavedEnvironment[$Name]) }
     if ($TempDir) { Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue }
 }

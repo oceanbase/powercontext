@@ -39,7 +39,7 @@ curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1
 
 Only explicit `--host` arguments run integration setup. Each selected host requires Git and its own prerequisites. Multiple hosts can be selected. `--no-hosts` explicitly skips integrations and conflicts with `--host`.
 
-The installer reads the installed CLI version and passes its `powercontext-vVERSION` tag to `powercontext setup`. All hosts use that same release ref. `--env-file PATH` passes an existing connection file to host setup; the installer does not parse or source it.
+The installer reads the installed CLI version and passes its `powercontext-vVERSION` tag to `powercontext setup`. All hosts use that same release ref. Setup runs once per selected host. `--env-file PATH` passes an existing connection file to host setup; the installer does not parse or source it.
 
 ## Configuration and personal services
 
@@ -68,7 +68,7 @@ The scripts perform these steps in order:
 
 1. Validate arguments, including conflicting host options and the existence of a supplied connection file.
 2. Reuse or install uv and Python, then select the package index.
-3. Install the selected package requirement in a uv tool environment.
+3. For a client profile with selected hosts, check `setup --help` in an isolated environment with the selected package requirement. Reject unsupported combinations before replacing the installed tool; otherwise install the selected requirement in a uv tool environment.
 4. Locate the installed launcher through `uv tool dir --bin` and verify its version and command availability.
 5. Print the installed version and PATH instructions, then run any selected host setup at that version's tag.
 6. Print local-service or remote-connection guidance. Return a nonzero status if host setup failed.
@@ -104,7 +104,7 @@ Region selection follows `--region`, `POWERCONTEXT_INSTALL_REGION`, local named 
 | uv installer and binaries | Astral channels | USTC release mirror | `POWERCONTEXT_UV_INSTALLER_URL`, `UV_DOWNLOAD_URL`, uv installer mirror variables |
 | Python | uv default channels | NJU python-build-standalone mirror | `UV_PYTHON_INSTALL_MIRROR`, uv Python download configuration |
 
-Existing uv configuration suppresses automatic package mirrors. `--index-url` replaces the default index; additional indexes retain uv's priority rules. uv handles authentication and the package index protocol. Script URL arguments require HTTPS without embedded credentials. pip index variables do not configure uv.
+Existing uv configuration suppresses automatic package mirrors. `--index-url` replaces the default index; additional indexes retain uv's priority rules. uv handles authentication and the package index protocol. Script URL arguments require HTTPS without embedded credentials. Download and availability-probe redirects must remain HTTPS. Windows captures native output as UTF-8 so Unicode paths remain usable, then restores the console encoding on exit. pip index variables do not configure uv.
 
 Explicit uv and Python sources are preserved without fallback. For automatic selection, an unavailable uv mirror installer falls back to Astral; mirrored uv artifacts can fall back to official sources. The Python build URL comes from uv. The script checks its mirrored artifact and retries with uv's default channels if the automatic mirror fails.
 

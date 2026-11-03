@@ -57,7 +57,7 @@ Usage: bash install.sh [--version VERSION] [--index-url URL] [--host HOST]... [-
   -h, --help         Show this help.
 
 Agent integration setup runs only for explicitly selected --host values.
-After installation, run powercontext setup --ref "powercontext-v$(powercontext --version)".
+After installation, run powercontext setup HOST --ref "powercontext-v$(powercontext --version)" when supported.
 Configure and register a personal service separately after installation.
 
 Region priority: --region, POWERCONTEXT_INSTALL_REGION, named timezone, locale
@@ -331,6 +331,14 @@ main() {
     else
         requirement="$requirement==$VERSION"
     fi
+    if [[ ${#HOSTS[@]} -gt 0 && "$PROFILE" == client ]]; then
+        # Some published client-only releases do not register setup at all.
+        local probe_args=(tool run --isolated --python "$PYTHON_BIN" --no-python-downloads --from "$requirement")
+        [[ "$VERSION" != latest ]] || probe_args+=(--prerelease disallow)
+        [[ -z "$INDEX_URL" ]] || probe_args+=(--default-index "$INDEX_URL")
+        "$UV_BIN" "${probe_args[@]}" powercontext setup --help >/dev/null ||
+            fail "Client integration setup preflight failed. Check uv output; use --profile local for releases without setup or omit --host."
+    fi
     install_args+=("$requirement")
     [[ -z "$INDEX_URL" ]] || install_args+=(--default-index "$INDEX_URL")
     printf 'Installing PowerContext %s.\n' "$VERSION"
@@ -364,8 +372,12 @@ main() {
     if [[ ${#HOSTS[@]} -gt 0 ]]; then
         local setup_args=(setup)
         [[ -z "$ENV_FILE" ]] || setup_args+=(--env-file "$ENV_FILE")
-        "$tool_bin/powercontext" "${setup_args[@]}" --source oceanbase/powercontext \
-            --ref "powercontext-v$VERSION" ${HOSTS[@]+"${HOSTS[@]}"} || setup_status=$?
+        local agent
+        for agent in "${HOSTS[@]}"; do
+            # Host-first options work with both released subcommands and the unified callback.
+            "$tool_bin/powercontext" "${setup_args[@]}" "$agent" --source oceanbase/powercontext \
+                --ref "powercontext-v$VERSION" || setup_status=$?
+        done
     fi
     if [[ "$PROFILE" == local ]]; then
         printf '\nConfigure a local Server: powercontext config init --output .env\n'

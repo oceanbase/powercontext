@@ -33,7 +33,8 @@ CASES = [
     for path in sorted((ROOT / "tests/fixtures/installation").glob("*.json"))
     for case in json.loads(path.read_text())["cases"]
 ]
-CLI = """import importlib.util
+CLI = """import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,10 @@ import sys
 
 def main():
     args = sys.argv[1:]
+    grouped = os.environ.get("CONTRACT_SETUP_STYLE") == "group"
+    if args and args[0] == "setup" and grouped and importlib.util.find_spec("contract_server") is None:
+        print("Error: No such command 'setup'.", file=sys.stderr)
+        return 2
     if args == ["--version"]:
         print(os.environ.get("CONTRACT_REPORTED_VERSION", "1.2.0"))
     elif not args or args[-1] == "--help":
@@ -60,8 +65,19 @@ def main():
             else:
                 hosts.append(args[index])
                 index += 1
+        if grouped:
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--env-file")
+            commands = parser.add_subparsers(dest="host", required=True)
+            for host in ("codex", "claude"):
+                command = commands.add_parser(host)
+                command.add_argument("--source", required=True)
+                command.add_argument("--ref", required=True)
+            parser.parse_args(args[1:])
         ref = args[args.index("--ref") + 1]
-        selected = {"hosts": hosts, "ref": ref}
+        result_path = Path(os.environ["CONTRACT_SETUP_RESULT"])
+        previous = json.loads(result_path.read_text()) if result_path.exists() else {"hosts": []}
+        selected = {"hosts": previous["hosts"] + hosts, "ref": ref}
         if "--env-file" in args:
             selected["env_file"] = args[args.index("--env-file") + 1]
         Path(os.environ["CONTRACT_SETUP_RESULT"]).write_text(json.dumps(selected))
@@ -107,7 +123,7 @@ def executable_path(directory: Path, uv: str, windows: bool, include_git: bool) 
     if include_git and not git:
         pytest.skip("explicit-host contract requires Git discovery")
     if not windows:
-        for name in ("curl", "wget", "uname", "mktemp", "rm", "dirname", "cat", "sh", "readlink"):
+        for name in ("curl", "wget", "uname", "mktemp", "rm", "dirname", "cat", "sh", "readlink", "realpath"):
             executable = shutil.which(name)
             if executable:
                 (tools / name).symlink_to(executable)
@@ -159,7 +175,7 @@ def test_installation_contract(case: dict[str, Any], tmp_path: Path) -> None:
         "TMPDIR": str(tmp_path),
         "PATH": path,
         "UV_TOOL_DIR": str(tmp_path / "tool"),
-        "UV_TOOL_BIN_DIR": str(tmp_path / "bin"),
+        "UV_TOOL_BIN_DIR": str(tmp_path / ("bin with spaces naïve" if case.get("unicode_paths") else "bin")),
         "UV_CACHE_DIR": str(tmp_path / "cache"),
         "UV_NO_CONFIG": "1",
         "UV_NO_INDEX": "1",
@@ -168,6 +184,7 @@ def test_installation_contract(case: dict[str, Any], tmp_path: Path) -> None:
         "UV_OFFLINE": "1",
         "CONTRACT_SETUP_RESULT": str(tmp_path / "setup.json"),
         "CONTRACT_SETUP_EXIT": str(case.get("setup_exit", 0)),
+        "CONTRACT_SETUP_STYLE": case.get("setup_style", "callback"),
         "CONTRACT_REPORTED_VERSION": case.get("reported_version", "1.2.0"),
         "CONTRACT_MISSING_COMMANDS": json.dumps(case.get("missing_commands", [])),
     })
@@ -180,6 +197,17 @@ def test_installation_contract(case: dict[str, Any], tmp_path: Path) -> None:
     command = (
         [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)] if windows else [shell, str(script)]
     )
+    if windows and case.get("unicode_paths"):
+        wrapper = tmp_path / "invoke-installer.ps1"
+        wrapper.write_text(
+            "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(437)\n"
+            "$Installer = $args[0]\n$InstallerArgs = @($args | Select-Object -Skip 1)\n"
+            "& $Installer @InstallerArgs\n$Result = $LASTEXITCODE\n"
+            "if ([Console]::OutputEncoding.CodePage -ne 437) { throw 'Console encoding was not restored' }\n"
+            "exit $Result\n",
+            encoding="utf-8-sig",
+        )
+        command = [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(wrapper), str(script)]
     result = subprocess.run(
         [*command, "--region", "global", *arguments], env=environment, capture_output=True, text=True, timeout=60
     )
@@ -191,7 +219,7 @@ def assert_installation_outcome(case, tmp_path, result, environment) -> None:
     windows = sys.platform == "win32"
     env_file = tmp_path / "existing configuration.env"
     assert result.returncode == expected["exit_code"], result.stdout + result.stderr
-    executable = tmp_path / "bin" / ("powercontext.exe" if windows else "powercontext")
+    executable = Path(environment["UV_TOOL_BIN_DIR"]) / ("powercontext.exe" if windows else "powercontext")
     assert executable.exists() == expected["runtime_installed"]
     setup = tmp_path / "setup.json"
     observed = json.loads(setup.read_text()) if setup.exists() else {"hosts": []}

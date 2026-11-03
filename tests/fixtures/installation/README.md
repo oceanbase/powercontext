@@ -21,6 +21,8 @@ Each catalog has `schema_version: 1` and a `cases` array. Give every case an ID 
 | `id` | Stable scenario name shown in test results |
 | `args` | Arguments passed to the native installer |
 | `git` | Whether Git is discoverable; defaults to false |
+| `setup_style` | `group` models published per-host subcommands and missing setup in client-only installs; defaults to the unified callback |
+| `unicode_paths` | Use a non-ASCII tool directory; Windows also starts with OEM output decoding and checks encoding restoration |
 | `setup_exit` | Exit status of the fixture host operation; defaults to success |
 | `reported_version` | Fixture CLI version; defaults to the wheel's `1.2.0` |
 | `environment_file` | Create a protected existing configuration file for the case |

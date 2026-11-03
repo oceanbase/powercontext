@@ -163,6 +163,100 @@
         "runtime_installed": false,
         "error_contains": "Unknown option"
       }
+    },
+    {
+      "id": "released-group-hosts",
+      "setup_style": "group",
+      "git": true,
+      "args": [
+        "--host",
+        "codex",
+        "--host",
+        "claude"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex",
+          "claude"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": true
+      }
+    },
+    {
+      "id": "released-group-env-file",
+      "setup_style": "group",
+      "git": true,
+      "environment_file": true,
+      "args": [
+        "--host",
+        "codex",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "setup_env_file": true,
+        "server_extra": true
+      }
+    },
+    {
+      "id": "released-client-without-setup",
+      "setup_style": "group",
+      "git": true,
+      "args": [
+        "--profile",
+        "client",
+        "--host",
+        "codex"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "selected_hosts": [],
+        "error_contains": "No such command 'setup'"
+      }
+    },
+    {
+      "id": "client-with-setup",
+      "git": true,
+      "args": [
+        "--profile",
+        "client",
+        "--host",
+        "codex"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": false
+      }
+    },
+    {
+      "id": "unicode-native-output",
+      "unicode_paths": true,
+      "git": false,
+      "args": [
+        "--profile",
+        "client"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": false
+      }
     }
   ]
 }

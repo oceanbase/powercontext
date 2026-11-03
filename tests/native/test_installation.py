@@ -181,7 +181,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         # These subprocesses write UTF-8 log files, rather than a Windows console.
         PYTHONIOENCODING="utf-8",
         UV_TOOL_DIR=str(tmp_path / "tools"),
-        UV_TOOL_BIN_DIR=str(tmp_path / "bin"),
+        UV_TOOL_BIN_DIR=str(tmp_path / "bin with spaces naïve"),
         UV_CACHE_DIR=str(tmp_path / "cache"),
         UV_PYTHON_INSTALL_DIR=str(tmp_path / "python"),
         UV_NO_CONFIG="1",
@@ -210,11 +210,11 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
                 f"& ([scriptblock]::Create([IO.File]::ReadAllText('{script_path}'))) @args\n", encoding="utf-8"
             )
             installer[-1] = str(wrapper)
-        cli = str(tmp_path / "bin/powercontext.exe")
+        cli = str(tmp_path / "bin with spaces naïve/powercontext.exe")
         system_path = os.pathsep.join([str(Path(os.environ["SYSTEMROOT"]) / "System32"), os.environ["SYSTEMROOT"]])
     else:
         installer = ["/bin/bash", str(ROOT / "website/public/install.sh")]
-        cli = str(tmp_path / "bin/powercontext")
+        cli = str(tmp_path / "bin with spaces naïve/powercontext")
         system_path = os.defpath
     installer += ["--no-hosts", "--version", str(version)]
     if environment.startswith("bootstrap"):
@@ -380,3 +380,131 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
         server.shutdown()
         worker.join(timeout=5)
         server.server_close()
+
+
+@pytest.fixture
+def windows_https_certificate(tmp_path: Path):
+    """Trust one disposable certificate in the current user's store, then remove it."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
+
+    shell = shutil.which("powershell.exe")
+    assert shell
+    pfx, der = tmp_path / "server.pfx", tmp_path / "server.cer"
+    script = tmp_path / "certificate.ps1"
+    script.write_text(
+        "$ErrorActionPreference = 'Stop'\n"
+        "$Cert = New-SelfSignedCertificate -DnsName localhost -CertStoreLocation Cert:\\CurrentUser\\My "
+        "-KeyExportPolicy Exportable -Type SSLServerAuthentication\n"
+        "$Password = ConvertTo-SecureString 'fixture-only' -AsPlainText -Force\n"
+        "Export-PfxCertificate -Cert $Cert -FilePath $args[0] -Password $Password | Out-Null\n"
+        "Export-Certificate -Cert $Cert -FilePath $args[1] | Out-Null\n"
+        "Import-Certificate -FilePath $args[1] -CertStoreLocation Cert:\\CurrentUser\\Root | Out-Null\n"
+        "$Cert.Thumbprint\n",
+        encoding="utf-8",
+    )
+    env = {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
+    thumbprint = subprocess.check_output(
+        [shell, "-NoProfile", "-File", str(script), str(pfx), str(der)], env=env, text=True, timeout=30
+    ).strip()
+    try:
+        key, certificate, _chain = load_key_and_certificates(pfx.read_bytes(), b"fixture-only")
+        assert key is not None and certificate is not None
+        cert_file, key_file = tmp_path / "server.pem", tmp_path / "key.pem"
+        cert_file.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+        key_file.write_bytes(
+            key.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+            )
+        )
+        yield cert_file, key_file
+    finally:
+        # Only remove this fixture's exact certificate, never another user's trust entries.
+        subprocess.run(
+            [
+                shell,
+                "-NoProfile",
+                "-Command",
+                "foreach ($Store in 'My','Root') { Remove-Item -LiteralPath "
+                f"(Join-Path ('Cert:\\CurrentUser\\' + $Store) '{thumbprint}') -ErrorAction SilentlyContinue }}",
+            ],
+            env=env,
+            check=True,
+            timeout=30,
+        )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows PowerShell 5.1 and its certificate store")
+@pytest.mark.parametrize("route", ["direct", "https", "http"])
+def test_windows_bootstrap_requires_https(tmp_path: Path, windows_https_certificate, route: str) -> None:
+    import ssl
+    from http.server import BaseHTTPRequestHandler
+
+    requests = []
+
+    class Installer(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            pass
+
+        def do_GET(self):
+            scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
+            requests.append((scheme, self.path))
+            if self.path != "/direct":
+                self.send_response(302)
+                location = "/direct" if self.path == "/https" else f"http://localhost:{plain.server_port}/direct"
+                self.send_header("Location", location)
+                self.end_headers()
+                return
+            # Stop bootstrap after proving the downloaded installer was executed.
+            payload = b"Set-Content -LiteralPath $env:CONTRACT_DOWNLOAD_MARKER -Value executed\nexit 1\n"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    cert, key = windows_https_certificate
+    plain = ThreadingHTTPServer(("127.0.0.1", 0), Installer)
+    secure = ThreadingHTTPServer(("127.0.0.1", 0), Installer)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    secure.socket = context.wrap_socket(secure.socket, server_side=True)
+    workers = [Thread(target=server.serve_forever, daemon=True) for server in (plain, secure)]
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith(("UV_", "POWERCONTEXT_")) and key.upper() != "PSMODULEPATH"
+    }
+    env.update(
+        PATH=os.pathsep.join((str(Path(env["SYSTEMROOT"]) / "System32"), env["SYSTEMROOT"])),
+        UV_INSTALL_DIR=str(tmp_path / "missing-uv"),
+        POWERCONTEXT_UV_INSTALLER_URL=f"https://localhost:{secure.server_port}/{route}",
+        CONTRACT_DOWNLOAD_MARKER=str(tmp_path / "download-executed"),
+    )
+    shell = str(Path(env["SYSTEMROOT"]) / "System32/WindowsPowerShell/v1.0/powershell.exe")
+    for worker in workers:
+        worker.start()
+    try:
+        output = run(
+            [
+                shell,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(ROOT / "website/public/install.ps1"),
+                "--region",
+                "global",
+            ],
+            tmp_path,
+            env,
+            "https-bootstrap",
+            success=False,
+        )
+        assert ("https", f"/{route}") in requests, output
+        assert all(scheme == "https" for scheme, _path in requests), requests
+        assert Path(env["CONTRACT_DOWNLOAD_MARKER"]).exists() == (route != "http"), output
+    finally:
+        for server, worker in zip((plain, secure), workers, strict=True):
+            server.shutdown()
+            server.server_close()
+            worker.join()

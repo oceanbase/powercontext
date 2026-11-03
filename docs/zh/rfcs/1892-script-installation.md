@@ -39,7 +39,7 @@ curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1
 
 只有显式传入 `--host` 才运行集成安装。所选宿主需要 Git 和各自的前置依赖；可以选择多个宿主。`--no-hosts` 显式跳过集成，与 `--host` 冲突。
 
-安装器读取已安装的 CLI 版本，把对应的 `powercontext-vVERSION` tag 传给 `powercontext setup`，全部宿主使用同一发行 ref。`--env-file PATH` 把已有连接文件传给宿主安装；安装器不解析或执行该文件。
+安装器读取已安装的 CLI 版本，把对应的 `powercontext-vVERSION` tag 传给 `powercontext setup`，全部宿主使用同一发行 ref。安装器逐个运行所选宿主的 setup。`--env-file PATH` 把已有连接文件传给宿主安装；安装器不解析或执行该文件。
 
 ## 配置与个人服务
 
@@ -68,7 +68,7 @@ curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1
 
 1. 校验参数，包括宿主选项冲突及所指定连接文件是否存在。
 2. 复用或安装 uv 和 Python，再选择包索引。
-3. 在 uv tool 环境中安装所选包 requirement。
+3. client 模式选择宿主时，先在使用所选包 requirement 的独立环境中检查 `setup --help`；缺少 setup 时，在替换已安装工具前拒绝该组合。通过检查后，在 uv tool 环境中安装所选 requirement。
 4. 通过 `uv tool dir --bin` 找到已安装入口，检查版本和命令可用性。
 5. 打印已安装版本和 PATH 指引，再按该版本的 tag 安装选定宿主。
 6. 打印本地服务或远程连接指引；宿主安装失败时返回非零状态。
@@ -104,7 +104,7 @@ Python 发现接受 3.11 及以上、低于 4.0 的版本，并排除虚拟环�
 | uv 安装器及二进制 | Astral 渠道 | USTC release 镜像 | `POWERCONTEXT_UV_INSTALLER_URL`、`UV_DOWNLOAD_URL`、uv 安装器镜像变量 |
 | Python | uv 默认渠道 | NJU python-build-standalone 镜像 | `UV_PYTHON_INSTALL_MIRROR`、uv Python 下载配置 |
 
-已有 uv 配置时不自动选择包镜像。`--index-url` 替换默认索引，额外索引沿用 uv 的优先级。认证和包索引协议由 uv 处理。脚本 URL 参数必须使用 HTTPS，且不含凭据；pip 索引变量不会配置 uv。
+已有 uv 配置时不自动选择包镜像。`--index-url` 替换默认索引，额外索引沿用 uv 的优先级。认证和包索引协议由 uv 处理。脚本 URL 参数必须使用 HTTPS，且不含凭据。下载与可用性探测的重定向也必须保持 HTTPS。Windows 按 UTF-8 读取原生命令输出，避免破坏非 ASCII 路径，并在退出时恢复控制台编码。pip 索引变量不会配置 uv。
 
 显式 uv 和 Python 来源不做回退。自动选择时，uv 镜像安装器不可用则回退 Astral；uv 镜像产物可回退官方源。Python 构建 URL 由 uv 提供；脚本检查对应镜像产物，自动镜像失败时使用 uv 默认渠道重试。
 
