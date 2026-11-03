@@ -263,6 +263,7 @@ make test
 - [コンテキストの管理](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [デプロイと運用](https://powercontext.oceanbase.io/en/docs/operate/)
 - [開発と API](https://powercontext.oceanbase.io/en/docs/develop/)
+- [ネイティブモデル SDK を使う](https://powercontext.oceanbase.io/en/docs/develop/native-sdk/)
 
 PowerContext は [PowerMem](https://www.powermem.ai/) の後継プロジェクトです。
 

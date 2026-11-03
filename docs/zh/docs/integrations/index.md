@@ -93,6 +93,12 @@ Cookie 属性和折行续接内容，再匹配普通赋值。这种保守处理�
 | [LangChain](langchain.md) | Middleware：上下文和可选 Source 采集 | `master_only` |
 | [LangGraph](langgraph.md) | Recall hook 和 Memory 工具 | `master_only` |
 
+## 原生模型 SDK
+
+如果应用已经通过自己的 SDK 调用 OpenAI 或 Anthropic，就不需要 Agent Host 或框架适配器。保留供应商客户端，用异步
+Python Client 加入 PowerContext。[使用原生模型 SDK](../develop/native-sdk.md)介绍请求流程、PreparedContext 契约、
+凭据与 Scope 处理，并提供可运行的 OpenAI 和 Anthropic 示例。
+
 ## 评测集成
 
 [Bub 仅用于评测](evaluation.md)，不计入 Agent Host 或 Python Agent 框架支持列表。

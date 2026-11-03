@@ -109,6 +109,13 @@ All 3 adapters are `community`. Install them in the application environment; do 
 | [LangChain](langchain.md) | Middleware for context and optional Source capture | `master_only` |
 | [LangGraph](langgraph.md) | Recall hook and Memory tools | `master_only` |
 
+## Native model SDKs
+
+When an application already calls OpenAI or Anthropic through its own SDK, it does not need an Agent host or framework
+adapter. Keep the provider client and add PowerContext with the async Python Client. [Use a native model SDK](../develop/native-sdk.md)
+covers the request flow, the PreparedContext contract, credential and Scope handling, and runnable OpenAI and Anthropic
+examples.
+
 ## Evaluation integrations
 
 [Bub is for evaluation only](evaluation.md). It is not part of the Agent Host or Python Agent framework support lists.

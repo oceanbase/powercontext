@@ -92,3 +92,6 @@ uv run pytest tests/examples/openai_sdk
 
 These tests use simulated responses. They do not show that a particular Server or model provider returns them; use the
 smoke test above for that.
+
+For the shared integration pattern, including when to use a native SDK instead of an Agent host or framework adapter,
+see [Use a native model SDK](../../docs/en/docs/develop/native-sdk.md).

@@ -8,6 +8,9 @@ description: 通过 HTTP API、Python Client 或 Core SDK 接入应用。
 通过 [API Quick Start](api-quickstart.md)连接应用、采集证据、保存 Memory，并为一次请求准备上下文。
 该流程使用本地 Server，显式写入不需要模型。
 
+如果应用直接调用 OpenAI 或 Anthropic，请按[使用原生模型 SDK](native-sdk.md)把 PreparedContext 加入该请求，
+无需 Agent Host 或框架适配器。
+
 按应用选择[接口](interfaces.md)：异步 Python Client 和 HTTP API 连接运行中的 Server，
 Core SDK 支持进程内组合。MCP 向 Agent 暴露经过选择的工具子集。
 

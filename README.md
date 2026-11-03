@@ -333,6 +333,7 @@ Coding and memory evaluations, performance benchmarks, and Skill regressions liv
 - [Manage context](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [Deploy and operate](https://powercontext.oceanbase.io/en/docs/operate/)
 - [Develop with APIs](https://powercontext.oceanbase.io/en/docs/develop/)
+- [Use a native model SDK](https://powercontext.oceanbase.io/en/docs/develop/native-sdk/)
 
 PowerContext is the successor to [PowerMem](https://www.powermem.ai/).
 

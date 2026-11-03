@@ -86,3 +86,6 @@ uv run pytest tests/examples/openai_sdk
 ```
 
 这些测试使用模拟响应，不能证明某个 Server 或模型服务确实返回这些响应；这一点请用上面的冒烟测试验证。
+
+关于原生 SDK 的通用接入方式，以及何时用它替代 Agent Host 或框架适配器，见
+[使用原生模型 SDK](../../docs/zh/docs/develop/native-sdk.md)。

@@ -173,7 +173,8 @@ uv run python -m examples.openai_sdk.chat --seed
 ```
 
 示例读取相同的 `POWERCONTEXT_URL`、`POWERCONTEXT_TOKEN` 和 `POWERCONTEXT_SCOPE` 变量。其 README 列出了模型配置、
-预期输出，以及无需凭据的离线测试。
+预期输出，以及无需凭据的离线测试。[原生 SDK 指南](native-sdk.md)说明 OpenAI 与 Anthropic 的这一接入方式，包括
+PreparedContext 契约、凭据与 Scope 处理，以及离线测试。
 
 ## 后续工作流
 

@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "api-quickstart",
+    "native-sdk",
     "interfaces",
     "http-api"
   ]

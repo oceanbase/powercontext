@@ -273,6 +273,7 @@ make test
 - [管理上下文](https://powercontext.oceanbase.io/zh/docs/workflows/)
 - [部署与运维](https://powercontext.oceanbase.io/zh/docs/operate/)
 - [开发与 API](https://powercontext.oceanbase.io/zh/docs/develop/)
+- [使用原生模型 SDK](https://powercontext.oceanbase.io/zh/docs/develop/native-sdk/)
 
 PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
 

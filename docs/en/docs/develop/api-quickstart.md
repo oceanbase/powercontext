@@ -177,7 +177,9 @@ uv run python -m examples.openai_sdk.chat --seed
 ```
 
 The example reads the same `POWERCONTEXT_URL`, `POWERCONTEXT_TOKEN`, and `POWERCONTEXT_SCOPE` variables. Its README
-lists the model settings, the expected output, and offline tests that need no credentials.
+lists the model settings, the expected output, and offline tests that need no credentials. The
+[native SDK guide](native-sdk.md) covers this pattern for OpenAI and Anthropic, including the PreparedContext
+contract, credential and Scope handling, and offline tests.
 
 ## Next workflows
 
