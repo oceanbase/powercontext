@@ -23,6 +23,9 @@ loaded. The existing Skill carries detailed procedures. This implements D of
 | Candidate inspection | Read the review queue or exact candidate when supported; listing and generation do not approve, install, publish, or execute it. |
 | Failed, denied, unscoped, or unavailable operation | Identify the operation and safe returned reason. Do not invent a cause, simulate an absent tool, substitute another write, or claim success. |
 
+For Hermes and Gateway projection boundaries and loss declarations, see the
+[capture coverage contract](capture-coverage.md).
+
 Automatic hooks attempt bounded recall and Source capture. Enabled configuration is not evidence of successful
 processing. A Source can be accepted without producing Memory; prepared context is not proof of host injection.
 Neither automatic Source capture nor a verbal acknowledgement satisfies an explicit save request.

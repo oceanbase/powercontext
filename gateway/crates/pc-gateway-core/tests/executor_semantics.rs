@@ -80,6 +80,7 @@ struct FakeGate {
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
     captured: Mutex<Vec<(String, String)>>,
+    captured_metadata: Mutex<Vec<serde_json::Value>>,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
@@ -155,6 +156,10 @@ impl GateClient for FakeGate {
         &self,
         request: CaptureContentSourceRequest,
     ) -> Result<serde_json::Value, GateError> {
+        self.captured_metadata
+            .lock()
+            .unwrap()
+            .push(request.metadata.clone().unwrap_or(serde_json::Value::Null));
         self.captured
             .lock()
             .unwrap()
@@ -334,6 +339,7 @@ fn harness(
         prepare_holds: Mutex::new(VecDeque::new()),
         prepare_queries: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
+        captured_metadata: Mutex::new(Vec::new()),
         capture_error: Mutex::new(None),
     });
     let executor = Executor::new(
@@ -870,6 +876,15 @@ async fn sediment_captures_released_turn_synchronously() {
         captured[0].0.starts_with("gw-turn-"),
         "幂等键: {}",
         captured[0].0
+    );
+    let metadata = gate.captured_metadata.lock().unwrap();
+    assert_eq!(metadata[0]["kind"], "gateway_turn");
+    assert_eq!(
+        metadata[0]["powercontext_capture_coverage"],
+        serde_json::json!({
+            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
+            "unit": "gateway_turn_projection", "status": "complete", "reasons": []
+        })
     );
     let v: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
     assert_eq!(

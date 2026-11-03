@@ -344,10 +344,11 @@ where
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
                             source_id: format!("gw-turn-{digest}"),
-                            content: transcript,
+                            content: transcript.text,
                             metadata: Some(serde_json::json!({
                                 "kind": "gateway_turn",
                                 "target_profile": call.target_profile,
+                                "powercontext_capture_coverage": transcript.coverage,
                             })),
                         };
                         match self.gate.capture(capture).await {
