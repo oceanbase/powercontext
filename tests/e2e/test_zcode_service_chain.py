@@ -129,9 +129,28 @@ def _delay_first_capture_response():
     return middleware
 
 
-@pytest.mark.parametrize("slow_flush_receipt", [False, True])
+class _StopBoundaryFaults:
+    def __init__(self, slow_flush_receipt: bool) -> None:
+        self.slow_flush_receipt = slow_flush_receipt
+        self.delay_retry_resolution = False
+        self.flush_requests = 0
+
+    async def __call__(self, request, call_next):
+        is_flush = request.url.path == "/v1/memory/flush"
+        if is_flush:
+            self.flush_requests += 1
+        if self.delay_retry_resolution and request.url.path == "/v1/scope-bindings/resolve":
+            await asyncio.sleep(1.2)
+        response = await call_next(request)
+        if is_flush and self.slow_flush_receipt:
+            # The real Server commits before the response exceeds Stop's 800 ms budget.
+            await asyncio.sleep(1.2)
+        return response
+
+
+@pytest.mark.parametrize(("slow_flush_receipt", "slow_retry_resolution"), [(False, False), (True, False), (True, True)])
 def test_zcode_source_is_processed_and_recalled_in_a_new_session(
-    tmp_path: Path, monkeypatch, slow_flush_receipt
+    tmp_path: Path, monkeypatch, slow_flush_receipt, slow_retry_resolution
 ) -> None:
     monkeypatch.setenv("ZCODE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
     node = shutil.which("node")
@@ -143,20 +162,8 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
         ),
         candidate_pipeline=atomic_memory_pipeline(DeterministicSourcePipeline()),
     )
-    flush_requests = 0
-
-    @app.middleware("http")
-    async def observe_flush(request, call_next):
-        nonlocal flush_requests
-        is_flush = request.url.path == "/v1/memory/flush"
-        if is_flush:
-            flush_requests += 1
-        response = await call_next(request)
-        if is_flush and slow_flush_receipt:
-            # Processing commits in the real Server, but the response arrives
-            # after Stop's fixed 800 ms request budget.
-            await asyncio.sleep(1.2)
-        return response
+    boundary = _StopBoundaryFaults(slow_flush_receipt)
+    app.middleware("http")(boundary)
 
     app.middleware("http")(_delay_first_capture_response())
 
@@ -314,6 +321,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                 assert pending[0]["unknown_flush_paused"] is True, result
                 assert pending[0]["receipt_count"] == 1, result
                 assert pending[0]["target_position"] == flush["source_position"], result
+                boundary.delay_retry_resolution = slow_retry_resolution
                 retried = subprocess.run(
                     stopped.args,
                     input=stop_input,
@@ -323,14 +331,30 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                     check=False,
                     timeout=2,
                 )
+                boundary.delay_retry_resolution = False
                 assert retried.returncode == 0 and json.loads(retried.stdout) == {}, retried.stderr
-                assert "unknown_flush_paused" in retried.stderr
+                # Scope resolution shares Stop's network budget and can time out before
+                # the local pause is read. The durable pause and no replay are the contract.
+                retried_status = subprocess.run(
+                    status.args,
+                    env=stop_environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                assert retried_status.returncode == 0, retried_status.stderr
+                retained = json.loads(retried_status.stdout)["pending"]["scopes"]
+                assert len(retained) == 1 and retained[0]["scope_id"] == scope_id, retained
+                assert retained[0]["unknown_flush_paused"] is True, retained
+                assert retained[0]["receipt_count"] == 1, retained
+                assert retained[0]["target_position"] == flush["source_position"], retained
             else:
                 assert result["pending"]["scopes"] == []
             # Stop is time-bounded, not a guarantee of completed processing.
             # Verify committed memory independently, without replaying the flush.
             generated = _wait_for_processed_memory(client, scope_id, "teal-731")
-            assert flush_requests == 1, "An unknown Stop must never replay its mutation automatically"
+            assert boundary.flush_requests == 1, "An unknown Stop must never replay its mutation automatically"
             captured = client.get(f"/v1/scopes/{scope_id}/sources").json()["items"]
             reference = generated["artifact"]
             revision = client.get(
