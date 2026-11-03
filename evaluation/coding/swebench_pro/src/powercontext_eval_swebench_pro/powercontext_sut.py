@@ -107,6 +107,7 @@ _OCEANBASE_QUERY_OVERRIDES = frozenset(
     }
 )
 _SHA = re.compile(r"[0-9a-f]{40}")
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _INVALID_DOCKER_COPY_SYMLINK = re.compile(r'invalid symlink "[^"\r\n]+" -> "[^"\r\n]+"')
 _DOCKER_NETWORK_CONTROL_LOCK = threading.Lock()
 _DOCKER_NETWORK_CREATE_ATTEMPTS = 3
@@ -127,6 +128,10 @@ _CONTAINER_TOKENSFLOW_WRAPPER_DIR = "/tools/tokensflow-wrapper"
 _CONTAINER_UV = "/tools/uv-dir/uv"
 _CONTAINER_RECORDER = "/evaluation/record_codex_jsonl.py"
 _CONTAINER_UV_PYTHON_INSTALL_DIR = "/runtime/uv-python"
+# Task images ship an interpreter below PowerContext's requires-python, so uv installs a managed one. Left unpinned it
+# picks the newest release (3.15 with uv 0.13.6), for which uv.lock has no wheels of some dependencies (tiktoken,
+# PyYAML), and the images cannot build them. 3.13 is covered by every locked wheel.
+_CONTAINER_UV_PYTHON = "3.13"
 _DEFAULT_RECORDER_SCRIPT = Path(__file__).with_name("record_codex_jsonl.py")
 _TIMED_OUT_CONTAINER_REMOVAL_SETTLE_SECONDS = 90.0
 _TIMED_OUT_CONTAINER_REMOVAL_POLL_SECONDS = 0.25
@@ -1237,6 +1242,7 @@ class DockerSut:
                 self._stage_tokensflow_binary(config, paths)
                 tokensflow_binary_staged = True
             self._initialize_workspace(config, arm, paths)
+            trim_future_history(self._docker, paths.workspace)
             self._prewarm(config, arm, paths, network, relay_url)
             self._start_container(
                 config,
@@ -1298,6 +1304,7 @@ class DockerSut:
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+                    "UV_PYTHON": _CONTAINER_UV_PYTHON,
                     "UV_OFFLINE": "1",
                 },
                 secrets=credential_variants,
@@ -2419,6 +2426,7 @@ class DockerSut:
             **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
             "UV_CACHE_DIR": "/runtime/uv-cache",
             "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+            "UV_PYTHON": _CONTAINER_UV_PYTHON,
         }
         command = (
             "docker",
@@ -2596,6 +2604,9 @@ class DockerSut:
             network,
             "--mount",
             f"type=bind,src={paths.workspace},dst=/workspace",
+            # Hide the image's original repository while preserving absolute /app paths used by task dependencies.
+            "--mount",
+            f"type=bind,src={paths.workspace},dst=/app",
             "--mount",
             f"type=bind,src={paths.runtime},dst=/runtime",
             "--mount",
@@ -2622,6 +2633,7 @@ class DockerSut:
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+                    "UV_PYTHON": _CONTAINER_UV_PYTHON,
                     "UV_OFFLINE": "1",
                     **tokensflow_container_environment,
                     "PATH": executable_path,
@@ -3102,6 +3114,57 @@ def _tool_directory_mount(
     if require_executable and not os.access(resolved, os.X_OK):
         raise UnsafeSutConfiguration("Tool binary is not executable")
     return f"type=bind,src={resolved.parent},dst={destination},readonly"
+
+
+def trim_future_history(runner: Any, workspace: Path) -> None:
+    """Keep only HEAD and its ancestors so the agent cannot read the reference fix from git.
+
+    Task images ship the upstream history, including the fix commit, on branches, remotes, and tags. The working
+    tree and index are left untouched, so the final ``git diff HEAD`` is unchanged. Shared object stores and
+    linked worktrees are rejected before changing references; retained future commits also fail closed.
+    """
+
+    def git(*argv: str, check: bool = True, input_bytes: bytes | None = None) -> str:
+        return runner.run(
+            ("git", *argv), cwd=workspace, timeout=600, check=check, input_bytes=input_bytes
+        ).stdout.strip()
+
+    git_directory = workspace / ".git"
+    if not git_directory.is_dir() or git_directory.is_symlink() or (git_directory / "commondir").exists():
+        raise UnsafeSutConfiguration("Workspace requires a private git directory")
+    if any(
+        path.exists() and path.read_bytes().strip()
+        for path in (git_directory / "objects/info/alternates", git_directory / "objects/info/http-alternates")
+    ):
+        raise UnsafeSutConfiguration("Workspace git alternate object stores are unsupported")
+    worktrees = git("worktree", "list", "--porcelain").splitlines()
+    if sum(line.startswith("worktree ") for line in worktrees) != 1:
+        raise UnsafeSutConfiguration("Workspace git linked worktrees are unsupported")
+
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    if _OBJECT_ID.fullmatch(head) is None:
+        raise UnsafeSutConfiguration("Workspace HEAD is not a commit")
+    branch = git("symbolic-ref", "--quiet", "HEAD", check=False)
+    refs = git("for-each-ref", "--format=%(refname)").splitlines()
+    git("update-ref", "--no-deref", "HEAD", head)
+    if refs:
+        git("update-ref", "--no-deref", "--stdin", input_bytes="".join(f"delete {ref}\n" for ref in refs).encode())
+    for pseudo_ref in ("ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        git("update-ref", "-d", pseudo_ref, check=False)
+    if branch.startswith("refs/heads/"):
+        git("update-ref", branch, head)
+        git("symbolic-ref", "HEAD", branch)
+    git("reflog", "expire", "--expire=now", "--all")
+    git("gc", "--quiet", "--prune=now")
+    if git("rev-list", "--all", "--not", "HEAD"):
+        raise UnsafeSutConfiguration("Workspace git history still reaches commits after HEAD")
+    ancestors = set(git("rev-list", "HEAD").splitlines())
+    # GC can retain unreachable objects in kept or promisor packs. Inspect the object store itself, while
+    # allowing blobs and trees needed by staged changes in the unchanged index.
+    for line in git("cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)").splitlines():
+        object_id, object_type = line.split()
+        if object_type == "commit" and object_id not in ancestors:
+            raise UnsafeSutConfiguration("Workspace git object store retains commits outside HEAD ancestry")
 
 
 def _reject_retained_secrets(data: bytes, variants: tuple[str, ...]) -> None:

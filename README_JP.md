@@ -39,7 +39,7 @@ Scope
 └── Topic Memory      # 対象となる Source からバックグラウンドで抽出
 ```
 
-*以下 2 枚の Dashboard 画面は合成のデモ記録を使用しています。*
+*以下の録画は、実際に動作する Dashboard とネイティブのデスクトッププレビューをダークテーマに設定し、合成のデモ記録を表示しています。*
 
 ### Memory — セッションを超えて残る判断と制約
 
@@ -48,7 +48,7 @@ Memory は、再利用可能な判断・制約・事実・状態・次の手順�
 > 「古い auth モジュールはリファクタリングしないで。モバイル側がまだ使っているから。」
 > これほど価値のある文脈を、毎セッション誰かが言い直すことに依存させるべきではありません。
 
-![1 つの Scope のアクティブな判断と制約、および対応する Artifact と Source 参照を示す Dashboard](docs/assets/readme-dashboard-memories.png)
+![ダークテーマの Dashboard：プロジェクトの記憶を検索し、保存済みリビジョンを開く](docs/assets/readme-dashboard-demo.gif)
 
 ### Handoff — 全文ではなく現在の状態
 
@@ -60,7 +60,7 @@ Work Contract → Prepared Handoff → Acknowledgement → Task Outcome
 
 `handoff_current_work` は検査済みの境界を取り込み、一時的な Prepared Handoff を返します。コミットして永続的なリビジョンになるのは、マイルストーンとして残したいとユーザーが判断した場合だけです。受け手は Handoff を解決して Acknowledgement を記録し、Task Outcome が最終状態とチェック内容を Source の根拠として保存します。[Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) は、選択した各 Scope の最新 Handoff リビジョンを投影して閲覧・エクスポートできます。読み取り専用で、Memory を書き換えることはありません。
 
-![記録済みの進捗、次の行動、関連 Source の根拠を含むコミット済み Handoff Revision を示す Dashboard](docs/assets/readme-dashboard-handoff.png)
+![ダークテーマの Dashboard：Handoff を開き、保存済みリビジョンを確認する](docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — レビューを経て再利用される知見
 
@@ -69,6 +69,13 @@ Experience は、状況・行動・観察された結果・再利用可能な教
 ### Skill — レビュー済みの手順、明示的にエクスポートして使う
 
 管理対象の Skill は、名前、発見用の説明、手順、検証項目、来歴で構成されます。承認はインストールでも実行でもありません。Agent ホストが配下のコピーを発見するには、承認済みの特定リビジョンを明示的にエクスポートする必要があります。
+
+### デスクトップ — 接続したワークスペースでプロジェクトの記憶を確認する
+
+Server に接続して正確な Scope を選択すると、その記憶を検索できます。検索結果を開いて保存済みの特定リビジョンを読み、次のセッションに向けたメモも保存できます。
+[デスクトッププレビュー](desktop/README.md)は内部検証用です。署名付き配布と各プラットフォームのリリース認定は、別途検証が必要です。
+
+![ダークテーマのネイティブデスクトップ：プロジェクトの記憶を検索して保存済みの特定リビジョンを読む](docs/assets/readme-desktop-demo.gif)
 
 ## なぜ PowerContext なのか？
 
@@ -120,7 +127,7 @@ PowerContext は、長く使うプロジェクトのコンテキストを 1 つ�
 Agent の入力 → Source の証拠 → Memory / Topic Memory → PreparedContext → 新しいセッションまたは Agent
 ```
 
-PowerContext 1.4.1 には対話式セットアップウィザードが含まれています。Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](docs/en/docs/get-started/install-and-run.md)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。
+PowerContext 1.5.0 には対話式セットアップウィザードが含まれています。Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](docs/en/docs/get-started/install-and-run.md)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。
 
 目的に合う経路を選択してください：
 
@@ -133,7 +140,7 @@ PowerContext 1.4.1 には対話式セットアップウィザードが含まれ�
 ### 1. ウィザードをインストールして実行する
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.1"
+uv tool install --force "powercontext[cli,server]==1.5.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 powercontext config validate --env-file .env
@@ -157,7 +164,7 @@ powercontext capabilities
 Scope を使います。その後、対応するプラグインをインストールして新しい Agent セッションを起動します。[完全な手順](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)では、Codex と Claude Code、Dashboard へのログイン、SSH 転送、HTTPS の前提条件、確認可能な受け入れチェックを扱っています。対応する Codex のインストールは次のとおりです。
 
 ```bash
-powercontext setup codex --ref powercontext-v1.4.1
+powercontext setup codex --ref powercontext-v1.5.0
 powercontext doctor codex
 ```
 

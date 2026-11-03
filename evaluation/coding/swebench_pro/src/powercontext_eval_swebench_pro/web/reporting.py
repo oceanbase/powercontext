@@ -269,7 +269,9 @@ def _arm_response(arm: Literal["off", "on"], report: ArmReport) -> ArmResponse:
         passed=report.passed,
         treatment_valid=report.treatment_valid,
         input_tokens=report.metrics.input_tokens,
+        cached_input_tokens=report.metrics.cached_input_tokens,
         output_tokens=report.metrics.output_tokens,
+        reasoning_output_tokens=report.metrics.reasoning_output_tokens,
         elapsed_seconds=report.metrics.elapsed_seconds,
         patch_bytes=report.metrics.patch_bytes,
     )
@@ -293,7 +295,9 @@ def _comparisons(off: ArmReport, on: ArmReport) -> ComparisonResponse:
         return ComparisonResponse()
     return ComparisonResponse(
         input_tokens=_comparison(off.metrics.input_tokens, on.metrics.input_tokens),
+        cached_input_tokens=_comparison(off.metrics.cached_input_tokens, on.metrics.cached_input_tokens),
         output_tokens=_comparison(off.metrics.output_tokens, on.metrics.output_tokens),
+        reasoning_output_tokens=_comparison(off.metrics.reasoning_output_tokens, on.metrics.reasoning_output_tokens),
         elapsed_seconds=_comparison(off.metrics.elapsed_seconds, on.metrics.elapsed_seconds),
         patch_bytes=_comparison(off.metrics.patch_bytes, on.metrics.patch_bytes),
     )
@@ -439,7 +443,9 @@ def _task_arm(arm: ArmReport) -> TaskArmSummary:
     return TaskArmSummary(
         resolved=arm.resolved,
         input_tokens=arm.metrics.input_tokens,
+        cached_input_tokens=arm.metrics.cached_input_tokens,
         output_tokens=arm.metrics.output_tokens,
+        reasoning_output_tokens=arm.metrics.reasoning_output_tokens,
         total_tokens=_arm_total(arm),
     )
 
@@ -992,7 +998,9 @@ def _detail_arm(arm: ArmReport) -> TaskDetailArm:
         pass_to_pass=_official_group(arm.pass_to_pass),
         log_excerpt=arm.log_excerpt,
         input_tokens=arm.metrics.input_tokens,
+        cached_input_tokens=arm.metrics.cached_input_tokens,
         output_tokens=arm.metrics.output_tokens,
+        reasoning_output_tokens=arm.metrics.reasoning_output_tokens,
         total_tokens=_arm_total(arm),
     )
 
