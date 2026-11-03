@@ -6,6 +6,10 @@
 [工程验证](ENGINEERING_READINESS.zh.md)提供四个 Python 版本的根包与完整 evaluation 测试、类型检查、
 完整 hooks 和构建凭据。工程通过不代表正式线上比较通过；当前总体决策仍为 `insufficient_evidence`。
 
+[v16 合同](V16_PROTOCOL.zh.md)只改变可复制单元的选择，保留 v15 指令、输出 schema、源范围与预算。
+Unicode 最小样本仍需三次请求，超过未调整的每例一次门槛；[v16 结果](V16_RESULTS.zh.md)分别记录离线输入覆盖
+与这个失败的准入门槛。本版没有新增 provider 调用或生产授权。
+
 默认实验仍为 v1。新增 v2 的窗口优先、整记录分片、共享出处包装、成本上限与配对比较见
 [V2_PROTOCOL.md](V2_PROTOCOL.md)。使用 `--experiment-version v2` 选择，压力集另加 `--dataset validation-v2`；
 报告和人工审计必须使用相同选择参数。原始 v1 清单、算法及结果保留，v2 矩阵重新执行全部对照组。

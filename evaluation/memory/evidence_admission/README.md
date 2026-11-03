@@ -7,6 +7,11 @@ It never publishes Atomic Memory, runs reconciliation, changes a production regi
 
 [中文说明](README.zh.md) · [Experiment protocol](PROTOCOL.md)
 
+The [v16 protected-cell contract](V16_PROTOCOL.zh.md) changes only copy-cell selection while preserving the v15
+instructions, output schema, source selection and budgets. Its Unicode minimum still needs three requests against
+the unchanged one-request limit. The [v16 results](V16_RESULTS.zh.md) distinguish offline input coverage from this
+failed readiness gate; the decision remains `insufficient_evidence`, with no new provider calls or production authorization.
+
 The default experiment remains v1. [V2 protocol and paired comparison](V2_PROTOCOL.md) documents the explicitly selected
 window-first candidate, additional stress dataset, shared feasibility reference, citation bundles and cumulative cost caps.
 [V2 offline results](V2_RESULTS.zh.md) report all eight original combinations fixed, the exact v1 replay check, cost changes,

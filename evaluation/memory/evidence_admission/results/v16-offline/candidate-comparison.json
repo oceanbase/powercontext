@@ -1,0 +1,2059 @@
+{
+  "schema": "evidence-admission.v16.candidate-comparison.v1",
+  "repetition": 0,
+  "rows": [
+    {
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1381,
+      "v16_estimated_input_tokens": 1381,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1381,
+      "v16_estimated_input_tokens": 1381,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1381,
+      "v16_estimated_input_tokens": 1381,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3525,
+      "v16_estimated_input_tokens": 3525,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3749,
+      "v16_estimated_input_tokens": 3749,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7054,
+      "v16_estimated_input_tokens": 7054,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 8,
+      "v16_calls": 8,
+      "v15_estimated_input_tokens": 16384,
+      "v16_estimated_input_tokens": 16384,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 4,
+      "v16_calls": 4,
+      "v15_estimated_input_tokens": 11880,
+      "v16_estimated_input_tokens": 11880,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7503,
+      "v16_estimated_input_tokens": 7503,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "oversized-tool-field",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3533,
+      "v16_estimated_input_tokens": 3533,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "oversized-tool-field",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3749,
+      "v16_estimated_input_tokens": 3749,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "oversized-tool-field",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6923,
+      "v16_estimated_input_tokens": 6923,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "positional-facts",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3543,
+      "v16_estimated_input_tokens": 3543,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "positional-facts",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3772,
+      "v16_estimated_input_tokens": 3772,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "positional-facts",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7083,
+      "v16_estimated_input_tokens": 7083,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "repeated-history",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3556,
+      "v16_estimated_input_tokens": 3556,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "repeated-history",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3774,
+      "v16_estimated_input_tokens": 3774,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "repeated-history",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7031,
+      "v16_estimated_input_tokens": 7031,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3570,
+      "v16_estimated_input_tokens": 3570,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3748,
+      "v16_estimated_input_tokens": 3748,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7008,
+      "v16_estimated_input_tokens": 7008,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1404,
+      "v16_estimated_input_tokens": 1404,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1404,
+      "v16_estimated_input_tokens": 1404,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1404,
+      "v16_estimated_input_tokens": 1404,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3554,
+      "v16_estimated_input_tokens": 3554,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3795,
+      "v16_estimated_input_tokens": 3795,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7100,
+      "v16_estimated_input_tokens": 7100,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 5,
+      "v16_calls": 5,
+      "v15_estimated_input_tokens": 9249,
+      "v16_estimated_input_tokens": 8790,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 4,
+      "v16_calls": 3,
+      "v15_estimated_input_tokens": 13958,
+      "v16_estimated_input_tokens": 11169,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 4,
+      "v16_calls": 3,
+      "v15_estimated_input_tokens": 25928,
+      "v16_estimated_input_tokens": 21082,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "observation-overflow",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3468,
+      "v16_estimated_input_tokens": 3468,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "observation-overflow",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3787,
+      "v16_estimated_input_tokens": 3787,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "observation-overflow",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6949,
+      "v16_estimated_input_tokens": 6949,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "metadata-fact",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3540,
+      "v16_estimated_input_tokens": 3540,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "metadata-fact",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3761,
+      "v16_estimated_input_tokens": 3761,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "metadata-fact",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7066,
+      "v16_estimated_input_tokens": 7066,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "negative-control",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1386,
+      "v16_estimated_input_tokens": 1386,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "negative-control",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1386,
+      "v16_estimated_input_tokens": 1386,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "negative-control",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1386,
+      "v16_estimated_input_tokens": 1386,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "impossible-completeness",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3567,
+      "v16_estimated_input_tokens": 3567,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "impossible-completeness",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3717,
+      "v16_estimated_input_tokens": 3717,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "impossible-completeness",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6940,
+      "v16_estimated_input_tokens": 6940,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "missing-source",
+      "budget": 2048,
+      "reference_status": "unavailable",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "missing-source",
+      "budget": 4096,
+      "reference_status": "unavailable",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "missing-source",
+      "budget": 8192,
+      "reference_status": "unavailable",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "invalid-projection",
+      "budget": 2048,
+      "reference_status": "unavailable",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "invalid-projection",
+      "budget": 4096,
+      "reference_status": "unavailable",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "invalid-projection",
+      "budget": 8192,
+      "reference_status": "unavailable",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-before-read",
+      "budget": 2048,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-before-read",
+      "budget": 4096,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-before-read",
+      "budget": 8192,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-projection",
+      "budget": 2048,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-projection",
+      "budget": 4096,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-projection",
+      "budget": 8192,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-generation",
+      "budget": 2048,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-generation",
+      "budget": 4096,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "cancel-generation",
+      "budget": 8192,
+      "reference_status": "cancelled",
+      "plan_accepted": true,
+      "v15_calls": 0,
+      "v16_calls": 0,
+      "v15_estimated_input_tokens": 0,
+      "v16_estimated_input_tokens": 0,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1443,
+      "v16_estimated_input_tokens": 1443,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1443,
+      "v16_estimated_input_tokens": 1443,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 1443,
+      "v16_estimated_input_tokens": 1443,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 8,
+      "v16_calls": 8,
+      "v15_estimated_input_tokens": 16384,
+      "v16_estimated_input_tokens": 16384,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 4,
+      "v16_calls": 4,
+      "v15_estimated_input_tokens": 11880,
+      "v16_estimated_input_tokens": 11880,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7503,
+      "v16_estimated_input_tokens": 7503,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-crlf-scaffolding",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 3,
+      "v16_calls": 3,
+      "v15_estimated_input_tokens": 5430,
+      "v16_estimated_input_tokens": 5359,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-crlf-scaffolding",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 6220,
+      "v16_estimated_input_tokens": 6148,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-crlf-scaffolding",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 10800,
+      "v16_estimated_input_tokens": 10728,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-history-offset",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3527,
+      "v16_estimated_input_tokens": 3527,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-history-offset",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3728,
+      "v16_estimated_input_tokens": 3728,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-history-offset",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6986,
+      "v16_estimated_input_tokens": 6986,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-off-center-facts",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3529,
+      "v16_estimated_input_tokens": 3529,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-off-center-facts",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3772,
+      "v16_estimated_input_tokens": 3772,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-off-center-facts",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7083,
+      "v16_estimated_input_tokens": 7083,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-metadata-pressure",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3482,
+      "v16_estimated_input_tokens": 3482,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-metadata-pressure",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3666,
+      "v16_estimated_input_tokens": 3666,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-metadata-pressure",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6613,
+      "v16_estimated_input_tokens": 6613,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-durable-metadata",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 5,
+      "v16_calls": 3,
+      "v15_estimated_input_tokens": 9084,
+      "v16_estimated_input_tokens": 5273,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-durable-metadata",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 3,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 11086,
+      "v16_estimated_input_tokens": 6298,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-durable-metadata",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 3,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 20698,
+      "v16_estimated_input_tokens": 11146,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-tool-array",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3401,
+      "v16_estimated_input_tokens": 3401,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-tool-array",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3627,
+      "v16_estimated_input_tokens": 3627,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-tool-array",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6803,
+      "v16_estimated_input_tokens": 6803,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3729,
+      "v16_estimated_input_tokens": 3677,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3924,
+      "v16_estimated_input_tokens": 3872,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7230,
+      "v16_estimated_input_tokens": 7178,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-shifted-middle",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3556,
+      "v16_estimated_input_tokens": 3556,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-shifted-middle",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3800,
+      "v16_estimated_input_tokens": 3800,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-shifted-middle",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6978,
+      "v16_estimated_input_tokens": 6978,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-wide-metadata",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3505,
+      "v16_estimated_input_tokens": 3505,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-wide-metadata",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3684,
+      "v16_estimated_input_tokens": 3684,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-wide-metadata",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6639,
+      "v16_estimated_input_tokens": 6639,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-reordered-metadata",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3502,
+      "v16_estimated_input_tokens": 3502,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-reordered-metadata",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3694,
+      "v16_estimated_input_tokens": 3694,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-reordered-metadata",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 6620,
+      "v16_estimated_input_tokens": 6620,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-user-metadata-fact",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 5,
+      "v16_calls": 3,
+      "v15_estimated_input_tokens": 8865,
+      "v16_estimated_input_tokens": 5178,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-user-metadata-fact",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 3,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 10448,
+      "v16_estimated_input_tokens": 6052,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-user-metadata-fact",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 3,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 19231,
+      "v16_estimated_input_tokens": 10578,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-near-repeat-number",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3554,
+      "v16_estimated_input_tokens": 3554,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-near-repeat-number",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3802,
+      "v16_estimated_input_tokens": 3802,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-near-repeat-number",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7039,
+      "v16_estimated_input_tokens": 7039,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-near-repeat-negation",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3536,
+      "v16_estimated_input_tokens": 3536,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-near-repeat-negation",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3808,
+      "v16_estimated_input_tokens": 3808,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-near-repeat-negation",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7097,
+      "v16_estimated_input_tokens": 7097,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-unicode-crlf",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 5,
+      "v16_calls": 5,
+      "v15_estimated_input_tokens": 9884,
+      "v16_estimated_input_tokens": 8857,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-unicode-crlf",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 5,
+      "v16_calls": 3,
+      "v15_estimated_input_tokens": 16560,
+      "v16_estimated_input_tokens": 10781,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-unicode-crlf",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 4,
+      "v16_calls": 3,
+      "v15_estimated_input_tokens": 30034,
+      "v16_estimated_input_tokens": 20769,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-cross-fragment-record",
+      "budget": 2048,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 2,
+      "v16_calls": 2,
+      "v15_estimated_input_tokens": 3544,
+      "v16_estimated_input_tokens": 3544,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-cross-fragment-record",
+      "budget": 4096,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 3771,
+      "v16_estimated_input_tokens": 3771,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    },
+    {
+      "dataset": "validation-v3",
+      "case": "probe-cross-fragment-record",
+      "budget": 8192,
+      "reference_status": "prepared",
+      "plan_accepted": true,
+      "v15_calls": 1,
+      "v16_calls": 1,
+      "v15_estimated_input_tokens": 7078,
+      "v16_estimated_input_tokens": 7078,
+      "input_unchanged": true,
+      "historical_coverage_losses": {
+        "retained_claim_hashes": [],
+        "same_request_claim_hashes": [],
+        "retained_literal_hashes": [],
+        "same_request_literal_hashes": []
+      },
+      "historical_executable_regression": false
+    }
+  ],
+  "provider_requests": 0
+}

@@ -4,6 +4,9 @@ issue #2074 的必需工程检查已通过。工程检查不代表模型质量�
 `insufficient_evidence`，v15 的 Unicode 单次请求门槛失败保留。生产运行时代码、公共 API 和历史结果没有修改。
 机器凭据见 [工程汇总](results/engineering-readiness/summary.json)。
 
+此处的测试计数对应工程提交 `87c70714`；新增 v16 后的独立评估计数、冻结身份与停止结果见
+[v16 报告](V16_RESULTS.zh.md)，不覆盖本报告保留的初次失败和重跑记录。
+
 ## 检查结果
 
 | Python | 根包测试、doctest、覆盖率 | 根包类型 | 完整 evaluation 测试 | evaluation 类型 |

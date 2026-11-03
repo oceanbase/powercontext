@@ -2,8 +2,9 @@
 
 Current engineering receipts are in [the readiness report](ENGINEERING_READINESS.zh.md) and its
 [machine summary](results/engineering-readiness/summary.json). Root tests, doctests, coverage and types pass on
-Python 3.11/3.12/3.13/3.14; the complete evaluation suite passes 1291 tests with one native-lineage prerequisite skip
-on each version. Required repository hooks, issue-scoped Ruff, full evaluation types, wheel and sdist builds pass.
+Python 3.11/3.12/3.13/3.14. The engineering baseline evaluation count is 1291; the complete v16 evaluation suite
+passes 1320 tests with one native-lineage prerequisite skip on each version, with full types passing on each.
+Required repository hooks, issue-scoped Ruff, full evaluation types, wheel and sdist builds pass.
 Protocol-specific measurements below retain their historical execution limits; they are not substituted for these receipts.
 
 The synthetic preparation matrix uses actual local SQLite persistence and Source projection. It makes no provider requests.
@@ -22,7 +23,8 @@ uv run prek run -a
 uv run ty check
 ```
 
-The current evidence admission suite contains 461 tests, included in the complete evaluation runs above. It runs without provider
+The current evidence admission suite contains 490 passing tests, including 29 v16 regressions; its explicit issue command
+emits 1934 warnings. The 461-test count belongs to the engineering baseline above. These tests run without provider
 credentials or live network access. Native LongMemEval lineage acceptance still requires the
 `ScopedAtomicMemory.evidence` prerequisite from #1975.
 The 24 related production window-recovery, SQLite wire-evidence and extraction-evidence tests pass separately.
@@ -218,3 +220,23 @@ Other Python versions and a real SDK/provider preflight were not run. Sandbox SQ
 persistence tests and comparisons completed in the approved local execution environment without provider traffic.
 
 See [V15_RESULTS.zh.md](V15_RESULTS.zh.md) and [results/v15-offline](results/v15-offline) for counts, hashes and limits.
+
+
+## Protected-cell protocol validation
+
+V16 changes only copy-cell selection and retains the v15 instructions, schema, evidence selection and resource gates.
+The 29 regressions cover byte restoration, protected clusters, immutable references, tampering, compound candidates,
+the known one-request readiness failure, and individual historical input/literal/executability loss despite complete aggregate coverage.
+The original development goal failed (25 passed, one failed); its hashes and failed goal remain in the public receipts.
+Passing regressions assert that the three-request Unicode plan is refused by the unchanged one-request gate.
+
+All three datasets are reexecuted after actual HEAD/blob verification under one frozen core identity: 1620 rows,
+candidate input retention 495/495, no new protocol budget rejections, historical regressions or nondeterministic groups.
+The stricter minimal manifest still fails for Unicode (three requests); SDK preflight and provider generation are not run.
+The unique final decision is `insufficient_evidence`. Intermediate offline pending states do not authorize further execution.
+
+Current multi-version evaluation results, required checks, wheel/sdist byte verification and actual installed CLI receipts are
+in [v16 validation](results/v16-offline/validation.json). Root runtime code is unchanged since the engineering commit;
+the complete root four-version matrix is retained there rather than claimed rerun for this evaluation-only addition.
+See [V16_PROTOCOL.zh.md](V16_PROTOCOL.zh.md) for offline commands and [V16_RESULTS.zh.md](V16_RESULTS.zh.md)
+for the final decision, failure preservation, no-model measurement limits and read-only summary regeneration.
