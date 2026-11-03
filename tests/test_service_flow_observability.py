@@ -52,6 +52,18 @@ def _denied_flow_worker(_assignment):
     raise _PrivateDeniedError()
 
 
+def _timed_out_flow_worker(_assignment):
+    raise TimeoutError("private-timeout-detail")
+
+
+class _PrivateTimeoutError(TimeoutError):
+    pass
+
+
+def _custom_timeout_flow_worker(_assignment):
+    raise _PrivateTimeoutError("private-timeout-detail")
+
+
 def test_history_events_correlate_a_real_spawned_attempt_and_keep_queue_time_distinct(caplog, tmp_path):
     caplog.set_level(logging.INFO, logger="powercontext.builtin.runtime.artifact_processing")
 
@@ -104,7 +116,15 @@ def test_history_events_correlate_a_real_spawned_attempt_and_keep_queue_time_dis
     assert "private-" not in json.dumps(events)
 
 
-def test_spawned_failure_reaches_scope_observation_without_private_details(tmp_path):
+@pytest.mark.parametrize(
+    ("worker", "code", "stage"),
+    [
+        (_denied_flow_worker, "access_denied", "authorization"),
+        (_timed_out_flow_worker, "worker_timeout", "worker"),
+        (_custom_timeout_flow_worker, "worker_timeout", "worker"),
+    ],
+)
+def test_spawned_failure_reaches_scope_observation_without_private_details(tmp_path, worker, code, stage):
     async def scenario():
         async with _profile(tmp_path, "spawn-flow-failure") as profile:
             await _request(profile.database, "memory-source-window", "denied")
@@ -112,7 +132,7 @@ def test_spawned_failure_reaches_scope_observation_without_private_details(tmp_p
                 database=profile.database,
                 bindings=(
                     ArtifactProcessingBinding(
-                        "memory-source-window", "memory", SpawnArtifactProcessingWorkerLauncher(_denied_flow_worker)
+                        "memory-source-window", "memory", SpawnArtifactProcessingWorkerLauncher(worker)
                     ),
                 ),
                 lease_mode="single-process",
@@ -125,8 +145,8 @@ def test_spawned_failure_reaches_scope_observation_without_private_details(tmp_p
                     )
                 )["denied"][0]
                 assert row.state == "retry_wait"
-                assert row.last_error_code == "access_denied"
-                assert row.last_error_stage == "authorization"
+                assert row.last_error_code == code
+                assert row.last_error_stage == stage
                 assert row.last_error_at is not None and row.last_error_at <= row.observed_at
                 assert row.last_error_worker_id is not None
                 assert row.last_error_trace_id is None

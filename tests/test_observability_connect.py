@@ -207,6 +207,7 @@ def test_alert_diagnostics_distinguish_failed_requests_from_processing_evidence(
     assert service.get("refresh", "") == ""
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_connect_generates_portable_imports_without_docker_or_network(isolated, monkeypatch, tmp_path):
     def forbidden(*args, **kwargs):
         pytest.fail("External connection must not invoke Docker or make external requests")
@@ -334,6 +335,7 @@ def test_missing_query_endpoints_are_unverified_and_exercise_does_not_send_reque
     assert "needs Prometheus, Tempo and Loki" in result.output
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_otlp_log_fragment_preserves_custom_service_identity(isolated, tmp_path):
     _connect(isolated, "--log-directory", str(tmp_path / "logs"), "--service-name", "custom-service")
     with server_settings_context(observability=True) as settings:

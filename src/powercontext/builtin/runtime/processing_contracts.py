@@ -158,7 +158,6 @@ def processing_error_code(exception_type: type[BaseException] | str, error_code:
         "AccessDeniedError": "access_denied",
         "AccessIdentityRequiredError": "access_identity_required",
         "AccessUnavailableError": "access_unavailable",
-        "TimeoutError": "worker_timeout",
     }
     names = (exception_type,) if isinstance(exception_type, str) else (base.__name__ for base in exception_type.__mro__)
     for name in names:
@@ -166,6 +165,7 @@ def processing_error_code(exception_type: type[BaseException] | str, error_code:
             return known_codes[name]
     if error_code in {
         *known_codes.values(),
+        "worker_timeout",
         "worker_crash",
         "invalid_worker_result",
         "missing_durable_acknowledgement",

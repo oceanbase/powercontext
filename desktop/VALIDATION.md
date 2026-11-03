@@ -177,7 +177,9 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. `sqlite-stats-63e9665c-v1` records the current bundled contract's twelve operations, including statistics, qualified below. `sqlite-atomic-3cefa45a-v1` retains its independently qualified eleven operations at the same contract digest. `sqlite-stats-9c8f061c-v1` retains its original historical qualification and digest. `sqlite-atomic-112db11e-v1` retains its independently qualified eleven operations. Historical records retain their exact identities and evidence, including `sqlite-source-artifact-87b6fae2-v1` and the preceding `sqlite-artifact-merge-87d01f68-v1` record. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence. A record qualifies only its recorded Server source, wheel and contract; records with a different contract digest are disabled in the selector. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+
+Statistics additionally require `get_stats` in the selected record's independently qualified operation set.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit. Historical record `sqlite-atomic-f3a90b2f-v1` remains preserved with its original identities and is disabled for this contract.
 
@@ -1943,3 +1945,25 @@ The separate privacy/Provider transport regression verifies admission and respon
 behavior with a controlled HTTP transport; it is not external Provider or backend evidence.
 This record covers local SQLite protocol behavior. Installed UI, native credentials, Windows,
 and external production systems require their own validation.
+
+## Server da44b918 protocol qualification
+
+`sqlite-observability-da44b918-v1` qualifies the eleven declared Desktop protocol operations
+against Server runtime sources at `da44b91805e91be667beef5ac4f6c2d15de9de93`.
+
+OpenAPI SHA-256: `4d8334f58b97ff18f7130d8efc28ac4cec8f7c5a1cfb6f297b6654bf1b06c6d3`.
+Wheel: `powercontext-1.4.2.dev154+gda44b9180-py3-none-any.whl`.
+Wheel SHA-256: `f5e58f0119f441b5081da2ff0d38d842511fa9a3e8fb2b3369d3014e5de9a850`.
+
+On 2026-11-03, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced access. The native
+`server_probe` was built from the matching product sources and generated contract.
+It verified save/search/exact reads, Scope selection, lost write responses without replay,
+identity changes, revocation, and Server survival after client exit.
+
+All 719 packaged runtime files match the recorded source bytes. Evidence is retained under
+ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+This record covers local SQLite protocol behavior. Installed UI, native credentials, Windows,
+and external production systems require their own validation. Historical records retain
+their source, contract and wheel identities.

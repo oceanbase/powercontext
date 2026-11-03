@@ -1981,7 +1981,7 @@ def _run_spawned_worker(
                 },
             )
         except BaseException as error:
-            error_code = processing_error_code(type(error), _safe_error_attribute(error, "error_code", ""))
+            error_code = _worker_error_code(error)
             diagnostics = safe_classify_processing_error(error)
             block = error.block if isinstance(error, ArtifactProcessingBlockedError) else None
             level = logging.ERROR
@@ -2100,6 +2100,8 @@ def _attempt_failure_observation(error: BaseException) -> tuple[str, str]:
 def _worker_error_code(error: BaseException) -> str:
     """Keep live and retained Worker diagnostics in the same controlled category."""
     if isinstance(error, _WorkerExecutionError):
+        if error.failure.exception_type == "TimeoutError":
+            return "worker_timeout"
         return processing_error_code(error.failure.exception_type, error.failure.error_code)
     code = processing_error_code(type(error), _safe_error_attribute(error, "error_code", ""))
     if code == "processing_failed" and isinstance(error, TimeoutError):

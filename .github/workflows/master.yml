@@ -385,6 +385,8 @@ jobs:
             tests/e2e/test_worker_otlp.py \
             tests/e2e/test_worker_model_usage.py \
             tests/test_observability_health.py \
+            tests/test_observability_cli.py \
+            tests/test_observability_connect.py \
             --junitxml="$RUNNER_TEMP/worker-observability.xml"
           uv run --locked --extra tracing-otlp python - <<'PY'
           import os

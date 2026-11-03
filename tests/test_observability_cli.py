@@ -61,6 +61,16 @@ def test_unsupported_backend_has_no_side_effects(tmp_path, monkeypatch):
     assert not directory.exists()
 
 
+def test_server_opt_in_requires_the_optional_exporter(deployment, monkeypatch):
+    monkeypatch.setattr("powercontext.observability.profile.find_spec", lambda _: None)
+    with (
+        pytest.raises(ServerConfigurationError, match=r"install powercontext\[cli,server,tracing-otlp\]"),
+        server_settings_context(observability=True),
+    ):
+        pass
+
+
+@pytest.mark.usefixtures("otlp_exporter")
 def test_private_profile_preserves_business_configuration(deployment, monkeypatch, tmp_path):
     for name in list(__import__("os").environ):
         if name.startswith(("OTEL_", "POWERCONTEXT_SERVER_")):
@@ -115,6 +125,7 @@ def test_collector_and_gateway_route_otlp_logs(deployment):
     assert "location = /v1/logs { proxy_pass http://collector_backend/v1/logs; }" in gateway
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_explicit_export_destination_conflict_does_not_expose_credentials(deployment, monkeypatch):
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "secret-value-do-not-print")
     with pytest.raises(ServerConfigurationError) as caught, server_settings_context(observability=True):
@@ -325,6 +336,7 @@ logging.getLogger("powercontext.server").info("Business still running")
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_native_opt_in_preserves_registered_data_directory(deployment, tmp_path):
     from powercontext.paths import powercontext_data_dir
 
@@ -354,6 +366,7 @@ def test_docker_mode_generates_override_without_replacing_business_database(depl
     assert "server-logs:/logs:ro" in manifest["services"]["collector"]["volumes"]
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_profile_rejects_business_settings_even_when_edited_locally(deployment):
     with (deployment / "server.env").open("a") as output:
         output.write("POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\n")
@@ -400,6 +413,7 @@ def test_first_up_uses_existing_server_nested_configuration(deployment, monkeypa
     assert "private-observation-token" not in result.output
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_lowercase_explicit_telemetry_conflict_is_rejected(deployment, tmp_path):
     config = tmp_path / "existing.env"
     config.write_text("powercontext_server_tracing_enabled=false\n")
@@ -410,12 +424,14 @@ def test_lowercase_explicit_telemetry_conflict_is_rejected(deployment, tmp_path)
         pass
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_signal_specific_destination_cannot_silently_bypass_profile(deployment, monkeypatch):
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://old-destination.invalid/v1/traces")
     with pytest.raises(ServerConfigurationError, match="Signal-specific"), server_settings_context(observability=True):
         pass
 
 
+@pytest.mark.usefixtures("otlp_exporter")
 def test_nested_explicit_tracing_disable_cannot_be_overwritten(deployment, tmp_path):
     config = tmp_path / "existing.env"
     config.write_text("POWERCONTEXT_SERVER_TRACING='{\"enabled\":false}'\n")

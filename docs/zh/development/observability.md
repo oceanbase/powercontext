@@ -132,13 +132,15 @@ Observation timestamp 与 scrape time 要明确区分，并记录
 cache、reset 以及覆盖不完整的语义。
 
 通过默认 `uv sync` 新建的开发环境不包含 `tracing-otlp`。在该环境中，`make test` 会跳过 OTLP worker tests
-和 worker model-usage tests 中的 tracing 用例。`make check` 不执行这些测试。
+和 worker model-usage tests 中的 tracing 用例，以及需要 exporter 的配置用例。
+缺少 exporter 时的拒绝用例仍会运行。`make check` 不执行这些测试。
 `Main` workflow 的 `worker-observability` job 安装该 extra，
 并要求所选测试全部通过，不允许 skip：
 
 ```bash
 uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
-  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py -q
+  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py \
+  tests/test_observability_cli.py tests/test_observability_connect.py -q
 ```
 
 这些检查覆盖真实 spawn、OTLP/HTTP、本地 model fixture、Pydantic AI propagation 和 metrics HTTP surface。

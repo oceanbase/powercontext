@@ -131,13 +131,15 @@ Queue gauges describe the parent recorder only; child loss counters are added wi
 Keep observation timestamps distinct from scrape time, and document cache, reset and incomplete-coverage semantics.
 
 A fresh development environment installed with `uv sync` does not include `tracing-otlp`. In that environment,
-`make test` skips OTLP worker tests and the tracing cases in worker model-usage tests. `make check` does not execute
+`make test` skips OTLP worker tests, the tracing cases in worker model-usage tests, and configuration cases
+that require the exporter. The missing-exporter rejection still runs. `make check` does not execute
 these tests. The `Main` workflow's
 `worker-observability` job installs the extra and requires all selected tests to pass without skips:
 
 ```bash
 uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
-  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py -q
+  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py \
+  tests/test_observability_cli.py tests/test_observability_connect.py -q
 ```
 
 These checks exercise real spawn, OTLP/HTTP, a local model fixture, Pydantic AI propagation and the metrics HTTP
