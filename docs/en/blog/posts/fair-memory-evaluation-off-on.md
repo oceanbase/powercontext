@@ -17,7 +17,7 @@ Does a memory plugin actually make an agent better? The direct way to find out i
 
 That sounds simple. Once I actually built the evaluation, I found that the hard part is not getting ON to answer correctly. It is **confirming that ON answered correctly because memory worked, and not because the answer leaked from somewhere else**. A memory system exists to show an agent past information, so when you evaluate one, every unplanned information channel contaminates the final score.
 
-This post covers the three answer leaks I closed while building the cross-host OFF/ON comparison in the PowerContext repository ([`e2e/bub`](https://github.com/oceanbase/powercontext/tree/master/e2e/bub)), and a hidden performance degradation the comparison caught outside the scores.
+This post covers the three answer leaks I tracked down while building the cross-host OFF/ON comparison in the PowerContext repository ([`e2e/bub`](https://github.com/oceanbase/powercontext/tree/master/e2e/bub)), and a hidden performance degradation the comparison caught outside the scores.
 
 ## How the comparison works
 
@@ -26,7 +26,7 @@ The tasks are cross-session continuations:
 - **First session (Capture)**: while handing the agent an unrelated chore, such as fixing a typo in `README.md`, the user mentions a project decision or fact in passing—for example, which database was chosen and how many shards it uses.
 - **Last session (Recall)**: in a brand-new session, the agent is asked to recall the earlier decision and write it to a JSON file as named fields. The grader checks the exact field values instead of matching keywords, so a hedged answer such as "either A or B" gets no credit.
 
-One task also sets a deliberate trap with an updated value: a single message says a quota used to be 30 and was later raised to 90. An agent that keeps only the original value scores 0.
+One task also sets a deliberate trap with an updated value: a single message says the search result cache TTL used to be 30 seconds and was later raised to 90 seconds. An agent that keeps only the original value scores 0.
 
 Each task runs once in an OFF container and once in a separate ON container, and when a task runs for several trials, the arm that goes first alternates. Both arms use the same image, host version, model, reasoning settings, and budget. The directory still carries the name of the first host it supported, `e2e/bub`, but the comparison now covers six hosts: **Bub, Codex, Claude Code, OpenCode, Pi, and Kimi Code**. The ON arm uses the default behavior each host's plugin gives its real users.
 
@@ -61,9 +61,9 @@ Even with every trace of PowerContext removed, the agent host itself leaves trac
 
 The evaluation itself can leak the answer too. The Recall session's grading script, mounted in the container's `/tests` directory, contains the expected answer in plain text. And during the Capture session, a diligent agent may write the project fact into the workspace's `README.md` as a note.
 
-So before every session, in both the OFF and ON arms, the harness cleans up: it removes the host's own local session files (keeping only login credentials), empties `/tests`, and resets the whole workspace after the Capture session. For OpenCode it also checks that the session list is really empty afterwards, and stops the evaluation if it is not.
+So before every session, in both the OFF and ON arms, the harness cleans up: it removes the host's known local session files (keeping only login credentials), empties `/tests`, and resets the workspace after the Capture session. For OpenCode it also checks that the session list is really empty afterwards, and stops the evaluation if it is not.
 
-There is no shortcut here. Every new host means going through its source and data directories first to learn where it keeps its state. Several of OpenCode's leftover directories were caught during code review.
+This narrows the channel; it does not seal it. Every new host means going through its source and data directories first to learn where it keeps its state, and several of OpenCode's leftover directories were caught only during code review. The reset also covers the workspace alone: if the agent writes a note somewhere else in the container during Capture, the Recall session can still read it. This residual channel is open to the OFF and ON arms alike, so it is more likely to lift both arms' scores and narrow the gap between them than to favor ON.
 
 ### 3. The ON arm can read other trials' answers
 
@@ -89,9 +89,9 @@ In the actual tests, a remote embedding call through OpenRouter (such as `text-e
 
 The 100% pass rate hid the fault completely, but the cost landed squarely on the bill and the latency ([#2040](https://github.com/oceanbase/powercontext/issues/2040)). Because the model had to make an extra `pc_search` call as a fallback, the Recall session's input tokens rose from **37.7k to 56.4k** on Pi and from **28.3k to 42.6k** on OpenCode.
 
-PR [#2231](https://github.com/oceanbase/powercontext/pull/2231) then fixed the problem: the embedding waits of all retrieval paths in one context preparation (Atomic Memory and Topic Memory) now share a single budget, raised to **0.5 s** by default and configurable through a runtime setting.
+PR [#2231](https://github.com/oceanbase/powercontext/pull/2231) then mitigated the problem: the embedding waits of all retrieval paths in one context preparation (Atomic Memory and Topic Memory) now share a single budget, raised to **0.5 s** by default and configurable through a runtime setting. The PR's measurements against a real embedding provider show 60 of 60 single-Scope preparations returning context, and 36 of 40 when three Scopes are searched together; with the provider stalled for 2 s, every preparation still came back empty. And when Topic Memory needs a second embedding round trip of its own, a 0.3 s provider is enough to exhaust the 0.5 s budget and send it back to full-text search. The change makes the failure rarer; it does not eliminate it.
 
-The lesson from this investigation is simple: **a pass rate alone is far from enough in an evaluation report.** Besides the final score, the report now breaks down each step's duration, input, output, and cached tokens, and the Server's actual generation and embedding calls.
+The lesson from this investigation is simple: **a pass rate alone is far from enough in an evaluation report**, especially when the same silent degradation can still happen under higher latency. Besides the final score, the report now breaks down each step's duration, input, output, and cached tokens, and the Server's actual generation and embedding calls.
 
 ## What this evaluation can tell you today
 
@@ -99,8 +99,8 @@ In the Kimi Code pilot, the comparison produced **OFF 0/2, ON 2/2**. The numbers
 
 So there are only two conclusions we are willing to draw today:
 
-1. **The end-to-end path works**: with the three kinds of leaks above closed, on the hosts we have run so far, the ON arm's full memory lifecycle (automatic capture, asynchronous extraction into storage, and on-demand recall in a new session) works as intended.
-2. **The tasks really discriminate**: the OFF arm scores nothing in a fully blind environment, which shows the tasks do not hand out the context they ask about.
+1. **The end-to-end path works**: with the three kinds of leaks above narrowed, on the hosts we have run so far, the ON arm's full memory lifecycle (automatic capture, asynchronous extraction into storage, and on-demand recall in a new session) works as intended.
+2. **The tasks do not obviously give the answer away**: the OFF arm answered neither pilot trial correctly, which is consistent with the tasks not handing out the context they ask about. Two trials, plus the residual channel above, are not enough to show that the OFF arm ran fully blind.
 
 As for how many percentage points PowerContext adds to task success in real development work, these few numbers cannot answer that yet. Answering it needs a larger set of tasks closer to real engineering, enough trials, and a continued eye on the cost of every step.
 
