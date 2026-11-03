@@ -109,7 +109,7 @@ prompt 或响应内容，也不改变本次请求的结果。
 配置了前缀抽取（`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL`）时，对含一个带前缀句柄的网关回合的
 窗口，每次尝试输出一条 INFO 级别的 `atomic_memory.prefixed_extraction` 事件，`operation` 为 `atomic_memory.extract`，
 `unit` 为 `inference`。使用了基于缓存前缀的回复时 `outcome` 为 `success`；改用普通抽取时为 `fallback`，此时
-`fallback_reason` 取 `prefix_unavailable`、`target_mismatch`、`disabled`、`invalid_instruction`、`check_rejected`、
+`fallback_reason` 取 `not_cheaper`、`prefix_size_unknown`、`prefix_unavailable`、`target_mismatch`、`disabled`、`invalid_instruction`、`check_rejected`、
 `gateway_unavailable`、`gateway_error` 或 `invalid_output` 之一。不含这种回合的窗口不输出该事件。该事件不携带句柄、
 prompt 或响应内容。
 Child 取消时，supervisor 以 `INFO` 级别输出 `artifact_processing.failed`，outcome/category 为 `cancelled`，

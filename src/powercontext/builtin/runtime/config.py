@@ -330,6 +330,8 @@ class InferenceConfig(BaseModel):
     # Opt-in: extract Atomic Memory over the agent's cached conversation prefix through a gateway on the same host.
     prefix_extraction_gateway_url: AnyHttpUrl | None = None
     prefix_extraction_gateway_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
+    # Price of a cached input token relative to an uncached one for the agent's target.
+    prefix_extraction_cached_input_ratio: float = Field(default=0.1, gt=0, le=1)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None
     embedding_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)

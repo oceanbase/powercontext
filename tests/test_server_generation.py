@@ -65,3 +65,10 @@ def test_prefix_extraction_requires_normal_extraction_as_its_fallback() -> None:
         "prefix_extraction_gateway_headers": {"Authorization": "Bearer gateway-key"},
     })
     assert "gateway-key" not in repr(configured)
+
+
+def test_prefix_extraction_cached_input_ratio_is_a_price_fraction() -> None:
+    for ratio in (0, 1.5):
+        with pytest.raises(ValidationError, match="prefix_extraction_cached_input_ratio"):
+            InferenceConfig.model_validate({"prefix_extraction_cached_input_ratio": ratio})
+    assert InferenceConfig().prefix_extraction_cached_input_ratio == 0.1

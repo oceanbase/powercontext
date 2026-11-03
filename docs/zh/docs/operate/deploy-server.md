@@ -245,18 +245,21 @@ enforcing 模式的 Server 要求每个生成请求都设置输出上限，而�
 
 - **网关：** 设置 `PC_GATEWAY_PREFIX_EXTRACTION=on`，并开启沉淀（`PC_GATEWAY_SEDIMENT=on`）。对 Responses 会话，网关
   在内存中保留每个回合终止响应对应的、实际发出的请求及其响应输出，最多 30 分钟、最多 64 个回合，并在沉淀的 Source
-  元数据中记录一个不透明的句柄。请求和响应本身从不进入 Source、证据或日志。
+  元数据中记录一个不透明的句柄，以及该终止响应的输入和输出 token 数。请求和响应本身从不进入 Source、证据或日志。
 - **Server：** 将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` 设为网关的监听地址；网关要求密钥时，
   将 `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` 设为
   `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`。仍需配置生成模型，因为普通抽取是回退路径。
 
-处理窗口恰好只含一个这样的回合时，Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
+命中缓存的输入并非免费，服务商仍按较低的价格计费。处理窗口恰好只含一个这样的回合时，Server 先估算两种请求的成本：
+前缀请求为 Core 的指令加上终止响应的输出 token（按全价），再加上命中缓存的输入 token 乘以
+`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO`（默认 `0.1`）；普通抽取为其指令加上 Source
+证据。只有前者更低时才复用前缀。工具输出较多的回合通常满足这一条件；长会话的前缀不断增长后，就不再满足。随后 Server 把抽取指令、输出 Schema 和该 Source 的来源信息发给
 `POST /gateway/v1/extract`。网关把它们作为一条用户消息追加在保留的请求和响应之后，把 `tool_choice` 设为 `none`，
 发往 Agent 自己的目标和账号。工具、`prompt_cache_key`、推理设置、响应格式等会改变缓存前缀的字段保持不变。该请求
 照常经过 Server 的 `before_send` 和 `before_release` 检查，并携带该会话的加密内容回执；它不注入、也不沉淀。Server
 用与普通抽取相同的 Schema 和规则校验回复。
 
-其他情况都回退到普通抽取：窗口含多个 Source 或没有句柄、句柄过期或未知、目标不一致、检查被暂扣或阻断、服务商或网关
+其他情况都回退到普通抽取：窗口含多个 Source 或没有句柄、估算复用前缀并不更便宜或前缀规模未知、句柄过期或未知、目标不一致、检查被暂扣或阻断、服务商或网关
 出错，以及回复未通过校验。每次尝试都记录为 `atomic_memory.prefixed_extraction` 日志事件，参见
 [日志、指标与追踪](observability.md#operational-fields-与关联)。模型用量（包括命中缓存的输入 token）与其他
 生成一样上报。

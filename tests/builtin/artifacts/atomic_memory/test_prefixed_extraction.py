@@ -40,7 +40,16 @@ from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
-TRANSCRIPT = json.dumps({"kind": "gateway_turn", "user": "Our team deploys only on Tuesdays.", "assistant": "Noted."})
+# A turn whose tool output makes resending the transcript cost more than reading the cached prefix.
+TRANSCRIPT = json.dumps({
+    "kind": "gateway_turn",
+    "user": "Our team deploys only on Tuesdays. Check the release script.",
+    "steps": [
+        {"type": "tool_call", "name": "exec", "arguments": '{"cmd": "cat release.sh"}'},
+        {"type": "tool_output", "output": "echo release\n" * 2000},
+    ],
+    "assistant": "Noted.",
+})
 CANDIDATE = {
     "kind": "constraint",
     "text": "The team deploys only on Tuesdays.",
@@ -109,7 +118,9 @@ def _flush(tmp_path, gateway: _Gateway, sources: list[dict[str, object]]) -> _Ex
             extractor=extractor,
             reconciler=_CreatingReconciler(),
             estimator=character_token_estimator(),
-            prefixed=GatewayPrefixedExtractor(client=client, instructions="Extract memories."),
+            prefixed=GatewayPrefixedExtractor(
+                client=client, instructions="Extract memories.", estimator=character_token_estimator()
+            ),
         ),
     )
     with TestClient(app) as test_client:
@@ -125,10 +136,14 @@ def _flush(tmp_path, gateway: _Gateway, sources: list[dict[str, object]]) -> _Ex
     return extractor
 
 
-def _turn(source_id: str, handle: str | None = "a" * 32) -> dict[str, object]:
+def _turn(
+    source_id: str, handle: str | None = "a" * 32, prefix_tokens: tuple[int, int] | None = (30_000, 50)
+) -> dict[str, object]:
     metadata: dict[str, object] = {"kind": "gateway_turn", "target_profile": "codex"}
     if handle is not None:
         metadata["prefix_handle"] = handle
+    if prefix_tokens is not None:
+        metadata["prefix_input_tokens"], metadata["prefix_output_tokens"] = prefix_tokens
     return {"source_id": source_id, "content": TRANSCRIPT, "metadata": metadata}
 
 
@@ -146,9 +161,10 @@ def test_a_gateway_turn_is_extracted_over_its_prefix_without_resending_the_trans
     assert isinstance(instruction, str)
     assert instruction.startswith("Extract memories.")
     assert '"evidence_id": "source:1"' in instruction
-    # The conversation comes from the cached prefix: neither the transcript nor the handle is sent again.
+    # The conversation comes from the cached prefix: neither the transcript nor gateway metadata is sent again.
     assert "deploys only on Tuesdays" not in instruction
     assert "a" * 32 not in instruction
+    assert "prefix_input_tokens" not in instruction
     assert any(
         getattr(record, "event", None) == "atomic_memory.prefixed_extraction"
         and getattr(record, "outcome", None) == "success"
@@ -175,6 +191,25 @@ def test_a_failed_prefixed_extraction_falls_back_with_its_reason(tmp_path, caplo
     assert len(gateway.requests) == 1
     assert extractor.calls == 1
     assert gateway.memories == []
+    assert [
+        getattr(record, "fallback_reason", None)
+        for record in caplog.records
+        if getattr(record, "event", None) == "atomic_memory.prefixed_extraction"
+    ] == [reason]
+
+
+@pytest.mark.parametrize(
+    ("prefix_tokens", "reason"),
+    [((10_000_000, 50), "not_cheaper"), ((30_000, 40_000), "not_cheaper"), (None, "prefix_size_unknown")],
+    ids=["large-cached-prefix", "large-uncached-output", "unknown-size"],
+)
+def test_a_prefix_that_would_cost_more_is_not_used(tmp_path, caplog, prefix_tokens, reason) -> None:
+    gateway = _Gateway(500, {})
+    with caplog.at_level(logging.INFO):
+        extractor = _flush(tmp_path, gateway, [_turn("turn-1", prefix_tokens=prefix_tokens)])
+
+    assert gateway.requests == []
+    assert extractor.calls == 1
     assert [
         getattr(record, "fallback_reason", None)
         for record in caplog.records

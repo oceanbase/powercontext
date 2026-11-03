@@ -1528,7 +1528,7 @@ async def _dream_generator(
 
 
 def _prefixed_extractor(
-    settings: InferenceConfig, runtime: RuntimeConfig, resources: AsyncExitStack
+    settings: InferenceConfig, runtime: RuntimeConfig, resources: AsyncExitStack, estimator: TokenEstimator
 ) -> UsageReportingStructuredGenerator[AtomicMemoryExtractionInput, AtomicMemoryExtractionOutput] | None:
     if settings.prefix_extraction_gateway_url is None:
         return None
@@ -1547,6 +1547,8 @@ def _prefixed_extractor(
         GatewayPrefixedExtractor(
             client=client,
             instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
+            estimator=estimator,
+            cached_input_ratio=settings.prefix_extraction_cached_input_ratio,
         )
     )
 
@@ -1790,7 +1792,7 @@ async def _generation_pipelines(
             estimator=memory_estimator,
             extraction_instructions=atomic_memory_extraction_instructions(runtime.memory_extraction_profile),
             input_renderer=memory_input_renderer,
-            prefixed=_prefixed_extractor(settings, runtime, resources),
+            prefixed=_prefixed_extractor(settings, runtime, resources, memory_estimator),
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))

@@ -362,13 +362,15 @@ where
                             "kind": "gateway_turn",
                             "target_profile": call.target_profile,
                         });
-                        if let Some(handle) = self.keep_prefix(
+                        if let Some(prefix) = self.keep_prefix(
                             &call,
                             &payload.bytes,
                             &release_body,
                             renderer.message_list_key(),
                         ) {
-                            metadata["prefix_handle"] = handle.into();
+                            for (key, value) in prefix {
+                                metadata[key] = value;
+                            }
                         }
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
@@ -422,22 +424,25 @@ where
         self.prefixes.get(handle, scope_id, now_ms())
     }
 
-    /// 保留一个 Responses 回合的终止请求与响应输出，返回句柄。只用于可信会话：前缀里重放的加密内容要凭
-    /// 该会话的回执放行。
+    /// 保留一个 Responses 回合的终止请求与响应输出，返回要写入 Source 元数据的句柄和前缀规模。只用于可信会话：
+    /// 前缀里重放的加密内容要凭该会话的回执放行。规模取自终止响应的用量：输入部分在抽取时命中缓存，输出部分
+    /// 作为新输入计费，Core 据此判断复用前缀是否比普通抽取便宜。
     fn keep_prefix(
         &self,
         call: &ManagedCall,
         sent: &bytes::Bytes,
         release_body: &str,
         list_key: &str,
-    ) -> Option<String> {
+    ) -> Option<Vec<(&'static str, serde_json::Value)>> {
         if !call.capture_prefix || list_key != "input" {
             return None;
         }
         let conversation_id = call.conversation_id.clone()?;
         let response: serde_json::Value = serde_json::from_str(release_body).ok()?;
         let response_output = response.get("output")?.as_array()?.clone();
-        self.prefixes.add(
+        let usage = response.get("usage");
+        let tokens = |field: &str| usage.and_then(|u| u.get(field)).and_then(|v| v.as_u64());
+        let handle = self.prefixes.add(
             PrefixEntry {
                 scope_id: call.scope_id.clone(),
                 target_profile: call.target_profile.clone(),
@@ -446,7 +451,13 @@ where
                 response_output,
             },
             now_ms(),
-        )
+        )?;
+        let mut fields = vec![("prefix_handle", handle.into())];
+        if let (Some(input), Some(output)) = (tokens("input_tokens"), tokens("output_tokens")) {
+            fields.push(("prefix_input_tokens", input.into()));
+            fields.push(("prefix_output_tokens", output.into()));
+        }
+        Some(fields)
     }
 
     /// before_send 请求：带上可信会话、父会话，以及它们的加密内容回执；同时返回转交了哪些本会话回执。

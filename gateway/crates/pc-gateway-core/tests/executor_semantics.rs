@@ -2136,6 +2136,9 @@ async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
     );
     assert_eq!(serde_json::Value::from(prefix.response_output), output);
     assert!(executor.prefix(&handle, "project:other").is_none());
+    // 前缀规模取自终止响应的用量，供 Core 判断复用前缀是否更便宜。
+    assert_eq!(metadata[0].as_ref().unwrap()["prefix_input_tokens"], 10);
+    assert_eq!(metadata[0].as_ref().unwrap()["prefix_output_tokens"], 2);
 }
 
 #[tokio::test]

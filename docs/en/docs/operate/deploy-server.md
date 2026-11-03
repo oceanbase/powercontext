@@ -272,13 +272,19 @@ needs both sides:
 
 - **Gateway:** `PC_GATEWAY_PREFIX_EXTRACTION=on` together with capture (`PC_GATEWAY_SEDIMENT=on`). For a Responses
   conversation, the gateway keeps the exact request it sent and the response output of each turn's final response in
-  memory, for at most 30 minutes and at most 64 turns, and records an opaque handle in the captured Source's metadata.
+  memory, for at most 30 minutes and at most 64 turns. It records an opaque handle in the captured Source's metadata,
+  with the input and output token counts of that final response.
   The request and response never enter the Source, evidence, or logs.
 - **Server:** `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL` set to the gateway's listen address, and
   `POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_HEADERS` set to `{"Authorization": "Bearer <PC_GATEWAY_API_KEY>"}`
   when the gateway requires a key. A generation model is still required, because normal extraction is the fallback.
 
-When a processing window holds exactly one such turn, the Server sends its extraction instruction, the output schema,
+Cached input is not free: the provider still bills it at a reduced rate. When a processing window holds exactly one
+such turn, the Server first estimates both requests. The prefixed request costs Core's instruction plus the final
+response's output tokens at the full rate, plus the cached input tokens multiplied by
+`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_CACHED_INPUT_RATIO` (default `0.1`). Normal extraction costs its
+instructions plus the Source evidence. The Server uses the prefix only when that estimate is lower. This usually
+holds for turns with substantial tool output, and stops holding as a long conversation's prefix grows. It then sends its extraction instruction, the output schema,
 and the Source's provenance to `POST /gateway/v1/extract`. The gateway appends them as one user message after the
 kept request and response, sets `tool_choice` to `none`, and sends it to the agent's own target and account. Fields
 that would change the cached prefix, such as tools, `prompt_cache_key`, reasoning settings, and a response format, are
@@ -286,7 +292,8 @@ not changed. The request passes the Server's normal `before_send` and `before_re
 encrypted-content receipts; it is not injected and is not captured. The Server validates the reply with the same schema
 and rules as normal extraction.
 
-Any other case falls back to normal extraction: a window with several Sources or no handle, an expired or unknown
+Any other case falls back to normal extraction: a window with several Sources or no handle, a prefix that is not
+estimated to cost less or whose size is unknown, an expired or unknown
 handle, a target mismatch, a withheld or blocked check, a provider or gateway error, or a reply that fails validation.
 Each attempt is logged as `atomic_memory.prefixed_extraction`; see
 [Logs, metrics, and tracing](observability.md#operational-fields-and-correlation). Model usage, including cached input

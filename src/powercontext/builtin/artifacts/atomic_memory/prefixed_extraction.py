@@ -15,9 +15,10 @@
 """Atomic Memory extraction over the agent's cached conversation prefix.
 
 A gateway deployed with Core keeps the request and response of each terminal agent turn for a short time and records
-an opaque handle in the turn's Source metadata. For a window holding exactly that one turn, Core asks the gateway to
+an opaque handle and the prefix's token counts in the turn's Source metadata. For a window holding exactly that one turn, Core asks the gateway to
 append its extraction instruction to that prefix, so the provider reads the conversation from its prompt cache instead
-of Core sending the transcript again. The gateway runs Core's normal context checks on that request. Anything this
+of Core sending the transcript again. Cached input is still billed at a reduced rate, so the path is used only when
+the cached prefix plus Core's instruction is estimated to cost less than normal extraction of the same Source. The gateway runs Core's normal context checks on that request. Anything this
 path cannot complete raises :class:`PrefixedExtractionUnavailable`, and the caller extracts the normal way.
 """
 
@@ -25,13 +26,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 import httpx
 from pydantic import ValidationError
 
 from powercontext.builtin.artifacts.prompt.service import current_prompt
-from powercontext.builtin.inference import InferenceError, InvalidInferenceOutputError
+from powercontext.builtin.inference import InferenceError, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 
 if TYPE_CHECKING:
@@ -42,6 +43,11 @@ if TYPE_CHECKING:
     )
 
 PREFIX_HANDLE_KEY = "prefix_handle"
+# Token counts of the terminal response that ends the prefix: its input is read from the cache, its output is new
+# input to the extraction request.
+PREFIX_INPUT_TOKENS_KEY = "prefix_input_tokens"
+PREFIX_OUTPUT_TOKENS_KEY = "prefix_output_tokens"
+_GATEWAY_METADATA_KEYS = {PREFIX_HANDLE_KEY, PREFIX_INPUT_TOKENS_KEY, PREFIX_OUTPUT_TOKENS_KEY}
 EXTRACT_PATH = "/gateway/v1/extract"
 
 # Gateway refusals that name their cause; other refusals are reported by kind.
@@ -72,12 +78,30 @@ def prefix_handle(value: AtomicMemoryExtractionInput) -> str | None:
     return handle if isinstance(handle, str) and handle else None
 
 
+def _prefix_tokens(evidence: AtomicMemoryEvidence) -> tuple[int, int] | None:
+    source = evidence.source_metadata
+    metadata = source.get("metadata") if isinstance(source, dict) else None
+    if not isinstance(metadata, dict):
+        return None
+    cached, uncached = metadata.get(PREFIX_INPUT_TOKENS_KEY), metadata.get(PREFIX_OUTPUT_TOKENS_KEY)
+    if _count(cached) and _count(uncached):
+        return cached, uncached
+    return None
+
+
+def _count(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 @dataclass(frozen=True)
 class GatewayPrefixedExtractor:
     """Generate extraction output through the gateway's prefixed extraction route."""
 
     client: httpx.AsyncClient
     instructions: str
+    estimator: TokenEstimator
+    # Price of a cached input token relative to an uncached one.
+    cached_input_ratio: float = 0.1
     max_output_tokens: int | None = None
 
     async def generate(self, value: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
@@ -88,10 +112,16 @@ class GatewayPrefixedExtractor:
             raise PrefixedExtractionUnavailable("no_prefix")
         selection = current_prompt("atomic_memory.extract")
         instructions = self.instructions if selection is None else selection.compiled_instructions
-        body: dict[str, Any] = {
-            "handle": handle,
-            "instruction": prefixed_instruction(instructions, value.evidence[0], AtomicMemoryExtractionOutput),
-        }
+        instruction = prefixed_instruction(instructions, value.evidence[0], AtomicMemoryExtractionOutput)
+        tokens = _prefix_tokens(value.evidence[0])
+        if tokens is None:
+            raise PrefixedExtractionUnavailable("prefix_size_unknown")
+        cached, uncached = tokens
+        prefixed_cost = self.estimator.estimate(instruction) + uncached + self.cached_input_ratio * cached
+        # Normal extraction sends the instructions and the Source evidence uncached, estimated as its budget is.
+        if prefixed_cost >= self.estimator.estimate(f"{instructions}\n{value.model_dump_json()}"):
+            raise PrefixedExtractionUnavailable("not_cheaper")
+        body: dict[str, Any] = {"handle": handle, "instruction": instruction}
         if self.max_output_tokens is not None:
             body["max_output_tokens"] = self.max_output_tokens
         try:
@@ -124,7 +154,7 @@ def prefixed_instruction(
 
     metadata = evidence.source_metadata
     if isinstance(metadata, dict) and isinstance(metadata.get("metadata"), dict):
-        inner = {key: item for key, item in metadata["metadata"].items() if key != PREFIX_HANDLE_KEY}
+        inner = {key: item for key, item in metadata["metadata"].items() if key not in _GATEWAY_METADATA_KEYS}
         metadata = {**metadata, "metadata": inner}
     record = {
         "evidence_id": evidence.evidence_id,
