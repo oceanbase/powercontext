@@ -215,6 +215,7 @@ jobs:
             else
               build_status=$?
             fi
+            # Both image creation and detach can encounter transient DiskImages locks.
             if [ "$attempt" -eq 3 ] || ! grep -Eq "hdiutil: (create failed - Resource busy|couldn't eject .* - Resource busy)" "$attempt_log"; then
               exit "$build_status"
             fi
@@ -226,6 +227,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: desktop-macos-${{ matrix.runner }}-build-diagnostics
+          include-hidden-files: true
           path: |
             desktop/.artifacts/macos-build*.log
             desktop/src-tauri/target/release/bundle/dmg/bundle_dmg.sh

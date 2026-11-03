@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -29,6 +30,56 @@ import yaml
 
 ROOT = Path(__file__).parents[1]
 RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text())
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="macOS bundling uses POSIX executables")
+@pytest.mark.parametrize(
+    ("failures", "expected_status", "expected_attempts"),
+    [
+        (['hdiutil: couldn\'t eject "disk2" - Resource busy'], 0, 2),
+        (["hdiutil: create failed - Resource busy"], 0, 2),
+        (["error: application compilation failed"], 17, 1),
+        (["another tool: Resource busy"], 17, 1),
+        (['hdiutil: couldn\'t eject "disk2" - Resource busy'] * 3, 17, 3),
+    ],
+)
+def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failures, expected_status, expected_attempts):
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash is required to execute the macOS build step")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    driver = bin_dir / "pnpm"
+    driver.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "count = Path('build-attempts')\n"
+        "attempt = int(count.read_text()) + 1 if count.exists() else 1\n"
+        "count.write_text(str(attempt))\n"
+        "failures = json.loads(os.environ['TEST_BUILD_FAILURES'])\n"
+        "if attempt <= len(failures):\n"
+        "    print(failures[attempt - 1], file=sys.stderr)\n"
+        "    sys.exit(17)\n"
+    )
+    driver.chmod(0o755)
+    sleep = bin_dir / "sleep"
+    sleep.write_text("#!/bin/sh\nexit 0\n")
+    sleep.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("TEST_BUILD_FAILURES", json.dumps(failures))
+    command = next(
+        step["run"]
+        for step in workflow("desktop.yml")["jobs"]["macos"]["steps"]
+        if step.get("name") == "Build unsigned macOS app and DMG"
+    )
+    result = subprocess.run(
+        [bash, "-c", command], cwd=tmp_path, capture_output=True, text=True, timeout=10, check=False
+    )
+    assert result.returncode == expected_status, result.stdout + result.stderr
+    # The external recovery budget is three builds; other build failures are terminal.
+    assert int((tmp_path / "build-attempts").read_text()) == expected_attempts
+    assert failures[0] in (tmp_path / ".artifacts" / "macos-build.log").read_text()
 
 
 def workflow(name):
