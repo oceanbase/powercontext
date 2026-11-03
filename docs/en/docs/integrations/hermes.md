@@ -92,6 +92,41 @@ Let the Hermes wizard store authorization in its protected `.env` secret store; 
 [Connect to a remote Server](../operate/connect-remote-server.md) for guided setup and endpoint-bound saved consent.
 Evaluation traces contain prompts and recalled context; keep them local and protect them as sensitive data.
 
+## Data flow and capture controls
+
+These controls apply to the active PowerContext provider. Environment variables override the provider configuration.
+Turning off turn capture does not turn off recall, pre-compression capture, or explicit writes.
+
+| Event/entry | Data sent | Direct recipient | Default/trigger | Disable | Effect when disabled |
+| --- | --- | --- | --- | --- | --- |
+| Recall / prefetch | Query (up to 8192 characters), Scope and preparation options; prepared context returns to Hermes | PowerContext Server | Active provider, nonempty query and resolved Scope; cached prefetch may be reused | Select a different memory provider to stop this provider's automatic recall; there is no separate recall switch here | PowerContext automatic recall stops; capture switches alone leave recall available |
+| Completed turn | Bounded user/assistant text pair and session metadata, not the complete tool transcript | PowerContext Server, as a Source | `capture_turns=true`; automatic writes are suppressed outside the primary agent context | `POWERCONTEXT_HERMES_CAPTURE_TURNS=false` | Stops this Source capture; recall, pre-compression capture and explicit writes remain independent |
+| Session end | Flush request for already accepted inputs, not another upload of the session transcript | PowerContext Server | `flush_on_session_end=true`; waits for background writes and checks extraction capability | `POWERCONTEXT_HERMES_FLUSH_ON_SESSION_END=false` | Stops this flush trigger; accepted Sources remain and other processing triggers are unaffected |
+| Before compression | New user/assistant evidence window, excluding system/tool messages and redacting detected secrets | PowerContext Server, as a Source | `capture_pre_compress=false`; opt in with `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS=true` | `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS=false` | Stops this capture and its subsequent extraction attempt; a required checkpoint fails rather than reporting success |
+| Explicit remember / built-in memory mirror | Requested Memory content or change, with exact references for updates | PowerContext Server | Explicit operation, or primary-context `on_memory_write` for add/replace/remove | Do not invoke the write or mirror-producing built-in operation; no dedicated mirror switch | Turning off turn capture does not disable these writes |
+| Evaluation trace | Prompt/query, recalled context and correlation metadata; detected secrets are redacted | Local JSONL files, by default under `$HERMES_HOME/powercontext/evaluation-trace/` | `evaluation_trace=false`; opt in with `POWERCONTEXT_HERMES_EVALUATION_TRACE=true` | `POWERCONTEXT_HERMES_EVALUATION_TRACE=false` | Stops new trace records without disabling recall or capture; existing files remain sensitive |
+
+Pre-compression capture prefers the host-normalized `evidence_messages` when supplied, so earlier compression
+summaries are not reintroduced as fresh evidence. The provider declares checkpoint API v2 and raises on an
+uncommitted required checkpoint. This describes the provider contract: the repository's
+[integration capability matrix](capabilities.md) still declares Hermes pre-compaction `unsupported`, and does not
+establish a verified, required-capable real-host lifecycle. Source durability at checkpoint time is distinct from
+successful extraction. Prepared context, a committed checkpoint, host injection, model use and a correct answer
+are also distinct outcomes. Secret matching is a limited set of rules, not a guarantee that all sensitive data is removed.
+
+There are three separate data directions: Hermes sends queries, captures and explicit operations to the Server;
+the Server may send queries, candidates or evidence to its configured embedding, reranking or generation backends;
+and Hermes may include returned historical context in requests to its own model. A loopback Server URL describes
+only the first connection, not an absence of subsequent network transmission. Third-party plugin code does not
+by itself imply a third-party network recipient. See [Server configuration](../operate/configuration.md),
+[inference privacy protection](../operate/inference-protection.md) and
+[context reuse and final admission](../operate/context-protection.md) for deployment and supported-payload boundaries.
+Inference protection defaults to `disabled`; `shadow` and `advisory` observe requests without blocking delivery or
+inspecting responses. Installing this provider does not establish enforcing protection for all Hermes model traffic.
+
+Changing these switches does not erase existing Sources, Memory, revisions, traces or model-provider records.
+Disabling generation does not disable Source capture; accepting a Source does not mean a Memory was generated.
+
 ## Enable automatic extraction only when needed
 
 Completed-turn capture creates Source evidence. It does not create Memory by itself. Automatic Source-to-Memory

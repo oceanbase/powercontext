@@ -100,8 +100,8 @@ uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/sc
 `POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
-`powercontext.prepared-context.v1`，并原样注入返回内容。召回 query 在构造请求前先定界：不超过 8192 个字符、
-也不超过 8192 个 UTF-8 字节的 prompt 原样发送；更长的 prompt 改用最近的文本召回，先取末尾 8192 个字符、
+`powercontext.prepared-context.v1`，并原样注入返回内容。召回 query 先做凭据脱敏并去掉首尾空白，再定界：不超过 8192 个字符、
+也不超过 8192 个 UTF-8 字节的文本保留；更长的 prompt 改用最近的文本召回，先取末尾 8192 个字符、
 再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让召回失败；prompt 采集不受影响，仍按自身上限执行。
 Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
@@ -175,7 +175,37 @@ Server 权限检查。Claude Code、WorkBuddy 共用该 MCP 工具集，因此�
 在启动 Codex 前，将 `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` 设置为 JSON 组装对象，即可选择 Memory/Experience
 的输出类别、顺序、条数和展示信息。完整示例与输出规则见[输出标准上下文文本](../workflows/prepare-context-text.md)。
 
-## 控制提示词采集
+## 数据流与捕获控制
+
+自动 prompt 操作要求 Hook 已启用并受信任，见[首次会话 Hook 信任](#首次会话-hook-信任)。
+MCP 连通本身不会启用这些操作。
+
+| 事件/入口 | 发送的数据 | 直接接收方 | 默认/触发条件 | 关闭方式 | 关闭后影响 |
+| --- | --- | --- | --- | --- | --- |
+| `UserPromptSubmit`：prepare | 凭据脱敏并定界后的 query 与绑定 Scope；返回的 prepared context 交给 Codex | PowerContext Server；返回上下文交给 Codex | Hook 已启用，prompt 非空 | 在宿主中禁用此 Hook | 同时停止自动 prompt 召回与捕获；显式 MCP 工具仍是独立路径 |
+| `UserPromptSubmit`：capture | 符合条件的原始 prompt、工作目录及可用的 session/turn 元数据，作为 Source | PowerContext Server | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=true`；跳过识别到凭据或超过 200,000 字符的 prompt | 设置 `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` | 自动召回与显式 MCP 读写仍可使用 |
+| 捕获后的 flush | 绑定 Scope 及针对已接受 Source position 的处理请求，不是再次上传 transcript | PowerContext Server | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false`；测试时选择启用 | 设置 `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false` | 停止 Hook 等待，不撤销捕获，也不禁用 Server 调度 |
+| `SessionStart`：bootstrap | 绑定 Scope 的启动请求及可选的精确 Handoff 身份；返回历史上下文 | PowerContext Server；返回上下文交给 Codex | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false`；见[启动上下文配置](#选择启用-session-启动上下文) | 设置 `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false` | 停止启动注入，不影响 prompt 召回、捕获或显式工具 |
+| 显式 MCP 操作 | 所选读取、写入或 Handoff 操作的参数 | PowerContext Server | 显式工具调用，受 Scope binding 与鉴权约束 | 不调用该操作 | 自动捕获设置不会禁用显式写入 |
+| Evaluation 注入 trace | 脱敏 prompt、实际注入上下文、Scope 及可用的 session/turn 标识 | 本地 trace 文件 | 有非空注入，且设置了 `POWERCONTEXT_EVAL_TRACE_PATH`；或 `eval:` Scope 配有绝对路径的 `POWERCONTEXT_HOME` | 取消 trace 路径设置，并避免 evaluation home 回退条件 | 停止新增 evaluation trace；召回与捕获仍独立运行 |
+
+即使已做凭据脱敏，trace 文件仍含敏感内容。捕获开关不会关闭这条独立 trace 路径。
+只读 query 中识别到的凭据会被替换；如果脱敏改变了 prompt，捕获会跳过整个事件，不会把改写后的内容存为 Source。
+query 在脱敏后再定界。识别仅覆盖具体模式和已配置凭据，不保证识别所有敏感信息，也不是完整 DLP；
+见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。
+
+这里有三个独立的数据方向：Codex 向 Server 发送 query、Source 或显式操作参数；Server 可能向配置的
+embedding、rerank 或 generation 后端发送 query、候选或证据；Codex 还可能把返回的历史上下文放入自己的模型请求。
+环回地址只描述第一段连接。本地执行第三方插件代码，本身不等于第三方网络服务收到了数据。
+部署与受支持载荷边界见[配置](../operate/configuration.md)、[推理保护](../operate/inference-protection.md)和
+[上下文保护](../operate/context-protection.md)。推理保护默认是 `disabled`，`shadow`/`advisory` 不阻止交付。
+安装本插件不会自动让所有 Codex 模型请求都经过 enforcing 保护边界。
+
+Source 被接受不等于 Memory 已提取；关闭 generation 不会关闭捕获。改变这些开关不会删除既有 Source、Memory、
+历史 revision、本地 trace 或供应商保留的记录。prepared、checkpoint、宿主注入、模型使用和回答正确是不同结果；
+仅有 HTTP 成功不能证明这些结果全部成立。
+
+### 控制提示词采集
 
 默认开启提示词采集。如果当前工作不应被记录，请在启动 Codex 前关闭：
 

@@ -119,7 +119,7 @@ binding apply. The MCP `set_scope_binding` tool changes only the current Session
 
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The recall query is
-bounded before the request is built: a prompt of at most 8,192 characters and 8,192 UTF-8 bytes is sent as submitted,
+credential-scrubbed and trimmed before bounding: text of at most 8,192 characters and 8,192 UTF-8 bytes is retained,
 while a longer prompt recalls from its most recent text, cut to the last 8,192 characters and then to the last 8,192
 bytes. A long prompt therefore narrows the query instead of failing the recall; prompt capture is unaffected and keeps
 its own limit. The Runtime labels
@@ -207,7 +207,39 @@ Set `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` to a JSON assembly object before start
 readable text with configurable Memory/Experience sections, limits, and metadata. See
 [Prepare standard context text](../workflows/prepare-context-text.md) for a complete example and output rules.
 
-## Control prompt capture
+## Data flow and capture controls
+
+Automatic prompt operations require the hook to be enabled and trusted as described in
+[First-session Hook trust](#first-session-hook-trust). MCP connectivity alone does not enable them.
+
+| Event/entry | Data sent | Direct recipient | Default/trigger | Disable | Effect when disabled |
+| --- | --- | --- | --- | --- | --- |
+| `UserPromptSubmit`: prepare | Credential-scrubbed, bounded query and bound Scope; returned prepared context is supplied to Codex | PowerContext Server; returned context goes to Codex | Enabled hook and a nonblank prompt | Disable this hook in the host | Stops both automatic prompt recall and capture; explicit MCP tools remain separate |
+| `UserPromptSubmit`: capture | Eligible original prompt plus working directory and available session/turn metadata, as a Source | PowerContext Server | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=true`; skip recognized credentials and prompts over 200,000 characters | Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false` | Automatic recall and explicit MCP reads/writes remain available |
+| Flush after capture | Bound Scope and processing requests for the accepted Source position, not another transcript upload | PowerContext Server | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false`; opt in for tests | Set `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=false` | Stops hook waiting; does not undo capture or disable Server scheduling |
+| `SessionStart`: bootstrap | Scope-bound bootstrap request and optional exact Handoff identity; returned historical context | PowerContext Server; returned context goes to Codex | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false`; see [bootstrap controls](#opt-in-to-session-bootstrap-context) | Set `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=false` | Stops bootstrap injection, not prompt recall/capture or explicit tools |
+| Explicit MCP operations | Arguments of the selected read, write, or Handoff operation | PowerContext Server | Explicit tool invocation, subject to Scope binding and authorization | Do not invoke the operation | Automatic capture settings do not disable explicit writes |
+| Evaluation injection trace | Scrubbed prompt, exact injected context, Scope and available session/turn identifiers | Local trace file | On nonempty injection when `POWERCONTEXT_EVAL_TRACE_PATH` is set, or an `eval:` Scope has absolute `POWERCONTEXT_HOME` | Unset the trace path and avoid the evaluation-home fallback | Stops new evaluation traces; recall and capture remain independent |
+
+Trace files contain sensitive content despite credential scrubbing. Capture controls do not disable this separate trace path.
+Recognized credentials are replaced in the read-only query; when scrubbing changes the prompt, capture skips the entire
+event rather than persisting a rewritten Source. Query bounding follows scrubbing. Recognition covers specific patterns
+and the configured credential, not all sensitive information or complete DLP; see [automatic prompt privacy](index.md#automatic-prompt-privacy).
+
+There are three separate data directions: Codex sends queries, Sources or explicit operation arguments to the Server;
+the Server may send queries, candidates or evidence to configured embedding, rerank or generation backends; and Codex
+may include returned historical context in requests to its own model. Loopback describes only the first connection.
+Plugin code running locally does not itself imply that a third-party network service receives data.
+See [configuration](../operate/configuration.md), [inference protection](../operate/inference-protection.md) and
+[context protection](../operate/context-protection.md) for deployment and supported payload boundaries. Inference
+protection defaults to `disabled`; `shadow`/`advisory` do not stop delivery. Installing this plugin does not automatically
+place every Codex model request behind an enforcing protection boundary.
+
+Source acceptance is not Memory extraction; disabling generation does not disable capture. Changing these controls does
+not delete existing Sources, Memory, revisions, local traces or provider-held records. A prepared value, checkpoint,
+host injection, model use and a correct answer are distinct outcomes; HTTP success alone does not establish all of them.
+
+### Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting Codex when the current work must not be recorded:
 
