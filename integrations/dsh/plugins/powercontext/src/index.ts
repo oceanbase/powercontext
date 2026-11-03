@@ -28,6 +28,8 @@ import { resolveScopeId } from './scope.ts'
 import { registerGuidance, registerSkill } from './skill.ts'
 import { RuntimeStatus } from './status.ts'
 
+const SOURCE_KIND = `plugin:${PLUGIN_NAME}` as const
+
 export const name = PLUGIN_NAME
 
 export const inject = ['tools', 'agents', 'commands', 'skills', 'systemPrompt']
@@ -55,7 +57,7 @@ export const Config = {
 type CreateUserMessage = (input: {
   content: Array<{ type: 'text'; text: string }>
   source: {
-    kind: 'plugin'; plugin: string; form: 'snapshot'
+    kind: typeof SOURCE_KIND; form: 'snapshot'
     sections: Array<{ name: string; text: string }>
   }
 }) => unknown
@@ -138,14 +140,14 @@ function registerRecall(
       wrapContent: (text) => createUserMessage({
         content: [{ type: 'text', text }],
         source: {
-          kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
+          kind: SOURCE_KIND, form: 'snapshot',
           sections: [{ name: 'PowerContext', text }],
         },
       }),
       wrapScope: (text) => createUserMessage({
         content: [{ type: 'text', text }],
         source: {
-          kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
+          kind: SOURCE_KIND, form: 'snapshot',
           sections: [{ name: 'PowerContext Scope routing', text }],
         },
       }),
@@ -156,6 +158,10 @@ function registerRecall(
 }
 
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  const sessionMod = await loadPeer<{ SESSION_FORMAT_VERSION?: number }>('@deepseek-ai/dsh-session')
+  if (sessionMod.SESSION_FORMAT_VERSION !== 4) {
+    throw new Error('powercontext-dsh requires DSH Session format v4; install a supported DSH version before enabling the plugin.')
+  }
   const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
   const sessionScope = createSessionScopeResolver(runtime)

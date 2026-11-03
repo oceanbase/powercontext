@@ -21,7 +21,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 import { test } from 'node:test'
-import { environment, injected, CANARY, CANARY_DESCRIPTION, NATIVE_ERROR_CANARY } from './fixture.mjs'
+import { environment, injected, toolResult, CANARY, CANARY_DESCRIPTION, NATIVE_ERROR_CANARY } from './fixture.mjs'
 import { installIntoHome } from './setup-fixture.mjs'
 import { registerSkill } from '../../src/skill.ts'
 import { MCP_OPERATIONS } from '../../src/mcp-operations.generated.ts'
@@ -40,7 +40,7 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     const first = await instance.run('For this project: ' + CANARY + ' Reply with an acknowledgement.')
     assert.ok(first.finalResponse)
     const request = env.modelRequests.find(r => r.stream)
-    const catalog = new Set(request.tools.map(tool => tool.function.name))
+    const catalog = new Set(request.tools.map(tool => tool.name))
     const wireTools = env.mcpCalls.filter(call => call.body?.method === 'tools/list')
       .flatMap(call => call.result?.tools ?? [])
     assert.ok(wireTools.length, 'catalog must be observed on the actual Server MCP connection')
@@ -54,7 +54,7 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     const activate = wireTools.find(tool => tool.name === 'activate_handoff')
     assert.ok(activate.inputSchema.properties.rollover_reasons, 'native Handoff must retain advisory rollover reasons')
     assert.ok(catalog.has('mcp__powercontext__prepare_handoff_hint'))
-    const system = request.messages.filter(message => message.role === 'system')
+    const system = [{ content: request.system ?? '' }, ...request.messages.filter(message => message.role === 'system')]
     const routing = request.messages.find(message => JSON.stringify(message).includes('PowerContext host Scope routing'))
     assert.ok(routing, 'host-resolved Scope routing must reach the model')
     assert.ok(JSON.stringify(routing).includes(env.scopeId))
@@ -70,8 +70,8 @@ test('documented setup installs the matched plugin, diagnoses the running host a
         host: 'dsh', catalog_source: 'real SDK model request',
         guidance: system.map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n'),
         skill: skills.find(skill => skill.name === 'powercontext-project-context'), skills,
-        host_skill_tools: request.tools.map(tool => tool.function).filter(tool => tool.name.includes('skill')),
-        tools: request.tools.map(tool => tool.function).filter(tool => tool.name.startsWith('mcp__powercontext__')),
+        host_skill_tools: request.tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.input_schema })).filter(tool => tool.name.includes('skill')),
+        tools: request.tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.input_schema })).filter(tool => tool.name.startsWith('mcp__powercontext__')),
       }, null, 2))
     }
     assert.equal(injected(first).length, 0)
@@ -142,6 +142,14 @@ test('documented setup installs the matched plugin, diagnoses the running host a
       .flatMap(path => readFileSync(join(sessions, path), 'utf8').trim().split('\n').map(line => JSON.parse(line)))
     const persisted = saved.find(event => event.type === 'user/message' && event.data?.id === message.id)
     assert.deepEqual(persisted?.data, message)
+    const restored = env.harness({}, { dshHome }).instance
+    const resumed = await restored.resumeSession(second.sessionId)
+    const continued = await resumed.run('Continue the Aurora project. Reply briefly.')
+    assert.equal(continued.sessionId, second.sessionId)
+    assert.ok(env.modelRequests.filter(request => request.stream).at(-1).messages
+      .some(item => JSON.stringify(item.content).includes(CANARY)))
+    assert.ok(continued.finalResponse)
+    assert.equal(continued.events.findLast(event => event.type === 'turn/end')?.data.reason.kind, 'completed')
   } finally { await env.close() }
 })
 
@@ -158,11 +166,11 @@ test('real DSH correlates native PowerContext calls with the injected snapshot w
         && event.data?.source?.sections?.some(section => section.name === 'PowerContext'))
       const toolCall = run.events.find(event => event.type === 'tool/call'
         && event.data.name === 'mcp__powercontext__search_memory')
-      const toolResult = run.events.find(event => event.type === 'tool/result'
+      const toolResultEvent = run.events.find(event => event.type === 'tool/result'
         && event.data.message?.source?.callId === toolCall?.data.callId)
       assert.ok(snapshot)
       assert.ok(toolCall)
-      assert.ok(toolResult)
+      assert.ok(toolResultEvent)
       assert.deepEqual(contextTraces(), [{
         schema: 'powercontext.dsh.context-observation.v1',
         session_id_hash: createHash('sha256').update(run.sessionId).digest('hex'),
@@ -172,7 +180,7 @@ test('real DSH correlates native PowerContext calls with the injected snapshot w
         tool: toolCall.data.name,
         snapshot_injection: { event_seq: snapshot.seq },
         tool_call: { event_seq: toolCall.seq },
-        tool_result: { event_seq: toolResult.seq, is_error: false },
+        tool_result: { event_seq: toolResultEvent.seq, is_error: false },
       }])
       const serialized = JSON.stringify(contextTraces())
       for (const privateValue of [run.sessionId, env.scopeId, CANARY, prompt]) {
@@ -190,7 +198,7 @@ test('real DSH rejects secret native writes including nested work, candidate and
       'create_work_contract', 'record_task_outcome', 'propose_experience', 'propose_skill', 'revise_candidate']) {
       assert.ok((await instance.run(`RUN_PC_SECRET:${operation}`)).finalResponse)
       const input = env.modelRequests.filter(request => request.stream).at(-1)
-      assert.match(input.messages.find(message => message.role === 'tool').content, /secret_rejected/, operation)
+      assert.match(toolResult(input.messages).content, /secret_rejected/, operation)
       assert.ok(!env.mcpCalls.some(call => call.body?.method === 'tools/call' && call.body.params?.name === operation))
     }
     assert.ok(!env.calls.some(call => call.path === '/v1/sources/content'))
@@ -210,7 +218,7 @@ test('real DSH receives controlled MCP HTTP failures without upstream diagnostic
       assert.ok((await instance.run('RUN_PC_SEARCH')).finalResponse)
       assert.ok(env.mcpCalls.some(call => call.status === status && call.body?.params?.name === 'search_memory'))
       const input = env.modelRequests.filter(request => request.stream).at(-1)
-      const result = input.messages.find(message => message.role === 'tool')
+      const result = toolResult(input.messages)
       assert.match(result.content, new RegExp(code))
       assert.match(result.content, new RegExp(`"status":${status}`))
       assert.ok(!JSON.stringify(input.messages).includes(NATIVE_ERROR_CANARY))
@@ -220,7 +228,7 @@ test('real DSH receives controlled MCP HTTP failures without upstream diagnostic
     env.setFault(undefined)
     assert.ok((await instance.run('RUN_PC_SEARCH')).finalResponse)
     const input = env.modelRequests.filter(request => request.stream).at(-1)
-    assert.ok(input.messages.find(message => message.role === 'tool').content.includes(CANARY))
+    assert.ok(toolResult(input.messages).content.includes(CANARY))
   } finally { await env.close() }
 })
 
@@ -233,7 +241,7 @@ test('real native DSH MCP refuses redirected search results without leaking the 
     env.setFault({ path: '/mcp', redirectTo: `http://127.0.0.1:${target.address().port}/mcp/` })
     assert.ok((await env.harness().instance.run('RUN_PC_SEARCH')).finalResponse)
     assert.ok(env.mcpCalls.some(call => call.body?.method === 'tools/call' && call.body.params?.name === 'search_memory'))
-    const result = env.modelRequests.filter(request => request.stream).at(-1).messages.find(message => message.role === 'tool')
+    const result = toolResult(env.modelRequests.filter(request => request.stream).at(-1).messages)
     assert.match(result.content, /redirect_rejected/)
     assert.deepEqual(received, [])
   } finally {
@@ -254,7 +262,7 @@ test('Scope resolution failures deny cross-Scope MCP calls while real DSH conver
     assert.ok(env.calls.length >= 1)
     assert.ok(env.calls.every(call => call.path === '/v1/scope-bindings/resolve' && call.status === 404))
     assert.ok(!env.mcpCalls.some(call => call.body?.method === 'tools/call' && call.body.params?.name === 'search_memory'))
-    const tool = env.modelRequests.filter(r => r.stream).at(-1).messages.find(message => message.role === 'tool')
+    const tool = toolResult(env.modelRequests.filter(r => r.stream).at(-1).messages)
     assert.match(tool.content, /host Scope could not be resolved/)
     assert.ok(!JSON.stringify(env.modelRequests.filter(r => r.stream).at(-1)).includes(CANARY))
     assert.ok(diagnostics().some(event => event.event === 'scope_resolve' && event.error_code === 'scope_not_found'))
@@ -266,7 +274,7 @@ test('Scope resolution failures deny cross-Scope MCP calls while real DSH conver
       assert.equal(injected(next).length, 0)
       assert.ok(env.calls.slice(start).every(call => call.path === '/v1/scope-bindings/resolve'))
       const input = env.modelRequests.filter(r => r.stream).at(-1)
-      assert.match(input.messages.find(message => message.role === 'tool').content, /host Scope could not be resolved/)
+      assert.match(toolResult(input.messages).content, /host Scope could not be resolved/)
       assert.ok(!JSON.stringify(input).includes(CANARY))
       assert.ok(!JSON.stringify(env.modelRequests.filter(r => r.stream).at(-1)).includes('private-response-marker'))
     }
@@ -282,7 +290,7 @@ test('Scope resolution failures deny cross-Scope MCP calls while real DSH conver
     const unavailable = env.harness({ scopeId: configured.scope_id }).instance
     assert.ok((await unavailable.run('RUN_PC_SEARCH')).finalResponse)
     const denied = env.modelRequests.filter(r => r.stream).at(-1)
-    assert.match(denied.messages.find(message => message.role === 'tool').content, /host Scope could not be resolved/)
+    assert.match(toolResult(denied.messages).content, /host Scope could not be resolved/)
     assert.ok(!JSON.stringify(denied).includes(CANARY))
     assert.ok(!env.mcpCalls.some(call => call.body?.method === 'tools/call' && call.body.params?.name === 'search_memory'))
 
@@ -290,7 +298,7 @@ test('Scope resolution failures deny cross-Scope MCP calls while real DSH conver
     const recovered = await env.harness().instance.run('RUN_PC_SEARCH')
     assert.ok(recovered.finalResponse)
     assert.ok(env.mcpCalls.some(call => call.body?.method === 'tools/call' && call.body.params?.name === 'search_memory'))
-    const result = env.modelRequests.filter(r => r.stream).at(-1).messages.find(message => message.role === 'tool')
+    const result = toolResult(env.modelRequests.filter(r => r.stream).at(-1).messages)
     assert.ok(result.content.includes(CANARY))
   } finally { await env.close() }
 })
@@ -304,7 +312,7 @@ test('a stalled native MCP handshake does not block real DSH startup and can fin
     assert.ok(run.finalResponse, 'ordinary conversation must reach the model before MCP initialization completes')
     assert.ok(env.mcpCalls.some(call => call.body?.method === 'initialize'))
     const initial = env.modelRequests.find(request => request.stream)
-    assert.ok(!initial.tools.some(tool => tool.function.name.startsWith('mcp__powercontext__')))
+    assert.ok(!initial.tools.some(tool => tool.name.startsWith('mcp__powercontext__')))
     assert.ok(diagnostics().some(event => event.event === 'mcp_connect' && event.outcome === 'pending'))
 
     env.setFault(undefined)
@@ -313,10 +321,10 @@ test('a stalled native MCP handshake does not block real DSH startup and can fin
     do {
       assert.ok((await instance.run('Reply with a short acknowledgement.')).finalResponse)
       catalog = env.modelRequests.filter(request => request.stream).at(-1).tools
-      if (catalog.some(tool => tool.function.name === 'mcp__powercontext__get_scope')) break
+      if (catalog.some(tool => tool.name === 'mcp__powercontext__get_scope')) break
       await setTimeout(100)
     } while (Date.now() < deadline)
-    assert.ok(catalog.some(tool => tool.function.name === 'mcp__powercontext__get_scope'), 'the same native client must publish tools after late initialization')
+    assert.ok(catalog.some(tool => tool.name === 'mcp__powercontext__get_scope'), 'the same native client must publish tools after late initialization')
     assert.ok((await instance.run('RUN_PC_GET_SCOPE')).finalResponse)
     assert.ok(env.mcpCalls.some(call => call.body?.method === 'tools/call' && call.body.params?.name === 'get_scope'))
     await instance.close()
@@ -430,8 +438,8 @@ test('real DSH enforces the host Scope for native MCP path arguments before disp
     const denied = await isolated.run('RUN_PC_GET_SCOPE')
     assert.ok(denied.finalResponse)
     assert.ok(!env.mcpCalls.some(call => call.body?.method === 'tools/call' && call.body.params?.name === 'get_scope'))
-    const denial = env.modelRequests.filter(request => request.stream).at(-1).messages.find(message => message.role === 'tool')
-    assert.ok(denial, 'the native DSH host must return the denied tool result to the model')
+    const denial = toolResult(env.modelRequests.filter(request => request.stream).at(-1).messages,
+      'the native DSH host must return the denied tool result to the model')
     assert.ok(denial.content.includes(other.scope_id))
     assert.match(denial.content, /did not use the host Scope/)
 
@@ -440,7 +448,7 @@ test('real DSH enforces the host Scope for native MCP path arguments before disp
     assert.ok(allowed.finalResponse)
     const call = env.mcpCalls.find(call => call.body?.method === 'tools/call' && call.body.params?.name === 'get_scope')
     assert.equal(call?.body.params.arguments.scope_id, env.scopeId)
-    const result = env.modelRequests.filter(request => request.stream).at(-1).messages.find(message => message.role === 'tool')
+    const result = toolResult(env.modelRequests.filter(request => request.stream).at(-1).messages)
     assert.ok(result?.content.includes(env.scopeId))
   } finally { await env.close() }
 })
@@ -457,8 +465,7 @@ test('real DSH discovers bilingual domains and loads only the requested Skill', 
       const requests = env.modelRequests.filter(request => request.stream)
       const finalMessages = requests.at(-1).messages
       assert.ok(JSON.stringify(finalMessages).includes(domain.description), `${domain.name} metadata is not model-visible`)
-      const result = finalMessages.find(message => message.role === 'tool')
-      assert.ok(result, `${domain.name} was not loaded through the host Skill tool`)
+      const result = toolResult(finalMessages, `${domain.name} was not loaded through the host Skill tool`)
       assert.ok(JSON.stringify(result).includes(domain.content.trim().split('\n')[0]))
       for (const other of registered.filter(skill => skill.name !== domain.name)) {
         assert.ok(!JSON.stringify(result).includes(other.content.trim().split('\n')[0]), `loading ${domain.name} also loaded ${other.name}`)

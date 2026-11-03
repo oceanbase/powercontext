@@ -27,7 +27,8 @@ import { toToolResult } from '../src/invoke.ts'
 vi.mock('../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
 
 vi.mock('../src/peers.ts', () => ({ loadPeer: async (name: string) => name === '@deepseek-ai/dsh-llm'
-  ? { createUserMessage: (value: unknown) => value } : { apply: async () => undefined } }))
+  ? { createUserMessage: (value: unknown) => value }
+  : name === '@deepseek-ai/dsh-session' ? { SESSION_FORMAT_VERSION: 4 } : { apply: async () => undefined } }))
 
 const CAPTURE = '/v1/sources/content'
 const FLUSH = '/v1/memory/flush'

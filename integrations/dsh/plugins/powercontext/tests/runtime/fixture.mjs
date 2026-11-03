@@ -130,9 +130,17 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
     const body = await bodyOf(req)
     modelRequests.push(body)
     if (realModel) {
-      const upstream = await fetch(realModel.baseUrl.replace(/\/$/, '') + '/chat/completions', {
+      const isMessagesRequest = new URL(req.url, 'http://localhost').pathname === '/v1/messages'
+      if (isMessagesRequest && !realModel.messagesBaseUrl) throw new Error('realModel.messagesBaseUrl is required for Messages requests')
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${realModel.apiKey}` }
+      if (isMessagesRequest) {
+        headers['anthropic-version'] = req.headers['anthropic-version'] ?? '2023-06-01'
+        if (req.headers['anthropic-beta']) headers['anthropic-beta'] = req.headers['anthropic-beta']
+      }
+      const upstream = await fetch((isMessagesRequest ? realModel.messagesBaseUrl : realModel.baseUrl).replace(/\/$/, '')
+        + (isMessagesRequest ? '/v1/messages' : '/chat/completions'), {
         method: 'POST', signal: AbortSignal.timeout(90000),
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${realModel.apiKey}` },
+        headers,
         body: JSON.stringify({ ...body, model: realModel.model, thinking: { type: 'disabled' } }),
       })
       res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json' })
@@ -178,30 +186,43 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
     const getScope = JSON.stringify(body.messages).includes('RUN_PC_GET_SCOPE')
     const secretWrite = JSON.stringify(body.messages).match(/RUN_PC_SECRET:([a-z_]+)/)?.[1]
     const needsTool = (skillMatch || getScope || secretWrite || JSON.stringify(body.messages).includes('RUN_PC_SEARCH'))
-      && !body.messages.some(message => message.role === 'tool')
+      && !body.messages.some(message => Array.isArray(message.content)
+        && message.content.some(block => block.type === 'tool_result'))
     const content = JSON.stringify(body.messages).includes(CANARY) ? CANARY : 'Task completed.'
     const requestedScopeId = scopeIdForModel
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-    const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({
-      id: 'dsh-fixture', object: 'chat.completion.chunk', model: body.model, created: 0,
-      choices: [{ index: 0, delta, finish_reason }],
-    })}\n\n`
+    const events = [{ type: 'message_start', message: {
+      id: 'dsh-fixture', type: 'message', role: 'assistant', content: [], model: body.model,
+      stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 },
+    } }]
     if (needsTool) {
-      res.end(chunk({ role: 'assistant', tool_calls: [{
-        index: 0, id: 'fixture-search', type: 'function',
-        function: skillMatch
-          ? { name: 'skill', arguments: JSON.stringify({ name: skillMatch[1] }) }
-          : secretWrite
-          ? { name: `mcp__powercontext__${secretWrite}`, arguments: JSON.stringify(secretArguments(secretWrite, requestedScopeId)) }
-          : getScope
-          ? { name: 'mcp__powercontext__get_scope', arguments: JSON.stringify({ scope_id: requestedScopeId }) }
-          : { name: 'mcp__powercontext__search_memory', arguments: JSON.stringify({
-            scope_id: requestedScopeId, query: 'aurora deployment color',
-          }) },
-      }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n')
+      let call
+      if (skillMatch) call = { name: 'skill', input: { name: skillMatch[1] } }
+      else if (secretWrite) call = { name: `mcp__powercontext__${secretWrite}`, input: secretArguments(secretWrite, requestedScopeId) }
+      else if (getScope) call = { name: 'mcp__powercontext__get_scope', input: { scope_id: requestedScopeId } }
+      else call = { name: 'mcp__powercontext__search_memory', input: {
+        scope_id: requestedScopeId, query: 'aurora deployment color',
+      } }
+      events.push(
+        { type: 'content_block_start', index: 0, content_block: {
+          type: 'tool_use', id: 'fixture-search', name: call.name, input: {},
+        } },
+        { type: 'content_block_delta', index: 0, delta: {
+          type: 'input_json_delta', partial_json: JSON.stringify(call.input),
+        } },
+      )
     } else {
-      res.end(chunk({ role: 'assistant', content }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
+      events.push(
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: content } },
+      )
     }
+    events.push(
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: needsTool ? 'tool_use' : 'end_turn' }, usage: { output_tokens: 10 } },
+      { type: 'message_stop' },
+    )
+    res.end(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''))
   })
   let server
   try {
@@ -323,9 +344,9 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
   const harnesses = []
   function harness(config = {}, options = {}) {
     const { initializeTimeoutMs = 30000, maxTokens = 128 } = options
-    const dshHome = mkdtempSync(join(home, 'host-'))
+    const dshHome = options.dshHome ?? mkdtempSync(join(home, 'host-'))
     const workspace = join(dshHome, 'workspace')
-    mkdirSync(workspace)
+    mkdirSync(workspace, { recursive: true })
     // Copy the distributable files, not TypeScript source or development peers.
     const installed = join(dshHome, 'profiles/sdk/node_modules/powercontext-dsh')
     mkdirSync(installed, { recursive: true })
@@ -416,7 +437,16 @@ export function apply(ctx) {
 
 export function injected(run) {
   return run.events.filter(event => event.type === 'user/message'
-    && event.data?.source?.plugin === 'powercontext-dsh'
+    && event.data?.source?.kind === 'plugin:powercontext-dsh'
     && event.data?.source?.sections?.some(section => section.name === 'PowerContext'))
     .map(event => event.data)
+}
+
+
+export function toolResult(messages, diagnostic = 'The model request has no tool result') {
+  const result = messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+    .findLast(block => block.type === 'tool_result')
+  if (!result) throw new Error(diagnostic)
+  const blocks = Array.isArray(result.content) ? result.content : [{ type: 'text', text: result.content ?? '' }]
+  return { content: blocks.map(block => block.type === 'text' ? block.text ?? '' : '').join('') }
 }

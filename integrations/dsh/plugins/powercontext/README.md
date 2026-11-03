@@ -2,6 +2,8 @@
 
 This plugin is a thin DeepSeek Harness integration for a running PowerContext Server. It does not embed storage or start the Server.
 
+Supported DSH versions are 0.2.1-rc.5 and 0.2.2-alpha.2 (Session format v4). The standalone 0.2.2 CLI requires Node.js 24.9+. Upgrade older hosts before enabling this plugin.
+
 Install the released Server and plugin together:
 
 ```bash

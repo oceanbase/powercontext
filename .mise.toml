@@ -17,5 +17,5 @@
 pnpm = "npm:pnpm"
 
 [tools]
-node = "22.19.0"
+node = "24.22.1"
 pnpm = "11.13.1"

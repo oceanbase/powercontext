@@ -18,13 +18,18 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { environment, injected, CANARY } from './fixture.mjs'
 
-test('live model searches and reports an unavailable write approval channel', { timeout: 240000 }, async () => {
-  assert.ok(process.env.DEEPSEEK_API_KEY, 'DEEPSEEK_API_KEY is required for real-model acceptance')
-  const realModel = {
+function realModelConfig() {
+  return {
     apiKey: process.env.DEEPSEEK_API_KEY,
     baseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
+    messagesBaseUrl: process.env.DSH_REAL_MESSAGES_BASE_URL ?? 'https://api.deepseek.com/anthropic',
     model: process.env.DSH_REAL_MODEL ?? 'deepseek-v4-pro',
   }
+}
+
+test('live model searches and reports an unavailable write approval channel', { timeout: 240000 }, async () => {
+  assert.ok(process.env.DEEPSEEK_API_KEY, 'DEEPSEEK_API_KEY is required for real-model acceptance')
+  const realModel = realModelConfig()
   const env = await environment({ realModel })
   try {
     const { instance } = env.harness({ capturePrompts: false, requestTimeoutMs: 15000 }, {
@@ -32,7 +37,7 @@ test('live model searches and reports an unavailable write approval channel', { 
     })
     const save = await instance.run('Remember for future Aurora work: the deployment color is violet-cedar-1520. Tell me whether it was saved.')
     assert.ok(env.modelRequests.some(request => request.messages.some(message =>
-      message.tool_calls?.some(call => call.function.name === 'mcp__powercontext__remember_memory'))), save.finalResponse)
+      Array.isArray(message.content) && message.content.some(block => block.type === 'tool_use' && block.name === 'mcp__powercontext__remember_memory'))), save.finalResponse)
     // The pinned SDK has no interactive approval channel. The real host must deny the write.
     assert.ok(!env.calls.some(call => call.path === '/v1/memory/remember'))
     assert.ok(!JSON.stringify(await env.api('/v1/memory/entries/list', { scope_id: env.scopeId })).includes('violet-cedar-1520'))
@@ -48,11 +53,7 @@ test('live model searches and reports an unavailable write approval channel', { 
 
 test('live model processes Source and uses recalled Memory in a new DSH session', { timeout: 240000 }, async () => {
   assert.ok(process.env.DEEPSEEK_API_KEY, 'DEEPSEEK_API_KEY is required for real-model acceptance')
-  const realModel = {
-    apiKey: process.env.DEEPSEEK_API_KEY,
-    baseUrl: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
-    model: process.env.DSH_REAL_MODEL ?? 'deepseek-v4-pro',
-  }
+  const realModel = realModelConfig()
   const env = await environment({ realModel })
   try {
     const { instance } = env.harness({ requestTimeoutMs: 90000, timeoutMs: 90000 })

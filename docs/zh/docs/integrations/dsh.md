@@ -10,7 +10,7 @@ description: 安装 PowerContext DeepSeek Harness 插件并控制其本地行为
 
 ## 安装匹配的 Server 和插件
 
-先安装 DeepSeek Harness Web 或 Desktop。真实宿主验收固定使用 DSH 0.1.2-rc.1。
+先安装 DeepSeek Harness Web 或 Desktop。插件支持 DSH 0.2.1-rc.5 和 0.2.2-alpha.2（Session 格式 v4）。真实宿主验收固定使用 0.2.2-alpha.2；其独立 CLI 需要 Node.js 24.9+。旧宿主请先升级 DSH，再启用插件。
 选择以下一种 PowerContext 安装方式，让 Server 和插件保持匹配。
 
 使用本站对应的配置向导版本：
