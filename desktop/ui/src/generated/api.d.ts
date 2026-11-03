@@ -4259,7 +4259,7 @@ export interface components {
             conversation_id?: string;
             /** @description For a subagent, the conversation that handed it its task. Receipts issued to that conversation also prove the origin of encrypted items in this request. */
             parent_conversation_id?: string;
-            /** @description Receipts from earlier check results. For a target that admits encrypted items, each admitted encrypted value must appear in an unexpired receipt for the same principal, Scope and target, issued to this conversation or its parent; otherwise the request is withheld with encrypted-origin-unverified. Admission does not mean Core inspected the plaintext. */
+            /** @description Receipts from earlier check results. For a target that admits encrypted items, each admitted encrypted value must be proven, unexpired, by a receipt for the same principal, Scope and target issued to this conversation. A receipt issued to the parent conversation proves only the values it holds for handover, and only as an agent_message task. Otherwise the request is withheld with encrypted-origin-unverified. Admission does not mean Core inspected the plaintext. */
             encrypted_receipts?: string[];
         };
         CheckContextBeforeRelease: {
@@ -4302,7 +4302,7 @@ export interface components {
             correlate_until?: string;
             /** @description Present only for allow, bound to this phase, identity, target, policy, and exact payload. */
             binding?: string;
-            /** @description For a target that admits encrypted items and a request that names a conversation. On a before_send allow it covers the encrypted values the request carried, plus the values its replayed function calls carry in declared encrypted argument fields that the presented receipts prove, and replaces the receipts of that conversation that the request presented. On a before_release allow it covers the response's encrypted values and the values of its function-call arguments that the checked request declared encrypted. Each receipt is valid for one hour. A check whose values do not fit one receipt is withheld with encrypted-receipt-capacity-exceeded. */
+            /** @description For a target that admits encrypted items and a request that names a conversation. On a before_release allow it proves the response's encrypted values and, for handover, the values of its function-call arguments that the checked request declared encrypted, for one hour. On a before_send allow it replaces the receipts of that conversation that the request presented: it carries every unexpired proof they held with its expiry, and renews for one hour the values the request carried and the proven handover values its replayed function calls carry. A check whose values do not fit one receipt is withheld with encrypted-receipt-capacity-exceeded. */
             receipt?: string;
         };
         ContextProtectionCapabilities: {

@@ -21,6 +21,7 @@ reasoning replayed in later requests, and a subagent task returned encrypted in 
 """
 
 import json
+from datetime import timedelta
 
 import pytest
 
@@ -372,6 +373,75 @@ async def test_only_declared_encrypted_arguments_are_receipted():
         config=config,
     )
     assert child.reason_codes == ("encrypted-origin-unverified",)
+
+
+@pytest.mark.anyio
+async def test_an_undeclared_argument_of_a_declared_tool_proves_nothing():
+    # spawn_agent declares only `message` encrypted; its `task_name` is an ordinary value.
+    codec, config = BindingCodec(), _responses_config()
+    receipt = await _parent_receipt(codec, config)
+    for value, decision in (("helper", "withhold"), (TASK, "allow")):
+        task = {"type": "agent_message", "content": [{"type": "encrypted_content", "encrypted_content": value}]}
+        result = await _check(
+            _send([task], conversation_id=CHILD, parent_conversation_id=PARENT, encrypted_receipts=(receipt,)),
+            codec,
+            config=config,
+        )
+        assert result.decision == decision, (value, result.reason_codes)
+
+
+@pytest.mark.anyio
+async def test_a_claimed_parent_lends_only_its_handover_values():
+    # Any conversation can name a parent; it may only receive what the parent declared for handover, as its task.
+    codec, config = BindingCodec(), _responses_config()
+    receipt = await _parent_receipt(codec, config)
+    parent_reasoning = {
+        "type": "agent_message",
+        "content": [{"type": "encrypted_content", "encrypted_content": REASONING}],
+    }
+    for items in ([_user("hi"), _reasoning(REASONING)], [parent_reasoning], [_user("hi"), _reasoning(TASK)]):
+        result = await _check(
+            _send(items, conversation_id=CHILD, parent_conversation_id=PARENT, encrypted_receipts=(receipt,)),
+            codec,
+            config=config,
+        )
+        assert result.reason_codes == ("encrypted-origin-unverified",), items
+
+
+@pytest.mark.anyio
+async def test_a_divergent_history_keeps_the_proof_another_branch_needs():
+    codec, config = BindingCodec(), _responses_config()
+    _, both = await _round(codec, config, [_user("go")], [_reasoning("gAAAA-R"), _reasoning("gAAAA-X")])
+    # A retry of an earlier history replays only R; its consolidated receipt replaces the one it presented.
+    retry, _ = await _round(codec, config, [_user("go"), _reasoning("gAAAA-R")], [], (both,))
+    assert retry.decision == "allow" and retry.receipt
+    branch = [_user("go"), _reasoning("gAAAA-R"), _reasoning("gAAAA-X")]
+    result = await _check(
+        _send(branch, conversation_id=PARENT, encrypted_receipts=(retry.receipt,)), codec, config=config
+    )
+    assert result.decision == "allow"
+
+
+@pytest.mark.anyio
+async def test_a_carried_proof_keeps_its_original_expiry():
+    codec, config = BindingCodec(), _responses_config()
+    _, both = await _round(codec, config, [_user("go")], [_reasoning("gAAAA-R"), _reasoning("gAAAA-X")])
+    half = NOW + RECEIPT_VALIDITY / 2
+    used = await _check(
+        _send([_user("go"), _reasoning("gAAAA-R")], conversation_id=PARENT, encrypted_receipts=(both,)),
+        codec,
+        config=config,
+        now=half,
+    )
+    later = NOW + RECEIPT_VALIDITY + timedelta(minutes=1)
+    for value, decision in (("gAAAA-R", "allow"), ("gAAAA-X", "withhold")):
+        result = await _check(
+            _send([_user("go"), _reasoning(value)], conversation_id=PARENT, encrypted_receipts=(used.receipt,)),
+            codec,
+            config=config,
+            now=later,
+        )
+        assert result.decision == decision, value
 
 
 @pytest.mark.anyio

@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Annotated, Literal, TypeAlias
@@ -512,59 +513,82 @@ def _encrypted_admission(
         return None, None, ()
     parsed = parse_model_json(body, max_depth=config.max_json_depth)
     _, encrypted = admitted_encrypted(parsed, kinds)
-    if isinstance(request, CheckContextBeforeSend):
-        declared = declared_encrypted_fields(parsed)
-        if declared is None:
-            return _RECEIPT_CAPACITY, None, ()
-        digests = {value_digest(value) for value in encrypted}
-        receipted = _receipted_digests(
-            request, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
-        )
-        if not digests <= receipted:
-            return "encrypted-origin-unverified", None, ()
-        # The history still replays encrypted argument values whose proof a pending handover needs, so the
-        # replacement receipt re-covers every replayed value it can prove, not just the admitted items here.
-        replayed = {value_digest(value) for value in replayed_argument_values(parsed, declared)}
+    renewed = now + RECEIPT_VALIDITY
+    if isinstance(request, CheckContextBeforeRelease):
+        handoff = {value_digest(value) for value in released_argument_values(parsed, released_fields)}
+        released = {value_digest(value) for _, value in encrypted} | handoff
         withheld, receipt = _issue_receipt(
             request,
-            digests | (replayed & receipted),
+            {digest: _Proof(renewed, digest in handoff) for digest in released},
             codec=codec,
             scope_id=scope_id,
             binding_identity=binding_identity,
             now=now,
         )
-        return withheld, receipt, declared
-    released = (*encrypted, *released_argument_values(parsed, released_fields))
-    withheld, receipt = _issue_receipt(
-        request,
-        {value_digest(value) for value in released},
-        codec=codec,
-        scope_id=scope_id,
-        binding_identity=binding_identity,
-        now=now,
+        return withheld, receipt, ()
+    declared = declared_encrypted_fields(parsed)
+    if declared is None:
+        return _RECEIPT_CAPACITY, None, ()
+    own, inherited = _presented_proofs(
+        request, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
     )
-    return withheld, receipt, ()
+    # A subagent inherits only its parent's handover values, and only as its task; never the parent's reasoning.
+    if not all(
+        value_digest(value) in own or (kind == "agent_message" and value_digest(value) in inherited)
+        for kind, value in encrypted
+    ):
+        return "encrypted-origin-unverified", None, ()
+    # The replacement receipt carries every unexpired proof of the conversation's own presented receipts, so a retried
+    # or divergent history keeps its proof. Values this request uses, including handover values its history replays,
+    # are renewed for another hour; the rest keep their expiry.
+    proofs = dict(own)
+    for _, value in encrypted:
+        digest = value_digest(value)
+        proofs[digest] = _Proof(renewed, digest in own and own[digest].handoff)
+    for value in replayed_argument_values(parsed, declared):
+        digest = value_digest(value)
+        if digest in own or digest in inherited:
+            proofs[digest] = _Proof(renewed, True)
+    withheld, receipt = _issue_receipt(
+        request, proofs, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
+    )
+    return withheld, receipt, declared
+
+
+@dataclass(frozen=True)
+class _Proof:
+    until: datetime
+    handoff: bool
 
 
 def _issue_receipt(
     request: CheckContextRequest,
-    digests: set[bytes],
+    proofs: Mapping[bytes, _Proof],
     *,
     codec: BindingCodec,
     scope_id: str,
     binding_identity: str,
     now: datetime,
 ) -> tuple[str | None, str | None]:
-    """Seal value digests for this request's conversation only; return a withhold reason or the receipt.
+    """Seal value proofs for this request's conversation only; return a withhold reason or the receipt.
 
-    Without a trusted conversation nothing is receipted, so encrypted items are never inherited across requests.
-    Values that do not fit one receipt withhold the check instead of leaving a later request unprovable.
+    Values are grouped by expiry, rounded down to the minute, so a carried proof never outlives its original receipt.
+    Handover values are the declared encrypted arguments a subagent may receive as its task. Without a trusted
+    conversation nothing is receipted, so encrypted items are never inherited across requests. Values that do not fit
+    one receipt withhold the check instead of leaving a later request unprovable.
     """
 
-    if not digests or request.conversation_id is None:
+    live = {digest: proof for digest, proof in proofs.items() if proof.until > now}
+    if not live or request.conversation_id is None:
         return None, None
-    if len(digests) > MAX_RECEIPT_VALUES:
+    if len(live) > MAX_RECEIPT_VALUES:
         return _RECEIPT_CAPACITY, None
+    groups: dict[datetime, tuple[list[bytes], list[bytes]]] = {}
+    for digest, proof in live.items():
+        values, handoff = groups.setdefault(proof.until.replace(second=0, microsecond=0), ([], []))
+        values.append(digest)
+        if proof.handoff:
+            handoff.append(digest)
     try:
         receipt = codec.seal(
             {
@@ -572,42 +596,73 @@ def _issue_receipt(
                 "scope_id": scope_id,
                 "target_profile": request.target_profile,
                 "conversation_id": request.conversation_id,
-                "digests": pack_digests(digests),
+                "proofs": [
+                    [until.isoformat(), pack_digests(values), pack_digests(handoff)]
+                    for until, (values, handoff) in sorted(groups.items())
+                ],
             },
             purpose=_RECEIPT_PURPOSE,
-            expires_at=now + RECEIPT_VALIDITY,
+            expires_at=max(groups),
         )
     except ContextBindingError:
         return _RECEIPT_CAPACITY, None
     return None, receipt
 
 
-def _receipted_digests(
+def _presented_proofs(
     request: CheckContextBeforeSend,
     *,
     codec: BindingCodec,
     scope_id: str,
     binding_identity: str,
     now: datetime,
-) -> frozenset[bytes]:
-    """Digests proven by the presented receipts for the same principal, Scope and target.
+) -> tuple[dict[bytes, _Proof], frozenset[bytes]]:
+    """Unexpired proofs in the presented receipts for the same principal, Scope and target.
 
-    A receipt counts when it was issued to this conversation or, for a subagent, to the parent conversation that
-    handed the encrypted task over. Invalid, expired or foreign receipts are ignored.
+    Returns the proofs of receipts issued to this conversation, and the handover values of receipts issued to the
+    parent conversation that started this subagent. Invalid, expired or foreign receipts are ignored.
     """
 
-    conversations = {request.conversation_id, request.parent_conversation_id} - {None}
-    digests: set[bytes] = set()
+    own: dict[bytes, _Proof] = {}
+    inherited: set[bytes] = set()
+    if request.conversation_id is None:
+        return own, frozenset()
     for token in request.encrypted_receipts:
         try:
             claims = codec.open(token, purpose=_RECEIPT_PURPOSE, now=now)
         except ContextBindingError:
             continue
         if (
-            claims.get("identity") == binding_identity
-            and claims.get("scope_id") == scope_id
-            and claims.get("target_profile") == request.target_profile
-            and claims.get("conversation_id") in conversations
+            claims.get("identity") != binding_identity
+            or claims.get("scope_id") != scope_id
+            or claims.get("target_profile") != request.target_profile
         ):
-            digests.update(unpack_digests(claims.get("digests")))
-    return frozenset(digests)
+            continue
+        conversation = claims.get("conversation_id")
+        for until, values, handoff in _receipt_proofs(claims.get("proofs"), now):
+            if conversation == request.conversation_id:
+                for digest in values:
+                    known = own.get(digest)
+                    own[digest] = _Proof(
+                        until if known is None else max(until, known.until),
+                        digest in handoff or (known is not None and known.handoff),
+                    )
+            elif conversation == request.parent_conversation_id:
+                inherited.update(handoff)
+    return own, frozenset(inherited)
+
+
+def _receipt_proofs(proofs: object, now: datetime) -> Iterator[tuple[datetime, frozenset[bytes], frozenset[bytes]]]:
+    """The unexpired ``(expiry, values, handover values)`` groups of a receipt."""
+
+    if not isinstance(proofs, list):
+        return
+    for entry in proofs:
+        if not (isinstance(entry, list) and len(entry) == 3 and isinstance(entry[0], str)):
+            continue
+        try:
+            until = datetime.fromisoformat(entry[0])
+        except ValueError:
+            continue
+        if until.tzinfo is not None and until > now:
+            yield until, unpack_digests(entry[1]), unpack_digests(entry[2])

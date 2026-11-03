@@ -76,21 +76,22 @@ so responses carry encrypted reasoning that later requests replay, and a subagen
 `agent_message` part. Core cannot inspect these values:
 
 - At `before_release`, Core admits the encrypted reasoning in the response. When the request names a conversation, it
-  returns a `receipt` for that principal, Scope, target and conversation, valid for one hour. The receipt holds the
-  digests of the response's encrypted values and of the function-call argument values that the checked request's tool
-  definitions declare `"encrypted": true` (Codex declares the task of `spawn_agent` this way). Other argument values
-  are not receipted.
-- At `before_send`, an encrypted value at an admitted position is admitted only when an unexpired presented receipt
-  contains its digest. The positions are the `encrypted_content` of a root `reasoning` item, and an `agent_message`
-  content part whose only fields are `type: "encrypted_content"` and `encrypted_content`. The receipt must have been
-  issued to the request's conversation, or to its `parent_conversation_id`. Otherwise the request is withheld with
-  `encrypted-origin-unverified`.
-- An allowed `before_send` with a conversation also returns one `receipt`, with a new one-hour validity. It covers the
-  encrypted values the request carried, plus the values its replayed function calls carry in declared encrypted
-  argument fields when the presented receipts prove them, so a parent that keeps talking does not strand the proof a
-  pending subagent handover still needs. It replaces the receipts of that conversation the request presented, so a
-  long conversation presents a constant number of receipts, and a value stays admissible for one hour after its last
-  verified use.
+  returns a `receipt` for that principal, Scope, target and conversation, valid for one hour. The receipt proves the
+  response's encrypted values. It also proves, as handover values, the function-call argument values that the checked
+  request's tool definitions declare `"encrypted": true` (Codex declares the task of `spawn_agent` this way). Other
+  argument values are not receipted.
+- At `before_send`, an encrypted value at an admitted position is admitted only when it is proven, unexpired, by a
+  presented receipt issued to the request's conversation. The positions are the `encrypted_content` of a root
+  `reasoning` item, and an `agent_message` content part whose only fields are `type: "encrypted_content"` and
+  `encrypted_content`. A receipt issued to the request's `parent_conversation_id` proves only its handover values, and
+  only in an `agent_message` part: a subagent can receive its task, never the parent's reasoning. Otherwise the request
+  is withheld with `encrypted-origin-unverified`.
+- An allowed `before_send` with a conversation also returns one `receipt` that replaces the receipts of that
+  conversation the request presented. It carries every unexpired proof those receipts held, with its expiry, so a
+  retried or divergent history keeps its proof. It renews for one hour the values the request carried and the proven
+  handover values its replayed function calls carry, so a parent that keeps talking does not strand a pending
+  subagent's task. A long conversation therefore presents a constant number of receipts, and a value stays admissible
+  for one hour after its last verified use.
 - One receipt holds at most 1,024 values. A check whose values do not fit is withheld with
   `encrypted-receipt-capacity-exceeded` rather than leaving a later request without proof.
 - Encrypted values at any other position, and an `agent_message` part with any other field, stay

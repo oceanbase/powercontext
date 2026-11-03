@@ -63,8 +63,10 @@ def unpack_digests(packed: object) -> frozenset[bytes]:
     return frozenset(raw[i : i + _DIGEST_BYTES] for i in range(0, len(raw), _DIGEST_BYTES))
 
 
-def admitted_encrypted(value: object, kinds: tuple[EncryptedItemKind, ...]) -> tuple[object, tuple[str, ...]]:
-    """Return a copy of a Responses body without encrypted values at admitted positions, and those values.
+def admitted_encrypted(
+    value: object, kinds: tuple[EncryptedItemKind, ...]
+) -> tuple[object, tuple[tuple[EncryptedItemKind, str], ...]]:
+    """Return a copy of a Responses body without encrypted values at admitted positions, and those values by kind.
 
     Positions: the ``encrypted_content`` string of a root-level ``reasoning`` item, and an ``encrypted_content``
     part of a root-level ``agent_message`` item, in the request ``input`` or the response ``output``. Encrypted
@@ -73,7 +75,7 @@ def admitted_encrypted(value: object, kinds: tuple[EncryptedItemKind, ...]) -> t
 
     if not kinds or not isinstance(value, dict):
         return value, ()
-    found: list[str] = []
+    found: list[tuple[EncryptedItemKind, str]] = []
     copy = dict(value)
     for field in ("input", "output"):
         items = value.get(field)
@@ -82,13 +84,15 @@ def admitted_encrypted(value: object, kinds: tuple[EncryptedItemKind, ...]) -> t
     return copy, tuple(found)
 
 
-def _strip_item(item: object, kinds: tuple[EncryptedItemKind, ...], found: list[str]) -> object:
+def _strip_item(
+    item: object, kinds: tuple[EncryptedItemKind, ...], found: list[tuple[EncryptedItemKind, str]]
+) -> object:
     if not isinstance(item, dict):
         return item
     kind = item.get("type")
     encrypted = item.get("encrypted_content")
     if kind == "reasoning" and "reasoning" in kinds and isinstance(encrypted, str):
-        found.append(encrypted)
+        found.append(("reasoning", encrypted))
         return {key: child for key, child in item.items() if key != "encrypted_content"}
     content = item.get("content")
     if kind == "agent_message" and "agent_message" in kinds and isinstance(content, list):
@@ -103,7 +107,7 @@ def _strip_item(item: object, kinds: tuple[EncryptedItemKind, ...], found: list[
                 and fields.get("type") == "encrypted_content"
                 and isinstance(payload, str)
             ):
-                found.append(payload)
+                found.append(("agent_message", payload))
             else:
                 kept.append(part)
         return {**item, "content": kept}

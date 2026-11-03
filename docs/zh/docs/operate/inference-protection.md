@@ -68,16 +68,16 @@ Codex 等客户端发送 `store: false` 并请求 `include: ["reasoning.encrypte
 推理；子代理收到的任务也是 `agent_message` 中的加密部分。Core 无法检查这些值：
 
 - 在 `before_release`，Core 放行响应中的加密推理。请求带有会话时，Core 返回一个 `receipt`，绑定该主体、Scope、目标和
-  会话，有效期一小时。回执记录响应中加密值的摘要，以及受检请求的工具定义中声明为 `"encrypted": true` 的函数调用参数
-  的值（Codex 以这种方式声明 `spawn_agent` 的任务）。其他参数值不记入回执。
-- 在 `before_send`，位于准入位置的加密值只有在随请求提交的未过期回执中包含其摘要时才放行。准入位置是根级
+  会话，有效期一小时。回执证明响应中的加密值；受检请求的工具定义中声明为 `"encrypted": true` 的函数调用参数的值，
+  作为可交接值一并证明（Codex 以这种方式声明 `spawn_agent` 的任务）。其他参数值不记入回执。
+- 在 `before_send`，位于准入位置的加密值只有由签发给本请求会话的未过期回执证明时才放行。准入位置是根级
   `reasoning` 条目的 `encrypted_content`，以及只含 `type: "encrypted_content"` 和 `encrypted_content` 两个字段的
-  `agent_message` 内容部分。回执必须签发给本请求的会话或其 `parent_conversation_id`；否则请求以
-  `encrypted-origin-unverified` 被扣留。
-- 带会话的 `before_send` 放行时，Core 还会返回一个 `receipt`，重新计算一小时有效期。它覆盖该请求携带的加密值，以及
-  历史重放的函数调用中、位于声明为加密的参数字段且已由提交回执证明的值，因此父会话继续对话也不会丢失尚未交接的
-  子代理任务所需的证明。它替换该请求提交的、属于本会话的回执，因此长会话每次提交的回执数保持不变；一个值在最后
-  一次通过验证后的一小时内仍可放行。
+  `agent_message` 内容部分。签发给本请求 `parent_conversation_id` 的回执只证明其中的可交接值，而且只用于
+  `agent_message` 部分：子代理能收到自己的任务，但拿不到父会话的推理。否则请求以 `encrypted-origin-unverified` 被扣留。
+- 带会话的 `before_send` 放行时，Core 还会返回一个 `receipt`，替换该请求提交的、属于本会话的回执。它保留这些回执中
+  所有未过期的证明及其原有效期，因此重试或分叉的历史不会丢失证明；并为该请求携带的值、以及历史重放的函数调用中
+  已证明的可交接值重新计算一小时有效期，因此父会话继续对话也不会让尚未交接的子代理任务失去证明。长会话每次提交的
+  回执数因此保持不变；一个值在最后一次通过验证后的一小时内仍可放行。
 - 一个回执最多容纳 1024 个值。放不下的检查以 `encrypted-receipt-capacity-exceeded` 被扣留，而不是让之后的请求失去
   证明。
 - 其他位置的加密值，以及含有其他字段的 `agent_message` 部分，仍按 `content_unsupported` 处理。
