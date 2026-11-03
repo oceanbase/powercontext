@@ -166,6 +166,43 @@ packaging, signing, and native credential persistence remain separate checks.
 未修改验收断言或超时；通过 CPU 亲和性避开已观测到的虚拟机调度等待。该记录不替代数据库升级、
 Windows／macOS 安装包、签名、原生凭据持久化或模型质量验收。
 
+#### Server 3cefa45a protocol qualification
+
+`sqlite-atomic-3cefa45a-v1` qualifies Server sources at
+`3cefa45ad08490423391148439c9eb73f1d48f58` with OpenAPI digest
+`d59da9040814d0f2b25d930ecb36b93d932ff8906440606d259d3b9456364d3d`.
+The wheel is `powercontext-1.4.2.dev174+g3cefa45ad-py3-none-any.whl`, SHA-256
+`cead75231f0f6961735dd117f454731d989ba96880a08c988c24aa0bae71c38e`.
+All 686 packaged runtime files in `powercontext/` and `powercontext_service_bootstrap/`
+match the recorded source bytes. The sorted runtime manifest digest is
+`70dbff69bfbd0011fcab5389b6956ec21f015f3c01f8755ed0c200d2237f31e7`
+(one `wheel/path sha256` line per file, with a final newline).
+
+On 2026-11-03, macOS 26.5.2 ARM64 with Python 3.12.13 ran the unchanged
+`desktop/tests/real_server.py` against independent SQLite Server processes loaded from this wheel.
+Anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced
+access all passed. The eleven operations cover Server discovery, liveness/readiness, Principal,
+capabilities, Scope listing/detail/default, Atomic Memory save/search, and exact revision reads.
+The provider case verified identity changes, same-identity revocation, and 51 same-title Scopes.
+Every mode verified a committed write with a lost response without replay and Server survival after
+client exit. All four fixture Servers shut down normally. `desktopWorkingTreeDirty=false`.
+
+The Rust 1.95.0 native probe was built from the product Cargo lock. Its SHA-256 is
+`0c156f7a2447449f5ecdcc94d997f3766c9109fe1d5e3da749db25004e1d6c0c`.
+Ignored local reports are under `desktop/.artifacts/real-server.json` and
+`desktop/.artifacts/qualification-wheel-identity.json`. This record qualifies the listed SQLite
+protocol operations. Installed UI, platform packaging, persistent native credentials, model
+protection behavior, and database upgrades require their separate checks.
+
+Reproduce from the recorded clean commit with an empty wheel output directory:
+
+```sh
+uv build --wheel --out-dir desktop/.artifacts/server-wheel
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit 3cefa45ad08490423391148439c9eb73f1d48f58
+uv run --no-sync python desktop/tests/real_server.py
+```
+
 #### Server 2d782c2a protocol qualification
 
 `sqlite-atomic-2d782c2a-v1` qualifies Server sources at
