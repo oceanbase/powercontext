@@ -384,7 +384,7 @@ def test_latest_exact_versions_and_client_profile(tmp_path: Path) -> None:
 
 @pytest.fixture
 def windows_https_certificate(tmp_path: Path):
-    """Trust one disposable certificate in the current user's store, then remove it."""
+    """Trust one disposable certificate on the elevated CI runner, then remove it."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.serialization.pkcs12 import load_key_and_certificates
 
@@ -394,18 +394,38 @@ def windows_https_certificate(tmp_path: Path):
     script = tmp_path / "certificate.ps1"
     script.write_text(
         "$ErrorActionPreference = 'Stop'\n"
+        "Add-Content -LiteralPath $args[2] -Value 'Creating fixture certificate.'\n"
         "$Cert = New-SelfSignedCertificate -DnsName localhost -CertStoreLocation Cert:\\CurrentUser\\My "
         "-KeyExportPolicy Exportable -Type SSLServerAuthentication\n"
+        "Add-Content -LiteralPath $args[2] -Value 'Exporting fixture certificate.'\n"
         "$Password = ConvertTo-SecureString 'fixture-only' -AsPlainText -Force\n"
         "Export-PfxCertificate -Cert $Cert -FilePath $args[0] -Password $Password | Out-Null\n"
         "Export-Certificate -Cert $Cert -FilePath $args[1] | Out-Null\n"
-        "Import-Certificate -FilePath $args[1] -CertStoreLocation Cert:\\CurrentUser\\Root | Out-Null\n"
+        # CurrentUser\Root can display a CryptoAPI confirmation dialog in unattended runs.
+        "Add-Content -LiteralPath $args[2] -Value 'Trusting fixture certificate in LocalMachine Root.'\n"
+        "Import-Certificate -FilePath $args[1] -CertStoreLocation Cert:\\LocalMachine\\Root | Out-Null\n"
+        "Add-Content -LiteralPath $args[2] -Value 'Fixture certificate trusted.'\n"
         "$Cert.Thumbprint\n",
         encoding="utf-8",
     )
     env = {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
     thumbprint = subprocess.check_output(
-        [shell, "-NoProfile", "-File", str(script), str(pfx), str(der)], env=env, text=True, timeout=30
+        [
+            shell,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+            str(pfx),
+            str(der),
+            str(tmp_path / "certificate.log"),
+        ],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        text=True,
+        timeout=30,
     ).strip()
     try:
         key, certificate, _chain = load_key_and_certificates(pfx.read_bytes(), b"fixture-only")
@@ -424,9 +444,10 @@ def windows_https_certificate(tmp_path: Path):
             [
                 shell,
                 "-NoProfile",
+                "-NonInteractive",
                 "-Command",
-                "foreach ($Store in 'My','Root') { Remove-Item -LiteralPath "
-                f"(Join-Path ('Cert:\\CurrentUser\\' + $Store) '{thumbprint}') -ErrorAction SilentlyContinue }}",
+                "foreach ($Store in 'Cert:\\CurrentUser\\My','Cert:\\LocalMachine\\Root') { Remove-Item -LiteralPath "
+                f"(Join-Path $Store '{thumbprint}') -ErrorAction SilentlyContinue }}",
             ],
             env=env,
             check=True,
