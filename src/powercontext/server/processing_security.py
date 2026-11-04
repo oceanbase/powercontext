@@ -36,6 +36,7 @@ from powercontext.server.authz import (
     CandidateOwnerAttestation,
     PrincipalRef,
     ResourceRef,
+    bounded_idempotency_key,
 )
 from powercontext.server.authz.repository import RelationalAccessRepository
 from powercontext.server.authz.service import BuiltinAuthorizationProvider
@@ -117,7 +118,9 @@ class WorkerSecurity:
                     family="experience",
                     proposed_owner=self.principal,
                     target=None,
-                    idempotency_key=f"background-candidate-owner:{scope_id}:{candidate.candidate_id}",
+                    idempotency_key=bounded_idempotency_key(
+                        "background-candidate-owner", scope_id, candidate.candidate_id
+                    ),
                 )
                 for candidate in candidates
             )
@@ -149,7 +152,10 @@ class WorkerSecurity:
         if artifact is not None:
             if await bound.artifact_owner(resource) is None:
                 await bound.establish_artifact_owner(
-                    resource, self.principal, idempotency_key=f"profile-owner:{scope_id}", context=self.context
+                    resource,
+                    self.principal,
+                    idempotency_key=bounded_idempotency_key("profile-owner", scope_id),
+                    context=self.context,
                 )
             else:
                 await bound.require(self.principal, AccessAction.ARTIFACT_WRITE, resource, context=self.context)
@@ -162,7 +168,7 @@ class WorkerSecurity:
                 family="profile",
                 proposed_owner=self.principal,
                 target=None if candidate.target is None else resource,
-                idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+                idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate.candidate_id),
             )
 
     async def topic_commit(self, connection: AsyncConnection, scope_id: str, _operations: Sequence[Any]) -> None:

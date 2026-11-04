@@ -7,8 +7,8 @@ description: "精确范围的原生统计、隔离与兼容资格。"
 
 ## 存量与用量视图
 
-统计需要显式选择 `sqlite-stats-9c8f061c-v1` 配置；独立验证的
-`sqlite-atomic-dd62723d-v1` 配置仅覆盖 Memory 操作。
+统计需要显式选择 `sqlite-stats-63e9665c-v1` 配置；独立验证的
+`sqlite-atomic-3cefa45a-v1` 配置仅覆盖 Memory 操作。
 
 “观察 → 当前 Scope 库存与用量”包含统计视图。启用已验证兼容的连接、选择精确
 范围及 UTC 周期后，点击“加载统计”。加载是显式操作；打开视图不会自动恢复

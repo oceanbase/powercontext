@@ -121,8 +121,8 @@ an equivalent table and keyboard-scrollable region. A statistics error does not
 disable independent Memory actions. See the [developer contract](../docs/en/development/desktop-statistics.md)
 and [qualification evidence](VALIDATION.md#current-scope-statistics-qualification).
 
-Statistics require the explicit `sqlite-stats-9c8f061c-v1` profile; the separately
-qualified `sqlite-atomic-dd62723d-v1` profile covers Memory operations only.
+Statistics require the explicit `sqlite-stats-63e9665c-v1` profile; the separately
+qualified `sqlite-atomic-3cefa45a-v1` profile covers Memory operations only.
 
 ## Native discovery results
 
@@ -198,7 +198,7 @@ Installed boundary checks exercise an 8192-byte Unicode note, reject over-budget
 
 After upgrading from an earlier preview, open Connections and select your saved connection. Profiles matching the bundled API contract appear under “Available for this Desktop build”; compare their tested Server builds with your deployment before selecting one, saving, checking and explicitly using the connection again. New connections start with no compatibility selection.
 
-Historical records whose digest differs from this build remain disabled. A saved incompatible or unavailable selection stays visible until explicitly replaced; it is never silently upgraded. For statistics, explicitly select `sqlite-stats-9c8f061c-v1`, whose recorded Server source and wheel must match the intended deployment, then check and activate the connection and select an exact Scope. This record matches the bundled contract and qualifies all twelve Desktop operations, including `get_stats`. Other records retain their original source, digest, wheel and operation sets; selecting them does not add statistics qualification. The `ci-fixtures` build is only for disposable acceptance. Source identities and remaining platform requirements are in the [validation guide](VALIDATION.md#server-9c8f061c-statistics-product-qualification).
+Historical records whose digest differs from this build remain disabled. A saved incompatible or unavailable selection stays visible until explicitly replaced; it is never silently upgraded. For statistics, explicitly select `sqlite-stats-63e9665c-v1`, whose recorded Server source and wheel must match the intended deployment, then check and activate the connection and select an exact Scope. This record matches the bundled contract and qualifies all twelve Desktop operations, including `get_stats`. Other records retain their original source, digest, wheel and operation sets; selecting them does not add statistics qualification. The `ci-fixtures` build is only for disposable acceptance. Source identities and remaining platform requirements are in the [validation guide](VALIDATION.md#server-63e9665c-statistics-product-qualification).
 
 ## Build on macOS
 

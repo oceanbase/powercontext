@@ -152,8 +152,8 @@ Desktop 在每次诊断前检查固定路径和摘要，然后只允许 `service
 
 ## 当前范围的存量与用量
 
-统计需要显式选择 `sqlite-stats-9c8f061c-v1` 配置；独立验证的
-`sqlite-atomic-dd62723d-v1` 配置仅覆盖 Memory 操作。
+统计需要显式选择 `sqlite-stats-63e9665c-v1` 配置；独立验证的
+`sqlite-atomic-3cefa45a-v1` 配置仅覆盖 Memory 操作。
 
 在“观察 → 当前 Scope 库存与用量”中显式启用已验证兼容的连接、选择精确范围和“今天／最近 7 天／最近
 30 天”后，点击“加载统计”。页面展示 Server 时间、范围覆盖、存量快照、已记录
@@ -178,7 +178,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 从早期预览版升级后，请打开「连接」并选中已保存的连接。与当前 API 契约匹配的配置显示在「此 Desktop 构建可用」中；先核对已测试的 Server 构建与实际部署，再明确选择、保存、检查并使用该连接。新连接默认不选择兼容配置。
 
-契约摘要不匹配的历史记录不可选择。已保存的不匹配或不可用配置仍会显示，须明确替换，不会静默升级。使用统计时，请明确选择 `sqlite-stats-9c8f061c-v1`，并核对部署与记录的 Server 源码、wheel 身份一致，再检查和激活连接、选择精确范围。该记录匹配打包契约，覆盖包括 `get_stats` 在内的十二项桌面操作。其他记录保留各自的源码、摘要、wheel 和操作集合，选择记录不会扩展其统计资格。`ci-fixtures` 仅用于临时验收。[验证说明](VALIDATION.md#server-9c8f061c-statistics-product-qualification)记录来源和剩余平台要求。
+契约摘要不匹配的历史记录不可选择。已保存的不匹配或不可用配置仍会显示，须明确替换，不会静默升级。使用统计时，请明确选择 `sqlite-stats-63e9665c-v1`，并核对部署与记录的 Server 源码、wheel 身份一致，再检查和激活连接、选择精确范围。该记录匹配打包契约，覆盖包括 `get_stats` 在内的十二项桌面操作。其他记录保留各自的源码、摘要、wheel 和操作集合，选择记录不会扩展其统计资格。`ci-fixtures` 仅用于临时验收。[验证说明](VALIDATION.md#server-63e9665c-statistics-product-qualification)记录来源和剩余平台要求。
 
 ## 在 macOS 上构建
 
