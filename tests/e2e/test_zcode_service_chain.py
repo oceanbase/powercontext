@@ -178,7 +178,8 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
     boundary = _HookBoundaryFaults(slow_flush_receipt, slow_initial_prepare)
     app.middleware("http")(boundary)
 
-    app.middleware("http")(_delay_first_capture_response())
+    if not slow_initial_prepare:
+        app.middleware("http")(_delay_first_capture_response())
 
     with socket.socket() as socket_probe:
         socket_probe.bind(("127.0.0.1", 0))
