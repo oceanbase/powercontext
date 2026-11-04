@@ -1,7 +1,7 @@
 ---
-slug: zcode-powercontext-cross-session-memory
 title: "A new conversation shouldn't mean starting over"
-description: "Starting with two automatically generated memories of AgentMeld's working conventions, I walk through prompt capture, memory recall, and work handoffs in my ZCode integration with PowerContext."
+description: "How I connected ZCode to PowerContext to capture prompts, recall AgentMeld project conventions, and hand off work across sessions."
+slug: zcode-powercontext-cross-session-memory
 cover: assets/blog/zcode-powercontext-cross-session-memory/cover.png
 cover_alt: A blue ribbon carries project memories between two workspaces, continuing context across sessions.
 date: 2026-10-27

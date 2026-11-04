@@ -1,3 +1,8 @@
+---
+title: RFC 0019：本地 Source 与 Memory 运行时
+description: 本地 Runtime 的设计提案，以 SQLite 保存 Scope 内的 Source，并通过显式调用或调度生成 Memory。
+---
+
 - Proposal Name: `local_source_memory_runtime`
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#19](https://github.com/oceanbase/powercontext/pull/19)

@@ -1,3 +1,8 @@
+---
+title: "RFC 0019: Local Source and Memory runtime"
+description: A proposal for a SQLite-backed Runtime that captures scoped Sources and processes them into Memory through explicit or scheduled activation.
+---
+
 - Proposal Name: `local_source_memory_runtime`
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#19](https://github.com/oceanbase/powercontext/pull/19)

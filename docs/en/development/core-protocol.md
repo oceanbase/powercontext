@@ -1,3 +1,8 @@
+---
+title: "Core protocol and composition"
+description: "The responsibilities of Source, Artifact, and Trigger services, and how applications compose them through PowerContext Core."
+---
+
 # Core protocol and composition
 
 This page explains the stable Core boundary for developers who extend PowerContext or assemble it into another

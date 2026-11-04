@@ -176,26 +176,30 @@ async function prepareTurn(
   input: { sessionID: string; messageID: string; prompt: string },
 ): Promise<void> {
   setTurn(runtime, input.sessionID, { messageID: input.messageID })
+  if (!runtime.config.promptRecall && !runtime.config.capturePrompts) return
   const signal = createTimeoutSignal(runtime.config.httpBudgetMs)
   try {
     const context = await runtime.resolveSessionContext(input.sessionID)
     let content: string | undefined
-    try {
-      const result = await runtime.client.request('prepare_context', {
-        scope_id: context.scopeId,
-        query: boundedRecallQuery(scrubSecrets(input.prompt, runtime.config.authorization)),
-        max_bytes: runtime.config.maxBytes,
-        ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
-      }, signal)
-      const prepared = validatePreparedContext(result.value, runtime.config.maxBytes)
-      content = prepared.status === 'ready' ? prepared.content ?? undefined : undefined
-      await runtime.log({
-        event: 'context_prepare',
-        outcome: prepared.status,
-        content_bytes: prepared.content_bytes,
-      })
-    } catch {
-      await runtime.log({ event: 'context_prepare', outcome: 'failed' })
+    // Behind the gateway, Core rejects any prepared-context block that the gateway did not inject itself.
+    if (runtime.config.promptRecall) {
+      try {
+        const result = await runtime.client.request('prepare_context', {
+          scope_id: context.scopeId,
+          query: boundedRecallQuery(scrubSecrets(input.prompt, runtime.config.authorization)),
+          max_bytes: runtime.config.maxBytes,
+          ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
+        }, signal)
+        const prepared = validatePreparedContext(result.value, runtime.config.maxBytes)
+        content = prepared.status === 'ready' ? prepared.content ?? undefined : undefined
+        await runtime.log({
+          event: 'context_prepare',
+          outcome: prepared.status,
+          content_bytes: prepared.content_bytes,
+        })
+      } catch {
+        await runtime.log({ event: 'context_prepare', outcome: 'failed' })
+      }
     }
     setTurn(runtime, input.sessionID, { messageID: input.messageID, content })
     await capturePrompt(runtime, { ...input, ...context, signal })

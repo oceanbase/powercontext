@@ -1,5 +1,6 @@
 ---
-title: Atomic Memory as Independent Artifacts
+title: "RFC 1809: Atomic Memory as independent artifacts"
+description: A proposal for independent Atomic Memory identities, revisions, extraction, merge and undo, with offline migration from legacy collections.
 ---
 
 - Proposal Name: `atomic_memory`

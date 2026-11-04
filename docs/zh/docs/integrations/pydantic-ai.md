@@ -1,7 +1,7 @@
 ---
-status: community
 title: Pydantic AI
 description: 了解当前 Pydantic AI 适配器 API 和安装状态。
+status: community
 ---
 
 # Pydantic AI

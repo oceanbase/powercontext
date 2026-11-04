@@ -1,5 +1,6 @@
 ---
-title: 统一制品检索与能力契约
+title: RFC 1858：统一 Artifact 检索
+description: 统一 Artifact 检索的设计提案，在一个 Scope 内按相关性返回结果，由各家族声明模式、过滤、排序和能力边界。
 ---
 
 - Proposal Name: `artifact_search`

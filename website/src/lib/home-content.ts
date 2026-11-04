@@ -21,7 +21,6 @@ import type { Language } from './i18n';
 
 type HomeAction = {
   href: string;
-  kind?: 'primary' | 'secondary';
   label: string;
 };
 
@@ -49,7 +48,14 @@ export type HomeContent = {
     visual_label: string;
   };
   hero: {
-    actions: HomeAction[];
+    action: HomeAction;
+    learn_more: HomeAction;
+    community: {
+      star_label: string;
+      contributors_label: string;
+      contribute_label: string;
+      license_label: string;
+    };
     label: string;
     lead: string;
     title: string[];

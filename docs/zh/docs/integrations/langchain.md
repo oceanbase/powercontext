@@ -1,7 +1,7 @@
 ---
-status: community
 title: LangChain
 description: 为 LangChain agent 增加有界 PowerContext 召回和完成轮次 Source 采集。
+status: community
 ---
 
 # LangChain

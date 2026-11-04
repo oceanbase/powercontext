@@ -1,3 +1,8 @@
+---
+title: "RFC 1718: Memory capacity contract"
+description: A proposal for Memory capacity measurements, deterministic write limits, and explicit compaction that preserves revisions and citations.
+---
+
 - Proposal Name: `memory_capacity_contract`
 - Start Date: 2026-09-23
 - RFC PR: [oceanbase/powercontext#1718](https://github.com/oceanbase/powercontext/pull/1718)

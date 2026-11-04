@@ -1,7 +1,7 @@
 ---
-status: community
 title: ZCode
 description: 安装 PowerContext ZCode 插件，验证自动生成 Memory、新会话召回和 MCP 记忆读写。
+status: community
 ---
 
 # ZCode

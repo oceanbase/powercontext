@@ -1,3 +1,8 @@
+---
+title: "Core 协议与组合"
+description: "Source、Artifact 和 Trigger 服务的职责，以及应用通过 PowerContext Core 组合这些服务的方式。"
+---
+
 # Core 协议与组合
 
 本文面向扩展 PowerContext 或将其集成进其他应用的开发者，说明当前稳定的 Core 边界。需要直接使用存储和远程服务时，

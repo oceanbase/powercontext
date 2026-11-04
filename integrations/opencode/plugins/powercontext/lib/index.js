@@ -2094,6 +2094,7 @@ const DEFAULTS = {
 	allowInsecureHttp: false,
 	scopeId: void 0,
 	authorization: void 0,
+	promptRecall: true,
 	capturePrompts: true,
 	requestTimeoutMs: 3e3,
 	httpBudgetMs: 6e3,
@@ -2150,6 +2151,7 @@ function resolveConfig(env = process.env) {
 		allowInsecureHttp: transport.allowInsecureHttp,
 		scopeId: envString(env, "POWERCONTEXT_OPENCODE_SCOPE_ID"),
 		authorization: envString(env, "POWERCONTEXT_OPENCODE_AUTHORIZATION"),
+		promptRecall: envBoolean(env, "POWERCONTEXT_OPENCODE_PROMPT_RECALL") ?? DEFAULTS.promptRecall,
 		capturePrompts: envBoolean(env, "POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS") ?? DEFAULTS.capturePrompts,
 		requestTimeoutMs,
 		httpBudgetMs,
@@ -2552,11 +2554,12 @@ async function capturePrompt(runtime, input) {
 }
 async function prepareTurn(runtime, input) {
 	setTurn(runtime, input.sessionID, { messageID: input.messageID });
+	if (!runtime.config.promptRecall && !runtime.config.capturePrompts) return;
 	const signal = createTimeoutSignal(runtime.config.httpBudgetMs);
 	try {
 		const context = await runtime.resolveSessionContext(input.sessionID);
 		let content;
-		try {
+		if (runtime.config.promptRecall) try {
 			const prepared = validatePreparedContext((await runtime.client.request("prepare_context", {
 				scope_id: context.scopeId,
 				query: boundedRecallQuery(scrubSecrets(input.prompt, runtime.config.authorization)),
