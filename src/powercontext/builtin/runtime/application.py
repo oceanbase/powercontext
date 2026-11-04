@@ -3755,6 +3755,12 @@ class ScopedAtomicMemoryApplication:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._scoped.state(artifact_id, context=context)
 
+    async def evidence(self, artifact_id: str, *, revision: int, context=None):
+        """Read one authorized revision's neutral evidence facts."""
+
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._scoped.evidence(artifact_id, revision=revision, context=context)
+
     async def read_dependency_snapshot(
         self,
         roots: tuple[ArtifactRef, ...],

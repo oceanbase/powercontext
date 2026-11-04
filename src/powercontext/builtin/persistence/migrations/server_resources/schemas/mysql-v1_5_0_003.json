@@ -1,0 +1,102 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "v1_5_0_003": {
+      "statements": [
+        "CREATE TABLE pc_atomic_memory_evidence (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tartifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trevision BIGINT NOT NULL, \n\tsources LONGBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, revision), \n\tCONSTRAINT ck_pc_atomic_memory_evidence_revision CHECK (revision > 0)\n)"
+      ],
+      "changes": [
+        {
+          "pc_atomic_memory_evidence": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "revision": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "sources": {
+                "type": [
+                  "longblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "artifact_id",
+                null,
+                "asc"
+              ],
+              [
+                "revision",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_atomic_memory_evidence_revision": {
+                "expression": [
+                  "binary",
+                  ">",
+                  [
+                    "column",
+                    "revision"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        }
+      ]
+    }
+  }
+}
