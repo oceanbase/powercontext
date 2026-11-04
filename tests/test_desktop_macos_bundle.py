@@ -43,7 +43,7 @@ if case == "foreign":
 if Path(sys.argv[0]).name == "pnpm":
     if sys.argv[2] == "bundle":
         assert not image.exists(), "stale image would be included in the next DMG"
-        if case in {"recover", "create"}:
+        if case in {"recover", "create", "detach-busy"}:
             print("Finished DMG packaging")
             sys.exit(0)
     if case == "compiler":
@@ -66,11 +66,14 @@ if sys.argv[1] == "info":
     ]}))
 else:
     assert sys.argv[1:] == ["detach", "-force", "/dev/disk2"]
+    if case == "detach-busy":
+        print('hdiutil: couldn\'t eject "disk2" - Resource busy', file=sys.stderr)
+        sys.exit(16)
 """
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="macOS packaging uses POSIX executables")
-@pytest.mark.parametrize("case", ["recover", "create", "compiler", "persistent", "foreign"])
+@pytest.mark.parametrize("case", ["recover", "create", "compiler", "persistent", "foreign", "detach-busy"])
 def test_macos_packaging_recovery(tmp_path: Path, case: str) -> None:
     desktop = tmp_path / "desktop"
     scripts = desktop / "scripts"
@@ -95,11 +98,15 @@ def test_macos_packaging_recovery(tmp_path: Path, case: str) -> None:
     packages = [call[2] for call in calls if call[0] == "pnpm"]
     detach = [call for call in calls if call[0:2] == ["hdiutil", "detach"]]
     log = (desktop / ".artifacts/macos-build.log").read_text()
-    if case in {"recover", "create"}:
+    if case in {"recover", "create", "detach-busy"}:
         assert result.returncode == 0, result.stderr
         assert packages == ["build", "bundle"]
-        assert detach == ([["hdiutil", "detach", "-force", "/dev/disk2"]] if case == "recover" else [])
+        assert detach == ([] if case == "create" else [["hdiutil", "detach", "-force", "/dev/disk2"]])
         assert "Resource busy" in log and "Finished DMG packaging" in log
+        if case == "detach-busy":
+            images = list((desktop / ".artifacts").glob("busy-dmg-*/rw.*.dmg"))
+            assert len(images) == 1 and images[0].read_bytes() == b"disposable raw image"
+            assert "exit 16" in log
     elif case == "compiler":
         assert result.returncode == 23
         assert packages == ["build"]
