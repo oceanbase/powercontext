@@ -28,6 +28,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { getBenchmarkContent } from '@/lib/benchmark-content';
 import { isLanguage } from '@/lib/i18n';
 import { baseOptions } from '@/lib/site';
+import { pageMetadata } from '@/lib/metadata';
 
 const pageCopy = {
   en: {
@@ -67,10 +68,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   if (!isLanguage(lang)) notFound();
 
   const benchmark = await getBenchmarkContent(lang);
-  return {
-    description: benchmark.hero.lead,
-    title: pageCopy[lang].title,
-  };
+  return pageMetadata({
+    path: `/${lang}/benchmarks/`, lang,
+    description: benchmark.hero.lead, title: pageCopy[lang].title,
+    translations: { en: "/en/benchmarks/", zh: "/zh/benchmarks/" },
+  });
 }
 
 function ChartTitle({ children, detail }: { children: ReactNode; detail: string }) {

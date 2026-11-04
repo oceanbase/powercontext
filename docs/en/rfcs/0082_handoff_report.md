@@ -1,3 +1,8 @@
+---
+title: "RFC 0082: Handoff reports"
+description: A proposal for Scope-based Handoff reports whose human-readable Markdown and Agent JSON preserve the same exact revisions and evidence.
+---
+
 - Proposal Name: `handoff_report`
 - Start Date: 2026-08-04
 - Status: Draft

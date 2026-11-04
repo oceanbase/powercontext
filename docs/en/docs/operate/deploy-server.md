@@ -210,6 +210,44 @@ The Rust executable, joint launcher, gateway settings, private channel authentic
 tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over
 UDS with channel and user authentication.
 
+### Gateway context injection
+
+When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared
+context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares
+once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.
+
+The gateway identifies the conversation from the first of these request headers that is present:
+
+| Header | Sent by | Conversation |
+| --- | --- | --- |
+| `X-PowerContext-Conversation-ID` | a host that integrates with PowerContext | the header value; overrides every other source |
+| `x-claude-code-session-id`, with `x-claude-code-agent-id` | Claude Code | the session, separately for each subagent |
+| `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
+| `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
+
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or
+OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic
+Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway
+translates its requests to the Chat or Responses route and forwards them. Set `PC_GATEWAY_INJECTION=on` to inject every request
+(requests without a conversation ID then prepare individually), `PC_GATEWAY_INJECTION=off` to turn injection off, or
+`PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
+without injection.
+
+### Gateway instruction
+
+`PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the
+Responses route (`/gateway/v1/responses`); the Chat route is never changed. The gateway reads the file once at startup.
+It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved
+`BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running without it. Nothing is added
+when the variable is unset.
+
+The text becomes the first content block of the developer message that follows the client's first developer message,
+which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer
+message after the client's first developer message, or before the first user message when the request has no developer
+message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the
+final request like any other request text. It is independent of context injection, capture, and replay.
+
 ## Run with Docker
 
 Build the image from the repository root:
@@ -317,6 +355,57 @@ Disabling it does not affect team API or MCP access. For personal setup, see
 A shared static token does not enforce human review or prevent an Agent from approving its own Candidate. For separate
 submission and approval, use distinct authenticated Principals and grant review permission only to the reviewer.
 See [Separate Agent submission from review](../workflows/review-candidates.md#separate-agent-submission-from-review).
+
+### Migrate data written before enforcement
+
+Data accepted while `ACCESS_MODE=disabled` has no Artifact owner and no Candidate owner attestation. After switching to
+`enforced`, that data stays readable, but modifying it returns `403` and approving its pending Candidates returns
+`503 artifact_owner_pending`, while data created under enforcement keeps working. The Server never derives ownership,
+so an administrator migrates the missing attribution explicitly:
+
+1. Back up the database. The offline command below works while the Server is stopped, before or after the switch:
+2. Inventory the affected data with `powercontext server access-ownership-migrate --action plan`. The same command
+   also runs before the switch, while `ACCESS_MODE=disabled`. Add
+   `--background-principal service:BACKGROUND_ID` with the future `ACCESS_BACKGROUND_PRINCIPAL_ID` to check
+   every selected Scope for `scope.contribute` and existing Profile write permission. These checks still run
+   after all ownership gaps have been filled. HTTP planning accepts `background_principal` when an Access
+   store is available; otherwise it returns `503 relationship_management_unavailable`. Use the offline
+   command for this check before enabling enforcement.
+   For a configured single-token deployment, the check includes the worker's static Scope preset without
+   creating bindings. An existing Profile still requires its own Artifact write permission.
+3. Backfill with an explicitly named owning Principal — for a single-user static-token deployment that is the
+   `server-token` service Principal:
+
+   ```bash
+   powercontext server access-ownership-migrate \
+     --action apply --owner service:server-token --maintenance-confirmed
+   ```
+
+   `apply` requires `--maintenance-confirmed` after stopping every Server process. Pass `--scope-id` to migrate
+   Scopes incrementally on large deployments. Every item is one idempotent write, so interrupted or repeated runs
+   refill only still-missing items. Existing owners and Candidate attestations are preserved and reported as
+   conflicts, never overwritten. Run `apply` again with another `--owner` when different identities must own
+   different Scopes; multi-user deployments keep this identity boundary explicit.
+
+   The inventory includes merged and retired Artifact identities so supported restoration remains authorized.
+   It also includes committed Handoffs and each published Handoff copy under its recorded identity.
+   Offline `apply`, HTTP `apply`, and the HTTP preview report `owner-recovery-pending` or
+   `owner-recovery-delivered_relation_missing` when durable recovery evidence already records an identity.
+   They preserve that evidence and do not replace its owner. Candidate recovery checks cover the families accepted
+   by migration, including Prompt Candidates, independently of which families require standalone Artifact ownership.
+   Complete pending ownership delivery through the
+   [ownership recovery procedure](../workflows/scopes-and-access.md#recover-external-ownership-writes).
+   With an external Access store, migration retains durable ownership delivery work if its audit write fails.
+   Repeating the same HTTP `apply` completes that original audit before reporting success, even if the owner
+   relation already exists. A preview does not replay pending work.
+
+   Without a stopped-deployment window, the same flow is available over HTTP on a running Server:
+   `POST /v1/access/ownership/apply` with `{"owner": {"type": "service", "id": "server-token"}, "dry_run": true}`
+   previews first; in enforced mode both HTTP operations require `server.admin`, and `apply` reports
+   `503 ownership_migration_unavailable` while `ACCESS_MODE=disabled`.
+4. Verify: modify a previously immutable Artifact, approve a previously blocked Candidate, and confirm `plan` now
+   reports no ownership gaps. Include the background Principal in the plan and check that `background` is empty.
+   Identities without the required Artifact write or Candidate review authority still receive `403`.
 
 ## Check the deployment
 

@@ -1,3 +1,8 @@
+---
+title: "RFC 0020: Runtime-backed Memory remote access"
+description: A proposal for Source capture and Memory operations through a FastAPI Server, generated OpenAPI models, a Python Client, and MCP tools.
+---
+
 - Proposal Name: `runtime_backed_memory_remote_access`
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)

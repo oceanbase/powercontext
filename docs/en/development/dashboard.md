@@ -1,3 +1,8 @@
+---
+title: "Dashboard design principles"
+description: "Design decisions for reading saved content, showing Scope boundaries, and working with revision history in the Dashboard."
+---
+
 # Dashboard design principles
 
 The Dashboard is a content viewer for personal use and demonstrations, disabled by default. It shares the Server access mode: local access can be anonymous, while enforced access requires a static token. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.

@@ -1060,7 +1060,7 @@ def render_integration_capability_reference(manifest: IntegrationManifest, local
         front_matter = (
             "---\n"
             "title: Integration capability matrix\n"
-            "description: Generated capability matrix for PowerContext integrations.\n"
+            "description: Compare integration availability, support profiles, pre-compaction behavior, and declared capabilities.\n"
             "---\n\n# Integration capability matrix\n\n"
             "This generated matrix is a repository contract, not a public HTTP capability API.\n\n"
             "candidate_review permits listing and reading candidates only; it never grants decision authority.\n\n"
@@ -1081,7 +1081,7 @@ def render_integration_capability_reference(manifest: IntegrationManifest, local
         matrix_heading = "## Current matrix\n\n"
     else:
         front_matter = (
-            "---\ntitle: 集成能力矩阵\ndescription: PowerContext 集成的生成式能力矩阵。\n"
+            "---\ntitle: 集成能力矩阵\ndescription: 对照各项集成的可用状态、支持范围、压缩前行为和声明能力。\n"
             "---\n\n# 集成能力矩阵\n\n"
             "本矩阵由仓库 contract 生成，不是公开 HTTP capability API。\n\n"
             "candidate_review 仅可列举和读取候选材料，不授予决策权限。\n\n"

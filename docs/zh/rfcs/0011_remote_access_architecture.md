@@ -1,3 +1,8 @@
+---
+title: "RFC 0011：远程访问架构"
+description: "远程访问设计提案：由 Server 通过统一的 OpenAPI HTTP 契约向 Client SDK 和选定的 MCP 工具提供服务。"
+---
+
 - Proposal Name: `remote_access_architecture`
 - Start Date: 2026-07-16
 - RFC PR: [oceanbase/powercontext#11](https://github.com/oceanbase/powercontext/pull/11)

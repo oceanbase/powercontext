@@ -132,16 +132,17 @@ installation pins are synchronized.
 `release/upgrade-support.json` declares the target version, source-version selection policy, backends, and
 configurations. `automatic_sources` keeps 1.3.0 as its fixed baseline; explicit `cases` are empty.
 The catalog declares twelve cases: one source × three backends × vectors enabled/disabled × Code enabled/disabled.
-Normal publication requires the ten automatic cases to pass. The two embedded seekDB configurations with Code enabled
-are temporarily manual-only because of native DDL waits; they remain unverified and are excluded from supported
-upgrade declarations. Passing the automatic gate does not establish complete twelve-case acceptance.
+Normal publication requires all twelve automatic cases to pass, including both embedded seekDB configurations with
+Code enabled. Failed, skipped, or missing cases block acceptance; the diagnostic-only `seekdb-code` selection cannot
+authorize publication. Passing the matrix does not replace review of the upgrade-support declaration.
 The target is always the actual wheel built by CI. Future target releases keep testing 1.3.0;
 intervening releases are not added automatically. The registered 1.4.0 bridge remains implemented but is outside
 CI upgrade acceptance, so a passing gate does not certify its upgrade path. Source wheel URLs and SHA-256s are resolved
 from public PyPI and recorded with the target artifact.
 
-The source-specific chains are `s1300 → s1400 → s1401 → s1402` for 1.3.0 and
-`r1400 → s1400 → s1401 → s1402` for 1.4.0. They share the target contract while preserving their frozen execution
+The source-specific chains start at `s1300` for 1.3.0 and `r1400` for 1.4.0, join the shared
+`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`.
+They share the target contract while preserving their frozen execution
 history and journal lineage for subsequent registered upgrades. Application versions do not identify schema
 checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its bridge preserves those records and
 creates empty retained tables for the common target shape, without inventing old Candidate history. Adding other
@@ -186,8 +187,8 @@ policy validation alone does not establish an upgrade path. Ordinary PR builds m
 version; the `--release` check must run against the final tagged wheel without overriding its version.
 
 The **Upgrade release gate** CI job requires successful public migration commands, full Server readiness, target
-startup, preserved records and new writes on real 1.3.0 databases in all ten required automatic cases. The two
-manual seekDB Code cases do not block publication or establish supported upgrades. Limited bundle verification with
+startup, preserved records and new writes on real 1.3.0 databases in all twelve required automatic cases. The two
+seekDB Code cases are mandatory. Limited bundle verification with
 `server_ready=false` fails. Every backend runs even if another backend fails, with separate logs and results.
 seekDB runs embedded in a temporary runner directory. PR and publication jobs start a disposable OceanBase CE
 container, wait for its MySQL tenant, archive diagnostics, and remove it even on failure. No external database

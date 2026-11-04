@@ -21,7 +21,7 @@ import { defineDocs } from 'fumadocs-mdx/macro';
 import { createElement } from 'react';
 import { i18n } from './i18n';
 
-const docs = defineDocs({
+export const docs = defineDocs({
   dir: 'content/docs',
   docs: {
     schema: pageSchema.extend({ status: pageSchema.shape.title.optional() }),

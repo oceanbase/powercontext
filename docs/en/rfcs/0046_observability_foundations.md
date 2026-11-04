@@ -1,3 +1,8 @@
+---
+title: "RFC 0046: Observability foundations"
+description: A proposal for operational logs, Prometheus metrics, and OpenTelemetry traces with shared operation names and request correlation.
+---
+
 - Proposal Name: `observability_foundations`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#46](https://github.com/oceanbase/powercontext/pull/46)

@@ -15,6 +15,8 @@
 """Exercise the Codex full-profile operations through the public MCP transport."""
 
 import asyncio
+import json
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -180,6 +182,35 @@ def test_mcp_full_profile_preserves_review_and_external_fingerprints(tmp_path: P
 class NoOpGenerator:
     async def generate(self, _value: ArtifactGenerationInput, /) -> None:
         return None
+
+
+def test_packaged_codex_preference_example_preserves_kind_through_mcp() -> None:
+    guidance = (
+        Path(__file__).resolve().parents[2]
+        / "integrations/codex/plugins/powercontext/skills/powercontext-project-context/references/scope-memory.md"
+    ).read_text(encoding="utf-8")
+    examples = [json.loads(block) for block in re.findall(r"```json\s*\n(.*?)\n```", guidance, re.DOTALL)]
+    preference = next(example for example in examples if example.get("kind") == "preference")
+    assert "uv" in preference["text"]
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            app = create_app(application=cast(ServerApplication, runtime))
+            async with Client(create_mcp_server(app)) as client:
+                scope = await client.call_tool(
+                    "create_scope",
+                    {"title": "Codex preference", "summary": "Guidance example", "idempotency_key": "codex-preference"},
+                )
+                scope_id = scope.structured_content["scope_id"]
+                saved = await client.call_tool("remember_memory", {**preference, "scope_id": scope_id})
+                assert not saved.is_error
+                record = saved.structured_content["records"][0]
+                assert record["kind"] == "preference"
+                entries = await client.call_tool("list_memory_entries", {"scope_id": scope_id})
+                assert entries.structured_content["entries"][0]["kind"] == "preference"
+                assert entries.structured_content["entries"][0]["text"] == preference["text"]
+
+    asyncio.run(scenario())
 
 
 def test_native_current_work_handoff_transfers_only_its_nested_prepared_carrier() -> None:

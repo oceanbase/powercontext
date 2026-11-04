@@ -1,5 +1,6 @@
 ---
-title: Atomic Memory 独立记忆制品
+title: RFC 1809：Atomic Memory 独立记忆制品
+description: Atomic Memory 的设计提案，为每条记忆建立独立身份与版本，定义抽取、合并和撤销，以及旧集合的停服迁移。
 ---
 
 - 提案名称：`atomic_memory`

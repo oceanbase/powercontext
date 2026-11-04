@@ -1,3 +1,8 @@
+---
+title: "RFC 1468: Scope-owned Prompt management"
+description: A proposal for versioned operational Prompts, typed demonstrations, exact inference-time selection, and restoration through existing Artifact APIs.
+---
+
 - Proposal Name: `scope_owned_prompt_management`
 - Start Date: 2026-09-05
 - RFC PR: [oceanbase/powercontext#1468](https://github.com/oceanbase/powercontext/pull/1468)

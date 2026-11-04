@@ -29,6 +29,7 @@ const generatedDir = path.join(websiteDir, '.generated');
 const pythonDir = path.join(generatedDir, 'python');
 const generatedDocsDir = path.join(websiteDir, 'content', 'docs');
 const publicDir = path.join(websiteDir, 'public');
+const contributorsDir = path.join(publicDir, 'contributors');
 
 function formatRfcTitle(fileName: string, content: string) {
   const number = fileName.match(/^(\d{4})_/)?.[1] ?? fileName.replace(/\.md$/, '');
@@ -98,11 +99,13 @@ async function prepareDevelopmentContent(locale: string) {
 await Promise.all([
   rm(pythonDir, { recursive: true, force: true }),
   rm(generatedDocsDir, { recursive: true, force: true }),
+  rm(contributorsDir, { recursive: true, force: true }),
 ]);
 
 await Promise.all([
   mkdir(pythonDir, { recursive: true }),
   mkdir(publicDir, { recursive: true }),
+  mkdir(contributorsDir, { recursive: true }),
 ]);
 
 const repository = githubRepository(repositoryUrl);
@@ -121,6 +124,43 @@ if (repository) {
   }
 }
 await writeFile(path.join(generatedDir, 'github-stars.json'), `${JSON.stringify({ repository, count: starCount })}\n`);
+
+const contributors: Array<{ login: string; avatar: string }> = [];
+if (repository) {
+  try {
+    const people: Array<{ type: string; login: string; avatar_url: string }> = [];
+    let nextPage: string | undefined = `https://api.github.com/repos/${repository}/contributors?per_page=100`;
+    while (nextPage) {
+      const response: Response = await fetch(nextPage, {
+        headers: process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {},
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error('GitHub contributors unavailable');
+      people.push(...await response.json());
+      nextPage = response.headers.get('link')?.match(/<([^>]+)>; rel="next"/)?.[1];
+    }
+    const eligible = people.filter((person) => person.type === 'User' && /^[\w-]+$/.test(person.login));
+    for (let offset = 0; offset < eligible.length; offset += 10) {
+      const portraits = await Promise.allSettled(eligible.slice(offset, offset + 10).map(async (person) => {
+        const avatarUrl = new URL(person.avatar_url);
+        avatarUrl.searchParams.set('s', '64');
+        const portrait = await fetch(avatarUrl, { signal: AbortSignal.timeout(10_000) });
+        const formats: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+        const extension = formats[portrait.headers.get('content-type')?.split(';')[0] ?? ''];
+        if (!portrait.ok || !extension) throw new Error('Contributor portrait unavailable');
+        const filename = `${person.login}.${extension}`;
+        await writeFile(path.join(contributorsDir, filename), Buffer.from(await portrait.arrayBuffer()));
+        return { login: person.login, avatar: `/contributors/${filename}` };
+      }));
+      for (const portrait of portraits) {
+        if (portrait.status === 'fulfilled') contributors.push(portrait.value);
+      }
+    }
+  } catch {
+    console.warn('GitHub contributors unavailable at build time; contribution links remain available.');
+  }
+}
+await writeFile(path.join(generatedDir, 'github-contributors.json'), `${JSON.stringify({ repository, contributors })}\n`);
 
 await Promise.all([
   cp(path.join(repositoryDir, 'docs', 'en', 'docs'), path.join(generatedDocsDir, 'en', 'docs'), {

@@ -1,3 +1,8 @@
+---
+title: "GitHub CI design and operation"
+description: "How GitHub CI selects checks for a change, shares workflow ownership, and limits duplicate work and runner demand."
+---
+
 # GitHub CI design and operation
 
 CI must validate affected behavior while controlling duplicate work, wasted work and bursts of runner demand. The upstream trunk branch is `master`, and automatic trunk validation listens only to that branch. Workflow policy, path ownership and required outcomes are reviewed with code. Release acceptance remains independent.

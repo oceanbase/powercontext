@@ -1,3 +1,8 @@
+---
+title: "Run and use the PowerContext Server"
+description: "Start PowerContext Server, set up authentication, and connect through HTTP, the Python Client, CLI, or MCP."
+---
+
 # Run and use the PowerContext Server
 
 The ready-to-run Server owns one `BuiltinRuntime` and exposes it through HTTP. The same process can project a

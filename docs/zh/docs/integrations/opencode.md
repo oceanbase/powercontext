@@ -1,7 +1,7 @@
 ---
-status: community
 title: OpenCode
-description: 安装 PowerContext OpenCode 插件并控制其本地行为。
+description: 安装 PowerContext OpenCode 插件，配置自动召回、提示词采集和 Server 认证。
+status: community
 ---
 
 # OpenCode

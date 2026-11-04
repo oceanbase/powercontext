@@ -1,6 +1,6 @@
 ---
-title: Source 插件框架
-description: 支持用户开发和使用自定义 Source 插件，扩展数据类型、Projection 与采集逻辑，并统一接入 PowerContext。
+title: RFC 2012：Source 插件框架
+description: Source 插件框架的设计提案，允许可信插件校验同步写入或采集外部数据，复用加载、生命周期与持久化契约。
 ---
 
 - Proposal Name: `source_plugin_framework`

@@ -1,3 +1,8 @@
+---
+title: "RFC 0016: Pydantic AI inference integration"
+description: A proposal to use Pydantic AI for Memory candidate generation and embeddings, with domain validation before results are saved.
+---
+
 - Proposal Name: `pydantic_ai_inference_integration`
 - Start Date: 2026-07-21
 - RFC PR: [oceanbase/powercontext#16](https://github.com/oceanbase/powercontext/pull/16)

@@ -23,6 +23,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { isLanguage, languages } from '@/lib/i18n';
 import { releases } from '@/lib/releases';
 import { baseOptions } from '@/lib/site';
+import { pageMetadata } from '@/lib/metadata';
 
 export default async function ReleasePage({
   params,
@@ -62,4 +63,16 @@ export default async function ReleasePage({
 
 export function generateStaticParams() {
   return languages.flatMap((lang) => releases.map((release) => ({ lang, version: release.version })));
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ lang: string; version: string }> }) {
+  const { lang, version } = await params;
+  if (!isLanguage(lang)) notFound();
+  const release = releases.find((item) => item.version === version);
+  if (!release) notFound();
+  return pageMetadata({
+    path: `/${lang}/changelog/${version}/`, lang,
+    title: `${version} · ${release.title[lang]}`, description: release.summary[lang],
+    translations: { en: `/en/changelog/${version}/`, zh: `/zh/changelog/${version}/` },
+  });
 }

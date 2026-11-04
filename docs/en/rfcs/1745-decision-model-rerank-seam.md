@@ -1,3 +1,8 @@
+---
+title: "RFC 1745: Decision-model Memory reranking"
+description: A proposal for optional per-candidate keep/drop reranking through the DecisionModel port, preserving coarse order and exact result identities.
+---
+
 - Proposal Name: `decision_model_rerank_seam`
 - Start Date: 2026-09-26
 - RFC PR: [oceanbase/powercontext#1745](https://github.com/oceanbase/powercontext/pull/1745)

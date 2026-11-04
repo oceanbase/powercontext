@@ -14,17 +14,54 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
-The full Server framework registers two installed-release sources for the current managed target (stored compatibility IDs shown below):
+The full Server framework uses two normalization checkpoints before its shared migration chain for the PowerContext
+1.5.0 target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
 Both source paths preserve existing references and history and reach the same managed target. Their original
 resource checksums remain independently verifiable, including after a later registered revision is appended.
-Other releases and extra database objects are not inferred to be compatible; they need exact source registration
-and acceptance before writes. Older Memory collection conversion is outside these paths.
+Unmanaged historical databases are admitted by their actual storage requirements and data state, including databases
+created by early releases and evolved through several upgrades. SQL formatting, column order, independent tables and
+ordinary additional indexes do not require an exact clean-install fingerprint. Missing required structures are created
+from the frozen checkpoint definitions. Existing Scope IDs are preserved; Processing initialization and legacy Memory
+conversion run only when their data state requires them. The normalized database must pass schema and data validation
+before the framework stamps a checkpoint and continues the shared chain. Unknown destructive conversions, conflicting
+constraints and incomplete domain state still produce an actionable error instead of silently discarding data.
+
+Independent tables and their rows are preserved during registered upgrades and initialization recovery. Adding an
+independent table to a recognized 1.3.0 or 1.4.0 source does not schedule historical conversion. This does not authorize
+arbitrary layouts: required managed structure, domain state, vector configuration and recovery evidence must still pass
+validation. An extra required column must have a usable default; SQL `DEFAULT NULL` cannot satisfy `NOT NULL`, whereas
+the string default `'NULL'` remains usable. SQLite accepts non-NULL deterministic expressions and direct
+`CURRENT_DATE`, `CURRENT_TIME` and `CURRENT_TIMESTAMP` defaults. Other defaults depending on connection state,
+randomness or the current clock are rejected before admission; one successful evaluation cannot establish that
+later writes can omit a required column. Extra SQLite generated columns must be nullable: their expressions
+depend on row values, so a `NOT NULL` constraint can reject otherwise valid application writes.
+
+On seekDB and OceanBase, registered column additions and modifications explicitly use their declared character set
+and collation when those are specified by the migration.
+A historical GBK table default therefore cannot silently change the encoding of a new UTF-8 field.
+Existing table defaults and independent extension fields are not converted by this step.
+
+`plan` exposes `compatibility_steps` and their checksum without changing the database. The existing `apply` command
+performs normalization after maintenance confirmation and backup. SQLite rolls back an unsuccessful normalization.
+seekDB and OceanBase record each structural operation's intent and postcondition in the existing external maintenance
+journal, so a retry can identify a committed DDL operation without replacing the original backup. Keep the same
+conversion definitions when resuming an interrupted normalization. Legacy Memory with configured vector search is
+embedded using the Atomic input format; the configured embedding provider must be available during `apply`.
+
+Early OceanBase heap tables require a temporary copy to change primary-key encodings. The conversion copies every
+column, verifies keys and row values, switches table names, and then removes the original table. Creation, renaming
+and removal all have durable recovery intents; allow space for the temporary copy. Populated custom fields on legacy
+Memory rows require an explicit archive mapping rather than being silently discarded during domain conversion.
+
+The compatibility path is shared by SQLite, seekDB and OceanBase. Acceptance starts at each backend's first actual
+PowerContext release; seekDB was introduced in 0.1.0. Historical release fixtures belong to tests, not the runtime
+storage layer. Installation alone never chooses or modifies a database.
 
 Both sources register Code enabled or disabled on all three backends and a separate profile for unit-normalized L2
 vectors. SQLite and OceanBase keep Code in a separate local cache. Embedded seekDB Code uses three registered tables;
@@ -53,17 +90,31 @@ Revision `v1_4_1_004` registers `pc_access_owner_recovery` for durable Artifact 
 
 Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metadata for text and vector profiles. Existing managed databases require explicit migration; startup does not alter this column. The additive revision leaves historical Artifact bytes unchanged and existing descriptions null until a new write or explicit projection rebuild copies authoritative metadata.
 
+Revision `v1_4_1_006` registers `pc_source_write_plugins` for persisted Source write plugin declarations.
+Revision `v1_5_0_001` adds Artifact plugin registration fields, family schemas, search state and projections,
+index coverage and change tracking, and vector-space/index registrations. SQLite also registers portable vector
+and FTS auxiliary structures. Both source chains include these additive changes through explicit maintenance;
+earlier revision resources and checksums remain unchanged. Native vector tables created from registered spaces
+are admitted to later maintenance only after exact layout validation. These registrations do not expand the
+accepted source versions or establish installed-release upgrade acceptance.
 
-Revision `v1_5_0_001` registers fixed Artifact plugin storage without mutating historical layouts; existing managed databases adopt it through explicit maintenance and fresh databases create it through the registered bootstrap. This revision follows the published chain order and does not re-parent any released revision.
+Revision `v1_5_0_002` adds the Source evidence bindings, exact Atomic Memory evidence snapshots, and evidence schema marker. Its own domain step validates retained Source material and historical evidence for both lexical and vector profiles. Earlier projection validators and their recorded revision checksums remain unchanged; evidence validation is required only from this revision onward. Existing Sources and Memory revisions without accepted declarations stay neutral (`untrusted` / `unknown`); upgrading never backfills trust. Current projection repair and rebuild also require evidence validation.
 
-Revision `v1_5_0_002` registers the durable Work Ledger and its scheduler coordination tables: `pc_work_lanes`,
-`pc_work_items`, `pc_work_keys`, `pc_work_attempts`, `pc_scheduler_leases`, `pc_scheduler_scans`,
-`pc_runtime_members`, and the shared `pc_rate_limit_windows`. Ledger execution is at-least-once behind a monotonic
-fence token while its commit is at-most-once, so a retried, superseded or cancelled attempt cannot publish a duplicate
-result or release another worker's logical key. Both installed-release source paths and vector profiles include these
-tables; existing managed databases require explicit maintenance and fresh databases create them through the registered
+Revision `v1_5_0_003` registers `pc_atomic_memory_evidence`, the disposable exact-revision evidence projection. It is
+derived from retained history, can be discarded and rebuilt, and never becomes the authority for a trust decision.
+
+Revision `v1_5_0_004` registers the durable Work Ledger and its scheduler coordination tables:
+`pc_work_lanes`, `pc_work_items`, `pc_work_keys`, `pc_work_attempts`, `pc_scheduler_leases`, `pc_scheduler_scans`,
+`pc_runtime_members`, and the shared `pc_rate_limit_windows`. Ledger execution is at-least-once behind a monotonic fence
+token while its commit is at-most-once, so a retried, superseded or cancelled attempt cannot publish a duplicate result
+or release another worker's logical key. Both installed-release source paths and vector profiles include these tables;
+existing managed databases require explicit maintenance and fresh databases create them through the registered
 bootstrap. Earlier revision resources, registered layouts and historical checksums remain unchanged. This registration
 does not establish installed-release or external-Provider upgrade acceptance.
+
+The runtime bundle stamps `pc_atomic_memory_evidence_schema.schema_version` with `p0005`, its own revision for the same
+tables; the Server chain registers that shape as `v1_5_0_002`. Operator messages name both so a runtime deployment and a
+managed Server deployment can each apply the revision they own.
 
 An interrupted [portable restore](portable-archive.md) keeps normal startup and workers blocked until its projections
 are complete. Retry `powercontext archive restore <bundle> --yes` with the same validated bundle. Only this explicit
@@ -75,9 +126,9 @@ Ordinary Server startup checks readiness without repairing an existing database.
 Server identity initialization checks registered tables without issuing DDL on managed storage. Creating the initial
 identity value and explicitly rotating a stopped clone's identity retain their existing transactional behavior.
 
-Vector maintenance requires the exact historical embedding profile: profile ID, model, dimension, distance and normalization. It preserves historical embeddings and Topic retrieval shape without calling an embedding provider. The registered SQLite transition adds and backfills Atomic Memory's vec0 helper and transactional triggers; native backends retain the registered vector columns and HNSW parameters. `pc_server_storage_profile` stores the complete embedding configuration, not another revision or recovery journal. Generic storage readers validate this declaration, and Server startup uses the configured or injected model's actual profile. Missing managed helpers and profile changes are rejected before startup repair or writes.
+Vector maintenance requires the exact historical embedding profile: profile ID, model, dimension, distance and normalization. For existing Atomic data it preserves historical embeddings and Topic retrieval shape without calling an embedding provider; older Memory conversion regenerates Atomic embeddings as described above. The registered SQLite transition adds and backfills Atomic Memory's vec0 helper and transactional triggers; native backends retain the registered vector columns and HNSW parameters. `pc_server_storage_profile` stores the complete embedding configuration, not another revision or recovery journal. Generic storage readers validate this declaration, and Server startup uses the configured or injected model's actual profile. Missing managed helpers and profile changes are rejected before startup repair or writes.
 
-Empty persistent SQLite/seekDB Server storage with vectors initializes through the selected profile of the same chain. Existing unmanaged storage requires explicit maintenance and an exact registered source layout. Changing configuration cannot bypass admission, enable vectors on no-vector managed storage, or implicitly add vector/Code objects. Enabling embedded Code on an already managed database without its tables requires a separately registered configuration transition; startup and the standalone Code CLI reject it. The catalog retains twelve combinations of the 1.3.0 source, three backends, vectors enabled or disabled, and Code enabled or disabled. Embedded seekDB requires pylibseekdb 1.4.0.post2 or newer with the recovered-transaction lock fix. Automatic CI and publication require all twelve configurations, including both embedded seekDB Code configurations; none are waived. Main workflow dispatch with `upgrade_selection=seekdb-code` runs a diagnostic subset and cannot authorize publication. The 1.4.0 bridge remains registered but is outside CI upgrade acceptance; passing this gate does not certify that path. Code cases build an index with each installed source release, preserve its cache files and embedded graph rows, and query the original fingerprint and symbols after the upgrade. Vector cases preserve nonempty historical Atomic and Topic embeddings, verify semantic reads and new writes through the installed target, reject profile drift, and compare fresh/upgraded storage. SQLite also tests missing-helper rejection and backup restoration. A successful no-vector case does not establish vector support; each configuration needs passing evidence for the actual target artifact before upgrade support can be claimed.
+Empty persistent SQLite/seekDB Server storage with vectors initializes through the selected profile of the same chain. Existing unmanaged storage requires explicit maintenance, state-based normalization and verification of the registered checkpoint requirements. Changing configuration cannot bypass admission, enable vectors on no-vector managed storage, or implicitly add vector/Code objects. Enabling embedded Code on an already managed database without its tables requires a separately registered configuration transition; startup and the standalone Code CLI reject it. The catalog retains twelve combinations of the 1.3.0 source, three backends, vectors enabled or disabled, and Code enabled or disabled. Embedded seekDB requires pylibseekdb 1.4.0.post2 or newer with the recovered-transaction lock fix. Automatic CI and publication require all twelve configurations, including both embedded seekDB Code configurations; none are waived. Main workflow dispatch with `upgrade_selection=seekdb-code` runs a diagnostic subset and cannot authorize publication. The 1.4.0 bridge remains registered but is outside CI upgrade acceptance; passing this gate does not certify that path. Code cases build an index with each installed source release, preserve its cache files and embedded graph rows, and query the original fingerprint and symbols after the upgrade. Vector cases preserve nonempty historical Atomic and Topic embeddings, verify semantic reads and new writes through the installed target, reject profile drift, and compare fresh/upgraded storage. SQLite also tests missing-helper rejection and backup restoration. A successful no-vector case does not establish vector support; each configuration needs passing evidence for the actual target artifact before upgrade support can be claimed.
 
 `--bundle artifacts` retains the partial Artifact prototype chain starting at `p0001`; `--bundle topic-memory-recovery` covers only registered Topic recovery layouts. Both report `server_ready=false`. Neither establishes full Server readiness, and their revisions cannot be stamped as full Server revisions.
 
@@ -100,7 +151,7 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The latest registered steps target **PowerContext 1.5.0**; earlier steps keep their 1.4.1 identities. Migration names use
+The target release is **PowerContext 1.5.0**. Migration names use
 `v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence within the release.
 Sequence `000` identifies a registered historical baseline; upgrade steps start at `001`.
 
@@ -111,17 +162,19 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_4_1_001` | 1.4.1 | 1 | `s1400` | Complete Server storage transition |
 | `v1_4_1_002` | 1.4.1 | 2 | `s1401` | Offline Memory history archive |
 | `v1_4_1_003` | 1.4.1 | 3 | `s1402` | Portable restore receipts and timestamp adaptation |
-| `v1_4_1_004` | 1.4.1 | 4 | `v1_4_1_004` | Durable owner recovery intents |
+| `v1_4_1_004` | 1.4.1 | 4 | `v1_4_1_004` | Durable external-owner recovery intents |
 | `v1_4_1_005` | 1.4.1 | 5 | `v1_4_1_005` | Nullable Atomic Memory description projection |
 | `v1_4_1_006` | 1.4.1 | 6 | `v1_4_1_006` | Source write plugin registrations |
-| `v1_5_0_001` | 1.5.0 | 1 | `v1_5_0_001` | Registered fixed Artifact plugin storage |
-| `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Durable Work Ledger and scheduler coordination |
+| `v1_5_0_001` | 1.5.0 | 1 | `v1_5_0_001` | Artifact plugin storage and search registrations |
+| `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Retained Source evidence and historical validation |
+| `v1_5_0_003` | 1.5.0 | 3 | `v1_5_0_003` | Disposable exact-revision evidence projection |
+| `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Durable Work Ledger and scheduler coordination tables |
 
-Both registered source paths reach `v1_5_0_002`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_5_0_004`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -129,7 +182,7 @@ before the existing machine fields. `apply` and `verify` show `migration`. Each 
 contains `name`, `software_version`, `sequence` and the compatible `revision` ID. For example:
 
 ```json
-{"revision":"v1_5_0_002","name":"v1_5_0_002","software_version":"1.5.0","sequence":2}
+{"revision":"v1_5_0_004","name":"v1_5_0_004","software_version":"1.5.0","sequence":4}
 ```
 
 The software version describes the registered database state, not the currently running binary
@@ -143,7 +196,7 @@ existing plans and original backups usable. Partial prototype bundles keep their
 
 For a new Server migration, use the release-based name directly as its Alembic `revision` and
 register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`v1_5_0_002` when appending directly to the current head), even if that ID has
+the actual preceding ID (`v1_5_0_004` when appending directly to the current head), even if that ID has
 a display alias. The framework follows this registered chain, not lexical name ordering. Already
 registered names and release assignments stay immutable; a version bump must not rename history.
 
@@ -237,6 +290,11 @@ Inspection and repair scan the relevant Atomic history, heads, tags, lineage and
 bound row buffering; this is an offline whole-projection operation. It does not register vector-profile changes or
 embedded seekDB Code configurations. The compatibility command `server atomic-memory-rebuild-projection` delegates managed
 databases to this bundle and supports `--action plan/apply/verify` with the same confirmation and backup options.
+
+Both maintenance entry points run from the migration bundle and therefore admit evidence against the builtin Source
+registry; they do not receive a host's code-supplied `SourceDefinitionRegistry`. The runtime evidence read path
+(`AtomicMemory.evidence`) uses the configured registry, so a deployment with custom native Definitions should rebuild
+through the Python API with `sources=<configured repository>` when it needs an identical verdict.
 
 ## Topic Memory recovery bundle
 
@@ -691,14 +749,26 @@ SQL literals reach the backend unchanged.
 
 Repositories run after schema checks. Both full Server source chains register exact per-statement schema transitions and recovery prefixes through `mysql_state_layouts`. Domain steps attach to the shared revision and use its connection, lock, and recovery point; verification precedes version advancement. Read-only live checks are separate from migration-copy validation. Vector configurations still require separate registration.
 
+During `v1_5_0_002`, an interrupted MySQL-compatible upgrade can resume a registered CREATE-table prefix before the
+final `p0005` evidence marker is inserted. Full evidence validation starts once that marker exists; a completed
+database with missing or incompatible evidence storage still fails admission.
+
 Online readiness reads Atomic Memory authority and projections from the same snapshot without locking business head rows. Offline projection repair retains its locked state comparison and write-side concurrency protection.
 
 The 1.4.0 bridge is assembled from immutable shared resources and its `server_sources/1.4.0` overlay. Source
 selection uses the complete unversioned inventory or the original lineage in the main maintenance evidence; it
 neither adds another version table nor rewrites a completed backup's source revision. Repeated maintenance and
 later registered upgrades retain the same lineage. The canonical target remains the ordinary runtime admission
-contract. New sources need their own exact baseline and bridge; adding a target revision alone does not register
-all intervening application releases.
+contract. Historical admission establishes one of these checkpoints from declared structure and data transformations;
+it does not require a new source directory for every application release.
+
+Future storage changes append immutable revisions to the same chain. A feature PR that only adds a table, column or
+index declares the operation and its backend postcondition. Renames, type conversions, splits and data-format changes
+also provide explicit conversion and validation logic. A revision depends on its preceding revision; domain steps
+remain attached to that revision. Keep transformations resumable and validate their result before advancing the
+version. Ordinary changes without persistent state changes need no migration. Tests must cover an upgraded historical
+database as well as the current managed head, including repeated execution and backend-specific interruption recovery.
+Appending a revision extends the same user-facing upgrade path; historical admission is not repeated on managed stores.
 
 One version table offers no generic run-ID resume. After interruption, inspect actual schema/data through read-only
 commands. Ambiguous state returns `recovery_required`; never blindly stamp or replace the original recovery point with a

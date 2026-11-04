@@ -1912,6 +1912,28 @@ const OPERATIONS = {
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
+	},
+	plan_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/plan",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	apply_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/apply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);
@@ -4101,7 +4123,7 @@ function isRuntimeContextSnapshot(message) {
 	const source = message.source;
 	if (!source || typeof source !== "object") return false;
 	const value = source;
-	return value.kind === "plugin" && value.plugin === "@deepseek-ai/dsh-system-prompt" && value.form === "snapshot";
+	return value.kind === "runtime-context" || value.kind === "plugin" && value.plugin === "@deepseek-ai/dsh-system-prompt" && value.form === "snapshot";
 }
 function messagesToQuery(messages) {
 	return messagesToText(messages.filter((message) => !isRuntimeContextSnapshot(message)));

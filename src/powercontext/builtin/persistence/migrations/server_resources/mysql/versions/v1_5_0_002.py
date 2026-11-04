@@ -12,12 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Register the Work Ledger tables through the shared MySQL DDL executor.
-
-The revision follows master's published ``v1_5_0_001`` head so databases
-already migrated by a released binary keep an upgrade path, and both the
-SQLite and MySQL histories stay linear with the same release-based name.
-"""
+"""Register the retained evidence tables through the shared DDL executor."""
 
 from alembic import context
 

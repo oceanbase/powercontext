@@ -25,6 +25,17 @@ class SourceError(PowerContextError):
     """Base exception for Source adapter and access failures."""
 
 
+class AtomicMemoryEvidenceError(PowerContextError):
+    """Raised when retained evidence no longer matches the exact accepted material.
+
+    A caller can distinguish this integrity failure from retrieval or projection
+    errors through the stable :class:`PowerContextError` family.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Historical evidence does not match the exact Source material")
+
+
 class SourceNotFoundError(SourceError, LookupError):
     """Raised when a Source object is absent from a catalog."""
 
