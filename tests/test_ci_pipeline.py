@@ -88,6 +88,53 @@ def workflow(name):
     return result
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Isolated acceptance uses GNU timeout and POSIX process signals")
+@pytest.mark.parametrize(("seconds", "passes"), [(2, False), (8, True)])
+def test_migration_runner_requires_cleanup_within_selected_process_deadline(tmp_path, seconds, passes):
+    timeout = shutil.which("timeout") or shutil.which("gtimeout")
+    if timeout is None:
+        pytest.skip("GNU timeout is required for isolated Linux acceptance")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "timeout").symlink_to(timeout)
+    (tmp_path / "test_budget.py").write_text(
+        "import time\nimport pytest\n"
+        "@pytest.fixture\ndef cleanup():\n    yield\n    time.sleep(3)\n"
+        "def test_completed_seekdb(cleanup):\n    pass\n"
+    )
+    output = tmp_path / "reports"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/run_atomic_memory_clean_migration.py"),
+            "seekdb",
+            "--output",
+            str(output),
+            "--process-timeout-seconds",
+            str(seconds),
+            "--tests",
+            "test_budget.py",
+        ],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == (0 if passes else 1), result.stdout + result.stderr
+    summary = json.loads((output / "summary.json").read_text())
+    assert summary["complete"] is passes
+    assert summary["passed_nodes"] == (["test_budget.py::test_completed_seekdb"] if passes else [])
+    if not passes:
+        assert "PASSED" in (output / "001/pytest.log").read_text()
+        assert "FAIL exit=124" in (output / "001/result.txt").read_text()
+
+
 def combinations(matrix):
     if "include" in matrix:
         return {(row["python-version"], row["suite"]) for row in matrix["include"]}
