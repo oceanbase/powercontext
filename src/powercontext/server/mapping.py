@@ -90,7 +90,9 @@ from powercontext.builtin.runtime import (
     MemoryChange,
     MemoryFlushResult,
     PrepareContextRequest,
+    PrepareContextResult,
     PreparedContext,
+    PreparedContextWithReuse,
     PreparedHandoff,
     PrepareHandoff,
     SourceReceipt,
@@ -324,7 +326,13 @@ from powercontext.http import (
     PrepareContextRequest as TransportPrepareContextRequest,
 )
 from powercontext.http import (
+    PrepareContextResult as TransportPrepareContextResult,
+)
+from powercontext.http import (
     PreparedContext as TransportPreparedContext,
+)
+from powercontext.http import (
+    PreparedContextWithReuse as TransportPreparedContextWithReuse,
 )
 from powercontext.http import (
     PreparedHandoff as TransportPreparedHandoff,
@@ -933,6 +941,17 @@ def _prepared_context_without_receipt(payload: dict[str, object], error_code: st
         },
     )
     return TransportPreparedContext.model_validate({key: item for key, item in payload.items() if key != "receipt"})
+
+
+def prepare_context_result_response(value: PrepareContextResult) -> TransportPrepareContextResult:
+    if isinstance(value, PreparedContextWithReuse):
+        result = TransportPreparedContextWithReuse.model_validate({
+            "schema": value.schema_version,
+            "context": prepared_context_response(value.context).model_dump(by_alias=True, exclude_unset=True),
+            "reuse": value.reuse.model_dump(mode="json", by_alias=True),
+        })
+        return TransportPrepareContextResult(root=result)
+    return TransportPrepareContextResult(root=prepared_context_response(value))
 
 
 def bootstrap_context_response(value: RuntimeBootstrapContext) -> TransportBootstrapContext:

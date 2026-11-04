@@ -469,6 +469,58 @@ def test_init_force_defaults_to_preserving_existing_inference_configuration(tmp_
     assert not tuple(tmp_path.glob(".env.bak-*"))
 
 
+@pytest.mark.parametrize("stored_port", ["invalid", "0", "65536"])
+def test_init_template_preserves_confirmation_with_invalid_stored_tcp_port(tmp_path: Path, stored_port: str) -> None:
+    environment = tmp_path / ".env"
+    original = config_cli.render_managed_block(_configuration()).replace(
+        "POWERCONTEXT_SERVER_HTTP_PORT=8000", f"POWERCONTEXT_SERVER_HTTP_PORT={stored_port}"
+    )
+    environment.write_text(original, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        config_cli.app,
+        ["init", "--template", "--output", str(environment), "--force"],
+        input="\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Replace them with a model-free configuration? [y/N]" in result.output
+    assert "No changes written." in result.output
+    assert environment.read_text(encoding="utf-8") == original
+    assert list(tmp_path.iterdir()) == [environment]
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("POWERCONTEXT_SERVER_HTTP_UDS", "/run/powercontext/core.sock"),
+        ("POWERCONTEXT_SERVER_HTTP", '{"uds":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UDS":"/run/powercontext/core.sock"}'),
+        ("POWERCONTEXT_SERVER_HTTP", '{"UdS":"/run/powercontext/core.sock"}'),
+    ],
+)
+@pytest.mark.parametrize("stored_port", ["18000", "invalid"])
+def test_init_template_force_rejects_uds_before_prompts_or_writes(
+    tmp_path: Path, setting: str, value: str, stored_port: str
+) -> None:
+    environment = tmp_path / ".env"
+    original = f"{setting}={shlex.quote(value)}\nPOWERCONTEXT_SERVER_HTTP_PORT={stored_port}\n"
+    environment.write_text(original, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        config_cli.app,
+        ["init", "--template", "--output", str(environment), "--force"],
+        input="",
+    )
+
+    assert result.exit_code == 2
+    assert "edit UDS configuration directly" in result.output
+    assert "PowerContext configuration" not in result.output
+    assert "/run/powercontext/core.sock" not in result.output
+    assert environment.read_text(encoding="utf-8") == original
+    assert list(tmp_path.iterdir()) == [environment]
+
+
 def test_init_force_replaces_inference_configuration_after_explicit_confirmation(tmp_path: Path) -> None:
     environment = tmp_path / ".env"
     original = config_cli.render_managed_block(_configuration())
@@ -716,3 +768,32 @@ def _configuration(
         schedule_seconds=60,
         credentials=credentials,
     )
+
+
+@pytest.mark.parametrize("template", [False, True])
+@pytest.mark.parametrize("setting", ["POWERCONTEXT_SERVER_HTTP", "POWERCONTEXT_SERVER_HTTP_UDS"])
+def test_init_rejects_process_uds_before_writing(tmp_path, monkeypatch, template, setting):
+    value = '{"uds":"/run/private/core.sock"}' if setting.endswith("HTTP") else "/run/private/core.sock"
+    monkeypatch.setenv(setting, value)
+    output = tmp_path / ".env"
+    result = CliRunner().invoke(
+        config_cli.app, ["init", "--output", str(output), *(["--template"] if template else [])], input=""
+    )
+    assert result.exit_code == 2
+    assert "clear process UDS overrides" in result.output
+    assert "Dashboard:" not in result.output
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("template", [False, True])
+def test_init_does_not_hide_file_uds_behind_process_override(tmp_path, monkeypatch, template):
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP", '{"uds":null}')
+    output = tmp_path / ".env"
+    original = "POWERCONTEXT_SERVER_HTTP_UDS=/run/private/core.sock\n"
+    output.write_text(original)
+    result = CliRunner().invoke(
+        config_cli.app, ["init", "--output", str(output), *(["--template", "--force"] if template else [])], input=""
+    )
+    assert result.exit_code == 2
+    assert "edit UDS configuration directly" in result.output
+    assert output.read_text() == original

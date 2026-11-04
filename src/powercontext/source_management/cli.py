@@ -150,7 +150,7 @@ def credentials_set(
 
 
 @source_app.command("load")
-def load_command(
+def load_command(  # noqa: C901 - collect/write deployment validation
     config: ConfigFile,
     kind: Annotated[
         str, typer.Option(help="write loads trusted code in Server; collect deploys a Runtime.")
@@ -194,7 +194,15 @@ def load_command(
                 if credential_file is not None
                 else (None if settings.auth.token is None else settings.auth.token.get_secret_value())
             )
-            url = server_url or settings.public_url or f"http://127.0.0.1:{settings.http.port}"
+            url = server_url or settings.public_url
+            if url is None:
+                if settings.http.uds is not None:
+                    raise ManagementError(
+                        "server-url-required",
+                        "UDS Source writes require --server-url or POWERCONTEXT_SERVER_PUBLIC_URL "
+                        "pointing to an HTTP(S) proxy",
+                    )
+                url = f"http://127.0.0.1:{settings.http.port}"
             from powercontext.client.settings import normalize_server_url
 
             url = normalize_server_url(url)
