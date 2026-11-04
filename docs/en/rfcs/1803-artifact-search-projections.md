@@ -1,5 +1,6 @@
 ---
-title: Artifact Search Projections and Join-Free Retrieval
+title: "RFC 1803: Artifact search projections"
+description: A proposal for join-free OceanBase retrieval through rebuildable search projections maintained with authoritative Artifact state.
 ---
 
 - Proposal Name: `artifact_search_projections`

@@ -1,7 +1,7 @@
 ---
-status: community
 title: LangChain
 description: Add bounded PowerContext recall and completed-turn Source capture to a LangChain agent.
+status: community
 ---
 
 # LangChain

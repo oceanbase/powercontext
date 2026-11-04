@@ -1,3 +1,8 @@
+---
+title: "RFC 0072: Scoped statistics and model usage"
+description: A proposal for Scope-level content counts, provider-reported model usage, and estimated recall token reduction through one statistics query.
+---
+
 - Proposal Name: `scoped_statistics_and_usage`
 - Start Date: 2026-08-04
 - RFC PR: [oceanbase/powercontext#72](https://github.com/oceanbase/powercontext/pull/72)

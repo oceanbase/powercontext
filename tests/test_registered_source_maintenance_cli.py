@@ -48,6 +48,9 @@ def test_release140_compatibility_commands_preserve_source_and_share_full_upgrad
     monkeypatch.chdir(tmp_path)
     _environment(monkeypatch, settings, embedding)
     cli = create_cli([app])
+    with closing(sqlite3.connect(runner.database)) as connection, connection:
+        connection.execute("CREATE TABLE independent_extension(value TEXT)")
+        connection.execute("INSERT INTO independent_extension VALUES ('keep')")
     original = runner.database.read_bytes()
     candidates = _candidate_rows(runner.database)
 
@@ -63,8 +66,9 @@ def test_release140_compatibility_commands_preserve_source_and_share_full_upgrad
     planned = CliRunner().invoke(cli, [*arguments, "plan", "--backup", "skip"])
     assert planned.exit_code == 0, planned.output
     plan = json.loads(planned.output)
-    assert plan["source_revision"] == "r1400" and plan["target_revision"] == "v1_5_0_001"
+    assert plan["source_revision"] == "r1400" and plan["target_revision"] == "v1_5_0_003"
     assert plan["readiness_scope"] == "server"
+    assert plan["compatibility_steps"] == []
     full = CliRunner().invoke(cli, ["server", "db-migrate", "plan", "--backup", "skip"])
     assert full.exit_code == 0, full.output
     assert json.loads(full.output)["plan_id"] == plan["plan_id"]
@@ -90,17 +94,14 @@ def test_release140_compatibility_commands_preserve_source_and_share_full_upgrad
     assert verified.exit_code == 0, verified.output
     assert json.loads(verified.output)["state"] == "ready"
     assert _candidate_rows(runner.database) == candidates
+    with closing(sqlite3.connect(runner.database)) as connection:
+        assert connection.execute("SELECT value FROM independent_extension").fetchall() == [("keep",)]
 
 
 @pytest.mark.parametrize("command", ["atomic-memory-migrate", "processing-migrate", "atomic-memory-rebuild-projection"])
-@pytest.mark.parametrize("mismatch", ["extra-object", "missing-embedding-configuration"])
-def test_unrecognized_server_never_falls_back_to_legacy_writes(tmp_path, monkeypatch, command, mismatch):
-    vectors = mismatch == "missing-embedding-configuration"
-    settings, embedding, runner = _source(tmp_path, vectors=vectors)
+def test_missing_embedding_configuration_never_falls_back_to_legacy_writes(tmp_path, monkeypatch, command):
+    settings, embedding, runner = _source(tmp_path, vectors=True)
     monkeypatch.chdir(tmp_path)
-    if mismatch == "extra-object":
-        with closing(sqlite3.connect(runner.database)) as connection, connection:
-            connection.execute("CREATE TABLE unknown_server_object(value TEXT)")
     _environment(monkeypatch, settings, None)
     original = runner.database.read_bytes()
     cli = create_cli([app])
@@ -109,13 +110,8 @@ def test_unrecognized_server_never_falls_back_to_legacy_writes(tmp_path, monkeyp
 
     assert denied.exit_code != 0, denied.output
     assert runner.database.read_bytes() == original
-    if vectors:
-        _environment(monkeypatch, settings, embedding)
-        status = CliRunner().invoke(cli, ["server", "db-migrate", "status"])
-        assert status.exit_code == 0, status.output
-        assert json.loads(status.output)["source_revision"] == "r1400"
-    else:
-        status = CliRunner().invoke(cli, ["server", "db-migrate", "status"])
-        assert status.exit_code != 0
-        assert "unknown_baseline" in status.output
+    _environment(monkeypatch, settings, embedding)
+    status = CliRunner().invoke(cli, ["server", "db-migrate", "status"])
+    assert status.exit_code == 0, status.output
+    assert json.loads(status.output)["source_revision"] == "r1400"
     assert runner.database.read_bytes() == original

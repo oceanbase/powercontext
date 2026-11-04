@@ -1,6 +1,6 @@
 ---
 title: Agent guidance evaluation record
-description: Measured routing, execution evidence, and remaining model limitations for tracking issue 1450 D.
+description: Recorded Agent tool-selection and result-reporting measurements, with reproduction settings and limits of host qualification.
 ---
 
 # Agent guidance evaluation record

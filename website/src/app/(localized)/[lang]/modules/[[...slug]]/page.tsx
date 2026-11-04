@@ -21,6 +21,7 @@ import Link from 'next/link';
 import { Card, Cards } from 'fumadocs-ui/components/card';
 import { isLanguage, languages } from '@/lib/i18n';
 import { getPythonSource, pythonModules } from '@/lib/python-source';
+import { pageMetadata } from '@/lib/metadata';
 
 interface PageProps {
   params: Promise<{ lang: string; slug?: string[] }>;
@@ -83,10 +84,18 @@ export function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { lang, slug } = await params;
-  if (!slug || slug.length === 0) return { title: 'Python API' };
-  const page = getPythonPage(lang, slug);
-  if (!page) notFound();
-
-  return { title: `${page.data.title} Python API` };
+  const { lang, slug = [] } = await params;
+  if (!isLanguage(lang)) notFound();
+  const page = slug.length ? getPythonPage(lang, slug) : undefined;
+  if (slug.length && !page) notFound();
+  const suffix = slug.length ? `/${slug.join('/')}` : '';
+  const qualifiedName = page?.slugs.join('.');
+  return pageMetadata({
+    path: `/${lang}/modules${suffix}/`, lang,
+    title: page ? `${qualifiedName} Python API` : lang === 'zh' ? 'Python API 参考' : 'Python API reference',
+    description: page
+      ? (lang === 'zh' ? `${qualifiedName} 的公开 Python API 参考。` : `Public Python API reference for ${qualifiedName}.`)
+      : (lang === 'zh' ? 'PowerContext 公开 Python 模块、类与函数的 API 参考。' : 'API reference for public PowerContext Python modules, classes, and functions.'),
+    translations: { en: `/en/modules${suffix}/`, zh: `/zh/modules${suffix}/` },
+  });
 }

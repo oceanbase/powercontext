@@ -33,6 +33,11 @@ pub enum RenderError {
 /// 缓存渲染计划（withhold 附带）只允许合并计划里显式列出的顶层字段。
 pub trait WireRenderer: Send + Sync {
     fn name(&self) -> &'static str;
+    /// 渲染后请求体中消息列表的顶层键：Chat 为 `messages`，Responses 为 `input`。
+    /// 注入位置声明（JSON 指针）以它为根，否则 Core 检查的是错误的字节。
+    fn message_list_key(&self) -> &'static str {
+        "messages"
+    }
     fn render(
         &self,
         request: &CanonicalRequest,
@@ -158,6 +163,13 @@ impl WireRenderer for GatewayRenderer {
         }
     }
 
+    fn message_list_key(&self) -> &'static str {
+        match self {
+            GatewayRenderer::Chat(r) => r.message_list_key(),
+            GatewayRenderer::Responses(r) => r.message_list_key(),
+        }
+    }
+
     fn render(
         &self,
         request: &CanonicalRequest,
@@ -221,6 +233,10 @@ impl WireRenderer for OpenAiResponsesRenderer {
         "openai-responses"
     }
 
+    fn message_list_key(&self) -> &'static str {
+        "input"
+    }
+
     fn render(
         &self,
         request: &CanonicalRequest,
@@ -229,7 +245,12 @@ impl WireRenderer for OpenAiResponsesRenderer {
         let mut input = Vec::with_capacity(request.messages.len());
         for msg in &request.messages {
             // 单元素 content 且是 Responses 专有 item → 原样作为顶层 item。
-            if msg.content.len() == 1 && is_responses_item(&msg.content[0]) {
+            // 入口把非用户消息的整个 item 以 Tool 角色原样封装（含 developer 消息、
+            // Codex 的 additional_tools 等不在白名单里的类型），同样原样透出。
+            let verbatim_item = msg.role == crate::Role::Tool
+                && msg.content.len() == 1
+                && msg.content[0].is_object();
+            if msg.content.len() == 1 && (verbatim_item || is_responses_item(&msg.content[0])) {
                 input.push(msg.content[0].clone());
                 continue;
             }
@@ -283,6 +304,15 @@ impl WireRenderer for OpenAiResponsesRenderer {
         }
         if let Some(conv) = &request.conversation {
             body["conversation"] = serde_json::json!(conv);
+        }
+        if let Some(fields) = &request.passthrough_fields {
+            for (k, v) in fields {
+                // 已建模的字段以规范值为准，透传字段不得覆盖。
+                body.as_object_mut()
+                    .expect("body is an object")
+                    .entry(k.clone())
+                    .or_insert_with(|| v.clone());
+            }
         }
         if let Some(fields) = request.native_cache_fields.as_ref() {
             merge_top_level(&mut body, fields).map_err(|_| RenderError::InvalidRenderPlan {

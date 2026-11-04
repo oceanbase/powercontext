@@ -1,3 +1,8 @@
+---
+title: RFC 1467：统一 Artifact 标签
+description: 标签的设计提案，在 Scope 内按逻辑身份管理标签，提供精确过滤与条件更新，不改变 Artifact 正文版本。
+---
+
 - Proposal Name: `unified_artifact_tags`
 - Start Date: 2026-09-05
 - RFC PR: [oceanbase/powercontext#1467](https://github.com/oceanbase/powercontext/pull/1467)

@@ -1,7 +1,7 @@
 ---
-status: community
 title: ZCode
 description: Install the PowerContext ZCode plugin and verify automatic Memory generation, recall, and MCP operations.
+status: community
 ---
 
 # ZCode

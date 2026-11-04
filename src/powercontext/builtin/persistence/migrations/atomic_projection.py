@@ -23,6 +23,11 @@ from pathlib import Path
 from sqlalchemy import Connection, select, tuple_
 from typing_extensions import override
 
+from powercontext.builtin.persistence.atomic_memory_evidence_schema import (
+    ATOMIC_MEMORY_EVIDENCE_HISTORY_TABLE,
+    SOURCE_EVIDENCE_BINDINGS_TABLE,
+)
+from powercontext.builtin.persistence.atomic_memory_index_schema import ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
@@ -63,7 +68,11 @@ def _sqlite_helper_digest(connection, batch_size):
 
 class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
     operation = "atomic_projection"
-    affected_objects: tuple[str, ...] = ("pc_atomic_memory_current", "pc_atomic_memory_current_fts")
+    affected_objects: tuple[str, ...] = (
+        "pc_atomic_memory_current",
+        "pc_atomic_memory_current_fts",
+        "pc_atomic_memory_evidence",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -75,9 +84,9 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
             **kwargs,
         )
         self.affected_objects = (
-            ("pc_atomic_memory_current", "pc_atomic_memory_current_fts")
+            ("pc_atomic_memory_current", "pc_atomic_memory_current_fts", "pc_atomic_memory_evidence")
             if isinstance(self.connections.config, SQLiteConfig)
-            else ("pc_atomic_memory_current",)
+            else ("pc_atomic_memory_current", "pc_atomic_memory_evidence")
         )
 
     def _index(self, connection):
@@ -87,10 +96,16 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
     def _state(self, connection: Connection, identity: BackendIdentity) -> tuple[str, bool, bool]:
         check_server_layout(connection)
         index = self._index(connection)
+        # Built from the migration bundle, so no host SourceDefinitionRegistry exists:
+        # admission uses BUILTIN_SOURCE_REGISTRY while host reads use the configured one.
         try:
             report = finish(
                 atomic_memory_rebuild.verify_atomic_memory_current(
-                    pinned(connection), index, batch_size=self.batch_size
+                    pinned(connection),
+                    index,
+                    batch_size=self.batch_size,
+                    require_evidence=True,
+                    require_evidence_projection=True,
                 )
             )
         except Exception as error:
@@ -122,6 +137,9 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
             ARTIFACT_LINEAGE_SOURCES_TABLE,
             ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
             current,
+            ATOMIC_MEMORY_EVIDENCE_HISTORY_TABLE,
+            SOURCE_EVIDENCE_BINDINGS_TABLE,
+            ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
         ):
             snapshot.update(table.name.encode())
             keys = tuple(table.primary_key.columns)
@@ -153,6 +171,7 @@ class AtomicProjectionMigrationRunner(ManagedMaintenanceRunner):
     @override
     def _apply_operation(self, connection: Connection, guard) -> None:
         index = self._index(connection)
+        # No host registry on this bundle path; see the note in _state.
         report = finish(
             atomic_memory_rebuild.rebuild_atomic_memory_current(
                 pinned(connection), index, batch_size=self.batch_size, guard=guard

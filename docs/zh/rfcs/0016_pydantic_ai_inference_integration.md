@@ -1,3 +1,8 @@
+---
+title: RFC 0016：Pydantic AI 推理接入
+description: 通过 Pydantic AI 接入 Memory 候选生成与向量模型的设计提案，明确模型调用、业务校验和持久化的职责。
+---
+
 - 提案名称：`pydantic_ai_inference_integration`
 - 开始日期：2026-07-21
 - RFC PR：[oceanbase/powercontext#16](https://github.com/oceanbase/powercontext/pull/16)

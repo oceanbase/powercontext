@@ -1,3 +1,8 @@
+---
+title: RFC 1417：Topic Memory 主题记忆
+description: Topic Memory 的设计提案，从 Source 日志增量生成主题记忆，约束后台处理，并先召回摘要再按需展开详情。
+---
+
 - RFC ID: 1417
 - Proposal Name: `topic_memory`
 - Start Date: 2026-09-01

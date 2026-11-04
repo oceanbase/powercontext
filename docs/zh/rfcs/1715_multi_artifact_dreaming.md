@@ -1,3 +1,8 @@
+---
+title: RFC 1715：跨 Artifact 家族的 Dream 复盘
+description: 跨制品 Dream 的设计提案，复用执行、候选与批准契约，扩展制品修订和标签变更，并在审核后提交结果。
+---
+
 - Proposal Name: `multi_artifact_dreaming`
 - Start Date: 2026-09-22
 - Migration dependency: [统一数据库迁移（RFC #1771）](https://github.com/oceanbase/powercontext/pull/1771)；实现基础：[PR #1772](https://github.com/oceanbase/powercontext/pull/1772)

@@ -1,3 +1,8 @@
+---
+title: RFC 1489：PreparedContext 文本组织
+description: 上下文文本组织的设计提案，在既有 PreparedContext 预算内选择制品家族、章节顺序、数量上限和精确引用。
+---
+
 - Proposal Name: `prepared_context_text_assembly`
 - Start Date: 2026-09-07
 - RFC PR: [#1489](https://github.com/oceanbase/powercontext/pull/1489)

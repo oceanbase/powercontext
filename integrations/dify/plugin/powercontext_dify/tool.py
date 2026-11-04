@@ -33,7 +33,7 @@ from powercontext_dify.client import (
     decode_json,
     validate,
 )
-from powercontext_dify.policy import HIDDEN_PARAMETERS, MEMORY_KINDS
+from powercontext_dify.policy import HIDDEN_PARAMETERS
 
 SECRET_KEY = re.compile(
     r"(?i)^(api[_-]?key|api[_-]?token|access[_-]?token|refresh[_-]?token|token|password|secret|authorization|private[_-]?key)$"
@@ -88,7 +88,8 @@ def request_for(operation: str, parameters: dict, connection: Connection, scope_
         ):
             raise PluginError("invalid_request")
     if operation in {"remember_memory", "revise_memory_entry"}:
-        if request.get("kind") not in MEMORY_KINDS:
+        kind = request.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
             raise PluginError("invalid_request")
         text = request.get("text")
         if not isinstance(text, str) or not (normalized := unicodedata.normalize("NFC", text).strip()):

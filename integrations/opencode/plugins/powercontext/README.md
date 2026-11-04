@@ -29,7 +29,7 @@ remain in the separate Server plugin entrypoint.
 
 Each Session resolves an explicit Scope, its durable Session or workspace binding, or the Server default. Set
 `POWERCONTEXT_OPENCODE_SCOPE_ID` only to force an existing Scope. Other configuration uses the same prefix with `BASE_URL`,
-`AUTHORIZATION`, `CAPTURE_PROMPTS`, `FLUSH_ON_CAPTURE`, `REQUEST_TIMEOUT_MS`, `HTTP_BUDGET_MS`, `MAX_BYTES`, and
+`AUTHORIZATION`, `PROMPT_RECALL`, `CAPTURE_PROMPTS`, `FLUSH_ON_CAPTURE`, `REQUEST_TIMEOUT_MS`, `HTTP_BUDGET_MS`, `MAX_BYTES`, and
 `FLUSH_MAX_CALLS`.
 
 Remote HTTP is rejected by default. Explicitly allow it with `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true`,
@@ -41,5 +41,9 @@ Setup-saved URLs and endpoint-specific consent are read from `~/.config/powercon
 (override with `POWERCONTEXT_CLIENT_CONFIG_FILE`). The host URL environment variable, then
 `POWERCONTEXT_CLIENT_SERVER_URL`, override the saved URL and loopback default. Changing the endpoint does not
 reuse saved HTTP consent.
+
+Prompt-time recall is enabled by default. Set `POWERCONTEXT_OPENCODE_PROMPT_RECALL=false` when OpenCode's model
+traffic goes through the PowerContext gateway, which prepares and injects context for each turn; the plugin then sends
+no preparation request and adds no context.
 
 OpenCode 1.18.21 or newer in the 1.x line is required. Server failures are fail-open and never block normal work.

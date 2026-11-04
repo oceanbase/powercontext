@@ -38,6 +38,7 @@ fn request() -> CanonicalRequest {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     }
 }
@@ -128,6 +129,7 @@ fn tool_call_metadata_round_trip_preserved() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiChatRenderer.render(&req, None).unwrap();
@@ -175,6 +177,7 @@ fn omitted_token_limit_not_emitted() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiChatRenderer.render(&req, None).unwrap();
@@ -208,6 +211,7 @@ fn explicit_token_limit_still_emitted() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiChatRenderer.render(&req, None).unwrap();
@@ -240,6 +244,7 @@ fn max_completion_tokens_field_name_preserved() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: Some("max_completion_tokens".into()),
     };
     let p = OpenAiChatRenderer.render(&req, None).unwrap();
@@ -278,6 +283,7 @@ fn max_tokens_field_name_preserved() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: Some("max_tokens".into()),
     };
     let p = OpenAiChatRenderer.render(&req, None).unwrap();
