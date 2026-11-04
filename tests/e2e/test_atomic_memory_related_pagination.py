@@ -66,9 +66,7 @@ async def _seed_memories(connection, index, scope, count, *, model=None) -> None
     publisher = AtomicMemoryProjectionPublisher(index, embedding_model=model)
     projections = []
     for number in range(1, count + 1):
-        prepared = await publisher.prepare(
-            AtomicMemoryContent(kind="fact", text=f"rollout strategy {number}")
-        )
+        prepared = await publisher.prepare(AtomicMemoryContent(kind="fact", text=f"rollout strategy {number}"))
         projections.append(
             AtomicMemoryProjection(
                 artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=f"memory-{number:03}", revision=1),
@@ -124,9 +122,7 @@ def test_related_pages_cover_every_qualified_memory(migration_backend: Migration
             async with profile.database.transaction() as connection:
                 complete = await _drain_pages(index, connection, "scope", replace(request, page_size=200))
                 paged = await _drain_pages(index, connection, "scope", replace(request, page_size=page_size))
-        assert tuple(page for pages in paged for page in pages) == tuple(
-            page for pages in complete for page in pages
-        )
+        assert tuple(page for pages in paged for page in pages) == tuple(page for pages in complete for page in pages)
         assert len({page for pages in paged for page in pages}) == 101
 
     asyncio.run(scenario())
@@ -175,9 +171,7 @@ def test_hybrid_pages_match_full_rrf_fusion(migration_backend: MigrationBackend,
             async with profile.database.transaction() as connection:
                 complete = await _drain_pages(index, connection, "scope", replace(request, page_size=200))
                 paged = await _drain_pages(index, connection, "scope", replace(request, page_size=page_size))
-        assert tuple(page for pages in paged for page in pages) == tuple(
-            page for pages in complete for page in pages
-        )
+        assert tuple(page for pages in paged for page in pages) == tuple(page for pages in complete for page in pages)
         assert len({page for pages in paged for page in pages}) == 40
 
     asyncio.run(scenario())
@@ -250,13 +244,9 @@ def test_related_page_bodies_are_fetched_in_page_sized_batches(migration_backend
                 recording = _RecordingConnection(connection)
                 pages = await _drain_pages(index, recording, "scope", request)
             body_calls = tuple(
-                (sql, parameters)
-                for sql, parameters in recording.executed
-                if " AS projected_text" in sql
+                (sql, parameters) for sql, parameters in recording.executed if " AS projected_text" in sql
             )
-            rank_statements = tuple(
-                sql for sql, _ in recording.executed if " AS projected_text" not in sql
-            )
+            rank_statements = tuple(sql for sql, _ in recording.executed if " AS projected_text" not in sql)
         assert tuple(len(page) for page in pages) == (2, 2, 1)
         assert body_calls and all(len(parameters["body_ids"]) <= 2 for _, parameters in body_calls)
         body_ids = [identity for _, parameters in body_calls for identity in parameters["body_ids"]]
