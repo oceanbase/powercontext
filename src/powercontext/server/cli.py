@@ -865,6 +865,7 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
                     model_usage_observer=None if metrics is None else metrics.observe_model_usage,
                     worker_model_usage_observer=None if metrics is None else metrics.observe_worker_model_usage,
                     processing_observer=None if metrics is None else metrics.observe_processing,
+                    work_observer=metrics,
                     worker_initializer=logging_bootstrap,
                     worker_entrypoint_wrapper=WorkerTracing(settings.tracing).wrap,
                 )

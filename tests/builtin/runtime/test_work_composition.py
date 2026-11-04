@@ -15,10 +15,16 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
+from time import monotonic
 from types import SimpleNamespace
 from typing import Literal, cast
 
+from sqlalchemy import func, insert, select
+
+from powercontext.builtin.persistence.rate_limit import RATE_LIMIT_WINDOWS_TABLE
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.work import WorkRepository
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingBinding
 from powercontext.builtin.runtime.composition import (
@@ -30,14 +36,22 @@ from powercontext.builtin.runtime.composition import (
     _work_handlers,
     _work_role_components,
 )
-from powercontext.builtin.runtime.config import DeploymentConfig, RuntimeConfig
+from powercontext.builtin.runtime.config import (
+    CoordinationConfig,
+    DeploymentConfig,
+    OperationsConfig,
+    RuntimeConfig,
+    WorkerConfig,
+)
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.work_handlers import (
     EXPERIENCE_WORK_KIND,
     MAINTENANCE_WORK_KIND,
     MEMORY_WORK_KIND,
     PROFILE_WORK_KIND,
+    memory_work_spec,
 )
+from powercontext.builtin.sources import ContentCapture
 
 
 def _config(tmp_path, **overrides):
@@ -149,5 +163,212 @@ def test_single_node_runtime_exposes_operations_without_ledger_execution(tmp_pat
             assert background.scheduler is None
             assert background.worker is None
             assert background.membership is None
+
+    asyncio.run(scenario())
+
+
+class _RecordingObserver:
+    """Record-only WorkObserver standing in for the ServerMetrics registry."""
+
+    def __init__(self) -> None:
+        self.enqueues: list[tuple[str, bool]] = []
+        self.queue_samples: object = None
+
+    def observe_work_enqueue(self, kind: str, *, created: bool) -> None:
+        self.enqueues.append((kind, created))
+
+    def observe_work_claim(self, kind: str, *, latency_seconds: float) -> None:
+        pass
+
+    def observe_work_attempt(
+        self,
+        kind: str,
+        *,
+        outcome: str,
+        error_category: str,
+        duration_seconds: float,
+    ) -> None:
+        pass
+
+    def observe_work_lease_expiry(self, kind: str, *, outcome: str) -> None:
+        pass
+
+    def observe_scheduler_leadership(self, *, outcome: str) -> None:
+        pass
+
+    def set_work_queue(self, samples) -> None:
+        self.queue_samples = list(samples)
+
+    def set_runtime_members(self, counts) -> None:
+        pass
+
+
+def test_operations_refresh_the_queue_gauges_through_the_wired_observer(tmp_path) -> None:
+    async def scenario() -> None:
+        observer = _RecordingObserver()
+        config = _config(tmp_path, runtime=RuntimeConfig(memory_schedule_seconds=30))
+        async with (
+            open_builtin_contexts(config) as contexts,
+            _open_work_background(config, contexts, observer=observer) as background,
+        ):
+            assert background.operations is not None
+            context = await contexts.get("project")
+            await context.sources.capture(ContentCapture(source_id="one", content="remember this"))
+            spec = await memory_work_spec(contexts, "project", limit=10, max_attempts=3, payload_version=1)
+            assert spec is not None
+
+            repository = WorkRepository(observer=observer)
+            async with contexts.database.transaction() as connection:
+                await repository.enqueue(connection, spec)
+            assert observer.enqueues == [(MEMORY_WORK_KIND, True)]
+
+            page = await background.operations.list(
+                scope_id="project", kind=MEMORY_WORK_KIND, status=None, cursor=None, limit=10
+            )
+            stored = page.items[0]
+            await background.operations.cancel(stored.work_id, expected_version=stored.state_version)
+            # The cancel path refreshes the durable queue gauges through the
+            # same observer the production composition wired in.
+            assert observer.queue_samples is not None
+
+    asyncio.run(scenario())
+
+
+def test_distributed_ledger_wires_the_work_observer_into_every_component(monkeypatch) -> None:
+    """Distributed+SQLite is rejected by BuiltinConfig, so spy the ledger components."""
+
+    async def scenario() -> None:
+        observer = _RecordingObserver()
+        constructed: dict[str, object] = {}
+
+        class _SpyComponent:
+            def __init__(self, *args, **kwargs) -> None:
+                constructed[self._role] = kwargs
+                self._observer = kwargs.get("observer")
+                self._stopped = asyncio.Event()
+
+            _role = ""
+            instance_id = "instance-1"
+
+            async def start(self) -> None:
+                pass
+
+            async def run(self) -> None:
+                await self._stopped.wait()
+
+            async def stop(self) -> None:
+                self._stopped.set()
+
+        class _SpyMembership(_SpyComponent):
+            _role = "membership"
+
+        class _SpyScheduler(_SpyComponent):
+            _role = "scheduler"
+
+        class _SpyWorker(_SpyComponent):
+            _role = "worker"
+
+        monkeypatch.setattr("powercontext.builtin.runtime.membership.RuntimeMembership", _SpyMembership)
+        monkeypatch.setattr("powercontext.builtin.runtime.durable_scheduler.DurableScheduler", _SpyScheduler)
+        monkeypatch.setattr("powercontext.builtin.runtime.worker.DurableWorker", _SpyWorker)
+        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_discoverers", lambda config, contexts: ())
+        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_handlers", lambda config, contexts: ())
+
+        config = cast(
+            "BuiltinConfig",
+            SimpleNamespace(
+                deployment=DeploymentConfig(mode="distributed", role="all"),
+                runtime=RuntimeConfig(memory_schedule_seconds=30),
+                coordination=CoordinationConfig(),
+                worker=WorkerConfig(),
+                operations=OperationsConfig(),
+            ),
+        )
+        contexts = cast("RelationalContexts", SimpleNamespace(database=None))
+        async with _open_work_background(config, contexts, observer=observer) as background:
+            assert background.membership is not None
+            assert background.scheduler is not None
+            assert background.worker is not None
+            assert background.operations is not None
+            # Every ledger component feeds the same bounded-label observer so
+            # /metrics reports real durable work, not only direct test calls.
+            assert background.membership._observer is observer
+            assert background.scheduler._observer is observer
+            assert background.worker._observer is observer
+            assert background.operations._observer is observer
+            assert constructed["scheduler"]["observer"] is observer
+            assert constructed["worker"]["observer"] is observer
+            assert constructed["membership"]["observer"] is observer
+
+    asyncio.run(scenario())
+
+
+def test_single_node_maintenance_purges_expired_rate_limit_windows(tmp_path) -> None:
+    """The single-node background must bound the rate limit window table."""
+
+    async def scenario() -> None:
+        config = _config(
+            tmp_path,
+            operations=OperationsConfig(cleanup_interval_seconds=0.1, cleanup_batch_size=500),
+        )
+        async with (
+            open_builtin_contexts(config) as contexts,
+            _open_work_background(config, contexts) as background,
+        ):
+            assert background.rate_limit_maintenance is not None
+            expired_at = datetime.now(tz=UTC) - timedelta(hours=1)
+            async with contexts.database.transaction() as connection:
+                await connection.execute(
+                    insert(RATE_LIMIT_WINDOWS_TABLE).values(
+                        principal_key="a" * 64,
+                        policy_id="server.http",
+                        window_started_at=expired_at,
+                        expires_at=expired_at + timedelta(seconds=60),
+                        request_count=1,
+                    )
+                )
+            deadline = monotonic() + 5
+            rows = -1
+            while monotonic() < deadline:
+                async with contexts.database.transaction() as connection:
+                    rows = (
+                        await connection.execute(select(func.count()).select_from(RATE_LIMIT_WINDOWS_TABLE))
+                    ).scalar()
+                if rows == 0:
+                    break
+                await asyncio.sleep(0.05)
+            # The maintenance loop deleted the expired window row without any
+            # distributed ledger execution.
+            assert rows == 0
+
+    asyncio.run(scenario())
+
+
+def test_rate_limit_maintenance_stops_when_requested(tmp_path) -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            purges: list[int] = []
+
+            class _PurgeSpy:
+                async def purge_expired(self, connection, *, limit):
+                    purges.append(limit)
+                    return 0
+
+            from powercontext.builtin.runtime.composition import _RateLimitWindowMaintenance
+
+            maintenance = _RateLimitWindowMaintenance(
+                database=contexts.database,
+                interval_seconds=0.05,
+                batch_size=10,
+                repository=_PurgeSpy(),
+            )
+            maintenance.start()
+            await asyncio.sleep(0.25)
+            while_count = len(purges)
+            assert while_count >= 2
+            await maintenance.stop()
+            after_stop = len(purges)
+            await asyncio.sleep(0.15)
+            assert len(purges) == after_stop
 
     asyncio.run(scenario())

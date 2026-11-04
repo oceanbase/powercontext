@@ -216,6 +216,7 @@ from powercontext.builtin.runtime.topic_memory_processing import (
 from powercontext.builtin.runtime.topic_memory_recovery import TopicMemoryRecoveryService
 from powercontext.builtin.runtime.topic_memory_scope import topic_memory_processing_block
 from powercontext.builtin.runtime.topic_memory_search import TopicMemorySearcher
+from powercontext.builtin.runtime.work_observability import WorkObserver
 from powercontext.builtin.runtime.worker_observability import worker_model_usage_collector
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
@@ -537,6 +538,7 @@ async def open_builtin_runtime(
     artifact_processing_bindings: Sequence[ArtifactProcessingBinding] = (),
     worker_security: dict[str, Any] | None = None,
     processing_observer: Callable[[str, str, float], None] | None = None,
+    work_observer: WorkObserver | None = None,
     worker_initializer: Callable[[], None] | WorkerInitializerPreparation | None = None,
     worker_entrypoint_wrapper: Callable[[WorkerEntrypoint], WorkerEntrypoint] | None = None,
     scheduled_source_runner: ScheduledSourceRunner | None = None,
@@ -898,7 +900,7 @@ async def open_builtin_runtime(
         )
         contexts.profiles.operation_context = runtime._operation
         runtime.work_background = await resources.enter_async_context(
-            _open_work_background(config, contexts, tracing=tracing)
+            _open_work_background(config, contexts, tracing=tracing, observer=work_observer)
         )
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
@@ -1346,6 +1348,7 @@ async def _open_work_background(
     contexts: RelationalContexts,
     *,
     tracing: RuntimeTracing | None = None,
+    observer: WorkObserver | None = None,
 ) -> AsyncIterator[WorkBackground]:
     """Start the durable Work Ledger components this role is responsible for.
 
@@ -1379,6 +1382,7 @@ async def _open_work_background(
                     worker=config.worker,
                     local_worker=None,
                     payload_version=CURRENT_WORK_PAYLOAD_VERSION,
+                    observer=observer,
                 ),
                 rate_limit_maintenance=maintenance,
             )
@@ -1394,6 +1398,7 @@ async def _open_work_background(
             deployment=config.deployment,
             coordination=config.coordination,
             build_version=_build_version(),
+            observer=observer,
         )
         await membership.start()
         stack.push_async_callback(membership.stop)
@@ -1403,6 +1408,7 @@ async def _open_work_background(
                 scheduler_id=f"{membership.instance_id}:scheduler",
                 discoverers=_work_discoverers(config, contexts),
                 config=config.coordination,
+                observer=observer,
                 tracing=tracing,
             )
             if runs_scheduler
@@ -1414,6 +1420,7 @@ async def _open_work_background(
                 worker_id=f"{membership.instance_id}:worker",
                 handlers=_work_handlers(config, contexts),
                 config=config.worker,
+                observer=observer,
                 tracing=tracing,
             )
             if runs_worker
@@ -1432,6 +1439,7 @@ async def _open_work_background(
                     worker=config.worker,
                     local_worker=worker,
                     payload_version=CURRENT_WORK_PAYLOAD_VERSION,
+                    observer=observer,
                 ),
                 membership=membership,
                 scheduler=scheduler,
@@ -1461,6 +1469,7 @@ def compose_artifact_search(contexts, embedding_model=None, *, observer=None):
     topic_memory_searcher = TopicMemorySearcher(
         search=contexts.search_topic_memories,
         embedding_model=embedding_model,
+        observer=observer,
         capabilities=contexts.topic_memory_index.capabilities,
     )
     artifact_search.register(topic_memory_searcher, embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL)

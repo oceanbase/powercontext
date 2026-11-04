@@ -203,9 +203,9 @@ def create_server_app(  # noqa: C901
         else "full"
     )
     if route_profile == "health" and (resolved.dashboard.enabled or resolved.mcp.enabled):
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003
             "Distributed Scheduler and Worker roles expose only health and metrics endpoints; "
-            "disable the Dashboard and MCP for these roles"  # noqa: TRY003
+            "disable the Dashboard and MCP for these roles"
         )
     resolved_tracing = (
         ServerTracing.context_only(role=resolved.runtime.artifact_processing_role) if tracing is None else tracing
@@ -297,6 +297,7 @@ def create_server_app(  # noqa: C901
                     model_usage_observer=None if metrics is None else metrics.observe_model_usage,
                     worker_model_usage_observer=None if metrics is None else metrics.observe_worker_model_usage,
                     processing_observer=None if metrics is None else metrics.observe_processing,
+                    work_observer=metrics,
                     scheduled_source_runner=scheduled_source_runner,
                     scheduled_experience_runner=scheduled_experience_runner,
                     worker_security=worker_security,
