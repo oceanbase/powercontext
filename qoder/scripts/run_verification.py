@@ -34,6 +34,7 @@ STEPS = [
     ("07-explain-plan", [sys.executable, str(ROOT / "scripts" / "explain_plan.py"),
                          "Raft 怎么保证不丢已提交的日志"], "."),
     ("08-evidence", [sys.executable, str(ROOT / "scripts" / "collect_evidence.py")], "."),
+    ("09-verify", [sys.executable, str(ROOT / "verify.py")], "."),
 ]
 
 

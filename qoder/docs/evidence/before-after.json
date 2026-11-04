@@ -108,7 +108,7 @@
       "signal": "读取检索偏好",
       "system": "PowerContext",
       "api": "POST /v1/memory/search",
-      "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+      "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
       "result": {
         "courses": [
           "分布式系统"
@@ -150,16 +150,16 @@
         "dist-paxos-phases",
         "paper-in-search-of-an-understandable-consensus"
       ],
-      "elapsed_ms": 45
+      "elapsed_ms": 31
     },
     {
       "signal": "写回会话交接",
       "system": "PowerContext",
       "api": "POST /v1/memory/remember",
       "kind": "session",
-      "artifact_id": "art_9e536c0634e4482ea319eb17a1a8a91e",
+      "artifact_id": "art_8c05e0d2216d4ada9b825dfa3de5b1b9",
       "changed": true,
-      "text": "11-04 15:03 检索「Raft 怎么保证不丢已提交的日志」，最相关的是《Raft 日志复制与提交规则》（分布式系统），共 6 条命中。"
+      "text": "11-04 15:08 检索「Raft 怎么保证不丢已提交的日志」，最相关的是《Raft 日志复制与提交规则》（分布式系统），共 6 条命中。"
     }
   ]
 }

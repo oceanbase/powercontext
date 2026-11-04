@@ -1,0 +1,71 @@
+$ D:\develop\python\python.exe D:\code\oceanbase\powercontext-clone\qoder\verify.py
+(cwd: .)
+exit: 0
+
+
+==============================================================================
+0. 环境自检
+==============================================================================
+seekdb      : 5.7.25-OceanBase seekdb-v1.4.0.0
+PowerContext: http://127.0.0.1:18080
+embedding   : hash-ngram
+
+==============================================================================
+1. 导入示例资料（21 条资料 + 复习题）
+==============================================================================
+{"notes": 21, "cards": 60, "papers": 4, "embedder": "hash-ngram"}
+
+本次使用独立的 Scope（用户）: verify-adaa04
+
+==============================================================================
+2. 第一次检索：PowerContext 里还没有偏好
+==============================================================================
+  1. [分布式系统] 组会纪要：分布式课程设计分工   score=0.01629
+  2. [分布式系统] Raft 日志复制与提交规则   score=0.01623
+  3. [分布式系统] 论文精读：Raft 与 Paxos 到底是什么关系   score=0.01562
+  4. [分布式系统] 两阶段提交的阻塞点   score=0.01529
+  5. [数据库系统] redo log 与 undo log 的分工   score=0.01481
+  6. [分布式系统] 论文精读：Percolator 如何在 TiKV 上做跨行事务   score=0.01471
+  使用的偏好: {'courses': [], 'source_types': [], 'keyword_weight': 0.6, 'vector_weight': 0.4, 'top_k': 6, 'tag': ''} (来源: powercontext)
+
+==============================================================================
+3. 写一条偏好进 PowerContext：只看「分布式系统」的笔记与论文
+==============================================================================
+  同一个问题，再来一次：
+  1. [分布式系统] Raft 日志复制与提交规则   score=0.01639
+  2. [分布式系统] 论文精读：Raft 与 Paxos 到底是什么关系   score=0.01605
+  3. [分布式系统] 两阶段提交的阻塞点   score=0.01580
+  4. [分布式系统] 论文精读：Percolator 如何在 TiKV 上做跨行事务   score=0.01538
+  5. [分布式系统] Paxos 两个阶段   score=0.01529
+  6. [分布式系统] In Search of an Understandable Consensus Algorithm (Raft)   score=0.01522
+  使用的偏好: {'courses': ['分布式系统'], 'source_types': ['note', 'paper'], 'keyword_weight': 0.7, 'vector_weight': 0.3, 'top_k': 6, 'tag': ''} (来源: powercontext)
+
+==============================================================================
+4. 这次检索里 PowerContext 与 seekdb 各自做了什么
+==============================================================================
+  - PowerContext  读取检索偏好  POST /v1/memory/search
+  - seekdb        混合检索  SQL: MATCH ... AGAINST + cosine_distance ... APPROXIMATE + RRF
+      命中: dist-raft-replication, dist-raft-论文对比, dist-2pc, db-论文2pc, dist-paxos-phases, paper-in-search-of-an-understandable-consensus
+      过滤: {'courses': ['分布式系统'], 'source_types': ['note', 'paper'], 'tag': ''} 权重: [0.7, 0.3]
+  - PowerContext  写回会话交接  POST /v1/memory/remember
+      artifact: art_39c1961a27734e3790a6feaa00c02d5e
+
+==============================================================================
+5. seekdb 里这条混合检索的执行计划
+==============================================================================
+  |0 |TOP-N SORT                                           |          |6       |203         |
+  |1 |└─SUBPLAN SCAN                                       |ranked    |11      |196         |
+  |2 |  └─WINDOW FUNCTION                                  |          |11      |196         |
+  |3 |    └─SORT                                           |          |11      |179         |
+  |4 |      └─WINDOW FUNCTION                              |          |11      |167         |
+  |5 |        └─SORT                                       |          |11      |151         |
+  |6 |          └─SUBPLAN SCAN                             |candidates|11      |140         |
+  |7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |11      |140         |
+
+==============================================================================
+结论
+==============================================================================
+  第一次：命中范围跨课程（含数据库/软件工程的资料）
+  第二次：命中全部落在「分布式系统」，且只含笔记与论文
+  两次使用的是同一段代码、同一个问题，唯一变化是 PowerContext 里记住的偏好。
+

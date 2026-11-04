@@ -1,14 +1,14 @@
 ===========================================================================================
 |ID|OPERATOR                                             |NAME      |EST.ROWS|EST.TIME(us)|
 -------------------------------------------------------------------------------------------
-|0 |TOP-N SORT                                           |          |4       |81          |
-|1 |└─SUBPLAN SCAN                                       |ranked    |4       |77          |
-|2 |  └─WINDOW FUNCTION                                  |          |4       |76          |
-|3 |    └─SORT                                           |          |4       |70          |
-|4 |      └─WINDOW FUNCTION                              |          |4       |66          |
-|5 |        └─SORT                                       |          |4       |60          |
-|6 |          └─SUBPLAN SCAN                             |candidates|4       |56          |
-|7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |4       |56          |
+|0 |TOP-N SORT                                           |          |6       |180         |
+|1 |└─SUBPLAN SCAN                                       |ranked    |9       |174         |
+|2 |  └─WINDOW FUNCTION                                  |          |9       |173         |
+|3 |    └─SORT                                           |          |9       |158         |
+|4 |      └─WINDOW FUNCTION                              |          |9       |148         |
+|5 |        └─SORT                                       |          |9       |134         |
+|6 |          └─SUBPLAN SCAN                             |candidates|9       |125         |
+|7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |9       |125         |
 ===========================================================================================
 Outputs & filters:
 -------------------------------------
@@ -65,7 +65,7 @@ Outputs & filters:
       0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,-0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
       0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,-0.089803,0.000000,
       0.000000,0.179605,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
-      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000]', ARRAY(18, -1)))]), filter([note.source_type = 'note'], [note.course = '分布式系统']), rowset=16
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000]', ARRAY(18, -1)))]), filter([note.course = '分布式系统'], [note.source_type = 'note']), rowset=16
       access([note.note_id], [note.embedding], [note.course], [note.source_type], [note.title], [note.topic], [note.tags], [note.body]), partitions(p0)
       is_index_back=true, is_global_index=false, filter_before_indexback[false,false], 
       range_key([note.note_id]), range(MIN ; MAX)always true, has_functional_lookup=true

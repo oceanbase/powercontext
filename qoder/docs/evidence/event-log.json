@@ -1,28 +1,28 @@
 [
   {
-    "event_id": 95,
-    "created_at": "2026-11-04 15:03:03.350965",
-    "actor": "evidence-dca5b8",
+    "event_id": 134,
+    "created_at": "2026-11-04 15:08:49.730804",
+    "actor": "evidence-00757d",
     "action": "recall",
-    "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+    "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
     "note_id": "",
     "detail": "{\"question\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": [\"Raft\", \"不丢已提交\", \"不丢已\", \"丢已提\", \"已提交\", \"日志\"], \"profile\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\", \"paper\"], \"keyword_weight\": 0.7, \"vector_weight\": 0.3, \"top_k\": 6, \"tag\": \"\"}, \"hits\": [\"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-论文2pc\", \"dist-paxos-phases\", \"paper-in-search-of-an-understandable-consensus\"]}",
-    "elapsed_ms": 134
+    "elapsed_ms": 163
   },
   {
-    "event_id": 94,
-    "created_at": "2026-11-04 15:03:03.280238",
-    "actor": "evidence-dca5b8",
+    "event_id": 133,
+    "created_at": "2026-11-04 15:08:49.648536",
+    "actor": "evidence-00757d",
     "action": "hybrid_search",
-    "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+    "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
     "note_id": "",
     "detail": "{\"query\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": \"Raft 不丢已提交 不丢已 丢已提 已提交 日志\", \"filters\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\", \"paper\"], \"tag\": \"\"}, \"weights\": [0.7, 0.3], \"hits\": [\"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-论文2pc\", \"dist-paxos-phases\", \"paper-in-search-of-an-understandable-consensus\"]}",
-    "elapsed_ms": 45
+    "elapsed_ms": 31
   },
   {
-    "event_id": 93,
-    "created_at": "2026-11-04 15:03:03.003365",
-    "actor": "evidence-dca5b8",
+    "event_id": 132,
+    "created_at": "2026-11-04 15:08:49.368607",
+    "actor": "evidence-00757d",
     "action": "save_profile",
     "scope_id": "",
     "note_id": "",
@@ -30,29 +30,29 @@
     "elapsed_ms": 0
   },
   {
-    "event_id": 92,
-    "created_at": "2026-11-04 15:03:02.934207",
-    "actor": "evidence-dca5b8",
+    "event_id": 131,
+    "created_at": "2026-11-04 15:08:49.313998",
+    "actor": "evidence-00757d",
     "action": "recall",
-    "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+    "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
     "note_id": "",
     "detail": "{\"question\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": [\"Raft\", \"不丢已提交\", \"不丢已\", \"丢已提\", \"已提交\", \"日志\"], \"profile\": {\"courses\": [], \"source_types\": [], \"keyword_weight\": 0.6, \"vector_weight\": 0.4, \"top_k\": 6, \"tag\": \"\"}, \"hits\": [\"chat-组会纪要\", \"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-redo-undo\", \"db-论文2pc\"]}",
-    "elapsed_ms": 158
+    "elapsed_ms": 141
   },
   {
-    "event_id": 91,
-    "created_at": "2026-11-04 15:03:02.868145",
-    "actor": "evidence-dca5b8",
+    "event_id": 130,
+    "created_at": "2026-11-04 15:08:49.243177",
+    "actor": "evidence-00757d",
     "action": "hybrid_search",
-    "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+    "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
     "note_id": "",
     "detail": "{\"query\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": \"Raft 不丢已提交 不丢已 丢已提 已提交 日志\", \"filters\": {\"courses\": [], \"source_types\": [], \"tag\": \"\"}, \"weights\": [0.6, 0.4], \"hits\": [\"chat-组会纪要\", \"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-redo-undo\", \"db-论文2pc\"]}",
-    "elapsed_ms": 46
+    "elapsed_ms": 47
   },
   {
-    "event_id": 90,
-    "created_at": "2026-11-04 15:03:02.569117",
-    "actor": "evidence-dca5b8",
+    "event_id": 129,
+    "created_at": "2026-11-04 15:08:49.014142",
+    "actor": "evidence-00757d",
     "action": "save_profile",
     "scope_id": "",
     "note_id": "",
@@ -60,29 +60,29 @@
     "elapsed_ms": 0
   },
   {
-    "event_id": 89,
-    "created_at": "2026-11-04 15:03:02.472705",
-    "actor": "evidence-dca5b8",
+    "event_id": 128,
+    "created_at": "2026-11-04 15:08:48.946321",
+    "actor": "evidence-00757d",
     "action": "recall",
-    "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+    "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
     "note_id": "",
     "detail": "{\"question\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": [\"Raft\", \"不丢已提交\", \"不丢已\", \"丢已提\", \"已提交\", \"日志\"], \"profile\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\"], \"keyword_weight\": 0.7, \"vector_weight\": 0.3, \"top_k\": 6, \"tag\": \"\"}, \"hits\": [\"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-论文2pc\", \"dist-paxos-phases\", \"dist-raft-election\"]}",
-    "elapsed_ms": 142
+    "elapsed_ms": 129
   },
   {
-    "event_id": 88,
-    "created_at": "2026-11-04 15:03:02.410561",
-    "actor": "evidence-dca5b8",
+    "event_id": 127,
+    "created_at": "2026-11-04 15:08:48.897713",
+    "actor": "evidence-00757d",
     "action": "hybrid_search",
-    "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+    "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
     "note_id": "",
     "detail": "{\"query\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": \"Raft 不丢已提交 不丢已 丢已提 已提交 日志\", \"filters\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\"], \"tag\": \"\"}, \"weights\": [0.7, 0.3], \"hits\": [\"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-论文2pc\", \"dist-paxos-phases\", \"dist-raft-election\"]}",
-    "elapsed_ms": 28
+    "elapsed_ms": 45
   },
   {
-    "event_id": 87,
-    "created_at": "2026-11-04 15:03:02.122977",
-    "actor": "evidence-dca5b8",
+    "event_id": 126,
+    "created_at": "2026-11-04 15:08:48.681704",
+    "actor": "evidence-00757d",
     "action": "save_profile",
     "scope_id": "",
     "note_id": "",
@@ -90,89 +90,89 @@
     "elapsed_ms": 0
   },
   {
-    "event_id": 86,
-    "created_at": "2026-11-04 15:03:01.423955",
+    "event_id": 125,
+    "created_at": "2026-11-04 15:08:47.986477",
     "actor": "demo-user",
     "action": "recall",
     "scope_id": "scp_2cenjevfjvefewq9235x8p673b",
     "note_id": "",
     "detail": "{\"question\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": [\"Raft\", \"不丢已提交\", \"不丢已\", \"丢已提\", \"已提交\", \"日志\"], \"profile\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\", \"paper\"], \"keyword_weight\": 0.7, \"vector_weight\": 0.3, \"top_k\": 6, \"tag\": \"\"}, \"hits\": [\"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-论文2pc\", \"dist-paxos-phases\", \"paper-in-search-of-an-understandable-consensus\"]}",
-    "elapsed_ms": 145
+    "elapsed_ms": 125
   },
   {
-    "event_id": 85,
-    "created_at": "2026-11-04 15:03:01.367816",
+    "event_id": 124,
+    "created_at": "2026-11-04 15:08:47.941764",
     "actor": "demo-user",
     "action": "hybrid_search",
     "scope_id": "scp_2cenjevfjvefewq9235x8p673b",
     "note_id": "",
     "detail": "{\"query\": \"Raft 怎么保证不丢已提交的日志\", \"keywords\": \"Raft 不丢已提交 不丢已 丢已提 已提交 日志\", \"filters\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\", \"paper\"], \"tag\": \"\"}, \"weights\": [0.7, 0.3], \"hits\": [\"dist-raft-replication\", \"dist-raft-论文对比\", \"dist-2pc\", \"db-论文2pc\", \"dist-paxos-phases\", \"paper-in-search-of-an-understandable-consensus\"]}",
-    "elapsed_ms": 32
+    "elapsed_ms": 43
   },
   {
-    "event_id": 84,
-    "created_at": "2026-11-04 15:03:00.863908",
-    "actor": "pytest-69633c79",
+    "event_id": 123,
+    "created_at": "2026-11-04 15:08:47.430359",
+    "actor": "pytest-406e96a0",
     "action": "grade_card",
     "scope_id": "",
     "note_id": "chat-组会纪要",
-    "detail": "{\"card_id\": \"card_749f5dce86f5\", \"grade\": 5, \"interval_days\": 1, \"next_review_at\": \"2026-11-05 15:03:00.787964\"}",
+    "detail": "{\"card_id\": \"card_749f5dce86f5\", \"grade\": 5, \"interval_days\": 1, \"next_review_at\": \"2026-11-05 15:08:47.334655\"}",
     "elapsed_ms": 0
   },
   {
-    "event_id": 83,
-    "created_at": "2026-11-04 15:03:00.602632",
-    "actor": "pytest-69633c79",
+    "event_id": 122,
+    "created_at": "2026-11-04 15:08:47.148147",
+    "actor": "pytest-406e96a0",
     "action": "grade_card",
     "scope_id": "",
     "note_id": "chat-组会纪要",
-    "detail": "{\"card_id\": \"card_749f5dce86f5\", \"grade\": 0, \"interval_days\": 0, \"next_review_at\": \"2026-11-04 15:13:00.521066\"}",
+    "detail": "{\"card_id\": \"card_749f5dce86f5\", \"grade\": 0, \"interval_days\": 0, \"next_review_at\": \"2026-11-04 15:18:47.082480\"}",
     "elapsed_ms": 0
   },
   {
-    "event_id": 82,
-    "created_at": "2026-11-04 15:03:00.219511",
-    "actor": "pytest-fea817d6",
+    "event_id": 121,
+    "created_at": "2026-11-04 15:08:46.832735",
+    "actor": "pytest-4c061aa8",
     "action": "recall",
-    "scope_id": "scp_1d33zz6yn2s4trrq96nyrhsvhv",
+    "scope_id": "scp_1ppqb0f99qxjcvh5xy5j19ttgr",
     "note_id": "",
     "detail": "{\"question\": \"Raft 日志复制\", \"keywords\": [\"Raft\", \"日志复制\", \"日志复\", \"志复制\"], \"profile\": {\"courses\": [], \"source_types\": [], \"keyword_weight\": 0.6, \"vector_weight\": 0.4, \"top_k\": 8, \"tag\": \"\"}, \"hits\": [\"dist-raft-论文对比\", \"dist-raft-replication\", \"meeting-周报\", \"paper-in-search-of-an-understandable-consensus\", \"dist-2pc\", \"chat-组会纪要\", \"dist-raft-election\", \"db-redo-undo\"]}",
-    "elapsed_ms": 159
+    "elapsed_ms": 116
   },
   {
-    "event_id": 81,
-    "created_at": "2026-11-04 15:03:00.133601",
-    "actor": "pytest-fea817d6",
+    "event_id": 120,
+    "created_at": "2026-11-04 15:08:46.760550",
+    "actor": "pytest-4c061aa8",
     "action": "hybrid_search",
-    "scope_id": "scp_1d33zz6yn2s4trrq96nyrhsvhv",
+    "scope_id": "scp_1ppqb0f99qxjcvh5xy5j19ttgr",
     "note_id": "",
     "detail": "{\"query\": \"Raft 日志复制\", \"keywords\": \"Raft 日志复制 日志复 志复制\", \"filters\": {\"courses\": [], \"source_types\": [], \"tag\": \"\"}, \"weights\": [0.6, 0.4], \"hits\": [\"dist-raft-论文对比\", \"dist-raft-replication\", \"meeting-周报\", \"paper-in-search-of-an-understandable-consensus\", \"dist-2pc\", \"chat-组会纪要\", \"dist-raft-election\", \"db-redo-undo\"]}",
-    "elapsed_ms": 26
+    "elapsed_ms": 34
   },
   {
-    "event_id": 80,
-    "created_at": "2026-11-04 15:03:00.004174",
-    "actor": "pytest-656d5ee4",
+    "event_id": 119,
+    "created_at": "2026-11-04 15:08:46.664178",
+    "actor": "pytest-796968d9",
     "action": "recall",
-    "scope_id": "scp_292w546t85yjfbb2v5185g0w7v",
+    "scope_id": "scp_22rfa9cftfykkd37m37g5fr5qc",
     "note_id": "",
     "detail": "{\"question\": \"B+ 树为什么会页分裂\", \"keywords\": [\"B+\", \"树为\", \"页分裂\"], \"profile\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\", \"paper\"], \"keyword_weight\": 0.6, \"vector_weight\": 0.4, \"top_k\": 8, \"tag\": \"\"}, \"hits\": [\"dist-raft-replication\", \"dist-一致性哈希\", \"dist-raft-election\", \"db-论文2pc\", \"dist-2pc\", \"dist-paxos-phases\", \"paper-concurrency-control-in-distributed-datab\", \"dist-raft-论文对比\"]}",
-    "elapsed_ms": 158
+    "elapsed_ms": 156
   },
   {
-    "event_id": 79,
-    "created_at": "2026-11-04 15:02:59.935390",
-    "actor": "pytest-656d5ee4",
+    "event_id": 118,
+    "created_at": "2026-11-04 15:08:46.596894",
+    "actor": "pytest-796968d9",
     "action": "hybrid_search",
-    "scope_id": "scp_292w546t85yjfbb2v5185g0w7v",
+    "scope_id": "scp_22rfa9cftfykkd37m37g5fr5qc",
     "note_id": "",
     "detail": "{\"query\": \"B+ 树为什么会页分裂\", \"keywords\": \"B+ 树为 页分裂\", \"filters\": {\"courses\": [\"分布式系统\"], \"source_types\": [\"note\", \"paper\"], \"tag\": \"\"}, \"weights\": [0.6, 0.4], \"hits\": [\"dist-raft-replication\", \"dist-一致性哈希\", \"dist-raft-election\", \"db-论文2pc\", \"dist-2pc\", \"dist-paxos-phases\", \"paper-concurrency-control-in-distributed-datab\", \"dist-raft-论文对比\"]}",
-    "elapsed_ms": 29
+    "elapsed_ms": 37
   },
   {
-    "event_id": 78,
-    "created_at": "2026-11-04 15:02:59.684818",
-    "actor": "pytest-656d5ee4",
+    "event_id": 117,
+    "created_at": "2026-11-04 15:08:46.330503",
+    "actor": "pytest-796968d9",
     "action": "save_profile",
     "scope_id": "",
     "note_id": "",
@@ -180,29 +180,29 @@
     "elapsed_ms": 0
   },
   {
-    "event_id": 77,
-    "created_at": "2026-11-04 15:02:59.634579",
-    "actor": "pytest-656d5ee4",
+    "event_id": 116,
+    "created_at": "2026-11-04 15:08:46.263835",
+    "actor": "pytest-796968d9",
     "action": "recall",
-    "scope_id": "scp_292w546t85yjfbb2v5185g0w7v",
+    "scope_id": "scp_22rfa9cftfykkd37m37g5fr5qc",
     "note_id": "",
     "detail": "{\"question\": \"B+ 树为什么会页分裂\", \"keywords\": [\"B+\", \"树为\", \"页分裂\"], \"profile\": {\"courses\": [], \"source_types\": [], \"keyword_weight\": 0.6, \"vector_weight\": 0.4, \"top_k\": 8, \"tag\": \"\"}, \"hits\": [\"db-bplus-tree\", \"db-论文bwtree\", \"meeting-周报\", \"chat-复习讨论\", \"dist-一致性哈希\", \"dist-raft-replication\", \"dist-raft-election\", \"db-论文2pc\"]}",
-    "elapsed_ms": 130
+    "elapsed_ms": 123
   },
   {
-    "event_id": 76,
-    "created_at": "2026-11-04 15:02:59.583957",
-    "actor": "pytest-656d5ee4",
+    "event_id": 115,
+    "created_at": "2026-11-04 15:08:46.196910",
+    "actor": "pytest-796968d9",
     "action": "hybrid_search",
-    "scope_id": "scp_292w546t85yjfbb2v5185g0w7v",
+    "scope_id": "scp_22rfa9cftfykkd37m37g5fr5qc",
     "note_id": "",
     "detail": "{\"query\": \"B+ 树为什么会页分裂\", \"keywords\": \"B+ 树为 页分裂\", \"filters\": {\"courses\": [], \"source_types\": [], \"tag\": \"\"}, \"weights\": [0.6, 0.4], \"hits\": [\"db-bplus-tree\", \"db-论文bwtree\", \"meeting-周报\", \"chat-复习讨论\", \"dist-一致性哈希\", \"dist-raft-replication\", \"dist-raft-election\", \"db-论文2pc\"]}",
-    "elapsed_ms": 42
+    "elapsed_ms": 27
   },
   {
-    "event_id": 75,
-    "created_at": "2026-11-04 15:02:59.369475",
-    "actor": "pytest-656d5ee4",
+    "event_id": 114,
+    "created_at": "2026-11-04 15:08:45.881938",
+    "actor": "pytest-796968d9",
     "action": "save_profile",
     "scope_id": "",
     "note_id": "",
@@ -210,8 +210,8 @@
     "elapsed_ms": 0
   },
   {
-    "event_id": 74,
-    "created_at": "2026-11-04 15:02:57.800905",
+    "event_id": 113,
+    "created_at": "2026-11-04 15:08:44.332005",
     "actor": "system",
     "action": "seed",
     "scope_id": "",

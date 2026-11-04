@@ -78,20 +78,32 @@ POWERCONTEXT_SERVER_METRICS_ENABLED=false
 
 ```bash
 cd qoder
-pip install -r requirements.txt
+pip install -r requirements.txt          # fastapi / uvicorn / pymysql
+pip install -e .                          # 可选；装好后任意目录都能用 `syncrecall` 命令
+pip install -e ".[semantic]"              # 可选：装上真实语义模型（首次运行下载约 470 MB）
 
-# 可选：装上真实语义模型（首次运行会下载约 470 MB）
-pip install sentence-transformers
-
-python -m syncrecall seed          # 建表 + 导入 21 条示例资料 + 60 道复习题
+python -m syncrecall seed                 # 建表 + 导入 21 条示例资料 + 60 道复习题
 python -m uvicorn serve:app --host 127.0.0.1 --port 8788
 ```
 
 打开 <http://127.0.0.1:8788/>。
 
-> 没有装 `sentence-transformers` 也能完整跑通：此时 `SR_EMBEDDING_PROVIDER` 自动退化为
-> 确定性的 n-gram 哈希嵌入（不联网、结果可复现），向量分支仍然走 HNSW 索引，
-> 只是「语义相近」的能力弱一些。界面右上角与启动日志都会显示当前使用的嵌入方式。
+> `python -m syncrecall` 需要包可导入，即在 `qoder/` 下执行过 `pip install -e .`，
+> 或临时设置 `PYTHONPATH=src`。**`scripts/` 下的脚本与 `serve.py` 已经自己处理了路径**，
+> 不装也能直接跑：`python scripts/demo_recall.py "问题"`、`python verify.py`。
+
+一条命令看完整故事（自己建一个临时 Scope，不需要装包）：
+
+```bash
+cd qoder && python verify.py
+```
+
+它会：导入示例数据 → 同一个问题检索两次（中间往 PowerContext 写一条偏好）→ 打印两次排名对比、
+记忆读写记录和 seekdb 执行计划。
+
+> 没有装 `sentence-transformers` 也能完整跑通：此时嵌入方式自动退化为确定性的 n-gram 哈希
+> （不联网、结果可复现），向量分支仍然走 HNSW 索引，只是「语义相近」的能力弱一些。
+> 界面右上角与启动日志都会显示当前使用的嵌入方式。
 
 ### 2.4 环境变量
 
@@ -156,16 +168,23 @@ python -m syncrecall memory
 ## 5. 验证样例
 
 一组可按步骤执行的样例（含初始数据、输入、预期结果、以及「指定技术在哪一步发挥作用」的记录）
-见 [`docs/验证样例.md`](docs/验证样例.md)。最核心的一条：
+见 [`docs/验证样例.md`](docs/验证样例.md)。最省事的一条：
 
 ```bash
 cd qoder
-python -m syncrecall recall "Raft 怎么保证不丢已提交的日志"   # 记住：命中范围、SQL、记忆事件
-# 在界面右上「记住我」里只勾选「分布式系统」+ note/paper 并保存
-python -m syncrecall recall "Raft 怎么保证不丢已提交的日志"   # 同一问题，命中范围被收窄
+python verify.py
 ```
 
-前后对比的实测数据在 [`docs/evidence/before-after.json`](docs/evidence/before-after.json)。
+它建一个临时 Scope，把同一个问题「Raft 怎么保证不丢已提交的日志」先在不设偏好的情况下检索一次，
+再往 PowerContext 写入「只看分布式系统的笔记与论文」后检索一次，打印两次排名、记忆读写记录
+与 seekdb 执行计划。实测输出见 [`logs/09-verify.log`](logs/09-verify.log)：
+
+| | 命中范围 |
+| --- | --- |
+| 第一次 | `分布式系统` ×5 + **`数据库系统` ×1**（redo/undo 笔记），首位是《组会纪要》 |
+| 第二次 | **全部 `分布式系统`**，只含笔记与论文，首位是《Raft 日志复制与提交规则》，Raft 原始论文进入结果 |
+
+前后对比的原始数据在 [`docs/evidence/before-after.json`](docs/evidence/before-after.json)。
 
 ## 6. 运行测试
 

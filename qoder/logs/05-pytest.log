@@ -3,5 +3,5 @@ $ D:\develop\python\python.exe -m pytest tests -q
 exit: 0
 
 ....................                                                     [100%]
-20 passed in 2.32s
+20 passed in 2.39s
 
