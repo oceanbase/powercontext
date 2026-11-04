@@ -102,7 +102,7 @@ export type MemorySearchResponse = { hits: Array<MemorySearchHit>, };
 export type AtomicMemoryDetail = { artifact: ArtifactReference, kind: string, text: string, source_refs: Array<SourceTypeReference>, };
 export type ExactScopeStatistics = { selection: ExactScopeSelection, scope_ids: Array<string>, as_of: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: ExactRecallTokenStatistics, by_scope: Array<ExactScopeStatisticsItem>, };
 export type ExactRecallTokenStatistics = { period: ResolvedUsagePeriod, estimator: TokenEstimatorProfile | null, totals: RecallTokenValue, daily: Array<RecallTokenDay>, };
-export type ExactScopeStatisticsItem = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: ExactRecallTokenStatistics, recurrence: RecurrenceStatistics, };
+export type ExactScopeStatisticsItem = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: ExactRecallTokenStatistics, recurrence: RecurrenceStatistics, processing?: Array<ProcessingObservation>, bootstrap_delivery?: BootstrapDeliveryStatistics, };
 export type ObservationUnit = "http_request" | "user_operation";
 export type ObservedOperation = "get_liveness" | "get_server_info" | "get_readiness" | "get_capabilities" | "get_access_principal" | "list_scopes" | "get_scope" | "get_default_scope" | "get_stats" | "remember_memory" | "search_memory" | "get_artifact_revision";
 export type ObservationOutcome = "success" | "failure" | "cancelled" | "unknown";
@@ -128,6 +128,7 @@ export type AccessPrincipal = { type: Type, id: string, description?: string | n
 export type AccessProviderCapabilities = { safe_resource_filtering: boolean, multi_requirement_check: boolean, relationship_management: boolean, group_subjects: boolean, multi_principal: boolean, max_direct_resource_keys: number, };
 export type AccessResourceType = "server" | "scope" | "artifact";
 export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+export type ActualAdoption = "unobserved";
 export type AllScopeSelection = { mode: AllScopeSelectionMode, };
 export type AllScopeSelectionMode = "all";
 export type ArtifactDreamingOperationCapability = { operation: DreamOperation, output_kind: OutputKind, effect: Effect, };
@@ -164,6 +165,17 @@ export type AtomicMemorySearchHit = { memory: AtomicMemoryRecord,
 score: number, matched_by: Array<MatchedBy>, };
 export type AtomicMemorySearchMode = "text" | "vector" | "hybrid";
 export type AtomicMemoryState = "active" | "forgotten" | "merged" | "retired";
+export type BootstrapDeliveryReading = { integration: string, state: BootstrapReceiptState, receipts: number,
+/**
+ * Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption.
+ */
+content_bytes: number,
+/**
+ * Latest preparation time in this group, not the delivery completion time.
+ */
+last_prepared_at: string, };
+export type BootstrapDeliveryStatistics = { period: ResolvedUsagePeriod, retention_days: number, actual_adoption: ActualAdoption, by_integration: Array<BootstrapDeliveryReading>, };
+export type BootstrapReceiptState = "pending" | "injected" | "skipped" | "failed";
 export type BuiltinProfile = "coding" | "conversation";
 export type CandidateFamily = "experience" | "skill" | "profile" | "atomic-memory" | "topic-memory" | "handoff" | "prompt";
 export type CandidateFamilyCount = { family: CandidateFamily, total: number, pending: number, approved: number, rejected: number, };
@@ -265,7 +277,11 @@ export type ExtractionStatus = {
 configuration: Configuration, background: ExtractionBackground, observation: ExtractionObservation, };
 export type FamilyCount = { family: string, total: number, };
 export type FeatureContract = { version: ContractVersion, operations: Array<string>, };
-export type GetStatsRequest = { selection: ScopeSelection, period?: StatsPeriod, };
+export type GetStatsRequest = { selection: ScopeSelection, period?: StatsPeriod,
+/**
+ * Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history.
+ */
+include_processing?: boolean, };
 export type HealthResponse = { status: string, };
 export type InventoryStatistics = { sources: SourceInventoryStatistics, artifacts: ArtifactInventoryStatistics, candidates: CandidateInventoryStatistics, memory: MemoryInventoryStatistics, };
 export type Location = "local" | "external" | "none";
@@ -281,6 +297,37 @@ export type ModelUsageStatistics = { generation: ModelUsageValue, embedding: Mod
 export type ModelUsageValue = { requests: number, input_tokens: number | null, output_tokens: number | null, };
 export type OutputKind = "candidate" | "tag_candidate";
 export type PreparedContextSchema = "powercontext.prepared-context.v1";
+export type ProcessingObservation = { binding: string, family?: string | null, state: ProcessingState, observed_at: string, scheduler_observed?: boolean, reason?: ProcessingReason, requested_generation?: number, handled_generation?: number, dirty_generation?: number, clean_generation?: number,
+/**
+ * Local lower bound, not the durable age of all pending work.
+ */
+pending_since?: string | null, running_seconds?: number | null,
+/**
+ * Estimated seconds until a scheduler check, not a promised execution deadline.
+ */
+next_check_seconds?: number | null, worker_id?: string | null, attempt_generation?: number | null, retry_failures?: number | null, block_code?: string | null,
+/**
+ * Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message.
+ */
+last_error_code?: string | null,
+/**
+ * Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation.
+ */
+last_error_stage?: string | null,
+/**
+ * UTC time the local supervisor observed this failure, not the child event time or a durable history.
+ */
+last_error_at?: string | null,
+/**
+ * Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label.
+ */
+last_error_worker_id?: string | null,
+/**
+ * Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation.
+ */
+last_error_trace_id?: string | null, };
+export type ProcessingReason = "unobserved" | "waiting_schedule" | "waiting_dispatch" | "waiting_capacity" | "executing" | "retry_backoff" | "policy_block" | "idle";
+export type ProcessingState = "idle" | "dirty" | "pending" | "acknowledged" | "queued" | "running" | "retry_wait" | "blocked";
 export type Product = "powercontext";
 export type PromptCapability = { status: PromptCapabilityStatus, reason: Reason | null, definition_version: string, builtin_version: string, builtin_profile: BuiltinProfile | null, };
 export type PromptCapabilityStatus = "supported" | "disabled" | "unsupported";
@@ -308,7 +355,11 @@ export type ScopeExternalReference = { kind: string, value: string, };
 export type ScopePage = { items: Array<ScopeDescriptor>, next_cursor?: string | null, };
 export type ScopeQueryField = "scope_id" | "title" | "summary" | "external_reference_value" | "binding_external_id";
 export type ScopeSelection = { "mode": "AllScopeSelection" } & AllScopeSelection | { "mode": "ExactScopeSelection" } & ExactScopeSelection | { "mode": "SubtreeScopeSelection" } & SubtreeScopeSelection;
-export type ScopeStats = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: RecallTokenStatistics, recurrence: RecurrenceStatistics, };
+export type ScopeStats = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: RecallTokenStatistics, recurrence: RecurrenceStatistics,
+/**
+ * Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.
+ */
+processing?: Array<ProcessingObservation>, bootstrap_delivery?: BootstrapDeliveryStatistics, };
 export type ScopedStats = { selection: ScopeSelection, scope_ids: Array<string>, as_of: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: RecallTokenStatistics, by_scope: Array<ScopeStats>, };
 export type SearchMemoryRequest = { tag_filter?: TagFilter, scope_id: string, query: string, limit?: number, mode?: MemorySearchMode, };
 export type SearchMemoryResponse = { mode: AtomicMemorySearchMode, hits: Array<AtomicMemorySearchHit>, };

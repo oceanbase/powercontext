@@ -107,6 +107,12 @@ pub struct ExactScopeStatisticsItem {
     pub usage: UsageStatistics,
     pub recall: ExactRecallTokenStatistics,
     pub recurrence: RecurrenceStatistics,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing: Option<Vec<ProcessingObservation>>,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bootstrap_delivery: Option<BootstrapDeliveryStatistics>,
 }
 
 #[derive(Serialize)]
