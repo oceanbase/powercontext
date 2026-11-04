@@ -78,7 +78,7 @@ def test_fixed_artifact_storage_resumes_after_registration_columns(backend):  # 
 def _next_fixed_revision(bundle, directory):
     """A subsequent fixed-table addition leaves the space format untouched."""
     shutil.copytree(bundle.directory, directory)
-    revision = "v1_5_0_002"
+    revision = "v1_5_0_003"
     sql = "CREATE TABLE pc_lifecycle_probe (id INTEGER NOT NULL, PRIMARY KEY (id))"
     name, layout = _parse_table(sql)
     resource = "schemas/mysql-lifecycle-probe.json"
@@ -88,10 +88,10 @@ def _next_fixed_revision(bundle, directory):
             "revisions": {revision: {"statements": [sql], "changes": [{name: layout}]}},
         })
     )
-    (directory / "versions/v1_5_0_002_probe.py").write_text(
+    (directory / "versions/v1_5_0_003_probe.py").write_text(
         f"revision = '{revision}'\ndown_revision = '{bundle.head}'\ndef upgrade():\n    pass\n"
     )
-    (directory / "mysql/versions/v1_5_0_002.py").write_text(
+    (directory / "mysql/versions/v1_5_0_003.py").write_text(
         "from alembic import context\n"
         f"revision = '{revision}'\ndown_revision = '{bundle.head}'\n"
         "def upgrade():\n    context.config.attributes['execute_revision'](revision)\n"

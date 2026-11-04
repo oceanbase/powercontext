@@ -63,8 +63,8 @@ def previous_bundle(directory, embedding, *, include_portable=False, include_own
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     later_revisions = [
+        ("v1_5_0_002", LEDGER_TABLES),
         ("v1_5_0_001", ()),
-        ("v1_4_1_007", LEDGER_TABLES),
         ("v1_4_1_006", ("pc_source_write_plugins",)),
         ("v1_4_1_005", ()),
     ]
@@ -139,8 +139,8 @@ def test_registered_s1401_upgrade_preserves_completed_evidence_and_matches_fresh
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     plan = upgraded.plan()
     assert plan.source_revision == "s1401"
-    assert plan.revisions == ("s1402", "v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_4_1_007", "v1_5_0_001")
-    assert apply(upgraded).revision == "v1_5_0_001"
+    assert plan.revisions == ("s1402", "v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002")
+    assert apply(upgraded).revision == "v1_5_0_002"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     fresh = SQLiteMigrationRunner(tmp_path / "fresh.db", bundle, configuration=config)
@@ -199,11 +199,11 @@ def test_source_write_plugin_upgrade_preserves_data_and_registration(tmp_path, v
     bundle = server_bundle(embedding_profile=embedding)
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     assert upgraded.plan().revisions == (
-        ("v1_4_1_005", "v1_4_1_006", "v1_4_1_007", "v1_5_0_001")
+        ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002")
         if include_owner
-        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_4_1_007", "v1_5_0_001")
+        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002")
     )
-    assert apply(upgraded).revision == "v1_5_0_001"
+    assert apply(upgraded).revision == "v1_5_0_002"
     definition = b'{"configuration":{"id":"tickets","entry":"tickets"}}'
     with closing(sqlite3.connect(database)) as connection, connection:
         assert connection.execute("SELECT title FROM pc_scopes").fetchall() == [("preserved",)]

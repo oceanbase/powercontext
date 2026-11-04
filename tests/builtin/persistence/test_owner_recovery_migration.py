@@ -48,11 +48,11 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     removed_revisions = (
-        ("v1_4_1_007", "v1_5_0_001")
+        ("v1_5_0_001", "v1_5_0_002")
         if previous_revision == "v1_4_1_006"
-        else ("v1_4_1_005", "v1_4_1_006", "v1_4_1_007", "v1_5_0_001")
+        else ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002")
         if previous_revision == "v1_4_1_004"
-        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_4_1_007", "v1_5_0_001")
+        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002")
     )
     for revision in removed_revisions:
         for resource in manifest["revision_resources"].pop(revision):
@@ -92,7 +92,7 @@ def test_registered_owner_recovery_upgrade_preserves_history_and_revision_checks
     upgraded = SQLiteMigrationRunner(database, current, configuration=configuration(embedding))
     plan = upgraded.plan()
     assert plan.source_revision == previous_revision and plan.revisions == removed_revisions
-    assert apply(upgraded).revision == "v1_5_0_001"
+    assert apply(upgraded).revision == "v1_5_0_002"
     assert upgraded.verify().state == "ready"
     assert not apply(upgraded).changed
     evidence = json.loads(upgraded.evidence_path.read_text(encoding="utf-8"))

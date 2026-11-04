@@ -14,10 +14,10 @@ The design follows [RFC #1771](https://github.com/oceanbase/powercontext/pull/17
 
 `powercontext server db-migrate status/plan/apply/verify` default to `--bundle server` and use the configured persistent SQLite, embedded seekDB, or OceanBase MySQL database. Explicit environment files are authoritative; arbitrary bundle paths are not accepted.
 
-The full Server framework registers two installed-release sources for the PowerContext 1.4.1 target (stored compatibility IDs shown below):
+The full Server framework registers two installed-release sources for the current managed target (stored compatibility IDs shown below):
 
-- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_4_1_007`.
-- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_4_1_007` through a separate frozen source bridge.
+- **1.3.0:** `s1300 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002`.
+- **1.4.0:** `r1400 → s1400 → s1401 → s1402 → v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002` through a separate frozen source bridge.
 
 Application release numbers and schema revisions are distinct. The 1.4.0 release is not the `s1400` checkpoint:
 its existing Candidate schema is current, but its Topic attempt storage still needs the registered bridge.
@@ -54,7 +54,9 @@ Revision `v1_4_1_004` registers `pc_access_owner_recovery` for durable Artifact 
 Revision `v1_4_1_005` adds nullable `pc_atomic_memory_current.description` metadata for text and vector profiles. Existing managed databases require explicit migration; startup does not alter this column. The additive revision leaves historical Artifact bytes unchanged and existing descriptions null until a new write or explicit projection rebuild copies authoritative metadata.
 
 
-Revision `v1_4_1_007` registers the durable Work Ledger and its scheduler coordination tables: `pc_work_lanes`,
+Revision `v1_5_0_001` registers fixed Artifact plugin storage without mutating historical layouts; existing managed databases adopt it through explicit maintenance and fresh databases create it through the registered bootstrap. This revision follows the published chain order and does not re-parent any released revision.
+
+Revision `v1_5_0_002` registers the durable Work Ledger and its scheduler coordination tables: `pc_work_lanes`,
 `pc_work_items`, `pc_work_keys`, `pc_work_attempts`, `pc_scheduler_leases`, `pc_scheduler_scans`,
 `pc_runtime_members`, and the shared `pc_rate_limit_windows`. Ledger execution is at-least-once behind a monotonic
 fence token while its commit is at-most-once, so a retried, superseded or cancelled attempt cannot publish a duplicate
@@ -98,7 +100,7 @@ read-only no-op. See [Migrate to Atomic Memory](atomic-memory-migration.md).
 
 ## Migration names and software versions
 
-The target release is **PowerContext 1.4.1**. Migration names use
+The latest registered steps target **PowerContext 1.5.0**; earlier steps keep their 1.4.1 identities. Migration names use
 `v<major>_<minor>_<patch>_<sequence>`, with a three-digit sequence within the release.
 Sequence `000` identifies a registered historical baseline; upgrade steps start at `001`.
 
@@ -112,13 +114,14 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_4_1_004` | 1.4.1 | 4 | `v1_4_1_004` | Durable owner recovery intents |
 | `v1_4_1_005` | 1.4.1 | 5 | `v1_4_1_005` | Nullable Atomic Memory description projection |
 | `v1_4_1_006` | 1.4.1 | 6 | `v1_4_1_006` | Source write plugin registrations |
-| `v1_4_1_007` | 1.4.1 | 7 | `v1_4_1_007` | Durable Work Ledger and scheduler coordination |
+| `v1_5_0_001` | 1.5.0 | 1 | `v1_5_0_001` | Registered fixed Artifact plugin storage |
+| `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Durable Work Ledger and scheduler coordination |
 
-Both registered source paths reach `v1_4_1_007`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_5_0_002`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
-1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_4_1_007
-1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_4_1_007
+1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002
+1.4.0: v1_4_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002
 ```
 
 `status` and `plan` show `source_migration`, `target_migration` and `pending_migrations`
@@ -126,7 +129,7 @@ before the existing machine fields. `apply` and `verify` show `migration`. Each 
 contains `name`, `software_version`, `sequence` and the compatible `revision` ID. For example:
 
 ```json
-{"revision":"v1_4_1_007","name":"v1_4_1_007","software_version":"1.4.1","sequence":7}
+{"revision":"v1_5_0_002","name":"v1_5_0_002","software_version":"1.5.0","sequence":2}
 ```
 
 The software version describes the registered database state, not the currently running binary
@@ -140,7 +143,7 @@ existing plans and original backups usable. Partial prototype bundles keep their
 
 For a new Server migration, use the release-based name directly as its Alembic `revision` and
 register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`v1_4_1_007` when appending directly to the current head), even if that ID has
+the actual preceding ID (`v1_5_0_002` when appending directly to the current head), even if that ID has
 a display alias. The framework follows this registered chain, not lexical name ordering. Already
 registered names and release assignments stay immutable; a version bump must not rename history.
 

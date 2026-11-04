@@ -17,7 +17,7 @@
 from alembic import context
 
 revision = "v1_5_0_001"
-down_revision = "v1_4_1_007"
+down_revision = "v1_4_1_006"
 
 
 def upgrade() -> None:

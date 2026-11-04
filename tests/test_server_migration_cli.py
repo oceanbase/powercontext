@@ -67,5 +67,5 @@ def test_server_migrate_runs_the_packaged_forward_only_chain(tmp_path) -> None:
         work_table = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pc_work_items'"
         ).fetchone()
-    assert revision == [("v1_4_1_006",)]
+    assert revision == [("v1_5_0_002",)]
     assert work_table == ("pc_work_items",)

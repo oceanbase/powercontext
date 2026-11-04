@@ -106,19 +106,19 @@ class ServerVectorProfile:
             layouts["v1_4_1_006"] = layouts["v1_4_1_005"] + [
                 ["table", "pc_source_write_plugins", "pc_source_write_plugins", plugin]
             ]
-        if "v1_4_1_007" in manifest["revision_resources"]:
-            ledger = json.loads((directory / "schemas/sqlite-v1_4_1_007.json").read_text(encoding="utf-8"))["create"]
-            layouts["v1_4_1_007"] = layouts["v1_4_1_006"] + [registry_row(statement) for statement in ledger]
         artifact_revision = "v1_5_0_001"
         if artifact_revision in manifest["revision_resources"]:
             artifact = json.loads((directory / f"schemas/sqlite-{artifact_revision}.json").read_text())["layout"]
-            base_revision = "v1_4_1_007" if "v1_4_1_007" in layouts else "v1_4_1_006"
-            previous = {(row[0], row[1]): row for row in layouts[base_revision]}
+            previous = {(row[0], row[1]): row for row in layouts["v1_4_1_006"]}
             for row in artifact:
                 key = (row[0], row[1])
                 if key not in previous or row[1] == "pc_artifact_processing_binding_states":
                     previous[key] = row
             layouts[artifact_revision] = list(previous.values())
+        if "v1_5_0_002" in manifest["revision_resources"]:
+            ledger = json.loads((directory / "schemas/sqlite-v1_5_0_002.json").read_text(encoding="utf-8"))["create"]
+            base = layouts.get("v1_5_0_001", layouts["v1_4_1_006"])
+            layouts["v1_5_0_002"] = base + [registry_row(statement) for statement in ledger]
         for entries in layouts.values():
             entries.sort(key=lambda row: (row[0], row[1]))
         return layouts
