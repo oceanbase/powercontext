@@ -261,6 +261,9 @@ class _VectorMemoryIndex:
     async def probe_recoverable(self, connection, scope_id, request, floor, /):
         return False
 
+    async def related_page(self, connection: AsyncConnection, scope_id: str, request, cursor=None, /):
+        return None
+
     async def enumerate_related_with_heads(self, connection: AsyncConnection, scope_id: str, request, /):
         return (), {}
 
