@@ -22,6 +22,12 @@ use std::{
 };
 
 fn fixture_dir() -> tempfile::TempDir {
+    #[cfg(target_os = "macos")]
+    return tempfile::Builder::new()
+        .prefix("ops-bridge-")
+        .tempdir_in("/private/tmp")
+        .unwrap();
+    #[cfg(not(target_os = "macos"))]
     tempfile::Builder::new()
         .prefix("ops-bridge-")
         .tempdir()
