@@ -195,6 +195,18 @@ def create_server_app(  # noqa: C901
         rate_limit=resolved.rate_limit,
     )
     metrics = ServerMetrics(role=resolved.runtime.artifact_processing_role) if resolved.metrics.enabled else None
+    # Distributed Scheduler/Worker roles expose only the health/metrics boundary
+    # (RFC 1430); the authenticated API replicas serve the data plane.
+    route_profile = (
+        "health"
+        if resolved.deployment.mode == "distributed" and resolved.deployment.role in {"scheduler", "worker"}
+        else "full"
+    )
+    if route_profile == "health" and (resolved.dashboard.enabled or resolved.mcp.enabled):
+        raise ValueError(
+            "Distributed Scheduler and Worker roles expose only health and metrics endpoints; "
+            "disable the Dashboard and MCP for these roles"  # noqa: TRY003
+        )
     resolved_tracing = (
         ServerTracing.context_only(role=resolved.runtime.artifact_processing_role) if tracing is None else tracing
     )
@@ -440,6 +452,7 @@ def create_server_app(  # noqa: C901
     app = create_app(
         lifespan=lifespan,
         readiness_probe=readiness_probe,
+        route_profile=route_profile,
         middleware=configured_middleware,
         metrics=metrics,
         tracing=resolved_tracing,

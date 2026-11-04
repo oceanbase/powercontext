@@ -1373,6 +1373,7 @@ def create_app(
     *,
     application: ServerApplication | None = None,
     infrastructure_only: bool = False,
+    route_profile: Literal["full", "health"] = "full",
     capability_provider: CapabilityProvider | None = None,
     readiness_probe: ReadinessProbe | None = None,
     lifespan: Lifespan[FastAPI] | None = None,
@@ -1385,13 +1386,18 @@ def create_app(
     authentication_provider: AuthenticationProvider | None = None,
     allow_insecure_remote_http: bool = False,
 ) -> FastAPI:
-    """Build the HTTP adapter around an optional Runtime application binding."""
+    """Build the HTTP adapter around an optional Runtime application binding.
+
+    ``route_profile="health"`` exposes only the health and metrics boundary
+    (RFC 1430) for distributed Scheduler/Worker roles; the data plane is
+    served by the API replicas.
+    """
 
     app = FastAPI(
         title=API_TITLE,
         version=API_VERSION,
         description=API_DESCRIPTION,
-        openapi_url=None if infrastructure_only else "/openapi.json",
+        openapi_url=None if infrastructure_only or route_profile == "health" else "/openapi.json",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -1492,11 +1498,16 @@ def create_app(
         _add_route(app, GET_LIVENESS, get_liveness)
         return app
 
+    _add_route(app, GET_LIVENESS, get_liveness)
+    _add_route(app, GET_READINESS, get_readiness)
+    if route_profile == "health":
+        # Health/metrics boundary: metrics are mounted by the caller. Every
+        # business route stays on the API replicas.
+        return app
+
     _add_route(app, CREATE_DREAM_RUN, create_dream_run)
     _add_route(app, GET_DREAM_RUN, get_dream_run)
     _add_route(app, LIST_DREAM_RUNS, list_dream_runs)
-    _add_route(app, GET_LIVENESS, get_liveness)
-    _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_SERVER_INFO, get_server_info)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
     _add_route(app, LIST_ARTIFACT_PLUGINS, list_artifact_plugins)
