@@ -1,0 +1,203 @@
+{
+  "schema": "evidence-admission.v17.live-result.v1",
+  "execution_freeze": {
+    "revision": "887fb5e2d9eab397c5678369547385431c3b44ee",
+    "identity_hash": "1576185a5fca78525701d8fc4200debbf52c4f6cc3831f08d2966f2db366202c",
+    "verified": true
+  },
+  "plan_hash": "69db305f1cd2383afe595950edfc408d32734afd3e1814e44d136c14140e8e05",
+  "state": "quality_failed",
+  "reviewed_calls": 2,
+  "provider_requests": 2,
+  "mock_http_requests": 0,
+  "known_new_upper_charge_cny": "0.020130",
+  "cumulative_known_upper_cny": "0.110650",
+  "unknown_usage_calls": 0,
+  "unknown_usage_is_zero": false,
+  "unknown_reserved_upper_cny": "0.000000",
+  "records": [
+    {
+      "call_id": "exact-literals-0",
+      "case": "exact-literals",
+      "request_hash": "0d55d563c52b7138cbe5f7b8c1cb6f01d22b4395142457a264c37952490168a7",
+      "provider_request_started": true,
+      "pipeline_entered": true,
+      "pipeline_returned": true,
+      "request_facts": {
+        "http_request_hash": "88c6959a7e32d5aeaf3a90a334898999cc04b606340f41324e024ae09f1c5370",
+        "http_request_bytes": 15913,
+        "user_payload_hash": "4872002f5cc734745b1976390484514cb1f694532778118194bc4f35121ca2f5",
+        "instructions_hash": "bb00b691341071499889cdd96b6e61c62463d5cdcd4b0fa721103952363b794a",
+        "sdk_output_schema_hash": "0bdc836379b68f9aac473f626cb830012e96a02aebf7692837484290ec381df5",
+        "schema_validation_constraints_preserved": true,
+        "message_roles": [
+          "system",
+          "system",
+          "user"
+        ],
+        "model_visible_text_estimated_tokens": 3755,
+        "http_json_estimated_tokens": 3979,
+        "requested_model": "deepseek-v4-flash",
+        "max_tokens": 2048,
+        "provider_input_tokens": null,
+        "provider_output_tokens": null
+      },
+      "http_status": 200,
+      "response_hash": "478d258f9a62e92823aa1c09efc3ee1f0d06d5490e225c4552e185c79deee182",
+      "response_model": "deepseek-flash",
+      "fingerprint_hash": "acb19ed5ae137c8f5ce09e1812fa0ec8445b124b4e2174a86b85b0f1151f3aea",
+      "finish_reason": "stop",
+      "reasoning_content_present": false,
+      "elapsed_seconds": 3.5580322419991717,
+      "output_hash": "2a24bf71e153267a9e49d91e5958de52296d94e2b9b484e83f6ae75a79ae7794",
+      "template_hash": "44bdfc45cf15e3f41a83e4006a8464f4bf7ff4721f28f6b89e52c80c8ef43a4f",
+      "known_charge_cny": "0.007852",
+      "review_hash": "d31eafb08b4d37cc77ae7e308f727d6216b48582ea133fd89b7246866ac23e9a",
+      "diagnostic_gate_passed": true,
+      "semantic_review_kind": "assistant",
+      "score": {
+        "required_parent_claims": 1,
+        "retained_parent_claims": 1,
+        "retained_parent_hashes": [
+          "f9f836daebfb326f91ced87da98ba2d743f66803159a2e8ee4eeebf902808799"
+        ],
+        "required_atoms": 4,
+        "retained_atoms": 4,
+        "retained_atom_hashes": [
+          "5ac280602d7dc98df1ab5ec09aa9b8cd3ba3abd1b2265c18270331fa59692872",
+          "5b2d4200f4d31abe7e79a33de819cac87e6f7b4eeb417c434f6d399038bf076a",
+          "81ed79fe667e0e1238f82ff2bc1159e770d42b63ad8a55a87f05a0b6a08a3bda",
+          "f68076d70b7a683b5d76b7746d3c12e03726076718a3c4204be2ecfee417a1d4"
+        ],
+        "required_literals": 4,
+        "retained_literals": 4,
+        "unsupported_candidates": 0,
+        "false_attribution_candidates": 0,
+        "invalid_support_candidates": 0,
+        "unresolved_candidates": 0,
+        "nonatomic_candidates": 0,
+        "literal_mismatches": 0,
+        "semantic_complete": true,
+        "atomicity_passed": true,
+        "diagnostic_success": true,
+        "reviewer_kind": "assistant"
+      },
+      "case_complete_gate_passed": true,
+      "provider_usage": {
+        "prompt_tokens": 3162,
+        "completion_tokens": 191,
+        "total_tokens": 3353
+      }
+    },
+    {
+      "call_id": "unicode-boundaries-0",
+      "case": "unicode-boundaries",
+      "request_hash": "673d1e9f4eeecb89e085639b76f0ce0d9a4d14310d6114a44627f3533993be66",
+      "provider_request_started": true,
+      "pipeline_entered": true,
+      "pipeline_returned": true,
+      "request_facts": {
+        "http_request_hash": "552e41e3bc833fbcf617cc09bcb86bccc107d77564a1ccc8ccb1d9b681fb5aff",
+        "http_request_bytes": 18649,
+        "user_payload_hash": "6e1eb2a62b29c4ac3e9b889efcd6abf9e3c84a94e81c6d189f0b288de62c2455",
+        "instructions_hash": "bb00b691341071499889cdd96b6e61c62463d5cdcd4b0fa721103952363b794a",
+        "sdk_output_schema_hash": "0bdc836379b68f9aac473f626cb830012e96a02aebf7692837484290ec381df5",
+        "schema_validation_constraints_preserved": true,
+        "message_roles": [
+          "system",
+          "system",
+          "user"
+        ],
+        "model_visible_text_estimated_tokens": 3907,
+        "http_json_estimated_tokens": 4835,
+        "requested_model": "deepseek-v4-flash",
+        "max_tokens": 2048,
+        "provider_input_tokens": null,
+        "provider_output_tokens": null
+      },
+      "http_status": 200,
+      "response_hash": "2df9f3ddf27361211387417bb34fbb6bb013b4c5d37e787c9338515ff3923fec",
+      "response_model": "deepseek-flash",
+      "fingerprint_hash": "acb19ed5ae137c8f5ce09e1812fa0ec8445b124b4e2174a86b85b0f1151f3aea",
+      "finish_reason": "stop",
+      "reasoning_content_present": false,
+      "elapsed_seconds": 4.556378213004791,
+      "output_hash": "bab96e825a983f8a61fc8b59d77d427e7e5d49906cf6ff62ad169222a5bcaa37",
+      "template_hash": "505679c50f80d1083bae0ddb20ec127576cfb96a9965b7808fc8992bd34b7eb3",
+      "known_charge_cny": "0.012278",
+      "review_hash": "132768bc367ef07625a9fafc82095d70c525cdc053a105702cfbaf0fe8a0d8c3",
+      "diagnostic_gate_passed": false,
+      "semantic_review_kind": "assistant",
+      "score": {
+        "required_parent_claims": 1,
+        "retained_parent_claims": 0,
+        "retained_parent_hashes": [],
+        "required_atoms": 2,
+        "retained_atoms": 1,
+        "retained_atom_hashes": [
+          "39e7ca4a10cadad35374e7a091a35578726a02d89eb72c2a2e6f327c1bad92c1"
+        ],
+        "required_literals": 3,
+        "retained_literals": 2,
+        "unsupported_candidates": 0,
+        "false_attribution_candidates": 0,
+        "invalid_support_candidates": 0,
+        "unresolved_candidates": 0,
+        "nonatomic_candidates": 0,
+        "literal_mismatches": 1,
+        "semantic_complete": false,
+        "atomicity_passed": true,
+        "diagnostic_success": false,
+        "reviewer_kind": "assistant"
+      },
+      "provider_usage": {
+        "prompt_tokens": 5679,
+        "completion_tokens": 115,
+        "total_tokens": 5794
+      }
+    }
+  ],
+  "formal_acceptance": false,
+  "production_authorized": false,
+  "decision": "insufficient_evidence",
+  "formal_blockers": [
+    "minimal_candidate_only_not_all_arm_matrix",
+    "independent_semantic_review_not_established",
+    "required_CRLF_literal_loss"
+  ],
+  "planned_requests": 4,
+  "executed_requests": 2,
+  "unrun_calls": [
+    {
+      "call_id": "unicode-boundaries-1",
+      "reason": "stopped_after_unicode_CRLF_quality_failure"
+    },
+    {
+      "call_id": "unicode-boundaries-2",
+      "reason": "stopped_after_unicode_CRLF_quality_failure"
+    }
+  ],
+  "stop_required": true,
+  "stop_category": "required_CRLF_literal_omitted",
+  "formal_all_arm_comparison": "not_run",
+  "semantic_review": "assistant_diagnostic_not_independent_human",
+  "input_budget_definition": "frozen_character_estimator_not_provider_billed_tokens",
+  "estimated_4k_is_provider_token_bound": false,
+  "provider_reported_input_tokens": 8841,
+  "provider_reported_output_tokens": 306,
+  "budget": {
+    "approved_total_cny": "5.00",
+    "scope": "v9_and_later_user_confirmed",
+    "prior_known_upper_cny": "0.090520",
+    "new_known_upper_cny": "0.020130",
+    "cumulative_known_upper_cny": "0.110650",
+    "remaining_conditional_cny": "4.889350",
+    "estimate_method": "peak_all_input_cache_miss_not_account_invoice",
+    "preapproval_unknown_usage_calls": 13,
+    "preapproval_unknown_usage_excluded_from_approved_scope": true,
+    "authorizes_next_call": false
+  },
+  "historical_v16_decision": "insufficient_evidence_unchanged",
+  "rates_reverified_on": "2026-11-05",
+  "rate_source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"
+}

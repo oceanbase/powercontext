@@ -7,6 +7,11 @@ It never publishes Atomic Memory, runs reconciliation, changes a production regi
 
 [中文说明](README.zh.md) · [Experiment protocol](PROTOCOL.md)
 
+The latest [v17 live diagnostic](V17_RESULTS.zh.md) executed two actual SDK/Pipeline requests after a committed freeze.
+Exact literals pass 4/4; the first Unicode response retains 2/3 literals and omits required CRLF, so the two remaining
+requests are unrun. The decision remains `insufficient_evidence`; this is a candidate-only diagnostic with assistant
+review, not the formal all-arm comparison. See [the opt-in contract](V17_PROTOCOL.zh.md).
+
 The [v16 protected-cell contract](V16_PROTOCOL.zh.md) changes only copy-cell selection while preserving the v15
 instructions, output schema, source selection and budgets. Its Unicode minimum still needs three requests against
 the unchanged one-request limit. The [v16 results](V16_RESULTS.zh.md) distinguish offline input coverage from this

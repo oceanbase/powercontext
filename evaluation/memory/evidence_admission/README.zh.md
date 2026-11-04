@@ -6,6 +6,10 @@
 [工程验证](ENGINEERING_READINESS.zh.md)提供四个 Python 版本的根包与完整 evaluation 测试、类型检查、
 完整 hooks 和构建凭据。工程通过不代表正式线上比较通过；当前总体决策仍为 `insufficient_evidence`。
 
+[v17 线上诊断](V17_RESULTS.zh.md)在实际提交冻结后，经 SDK/Pipeline 执行两次请求：精确字面量 4/4，
+Unicode 第一条为 2/3，遗漏必需 CRLF，因此其余两条未运行。新增真实用量完整记录，失败可离线回放；
+这只是候选最小诊断和 assistant 审阅，未完成正式各 arm 比较。[显式线上命令](V17_PROTOCOL.zh.md)默认不执行网络调用。
+
 [v16 合同](V16_PROTOCOL.zh.md)只改变可复制单元的选择，保留 v15 指令、输出 schema、源范围与预算。
 Unicode 最小样本仍需三次请求，超过未调整的每例一次门槛；[v16 结果](V16_RESULTS.zh.md)分别记录离线输入覆盖
 与这个失败的准入门槛。本版没有新增 provider 调用或生产授权。

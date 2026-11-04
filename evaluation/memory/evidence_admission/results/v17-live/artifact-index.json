@@ -1,0 +1,23 @@
+{
+  "schema": "evidence-admission.v17.public-artifact-index.v1",
+  "files": {
+    "freeze.json": "e536ea9d41497adad9201e02abc279d8edbdd4119ed6a4b435d700164850edd9",
+    "plan.json": "0ef6795eec3d213b9d1b00e9651da8e8efd8db278c2b094ac588a54a5728be67",
+    "preflight.json": "92863411b9b4e1fcc6a0e06da4fdb94ceea797a14439b1df31d00d2972f8aa58",
+    "recorded-replay.json": "de82a54784001ea45e77fa45db5d6f82347d39143d4d144a3374548641df6aa3",
+    "result.json": "88bf4f684786467a448cb94dd91f8c1b2d00078005d70d53e7c2e045121b3e8d",
+    "validation.json": "41fce54b82f333c490e6f089062a58deca1508a8f001dd5ff46c642d819e9563"
+  },
+  "report_sha256": "f2ee8aa3bfa170d7ce47daee1744aee8ec9148ab3a8fa218f31f378e4bbc238f",
+  "privacy_scan": {
+    "passed": true,
+    "public_files": 6,
+    "raw_source_prompt_response_fields": 0,
+    "actual_configured_credential_occurrences": 0,
+    "sensitive_host_paths": 0,
+    "raw_scope_ids": 0,
+    "private_audit_file_modes_verified_0600": true
+  },
+  "source_identity_unchanged_after_live": true,
+  "new_provider_requests_for_verification": 0
+}

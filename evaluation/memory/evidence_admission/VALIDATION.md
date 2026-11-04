@@ -23,8 +23,9 @@ uv run prek run -a
 uv run ty check
 ```
 
-The current evidence admission suite contains 490 passing tests, including 29 v16 regressions; its explicit issue command
-emits 1934 warnings. The 461-test count belongs to the engineering baseline above. These tests run without provider
+The current evidence admission suite contains 508 passing tests, including 18 v17 regressions; its explicit issue command
+emits 1935 warnings on Python 3.11.15. The v16 count is 490; the 461-test count belongs to the engineering baseline above.
+V17 does not rerun the other Python versions or the complete root suite. These tests run without provider
 credentials or live network access. Native LongMemEval lineage acceptance still requires the
 `ScopedAtomicMemory.evidence` prerequisite from #1975.
 The 24 related production window-recovery, SQLite wire-evidence and extraction-evidence tests pass separately.
@@ -240,3 +241,19 @@ in [v16 validation](results/v16-offline/validation.json). Root runtime code is u
 the complete root four-version matrix is retained there rather than claimed rerun for this evaluation-only addition.
 See [V16_PROTOCOL.zh.md](V16_PROTOCOL.zh.md) for offline commands and [V16_RESULTS.zh.md](V16_RESULTS.zh.md)
 for the final decision, failure preservation, no-model measurement limits and read-only summary regeneration.
+
+
+## Serial multi-request live diagnostic
+
+V17 adds 18 passing regressions for audited SDK/Pipeline copying, complete-context billing reservation, unknown usage,
+literal credential loading without shell execution, no resend after failure or pending review, output-bound review,
+whole-case coverage, actual task cancellation, and preflight request-hash enforcement. The full evidence admission run
+passes 508 tests with 1935 warnings on Python 3.11.15 after the committed execution freeze. Four-request SDK preflight,
+Ruff, formatting, whole evaluation types, `make check` and byte-matched wheel/sdist builds pass.
+
+Two actual requests execute after freeze: exact literals 4/4, then Unicode 2/3 with required CRLF missing. The real
+Pipeline returns both outputs; the two remaining planned requests are unrun after bound assistant review fails the
+Unicode gate. Recorded HTTP-response SDK/Pipeline replay reproduces both hashes and scores without new provider calls.
+Input/output usage is 8841/306 tokens, with no missing usage. Provider-reported Unicode input is 5679, so the local 4K
+character-estimator gate is not a hard provider-token bound. No formal all-arm comparison or independent semantic
+acceptance follows. See [V17_RESULTS.zh.md](V17_RESULTS.zh.md) and [the receipts](results/v17-live/validation.json).
