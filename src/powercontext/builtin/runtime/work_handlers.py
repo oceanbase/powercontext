@@ -315,7 +315,14 @@ class MemoryWorkHandler:
                 )
             )
         _require_exact_cursor(payload, current_sequence, current_generation)
-        prepared = await self._contexts.prepare_memory(claim.scope_id, self._window_limit)
+        # Pin preparation to the persisted window: re-reading the live high watermark
+        # would absorb Sources that arrived after this Work record was written, so the
+        # claim would publish rows outside the window it reports.
+        prepared = await self._contexts.prepare_memory(
+            claim.scope_id,
+            self._window_limit,
+            window=(payload.after, payload.through),
+        )
         if isinstance(prepared, MemoryFlushResult):
             # The trigger selected no window; there is nothing to publish and
             # nothing the ledger fence could discard.

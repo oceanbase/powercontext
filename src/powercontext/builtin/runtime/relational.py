@@ -1574,8 +1574,12 @@ class RelationalContexts:
         /,
         *,
         atomic_context: ArtifactSearchExecutionContext | None = None,
+        window: tuple[int, int] | None = None,
     ) -> "PreparedMemoryWindow | MemoryFlushResult":
         """Prepare one Memory window's decisions without publishing it.
+
+        ``window`` pins the logical input to persisted ``(after, through)`` boundaries
+        so a retried or delayed claim processes the rows its Work record describes.
 
         The returned window's ``publish`` commits the Memory artifacts and
         advances the Source cursor on the caller's open transaction, so the
@@ -1587,7 +1591,7 @@ class RelationalContexts:
             services=services,
             lock=self._state_for(services.scope_id).scope_locks.setdefault("activation", asyncio.Lock()),
             tracing=self._tracing,
-        ).prepare(limit=limit, atomic_context=atomic_context)
+        ).prepare(limit=limit, atomic_context=atomic_context, window=window)
 
     async def incubate_experience(
         self,
@@ -1857,6 +1861,7 @@ class _RelationalTriggers:
         *,
         limit: int,
         atomic_context: ArtifactSearchExecutionContext | None = None,
+        window: tuple[int, int] | None = None,
     ) -> "PreparedMemoryWindow | MemoryFlushResult":
         """Prepare one window's decisions while holding the activation lock.
 
@@ -1869,6 +1874,7 @@ class _RelationalTriggers:
                 self._services.scope_id,
                 limit,
                 context=atomic_context,
+                window=window,
             )
 
     def _stage(

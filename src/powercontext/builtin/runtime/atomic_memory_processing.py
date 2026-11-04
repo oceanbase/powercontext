@@ -357,8 +357,13 @@ class AtomicMemorySourceWindowProcessor:
         limit: int,
         *,
         context: ArtifactSearchExecutionContext | None = None,
+        window: tuple[int, int] | None = None,
     ) -> PreparedMemoryWindow | MemoryFlushResult:
         """Prepare one Source window's decisions without publishing.
+
+        ``window`` pins the logical input to persisted boundaries ``(after, through)``
+        instead of re-reading the live high watermark, so a retried or delayed claim
+        processes exactly the rows its Work record describes.
 
         Returns a ``PreparedMemoryWindow`` whose ``publish`` commits the Memory
         artifacts and advances the cursor on the caller's open transaction, or a
@@ -377,8 +382,8 @@ class AtomicMemorySourceWindowProcessor:
                         self.prompts.bind(scope_id, "atomic_memory.extract"),
                         self.prompts.bind(scope_id, "atomic_memory.reconcile"),
                     ):
-                        return await self._prepare_window(scope_id, limit, None, selected_context, span)
-                return await self._prepare_window(scope_id, limit, None, selected_context, span)
+                        return await self._prepare_window(scope_id, limit, None, selected_context, span, window)
+                return await self._prepare_window(scope_id, limit, None, selected_context, span, window)
 
     async def _retry_window(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
         for attempt in range(3):
@@ -407,8 +412,13 @@ class AtomicMemorySourceWindowProcessor:
         prepared.emit_finalized()
         return result
 
-    async def _prepare_window(self, scope_id, limit, processing, context, span):
+    async def _prepare_window(self, scope_id, limit, processing, context, span, window=None):
         """Select one Source window and prepare its decisions without publishing.
+
+        ``window`` pins the logical input to the persisted ``(after, through)``
+        boundaries. Preparing the live window instead would silently absorb Sources
+        that arrived after the Work record was written, so the claim would process a
+        different input than the one it reports.
 
         Returns a ``PreparedMemoryWindow`` whose ``publish`` commits the Memory
         artifacts and advances the cursor on the caller's transaction, or a
@@ -423,7 +433,15 @@ class AtomicMemorySourceWindowProcessor:
             await application.security.authorize(connection, scope_id, context, "create")
             cursor = await self.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME)
             state = trigger.initial_state() if cursor is None else cursor.cursor
-            high_watermark, limit = await self.windows.signal(connection, scope_id, state.sequence, limit)
+            if window is None:
+                high_watermark, limit = await self.windows.signal(connection, scope_id, state.sequence, limit)
+            else:
+                after, through = window
+                if state.sequence != after or through <= after:
+                    raise AtomicMemoryConflictError("The Source cursor moved before window preparation")
+                # Express the persisted window as the trigger's own bounded signal:
+                # sequence=through with limit=through-after activates exactly this span.
+                high_watermark, limit = through, through - after
             signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
             transition = trigger.activate(signal, state)
             if not transition.actions:

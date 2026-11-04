@@ -18,6 +18,7 @@ import asyncio
 
 import pytest
 
+from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.work import StaleWorkClaimError, WorkRepository
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
@@ -200,5 +201,57 @@ def test_memory_work_handler_returns_the_trigger_result_without_a_commit(tmp_pat
             assert prepared.result is not None
             assert prepared.result.code == "idle"
             assert prepared.result.payload["current_cursor"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_memory_work_handler_pins_preparation_to_the_persisted_window(tmp_path, monkeypatch) -> None:
+    """A Source captured after the Work record must stay outside this attempt's window."""
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            context = await contexts.get("project")
+            await context.sources.capture(ContentCapture(source_id="one", content="remember this"))
+            spec = await memory_work_spec(contexts, "project", limit=100, max_attempts=3, payload_version=1)
+            assert spec is not None
+            assert (spec.payload["after"], spec.payload["through"]) == (0, 1)
+            claim = await _claim(contexts, spec)
+
+            # The second Source lands between discovery and execution. Preparing the
+            # live window would absorb it into this claim and report high_watermark=2.
+            await context.sources.capture(ContentCapture(source_id="two", content="arrived later"))
+
+            requested: dict[str, object] = {}
+
+            async def fake_prepare_memory(scope_id: str, limit: int, *, window=None, **_: object):
+                requested["window"] = window
+                return _StubPreparedWindow(contexts, [])
+
+            monkeypatch.setattr(contexts, "prepare_memory", fake_prepare_memory)
+            prepared = await MemoryWorkHandler(contexts, window_limit=100).prepare(claim)
+
+            assert prepared.commit is not None
+            # The persisted boundaries, not the live high watermark (0, 2).
+            assert requested["window"] == (0, 1)
+
+    asyncio.run(scenario())
+
+
+def test_prepare_memory_refuses_a_window_the_cursor_already_left(tmp_path) -> None:
+    """A claim whose persisted window no longer matches the cursor must not publish."""
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            await contexts.get("project")
+            async with contexts.database.transaction() as connection:
+                await contexts.repositories.cursors.save(
+                    connection,
+                    "project",
+                    SOURCE_WINDOW_TRIGGER_NAME,
+                    SourceCursor(sequence=1),
+                    expected_generation=None,
+                )
+            with pytest.raises(AtomicMemoryConflictError):
+                await contexts.prepare_memory("project", 100, window=(0, 1))
 
     asyncio.run(scenario())
