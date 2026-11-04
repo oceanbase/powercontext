@@ -303,10 +303,12 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
 )
 @pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
 def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name: str, sends_sampling: bool) -> None:
-    try:  # newer Anthropic SDKs require httpx2 clients
-        import httpx2 as _http
-    except ModuleNotFoundError:
-        _http = httpx
+    # Use whichever HTTP library the installed Anthropic SDK builds its clients on
+    # (``httpx`` for 0.117, ``httpx2`` for newer releases); importability alone is
+    # not enough because other packages can pull in ``httpx2`` too.
+    import anthropic._base_client as _anthropic_client
+
+    _http = getattr(_anthropic_client, "httpx", None) or _anthropic_client.httpx2
     requests: list[dict[str, object]] = []
 
     def respond(request: _http.Request) -> _http.Response:
