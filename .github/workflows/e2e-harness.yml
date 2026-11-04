@@ -343,7 +343,7 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 145
+    timeout-minutes: 175
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -436,10 +436,12 @@ jobs:
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
-        timeout-minutes: 60
+        # Include full-Server grant scenarios and database cleanup in each deadline.
+        timeout-minutes: 90
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/clean-migration"
+            oceanbase --shard "${{ matrix.shard }}/3" --process-timeout-seconds 300 \
+            --output "$MIGRATION_REPORTS/clean-migration"
 
       - name: Test concurrent managed startup without skips
         # Collection and three isolated cases retain their 180s process deadlines.
