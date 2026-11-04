@@ -6,7 +6,15 @@ See [中文说明](README.zh.md), [security boundary](SECURITY.md), and [validat
 
 ## Observation
 
-The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Inventory & usage hosts the qualified Statistics view; This session reads native session observations. Runtime state remains explicitly unavailable until integrated. Opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
+The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Inventory & usage hosts the qualified Statistics view; This session reads native session observations. Opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
+
+**Observation → Runtime state** shows the selected Server's liveness and available capabilities, with separate UTC
+snapshots and process-level Memory extraction history. Refresh does not probe models. **Probe readiness** is a separate,
+explicit action for a qualified connection with current observation access; it may contact configured dependencies.
+Local Ops inspection and registered CLI diagnostics describe this computer and work independently of the remote Server.
+Installation, recovery and service changes belong in **Local Server settings**. Local states are shown only when the
+native service manager or helper reports them; an unreachable HTTP endpoint does not establish that a service is stopped
+or starting.
 
 The native host collects a bounded, in-memory window of HTTP requests and Memory/Scope user operations independently of page navigation. Trusted typed IPC provides an allowlisted summary, reset and safe JSON preview. The window retains at most 512 terminal records; it preserves cancellation and unknown-write outcomes and contains no content or target identities. See the [session observation contract](../docs/en/development/desktop-session-observations.md) for measurement units, coverage, reset and failure isolation. This session shows separate request/action counts, outcomes and millisecond latency, UTC snapshot/retention coverage, manual refresh and confirmed reset. **Preview safe diagnostic summary** opens the exact native text; copying is a separate explicit action with feedback and selectable text for manual recovery. Leaving the view or changing context closes its preview and discards late UI responses.
 
@@ -17,7 +25,7 @@ with independent retention/loss coverage, and contribute no HTTP or Memory/Scope
 
 ## Shared feedback and current context
 
-Every page uses the same loading, empty, unavailable and error presentation. Loading local state is distinct from being disconnected; a local-state failure offers **Reload local state**, without probing Server readiness. Empty search results mean no matches for that query, not an empty Scope inventory. Unimplemented Observation views remain unavailable.
+Every page uses the same loading, empty, unavailable and error presentation. Loading local state is distinct from being disconnected; a local-state failure offers **Reload local state**, without probing Server readiness. Empty search results mean no matches for that query, not an empty Scope inventory.
 
 Errors explain the affected operation and recovery. Read failures offer an explicit retry; exact reads retain the original Artifact revision. An expired Scope cursor restarts from the first page. Credential, permission and compatibility failures explain the required configuration or authorization change. Save failures keep the draft; unknown writes retain their original target and require the existing confirmation before another submission. Writes are never replayed automatically. Local diagnostic failures offer a retry of the same selected local check and do not indicate remote unavailability.
 
