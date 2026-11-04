@@ -30,6 +30,12 @@ importers:
       lucide-react:
         specifier: 1.34.0
         version: 1.34.0(react@19.2.8)
+      mdast-util-from-markdown:
+        specifier: 2.0.3
+        version: 2.0.3
+      mdast-util-to-markdown:
+        specifier: 2.1.2
+        version: 2.1.2
       next:
         specifier: 16.4.1
         version: 16.4.1(@types/node@26.3.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -46,6 +52,9 @@ importers:
       '@tailwindcss/postcss':
         specifier: 4.3.3
         version: 4.3.3
+      '@types/mdast':
+        specifier: 4.0.4
+        version: 4.0.4
       '@types/mdx':
         specifier: 2.0.14
         version: 2.0.14

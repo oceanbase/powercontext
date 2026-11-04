@@ -64,7 +64,7 @@ pnpm --dir website types:check
 
 Markdown 的 section 为 `docs`、`development`、`rfcs` 或 `blog`，概览页省略 `{slug}`。`website/src/lib/llms.ts` 通过 Fumadocs loader 合并文档与已发布博客，官方 `llms()` API 从页面树生成索引，并通过 `getText('processed')` 生成单页和全文。URL helper 与 `content.md` 路由采用 [Fumadocs LLM 集成](https://www.fumadocs.dev/docs/integrations/llms)中的做法。
 
-静态托管直接提供导出的 Markdown 文件。Next.js rewrite 和 `Accept` 请求头协商需要服务端，本站不启用这些功能。正文链接保留源文件中的目标地址。添加页面标题与来源 URL 前，会移除正文已有的开头标题。MDX 组件按 Fumadocs 默认行为保留 JSX，不另行转换为自定义文本格式。
+静态托管直接提供导出的 Markdown 文件。Next.js rewrite 和 `Accept` 请求头协商需要服务端，本站不启用这些功能。相对文档链接通过 Fumadocs 内容源解析为绝对 Markdown 地址，保留查询参数和锚点；以 `/` 开头的链接和图片使用部署地址。代码示例和 Markdown 源文件保持原样。添加页面标题与来源 URL 前，会移除正文已有的开头标题。MDX 组件按 Fumadocs 默认行为保留 JSX，不另行转换为自定义文本格式。
 
 源文件直接使用 UTF-8 文字。路由声明 UTF-8 内容类型，静态托管也需为 `.txt` 和 `.md` 文件返回带 UTF-8 charset 的响应头。排查乱码时，检查预览或部署环境的实际响应头。导出文件便于工具读取文档，搜索引擎自行决定是否收录或引用。
 
