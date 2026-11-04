@@ -1121,6 +1121,59 @@ async def _open_artifact_processing_supervisor(
         yield ArtifactProcessingSupervisors(tuple(supervisors))
 
 
+class _RateLimitWindowMaintenance:
+    """Delete bounded batches of expired fixed-window counters on an interval.
+
+    Single-node installs start no ledger scheduler or Worker, so the
+    ``OperationMaintenanceHandler`` purge would never run and every active
+    principal would accumulate one window row per interval indefinitely. This
+    loop keeps the table bounded independently of distributed ledger execution.
+    """
+
+    def __init__(
+        self,
+        *,
+        database: Any,
+        interval_seconds: float,
+        batch_size: int,
+        repository: Any = None,
+    ) -> None:
+        from powercontext.builtin.persistence.rate_limit import RateLimitRepository
+
+        self._database = database
+        self._interval_seconds = interval_seconds
+        self._batch_size = batch_size
+        self._repository = RateLimitRepository() if repository is None else repository
+        self._stop_requested = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._run(), name="powercontext-rate-limit-maintenance")
+
+    async def stop(self) -> None:
+        self._stop_requested.set()
+        if self._task is not None:
+            await asyncio.gather(self._task, return_exceptions=True)
+            self._task = None
+
+    async def _run(self) -> None:
+        while not self._stop_requested.is_set():
+            try:
+                await self.purge_once()
+            except Exception as error:
+                log_safely(logging.WARNING, "rate limit window maintenance failed: %s", error)
+            try:
+                await asyncio.wait_for(self._stop_requested.wait(), timeout=self._interval_seconds)
+            except TimeoutError:
+                continue
+
+    async def purge_once(self) -> int:
+        """Delete one bounded batch of expired counters and return the row count."""
+
+        async with self._database.transaction() as connection:
+            return await self._repository.purge_expired(connection, limit=self._batch_size)
+
+
 class WorkBackground:
     """Role-specific durable Work Ledger services attached to one runtime.
 
@@ -1129,7 +1182,7 @@ class WorkBackground:
     the role does not run them or no background schedule is configured.
     """
 
-    __slots__ = ("membership", "operations", "scheduler", "worker")
+    __slots__ = ("membership", "operations", "rate_limit_maintenance", "scheduler", "worker")
 
     def __init__(
         self,
@@ -1138,11 +1191,13 @@ class WorkBackground:
         membership: Any = None,
         scheduler: Any = None,
         worker: Any = None,
+        rate_limit_maintenance: Any = None,
     ) -> None:
         self.operations = operations
         self.membership = membership
         self.scheduler = scheduler
         self.worker = worker
+        self.rate_limit_maintenance = rate_limit_maintenance
 
 
 def _work_background_requested(config: BuiltinConfig) -> bool:
@@ -1310,15 +1365,25 @@ async def _open_work_background(
     from powercontext.builtin.runtime.worker import DurableWorker
 
     if not _work_background_requested(config):
-        yield WorkBackground(
-            operations=OperationManager(
-                contexts=contexts,
-                operations=config.operations,
-                worker=config.worker,
-                local_worker=None,
-                payload_version=CURRENT_WORK_PAYLOAD_VERSION,
-            )
+        maintenance = _RateLimitWindowMaintenance(
+            database=contexts.database,
+            interval_seconds=config.operations.cleanup_interval_seconds,
+            batch_size=config.operations.cleanup_batch_size,
         )
+        maintenance.start()
+        try:
+            yield WorkBackground(
+                operations=OperationManager(
+                    contexts=contexts,
+                    operations=config.operations,
+                    worker=config.worker,
+                    local_worker=None,
+                    payload_version=CURRENT_WORK_PAYLOAD_VERSION,
+                ),
+                rate_limit_maintenance=maintenance,
+            )
+        finally:
+            await maintenance.stop()
         return
 
     role = config.deployment.role
@@ -1396,7 +1461,6 @@ def compose_artifact_search(contexts, embedding_model=None, *, observer=None):
     topic_memory_searcher = TopicMemorySearcher(
         search=contexts.search_topic_memories,
         embedding_model=embedding_model,
-        observer=observer,
         capabilities=contexts.topic_memory_index.capabilities,
     )
     artifact_search.register(topic_memory_searcher, embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL)
