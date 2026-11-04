@@ -64,7 +64,7 @@ from powercontext.builtin.inference import (
     embed_query,
 )
 from powercontext.builtin.persistence.atomic_memory_index import (
-    DEFAULT_ATOMIC_MEMORY_RELATED_MAX_CANDIDATES,
+    DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE,
     AtomicMemoryIndexError,
     AtomicMemoryIndexFilter,
     AtomicMemoryRelatedRequest,
@@ -109,7 +109,7 @@ logger = logging.getLogger(__name__)
 class AtomicMemoryProcessingConfig:
     related_mode: Literal["auto", "fts", "vector", "hybrid"] = "auto"
     related_max_distance: float = 1.0
-    related_max_candidates: int | None = DEFAULT_ATOMIC_MEMORY_RELATED_MAX_CANDIDATES
+    related_page_size: int = DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE
     related_fts_fallback: bool = False
     comparison_batch_size: int = 20
     input_tokens_limit: int = 24_000
@@ -120,24 +120,21 @@ class AtomicMemoryProcessingConfig:
             or not math.isfinite(self.related_max_distance)
             or self.related_max_distance < 0
             or (
-                self.related_max_candidates is not None
-                and (
-                    isinstance(self.related_max_candidates, bool)
-                    or not isinstance(self.related_max_candidates, int)
-                    or not 1 <= self.related_max_candidates <= 1000
-                )
+                isinstance(self.related_page_size, bool)
+                or not isinstance(self.related_page_size, int)
+                or not 1 <= self.related_page_size <= 1000
             )
             or self.comparison_batch_size < 1
             or self.input_tokens_limit < 1
         ):
-            raise ValueError("Atomic Memory processing requires a valid mode, threshold, candidate limit and budgets")  # noqa: TRY003
+            raise ValueError("Atomic Memory processing requires a valid mode, threshold, page size and budgets")  # noqa: TRY003
 
     @classmethod
     def from_runtime(cls, runtime: RuntimeConfig) -> AtomicMemoryProcessingConfig:
         return cls(
             related_mode=runtime.atomic_memory_related_mode,
             related_max_distance=runtime.atomic_memory_related_max_distance,
-            related_max_candidates=runtime.atomic_memory_related_max_candidates,
+            related_page_size=runtime.atomic_memory_related_page_size,
             related_fts_fallback=runtime.atomic_memory_related_fts_fallback,
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
@@ -533,51 +530,78 @@ class AtomicMemorySourceWindowProcessor:
                     changed=True,
                 )
             )
-            recalled, related_request = await self._recall_related_items(
-                scope_id, candidate.text, context, workset, artifacts, local_policy=local_policy
+            related_request = await self._related_request_for(
+                scope_id, candidate.text, context, local_policy=local_policy
             )
             prior = await self._window_comparisons(
                 workset, key, related_request, window_vectors, related_only=skip_unrelated
             )
-            pending = list(dict.fromkeys((*prior, *recalled)))
-            # An unrelated candidate is kept as extracted rather than reconciled alone.
-            compared = skip_unrelated
-            while pending or not compared:
-                related = workset.related(key, pending[: self.config.comparison_batch_size])
-                selected_count = min(len(pending), self.config.comparison_batch_size)
-                while related and not self._fits(pipeline, workset.request(key, related), "atomic_memory.reconcile"):
-                    selected_count = max(1, selected_count // 2)
-                    related = workset.related(key, pending[:selected_count])
-                    if selected_count == 1:
-                        self._require_budget(pipeline, workset.request(key, related), "atomic_memory.reconcile")
-                value = workset.request(key, related)
-                self._require_budget(pipeline, value, "atomic_memory.reconcile")
-                reconciliation_prompt = current_prompt("atomic_memory.reconcile")
-                if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
-                    ref = reconciliation_prompt.artifact
-                    identity = (ref.family, ref.artifact_id, ref.revision)
-                    if identity not in admitted_prompts:
-                        await self._authorize_model_input(scope_id, context, (), (ref,))
-                        admitted_prompts.add(identity)
-                    prompt_refs = tuple(
-                        {
-                            (value.family, value.artifact_id, value.revision): value for value in (*prompt_refs, ref)
-                        }.values()
+
+            async def compare_pending(pending: list[str], *, required: bool) -> None:
+                nonlocal key, prompt_refs
+                pending = list(dict.fromkeys(pending))
+                # An unrelated candidate is kept as extracted rather than reconciled alone.
+                compared = not required
+                while pending or not compared:
+                    related = workset.related(key, pending[: self.config.comparison_batch_size])
+                    selected_count = min(len(pending), self.config.comparison_batch_size)
+                    while related and not self._fits(
+                        pipeline, workset.request(key, related), "atomic_memory.reconcile"
+                    ):
+                        selected_count = max(1, selected_count // 2)
+                        related = workset.related(key, pending[:selected_count])
+                        if selected_count == 1:
+                            self._require_budget(pipeline, workset.request(key, related), "atomic_memory.reconcile")
+                    value = workset.request(key, related)
+                    self._require_budget(pipeline, value, "atomic_memory.reconcile")
+                    reconciliation_prompt = current_prompt("atomic_memory.reconcile")
+                    if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
+                        ref = reconciliation_prompt.artifact
+                        identity = (ref.family, ref.artifact_id, ref.revision)
+                        if identity not in admitted_prompts:
+                            await self._authorize_model_input(scope_id, context, (), (ref,))
+                            admitted_prompts.add(identity)
+                        prompt_refs = tuple(
+                            {
+                                (value.family, value.artifact_id, value.revision): value
+                                for value in (*prompt_refs, ref)
+                            }.values()
+                        )
+                        artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
+                    await self._authorize_comparison_basis(
+                        scope_id, context, (workset.items[workset.resolve(key)], *related)
                     )
-                    artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
-                try:
-                    result = await pipeline.reconciler.generate(value)
-                    key = workset.apply(key, related, AtomicMemoryReconciliationOutput.model_validate(result.output))
-                except RedundantAtomicMemoryRevisionError as error:
-                    key = workset.recover_redundant_revision(key, related, error)
-                del pending[:selected_count]
+                    try:
+                        result = await pipeline.reconciler.generate(value)
+                        key = workset.apply(
+                            key, related, AtomicMemoryReconciliationOutput.model_validate(result.output)
+                        )
+                    except RedundantAtomicMemoryRevisionError as error:
+                        key = workset.recover_redundant_revision(key, related, error)
+                    del pending[:selected_count]
+                    compared = True
+
+            await compare_pending(list(prior), required=False)
+            compared = bool(prior) or skip_unrelated
+
+            async def compare_page(page_keys: tuple[str, ...]) -> str:
+                nonlocal compared
+                await compare_pending(list(page_keys), required=False)
                 compared = True
+                return key  # noqa: B023 - the callback mutates the surrounding proposal key
+
+            await self._recall_related_items(
+                scope_id, context, workset, compare_page, request=related_request, local_policy=local_policy
+            )
+            if not compared:
+                await compare_pending([], required=True)
         for item in workset.changes():
             refs = {(ref.family, ref.artifact_id, ref.revision): ref for ref in (*item.artifacts, *prompt_refs)}
             workset.items[item.key] = replace(item, artifacts=tuple(refs.values()))
+            artifacts.update(refs)
         return workset, tuple(artifacts.values())
 
-    async def _load_related_items(self, connection, scope_id, hits, context, workset, artifacts, *, joined_heads):
+    async def _load_related_items(self, connection, scope_id, hits, context, workset, *, joined_heads):
         from powercontext.server.authz import AccessDeniedError
 
         allowed = []
@@ -588,7 +612,7 @@ class AtomicMemorySourceWindowProcessor:
                     scope_id,
                     context,
                     "read",
-                    ArtifactRef(family="atomic-memory", artifact_id=hit.artifact_ref.artifact_id, revision=1),
+                    hit.artifact_ref,
                 )
             except AccessDeniedError:
                 continue
@@ -616,7 +640,6 @@ class AtomicMemorySourceWindowProcessor:
                 artifact_ref=read.ref,
                 content=content,
             )
-            artifacts[(read.ref.family, read.ref.artifact_id, read.ref.revision)] = read.ref
             recalled.append(
                 workset.add(
                     AtomicMemoryWorkingItem(
@@ -630,7 +653,7 @@ class AtomicMemorySourceWindowProcessor:
             )
         return recalled
 
-    async def _recall_related_items(self, scope_id, query, context, workset, artifacts, *, local_policy=False):
+    async def _related_request_for(self, scope_id, query, context, *, local_policy):
         application = self.application
         if local_policy or context is None or (context.access is None and context.trusted_local):
             # Trusted local work needs no policy read. Local policy already checked
@@ -639,39 +662,46 @@ class AtomicMemorySourceWindowProcessor:
         else:
             async with application.database.transaction() as connection:
                 filters = await application.security.filters(connection, scope_id, context)
-        request = await self._related_request(query, filters)
-        mode = request.mode
-        # Built-in indexes join authority in one statement. Permissioned reads
-        # retain a short snapshot across retrieval and per-hit authorization.
-        # Embedding and reconciliation stay outside either transaction.
-        one_statement = (context is None or context.access is None) and (
-            mode == "fts" or not self.config.related_fts_fallback
-        )
-        connection_manager = (
-            application.database.engine.connect()
-            if one_statement
-            else application.database.transaction(consistent_snapshot=True)
-        )
-        async with deferred_decision_audit(context), connection_manager as connection:
-            try:
-                hits, joined_heads = await application.index.enumerate_related_with_heads(connection, scope_id, request)
-            except AtomicMemoryIndexError as error:
-                if error.code == "stale-recall":
-                    _conflict("Related channels returned different memory versions")
-                if not self.config.related_fts_fallback or error.code not in {"incomplete-vector", "embedding-profile"}:
-                    raise
-                hits, joined_heads = await application.index.enumerate_related_with_heads(
-                    connection, scope_id, replace(request, mode="fts")
-                )
-            async with self._prefetch_artifact_policy(
-                connection, scope_id, context, tuple(hit.artifact_ref for hit in hits), include_scope=local_policy
+        return await self._related_request(query, filters)
+
+    async def _recall_related_items(self, scope_id, context, workset, compare_page, *, request, local_policy=False):
+        application = self.application
+        cursor = None
+        while True:
+            async with (
+                deferred_decision_audit(context),
+                application.database.transaction(consistent_snapshot=True) as connection,
             ):
-                if local_policy:
-                    await application.security.authorize(connection, scope_id, context, "read")
-                recalled = await self._load_related_items(
-                    connection, scope_id, hits, context, workset, artifacts, joined_heads=joined_heads
-                )
-        return recalled, request
+                try:
+                    page = await application.index.related_page(connection, scope_id, request, cursor)
+                except AtomicMemoryIndexError as error:
+                    if error.code == "stale-recall":
+                        _conflict("Related channels returned different memory versions")
+                    if not self.config.related_fts_fallback or error.code not in {
+                        "incomplete-vector",
+                        "embedding-profile",
+                    }:
+                        raise
+                    request = replace(request, mode="fts")
+                    cursor = None
+                    continue
+                if page is None:
+                    break
+                refs = tuple(hit.artifact_ref for hit in page.hits)
+                async with self._prefetch_artifact_policy(
+                    connection, scope_id, context, refs, include_scope=local_policy
+                ):
+                    if local_policy:
+                        await application.security.authorize(connection, scope_id, context, "read")
+                    loaded = await self._load_related_items(
+                        connection, scope_id, page.hits, context, workset, joined_heads=page.heads
+                    )
+            cursor = page.cursor
+            if loaded:
+                key = await compare_page(tuple(loaded))
+                workset.release(loaded, keep=key)
+            if cursor is None:
+                break
 
     async def _window_comparisons(self, workset, key, request, vectors, *, related_only):
         items = tuple(item for item in workset.items.values() if item.key != key and item.changed and item.retain)
@@ -740,7 +770,7 @@ class AtomicMemorySourceWindowProcessor:
             query_vector=vector,
             embedding_profile=profile,
             max_distance=self.config.related_max_distance,
-            max_candidates=self.config.related_max_candidates,
+            page_size=self.config.related_page_size,
         )
 
     async def _query_vector(self, query):
@@ -752,6 +782,18 @@ class AtomicMemorySourceWindowProcessor:
         if len(result.vectors) != 1:
             raise AtomicMemoryIndexError("embedding-result", "Related query requires one vector")
         return canonical_embedding(result.vectors[0], dimension=profile.dimension, normalization=profile.normalization)
+
+    async def _authorize_comparison_basis(self, scope_id, context, items):
+        """Recheck one model batch's exact published basis and write authority."""
+        if context is None or (context.access is None and context.trusted_local):
+            return
+        async with self._read_transaction(context) as connection:
+            for read in (read for item in items for read in item.origins):
+                current = await self.application.service.get(connection, scope_id, read.ref.artifact_id, context)
+                if current.as_read() != read:
+                    _conflict("Memory basis changed before model comparison")
+                await self.application.security.authorize(connection, scope_id, context, "read", read.ref)
+                await self.application.security.authorize(connection, scope_id, context, "write", read.ref)
 
     async def _authorize_model_input(self, scope_id, context, generation_sources, artifact_refs=()):
         """Admit Source and Prompt content against current data and authority."""
