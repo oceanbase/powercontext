@@ -177,8 +177,9 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-`sqlite-observability-4568b499-v1` matches the bundled API contract and records the local
-SQLite protocol qualification for its exact Server source and wheel below.
+`sqlite-observability-stats-4568b499-v1` matches the bundled API contract and qualifies
+all twelve operations, including statistics, for its exact Server source and wheel below.
+The separate `sqlite-observability-4568b499-v1` retains its eleven-operation evidence.
 
 [compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence. A record qualifies only its recorded Server source, wheel and contract; records with a different contract digest are disabled in the selector. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
@@ -189,6 +190,56 @@ The real Server harness covers SQLite with anonymous loopback, static Bearer, HT
 Selecting a compatibility profile does not attest the remote binary identity. Existing `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selections require explicitly choosing an available matching profile and rechecking the connection. Desktop reads memories only through Atomic Memory references, so Servers that answer only with Memory entry citations are not qualified. CLI diagnostics separately verify the registered executable path and digest, then validate the diagnostic response schema. The observed version is optional report information; a registration does not require a version.
 
 ### Current-Scope statistics qualification
+
+#### Server 4568b499 statistics product qualification
+
+`sqlite-observability-stats-4568b499-v1` qualifies all twelve Desktop operations,
+including `get_stats` and discovery, against Server source
+`4568b4999f2a69350d00dabd4f1414ac9776c737`.
+Normalized OpenAPI SHA-256:
+`de74d806343998bae877effb732b1606b3eb27ee9c31fbc39509ee3937fa2a4a`.
+Wheel: `powercontext-1.4.2.dev238+g4568b4999-py3-none-any.whl`.
+Wheel SHA-256: `5c11517fc8966fe34e953adedb370ef270595da1b0c37a2efd941f8b589ea563`.
+All 736 packaged runtime files match this Server source byte for byte, and the
+combined Desktop checkout has no changes to those runtime sources.
+
+On 2026-11-05, macOS 26.5.2 ARM64, Python 3.11.15 and Rust 1.95.0 passed all four
+built-wheel SQLite modes: anonymous loopback, static Bearer loopback, explicit-CA
+HTTPS with a base path, and enforced authentication Provider. The default native
+probe, built without `ci-fixtures`, ran from clean Desktop commit
+`e4d5e873c42cf160d9233a74a3d2d5a9da1524a6`. It selected the checked-in record
+through ordinary `ConnectionManager::new` profile checking, activation and
+exact-Scope selection. The report confirms `qualificationSource: bundled product records`
+and the exact qualification ID. An independent disposable fixture run at clean
+Desktop commit `581cf26bfe1125cba34e20cb165901d98de5f5eb` passed the same modes.
+
+Statistics reads cover empty and persisted inventory, UTC today/7d/30d,
+zero-filled and partial token reports, Scope isolation and permission revocation.
+The exact-Scope adapter accepts the contract's optional `processing` and
+`bootstrap_delivery` fields while retaining null estimator handling and selection
+validation. A public manager regression reproduced `InvalidResponse` before this
+adapter repair and passes after it. Partial usage is explicit Runtime-recorder
+fixture input; it is not a real model-provider invocation. The probe also verifies
+independent Memory operations, identity changes, lost write responses without
+replay, pagination and Server survival after client exit.
+
+```sh
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run python desktop/tests/real_server.py --product-qualification sqlite-observability-stats-4568b499-v1
+cargo +1.95.0 test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib --tests
+```
+
+The matching-digest product gate failed with only eleven-operation records and
+passes with this separate record. All 46 master records and all 42 prior feature
+records retain their exact source, contract, wheel and operation identities.
+The native suite passed 133 tests with two explicit ignores; all seven statistics
+tests and all 183 frontend tests passed. Type checking, Clippy, Rust formatting,
+generated IPC checks and all 62 API/Desktop contract tests passed. Local reports
+are retained under ignored `desktop/.artifacts/real-server.json`,
+`desktop/.artifacts/stats-fixture-581cf26b.json` and `desktop/.artifacts/server-wheel/`.
+These results establish the local native/SQLite protocol. Installed UI, native
+credentials, Windows execution, external production deployments and release
+acceptance require separate evidence. Discovery does not attest remote binary identity.
 
 #### Server 63e9665c statistics product qualification
 
