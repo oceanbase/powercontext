@@ -330,9 +330,7 @@ def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name
     async def scenario() -> None:
         async with _http.AsyncClient(transport=_http.MockTransport(respond)) as client:
             generator = PydanticAIStructuredGenerator(
-                model=AnthropicModel(
-                    model_name, provider=AnthropicProvider(api_key="test", http_client=client)
-                ),
+                model=AnthropicModel(model_name, provider=AnthropicProvider(api_key="test", http_client=client)),
                 instructions="Return a value.",
                 input_type=Question,
                 output_type=Answer,
