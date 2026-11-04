@@ -65,6 +65,20 @@ def swebench_pro_run(
     registry_bin: str | None = typer.Option(None),
     auth_json: str | None = typer.Option(None),
     proxy_url: str | None = typer.Option(None),
+    egress: Annotated[
+        str,
+        typer.Option(
+            "--egress",
+            help=(
+                "allowlist (default): containers reach only package indexes during prewarm and the model endpoint "
+                "during the agent run. native: unrestricted network. Ignored with --proxy-url."
+            ),
+        ),
+    ] = "allowlist",
+    allow_host: Annotated[
+        str,
+        typer.Option("--allow-host", help="Comma-separated extra hosts the agent may reach, for other providers."),
+    ] = "",
     docker_network_pool: str = typer.Option(DEFAULT_DOCKER_NETWORK_POOL),
     extra_no_proxy_hosts: str = typer.Option(""),
     model: str = typer.Option(DEFAULT_CODEX_MODEL, "--model"),
@@ -140,6 +154,8 @@ def swebench_pro_run(
             registry_binary=Path(registry_bin) if registry_bin is not None else binaries / "regctl",
             auth_json=Path(auth_json) if auth_json is not None else root / "codex-home" / "auth.json",
             proxy_url=proxy_url,
+            egress=egress,
+            allow_hosts=tuple(host for host in allow_host.split(",") if host),
             docker_network_pool=docker_network_pool,
             extra_no_proxy_hosts=tuple(host for host in extra_no_proxy_hosts.split(",") if host),
             run_id=run_id or datetime.now(UTC).strftime("run-%Y%m%d-%H%M%S"),

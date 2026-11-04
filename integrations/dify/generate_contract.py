@@ -25,7 +25,7 @@ from typing import Any
 import yaml
 
 from catalog import TOOLS
-from plugin.powercontext_dify.policy import HIDDEN_PARAMETERS, MEMORY_KINDS
+from plugin.powercontext_dify.policy import HIDDEN_PARAMETERS
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -39,7 +39,11 @@ PARAMETERS = {
     "artifact_id": ("原子记忆 ID", "Exact Atomic Memory artifact_id returned by search or inventory."),
     "state_version": ("当前状态版本", "Current state_version from search, list or pc_memory_state, including zero."),
     "if_match": ("当前内容 ETag", "Real content ETag returned by pc_memory_get for this exact current revision."),
-    "kind": ("记忆类型", "One of the six supported curated Memory kinds."),
+    "kind": (
+        "记忆类型",
+        "Open application-defined Memory kind: nonblank and at most 128 characters. "
+        "Use preference for an explicit preference; preserve a kind supplied by the user.",
+    ),
     "text": ("记忆正文", "Curated Memory text: nonblank after NFC/trim and at most 8192 UTF-8 bytes."),
     "description": (
         "记忆简介",
@@ -294,8 +298,6 @@ def build():
             params.pop(hidden, None)
         if name == "pc_search":
             params["limit"].update(default=8, maximum=8)
-        if "kind" in params:
-            params["kind"]["enum"] = list(MEMORY_KINDS)
         if name == "pc_review_list":
             params["family"] = {"type": "string", "enum": ["experience", "skill"], "nullable": True}
         if name in {"pc_experience_generate", "pc_skill_generate"}:

@@ -131,6 +131,50 @@ def test_atomic_revise_sends_content_cas_and_preserves_precondition_conflict(reg
     assert result["status"] == "error" and result["error"]["code"] == "conflict"
 
 
+@pytest.mark.parametrize("tool", ["pc_remember", "pc_memory_revise"])
+@pytest.mark.parametrize("kind", ["preference", "team:deployment-policy", "agent-note", "类" * 128])
+def test_memory_tools_declare_and_preserve_open_kinds(registry, transport, tool, kind):
+    declaration = registry.tools_mapping["powercontext"][2][tool][0]
+    parameter = next(item for item in declaration.parameters if item.name == "kind")
+    assert parameter.type.value == "string"
+    assert not parameter.options
+    content = {"kind": kind, "text": "Use uv for Python."}
+    receipt = (
+        {
+            "changed": True,
+            "records": [
+                {"artifact": ATOMIC_REF, **content, "state": "active", "state_version": 0, "merged_into_id": None}
+            ],
+        }
+        if tool == "pc_remember"
+        else {**ATOMIC_REVISION, "content": content}
+    )
+    calls = transport(lambda _request: httpx.Response(200, json=receipt))
+    parameters = dict(content)
+    if tool == "pc_memory_revise":
+        parameters.update(artifact=json.dumps(ATOMIC_REF), if_match='"revision:1"')
+
+    result = run(registry, tool, parameters)
+
+    assert result["ok"] is True
+    assert result["data"] == receipt
+    payload = calls[-1][1]
+    assert (payload if tool == "pc_remember" else payload["content"])["kind"] == kind
+
+
+@pytest.mark.parametrize("tool", ["pc_remember", "pc_memory_revise"])
+@pytest.mark.parametrize("kind", ["", " \t\n", "x" * 129, None, 1])
+def test_invalid_memory_kinds_are_rejected_before_writing(registry, transport, tool, kind):
+    transport(lambda _request: pytest.fail("Invalid kind must not write"))
+    parameters = {"kind": kind, "text": "Use uv for Python."}
+    if tool == "pc_memory_revise":
+        parameters.update(artifact=json.dumps(ATOMIC_REF), if_match='"revision:1"')
+
+    result = run(registry, tool, parameters)
+
+    assert result["error"]["code"] == "invalid_request"
+
+
 def test_atomic_retire_uses_zero_state_version_and_recoverable_forgotten_state(registry, transport):
     receipt = {
         "changed": True,
@@ -367,7 +411,6 @@ def test_capture_rejects_nested_and_mixed_text_secrets_before_write(registry, tr
     "parameters",
     [
         {"kind": "decision", "text": "中" * 2731},
-        {"kind": "unknown", "text": "Not a supported memory kind."},
         {"kind": "decision", "text": "   "},
         {"kind": "decision", "text": "Override attempt", "scope_id": "scope-B"},
     ],
