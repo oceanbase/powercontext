@@ -21,6 +21,7 @@ No product command starts a Server. This explicit test harness owns its disposab
 # ruff: noqa: S603, S607
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import json
@@ -46,10 +47,15 @@ class HarnessFailure(RuntimeError):
         super().__init__(f"Desktop isolated fixture failed ({code}): {detail}")
 
 
-def probe_measurement(output: str) -> dict[str, object]:
+def probe_measurement(output: str, product_profile_id: str | None = None) -> dict[str, object]:
     measurement = json.loads(output)
     if measurement.get("result") != "passed":
         raise HarnessFailure("native_probe_result")
+    if product_profile_id is not None and (
+        measurement.get("qualificationSource") != "bundled product records"
+        or measurement.get("qualificationId") != product_profile_id
+    ):
+        raise HarnessFailure("product_probe_qualification")
     return measurement["performance"]
 
 
@@ -134,6 +140,40 @@ async def forward_with_response_gate(app, scope, receive, send, gate):
         await send(message)
 
 
+async def forward_with_statistics_usage(app, scope, receive, send, control_path):
+    """Seed a partial provider report through the real Runtime's usage recorder.
+
+    This is explicit fixture input, not evidence of an actual provider call.
+    The HTTP stats response, aggregation, persistence and native parsing are real.
+    """
+    control = Path(control_path) if control_path else None
+    if scope["type"] != "http" or scope["path"] != "/v1/stats" or control is None or not control.exists():
+        await app(scope, receive, send)
+        return
+    from powercontext.builtin.inference import InferenceUsage
+    from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+
+    messages = []
+    while True:
+        message = await receive()
+        messages.append(message)
+        if not message.get("more_body", False):
+            break
+    request = json.loads(b"".join(message.get("body", b"") for message in messages))
+    scope_id = request["selection"]["scope_ids"][0]
+    await app.state.application.statistics.for_scope(scope_id).record_model_usage(
+        ModelUsagePurpose.MEMORY_RECALL,
+        ModelUsageOperation.GENERATION,
+        InferenceUsage(requests=2, input_tokens=None, output_tokens=9),
+    )
+    control.unlink()
+
+    async def replay():
+        return messages.pop(0) if messages else await receive()
+
+    await app(scope, replay, send)
+
+
 def measured_requests(app):
     """Observe synthetic HTTP completion without recording request content."""
     request_number = 0
@@ -212,6 +252,9 @@ def serve(config_path: Path) -> None:
         gate = config.get("response_gate_path")
         if gate and scope["type"] == "http" and scope["path"] == "/v1/memory/remember":
             await forward_with_response_gate(app, scope, receive, send, gate)
+            return
+        if config.get("statistics_usage_path") and scope["type"] == "http" and scope["path"] == "/v1/stats":
+            await forward_with_statistics_usage(app, scope, receive, send, config["statistics_usage_path"])
             return
         await forward_with_response_loss(app, scope, receive, send, config.get("response_loss_path"))
 
@@ -330,6 +373,22 @@ def retained_fixture_server(
                 print("Fixture Server diagnostics could not be retained.", file=sys.stderr)
 
 
+def product_profile(desktop: Path, profile_id: str) -> dict[str, object]:
+    """Require recorded wheel/contract identity and complete product operation coverage."""
+    from fixture_qualification import build_profile
+
+    profiles = json.loads((desktop / "src-tauri/src/connections/compatibility.json").read_text(encoding="utf-8"))
+    compatibility = next((profile for profile in profiles if profile["id"] == profile_id), None)
+    if compatibility is None:
+        raise HarnessFailure("product_qualification_missing")
+    built = build_profile(desktop, compatibility["serverCommit"])
+    if any(compatibility[field] != built[field] for field in ("contractSha256", "artifactSha256")) or not set(
+        built["operations"]
+    ).issubset(compatibility["operations"]):
+        raise HarnessFailure("product_qualification_mismatch")
+    return compatibility
+
+
 def main() -> None:
     import httpx
     from fixture_qualification import fixture_profile
@@ -341,7 +400,12 @@ def main() -> None:
     if len(wheels) != 1:
         raise HarnessFailure("wheel_count")
     wheel = wheels[0]
-    compatibility = fixture_profile()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--product-qualification", help="Use a checked-in product record and the normal native manager")
+    args = parser.parse_args()
+    compatibility = (
+        product_profile(desktop, args.product_qualification) if args.product_qualification else fixture_profile()
+    )
     executable = (
         desktop / "src-tauri/target/debug/examples" / ("server_probe.exe" if os.name == "nt" else "server_probe")
     )
@@ -364,6 +428,7 @@ def main() -> None:
             endpoint = f"{'https' if tls else 'http'}://127.0.0.1:{port}{prefix}"
             config = {
                 "response_loss_path": str(case / "response-loss-count"),
+                "statistics_usage_path": str(case / "statistics-partial-usage"),
                 "reader_token": secrets.token_urlsafe(32),
                 "provider": mode == "loopback-provider",
                 "identity_change_path": str(case / "identity-changed"),
@@ -438,7 +503,9 @@ def main() -> None:
                     scope_id = result.json()["scope_id"]
                     fixture = {
                         "compatibility_profile": compatibility,
+                        "product_qualification": bool(args.product_qualification),
                         "response_loss_path": config["response_loss_path"],
+                        "statistics_usage_path": config["statistics_usage_path"],
                         "reader_token": config["reader_token"] if config["provider"] else None,
                         "identity_change_path": config["identity_change_path"] if config["provider"] else None,
                         "endpoint": endpoint,
@@ -466,7 +533,7 @@ def main() -> None:
                         "providerIdentityChangeInvalidatesContext": bool(config["provider"]),
                         "sameIdentityRevocationDeniesExactMemoryRead": bool(config["provider"]),
                         "sameTitleScopePagination51": bool(config["provider"]),
-                        "performance": probe_measurement(probe.stdout),
+                        "performance": probe_measurement(probe.stdout, args.product_qualification),
                     })
     report = {
         "environment": {
@@ -477,6 +544,8 @@ def main() -> None:
             "percentileMethod": "nearest rank",
             "budget": "No approved numerical budget; observation only",
         },
+        "qualificationId": compatibility["id"],
+        "qualificationSource": "bundled product records" if args.product_qualification else "disposable CI fixture",
         "serverWheel": wheel.name,
         "serverWheelSha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
         "contractSha256": hashlib.sha256(

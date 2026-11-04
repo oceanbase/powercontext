@@ -18,6 +18,11 @@
     ],
     "p0004": [
       "CREATE TABLE pc_artifact_handles (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n\thandle_key VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n\tartifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n\trevision INTEGER NOT NULL,\n\tPRIMARY KEY (scope_id, family, handle_key),\n\tFOREIGN KEY(scope_id, family, artifact_id, revision) REFERENCES pc_artifacts (scope_id, family, artifact_id, revision) ON DELETE RESTRICT,\n\tCONSTRAINT ck_pc_artifact_handles_revision_positive CHECK (revision > 0)\n)"
+    ],
+    "p0005": [
+      "CREATE TABLE pc_atomic_memory_evidence_schema (\n\tschema_version VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tPRIMARY KEY (schema_version)\n)",
+      "CREATE TABLE pc_atomic_memory_evidence_history (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tartifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trevision BIGINT NOT NULL, \n\tsources LONGBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, revision), \n\tCONSTRAINT ck_pc_atomic_memory_evidence_history_revision CHECK (revision > 0)\n)",
+      "CREATE TABLE pc_source_evidence_bindings (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_type VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tmaterial_digest VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tdefinition_name MEDIUMTEXT NOT NULL, \n\tdefinition_version MEDIUMTEXT NOT NULL, \n\tmanifest_fingerprint VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tdeclaration LONGBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, source_type, source_id)\n)"
     ]
   },
   "checkpoints": {

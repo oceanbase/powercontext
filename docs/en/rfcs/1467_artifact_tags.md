@@ -1,3 +1,8 @@
+---
+title: "RFC 1467: Unified Artifact tags"
+description: A proposal for mutable Scope-local tags, exact membership filters, and conditional updates without changing Artifact content revisions.
+---
+
 - Proposal Name: `unified_artifact_tags`
 - Start Date: 2026-09-05
 - RFC PR: [oceanbase/powercontext#1467](https://github.com/oceanbase/powercontext/pull/1467)

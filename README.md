@@ -257,6 +257,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow. Co
 
 ## Learn more
 
+- [Desktop preview: exact-Scope inventory and usage](desktop/README.md#current-scope-inventory-and-usage)
 - [Get started](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 - [Connect Agents](https://powercontext.oceanbase.io/en/docs/integrations/)
 - [Manage context](https://powercontext.oceanbase.io/en/docs/workflows/)

@@ -1,3 +1,8 @@
+---
+title: "RFC 1485: Profile artifacts"
+description: A proposal for Scope-derived Markdown profiles, subject Source routing, scheduled generation, Candidate review, and revision restoration.
+---
+
 - Proposal Name: `profile_artifact`
 - Start Date: 2026-09-07
 - RFC PR: [oceanbase/powercontext#1485](https://github.com/oceanbase/powercontext/pull/1485)

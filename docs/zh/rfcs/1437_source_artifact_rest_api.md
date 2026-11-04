@@ -1,3 +1,8 @@
+---
+title: RFC 1437：Source 与 Artifact REST API
+description: Source 与 Artifact REST API 的设计提案，规定 Scope 内的通用操作、家族写入职责与精确来源记录。
+---
+
 + Proposal Name: `source_artifact_rest_api`
 + Start Date: 2026-09-01
 + RFC PR: [oceanbase/powercontext#1437](https://github.com/oceanbase/powercontext/pull/1437)

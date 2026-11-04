@@ -52,6 +52,7 @@ pub enum ObservedOperation {
     ListScopes,
     GetScope,
     GetDefaultScope,
+    GetStats,
     RememberMemory,
     SearchMemory,
     GetArtifactRevision,
@@ -67,6 +68,7 @@ impl ObservedOperation {
             Self::ListScopes => "list_scopes",
             Self::GetScope => "get_scope",
             Self::GetDefaultScope => "get_default_scope",
+            Self::GetStats => "get_stats",
             Self::RememberMemory => "remember_memory",
             Self::SearchMemory => "search_memory",
             Self::GetArtifactRevision => "get_artifact_revision",
@@ -230,7 +232,7 @@ impl SessionObservations {
                 let _ = self
                     .0
                     .dropped
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                         Some(n.saturating_add(1))
                     });
             }
@@ -308,6 +310,7 @@ impl SessionObservations {
                     ObservedOperation::ListScopes,
                     ObservedOperation::GetScope,
                     ObservedOperation::GetDefaultScope,
+                    ObservedOperation::GetStats,
                     ObservedOperation::RememberMemory,
                     ObservedOperation::SearchMemory,
                     ObservedOperation::GetArtifactRevision,
@@ -316,6 +319,7 @@ impl SessionObservations {
                     ObservedOperation::ListScopes,
                     ObservedOperation::GetScope,
                     ObservedOperation::GetDefaultScope,
+                    ObservedOperation::GetStats,
                     ObservedOperation::RememberMemory,
                     ObservedOperation::SearchMemory,
                     ObservedOperation::GetArtifactRevision,

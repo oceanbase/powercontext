@@ -1,7 +1,7 @@
 ---
-status: community
 title: WorkBuddy
-description: Install the PowerContext WorkBuddy hooks and control its local behavior.
+description: Connect WorkBuddy to PowerContext through hooks, MCP, and Skills, then verify prompt capture, recall, and Handoff tools.
+status: community
 ---
 
 # WorkBuddy

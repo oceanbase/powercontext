@@ -1,6 +1,6 @@
 ---
 title: Experience 与 Skill 生命周期
-description: 了解证据如何变成经过审核的 Experience 和 managed Skill Artifact，以及它们何时可用。
+description: 了解证据如何变成经过审核的 Experience 和托管 Skill 制品，以及它们何时可用。
 ---
 
 # Experience 与 Skill 生命周期

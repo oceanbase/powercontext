@@ -1,6 +1,6 @@
 ---
 title: Integration capability matrix
-description: Generated capability matrix for PowerContext integrations.
+description: Compare integration availability, support profiles, pre-compaction behavior, and declared capabilities.
 ---
 
 # Integration capability matrix

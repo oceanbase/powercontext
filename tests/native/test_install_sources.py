@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import http.server
 import io
@@ -52,7 +53,11 @@ def build_wheel(version: str) -> bytes:
         )
         archive.writestr(f"{metadata}/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
         archive.writestr(f"{metadata}/entry_points.txt", "[console_scripts]\npowercontext = fixture_cli:main\n")
-        archive.writestr(f"{metadata}/RECORD", "")
+        record = io.StringIO()
+        writer = csv.writer(record)
+        writer.writerows((name, "", "") for name in archive.namelist())
+        writer.writerow((f"{metadata}/RECORD", "", ""))
+        archive.writestr(f"{metadata}/RECORD", record.getvalue())
     return data.getvalue()
 
 
@@ -347,6 +352,7 @@ def test_bootstrap_download_transport(tmp_path, tls_certificate, downloader, rou
                 "UV_INSTALL_DIR": str(tmp_path / "bin"),
                 "CURL_CA_BUNDLE": str(cert),
                 "WGETRC": str(wgetrc),
+                "SYSTEM_WGET2RC": str(wgetrc),
                 "POWERCONTEXT_UV_INSTALLER_URL": f"https://localhost:{secure.server_port}/{route}",
             },
             text=True,

@@ -1,6 +1,6 @@
 ---
 title: 使用 Topic Memory
-description: 从长期 Source 处理中查找主题摘要，并按精确 Revision 读取详情。
+description: 生成或写入 Topic Memory，检索主题摘要，并在需要详细证据时读取精确版本。
 ---
 
 # 使用 Topic Memory

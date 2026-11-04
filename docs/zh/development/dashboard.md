@@ -1,3 +1,8 @@
+---
+title: "Dashboard 设计原则"
+description: "Dashboard 在已保存内容的阅读、Scope 边界呈现和版本历史操作上的设计取舍。"
+---
+
 # Dashboard 设计原则
 
 Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，默认关闭，与 Server 共用访问模式：本地可免认证访问，启用认证时要求静态 token。这份文档供开发和评审人员判断页面该展示什么、如何组织阅读，以及一次改动是否保留了用户需要的行为。接口能力以 `openapi/powercontext.yaml` 和服务实现为依据。

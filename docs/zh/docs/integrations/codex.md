@@ -1,7 +1,7 @@
 ---
-status: official
 title: Codex
-description: 安装 PowerContext Codex 插件并控制其本地行为。
+description: 将 Codex 接入 PowerContext，配置自动上下文召回、提示词采集，以及显式 Memory 和 Handoff 操作。
+status: official
 ---
 
 # Codex

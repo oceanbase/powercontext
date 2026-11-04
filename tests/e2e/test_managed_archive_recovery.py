@@ -59,7 +59,7 @@ def test_managed_archive_restore_resumes_after_projection_failure(tmp_path, fami
             )
             artifact = await source.records.create_artifact(scope.scope_id, family, ArtifactWrite(content=content))
             authoritative = await source.records.get_artifact(scope.scope_id, family, artifact.artifact_id)
-            await source.portability.export([scope.scope_id], archive, authorize=authorize)
+            exported = await source.portability.export([scope.scope_id], archive, authorize=authorize)
         async with open_builtin_contexts(config, embedding_model=embedding) as target:
             with pytest.raises(RuntimeError, match="interrupted projection rebuild"):
                 await PortableBundleService(
@@ -86,6 +86,10 @@ def test_managed_archive_restore_resumes_after_projection_failure(tmp_path, fami
         async with open_builtin_contexts(config, embedding_model=embedding) as target:
             restored = await target.records.get_artifact(scope.scope_id, family, artifact.artifact_id)
             assert restored.content == authoritative.content
+            recovered = await target.portability.export(
+                [scope.scope_id], tmp_path / "recovered.pcb", authorize=authorize
+            )
+            assert recovered.total_digest == exported.total_digest
 
     asyncio.run(scenario())
     assert (

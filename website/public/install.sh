@@ -123,7 +123,8 @@ download() {
     else
         timeout=${3:-15}
         # wget cannot restrict redirect protocols; reject redirects rather than allow a downgrade.
-        wget --quiet --max-redirect=0 --timeout="$timeout" --tries=1 "$1" -O "$2" || {
+        # Wget2 may exit successfully on a rejected redirect without creating the output.
+        wget --quiet --max-redirect=0 --timeout="$timeout" --tries=1 "$1" -O "$2" && [[ -f "$2" ]] || {
             printf '%s\n' 'wget download failed. Install curl if the HTTPS source requires redirects.' >&2
             return 1
         }
