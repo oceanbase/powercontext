@@ -81,9 +81,10 @@ MCP endpoint 来自 setup 保存的 `server_url`，Hook 可被 `POWERCONTEXT_CLA
 3. 严格校验 `powercontext.prepared-context.v1`，再通过 `additionalContext` 原样注入；
 4. 独立地将 prompt 采集为普通 Content Source 证据。
 
-召回在构造请求前先给 query 定界：不超过 8192 个字符、也不超过 8192 个 UTF-8 字节的 prompt 原样发送；更长的
-prompt 改用最近的文本召回，先取末尾 8192 个字符、再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让
-召回失败。采集独立进行，仍按自身上限执行。
+召回先对识别到的凭据脱敏并去掉首尾空白，再给 query 定界：不超过 8192 个字符、也不超过 8192 个 UTF-8 字节的
+文本保留；更长的文本先取末尾 8192 个字符、再截到末尾 8192 字节。因此长 prompt 只会收窄 query，不会让召回失败。
+采集有自身上限；凭据脱敏改变 prompt 时会跳过整个采集事件，不会把改写后的文本存为 Source。
+这些规则仅识别具体凭据模式和已配置凭据，不涵盖所有敏感信息；见[自动 prompt 隐私策略](index.md#自动-prompt-隐私策略)。
 
 启动上下文是独立且默认关闭的 `SessionStart` 路径。在启动 Claude Code 前显式启用：
 

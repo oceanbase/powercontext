@@ -95,12 +95,15 @@ Evaluation trace 包含 prompt 和召回上下文，应保留在本机并按敏�
 
 | 事件/入口 | 发送的数据 | 直接接收方 | 默认/触发条件 | 关闭方式 | 关闭后影响 |
 | --- | --- | --- | --- | --- | --- |
-| 召回 / prefetch | 最多 8192 字符的 query、Scope 和准备选项；Prepared Context 返回 Hermes | PowerContext Server | provider 已激活、query 非空且 Scope 已解析；可能复用预取缓存 | 切换 memory provider 可停止该 provider 的自动召回；此处没有独立召回开关 | PowerContext 自动召回停止；仅关闭捕获不影响召回 |
+| 召回 / prefetch | 截至 8192 字符且不做凭据脱敏的 query、Scope 和准备选项；Prepared Context 返回 Hermes | PowerContext Server | provider 已激活、query 非空且 Scope 已解析；可能复用预取缓存 | 切换 memory provider 可停止该 provider 的自动召回；此处没有独立召回开关 | PowerContext 自动召回停止；仅关闭捕获不影响召回 |
 | 完成 turn | 有长度上限的 user/assistant 文本对与 session 元数据，不是完整工具 transcript | PowerContext Server，保存为 Source | `capture_turns=true`；非主 Agent 上下文抑制自动写入 | `POWERCONTEXT_HERMES_CAPTURE_TURNS=false` | 停止该 Source 捕获；召回、压缩前捕获和显式写入仍独立工作 |
 | 会话结束 | 针对已接受输入的 flush 请求，不会重新上传会话 transcript | PowerContext Server | `flush_on_session_end=true`；等待后台写入并检查提取能力 | `POWERCONTEXT_HERMES_FLUSH_ON_SESSION_END=false` | 停止此 flush 触发；已接受的 Source 保留，其他处理触发不受影响 |
 | 压缩前 | 新 user/assistant 证据窗口，排除 system/tool 消息并脱敏检测到的 secret | PowerContext Server，保存为 Source | `capture_pre_compress=false`；用 `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS=true` 显式开启 | `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS=false` | 停止此捕获及其后续提取尝试；必需 checkpoint 会失败而非报告成功 |
 | 显式 remember / 内置 Memory mirror | 请求的 Memory 内容或变更，更新携带精确引用 | PowerContext Server | 显式操作，或主上下文中 add/replace/remove 的 `on_memory_write` | 不调用该写入或产生 mirror 的内置操作；没有专用 mirror 开关 | 关闭 turn 捕获不会禁用这些写入 |
 | Evaluation trace | prompt/query、召回上下文及关联元数据；检测到的 secret 会脱敏 | 本地 JSONL 文件，默认位于 `$HERMES_HOME/powercontext/evaluation-trace/` | `evaluation_trace=false`；用 `POWERCONTEXT_HERMES_EVALUATION_TRACE=true` 显式开启 | `POWERCONTEXT_HERMES_EVALUATION_TRACE=false` | 停止新增 trace，不禁用召回或捕获；已有文件仍是敏感数据 |
+
+召回请求与完成 turn 的 Source 不做凭据脱敏。Evaluation trace 的脱敏不会处理已经发送到 Server 的 query；
+压缩前过滤只作用于那条独立的捕获路径。
 
 压缩前捕获优先使用宿主提供的规范化 `evidence_messages`，避免把先前压缩摘要再次作为新证据。
 provider 声明 checkpoint API v2，必需 checkpoint 未提交时会抛出异常。这描述的是 provider 契约：仓库的

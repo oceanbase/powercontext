@@ -43,7 +43,7 @@ both default to `true` and operate independently; restart the gateway after conf
 
 | Event/entry | Data sent | Direct recipient | Default/trigger | Disable | Effect when disabled |
 | --- | --- | --- | --- | --- | --- |
-| `before_prompt_build` | Latest user text (or prompt fallback), bounded to 8192 UTF-8 bytes, plus Scope and prepare budget | Configured PowerContext Server; returned context enters the host model request | `autoRecall=true`, eligible private session | `autoRecall=false` | Automatic preparation/injection stops; capture and explicit tools remain independent |
+| `before_prompt_build` | Latest user text (or prompt fallback), bounded to 8192 UTF-8 bytes without credential scrubbing, plus Scope and prepare budget | Configured PowerContext Server; returned context enters the host model request | `autoRecall=true`, eligible private session | `autoRecall=false` | Automatic preparation/injection stops; capture and explicit tools remain independent |
 | Successful `agent_end` | Latest user text prefixed with `User:`, deterministic Source ID and origin metadata | Configured PowerContext Server | `autoCapture=true`, eligible private session | `autoCapture=false` | New automatic Sources stop; recall and explicit writes remain available |
 | `before_compaction` | Same bounded latest-user Source when capture is enabled; Scope for bounded flush | Configured PowerContext Server | Best-effort boundary event | `autoCapture=false` disables new capture, not pending flush | Previously accepted positions can still be flushed; compaction is not blocked |
 | `session_end` / `gateway_stop` | Scope for flushing already accepted pending positions; no new transcript | Configured PowerContext Server | Pending positions and available extraction | No separate flush-off setting | Turning off capture prevents new Sources, but does not cancel existing pending work |
@@ -52,8 +52,10 @@ both default to `true` and operate independently; restart the gateway after conf
 Automatic capture excludes group, channel and incognito sessions. `captureMaxChars` defaults to `4000`
 (range `128`–`20000`): the latest user text including the `User: ` prefix is **truncated**, not rejected,
 using JavaScript string length/slicing. This is not a UTF-8 byte limit or complete transcript synchronization.
-This capture path selects session/message types and truncates text; it does not perform blanket secret redaction.
-Eligibility checks or any configured secret-detection rules are not a guarantee against all sensitive content or a full DLP system.
+Neither automatic recall nor capture performs credential detection or scrubbing, and the plugin has no secret-detection
+configuration. Session eligibility and truncation are not secret filtering. To stop these automatic paths from sending
+prompt text to the Server, set both `autoCapture=false` and `autoRecall=false`, or exclude the session. Explicit tools
+remain independent and can still send their arguments.
 
 There are three separate data directions: OpenClaw sends queries, Sources and explicit operations to the configured
 Server; enabled Server embedding/reranking/generation may send queries, candidates or evidence to its configured
