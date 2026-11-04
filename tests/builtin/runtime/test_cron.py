@@ -29,6 +29,17 @@ def test_next_after_stays_in_the_future_during_the_repeated_hour() -> None:
     assert result == datetime(2026, 11, 1, 6, 16)  # noqa: DTZ001 - naive on purpose
 
 
+def test_next_after_returns_the_first_repeated_hour_occurrence() -> None:
+    """The earlier occurrence inside the repeated hour must not be skipped."""
+
+    schedule = CronSchedule.parse("* * * * *", "America/New_York")
+    # 05:15 UTC is 01:15 EDT (fold=0); 01:16 EDT = 05:16 UTC comes first.
+    assert schedule.next_after(datetime(2026, 11, 1, 5, 15)) == datetime(2026, 11, 1, 5, 16)  # noqa: DTZ001 - naive on purpose
+    # 05:00 UTC is 01:00 EDT; the earliest future minute is 01:01 EDT = 05:01 UTC,
+    # not 02:00 EST = 07:00 UTC and not 01:01 EST = 06:01 UTC.
+    assert schedule.next_after(datetime(2026, 11, 1, 5, 0)) == datetime(2026, 11, 1, 5, 1)  # noqa: DTZ001 - naive on purpose
+
+
 def test_next_after_walks_every_minute_through_the_repeated_hour() -> None:
     """Minute-by-minute scans advance one real minute per step across the transition."""
 

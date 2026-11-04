@@ -59,18 +59,29 @@ class CronSchedule:
         """Return the first matching instant after ``value`` as UTC-naive time."""
 
         utc = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        start = (utc.astimezone(self.timezone) + timedelta(minutes=1)).replace(second=0, microsecond=0)
-        for offset in range(366 * 8):
-            candidate_date = start.date() + timedelta(days=offset)
+        # A repeated fall-back hour maps a later wall time to an earlier instant, so
+        # the earliest future occurrence can belong to the previous local date.
+        first_date = utc.astimezone(self.timezone).date() - timedelta(days=1)
+        for offset in range(366 * 8 + 1):
+            candidate_date = first_date + timedelta(days=offset)
             if not self._matches_date(candidate_date):
                 continue
-            for hour in sorted(self.hours):
-                for minute in sorted(self.minutes):
-                    naive = datetime.combine(candidate_date, time(hour, minute))
-                    for candidate in _local_occurrences(naive, self.timezone):
-                        if candidate.astimezone(UTC) <= utc:
-                            continue
-                        return candidate.astimezone(UTC).replace(tzinfo=None)
+            # Order the day's occurrences by real instant, not by wall clock: on a
+            # transition day 01:00 fold=1 (06:00Z) precedes 01:16 fold=0 (05:16Z).
+            occurrences = sorted(
+                (
+                    instant
+                    for hour in self.hours
+                    for minute in self.minutes
+                    for instant in _local_occurrences(
+                        datetime.combine(candidate_date, time(hour, minute)), self.timezone
+                    )
+                ),
+                key=lambda instant: instant.astimezone(UTC),
+            )
+            for candidate in occurrences:
+                if candidate.astimezone(UTC) > utc:
+                    return candidate.astimezone(UTC).replace(tzinfo=None)
         raise ValueError("cron expression has no occurrence in the next eight years")  # noqa: TRY003
 
     def _matches_date(self, value: date) -> bool:
