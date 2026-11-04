@@ -193,9 +193,10 @@ def _topic_memory_diagnostics(code: str) -> ProcessingDiagnostics | None:
         # Control-flow and concurrency rejections do not belong to a processing stage.
         return ProcessingDiagnostics(failure_location=value)
     if value in {"source_complexity_limit", "related_history_limit"}:
+        # Source structure/character and history-item caps do not establish
+        # that a model context window was exceeded.
         return ProcessingDiagnostics(
             stage=ProcessingStage.BUSINESS_VALIDATION,
-            reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
             failure_location=value,
         )
     if value == "incomplete_target":
@@ -359,13 +360,13 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
         return _topic_memory_diagnostics(str(getattr(error, "code", "") or ""))
     if "TopicMemoryProjectionError" in names:
         code = str(getattr(error, "code", "") or "").lower()
-        if code in {"content", "chunks", "lexical"}:
+        if code in {"content", "chunks", "lexical", "vector-incomplete"}:
             return ProcessingDiagnostics(
                 stage=ProcessingStage.BUSINESS_VALIDATION,
                 reason=ProcessingFailureReason.INVALID_OUTPUT,
                 failure_location=code,
             )
-        if code in {"vector-unconfigured", "embedding-profile"}:
+        if code in {"fts", "vector-unconfigured", "embedding-profile"}:
             return ProcessingDiagnostics(
                 stage=ProcessingStage.PERSISTENCE,
                 reason=ProcessingFailureReason.CONFIGURATION,
@@ -375,12 +376,6 @@ def classify_processing_error(error: BaseException) -> ProcessingDiagnostics | N
             return ProcessingDiagnostics(
                 stage=ProcessingStage.EMBEDDING,
                 reason=ProcessingFailureReason.INVALID_OUTPUT,
-                failure_location=code,
-            )
-        if code in {"fts", "vector-incomplete"}:
-            return ProcessingDiagnostics(
-                stage=ProcessingStage.PERSISTENCE,
-                reason=ProcessingFailureReason.STORAGE_FAILURE,
                 failure_location=code,
             )
         return ProcessingDiagnostics(stage=ProcessingStage.PERSISTENCE, failure_location=code)

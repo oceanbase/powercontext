@@ -28,6 +28,8 @@ Worker/supervisor 值（`worker_process`、`work_admission`、`supervisor`、`le
 `processing_stage` 表示有界的领域阶段。计数与标识在写入日志前会被限界；未知或不受支持的值直接省略，
 不做猜测。
 
+对于 Topic Memory 窗口预算，请求次数和尝试次数上限保留 usage-limit 原因和失败位置，不附带 token 专用字段。被拒绝的预留不会持久化拟议扣费。当已提交的计数无法确定限制维度时，后续读取省略 token 专用字段，不会仅根据失败码推断 token 超限。
+
 ## 隐私边界
 
 诊断不得包含 Source/Artifact 正文、prompt、模型响应、凭据、授权头、SQL 参数或任意异常文本。provider
@@ -70,7 +72,7 @@ Topic Memory 的 operation 级覆盖：
 | `topic-memory` 各阶段 | Output parsing | Partial | provider schema 失败走共享映射；语义拒绝归为 business validation。 |
 | `topic-memory` 各阶段 | Business validation | Covered | 每个 `TopicMemoryGenerationError` code 都有有界诊断：领域/模型拒绝携带 stage，并在有证据时给出 reason；控制流拒绝只携带 `failure_location`。输入预算失败携带输入计数、token 估算、estimator 标识和生效预算；window token 上限触发时携带已计费 token 与上限，attempt/request 上限通过 block details 报告。 |
 | `topic-memory.index` 与查询嵌入 | Embedding | Covered | 缺少 embedding adapter、向量数量错误均已分类。 |
-| Publish / persistence | Persistence | Partial | 投影内容规则归业务校验；发布与存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。 |
+| Publish / persistence | Persistence | Partial | 投影内容及向量完整性规则归业务校验；存储不变量失败归 `persistence` / `storage_failure`；不支持的能力归 `configuration`；publisher 冲突保留既有领域结果，其他存储失败保持 unknown。 |
 | Usage accounting | Usage accounting | Missing | window provider budget 归为 `generation` / `usage_limit`；账务失败未分类。 |
 
 前两个落地切片覆盖 Memory / Atomic Memory 与 Topic Memory：provider 失败、预算耗尽、提取/对账/领域校验

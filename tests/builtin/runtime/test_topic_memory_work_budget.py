@@ -641,3 +641,69 @@ def test_embedding_shares_exhausted_generation_budget_and_other_scope_can_progre
             await manager.__aexit__(None, None, None)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("dimension", ["requests", "tokens", "both", "exact_requests"])
+def test_rejected_reservation_readback_does_not_invent_token_evidence(dimension):
+    from powercontext.builtin.persistence.topic_memory_budget import (
+        TopicMemoryWorkBudget,
+        require_topic_memory_work_available,
+    )
+
+    async def scenario():
+        manager, profile, _, _ = await _repositories()
+        try:
+            _, assignment = await _capture(profile)
+            budget = TopicMemoryWorkBudget(
+                profile.database,
+                scope_id="scope-a",
+                binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                source_after=0,
+                source_through=2,
+                cursor_generation=None,
+                fence=assignment.fence,
+            )
+            await budget.begin()
+            initial_requests = MAX_TOPIC_MEMORY_WORK_REQUESTS if dimension == "exact_requests" else 510
+            await budget.reserve(requests=initial_requests, tokens=1000)
+            requests = 3 if dimension in {"requests", "both"} else 1
+            tokens = MAX_TOPIC_MEMORY_WORK_TOKENS if dimension in {"tokens", "both"} else 10
+            with pytest.raises(TopicMemoryGenerationError) as rejected:
+                await budget.reserve(requests=requests, tokens=tokens)
+            original = classify_processing_error(rejected.value)
+            assert original is not None
+            assert original.reason is ProcessingFailureReason.USAGE_LIMIT
+            assert original.effective_budget == (MAX_TOPIC_MEMORY_WORK_TOKENS if dimension == "tokens" else None)
+            before = await _row(profile)
+            assert before["requests"] == initial_requests and before["tokens"] == 1000
+
+            async def guard():
+                async with profile.database.transaction() as connection:
+                    await require_topic_memory_work_available(
+                        connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, 0
+                    )
+
+            async def complete():
+                async with profile.database.transaction() as connection:
+                    await budget.complete(connection)
+
+            for readback in (guard, budget.begin, complete):
+                with pytest.raises(TopicMemoryGenerationError) as failure:
+                    await readback()
+                diagnostics = classify_processing_error(failure.value)
+                assert diagnostics is not None
+                assert diagnostics.reason is original.reason
+                assert diagnostics.failure_location == original.failure_location
+                assert diagnostics.estimated_input_tokens is None
+                assert diagnostics.effective_budget is None
+            # A new oversized proposal must not reinterpret the existing rejection.
+            with pytest.raises(TopicMemoryGenerationError) as repeated:
+                await budget.reserve(requests=1, tokens=MAX_TOPIC_MEMORY_WORK_TOKENS)
+            diagnostics = classify_processing_error(repeated.value)
+            assert diagnostics is not None
+            assert diagnostics.estimated_input_tokens is None
+            assert diagnostics.effective_budget is None
+        finally:
+            await manager.__aexit__(None, None, None)
+
+    asyncio.run(scenario())

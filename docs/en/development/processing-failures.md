@@ -30,6 +30,8 @@ carries no stage. A child failure without a domain block may omit `stage` entire
 is the bounded domain stage. Counts and identifiers are bounded before they reach a log record, and
 unknown or unsupported values are omitted rather than guessed.
 
+For Topic Memory window budgets, request and attempt ceilings retain the usage-limit reason and failure location without token-specific fields. A rejected reservation does not persist its proposed charges. Later reads omit token-specific fields when the committed counters cannot establish the limiting dimension; they never reconstruct token overflow from the failure code alone.
+
 ## Privacy boundary
 
 Diagnostics never carry Source or Artifact bodies, prompts, model responses, credentials,
@@ -76,7 +78,7 @@ Topic Memory operation-level coverage:
 | `topic-memory` stages | Output parsing | Partial | Provider schema failures use the shared mapping; semantic rejections are business validation. |
 | `topic-memory` stages | Business validation | Covered | Every `TopicMemoryGenerationError` code maps to bounded diagnostics: domain and model rejections carry a stage and, when evidence supports it, a reason; control-flow rejections carry only `failure_location`. Input-budget failures carry input counts, token estimates, estimator identity, and the effective budget; the window token ceiling carries the charged tokens and the ceiling, while attempt and request ceilings are reported through their block details. |
 | `topic-memory.index` and query embedding | Embedding | Covered | A missing embedding adapter and a wrong vector count are classified. |
-| Publish / persistence | Persistence | Partial | Projection content rules are business validation; publication and storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. |
+| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. |
 | Usage accounting | Usage accounting | Missing | The window provider budget is reported as `generation` / `usage_limit`; accounting failures are not classified. |
 
 The first two rollout slices cover Memory / Atomic Memory and Topic Memory: provider failures,

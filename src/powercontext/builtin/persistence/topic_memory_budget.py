@@ -97,8 +97,21 @@ async def load_topic_memory_work_budget(
     return (await connection.execute(statement)).mappings().one_or_none()
 
 
+def _ceiling_dimension(requests: int, tokens: int) -> bool | None:
+    """Infer a limiting dimension only when committed charges establish it.
+
+    Rejected proposed charges are absent on readback; both counters below
+    their ceilings (or both at their ceilings) leave the dimension unknown.
+    """
+    if requests < MAX_TOPIC_MEMORY_WORK_REQUESTS and tokens >= MAX_TOPIC_MEMORY_WORK_TOKENS:
+        return True  # token ceiling
+    if requests >= MAX_TOPIC_MEMORY_WORK_REQUESTS and tokens < MAX_TOPIC_MEMORY_WORK_TOKENS:
+        return False  # request ceiling
+    return None
+
+
 def _topic_memory_budget_error(
-    reason: str, *, tokens: int | None = None, token_ceiling: bool = True
+    reason: str, *, tokens: int | None = None, token_ceiling: bool | None = None
 ) -> TopicMemoryGenerationError:
     error = TopicMemoryGenerationError(reason)
     if reason == "window_attempt_limit":
@@ -112,6 +125,9 @@ def _topic_memory_budget_error(
             ),
         )
     elif reason == "window_provider_budget_exceeded":
+        # None → cannot tell which ceiling was crossed from the persisted state
+        # alone (a rejected reservation's proposed charges are not stored).
+        # True → token ceiling; False → request ceiling.
         attach_diagnostics(
             error,
             ProcessingDiagnostics(
@@ -134,7 +150,7 @@ async def require_topic_memory_work_available(
         raise _topic_memory_budget_error(
             reason,
             tokens=int(row["tokens"]),
-            token_ceiling=int(row["requests"]) < MAX_TOPIC_MEMORY_WORK_REQUESTS,
+            token_ceiling=_ceiling_dimension(int(row["requests"]), int(row["tokens"])),
         )
 
 
@@ -283,7 +299,7 @@ class TopicMemoryWorkBudget:
             raise _topic_memory_budget_error(
                 reason,
                 tokens=None if row is None else int(row["tokens"]),
-                token_ceiling=row is None or int(row["requests"]) < MAX_TOPIC_MEMORY_WORK_REQUESTS,
+                token_ceiling=None if row is None else _ceiling_dimension(int(row["requests"]), int(row["tokens"])),
             )
 
     async def _current(self, connection: AsyncConnection):
@@ -304,6 +320,8 @@ class TopicMemoryWorkBudget:
             reason = str(row["failure_code"])
             requests_after = row["requests"] + requests
             tokens_after = row["tokens"] + tokens
+            diagnostic_requests = row["requests"]
+            diagnostic_tokens = row["tokens"]
             if reason in RECOVERABLE_TOPIC_MEMORY_REJECTIONS:
                 # Diagnosis only: this attempt is still allowed to run and to charge
                 # the reservation, or the frontier could never be retried.
@@ -312,6 +330,8 @@ class TopicMemoryWorkBudget:
                 requests_after > MAX_TOPIC_MEMORY_WORK_REQUESTS or tokens_after > MAX_TOPIC_MEMORY_WORK_TOKENS
             ):
                 reason = "window_provider_budget_exceeded"
+                diagnostic_requests = requests_after
+                diagnostic_tokens = tokens_after
             values = (
                 {"failure_code": reason}
                 if reason
@@ -322,8 +342,8 @@ class TopicMemoryWorkBudget:
         if reason:
             raise _topic_memory_budget_error(
                 reason,
-                tokens=tokens_after,
-                token_ceiling=requests_after <= MAX_TOPIC_MEMORY_WORK_REQUESTS,
+                tokens=diagnostic_tokens,
+                token_ceiling=_ceiling_dimension(diagnostic_requests, diagnostic_tokens),
             )
 
     async def fail(self, reason: str) -> None:
@@ -362,6 +382,6 @@ class TopicMemoryWorkBudget:
             raise _topic_memory_budget_error(
                 code,
                 tokens=int(row["tokens"]),
-                token_ceiling=int(row["requests"]) < MAX_TOPIC_MEMORY_WORK_REQUESTS,
+                token_ceiling=_ceiling_dimension(int(row["requests"]), int(row["tokens"])),
             )
         await connection.execute(delete(TOPIC_MEMORY_WORK_BUDGETS_TABLE).where(*self._key()))
