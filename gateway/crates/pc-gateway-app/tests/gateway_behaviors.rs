@@ -476,6 +476,18 @@ async fn released_responses(response: reqwest::Response, bytes: &[u8], streaming
                 item["arguments"].as_str().unwrap(),
                 "stream clients must receive tool arguments as deltas"
             );
+            let done = events
+                .iter()
+                .find(|event| {
+                    event["type"] == "response.function_call_arguments.done"
+                        && event["item_id"] == item["id"]
+                })
+                .expect("stream clients must receive finalized tool arguments");
+            assert_eq!(done["arguments"], item["arguments"]);
+            assert_eq!(
+                done["name"], item["name"],
+                "SDK clients must retain the function identity"
+            );
         }
     }
     serde_json::from_slice(bytes).unwrap()

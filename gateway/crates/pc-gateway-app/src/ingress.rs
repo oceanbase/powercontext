@@ -417,7 +417,10 @@ fn responses_sse(resp: &serde_json::Value) -> String {
                 );
                 push(
                     "response.function_call_arguments.done",
-                    json!({"item_id": item_id, "output_index": output_index, "arguments": arguments}),
+                    json!({
+                        "item_id": item_id, "output_index": output_index,
+                        "arguments": arguments, "name": item.get("name").cloned().unwrap_or(Value::Null),
+                    }),
                 );
             }
             push(
