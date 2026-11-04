@@ -159,7 +159,8 @@ Scheduler 或 Worker 的端口。生产环境还应为各角色使用独立最�
 
 同一轮发布的所有副本必须使用相同 behavior revision。升级顺序如下：
 
-1. 使用专门的 DDL 账号运行 `powercontext server migrate`；
+1. 使用专门的 DDL 账号运行 `migrate` 任务（即 Compose 文件中接线的 `server db-migrate plan` →
+   `apply` 流程），配备固定维护主机上的持久 evidence 目录以及文档要求的备份与确认选项；
 2. 替换 Worker 并等待 readiness；
 3. 替换 Scheduler 并确认 leader 可以扫描；
 4. 替换 API。

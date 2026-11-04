@@ -78,7 +78,15 @@ def test_distributed_compose_separates_roles_and_model_credentials() -> None:
     services = document["services"]
     assert set(services) == {"migrate", "api-a", "api-b", "scheduler-a", "scheduler-b", "worker-a", "worker-b"}
 
-    assert services["migrate"]["command"] == ["server", "migrate"]
+    # `server migrate` is not a registered command; the migrator must use the supported explicit
+    # db-migrate plan/apply workflow with OceanBase's evidence directory and host coordination.
+    assert services["migrate"]["entrypoint"] == ["/bin/sh", "-ec"]
+    (script,) = services["migrate"]["command"]
+    assert "server db-migrate plan" in script
+    assert "server db-migrate apply" in script and "--plan-id" in script
+    assert "--evidence-dir /var/lib/powercontext/migration-state" in script
+    assert "--lock-coordination single-host" in script
+    assert "--maintenance-confirmed" in script and "--yes" in script
     assert services["migrate"]["environment"]["POWERCONTEXT_SERVER_DEPLOYMENT_ROLE"] == "api"
     assert services["migrate"]["environment"]["POWERCONTEXT_SERVER_DEPLOYMENT_ID"] == "migrator"
     for name, service in services.items():

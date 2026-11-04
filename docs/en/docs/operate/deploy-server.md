@@ -171,7 +171,9 @@ separate least-privilege database users instead of the shared demonstration URL.
 
 Every replica in one rollout must use the same behavior revision. Upgrade in this order:
 
-1. run `powercontext server migrate` with a dedicated DDL account;
+1. run the `migrate` job (`server db-migrate plan` then `apply`, as wired in the Compose file) with a
+   dedicated DDL account, its durable evidence directory on one fixed maintenance host, and the
+   documented backup and confirmation options;
 2. replace Workers and wait for readiness;
 3. replace Schedulers and confirm a leader can scan;
 4. replace APIs.
