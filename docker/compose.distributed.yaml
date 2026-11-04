@@ -20,30 +20,34 @@ services:
     # one fixed maintenance host (--lock-coordination single-host binds it). The host directory must
     # be writable by the container user (uid 10001). `manual` backup is a declaration only; set
     # POWERCONTEXT_MIGRATION_BACKUP_POLICY=skip to explicitly accept a no-backup run.
+    # Container-side shell variables are escaped as `$$`; an unescaped `$policy` would be
+    # replaced by Compose with an empty string before the container ever runs the script.
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         set -eu
-        policy="${POWERCONTEXT_MIGRATION_BACKUP_POLICY:-manual}"
-        case "$policy" in
+        policy="$${POWERCONTEXT_MIGRATION_BACKUP_POLICY:-manual}"
+        case "$$policy" in
           manual) apply_backup="--backup manual --backup-confirmed" ;;
           skip) apply_backup="--backup skip --accept-no-backup" ;;
           *) echo "POWERCONTEXT_MIGRATION_BACKUP_POLICY must be manual or skip" >&2; exit 2 ;;
         esac
-        plan_id="$(powercontext server db-migrate plan \
+        plan_id="$$(powercontext server db-migrate plan \
           --evidence-dir /var/lib/powercontext/migration-state \
-          --lock-coordination single-host --backup "$policy" \
+          --lock-coordination single-host --backup "$$policy" \
           | python3 -c 'import json,sys; print(json.load(sys.stdin)["plan_id"])')"
         exec powercontext server db-migrate apply \
           --evidence-dir /var/lib/powercontext/migration-state \
-          --lock-coordination single-host $apply_backup \
-          --plan-id "$plan_id" --maintenance-confirmed --yes
+          --lock-coordination single-host $$apply_backup \
+          --plan-id "$$plan_id" --maintenance-confirmed --yes
     environment:
       <<: *shared-environment
       # The migration command does not start a Runtime or register this role;
       # a valid distributed role is still required while parsing ServerSettings.
       POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: api
       POWERCONTEXT_SERVER_DEPLOYMENT_ID: migrator
+      # Compose supplies the host value (default `manual`) to the script above.
+      POWERCONTEXT_MIGRATION_BACKUP_POLICY: ${POWERCONTEXT_MIGRATION_BACKUP_POLICY:-manual}
     volumes:
       - ${POWERCONTEXT_MIGRATION_STATE_DIR:?set a durable migration evidence directory on one fixed host}:/var/lib/powercontext/migration-state
 
