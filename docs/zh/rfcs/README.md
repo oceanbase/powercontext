@@ -1,6 +1,6 @@
 ---
-description: "何时提交 RFC、提案如何评审，以及到哪里查阅当前实现的公开契约。"
 title: PowerContext RFC
+description: "何时提交 RFC、提案如何评审，以及到哪里查阅当前实现的公开契约。"
 ---
 
 # PowerContext RFC

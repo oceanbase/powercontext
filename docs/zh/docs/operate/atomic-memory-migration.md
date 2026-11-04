@@ -1,7 +1,9 @@
 ---
-description: "备份数据库后，将旧版 Memory 集合离线转换为 Atomic Memory，并核对身份和版本链。"
 title: 迁移到 Atomic Memory
+description: "备份数据库后，将旧版 Memory 集合离线转换为 Atomic Memory，并核对身份和版本链。"
 ---
+
+# 迁移到 Atomic Memory
 
 已有 Memory 集合数据库需要停服转换为独立的 `atomic-memory` Artifact。迁移任务为
 `powercontext.memory.v1-to-atomic-memory.v1`；它冻结旧内容格式、版本链、身份规则及导入编码，

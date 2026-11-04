@@ -1,6 +1,6 @@
 ---
-description: "When to submit an RFC, how proposals are reviewed, and where to find the current implementation contracts."
 title: PowerContext RFCs
+description: "When to submit an RFC, how proposals are reviewed, and where to find the current implementation contracts."
 ---
 
 # PowerContext RFCs
