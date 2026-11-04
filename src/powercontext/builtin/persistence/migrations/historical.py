@@ -32,6 +32,9 @@ from sqlalchemy import Connection, MetaData, Table, inspect, text
 from sqlalchemy.schema import CreateColumn
 from typing_extensions import override
 
+from powercontext.builtin.persistence.atomic_memory_evidence_schema import ATOMIC_MEMORY_EVIDENCE_TABLES
+from powercontext.builtin.persistence.atomic_memory_index_schema import ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE
+
 from .bundle import MigrationBundle
 from .models import MigrationError, digest
 from .pinned import finish, pinned
@@ -464,6 +467,15 @@ def convert_memory(connection, bundle, *, database, embedding_factory=None):  # 
             await self.rebuild_fts(connection)
 
     class HistoricalNativeAtomicIndex(OceanBaseAtomicMemoryIndex):
+        def __init__(self, profile):
+            super().__init__(profile)
+            # Frozen historical DDL predates the registered evidence revisions.
+            # Creating these tables here would apply runtime DDL outside those
+            # revisions, leaving the Server chain's marker INSERT unsatisfiable.
+            deferred = {table.name for table in ATOMIC_MEMORY_EVIDENCE_TABLES}
+            deferred.add(ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE.name)
+            self.tables = tuple(table for table in self.tables if table.name not in deferred)
+
         @override
         async def require_current_schema(self, connection):
             columns = await connection.run_sync(lambda c: inspect(c).get_columns("pc_atomic_memory_current"))

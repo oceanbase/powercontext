@@ -29,6 +29,7 @@ from powercontext.builtin.runtime import (
     BuiltinConfig,
     HandoffArtifactCitation,
     PrepareContextRequest,
+    PreparedContext,
     RuntimeConfig,
     open_builtin_contexts,
     open_builtin_runtime,
@@ -112,6 +113,7 @@ def test_source_declarations_preserve_recall_and_consumers(migration_backend: Mi
                     tuple((item["memory"]["artifact"], item["memory"]["text"]) for item in public["hits"]) == recalled
                 )
                 prepared = await runtime.context.for_scope(scope_id).prepare(PrepareContextRequest(query="alpha"))
+                assert isinstance(prepared, PreparedContext)
                 assert prepared.status == "ready" and prepared.content is not None
                 items = json.loads(prepared.content.splitlines()[-2])["items"]
                 assert tuple((item["citation"]["artifact_ref"], item["content"]) for item in items) == recalled
