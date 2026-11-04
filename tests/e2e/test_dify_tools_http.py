@@ -153,6 +153,33 @@ def sdk_http(tmp_path: Path) -> Iterator[tuple[SdkDriver, httpx.Client, str, str
                         process.wait(timeout=10)
 
 
+def test_memory_tools_preserve_preference_and_custom_kinds_through_http(sdk_http) -> None:
+    sdk, _http, scope_id, _other_scope = sdk_http
+    remembered = sdk.call("pc_remember", scope_id, {"kind": "preference", "text": "The user prefers uv for Python."})
+    record = remembered["records"][0]
+    assert record["kind"] == "preference"
+    current = sdk.call("pc_memory_get", scope_id, {"artifact": json.dumps(record["artifact"])})
+    assert current["content"]["kind"] == "preference"
+    revised = sdk.call(
+        "pc_memory_revise",
+        scope_id,
+        {
+            "artifact": json.dumps(record["artifact"]),
+            "if_match": current["etag"],
+            "kind": "team:python-tooling",
+            "text": "The team prefers uv for Python.",
+        },
+    )
+    artifact = {key: revised[key] for key in ("family", "artifact_id", "revision")}
+    assert (
+        sdk.call("pc_memory_get", scope_id, {"artifact": json.dumps(artifact)})["content"]["kind"]
+        == "team:python-tooling"
+    )
+    assert sdk.call("pc_memory_list", scope_id, {})["items"][0]["kind"] == "team:python-tooling"
+    historical = sdk.call("pc_memory_get", scope_id, {"artifact": json.dumps(record["artifact"])})
+    assert historical["content"]["kind"] == "preference"
+
+
 def test_all_sdk_tools_preserve_atomic_memory_handoff_and_candidate_readback(sdk_http) -> None:
     sdk, http, a, b = sdk_http
     remembered = sdk.call("pc_remember", a, {"kind": "decision", "text": "中文固定范围验收: use scoped HTTP."})

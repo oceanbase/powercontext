@@ -1,3 +1,8 @@
+---
+title: "RFC 1223: Human and Agent work continuity"
+description: A proposal for Work Contracts, Handoffs, receipt acknowledgement, and Task Outcomes to preserve evidence as work changes hands.
+---
+
 - Proposal Name: `human_agent_work_continuity`
 - RFC Number: 1223
 - Start Date: 2026-08-13

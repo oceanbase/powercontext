@@ -1,3 +1,8 @@
+---
+title: "Using the Builtin Memory layer"
+description: "Configure the Builtin runtime on SQLite or OceanBase, then write, update, and retrieve Atomic Memory artifacts."
+---
+
 # Using the Builtin Memory layer
 
 Builtin Memory stores each durable fact, preference, or decision as an independent `atomic-memory` Artifact. Each

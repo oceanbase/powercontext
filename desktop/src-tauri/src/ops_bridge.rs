@@ -16,6 +16,7 @@
 
 //! Native-only approvals and durable references for independent Ops v1 invocations.
 
+use crate::session_observations::{OpsCallObservation, SessionObservations};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -39,7 +40,7 @@ const MAX_APPROVALS: usize = 32;
 pub const PROGRESS_EVENT: &str = "ops-progress";
 
 #[derive(Clone)]
-pub struct OpsHost(Arc<Host>);
+pub struct OpsHost(Arc<Host>, Option<SessionObservations>);
 struct Host {
     trust: trust::Trust,
     approvals: Mutex<HashMap<String, Approval>>,
@@ -80,14 +81,22 @@ impl OpsHost {
         home: Option<PathBuf>,
     ) -> Self {
         let trust = trust::Trust::new(resources, local_data, home);
-        Self(Arc::new(Host {
-            references: Mutex::new(trust::References::new(trust.support.clone())),
-            trust,
-            approvals: Mutex::new(HashMap::new()),
-            active: Arc::new(Active::default()),
-            #[cfg(test)]
-            deadline: None,
-        }))
+        Self(
+            Arc::new(Host {
+                references: Mutex::new(trust::References::new(trust.support.clone())),
+                trust,
+                approvals: Mutex::new(HashMap::new()),
+                active: Arc::new(Active::default()),
+                #[cfg(test)]
+                deadline: None,
+            }),
+            None,
+        )
+    }
+    pub fn with_observations(mut self, observations: SessionObservations) -> Self {
+        observations.enable_ops();
+        self.1 = Some(observations);
+        self
     }
     pub fn shutdown(&self) {
         self.0.active.closing.store(true, Ordering::Release);
@@ -383,12 +392,28 @@ impl OpsHost {
         guard: CallGuard,
         emit: impl Fn(OpsProgress) + Send + 'static,
     ) -> Result<OpsOperationReply, OpsBridgeError> {
-        match self
-            .invoke(binding, action, request(action, fields), guard, emit)
+        let observation = self
+            .1
+            .as_ref()
+            .map(|state| Arc::new(OpsCallObservation::new(state.clone())));
+        let progress_observation = observation.clone();
+        let reply = match self
+            .invoke(
+                binding,
+                action,
+                request(action, fields),
+                guard,
+                move |progress| {
+                    if let Some(observation) = &progress_observation {
+                        observation.progress(&progress);
+                    }
+                    emit(progress);
+                },
+            )
             .and_then(|(v, c)| wire::operation(&v, &id, c))
         {
-            Ok(reply) => Ok(reply),
-            Err(error) => Ok(OpsOperationReply {
+            Ok(reply) => reply,
+            Err(error) => OpsOperationReply {
                 operation_id: id,
                 outcome: OpsOutcome::Unknown,
                 attempt: None,
@@ -396,8 +421,12 @@ impl OpsHost {
                 error: None,
                 bridge_error: Some(error),
                 status: None,
-            }),
+            },
+        };
+        if let Some(observation) = observation {
+            observation.finish(action, &reply);
         }
+        Ok(reply)
     }
     fn invoke(
         &self,

@@ -1,6 +1,6 @@
 ---
 title: Agent 指引验证记录
-description: tracking issue 1450 D 的工具选择测量、执行证据及模型限制。
+description: Agent 工具选择与结果报告的测量记录，包含复现配置、执行证据和宿主验收的适用范围。
 ---
 
 # Agent 指引验证记录

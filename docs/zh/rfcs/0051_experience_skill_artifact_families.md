@@ -1,3 +1,8 @@
+---
+title: RFC 0051：Experience 与 Skill 制品家族
+description: Experience 与 Skill 的设计提案，说明证据、托管与外部 Skill 的归属，以及审核和版本演进边界。
+---
+
 - Proposal Name: `experience_skill_artifact_families`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#51](https://github.com/oceanbase/powercontext/pull/51)

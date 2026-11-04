@@ -28,6 +28,7 @@ mod ingress;
 mod link;
 mod middleware;
 mod proxy;
+mod steering;
 
 use crate::link::CoreLink;
 use axum::routing::{get, post};
@@ -53,10 +54,15 @@ pub struct AppState {
     pub upstream_responses_api_key: String,
     pub api_key: Option<String>,
     pub degrade: pc_gateway_core::DegradePolicy,
-    /// 是否调 prepare 注入上下文（默认关；v1 仅 chat 格式）。
-    pub inject_context: bool,
+    /// 是否调 prepare 注入上下文（默认关）。
+    pub injection: Injection,
+    /// Responses 入口是否注入：默认跟随 injection，
+    /// `PC_GATEWAY_INJECTION_RESPONSES=off` 可单独关闭。
+    pub inject_responses: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
+    /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
+    pub steering: Option<String>,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
     /// Request body byte limit (also enforced when consuming chunked bodies).
@@ -94,6 +100,15 @@ async fn main() {
         _ => pc_gateway_core::DegradePolicy::Pause,
     };
 
+    // 指令文件只在启动时读取；配置了但无效时拒绝启动，而不是不带指令运行。
+    let steering = match steering::load(std::env::var("PC_GATEWAY_STEERING_FILE").ok().as_deref()) {
+        Ok(steering) => steering,
+        Err(reason) => {
+            tracing::error!("PC_GATEWAY_STEERING_FILE: {reason}");
+            std::process::exit(2);
+        }
+    };
+
     let state = Arc::new(AppState {
         executor: Arc::new(Executor::new(
             core_link.clone(),
@@ -117,8 +132,16 @@ async fn main() {
             .ok()
             .filter(|k| !k.is_empty()),
         degrade,
-        inject_context: matches!(std::env::var("PC_GATEWAY_INJECTION").as_deref(), Ok("on")),
+        injection: injection_mode(
+            std::env::var("PC_GATEWAY_INJECTION").ok().as_deref(),
+            std::env::var("PC_GATEWAY_CORE_UDS").is_ok(),
+        ),
+        inject_responses: !matches!(
+            std::env::var("PC_GATEWAY_INJECTION_RESPONSES").as_deref(),
+            Ok("off")
+        ),
         sediment: matches!(std::env::var("PC_GATEWAY_SEDIMENT").as_deref(), Ok("on")),
+        steering,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
         max_body_bytes,
@@ -223,4 +246,58 @@ async fn resolve_degradation(link: link::CoreLink) -> bool {
 
 async fn healthz() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({ "status": "ok", "service": "pc-gateway" }))
+}
+
+/// 注入范围。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Injection {
+    Off,
+    /// 只注入带宿主会话 ID 的请求：一个回合只准备一次并精确重放（RFC 2199）。
+    ConversationsOnly,
+    /// 所有请求都注入；没有会话 ID 的请求各自准备。
+    All,
+}
+
+/// `PC_GATEWAY_INJECTION`：`on` 注入所有请求，`off` 关闭。未设置时，同机组合部署（经 UDS 连接已配置的 Core）
+/// 默认只注入带会话 ID 的请求，不会让工具循环的每一步都重新准备；独立部署默认关闭。
+/// 其他取值按关闭处理并告警，拼写错误不会意外开启注入。
+fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
+    match setting {
+        Some("on") => Injection::All,
+        Some("off") => Injection::Off,
+        None if combined => Injection::ConversationsOnly,
+        None => Injection::Off,
+        Some(other) => {
+            tracing::warn!(
+                value = other,
+                "PC_GATEWAY_INJECTION must be on or off; injection disabled"
+            );
+            Injection::Off
+        }
+    }
+}
+
+#[cfg(test)]
+mod injection_default_tests {
+    use super::{injection_mode, Injection};
+
+    #[test]
+    fn combined_deployments_inject_conversations_unless_set() {
+        assert_eq!(injection_mode(None, true), Injection::ConversationsOnly);
+        assert_eq!(injection_mode(Some("on"), true), Injection::All);
+        assert_eq!(injection_mode(Some("off"), true), Injection::Off);
+    }
+
+    #[test]
+    fn standalone_deployments_inject_only_when_turned_on() {
+        assert_eq!(injection_mode(None, false), Injection::Off);
+        assert_eq!(injection_mode(Some("on"), false), Injection::All);
+        assert_eq!(injection_mode(Some("off"), false), Injection::Off);
+    }
+
+    #[test]
+    fn unknown_values_never_enable_injection() {
+        assert_eq!(injection_mode(Some("true"), true), Injection::Off);
+        assert_eq!(injection_mode(Some(""), true), Injection::Off);
+    }
 }

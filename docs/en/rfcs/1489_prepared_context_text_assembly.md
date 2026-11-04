@@ -1,3 +1,8 @@
+---
+title: "RFC 1489: PreparedContext text assembly"
+description: A proposal for selecting context families, section order, per-family limits, and exact citations within the existing PreparedContext budget.
+---
+
 - Proposal Name: `prepared_context_text_assembly`
 - Start Date: 2026-09-07
 - RFC PR: [#1489](https://github.com/oceanbase/powercontext/pull/1489)

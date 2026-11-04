@@ -31,7 +31,7 @@ import {
   SearchDialogList,
   SearchDialogListItem,
   SearchDialogOverlay,
-  useSearchList,
+  useSearch,
   type SharedProps,
 } from 'fumadocs-ui/components/dialog/search';
 import { createDocsSearchClient, getSearchCategory, type SearchScope } from '@/lib/docs-search';
@@ -91,8 +91,18 @@ function keepControlKeys(event: KeyboardEvent) {
 }
 
 function SearchResult(props: ComponentProps<typeof SearchDialogListItem>) {
-  const { setActive } = useSearchList();
-  return <SearchDialogListItem {...props} onFocus={() => setActive(props.item.id)} />;
+  const { setActive } = useSearch();
+  return <SearchDialogListItem
+    {...props}
+    tabIndex={0}
+    onFocus={() => setActive(props.item.id)}
+    onKeyDown={(event) => {
+      if (event.key === ' ') event.preventDefault();
+    }}
+    onKeyUp={(event) => {
+      if (event.key === ' ') event.currentTarget.click();
+    }}
+  />;
 }
 
 export default function DocsSearchDialog(props: SharedProps) {

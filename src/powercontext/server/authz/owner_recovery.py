@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Collection, Sequence
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -178,16 +178,25 @@ class OwnerRecovery:
         kind: Literal["artifact", "candidate"] = "artifact",
         after: tuple[str, str] | None = None,
         limit: int = 100,
+        families: Collection[str] | None = None,
     ) -> OwnerGapPage:
-        """Inspect metadata in bounded pages; unknown history grants no authority."""
+        """Inspect metadata in bounded pages; unknown history grants no authority.
+
+        Callers that accept families from persisted declarations pass them in;
+        the process-local profiles do not know those families in another process.
+        """
         if kind not in {"artifact", "candidate"}:
             raise AccessInvalidRequestError("owner-recovery-kind")
         if not 1 <= limit <= 500:
             raise AccessInvalidRequestError("limit")
         table = ARTIFACT_HEADS_TABLE if kind == "artifact" else CANDIDATE_HEADS_TABLE
         identity = table.c.artifact_id if kind == "artifact" else table.c.candidate_id
-        families = tuple(family for family, profile in ARTIFACT_FAMILY_PROFILES.items() if profile.enabled)
-        statement = select(table.c.family, identity).where(table.c.scope_id == scope_id, table.c.family.in_(families))
+        selected = (
+            tuple(family for family, profile in ARTIFACT_FAMILY_PROFILES.items() if profile.enabled)
+            if families is None
+            else tuple(dict.fromkeys(families))
+        )
+        statement = select(table.c.family, identity).where(table.c.scope_id == scope_id, table.c.family.in_(selected))
         if kind == "candidate":
             statement = statement.where(table.c.candidate_kind == "artifact")
         if after is not None:
@@ -198,7 +207,8 @@ class OwnerRecovery:
         items = []
         for family, object_id in rows[:limit]:
             resource = ResourceRef.artifact(scope_id, family=family, artifact_id=object_id)
-            if kind == "artifact" and ARTIFACT_FAMILY_PROFILES[family].share_unit == "memory_entry":
+            profile = ARTIFACT_FAMILY_PROFILES.get(family)
+            if kind == "artifact" and profile is not None and profile.share_unit == "memory_entry":
                 items.append(OwnerGap(kind, scope_id, family, object_id, "legacy_selector_required", None))
                 continue
             owner = (

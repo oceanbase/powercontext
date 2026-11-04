@@ -216,10 +216,10 @@ jobs:
             else
               build_status=$?
             fi
-            if [ "$attempt" -eq 3 ] || ! grep -Fq 'hdiutil: create failed - Resource busy' "$attempt_log"; then
+            if [ "$attempt" -eq 3 ] || ! grep -Eq "hdiutil: (create failed - Resource busy|couldn't eject .* - Resource busy)" "$attempt_log"; then
               exit "$build_status"
             fi
-            echo "::warning::DMG creation found a busy resource; retrying after $((attempt * 5)) seconds (attempt $attempt of 3)."
+            echo "::warning::DMG creation or unmount found a busy resource; retrying after $((attempt * 5)) seconds (attempt $attempt of 3)."
             sleep "$((attempt * 5))"
           done
       - name: Upload failed macOS build diagnostics
@@ -280,7 +280,7 @@ jobs:
           working-directory: desktop
           cache-dependency-glob: desktop/pnpm-lock.yaml
       - name: Cache Rust dependencies and compilation
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop/src-tauri -> target
           key: linux

@@ -22,6 +22,7 @@ export interface ResolvedConfig {
   allowInsecureHttp: boolean
   scopeId: string | undefined
   authorization: string | undefined
+  promptRecall: boolean
   capturePrompts: boolean
   requestTimeoutMs: number
   httpBudgetMs: number
@@ -35,6 +36,7 @@ const DEFAULTS: ResolvedConfig = {
   allowInsecureHttp: false,
   scopeId: undefined,
   authorization: undefined,
+  promptRecall: true,
   capturePrompts: true,
   requestTimeoutMs: 3000,
   httpBudgetMs: 6000,
@@ -105,6 +107,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
     allowInsecureHttp: transport.allowInsecureHttp,
     scopeId: envString(env, 'POWERCONTEXT_OPENCODE_SCOPE_ID'),
     authorization: envString(env, 'POWERCONTEXT_OPENCODE_AUTHORIZATION'),
+    promptRecall: envBoolean(env, 'POWERCONTEXT_OPENCODE_PROMPT_RECALL') ?? DEFAULTS.promptRecall,
     capturePrompts: envBoolean(env, 'POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS') ?? DEFAULTS.capturePrompts,
     requestTimeoutMs,
     httpBudgetMs,

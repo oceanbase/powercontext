@@ -28,6 +28,8 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
+use crate::transcript::turn_transcript;
 use crate::{GateClient, GateError};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
@@ -58,6 +60,8 @@ pub struct ManagedCall {
     pub headers: Vec<(String, String)>,
     pub degrade_policy: DegradePolicy,
     pub inject_context: bool,
+    /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
+    pub conversation_id: Option<String>,
     pub sediment: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
@@ -95,6 +99,8 @@ pub struct Executor<G, T> {
     gate: G,
     transport: T,
     max_attempts: NonZeroU32,
+    /// 会话内按消息锚点重放的准备结果（RFC 2199）。
+    replays: ReplayCache,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -115,6 +121,7 @@ where
             gate,
             transport,
             max_attempts,
+            replays: ReplayCache::default(),
         }
     }
 
@@ -128,10 +135,11 @@ where
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
-        let pristine_user_text = last_user_text(&pristine_request).unwrap_or_default();
 
         if call.inject_context {
-            self.enrich(&mut call, evidence).await;
+            let anchor = message_anchor(&pristine_request);
+            self.enrich(&mut call, anchor, renderer.message_list_key(), evidence)
+                .await;
         }
 
         let payload = match renderer.render(&call.request, None) {
@@ -175,6 +183,7 @@ where
                             headers: call.headers.clone(),
                             degrade_policy: DegradePolicy::Pause,
                             inject_context: false,
+                            conversation_id: None,
                             sediment: false,
                             prepared_contexts: Vec::new(),
                         };
@@ -312,31 +321,42 @@ where
                     if now_ms() >= release_deadline {
                         return ManagedOutcome::AdmissionExpired;
                     }
-                    if call.sediment {
-                        let transcript = serde_json::json!({
-                            "kind": "gateway_turn",
-                            // P2 review：沉淀的 user 字段必须用原始（pre-injection）用户文本，
-                            // 不含 enrich 注入的记忆块（防止旧记忆被当成新用户证据）。
-                            "user": pristine_user_text.clone(),
-                            "assistant": release_body.clone(),
-                            "model": call.request.model,
+                    // 每个用户回合只在终止响应（不再调用工具）时沉淀一次规范化记录；工具循环的中间响应不沉淀。
+                    // 记录取自注入前的请求，不含准备结果（防止旧记忆被当成新用户证据）。
+                    let transcript = call
+                        .sediment
+                        .then(|| {
+                            turn_transcript(
+                                &pristine_request,
+                                &release_body,
+                                renderer.message_list_key(),
+                            )
+                        })
+                        .flatten();
+                    if let Some(transcript) = transcript {
+                        let digest = turn_digest(&call, &pristine_request).unwrap_or_else(|| {
+                            result
+                                .binding
+                                .as_deref()
+                                .map(simple_digest)
+                                .unwrap_or_else(|| simple_digest(&release_body))
                         });
-                        let digest = result
-                            .binding
-                            .as_deref()
-                            .map(simple_digest)
-                            .unwrap_or_else(|| simple_digest(&release_body));
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
                             source_id: format!("gw-turn-{digest}"),
-                            content: transcript.to_string(),
+                            content: transcript,
                             metadata: Some(serde_json::json!({
                                 "kind": "gateway_turn",
                                 "target_profile": call.target_profile,
                             })),
                         };
-                        if let Err(e) = self.gate.capture(capture).await {
-                            evidence.record_not_sent(0, &format!("sediment_failed:{e}"));
+                        match self.gate.capture(capture).await {
+                            Ok(_) => {}
+                            // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
+                            Err(GateError::GateRejected(409)) => {
+                                evidence.record_not_sent(0, "sediment_duplicate")
+                            }
+                            Err(e) => evidence.record_not_sent(0, &format!("sediment_failed:{e}")),
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
                         if now_ms() >= release_deadline {
@@ -371,10 +391,60 @@ where
         }
     }
 
-    async fn enrich(&self, call: &mut ManagedCall, evidence: &dyn EvidenceSink) {
-        let Some(query) = last_user_text(&call.request) else {
+    /// 有可信会话 ID 时：同一消息锚点（工具续写、重试）精确重放已准备的内容与绑定，不再检索；
+    /// 新锚点（新的用户消息）准备一次。没有会话 ID 时每个请求各自准备，不继承任何旧注入。
+    /// 准备失败不写入，下一次请求重试，且不阻塞本次请求；空结果同样重放。
+    async fn enrich(
+        &self,
+        call: &mut ManagedCall,
+        anchor: Option<u64>,
+        list_key: &str,
+        evidence: &dyn EvidenceSink,
+    ) {
+        let replay = call.conversation_id.clone().zip(anchor);
+        let cached = replay.as_ref().and_then(|(conversation, anchor)| {
+            self.replays
+                .get(&call.scope_id, conversation, *anchor, now_ms())
+        });
+        let prepared = match cached {
+            Some(prepared) => prepared,
+            None => {
+                let Some((prepared, expires_at)) = self.prepare_turn(call, evidence).await else {
+                    return;
+                };
+                match &replay {
+                    Some((conversation, anchor)) => {
+                        let now = now_ms();
+                        let expires = expires_at
+                            .as_deref()
+                            .and_then(parse_rfc3339_ms)
+                            .map_or(now + MAX_REPLAY_MS, |at| at.min(now + MAX_REPLAY_MS));
+                        self.replays.put_if_absent(
+                            &call.scope_id,
+                            conversation,
+                            *anchor,
+                            prepared,
+                            expires,
+                        )
+                    }
+                    None => prepared,
+                }
+            }
+        };
+        let Some(PreparedBlock { block, binding }) = prepared else {
             return;
         };
+        self.inject(call, &block, &binding, list_key);
+    }
+
+    /// 调用 prepare：失败返回 None（不缓存、不阻塞主请求）；
+    /// 成功返回（可注入的块，复用绑定到期时间）。
+    async fn prepare_turn(
+        &self,
+        call: &ManagedCall,
+        evidence: &dyn EvidenceSink,
+    ) -> Option<(Option<PreparedBlock>, Option<String>)> {
+        let query = last_user_text(&call.request)?;
         let prepared = match self
             .gate
             .prepare(PrepareContextRequest {
@@ -392,22 +462,35 @@ where
             Err(e) => {
                 evidence.record_not_sent(0, &format!("prepare_failed:{e}"));
                 tracing::warn!(error = %e, "prepare failed; injecting nothing");
-                return;
+                return None;
             }
         };
-        let (Some(content), Some(binding)) = (prepared.content(), prepared.binding()) else {
-            return;
+        let expires_at = prepared.expires_at().map(str::to_owned);
+        let block = match (prepared.content(), prepared.binding()) {
+            (Some(content), Some(binding)) if !content.is_empty() => Some(PreparedBlock {
+                block: content.to_owned(),
+                binding: binding.to_owned(),
+            }),
+            _ => None,
         };
-        if content.is_empty() {
-            return;
-        }
-        let block = content.to_string();
+        Some((block, expires_at))
+    }
+
+    /// 把准备好的块注入最后一条用户消息，并声明它在渲染后请求体中的位置。
+    fn inject(&self, call: &mut ManagedCall, block: &str, binding: &str, list_key: &str) {
         let Some(index) = last_user_index(&call.request) else {
             return;
         };
         let Some(message) = call.request.messages.get_mut(index) else {
             return;
         };
+        // Core accepts Responses prepared-context locations only in input_text parts.
+        // Normalize only when injecting, preserving uninjected and degraded payloads.
+        if list_key == "input" {
+            if let [serde_json::Value::String(text)] = message.content.as_slice() {
+                message.content = vec![serde_json::json!({"type": "input_text", "text": text})];
+            }
+        }
         match message.content.as_slice() {
             [serde_json::Value::String(s)] => {
                 let new_text = format!("{block}\n\n{s}");
@@ -417,9 +500,7 @@ where
             // 保留所有非文本部件（image_url 等）——移除非文本部件会让 Core
             // 看不到不支持的内容（安全缺陷），重复注入会膨胀 payload（审计缺陷）。
             parts if !parts.is_empty() => {
-                let first_text_idx = parts
-                    .iter()
-                    .position(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"));
+                let first_text_idx = parts.iter().position(is_text_part);
                 let Some(text_idx) = first_text_idx else {
                     return;
                 };
@@ -448,7 +529,7 @@ where
                     binding: binding.to_string(),
                     location: ModelJsonTextLocation {
                         schema: pc_gateway_types::MODEL_JSON_TEXT_LOCATION_SCHEMA.to_string(),
-                        pointer: format!("/messages/{index}/content/{text_idx}/text"),
+                        pointer: format!("/{list_key}/{index}/content/{text_idx}/text"),
                         start_byte: 0,
                         end_byte: block.len() as u64,
                     },
@@ -461,7 +542,7 @@ where
             binding: binding.to_string(),
             location: ModelJsonTextLocation {
                 schema: pc_gateway_types::MODEL_JSON_TEXT_LOCATION_SCHEMA.to_string(),
-                pointer: format!("/messages/{index}/content"),
+                pointer: format!("/{list_key}/{index}/content"),
                 start_byte: 0,
                 end_byte: block.len() as u64,
             },
@@ -566,6 +647,14 @@ fn classify_gate_error(e: GateError) -> String {
     }
 }
 
+/// 文本内容部件：Chat 为 `text`，Responses 的用户输入为 `input_text`。
+fn is_text_part(part: &serde_json::Value) -> bool {
+    matches!(
+        part.get("type").and_then(|t| t.as_str()),
+        Some("text" | "input_text")
+    )
+}
+
 fn last_user_index(request: &CanonicalRequest) -> Option<usize> {
     request
         .messages
@@ -577,19 +666,13 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
     let i = last_user_index(request)?;
     match request.messages[i].content.as_slice() {
         [serde_json::Value::String(s)] => Some(s.clone()),
-        // typed content parts：[{"type":"text","text":"..."},...] → 拼接 text 字段。
-        // 这是 OpenAI Chat 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
+        // typed content parts：[{"type":"text"或"input_text","text":"..."},...] → 拼接 text 字段。
+        // 这是 Chat 与 Responses 的合法形态；不处理会导致沉淀 user 为空 + 注入被跳过。
         parts if !parts.is_empty() => {
             let texts: Vec<String> = parts
                 .iter()
-                .filter_map(|p| {
-                    p.get("type")
-                        .and_then(|t| t.as_str())
-                        .filter(|t| t == &"text")
-                        .and_then(|_| p.get("text"))
-                        .and_then(|t| t.as_str())
-                        .map(String::from)
-                })
+                .filter(|p| is_text_part(p))
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()).map(String::from))
                 .collect();
             if texts.is_empty() {
                 None
@@ -599,6 +682,24 @@ fn last_user_text(request: &CanonicalRequest) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// 一个用户回合的稳定标识：Scope、可信会话 ID 与截至最后一条用户消息的注入前消息。同一回合的重试、重复或并发的
+/// 终止请求得到同一个 Source ID。没有可信会话时返回 `None`：不同会话的相同消息不能合并，调用方退回到每次放行
+/// 各自的标识。
+fn turn_digest(call: &ManagedCall, pristine: &CanonicalRequest) -> Option<String> {
+    let conversation = call.conversation_id.as_deref()?;
+    let last_user = pristine
+        .messages
+        .iter()
+        .rposition(|m| matches!(m.role, pc_gateway_protocol::Role::User))?;
+    let messages = serde_json::to_string(&pristine.messages[..=last_user]).ok()?;
+    Some(simple_digest(&format!(
+        "{}\n{}\n{}\n{messages}",
+        call.scope_id.len(),
+        call.scope_id,
+        conversation
+    )))
 }
 
 fn simple_digest(input: &str) -> String {

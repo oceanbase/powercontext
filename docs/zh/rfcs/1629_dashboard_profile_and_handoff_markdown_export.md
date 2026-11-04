@@ -1,3 +1,8 @@
+---
+title: RFC 1629：Dashboard 画像与 Handoff 导出
+description: Dashboard 的设计提案，提供只读画像和 Handoff Markdown 下载，保留精确版本、证据与已知遗漏。
+---
+
 - Proposal Name: `dashboard_profile_and_handoff_markdown_export`
 - Start Date: 2026-09-16
 - RFC PR: [#1629](https://github.com/oceanbase/powercontext/pull/1629)

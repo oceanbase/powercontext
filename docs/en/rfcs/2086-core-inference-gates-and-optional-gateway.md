@@ -1,6 +1,6 @@
 ---
-title: Context Privacy Interception and Token Efficiency in PowerContext
-description: Integrate privacy interception and token efficiency into existing context organization, policy governance, and inference adapters, with contracts for first-party and third-party gateway integration.
+title: "RFC 2086: Context privacy and token efficiency"
+description: A proposal for privacy checks and token-efficient context reuse at owned inference boundaries, preserving current authorization and exact evidence.
 ---
 
 - Proposal Name: `integrated_privacy_interception_and_token_efficiency`

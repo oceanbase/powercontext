@@ -1,3 +1,8 @@
+---
+title: "RFC 1510: Artifact Dreaming"
+description: A proposal for bounded background Dream runs that refine Experience or derive Skills from exact evidence and submit Candidates for review.
+---
+
 - Proposal Name: `artifact_dreaming`
 - Start Date: 2026-09-07
 - RFC PR: [#1510](https://github.com/oceanbase/powercontext/pull/1510)

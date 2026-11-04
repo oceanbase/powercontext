@@ -264,7 +264,9 @@ class BatchReportResponse(_FrozenModel):
 class TaskArmSummary(_FrozenModel):
     resolved: bool
     input_tokens: Annotated[int, Field(ge=0)] | None = None
+    cached_input_tokens: Annotated[int, Field(ge=0)] | None = None
     output_tokens: Annotated[int, Field(ge=0)] | None = None
+    reasoning_output_tokens: Annotated[int, Field(ge=0)] | None = None
     total_tokens: Annotated[int, Field(ge=0)] | None = None
 
 
@@ -314,7 +316,9 @@ class TaskDetailArm(_FrozenModel):
     pass_to_pass: OfficialTestGroup
     log_excerpt: str | None = Field(default=None, max_length=4_000)
     input_tokens: Annotated[int, Field(ge=0)] | None = None
+    cached_input_tokens: Annotated[int, Field(ge=0)] | None = None
     output_tokens: Annotated[int, Field(ge=0)] | None = None
+    reasoning_output_tokens: Annotated[int, Field(ge=0)] | None = None
     total_tokens: Annotated[int, Field(ge=0)] | None = None
 
 
