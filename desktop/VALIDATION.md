@@ -177,7 +177,7 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The `sqlite-atomic-3cefa45a-v1` record matches the bundled API contract and qualifies its eleven recorded SQLite protocol operations against the exact Server source and wheel below. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The `sqlite-atomic-56683483-v1` record matches the bundled API contract and qualifies its eleven recorded SQLite protocol operations against the exact Server source and wheel below. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit. Historical record `sqlite-atomic-f3a90b2f-v1` remains preserved with its original identities and is disabled for this contract.
 
@@ -186,6 +186,46 @@ Selecting a compatibility profile does not attest the remote binary identity. Ex
 <a id="current-server-protocol-qualification"></a>
 
 ### Server protocol qualification records
+
+#### Server 56683483 protocol qualification
+
+`sqlite-atomic-56683483-v1` qualifies Server sources at
+`566834839821d026db1c116425ee9a9b5c0f4fe5` with OpenAPI digest
+`d8cf5d802888351929a19191bfde32a36db1c06e2293d3ad12df6721f0bef85e`.
+The wheel is `powercontext-1.5.1.dev69+g566834839-py3-none-any.whl`, SHA-256
+`5fa1f723796bac4c6570be91729fd6d9f3fe5fe7e6f2e87fef2b9bb526ac8c16`, built from that clean commit.
+All 703 packaged runtime files in `powercontext/` and `powercontext_service_bootstrap/`
+match its archived source bytes, with no missing or extra runtime files. The sorted runtime
+manifest digest is `49937ac983a895cf995700b2e0b02ef66a49d7687d3310f78417e2726cae6d8d`
+(one `wheel/path sha256` line per file, with a final newline).
+
+On 2026-11-04, macOS 26.2 ARM64 with Python 3.12.7 ran the unchanged
+`desktop/tests/real_server.py` against independent SQLite Server processes loaded from this wheel.
+Anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced
+access all passed. The eleven operations cover Server discovery, liveness/readiness, Principal,
+capabilities, Scope listing/detail/default, Atomic Memory save/search, and exact revision reads.
+The provider case verified identity changes, same-identity revocation, and 51 same-title Scopes.
+Every mode verified a committed write with a lost response without replay and Server survival after
+client exit. All four fixture Servers shut down normally with exit code 0 and no forced kill.
+`desktopWorkingTreeDirty=false`.
+
+The Rust 1.95.0 native probe was built from the product Cargo lock. Its SHA-256 is
+`39276312eb5661eb5630a7c772b5a0ff38dc29801ee2f39fbec75e4aa9c5e97f`.
+Ignored local reports are under `desktop/.artifacts/real-server.json`,
+`desktop/.artifacts/qualification-wheel-identity.json`, and
+`desktop/.artifacts/qualification-runtime-manifest.txt`.
+The additive context-check coverage profile does not extend these eleven qualified operations.
+This record does not qualify Gateway or model-protection behavior, model quality, database upgrades,
+installed UI, platform packaging, signing, or persistent native credentials.
+
+Reproduce from the recorded clean commit with an empty wheel output directory:
+
+```sh
+uv build --wheel --out-dir desktop/.artifacts/server-wheel
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/fixture_qualification.py --server-commit 566834839821d026db1c116425ee9a9b5c0f4fe5
+uv run --no-sync python desktop/tests/real_server.py
+```
 
 #### Server 112db11e protocol qualification
 
