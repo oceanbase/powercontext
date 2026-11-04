@@ -169,6 +169,88 @@ curl http://127.0.0.1:8099/ready
 
 三种方式产物一致：回答里必须包含 `diff --git` 补丁，程序只抽取补丁部分并校验。
 
+已验证的 API 形状（本机实测，2026-11-04）：
+
+```
+POST https://api.minimaxi.com/v1/chat/completions
+Authorization: Bearer <key>
+{"model": "...", "messages": [...]}
+→ 无效 key 返回 401 {"type":"error","error":{"type":"authorized_error", "... (1004)"}}
+```
+
+即 `MINIMAX_BASE_URL` 默认值 `https://api.minimaxi.com/v1` 是对的；`MINIMAX_MODEL` 填你账号控制台里实际可用的模型名（如 `MiniMax-M2`）。该域名本机可直连，无需代理。
+
+接通真实 API 的步骤：
+
+```bash
+# 1) 在 MiniMax 控制台创建 API Key，写进当前会话
+export MINIMAX_API_KEY="sk-..."
+export MINIMAX_MODEL="MiniMax-M2"        # 换成你套餐里的模型名
+
+# 2) 先做一次极小的连通性自检（只发 "ping"）
+python -c "from context import minimax; print(minimax.run_api('ping').to_record())"
+
+# 3) 正式调用：组装上下文 → MiniMax → 抽补丁 → 保存状态
+python run.py agent --step prepare
+#    产物：agent/artifacts/after/{prompt.md, context.md, answer.md, proposal.patch}
+
+# 4) 新进程里再导入状态并应用补丁
+python run.py state history
+python run.py agent --step apply --worktree /path/to/seekdb
+```
+
+API 出错时程序不会自己写补丁：它记录失败原因并以非零码退出（`context/minimax.py::dispatch`），
+避免把"模型没回答"伪装成"已改好"。跑通后请把 `agent/MINIMAX-LOG.md` 与
+`docs/技术使用记录.md` 里"人工粘贴通路"的表述改成实际后端与模型。
+
+---
+
+### 5.4 在自建的 seekdb 上验证补丁（需要 Linux 构建机）
+
+本机是 Windows，没有 bazel/g++，所以服务层验收只能停在"未打补丁的 1.4.0 镜像"上。
+拿到一台能构建的 Linux 机器（或 WSL2，建议 ≥16 GB 内存、≥40 GB 空闲磁盘）后按下面执行，
+服务层验收就会从红转绿：
+
+```bash
+# 1) 取源码并应用补丁（agent/code/minimax-change.diff 是 MiniMax 产出的那 6 行文法改动；
+#    注意它只是解析层的第一步，缺 T_OP_ARRAY_INDEX 的节点定义与解析路径，先补齐再编译）
+git clone https://github.com/oceanbase/seekdb && cd seekdb
+cd /path/to/powercontext/minimax && cd -
+git apply /path/to/powercontext/minimax/agent/code/minimax-change.diff
+
+# 2) 构建（首次 init 会拉依赖，耗时较长）
+./build.py init
+./build.py build seekdb
+
+# 3) 起一个专用实例（数据目录独立，端口别和已有实例冲突）
+./build/bin/src/observer/seekdb --nodaemon \
+  --base-dir "$HOME/seekdb-patched" --port 2882 \
+  --parameter memory_limit=4G --parameter datafile_size=2G &
+
+# 4) 建库建账号（本地构建的 root 默认空口令）
+cd /path/to/powercontext/minimax
+python scripts/init_local_instance.py --port 2882
+
+# 5) 对这套构建跑验收：期望 acceptance 5/5、compatibility 2/2
+SEEKDB_REPO=/path/to/seekdb MINIMAX_DB_PORT=2882 python run.py guard --stage after
+
+# 6) 跑仓库自带回归（mysqltest 会自己管理实例，端口另选）
+python3 tools/deploy/mysqltest.py run --base-dir "$HOME/mt-inst" --work-dir "$HOME/mt-out" \
+  --port 2883 --test-set vector_index.vector_index_bugfix1
+./mysql-test-run.sh array --suite=array --do-test=array_arith_op_mysql
+```
+
+`scripts/init_local_instance.py` 也可以直接对任意已运行的 seekdb/OceanBase 使用（幂等，可重复执行）：
+
+```bash
+python scripts/init_local_instance.py --port 2881                      # 空口令实例
+python scripts/init_local_instance.py --port 2883 --root-password=xxx # 有口令实例
+python scripts/init_local_instance.py --port 2882 --reset             # 重建库
+```
+
+只建演练库（不建规格库）用 `--no-spec-db`；规格库需要导入时对同一端口执行
+`MINIMAX_DB_PORT=2882 python scripts/build_specs.py --reset`。
+
 ---
 
 ## 6. 典型的一次完整运行（也见 `docs/代码与测试.md`）
@@ -206,7 +288,8 @@ python run.py ready                         # 全部 done 才返回 0
 
 1. **本机无法构建 seekdb。** Windows 上没有 bazel/g++，seekdb 14 万行文件全量编译也不现实。"代码修改有效"用两层检查替代：语法层（`grammar_check/` 直接读文法源，判断 `col[i]` 是否已产生独立节点）和真实服务层（guard 对运行中的 seekdb 1.4.0 执行同一组 SQL）。**没有在本机编译过 C++ 补丁**，这一点在 `docs/代码与测试.md` 中如实标注。
 2. **被测 seekdb 是镜像中的 1.4.0 构建，不是打过补丁的构建**；因此 after 阶段在真实服务层的验收项会保持红色，直到有可用构建。guard 会把这个结果原样报告，不会伪造。
-3. **MiniMax 无 API Key 时走人工粘贴路径**，流程、提示词、补丁校验完全可用，但回答由操作者粘贴。
-4. `array_index_probe.cpp` 需要与 seekdb 构建一致的 `libobparser` 头文件与链接参数，本机未验证编译；默认使用 `static_check.py`。
-5. 规格引用的行号对应 seekdb `108fe22`；`build_specs.py` 与上下文组装会校验符号仍在原处，漂移会打印警告而不是静默改号。
-6. 口令写在开发脚本中并可用环境变量覆盖，仅适用于本地演示环境。
+3. **当前补丁只是解析层的第一步**：`agent/code/minimax-change.diff` 只新增了文法产生式，`T_OP_ARRAY_INDEX` 的节点定义、解析路径、执行期实现与回归结果都还没有，因此直接编译会失败。需要让 MiniMax 继续产出完整实现（`agent/instruction-2.md` 就是这份后续任务说明），再按 5.4 编译验证。
+4. **MiniMax 无 API Key 时走人工粘贴路径**，流程、提示词、补丁校验完全可用，但回答由操作者粘贴；接通 API 的步骤见 5.3。
+5. `array_index_probe.cpp` 需要与 seekdb 构建一致的 `libobparser` 头文件与链接参数，本机未验证编译；默认使用 `static_check.py`。
+6. 规格引用的行号对应 seekdb `108fe22`；`build_specs.py` 与上下文组装会校验符号仍在原处，漂移会打印警告而不是静默改号。
+7. 口令写在开发脚本中并可用环境变量覆盖，仅适用于本地演示环境。
