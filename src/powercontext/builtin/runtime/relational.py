@@ -188,6 +188,7 @@ from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication
 from powercontext.builtin.runtime.atomic_memory_processing import (
     AtomicMemoryProcessingConfig,
     AtomicMemorySourceWindowProcessor,
+    PreparedMemoryWindow,
 )
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.models import (
@@ -1561,6 +1562,28 @@ class RelationalContexts:
             atomic_context=atomic_context,
         )
 
+    async def prepare_memory(
+        self,
+        scope_id: str,
+        limit: int,
+        /,
+        *,
+        atomic_context: ArtifactSearchExecutionContext | None = None,
+    ) -> "PreparedMemoryWindow | MemoryFlushResult":
+        """Prepare one Memory window's decisions without publishing it.
+
+        The returned window's ``publish`` commits the Memory artifacts and
+        advances the Source cursor on the caller's open transaction, so the
+        Work Ledger handler can run it inside the fenced Work completion
+        transaction. A ``MemoryFlushResult`` return means nothing to publish.
+        """
+        services = self._services_for(scope_id)
+        return await _RelationalTriggers(
+            services=services,
+            lock=self._state_for(services.scope_id).scope_locks.setdefault("activation", asyncio.Lock()),
+            tracing=self._tracing,
+        ).prepare(limit=limit, atomic_context=atomic_context)
+
     async def incubate_experience(
         self,
         scope_id: str,
@@ -1821,6 +1844,25 @@ class _RelationalTriggers:
                 self._services.scope_id,
                 limit,
                 processing=processing,
+                context=atomic_context,
+            )
+
+    async def prepare(
+        self,
+        *,
+        limit: int,
+        atomic_context: ArtifactSearchExecutionContext | None = None,
+    ) -> "PreparedMemoryWindow | MemoryFlushResult":
+        """Prepare one window's decisions while holding the activation lock.
+
+        The lock is released before the caller publishes, so the fenced Work
+        completion transaction never runs model calls under it; publication
+        relies on the cursor row lock and generation check instead.
+        """
+        async with self._lock:
+            return await self._services.atomic_memory_processor.prepare_window(
+                self._services.scope_id,
+                limit,
                 context=atomic_context,
             )
 

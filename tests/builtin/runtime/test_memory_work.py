@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.work import WorkRepository
+from powercontext.builtin.persistence.work import StaleWorkClaimError, WorkRepository
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.models import MemoryFlushResult
 from powercontext.builtin.runtime.work_handlers import (
@@ -47,6 +49,44 @@ async def _claim(contexts, spec):
     return claims[0]
 
 
+class _StubPreparedWindow:
+    """A prepared window whose publication records its connection."""
+
+    def __init__(self, contexts, published):
+        self._contexts = contexts
+        self._published = published
+
+    async def publish(self, connection, processing):
+        await self._contexts.repositories.cursors.save(
+            connection,
+            "project",
+            SOURCE_WINDOW_TRIGGER_NAME,
+            SourceCursor(sequence=1),
+            expected_generation=None,
+        )
+        self._published.append(connection)
+        return MemoryFlushResult(
+            previous_cursor=0,
+            current_cursor=1,
+            high_watermark=1,
+            source_count=1,
+            memory_ref=None,
+        )
+
+    def emit_finalized(self) -> None:
+        pass
+
+    def emit_failed(self) -> None:
+        pass
+
+
+def _stub_prepare_memory(contexts, published):
+    async def fake_prepare_memory(scope_id: str, limit: int, **_: object) -> _StubPreparedWindow:
+        return _StubPreparedWindow(contexts, published)
+
+    return fake_prepare_memory
+
+
 def test_memory_work_spec_tracks_the_unconsumed_source_window(tmp_path) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(_config(tmp_path)) as contexts:
@@ -65,7 +105,7 @@ def test_memory_work_spec_tracks_the_unconsumed_source_window(tmp_path) -> None:
     asyncio.run(scenario())
 
 
-def test_memory_work_handler_runs_the_atomic_memory_flush(tmp_path, monkeypatch) -> None:
+def test_memory_work_handler_defers_publication_to_the_fenced_commit(tmp_path, monkeypatch) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(_config(tmp_path)) as contexts:
             context = await contexts.get("project")
@@ -74,38 +114,91 @@ def test_memory_work_handler_runs_the_atomic_memory_flush(tmp_path, monkeypatch)
             assert spec is not None
             claim = await _claim(contexts, spec)
 
-            seen: list[tuple[str, int]] = []
-
-            async def fake_process_memory(scope_id: str, limit: int, **_: object) -> MemoryFlushResult:
-                seen.append((scope_id, limit))
-                return MemoryFlushResult(
-                    previous_cursor=0,
-                    current_cursor=1,
-                    high_watermark=1,
-                    source_count=1,
-                    memory_ref=None,
-                )
-
-            monkeypatch.setattr(contexts, "process_memory", fake_process_memory)
+            published: list[object] = []
+            monkeypatch.setattr(contexts, "prepare_memory", _stub_prepare_memory(contexts, published))
             prepared = await MemoryWorkHandler(contexts, window_limit=10).prepare(claim)
-            # The Atomic Memory flush owns the domain commit, so the fenced Work
-            # commit only records the outcome.
-            assert prepared.commit is None
-            assert prepared.result is not None
-            assert prepared.result.code == "processed"
-            assert prepared.result.payload["current_cursor"] == 1
-            assert seen == [("project", 10)]
+            # Preparation publishes nothing; the domain write joins the fenced
+            # Work completion transaction through the commit closure.
+            assert prepared.result is None
+            assert prepared.commit is not None
+            assert published == []
 
+            repository = WorkRepository()
             async with contexts.database.transaction() as connection:
-                await contexts.repositories.cursors.save(
-                    connection,
-                    "project",
-                    SOURCE_WINDOW_TRIGGER_NAME,
-                    SourceCursor(sequence=1),
-                    expected_generation=None,
-                )
+                work = await repository.complete(connection, claim, None, commit=prepared.commit)
+            assert work.status.value == "succeeded"
+            assert len(published) == 1
+            async with contexts.database.transaction() as connection:
+                row = await contexts.repositories.cursors.load(connection, "project", SOURCE_WINDOW_TRIGGER_NAME)
+            assert row is not None and row.cursor.sequence == 1
+
             repeated = await MemoryWorkHandler(contexts, window_limit=10).prepare(claim)
             assert repeated.result is not None
             assert repeated.result.code == "already_committed"
+
+    asyncio.run(scenario())
+
+
+def test_memory_publication_is_fenced_by_a_cancellation_before_commit(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            context = await contexts.get("project")
+            await context.sources.capture(ContentCapture(source_id="one", content="remember this"))
+            spec = await memory_work_spec(contexts, "project", limit=10, max_attempts=3, payload_version=1)
+            assert spec is not None
+            claim = await _claim(contexts, spec)
+
+            published: list[object] = []
+            monkeypatch.setattr(contexts, "prepare_memory", _stub_prepare_memory(contexts, published))
+            prepared = await MemoryWorkHandler(contexts, window_limit=10).prepare(claim)
+            assert prepared.commit is not None
+
+            # A cancel accepted while preparation is paused must fence the
+            # later publication: the completion transaction sees cancel_requested
+            # and rolls the domain write back with it.
+            repository = WorkRepository()
+            async with contexts.database.transaction() as connection:
+                stored = await repository.get(connection, claim.work_id)
+                await repository.cancel(
+                    connection,
+                    claim.work_id,
+                    expected_version=stored.state_version,
+                )
+            with pytest.raises(StaleWorkClaimError):
+                async with contexts.database.transaction() as connection:
+                    await repository.complete(connection, claim, None, commit=prepared.commit)
+            assert published == []
+            async with contexts.database.transaction() as connection:
+                row = await contexts.repositories.cursors.load(connection, "project", SOURCE_WINDOW_TRIGGER_NAME)
+            assert row is None or row.cursor.sequence == 0
+
+    asyncio.run(scenario())
+
+
+def test_memory_work_handler_returns_the_trigger_result_without_a_commit(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            context = await contexts.get("project")
+            await context.sources.capture(ContentCapture(source_id="one", content="remember this"))
+            spec = await memory_work_spec(contexts, "project", limit=10, max_attempts=3, payload_version=1)
+            assert spec is not None
+            claim = await _claim(contexts, spec)
+
+            async def fake_prepare_memory(scope_id: str, limit: int, **_: object) -> MemoryFlushResult:
+                # The trigger selected nothing to publish for this attempt.
+                return MemoryFlushResult(
+                    previous_cursor=1,
+                    current_cursor=1,
+                    high_watermark=1,
+                    source_count=0,
+                    memory_ref=None,
+                )
+
+            monkeypatch.setattr(contexts, "prepare_memory", fake_prepare_memory)
+            prepared = await MemoryWorkHandler(contexts, window_limit=10).prepare(claim)
+            assert prepared.commit is None
+            assert prepared.result is not None
+            assert prepared.result.code == "idle"
+            assert prepared.result.payload["current_cursor"] == 1
 
     asyncio.run(scenario())

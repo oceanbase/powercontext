@@ -129,6 +129,174 @@ class AtomicMemoryProcessingConfig:
         )
 
 
+class PreparedMemoryWindow:
+    """A prepared window whose publication can join the caller's transaction.
+
+    ``publish`` runs the guarded cursor/artifact publication on the caller's
+    open transaction and is the only place that advances the Source cursor.
+    The Work Ledger handler runs it inside the Work completion transaction,
+    so a cancellation or lease takeover accepted before publication discards
+    the prepared result together with the rolled-back transaction.
+    """
+
+    def __init__(
+        self,
+        processor: "AtomicMemorySourceWindowProcessor",
+        *,
+        scope_id: str,
+        context: ArtifactSearchExecutionContext | None,
+        cursor,
+        transition,
+        action,
+        window: tuple,
+        eligible: tuple,
+        consulted_artifacts: tuple,
+        workset: AtomicMemoryWindowWorkset,
+        prepared: tuple,
+        decision,
+        observation,
+        high_watermark: int,
+    ) -> None:
+        self.processor = processor
+        self.scope_id = scope_id
+        self.context = context
+        self.cursor = cursor
+        self.transition = transition
+        self.action = action
+        self.window = window
+        self.eligible = eligible
+        self.consulted_artifacts = consulted_artifacts
+        self.workset = workset
+        self.prepared = prepared
+        self.decision = decision
+        self.observation = observation
+        self.high_watermark = high_watermark
+        self.finalized = None
+
+    def result(self) -> MemoryFlushResult:
+        decision = self.decision
+        return _flush_result(
+            self.action.after,
+            self.action.through,
+            self.high_watermark,
+            len(self.eligible),
+            held=decision is not None and decision.verdict is MemoryWriteVerdict.HOLD,
+            hold_codes=() if decision is None or decision.code is None else (decision.code.value,),
+        )
+
+    def emit_finalized(self) -> None:
+        if self.finalized is not None:
+            emit_decision_observation(self.finalized)
+
+    def emit_failed(self) -> None:
+        self.processor._emit_failed_observation(self.observation)
+
+    async def publish(self, connection, processing) -> MemoryFlushResult:
+        processor = self.processor
+        application = processor.application
+        scope_id = self.scope_id
+        context = self.context
+        action = self.action
+        cursor = self.cursor
+        writes = tuple(write for item in self.prepared for write in item.plan.writes)
+        with processor._stage(
+            "memory.commit",
+            {
+                "powercontext.memory.commit.memory_changed": bool(writes),
+                "powercontext.memory.commit.artifact_revision_count": sum(
+                    write.draft is not None for write in writes
+                ),
+            },
+        ):
+            # Every Atomic write uses journal -> heads. Source capture's journal
+            # reservation prevents the exact window changing under validation.
+            await connection.execute(
+                update(SOURCE_JOURNAL_HEADS_TABLE)
+                .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
+                .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
+            )
+            if processing is not None:
+                await processing.guard(connection)
+            actual = await processor.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME, for_update=True)
+            actual_generation = None if actual is None else actual.generation
+            expected_generation = None if cursor is None else cursor.generation
+            if (
+                0 if actual is None else actual.cursor.sequence
+            ) != action.after or actual_generation != expected_generation:
+                raise GenerationConflictError(SOURCE_WINDOW_TRIGGER_NAME, expected_generation, actual_generation)
+            current_window = await processor.sources.list_window(
+                connection, scope_id, after=action.after, through=action.through
+            )
+            processor._require_window(current_window, action.after, action.through)
+            if current_window != self.window:
+                _conflict("Source window changed during preparation")
+            if tuple(item for item in current_window if is_generation_eligible(item.value)) != self.eligible:
+                _conflict("Source generation eligibility changed during preparation")
+            local_policy = False
+            if context is not None and context.access is not None:
+                from powercontext.server.authz import BuiltinAuthorizationProvider
+                from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+
+                local_policy = (
+                    type(context.access.provider) in {BuiltinAuthorizationProvider, CasbinAuthorizationProvider}
+                    and context.access.supports_read_snapshot(connection.engine)
+                    and context.access.supports_write_transaction(connection.engine)
+                )
+            async with processor._prefetch_artifact_policy(
+                connection,
+                scope_id,
+                context,
+                self.consulted_artifacts if local_policy else (),
+                include_scope=True,
+            ):
+                await application.security.authorize(connection, scope_id, context, "read")
+                await application.security.authorize(connection, scope_id, context, "create")
+                await application.security.authorize_sources(
+                    connection, scope_id, context, tuple(item.ref for item in self.eligible)
+                )
+                for ref in self.consulted_artifacts:
+                    await processor._authorize_artifact(connection, scope_id, context, ref)
+                results = ()
+                if self.decision is None or self.decision.verdict is not MemoryWriteVerdict.HOLD:
+                    source_read_set = await processor.sources.preload(
+                        connection,
+                        scope_id,
+                        tuple(
+                            source for write in writes if write.draft is not None for source in write.draft.sources
+                        ),
+                        known=current_window,
+                    )
+                    results = await application.service.commit_window(
+                        connection,
+                        scope_id,
+                        self.prepared,
+                        context,
+                        read_set=tuple(self.workset.reads.values()),
+                        source_read_set=source_read_set,
+                    )
+            self.finalized = await processor._finalize_observation(
+                connection,
+                self.observation,
+                final_action=(
+                    "memory_write_hold"
+                    if self.decision is not None and self.decision.verdict is MemoryWriteVerdict.HOLD
+                    else "memory_write_applied"
+                ),
+                subject_refs=tuple(_artifact_reference(result.primary.ref) for result in results),
+            )
+            await processor.cursors.save(
+                connection,
+                scope_id,
+                SOURCE_WINDOW_TRIGGER_NAME,
+                self.transition.state,
+                expected_generation=expected_generation,
+            )
+            await processor.windows.clear_consumed(connection, scope_id, action.through)
+            if processing is not None:
+                await processing.complete(connection, remaining_work=action.through < self.high_watermark)
+        return self.result()
+
+
 class AtomicMemorySourceWindowProcessor:
     """Keep the existing cursor/binding while replacing collection Memory extraction."""
 
@@ -182,6 +350,35 @@ class AtomicMemorySourceWindowProcessor:
                         return await self._retry_window(scope_id, limit, processing, selected_context, span)
                 return await self._retry_window(scope_id, limit, processing, selected_context, span)
 
+    async def prepare_window(
+        self,
+        scope_id: str,
+        limit: int,
+        *,
+        context: ArtifactSearchExecutionContext | None = None,
+    ) -> PreparedMemoryWindow | MemoryFlushResult:
+        """Prepare one Source window's decisions without publishing.
+
+        Returns a ``PreparedMemoryWindow`` whose ``publish`` commits the Memory
+        artifacts and advances the cursor on the caller's open transaction, or a
+        ``MemoryFlushResult`` when the trigger has no window to consume. The
+        caller owns conflict recovery: unlike ``flush``, a conflicting
+        publication raises instead of retrying internally.
+        """
+        selected_context = context
+        async with deferred_decision_audit(selected_context):
+            with self._stage("memory.flush", {"powercontext.memory.flush.source_count": 0}) as span:
+                if self.prompts is not None:
+                    legacy = await self.prompts.read_configuration(scope_id, "memory.extract")
+                    if legacy.mode == "custom":
+                        raise PromptError("legacy_memory_prompt_unsupported", during_inference=True)
+                    async with (
+                        self.prompts.bind(scope_id, "atomic_memory.extract"),
+                        self.prompts.bind(scope_id, "atomic_memory.reconcile"),
+                    ):
+                        return await self._prepare_window(scope_id, limit, None, selected_context, span)
+                return await self._prepare_window(scope_id, limit, None, selected_context, span)
+
     async def _retry_window(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
         for attempt in range(3):
             try:
@@ -197,6 +394,25 @@ class AtomicMemorySourceWindowProcessor:
         raise AssertionError("unreachable")
 
     async def _flush_once(self, scope_id, limit, processing, context, span) -> MemoryFlushResult:
+        prepared = await self._prepare_window(scope_id, limit, processing, context, span)
+        if isinstance(prepared, MemoryFlushResult):
+            return prepared
+        try:
+            async with self.application.database.transaction() as connection:
+                result = await prepared.publish(connection, processing)
+        except Exception:
+            prepared.emit_failed()
+            raise
+        prepared.emit_finalized()
+        return result
+
+    async def _prepare_window(self, scope_id, limit, processing, context, span):
+        """Select one Source window and prepare its decisions without publishing.
+
+        Returns a ``PreparedMemoryWindow`` whose ``publish`` commits the Memory
+        artifacts and advances the cursor on the caller's transaction, or a
+        ``MemoryFlushResult`` when the trigger has no window to consume.
+        """
         application = self.application
         trigger = SourceWindowTrigger()
         async with application.database.transaction() as connection:
@@ -243,35 +459,21 @@ class AtomicMemorySourceWindowProcessor:
             if reducible and action.through - action.after > 1:
                 await self._reduce_window(scope_id, context, processing, cursor, state, action, high_watermark)
             raise
-        try:
-            finalized = await self._publish(
-                scope_id,
-                context,
-                processing,
-                cursor,
-                transition,
-                action,
-                window,
-                eligible,
-                consulted_artifacts,
-                workset,
-                prepared,
-                decision,
-                observation,
-                high_watermark,
-            )
-        except Exception:
-            self._emit_failed_observation(observation)
-            raise
-        if finalized is not None:
-            emit_decision_observation(finalized)
-        return self._result(
-            action.after,
-            action.through,
-            high_watermark,
-            len(eligible),
-            held=decision is not None and decision.verdict is MemoryWriteVerdict.HOLD,
-            hold_codes=() if decision is None or decision.code is None else (decision.code.value,),
+        return PreparedMemoryWindow(
+            self,
+            scope_id=scope_id,
+            context=context,
+            cursor=cursor,
+            transition=transition,
+            action=action,
+            window=window,
+            eligible=eligible,
+            consulted_artifacts=consulted_artifacts,
+            workset=workset,
+            prepared=prepared,
+            decision=decision,
+            observation=observation,
+            high_watermark=high_watermark,
         )
 
     async def _reduce_window(self, scope_id, context, processing, cursor, state, action, high_watermark):
@@ -337,122 +539,6 @@ class AtomicMemorySourceWindowProcessor:
         prepared = tuple([await application.service.prepare_change(plan) for plan in plans])
         decision, observation = await self._assess_write_gate(scope_id, workset, prepared)
         return prepared, decision, observation
-
-    async def _publish(
-        self,
-        scope_id,
-        context,
-        processing,
-        cursor,
-        transition,
-        action,
-        window,
-        eligible,
-        consulted_artifacts,
-        workset,
-        prepared,
-        decision,
-        observation,
-        high_watermark,
-    ):
-        application = self.application
-        writes = tuple(write for item in prepared for write in item.plan.writes)
-        finalized = None
-        with self._stage(
-            "memory.commit",
-            {
-                "powercontext.memory.commit.memory_changed": bool(writes),
-                "powercontext.memory.commit.artifact_revision_count": sum(write.draft is not None for write in writes),
-            },
-        ):
-            async with application.database.transaction() as connection:
-                # Every Atomic write uses journal -> heads. Source capture's journal
-                # reservation prevents the exact window changing under validation.
-                await connection.execute(
-                    update(SOURCE_JOURNAL_HEADS_TABLE)
-                    .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
-                    .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
-                )
-                if processing is not None:
-                    await processing.guard(connection)
-                actual = await self.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME, for_update=True)
-                actual_generation = None if actual is None else actual.generation
-                expected_generation = None if cursor is None else cursor.generation
-                if (
-                    0 if actual is None else actual.cursor.sequence
-                ) != action.after or actual_generation != expected_generation:
-                    raise GenerationConflictError(SOURCE_WINDOW_TRIGGER_NAME, expected_generation, actual_generation)
-                current_window = await self.sources.list_window(
-                    connection, scope_id, after=action.after, through=action.through
-                )
-                self._require_window(current_window, action.after, action.through)
-                if current_window != window:
-                    _conflict("Source window changed during preparation")
-                if tuple(item for item in current_window if is_generation_eligible(item.value)) != eligible:
-                    _conflict("Source generation eligibility changed during preparation")
-                local_policy = False
-                if context is not None and context.access is not None:
-                    from powercontext.server.authz import BuiltinAuthorizationProvider
-                    from powercontext.server.authz.casbin import CasbinAuthorizationProvider
-
-                    local_policy = (
-                        type(context.access.provider) in {BuiltinAuthorizationProvider, CasbinAuthorizationProvider}
-                        and context.access.supports_read_snapshot(connection.engine)
-                        and context.access.supports_write_transaction(connection.engine)
-                    )
-                async with self._prefetch_artifact_policy(
-                    connection,
-                    scope_id,
-                    context,
-                    consulted_artifacts if local_policy else (),
-                    include_scope=True,
-                ):
-                    await application.security.authorize(connection, scope_id, context, "read")
-                    await application.security.authorize(connection, scope_id, context, "create")
-                    await application.security.authorize_sources(
-                        connection, scope_id, context, tuple(item.ref for item in eligible)
-                    )
-                    for ref in consulted_artifacts:
-                        await self._authorize_artifact(connection, scope_id, context, ref)
-                    results = ()
-                    if decision is None or decision.verdict is not MemoryWriteVerdict.HOLD:
-                        source_read_set = await self.sources.preload(
-                            connection,
-                            scope_id,
-                            tuple(
-                                source for write in writes if write.draft is not None for source in write.draft.sources
-                            ),
-                            known=current_window,
-                        )
-                        results = await application.service.commit_window(
-                            connection,
-                            scope_id,
-                            prepared,
-                            context,
-                            read_set=tuple(workset.reads.values()),
-                            source_read_set=source_read_set,
-                        )
-                finalized = await self._finalize_observation(
-                    connection,
-                    observation,
-                    final_action=(
-                        "memory_write_hold"
-                        if decision is not None and decision.verdict is MemoryWriteVerdict.HOLD
-                        else "memory_write_applied"
-                    ),
-                    subject_refs=tuple(_artifact_reference(result.primary.ref) for result in results),
-                )
-                await self.cursors.save(
-                    connection,
-                    scope_id,
-                    SOURCE_WINDOW_TRIGGER_NAME,
-                    transition.state,
-                    expected_generation=expected_generation,
-                )
-                await self.windows.clear_consumed(connection, scope_id, action.through)
-                if processing is not None:
-                    await processing.complete(connection, remaining_work=action.through < high_watermark)
-        return finalized
 
     async def _prepare(self, scope_id, eligible, pipeline, context):
         workset = AtomicMemoryWindowWorkset()
@@ -942,16 +1028,7 @@ class AtomicMemorySourceWindowProcessor:
 
     @staticmethod
     def _result(after, through, high_watermark, count, *, held=False, hold_codes=()):
-        return MemoryFlushResult(
-            previous_cursor=after,
-            current_cursor=through,
-            high_watermark=high_watermark,
-            source_count=count,
-            memory_ref=None,
-            remaining_work=through < high_watermark,
-            held_count=1 if held else 0,
-            hold_codes=hold_codes,
-        )
+        return _flush_result(after, through, high_watermark, count, held=held, hold_codes=hold_codes)
 
 
 @dataclass(slots=True)
@@ -988,6 +1065,19 @@ def _evidence_reference(value) -> str:
 def _window_operation_id(prepared) -> str:
     identities = ":".join(item.plan.primary_artifact_id for item in prepared)
     return f"atomic-memory-window:{sha256(identities.encode('utf-8')).hexdigest()}"
+
+
+def _flush_result(after, through, high_watermark, count, *, held=False, hold_codes=()):
+    return MemoryFlushResult(
+        previous_cursor=after,
+        current_cursor=through,
+        high_watermark=high_watermark,
+        source_count=count,
+        memory_ref=None,
+        remaining_work=through < high_watermark,
+        held_count=1 if held else 0,
+        hold_codes=hold_codes,
+    )
 
 
 def _conflict(detail: str) -> NoReturn:

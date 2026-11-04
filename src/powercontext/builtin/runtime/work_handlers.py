@@ -267,11 +267,14 @@ class OperationMaintenanceDiscoverer:
 class MemoryWorkHandler:
     """Run one claimed Memory window through the Atomic Memory processor.
 
-    The window, its model calls and its commit stay one Atomic Memory flush: this
-    handler owns the retry and fencing story, while the processor keeps the
-    single-transaction cursor/artifact commit. A retried attempt re-reads the
-    cursor, so a window that already committed retires instead of repeating the
-    domain write.
+    Preparation selects the window and runs the model calls without any
+    domain write. The publication (Memory artifacts plus cursor advance) is
+    returned as a ``PreparedWork.commit`` closure and runs inside the fenced
+    Work completion transaction, after ``WorkRepository.complete`` verified
+    the live claim and cancellation: a cancel accepted during preparation
+    discards the prepared result with the rolled-back transaction. A retried
+    attempt re-reads the cursor, so a window that already committed retires
+    instead of repeating the domain write.
     """
 
     kind = MEMORY_WORK_KIND
@@ -312,16 +315,33 @@ class MemoryWorkHandler:
                 )
             )
         _require_exact_cursor(payload, current_sequence, current_generation)
-        try:
-            flushed = await self._contexts.process_memory(claim.scope_id, self._window_limit)
-        except (AtomicMemoryConflictError, GenerationConflictError, RevisionConflictError) as error:
-            raise WorkExecutionError(category="conflict", code="memory_conflict", retryable=True) from error
-        return PreparedWork(
-            result=WorkResult(
+        prepared = await self._contexts.prepare_memory(claim.scope_id, self._window_limit)
+        if isinstance(prepared, MemoryFlushResult):
+            # The trigger selected no window; there is nothing to publish and
+            # nothing the ledger fence could discard.
+            return PreparedWork(
+                result=WorkResult(
+                    code="processed" if prepared.processed else "idle",
+                    payload=prepared.model_dump(mode="json", exclude_none=True),
+                )
+            )
+
+        async def commit(connection: AsyncConnection) -> WorkResult:
+            try:
+                # Runs inside the Work completion transaction after
+                # WorkRepository.complete has verified the live claim and
+                # cancellation: a cancel accepted before publication rolls this
+                # domain write back with the fenced completion.
+                flushed = await prepared.publish(connection, processing=None)
+            except (AtomicMemoryConflictError, GenerationConflictError, RevisionConflictError) as error:
+                raise WorkExecutionError(category="conflict", code="memory_conflict", retryable=True) from error
+            prepared.emit_finalized()
+            return WorkResult(
                 code="processed" if flushed.processed else "idle",
                 payload=flushed.model_dump(mode="json", exclude_none=True),
             )
-        )
+
+        return PreparedWork(result=None, commit=commit)
 
 
 class ExperienceWorkHandler:
