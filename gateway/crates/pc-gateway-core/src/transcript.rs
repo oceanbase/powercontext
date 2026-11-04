@@ -260,9 +260,27 @@ fn item_steps(item: &Value, losses: &mut CaptureLosses) -> Vec<Step> {
             let arguments = first_field(
                 item,
                 &["arguments", "input", "action", "code", "query", "queries"],
-            )
-            .map(value_text)
-            .unwrap_or_default();
+            );
+            // 后缀分类只决定工具循环是否结束，不证明 v1 能测量该调用的载荷。
+            let known_call = item
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| {
+                    HOSTED_CALLS.contains(&kind)
+                        || matches!(
+                            kind,
+                            "function_call"
+                                | "custom_tool_call"
+                                | "computer_call"
+                                | "local_shell_call"
+                                | "shell_call"
+                                | "mcp_approval_request"
+                        )
+                });
+            if !known_call || arguments.is_none() {
+                losses.unmeasured_projection = true;
+            }
+            let arguments = arguments.map(value_text).unwrap_or_default();
             let mut steps = vec![Step::ToolCall {
                 name,
                 arguments: bounded(arguments, losses),
@@ -274,12 +292,26 @@ fn item_steps(item: &Value, losses: &mut CaptureLosses) -> Vec<Step> {
             }
             steps
         }
-        ItemKind::CallOutput => vec![Step::ToolOutput {
-            output: bounded(
-                item.get("output").map(value_text).unwrap_or_default(),
-                losses,
-            ),
-        }],
+        ItemKind::CallOutput => {
+            let output = item.get("output");
+            let known_output = matches!(
+                item.get("type").and_then(Value::as_str),
+                Some(
+                    "function_call_output"
+                        | "custom_tool_call_output"
+                        | "computer_call_output"
+                        | "local_shell_call_output"
+                        | "shell_call_output"
+                )
+            );
+            // MCP 审批的 approve/reason 和未知输出载荷不在现有 output 投影中。
+            if !known_output || output.is_none_or(Value::is_null) {
+                losses.unmeasured_projection = true;
+            }
+            vec![Step::ToolOutput {
+                output: bounded(output.map(value_text).unwrap_or_default(), losses),
+            }]
+        }
         ItemKind::Ignored => Vec::new(),
         ItemKind::Unknown => {
             losses.unmeasured_projection = true;

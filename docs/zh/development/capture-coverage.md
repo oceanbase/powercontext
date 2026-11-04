@@ -100,6 +100,17 @@ coverage 与正文来自同一次投影计算，不二次解析序列化 transcr
 未知终止响应、仍需客户端执行工具的响应、无法解析的响应继续不生成 transcript，也不创建 Source。
 正文中的伪截断 marker 不改变覆盖声明。
 
+Responses 调用还要求 type 为已知调用类型，并且既有投影字段 `arguments`、`input`、`action`、
+`code`、`query` 或 `queries` 中存在非 null 载荷。仅因 `_call` 后缀被接受的类型，例如
+`apply_patch_call` 或未来调用类型，即使包含上述字段也声明为不可测量。已知调用缺少可投影载荷时
+同样不可测量；显式空字符串仍可测量。该规则同时适用于历史调用和终止响应中的 hosted 调用。
+正文渲染和终止判断保持不变；不可测量调用记录 `unmeasured_projection`，并保留同时发生的已知容量损失。
+
+Responses 历史输出仅在受支持的 function、custom、computer 或 shell 输出类型中存在非 null 的
+`output` 时可测量；空字符串仍可测量。MCP 审批响应和未知 `*_call_output` 类型即使包含
+`output`，也记录 `unmeasured_projection`，因为其他载荷字段没有进入投影。受支持类型缺失
+`output` 或其值为 null 时同样不可测量。正文渲染和终止判断保持不变。
+
 Chat 工具调用的 function name、arguments 均为字符串，且 type 为 `function` 或缺省时，才视为
 可测量；缺省 type 沿用既有 legacy 格式。其他调用类型或无法投影的 function 字段记录
 `unmeasured_projection`，不改变正文渲染。存在已知容量损失时仍为 partial，同时保留损失和不可测量原因。

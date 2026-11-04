@@ -109,6 +109,20 @@ unmeasured; the body retains its existing first-item projection. An unknown term
 turn, or an unparseable response still returns no transcript and creates no Source. Marker-like
 text does not change coverage.
 
+Responses call coverage also requires a known call type and a non-null payload in one of the
+existing projected fields: `arguments`, `input`, `action`, `code`, `query` or `queries`.
+A type accepted only by its `_call` suffix, such as `apply_patch_call` or a future call type,
+is unmeasured even if one of those fields is present. A known call with no projected payload
+is also unmeasured; an explicitly empty string is still measurable. This applies to history
+calls and hosted calls in the terminal response. Body rendering and terminal detection remain
+unchanged; unmeasured calls record `unmeasured_projection` alongside any known capacity losses.
+
+Responses history outputs are measurable for the supported function, custom, computer and shell
+output types when `output` is present and non-null; an empty string is measurable. MCP approval
+responses and unknown `*_call_output` types record `unmeasured_projection`, even if they also
+contain an `output` field. Their other payload fields are not projected. Missing or null output
+on a supported type is also unmeasured. Body rendering and terminal detection remain unchanged.
+
 Chat tool calls are measurable when their function name and arguments are strings and their
 type is `function` or absent, preserving the existing legacy shape. Other call types or
 unprojectable function fields record `unmeasured_projection` without changing body rendering.
