@@ -89,17 +89,19 @@ def workflow(name):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Isolated acceptance uses GNU timeout and POSIX process signals")
-@pytest.mark.parametrize(("seconds", "passes"), [(2, False), (8, True)])
-def test_migration_runner_requires_cleanup_within_selected_process_deadline(tmp_path, seconds, passes):
+@pytest.mark.parametrize(("seconds", "passes"), [(10, False), (25, True)])
+def test_migration_runner_requires_cleanup_within_selected_process_deadline(tmp_path, monkeypatch, seconds, passes):
     timeout = shutil.which("timeout") or shutil.which("gtimeout")
     if timeout is None:
         pytest.skip("GNU timeout is required for isolated Linux acceptance")
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--require-dsh-config-runtime --require-claude-code-python-floor")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "timeout").symlink_to(timeout)
+    # Leave time for a cold interpreter while cleanup exceeds the lower deadline.
     (tmp_path / "test_budget.py").write_text(
         "import time\nimport pytest\n"
-        "@pytest.fixture\ndef cleanup():\n    yield\n    time.sleep(3)\n"
+        "@pytest.fixture\ndef cleanup():\n    yield\n    time.sleep(12)\n"
         "def test_completed_seekdb(cleanup):\n    pass\n"
     )
     output = tmp_path / "reports"
@@ -120,10 +122,11 @@ def test_migration_runner_requires_cleanup_within_selected_process_deadline(tmp_
             **os.environ,
             "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            "PYTEST_ADDOPTS": "",
         },
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=90,
         check=False,
     )
     assert result.returncode == (0 if passes else 1), result.stdout + result.stderr
