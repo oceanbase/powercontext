@@ -32,8 +32,9 @@ use powercontext_desktop::{
     ipc::FoundationInfo,
     ops_bridge::*,
     session_observations::{
-        ObservationOutcome, ObservationUnit, ObservedOperation, OperationSummary, OutcomeCounts,
-        SessionCoverage, SessionObservation, SessionSummary,
+        ObservationOutcome, ObservationUnit, ObservedOperation, OperationSummary,
+        OpsSessionObservation, OpsSessionSummary, OutcomeCounts, SessionCoverage,
+        SessionObservation, SessionSummary,
     },
     transport::{
         ApiFailure, AtomicMemoryDetail, ExactRecallTokenStatistics, ExactScopeStatistics,
@@ -146,6 +147,8 @@ fn main() {
         OperationSummary::decl(&config),
         SessionCoverage::decl(&config),
         SessionSummary::decl(&config),
+        OpsSessionObservation::decl(&config),
+        OpsSessionSummary::decl(&config),
     ]
     .into_iter()
     .chain(wire::declarations(&config))

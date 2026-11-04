@@ -243,6 +243,36 @@ def test_swebench_pro_run_defaults_optional_integrations_off(monkeypatch) -> Non
     assert captured[0].database_configs is None
     assert captured[0].treatment_mode is TreatmentMode.OFF_ON
     assert captured[0].codex_config is None
+    assert captured[0].egress == "allowlist"
+    assert captured[0].allow_hosts == ()
+
+
+def test_swebench_pro_run_passes_egress_choices(monkeypatch) -> None:
+    captured: list[RunConfig] = []
+
+    class FakeCatalog:
+        def require(self, _instance_id: str) -> object:
+            return object()
+
+    def fake_run(config: RunConfig, *, instance: object) -> MinimalRunResult:
+        del instance
+        captured.append(config)
+        return MinimalRunResult("run-direct", Path("/tmp/report.md"), False, False)
+
+    monkeypatch.setattr("powercontext_eval_swebench_pro.cli.SweBenchProCatalog.load", lambda _path: FakeCatalog())
+    monkeypatch.setattr("powercontext_eval_swebench_pro.cli.run_swebench_pro_instance", fake_run)
+    base = ["run", "--root", "/srv/evaluation", "--instance-id", "instance_owner__repo-b"]
+
+    allowlisted = CliRunner().invoke(app, [*base, "--allow-host", "api.anthropic.com,api.deepseek.com"])
+    native = CliRunner().invoke(app, [*base, "--egress", "native"])
+    invalid = CliRunner().invoke(app, [*base, "--allow-host", "10.0.0.1"])
+
+    assert allowlisted.exit_code == 0, allowlisted.output
+    assert captured[0].allow_hosts == ("api.anthropic.com", "api.deepseek.com")
+    assert native.exit_code == 0, native.output
+    assert captured[1].egress == "native"
+    assert invalid.exit_code != 0
+    assert len(captured) == 2
 
 
 def test_swebench_pro_run_passes_treatment_mode_and_absolute_codex_config(monkeypatch, tmp_path: Path) -> None:
