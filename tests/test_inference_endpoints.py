@@ -28,6 +28,7 @@ import pytest
 from pydantic import AnyHttpUrl, SecretStr, ValidationError
 
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
@@ -41,6 +42,7 @@ from powercontext.server.settings import ServerSettings
 
 class _RecordingModelServer(ThreadingHTTPServer):
     requests: list[dict[str, Any]]
+    required_api_key: str | None = None
 
     def __init__(self) -> None:
         super().__init__(("127.0.0.1", 0), _ModelHandler)
@@ -59,6 +61,9 @@ class _ModelHandler(BaseHTTPRequestHandler):
             "headers": {name.lower(): value for name, value in self.headers.items()},
             "body": body,
         })
+        if self.server.required_api_key is not None and self.headers.get("x-api-key") != self.server.required_api_key:
+            self.send_error(401)
+            return
         if path == "/v1/embeddings":
             response = {
                 "object": "list",
@@ -197,19 +202,27 @@ def test_inference_settings_reject_invalid_http_field_names(header_name: str) ->
         )
 
 
-def test_anthropic_custom_endpoint_uses_standard_environment_api_key(
+@pytest.mark.parametrize("protection_mode", ["disabled", "shadow"])
+@pytest.mark.parametrize("credential_source", ["environment", "header"])
+def test_anthropic_custom_endpoint_preserves_api_key_authentication(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    credential_source: str,
+    protection_mode: str,
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-standard-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "environment-key")
+    api_key = "explicit-key" if credential_source == "header" else "environment-key"
 
     async def scenario() -> None:
         with _model_server() as (server, base_url):
+            server.required_api_key = api_key
             config = BuiltinConfig(
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
                 inference=InferenceConfig(
                     generation_model="anthropic:tiny-generator",
                     generation_base_url=AnyHttpUrl(base_url.removesuffix("/v1")),
+                    generation_headers={"X-Api-Key": SecretStr(api_key)} if credential_source == "header" else {},
+                    protection=InferenceProtectionConfig.model_validate({"mode": protection_mode}),
                 ),
             )
 
@@ -219,7 +232,8 @@ def test_anthropic_custom_endpoint_uses_standard_environment_api_key(
             assert readiness.checks["inference.generation"] == "ready"
             assert server.requests
             assert server.requests[0]["path"] == "/v1/messages"
-            assert server.requests[0]["headers"]["authorization"] == "Bearer anthropic-standard-key"
+            assert server.requests[0]["headers"]["x-api-key"] == api_key
+            assert "authorization" not in server.requests[0]["headers"]
 
     asyncio.run(scenario())
 
@@ -263,9 +277,11 @@ def test_anthropic_custom_endpoint_with_authorization_header_omits_api_key_heade
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("protection_mode", ["disabled", "shadow"])
 def test_anthropic_custom_endpoint_with_bearer_header_overrides_environment_authentication(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    protection_mode: str,
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-standard-key")
 
@@ -277,6 +293,7 @@ def test_anthropic_custom_endpoint_with_bearer_header_overrides_environment_auth
                     generation_model="anthropic:tiny-generator",
                     generation_base_url=AnyHttpUrl(base_url.removesuffix("/v1")),
                     generation_headers={"Authorization": SecretStr("Bearer gateway-token")},
+                    protection=InferenceProtectionConfig.model_validate({"mode": protection_mode}),
                 ),
             )
 

@@ -229,6 +229,7 @@ from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNo
 from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
+    import httpx2
     from pydantic_ai.models import Model
     from pydantic_ai.models.instrumented import InstrumentationSettings
     from pydantic_ai.providers import Provider
@@ -2153,8 +2154,11 @@ def _protected_provider_factory(
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
             resolved = _resolve_headers(headers)
-            api_key = _pop_header(resolved, "x-api-key") or os.getenv("ANTHROPIC_API_KEY")
+            header_api_key = _pop_header(resolved, "x-api-key")
+            api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
             has_authorization = any(name.casefold() == "authorization" for name in resolved)
+            if api_key and not has_authorization and (base_url is not None or header_api_key is not None):
+                client.auth = partial(_anthropic_api_key_header, api_key=api_key)
             sdk = AsyncAnthropic(
                 base_url=None if base_url is None else str(base_url),
                 api_key=api_key or (None if has_authorization else "api-key-not-set"),
@@ -2208,26 +2212,35 @@ def _unbounded_provider_factory(
             from anthropic import AsyncAnthropic
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
-            if headers:
-                default_headers = _resolve_headers(headers)
-                api_key = _pop_header(default_headers, "x-api-key") or os.getenv("ANTHROPIC_API_KEY")
-                has_authorization = any(name.casefold() == "authorization" for name in default_headers)
-                client = AsyncAnthropic(
-                    base_url=None if base_url is None else str(base_url),
-                    # A configured Authorization header is the credential; gateways may reject any X-Api-Key.
-                    api_key=api_key or (None if has_authorization else "api-key-not-set"),
-                    default_headers=default_headers,
-                    http_client=httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None,
-                )
-                resources.push_async_callback(client.close)
-                return AnthropicProvider(anthropic_client=client)
-            return AnthropicProvider(
-                base_url=str(base_url),
-                api_key=os.getenv("ANTHROPIC_API_KEY") or "api-key-not-set",
+            default_headers = _resolve_headers(headers)
+            header_api_key = _pop_header(default_headers, "x-api-key")
+            api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
+            has_authorization = any(name.casefold() == "authorization" for name in default_headers)
+            http_client = httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None
+            if api_key and not has_authorization and (base_url is not None or header_api_key is not None):
+                http_client = http_client or httpx2.AsyncClient()
+                http_client.auth = partial(_anthropic_api_key_header, api_key=api_key)
+            client = AsyncAnthropic(
+                base_url=None if base_url is None else str(base_url),
+                # A configured Authorization header is the credential; gateways may reject any X-Api-Key.
+                api_key=api_key or (None if has_authorization else "api-key-not-set"),
+                default_headers=default_headers,
+                http_client=http_client,
             )
+            resources.push_async_callback(client.close)
+            return AnthropicProvider(anthropic_client=client)
         raise BuiltinConfigurationError("inference-endpoint-provider")
 
     return create_provider
+
+
+def _anthropic_api_key_header(request: httpx2.Request, *, api_key: str) -> httpx2.Request:
+    """Keep custom endpoints compatible with the pre-v2 Anthropic authentication header."""
+
+    if request.headers.get("Authorization") == f"Bearer {api_key}":
+        del request.headers["Authorization"]
+        request.headers["X-Api-Key"] = api_key
+    return request
 
 
 def _is_loopback_endpoint(endpoint: AnyHttpUrl | str | None) -> bool:
