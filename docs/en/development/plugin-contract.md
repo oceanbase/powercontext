@@ -1,6 +1,6 @@
 ---
 title: Plugin-visible diagnostics contract
-description: Contract for the Plugin-visible integration diagnostics RFC.
+description: Failure categories, diagnostic fields, and host reporting channels for PowerContext Agent plugins.
 ---
 
 # Plugin-visible diagnostics contract

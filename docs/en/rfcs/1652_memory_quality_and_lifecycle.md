@@ -1,3 +1,8 @@
+---
+title: "RFC 1652: Memory quality and lifecycle"
+description: A proposal for opt-in Memory quality signals, bounded ranking adjustments, and reversible lifecycle policies that preserve evidence and history.
+---
+
 - Proposal Name: `memory_quality_and_lifecycle`
 - Start Date: 2026-09-18
 - Tracking Issue: [oceanbase/powercontext#1590](https://github.com/oceanbase/powercontext/issues/1590)

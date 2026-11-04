@@ -1,3 +1,8 @@
+---
+title: "Processing failure diagnostics"
+description: "Artifact processing failure categories, diagnostic field definitions, and rules for keeping business content out of logs."
+---
+
 # Processing failure diagnostics
 
 This page is the shared contract for classifying artifact-processing failures and for the safe

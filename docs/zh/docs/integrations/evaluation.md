@@ -1,7 +1,7 @@
 ---
-status: evaluation
 title: 评测集成
 description: Bub 的评测用途与能力边界。
+status: evaluation
 ---
 
 # 评测集成

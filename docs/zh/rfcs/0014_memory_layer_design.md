@@ -1,3 +1,8 @@
+---
+title: "RFC 0014：Memory 层设计"
+description: "Memory 的原始设计提案，涵盖条目身份、不可变版本、Handoff 引用和搜索索引更新。"
+---
+
 - 提案名称：`memory_layer_design`
 - 开始日期：2026-07-14
 - RFC PR：[oceanbase/powercontext#14](https://github.com/oceanbase/powercontext/pull/14)

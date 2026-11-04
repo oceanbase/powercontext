@@ -1,3 +1,8 @@
+---
+title: "RFC 1400: Source definitions and observations"
+description: A proposal for stable Source identities, immutable observations, versioned definitions and projections, and Connector checkpoint semantics.
+---
+
 - Proposal Name: `source_definition_and_observation_model`
 - Start Date: 2026-08-27
 - Related Discussion: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240)

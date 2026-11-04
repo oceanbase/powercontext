@@ -1,5 +1,6 @@
 ---
-title: Unified Artifact Family Reads and Registration
+title: "RFC 1549: Unified Artifact family reads and registration"
+description: A proposal for one Artifact family registry and common reads, including Topic Memory, with explicit family-specific write capabilities.
 ---
 
 # Unified Artifact Family Reads and Registration

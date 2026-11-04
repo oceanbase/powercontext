@@ -1,6 +1,6 @@
 ---
 title: 用 Phoenix 查看 trace
-description: 把 PowerContext 的 transport、application 和推理 span 导出到本地 Phoenix 容器。
+description: 将 PowerContext 的传输、应用与模型调用 Trace 导出到本地 Phoenix 容器。
 ---
 
 # 用 Phoenix 查看 trace
