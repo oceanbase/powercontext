@@ -24,7 +24,7 @@ use std::{
 fn fixture_dir() -> tempfile::TempDir {
     tempfile::Builder::new()
         .prefix("ops-bridge-")
-        .tempdir_in("/private/tmp")
+        .tempdir()
         .unwrap()
 }
 #[cfg(unix)]
@@ -78,7 +78,14 @@ impl Fixture {
             .keys()
             .map(|p| fs::metadata(support.join("bundle").join(p)).unwrap().len())
             .sum::<u64>();
-        let manifest = json!({"format_version":1,"python_version":"3.12.15","platform":if cfg!(windows){"win32"}else{"darwin"},"architecture":std::env::consts::ARCH,"python_relative":"runtime/helper","arguments":["-I","-S","-B","entry.py"],"requirements_sha256":"a".repeat(64),"installed_bytes":size,"files_sha256":files});
+        let platform = if cfg!(windows) {
+            "win32"
+        } else if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            "linux"
+        };
+        let manifest = json!({"format_version":1,"python_version":"3.12.15","platform":platform,"architecture":std::env::consts::ARCH,"python_relative":"runtime/helper","arguments":["-I","-S","-B","entry.py"],"requirements_sha256":"a".repeat(64),"installed_bytes":size,"files_sha256":files});
         let bytes = serde_json::to_vec(&manifest).unwrap();
         fs::write(support.join("bundle/bundle.json"), &bytes).unwrap();
         fs::write(resources.join("ops-provision.json"),serde_json::to_vec(&json!({"format_version":1,"bundle_manifest_sha256":trust::sha256(&bytes),"binding_mode":"target_file"})).unwrap()).unwrap();
@@ -167,7 +174,7 @@ else:
 "#;
 
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn independent_missing_target_inspection_and_unhealthy_result_are_preserved() {
     let f = Fixture::new();
     let host = f.host();
@@ -215,7 +222,7 @@ fn non_utf8_native_path_returns_unavailable_without_panicking() {
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn approvals_are_one_shot_expiring_and_bound_to_exact_plan_and_target() {
     let f = Fixture::new();
     let host = f.host();
@@ -258,7 +265,7 @@ fn approvals_are_one_shot_expiring_and_bound_to_exact_plan_and_target() {
     assert!(host.references().unwrap().operations.is_empty());
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn progress_arrives_during_apply_and_status_cancel_use_independent_children() {
     let f = Fixture::new();
     f.behavior("await_cancel");
@@ -304,7 +311,7 @@ fn progress_arrives_during_apply_and_status_cancel_use_independent_children() {
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn lost_response_keeps_reference_and_helper_finishes_without_replay() {
     let f = Fixture::new();
     let host = f.host();
@@ -375,7 +382,7 @@ fn await_terminal_status(host: &OpsHost, operation_id: &str) -> OpsOperationRepl
     }
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn malformed_reference_store_fails_before_dispatch_and_foreign_binding_cannot_resume() {
     let f = Fixture::new();
     let host = f.host();
@@ -408,7 +415,7 @@ fn malformed_reference_store_fails_before_dispatch_and_foreign_binding_cannot_re
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn bundle_and_packaged_pins_reject_tampering_and_extra_files() {
     let f = Fixture::new();
     fs::write(f.support.join("bundle/entry.py"), b"tampered").unwrap();
@@ -464,7 +471,7 @@ fn child(
     )
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn real_children_bound_streams_deadlines_and_inherited_pipe_descendants() {
     for stream in ["stdout", "stderr"] {
         let script = format!(
@@ -602,7 +609,7 @@ fn control_admission_remains_available_when_ordinary_helpers_are_reserved() {
 
 #[test]
 #[ignore = "requires a prepared local Python environment with Ops dependencies; read-only real subprocess"]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn real_current_ops_inspect_and_preflight_with_missing_server_runtime() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

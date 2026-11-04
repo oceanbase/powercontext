@@ -20,6 +20,7 @@ import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
 import { desktopApi } from "../src/shared/ipc";
+import { opsApi } from "../src/shared/ops";
 import { messages } from "../src/app/messages";
 import type { DesktopState } from "../src/generated/ipc";
 
@@ -33,6 +34,11 @@ vi.mock("../src/shared/ipc", () => ({
     cancelMemory: vi.fn().mockResolvedValue(undefined),
   },
 }));
+vi.mock("../src/shared/ops", () => ({
+  opsApi: {
+    inspect: vi.fn(),
+  },
+}));
 const disconnected: DesktopState = {
   generation: 0,
   profiles: [],
@@ -44,6 +50,18 @@ const disconnected: DesktopState = {
 };
 beforeEach(() => {
   vi.mocked(desktopApi.state).mockResolvedValue(disconnected);
+  vi.mocked(opsApi.inspect).mockResolvedValue({
+    outcome: "succeeded",
+    components: {
+      support: "supported",
+      registration: "installed",
+      definition: "current",
+      managerOwnership: "owned",
+      manager: "active",
+      liveness: "live",
+      readiness: "verified_during_operation",
+    },
+  });
 });
 afterEach(() => {
   cleanup();
@@ -94,7 +112,17 @@ test.each(["zh", "en"] as const)(
     ).toBeTruthy();
     expect(within(region).getByText(t.localServerUnavailableHint)).toBeTruthy();
     expect(within(region).getAllByRole("listitem")).toHaveLength(3);
-    expect(within(region).getAllByRole("button")).toHaveLength(1);
+    expect(within(region).getAllByRole("button")).toHaveLength(2);
+    await user.click(
+      within(region).getByRole("button", { name: t.localServerInspect }),
+    );
+    expect(opsApi.inspect).toHaveBeenCalledOnce();
+    expect(
+      within(region).getByRole("heading", {
+        name: t.localServerInspectionTitle,
+      }),
+    ).toBeTruthy();
+    expect(within(region).getByText("active")).toBeTruthy();
     expect(
       screen
         .getByRole("button", { name: t.settings })

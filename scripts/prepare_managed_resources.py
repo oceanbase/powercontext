@@ -96,7 +96,7 @@ def target_spec(target: str, *, native: bool = True) -> dict[str, Any]:
     lock = json.loads(_INTERPRETERS.read_bytes())
     spec = lock["targets"][target]
     current = (
-        {"Darwin": "macos", "Windows": "windows"}.get(platform.system()),
+        {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}.get(platform.system()),
         {"amd64": "x86_64", "x86_64": "x86_64", "arm64": "arm64", "aarch64": "arm64"}.get(platform.machine().lower()),
     )
     if native and current != (spec["platform"], spec["architecture"]):

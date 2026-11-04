@@ -243,9 +243,9 @@ def test_windows_path_budget_covers_real_default_staging_and_utf16() -> None:
 
 
 def test_foreign_target_is_not_a_cross_compilation_request() -> None:
-    for target in ("macos-arm64", "macos-x86_64", "windows-x86_64"):
+    for target in ("linux-x86_64", "macos-arm64", "macos-x86_64", "windows-x86_64"):
         target_spec(target, native=False)
-    matching = {"darwin": "macos", "win32": "windows"}.get(sys.platform)
+    matching = {"darwin": "macos", "linux": "linux", "win32": "windows"}.get(sys.platform)
     foreign = "windows-x86_64" if matching != "windows" else "macos-arm64"
     with pytest.raises(ValueError, match="matching native"):
         target_spec(foreign)

@@ -388,7 +388,7 @@ fn ops_commands_require_the_packaged_main_window_and_reject_arbitrary_input() {
             },
         )
     };
-    let missing_host = if cfg!(any(windows, target_os = "macos")) {
+    let missing_host = if cfg!(any(windows, target_os = "macos", target_os = "linux")) {
         "unavailable"
     } else {
         "unsupported_platform"

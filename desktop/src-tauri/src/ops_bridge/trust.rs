@@ -101,7 +101,7 @@ impl Trust {
         }
     }
     pub fn binding(&self) -> Result<Binding, Error> {
-        if !cfg!(any(windows, target_os = "macos")) {
+        if !cfg!(any(windows, target_os = "macos", target_os = "linux")) {
             return Err(Error::UnsupportedPlatform);
         }
         let p = self.provision.as_ref().map_err(|e| *e)?;
@@ -305,6 +305,8 @@ fn verify_bundle(root: &Path, pin: &str) -> Result<PathBuf, Error> {
         "win32"
     } else if cfg!(target_os = "macos") {
         "darwin"
+    } else if cfg!(target_os = "linux") {
+        "linux"
     } else {
         "unsupported"
     };

@@ -82,7 +82,8 @@ jobs:
       - run: pnpm build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Test Windows IPC and Desktop behavior
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: pnpm ipc:check
       - name: Verify diagnostic process containment
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example diagnostic_process_probe
