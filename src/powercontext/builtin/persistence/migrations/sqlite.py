@@ -67,6 +67,7 @@ class _MaintenanceEvidence(BaseModel):
     release_checksums: dict[str, str]
     retained_objects: tuple[str, ...] = ()
     backup_history: list[dict[str, Any]] = []
+    compatibility_checksum: str | None = None
 
     @model_validator(mode="after")
     def consistent_recovery_point(self) -> Self:
@@ -151,6 +152,7 @@ class SQLiteMigrationRunner:
         backup_provider: BackupProvider | None = None,
         evidence_directory: Path | None = None,
         source_bundles: tuple[MigrationBundle, ...] = (),
+        embedding_factory=None,
     ) -> None:
         self.database = database.expanduser().resolve()
         self.bundle = bundle
@@ -160,6 +162,8 @@ class SQLiteMigrationRunner:
         self.backup_provider = backup_provider or SQLiteBackupProvider(self.database)
         directory = evidence_directory or self.database.with_name(self.database.name + ".pc-migration-state")
         self.evidence_path = directory.expanduser().resolve() / "maintenance.json"
+        self._compatibility_steps: tuple[str, ...] = ()
+        self.embedding_factory = embedding_factory
 
     def plan(
         self,
@@ -269,6 +273,14 @@ class SQLiteMigrationRunner:
                     raise MigrationError("plan_changed", "State changed before acquiring the write transaction.")
                 evidence = self._prepare_evidence(initial, backup_ref)
                 self.bundle.assert_unchanged()
+                if initial.compatibility_steps:
+                    from . import historical
+
+                    if historical.checksum() != initial.compatibility_checksum:
+                        raise MigrationError("plan_changed", "The historical conversion definitions changed.")
+                    historical.apply(
+                        connection, self.bundle, self.configuration, embedding_factory=self.embedding_factory
+                    )
                 self.bundle.domains.preflight(
                     connection, initial.source_revision, backend="sqlite", configuration=self.configuration
                 )
@@ -369,7 +381,8 @@ class SQLiteMigrationRunner:
         finally:
             engine.dispose()
 
-    def _inspect(self, connection: Connection, **options: Any) -> MigrationPlan:
+    def _inspect(self, connection: Connection, **options: Any) -> MigrationPlan:  # noqa: C901 -- Ordered source and recovery checks.
+        self._compatibility_steps = ()
         inventory = sqlite_inventory(connection)
         controls = [row for row in inventory if row[1] in _CONTROL_NAMES or row[2] in _CONTROL_NAMES]
         initialized = bool(controls)
@@ -399,6 +412,16 @@ class SQLiteMigrationRunner:
                 )
         elif inventory:
             revision = self.bundle.baselines.get(fingerprint)
+            if self.bundle.readiness_scope == "server":
+                from .historical import recognizes, select_source
+
+                selected = (
+                    select_source(connection, (self.sources.default, *self.sources.sources))
+                    if recognizes(connection)
+                    else None
+                )
+                if selected is not None:
+                    self.bundle, revision, self._compatibility_steps = selected
             if revision is None:
                 source = recognize_sqlite_server_baseline(connection)
                 if source is not None:
@@ -410,13 +433,15 @@ class SQLiteMigrationRunner:
                 raise MigrationError("unknown_baseline", "Schema is not registered; no changes were made.")
             self._verify_retained(inventory, revision)
             self._verify_integrity(connection)
-            self.bundle.domains.validate(connection, revision, backend="sqlite", configuration=self.configuration)
+            if not self._compatibility_steps:
+                self.bundle.domains.validate(connection, revision, backend="sqlite", configuration=self.configuration)
         else:
             revision = None
-        self.bundle.domains.preflight(connection, revision, backend="sqlite", configuration=self.configuration)
+        if not self._compatibility_steps:
+            self.bundle.domains.preflight(connection, revision, backend="sqlite", configuration=self.configuration)
         return self._plan(revision, fingerprint, initialized=initialized, **options)
 
-    def _plan(
+    def _plan(  # noqa: C901 -- Bind source, recovery and backup choices to one plan.
         self,
         revision: str | None,
         fingerprint: str,
@@ -436,6 +461,13 @@ class SQLiteMigrationRunner:
         if evidence:
             verify_release_checksums(evidence["release_checksums"], self.bundle.checksums)
             if evidence["state"] != "complete":
+                if evidence.get("compatibility_checksum"):
+                    from .historical import checksum
+
+                    if evidence["compatibility_checksum"] != checksum():
+                        raise MigrationError(
+                            "recovery_required", "Keep the original historical conversion definitions."
+                        )
                 if (
                     evidence["bundle_checksum"] != self.bundle.checksum
                     or evidence["configuration_digest"] != self.configuration_digest
@@ -475,6 +507,11 @@ class SQLiteMigrationRunner:
             "service": service,
             "shared_database": shared_database,
         }
+        if self._compatibility_steps:
+            from .historical import checksum
+
+            fields["compatibility_steps"] = self._compatibility_steps
+            fields["compatibility_checksum"] = checksum()
         return MigrationPlan.model_validate({"plan_id": digest(fields), **fields})
 
     def _database_id(self) -> str:
@@ -532,6 +569,7 @@ class SQLiteMigrationRunner:
                 "backup": None,
                 "release_checksums": previous.get("release_checksums", {}) if previous else {},
                 "retained_objects": previous.get("retained_objects", []) if previous else [],
+                "compatibility_checksum": plan.compatibility_checksum,
             }
         )
         self._write_evidence(evidence)
@@ -628,8 +666,14 @@ class SQLiteMigrationRunner:
         for revision in self.bundle.pending(current):
             self._begin(connection)
             self._verify_schema(connection, current)
-            with ALEMBIC_CONTEXT_LOCK:
-                command.upgrade(self._config(connection), revision)
+            if self.bundle.readiness_scope == "server":
+                from .sqlite_compatibility import adopt_existing_tables
+
+                with adopt_existing_tables(connection, self.bundle, revision), ALEMBIC_CONTEXT_LOCK:
+                    command.upgrade(self._config(connection), revision)
+            else:
+                with ALEMBIC_CONTEXT_LOCK:
+                    command.upgrade(self._config(connection), revision)
             if self.bundle.vector_profile is not None:
                 self.bundle.vector_profile.sqlite_upgrade(connection, revision)
             self.bundle.domains.apply(connection, revision, backend="sqlite", configuration=self.configuration)
@@ -643,7 +687,14 @@ class SQLiteMigrationRunner:
         excluded = _CONTROL_NAMES | frozenset(self.bundle.retained_objects)
         inventory = sqlite_inventory(connection)
         self._verify_retained(inventory, revision)
-        self.bundle.verify(revision, digest(sqlite_inventory(connection, exclude=excluded)))
+        try:
+            self.bundle.verify(revision, digest(sqlite_inventory(connection, exclude=excluded)))
+        except MigrationError as error:
+            if error.code != "incompatible_schema" or self.bundle.readiness_scope != "server":
+                raise
+            from .sqlite_compatibility import verify
+
+            verify(connection, self.bundle, revision)
         self._verify_integrity(connection)
         self.bundle.domains.validate(connection, revision, backend="sqlite", configuration=self.configuration)
 

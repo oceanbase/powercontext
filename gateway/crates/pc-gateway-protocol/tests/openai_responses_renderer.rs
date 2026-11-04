@@ -38,6 +38,7 @@ fn request() -> CanonicalRequest {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     }
 }
@@ -95,6 +96,7 @@ fn responses_items_pass_through_verbatim() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -141,6 +143,7 @@ fn typed_content_parts_pass_through_as_array() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -182,6 +185,7 @@ fn structured_output_via_text_field_reaches_wire() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -224,6 +228,7 @@ fn store_false_reaches_responses_wire_body() {
         store: Some(false),
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -258,6 +263,7 @@ fn store_absent_omitted_from_wire_body() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -292,6 +298,7 @@ fn previous_response_id_reaches_wire_body() {
         store: Some(false),
         previous_response_id: Some("resp_prior_turn".into()),
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -325,6 +332,7 @@ fn responses_omitted_token_limit_not_emitted() {
         store: None,
         previous_response_id: None,
         conversation: None,
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();
@@ -357,6 +365,7 @@ fn conversation_field_reaches_wire_body() {
         store: None,
         previous_response_id: None,
         conversation: Some("conv_prior".into()),
+        passthrough_fields: None,
         token_limit_field: None,
     };
     let p = OpenAiResponsesRenderer.render(&req, None).unwrap();

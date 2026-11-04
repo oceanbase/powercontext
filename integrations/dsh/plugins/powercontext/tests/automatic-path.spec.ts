@@ -309,7 +309,11 @@ describe('registered automatic path', () => {
     expect(message.content[0].text.endsWith(TEXT)).toBe(true)
   })
 
-  it('prepares and captures from the final downstream message batch', async () => {
+  it.each([
+    { kind: 'runtime-context', form: 'snapshot' },
+    { kind: 'runtime-context' },
+    { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot' },
+  ])('prepares and captures user text without runtime context (%j)', async (source) => {
     const h = await fixture(successfulRequest)
     const finalMessage: PromptMessage = {
       content: [{ type: 'text', text: 'Use the rewritten request.' }],
@@ -318,7 +322,7 @@ describe('registered automatic path', () => {
     const runtimeContext = {
       content: [{ type: 'text', text: 'Current runtime context. Workspace policy details.' }],
       source: {
-        kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt', form: 'snapshot',
+        ...source,
         sections: [{ name: 'sandbox-policy', text: 'Workspace policy details.' }],
       },
     }
@@ -335,6 +339,19 @@ describe('registered automatic path', () => {
     })
     expect(JSON.stringify(h.requests)).not.toContain('Continue the API work.')
     expect(JSON.stringify(h.requests)).not.toContain('Workspace policy details.')
+  })
+
+  it('keeps the user question when a longer host runtime snapshot follows it', async () => {
+    const h = await fixture(successfulRequest)
+    const question = 'Which service owns the release checklist?'
+    const messages = [
+      { content: [{ type: 'text', text: question }], source: { kind: 'user' } },
+      { content: [{ type: 'text', text: 'catalog data '.repeat(2_000) }],
+        source: { kind: 'runtime-context', form: 'snapshot' } },
+    ]
+    await h.run({ messages })
+    expect(h.requests.find(({ path }) => path === PREPARE)?.body).toMatchObject({ query: question })
+    expect(h.requests.find(({ path }) => path === CAPTURE)?.body).toMatchObject({ content: question })
   })
 
   it('sends the end of a long prompt as the recall query and captures the whole prompt', async () => {

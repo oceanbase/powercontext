@@ -302,6 +302,18 @@ function OfficialArm({ label, arm }: { label: "OFF" | "ON"; arm: TaskDetailArm }
       {arm.fail_to_pass.failed.length > 0 && <p>失败测试：{arm.fail_to_pass.failed.join("、")}</p>}
       {arm.pass_to_pass.failed.length > 0 && <p>回归失败：{arm.pass_to_pass.failed.join("、")}</p>}
       {arm.log_excerpt !== null && <pre className="evaluator-log">{arm.log_excerpt}</pre>}
+      {(arm.input_tokens !== null || arm.output_tokens !== null) && (
+        <dl className="arm-metrics" aria-label={`${label} Token`}>
+          <div><dt>输入 Token</dt><dd>{tokenCount(arm.input_tokens)}</dd></div>
+          <div><dt>其中缓存命中</dt><dd>{tokenCount(arm.cached_input_tokens)}</dd></div>
+          <div><dt>输出 Token</dt><dd>{tokenCount(arm.output_tokens)}</dd></div>
+          <div><dt>其中推理</dt><dd>{tokenCount(arm.reasoning_output_tokens)}</dd></div>
+        </dl>
+      )}
     </article>
   );
+}
+
+function tokenCount(value: number | null): string {
+  return value === null ? "N/A" : number(value);
 }

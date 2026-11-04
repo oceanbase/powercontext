@@ -206,7 +206,9 @@ export interface ArmResponse {
   passed: boolean | null;
   treatment_valid: boolean;
   input_tokens: number | null;
+  cached_input_tokens: number | null;
   output_tokens: number | null;
+  reasoning_output_tokens: number | null;
   elapsed_seconds: number | null;
   patch_bytes: number | null;
 }
@@ -220,7 +222,9 @@ export interface MetricComparison {
 
 export interface ComparisonResponse {
   input_tokens: MetricComparison | null;
+  cached_input_tokens: MetricComparison | null;
   output_tokens: MetricComparison | null;
+  reasoning_output_tokens: MetricComparison | null;
   elapsed_seconds: MetricComparison | null;
   patch_bytes: MetricComparison | null;
 }
@@ -443,7 +447,9 @@ export interface BatchReport {
 export interface TaskArmSummary {
   resolved: boolean;
   input_tokens: number | null;
+  cached_input_tokens: number | null;
   output_tokens: number | null;
+  reasoning_output_tokens: number | null;
   total_tokens: number | null;
 }
 
@@ -567,7 +573,9 @@ export interface TaskDetailArm {
   pass_to_pass: OfficialTestGroup;
   log_excerpt: string | null;
   input_tokens: number | null;
+  cached_input_tokens: number | null;
   output_tokens: number | null;
+  reasoning_output_tokens: number | null;
   total_tokens: number | null;
 }
 

@@ -105,10 +105,10 @@ The comparison assumes typical single-agent or host-local setups; exact behavior
 
 ## Proof it works
 
-![Compact comparison of PowerContext results on LoCoMo and SWE-bench Pro](docs/assets/readme-benchmark-summary.svg)
+![LoCoMo accuracy and SWE-bench Pro input tokens per 100 tasks, comparing PowerContext with baselines](docs/assets/readme-benchmark-summary.svg)
 
-- **Long-conversation memory (LoCoMo; 1,540 scored questions across categories 1–4): 90.78% accuracy**, against 87.79% for PowerMem and 52.9% for full-context replay — **+37.88 points** over full context.
-- **Coding tasks (SWE-bench Pro; a paired project run on all 731 public v2 tasks, not an official submission): 86.73% task resolution with PowerContext on, 82.35% with it off** — **+4.38 points** and 32 more tasks resolved.
+- **Long-conversation memory (LoCoMo; 1,540 scored questions across categories 1–4): 90.78% accuracy**, against 52.9% for full-context replay — **+37.88 points** over full context.
+- **Coding tasks (SWE-bench Pro paired comparison): approximately 225.32 million input tokens per 100 tasks with PowerContext on, versus 302.18 million with it off** — approximately **25.4% fewer input tokens**, or 76.86 million fewer per 100 tasks.
 - **Retrieval quality (LoCoMo Plus)**, native PowerContext against PowerContext with Jev candidate filtering after retrieval. Each model is used for both Memory extraction and answering; embeddings use `qwen3.7-text-embedding` (1024 dimensions):
 
   | Model | PowerContext | PowerContext + Jev | Difference |

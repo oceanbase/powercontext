@@ -260,19 +260,20 @@ describe('PowerContextTuiPlugin', () => {
 
   it('keeps authentication, version, transport, and protocol failures distinct', async () => {
     const { PowerContextClient } = await import('../src/client.ts')
-    const cases: Array<[number, string]> = [
-      [401, 'PC auth failed'],
-      [404, 'PC version mismatch'],
-      [503, 'PC offline · run powercontext doctor'],
-      [500, 'PC invalid response'],
+    const cases: Array<[number, unknown, string]> = [
+      [401, { error: { code: 'failure' } }, 'PC auth failed'],
+      [404, { detail: 'Not Found' }, 'PC version mismatch'],
+      [404, { error: { code: 'scope_not_found' } }, 'PC invalid response'],
+      [503, { error: { code: 'failure' } }, 'PC offline · run powercontext doctor'],
+      [500, { error: { code: 'failure' } }, 'PC invalid response'],
     ]
-    for (const [status, label] of cases) {
+    for (const [status, body, label] of cases) {
       const client = new PowerContextClient({
         baseUrl: 'http://127.0.0.1:9',
         requestTimeoutMs: 1_000,
         fetch: async (url: string) => (url.endsWith('/v1/scope-bindings/resolve')
           ? Response.json({ scope_id: 'project:test' })
-          : Response.json({ error: { code: 'failure' } }, { status })),
+          : Response.json(body, { status })),
       })
       const runtime = { config: { scopeId: 'project:test' }, client }
 
@@ -280,6 +281,26 @@ describe('PowerContextTuiPlugin', () => {
 
       expect(state.connected).toBe(false)
       expect(state.label).toBe(label)
+    }
+  })
+
+  it('reports a missing configured Scope as an invalid response, not a version mismatch', async () => {
+    const { PowerContextClient } = await import('../src/client.ts')
+    const cases: Array<[unknown, string]> = [
+      [{ detail: 'Not Found' }, 'PC version mismatch'],
+      [{ error: { code: 'scope_not_found', message: 'The requested Scope was not found.' } }, 'PC invalid response'],
+    ]
+    for (const [body, label] of cases) {
+      const client = new PowerContextClient({
+        baseUrl: 'http://127.0.0.1:9',
+        requestTimeoutMs: 1_000,
+        fetch: async () => Response.json(body, { status: 404 }),
+      })
+      const runtime = { config: { scopeId: 'scp_missing' }, client }
+
+      const state = await loadStatuslineStatus(runtime as any, 'session-1', '/tmp/project')
+
+      expect(state).toEqual({ connected: false, label })
     }
   })
 

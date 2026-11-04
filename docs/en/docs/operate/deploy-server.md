@@ -209,6 +209,44 @@ The Rust executable, joint launcher, gateway settings, private channel authentic
 tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over
 UDS with channel and user authentication.
 
+### Gateway context injection
+
+When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared
+context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares
+once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.
+
+The gateway identifies the conversation from the first of these request headers that is present:
+
+| Header | Sent by | Conversation |
+| --- | --- | --- |
+| `X-PowerContext-Conversation-ID` | a host that integrates with PowerContext | the header value; overrides every other source |
+| `x-claude-code-session-id`, with `x-claude-code-agent-id` | Claude Code | the session, separately for each subagent |
+| `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
+| `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
+
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or
+OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic
+Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway
+translates its requests to the Chat or Responses route and forwards them. Set `PC_GATEWAY_INJECTION=on` to inject every request
+(requests without a conversation ID then prepare individually), `PC_GATEWAY_INJECTION=off` to turn injection off, or
+`PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
+without injection.
+
+### Gateway instruction
+
+`PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the
+Responses route (`/gateway/v1/responses`); the Chat route is never changed. The gateway reads the file once at startup.
+It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved
+`BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running without it. Nothing is added
+when the variable is unset.
+
+The text becomes the first content block of the developer message that follows the client's first developer message,
+which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer
+message after the client's first developer message, or before the first user message when the request has no developer
+message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the
+final request like any other request text. It is independent of context injection, capture, and replay.
+
 ## Run with Docker
 
 Build the image from the repository root:
