@@ -1,3 +1,8 @@
+---
+title: Publishing blog posts
+description: Prepare bilingual PowerContext blog posts with author profiles, localized assets, publication metadata, and build checks.
+---
+
 # Publishing blog posts
 
 Send the article as a Markdown file or Markdown text. The publishing workflow prepares the English and Chinese editions, derives a stable slug and summary, reuses known author profiles, and checks both editions together. A new author needs a real name, short biography, and photo; these facts are never invented. Preparing a post does not publish the website.

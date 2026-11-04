@@ -39,14 +39,11 @@ export default async function DocumentationPage({ params }: PageProps) {
 
   const MDX = page.data.body;
   const isOverview = !slug?.length;
+  const hasBodyTitle = page.data.toc.some((item) => item.depth === 1);
   return (
     <DocsPage full={page.data.full} toc={page.data.toc}>
-      {isOverview ? (
-        <>
-          <DocsTitle>{page.data.title}</DocsTitle>
-          <DocsDescription>{page.data.description}</DocsDescription>
-        </>
-      ) : null}
+      {!hasBodyTitle ? <DocsTitle>{page.data.title}</DocsTitle> : null}
+      {isOverview ? <DocsDescription>{page.data.description}</DocsDescription> : null}
       <ContentPageActions page={page} />
       <DocsBody>
         <MDX components={getMDXComponents({ a: createPageLink(page) })} />

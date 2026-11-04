@@ -1,3 +1,8 @@
+---
+title: RFC 1718：Memory 容量契约
+description: Memory 容量的设计提案，定义容量计量、写入上限与显式压缩，在恢复余量时保留历史版本和引用。
+---
+
 - 提案名称：`memory_capacity_contract`
 - 起始日期：2026-09-23
 - RFC PR：[oceanbase/powercontext#1718](https://github.com/oceanbase/powercontext/pull/1718)

@@ -3,8 +3,6 @@ title: Migrate Artifact processing state
 description: "Migrate existing Artifact processing state before starting the Supervisor, with planning, recovery, and readiness checks."
 ---
 
-# Migrate Artifact processing state
-
 Existing Topic Memory processing databases need explicit maintenance before
 starting the Scope-based Artifact Processing Supervisor. A new, empty database
 is initialized automatically. An existing database with no completed migration

@@ -1,6 +1,6 @@
 ---
 title: "RFC 0001: Product definition and vision"
-description: "A proposal defining how PowerContext supports work handoffs between people and agents, with phased scope and acceptance criteria."
+description: "Design goals for work continuity between people and agents, with PowerContext concepts, phased scope, and acceptance criteria."
 ---
 
 - Proposal Name: `product_definition_and_vision`

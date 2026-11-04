@@ -1,6 +1,6 @@
 ---
 title: 集成能力矩阵
-description: PowerContext 集成的生成式能力矩阵。
+description: 对照各项集成的可用状态、支持范围、压缩前行为和声明能力。
 ---
 
 # 集成能力矩阵

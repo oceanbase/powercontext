@@ -1,6 +1,6 @@
 ---
 title: "RFC 0002: Core SDK product model"
-description: "A proposal for the first Python Core SDK, covering Source references, immutable Artifact Revisions, and evidence tracking."
+description: "Design record for the first Python Core SDK, covering Source references, immutable Artifact Revisions, and evidence tracking."
 ---
 
 - Proposal Name: `core_sdk_product_model`

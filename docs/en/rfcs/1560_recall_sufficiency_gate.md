@@ -1,3 +1,8 @@
+---
+title: "RFC 1560: Recall sufficiency and bounded expansion"
+description: A proposal for model-free recall assessment and bounded admission expansion within the caller's existing context budget.
+---
+
 - Proposal Name: `recall_sufficiency_gate`
 - Start Date: 2026-09-10
 - Status: Proposed

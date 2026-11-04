@@ -1,6 +1,6 @@
 ---
 title: "RFC 0000: Proposal template"
-description: "A proposal template for contributors to explain a change, its motivation, technical design, alternatives, and open questions."
+description: "A template for contributors to explain a proposed change, its motivation, technical design, alternatives, and open questions."
 ---
 
 - Proposal Name: (fill me in with a unique identifier, `my_awesome_feature`)

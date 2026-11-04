@@ -89,11 +89,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const page = slug.length ? getPythonPage(lang, slug) : undefined;
   if (slug.length && !page) notFound();
   const suffix = slug.length ? `/${slug.join('/')}` : '';
+  const qualifiedName = page?.slugs.join('.');
   return pageMetadata({
     path: `/${lang}/modules${suffix}/`, lang,
-    title: page ? `${page.data.title} Python API` : lang === 'zh' ? 'Python API 参考' : 'Python API reference',
+    title: page ? `${qualifiedName} Python API` : lang === 'zh' ? 'Python API 参考' : 'Python API reference',
     description: page
-      ? (lang === 'zh' ? `${page.data.title} 的公开 Python API 参考。` : `Public Python API reference for ${page.data.title}.`)
+      ? (lang === 'zh' ? `${qualifiedName} 的公开 Python API 参考。` : `Public Python API reference for ${qualifiedName}.`)
       : (lang === 'zh' ? 'PowerContext 公开 Python 模块、类与函数的 API 参考。' : 'API reference for public PowerContext Python modules, classes, and functions.'),
     translations: { en: `/en/modules${suffix}/`, zh: `/zh/modules${suffix}/` },
   });

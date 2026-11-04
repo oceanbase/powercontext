@@ -1,3 +1,8 @@
+---
+title: "RFC 1715: Dreaming across Artifact families"
+description: A proposal extending reviewed Dream revisions to more Artifact families and tags through shared execution, Candidate, and approval contracts.
+---
+
 - Proposal Name: `multi_artifact_dreaming`
 - Start Date: 2026-09-22
 - Migration dependency: [Unified database migrations (RFC #1771)](https://github.com/oceanbase/powercontext/pull/1771); implementation foundation: [PR #1772](https://github.com/oceanbase/powercontext/pull/1772)

@@ -38,9 +38,10 @@ export default async function RfcPage({ params }: PageProps) {
   if (!page) notFound();
 
   const MDX = page.data.body;
+  const hasBodyTitle = page.data.toc.filter((item) => item.depth === 1).length === 1;
   return (
     <DocsPage full={page.data.full} toc={page.data.toc}>
-      {slug?.length ? <DocsTitle>{page.data.title}</DocsTitle> : null}
+      {slug?.length && !hasBodyTitle ? <DocsTitle>{page.data.title}</DocsTitle> : null}
       <ContentPageActions page={page} />
       <DocsBody>
         <MDX components={getMDXComponents({ a: createPageLink(page) })} />

@@ -1,5 +1,6 @@
 ---
-title: Unified Versioned Database Migrations
+title: "RFC 1771: Unified database migrations"
+description: A proposal for explicit Alembic migrations across SQLite, seekDB, and OceanBase, with revision checks, plan confirmation, and backup requirements.
 ---
 
 - Proposal Name: `unified_versioned_database_migrations`

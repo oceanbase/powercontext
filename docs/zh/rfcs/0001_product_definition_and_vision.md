@@ -1,6 +1,6 @@
 ---
 title: "RFC 0001：产品定义与愿景"
-description: "提出 PowerContext 如何支持人和 Agent 接手已有工作，并定义各阶段的产品范围与验收标准。"
+description: "PowerContext 的产品设计记录，说明人和 Agent 接手工作的目标、核心概念、阶段范围与验收标准。"
 ---
 
 - Proposal Name: `product_definition_and_vision`

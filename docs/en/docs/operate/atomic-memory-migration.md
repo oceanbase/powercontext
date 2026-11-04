@@ -3,8 +3,6 @@ title: Migrate to Atomic Memory
 description: "Convert legacy Memory collections to Atomic Memory offline, back up the database, and verify identities and version chains."
 ---
 
-# Migrate to Atomic Memory
-
 Existing Memory collections require an offline conversion to independent `atomic-memory` artifacts.
 The versioned task `powercontext.memory.v1-to-atomic-memory.v1` freezes the legacy content format,
 identity rules, version chains and import encoding. It connects using deployment settings without starting

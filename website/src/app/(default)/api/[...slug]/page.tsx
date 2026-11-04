@@ -46,5 +46,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { slug } = await params;
   const page = apiSource.getPage(slug);
   if (!page) notFound();
-  return pageMetadata({ path: page.url, title: page.data.title, description: page.data.description });
+  return pageMetadata({
+    path: page.url,
+    title: page.data.title,
+    description: page.data.description
+      ?? `${page.data.title}. Request parameters and response schemas for the PowerContext Server HTTP API.`,
+  });
 }

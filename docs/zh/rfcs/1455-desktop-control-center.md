@@ -1,6 +1,6 @@
 ---
 title: "RFC 1455：桌面控制中心"
-description: "采用 Tauri 构建桌面客户端，明确 API、身份、安装和投递边界。"
+description: "Tauri 桌面控制中心的设计提案，通过公开 Server 契约管理连接、Scope、上下文和审核，由 Rust 提供受限原生能力。"
 ---
 
 - 提案名称：`desktop_control_center`

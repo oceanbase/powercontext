@@ -1,7 +1,7 @@
 ---
-status: community
 title: OpenCode
-description: Install the PowerContext OpenCode plugin and control its local behavior.
+description: Install the PowerContext OpenCode plugin and configure automatic recall, prompt capture, and authenticated Server access.
+status: community
 ---
 
 # OpenCode

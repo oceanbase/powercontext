@@ -1,3 +1,8 @@
+---
+title: RFC 1652：Memory 质量与生命周期
+description: Memory 质量与生命周期的设计提案，提供可选质量信号、有界排序调整与可恢复停用，保留原始证据和历史。
+---
+
 - 提案名称：`memory_quality_and_lifecycle`
 - 起始日期：2026-09-18
 - 跟踪 Issue：[oceanbase/powercontext#1590](https://github.com/oceanbase/powercontext/issues/1590)

@@ -1,6 +1,6 @@
 ---
-title: Artifact 插件框架
-description: 通过可信生成插件扩展 Artifact 类型，复用调度、事务、版本与证据读取，并以声明接入统一检索。
+title: RFC 2175：Artifact 插件框架
+description: Artifact 插件框架的设计提案，通过可信插件扩展生成逻辑，复用调度、原子发布、版本化证据与声明式检索能力。
 ---
 
 - Proposal Name: `artifact_plugin_framework`

@@ -1,3 +1,8 @@
+---
+title: RFC 1485：Profile 画像制品
+description: Profile 的设计提案，从 Scope 证据生成 Markdown 画像，定义主体 Source 路由、定时生成、候选审核与版本恢复。
+---
+
 - Proposal Name: `profile_artifact`
 - Start Date: 2026-09-07
 - RFC PR: [oceanbase/powercontext#1485](https://github.com/oceanbase/powercontext/pull/1485)
