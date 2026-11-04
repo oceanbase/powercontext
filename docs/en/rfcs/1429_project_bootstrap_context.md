@@ -1,3 +1,8 @@
+---
+title: "RFC 1429: Bounded Scope bootstrap context"
+description: Design record for opt-in Agent startup context with exact citations, byte limits, and lifecycle-bound delivery receipts.
+---
+
 # RFC 1429: Bounded Scope Bootstrap Context
 
 - Status: Implemented

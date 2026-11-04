@@ -31,6 +31,7 @@ import observationIcon from "../assets/retrieval.svg";
 
 import { TopBar } from "./TopBar";
 import { Overview } from "./Overview";
+import { Statistics } from "./Statistics";
 import {
   MemoryWorkspace,
   SubmittedDraftRecovery,
@@ -42,6 +43,7 @@ import { Diagnostics } from "./Diagnostics";
 import { Connections } from "./Connections";
 import { Scopes } from "./Scopes";
 import { Observation, type ObservationTab } from "./Observation";
+import { SessionView } from "./SessionView";
 import { connectionMessages } from "./connection-messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { activeCheckReport } from "./context";
@@ -419,6 +421,23 @@ export function App() {
               language={language}
               tab={observationTab}
               onTabChange={setObservationTab}
+              panels={{
+                inventory: (
+                  <Statistics
+                    key={`statistics-${desktop?.active?.generation ?? "none"}`}
+                    state={desktop}
+                    language={language}
+                    onState={receiveState}
+                    contextPending={contextPending}
+                  />
+                ),
+                session: (
+                  <SessionView
+                    key={`${desktop?.generation ?? "none"}-${contextPending}`}
+                    language={language}
+                  />
+                ),
+              }}
             />
           )}
           {page === "settings" && (

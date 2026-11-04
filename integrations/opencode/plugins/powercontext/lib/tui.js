@@ -69,6 +69,17 @@ var ServerResponseError = class extends ClientError {
 //#endregion
 //#region src/operations.generated.ts
 const OPERATIONS = {
+	get_recall_manifest: {
+		method: "POST",
+		path: "/v1/recall/manifest",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_atomic_memories: {
 		method: "POST",
 		path: "/v1/atomic-memory/list",
@@ -221,6 +232,83 @@ const OPERATIONS = {
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_artifact_plugins: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_artifact_plugin: {
+		method: "GET",
+		path: "/v1/admin/artifact-plugins/{binding_name}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	enable_all_artifact_plugins: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/enable-all",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	reload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/reload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	enable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/enable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	disable_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/disable",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
+		emptyStatuses: []
+	},
+	unload_artifact_plugin: {
+		method: "POST",
+		path: "/v1/admin/artifact-plugins/{binding_name}/unload",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["binding_name"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202],
 		emptyStatuses: []
 	},
 	get_capabilities: {
@@ -444,6 +532,17 @@ const OPERATIONS = {
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	check_context: {
+		method: "POST",
+		path: "/v1/context/check",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1518,6 +1617,182 @@ const OPERATIONS = {
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
+	},
+	pc_source_capabilities: {
+		method: "POST",
+		path: "/v1/source-management/capabilities",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_add: {
+		method: "POST",
+		path: "/v1/source-management/add",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_status: {
+		method: "POST",
+		path: "/v1/source-management/status",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_target_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/target-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instances: {
+		method: "POST",
+		path: "/v1/source-management/instances",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	pc_source_instance_set_enabled: {
+		method: "POST",
+		path: "/v1/source-management/instance-set-enabled",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_configure: {
+		method: "POST",
+		path: "/v1/source-management/configure",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	load_source_write_plugin: {
+		method: "POST",
+		path: "/v1/source-management/write/load",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_open: {
+		method: "POST",
+		path: "/v1/source-management/channel/open",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_catalog: {
+		method: "POST",
+		path: "/v1/source-management/channel/catalog",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_poll: {
+		method: "POST",
+		path: "/v1/source-management/channel/poll",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_reply: {
+		method: "POST",
+		path: "/v1/source-management/channel/reply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_channel_close: {
+		method: "POST",
+		path: "/v1/source-management/channel/close",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	source_instance_exchange: {
+		method: "POST",
+		path: "/v1/source-management/instances/{instance_id}/{operation}",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["instance_id", "operation"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	plan_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/plan",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	apply_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/apply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);
@@ -1973,9 +2248,9 @@ function errorResult(error) {
 		message: "PowerContext is unavailable; continue the task."
 	};
 }
-async function invokeOperation(client, operationId, payload, scopeId, signal) {
+function scopedPayload(operationId, payload, scopeId) {
 	const mode = OPERATIONS[operationId].scopeMode;
-	const body = mode === "selection" ? {
+	return mode === "selection" ? {
 		...payload,
 		selection: {
 			mode: "exact",
@@ -1985,6 +2260,9 @@ async function invokeOperation(client, operationId, payload, scopeId, signal) {
 		...payload,
 		scope_id: scopeId
 	} : payload;
+}
+async function invokeOperation(client, operationId, payload, scopeId, signal) {
+	const body = scopedPayload(operationId, payload, scopeId);
 	if (operationMutates(operationId) && hasSecret(body)) return {
 		ok: false,
 		code: "secret_rejected",
@@ -2123,6 +2401,7 @@ const DEFAULTS = {
 	allowInsecureHttp: false,
 	scopeId: void 0,
 	authorization: void 0,
+	promptRecall: true,
 	capturePrompts: true,
 	requestTimeoutMs: 3e3,
 	httpBudgetMs: 6e3,
@@ -2179,6 +2458,7 @@ function resolveConfig(env = process.env) {
 		allowInsecureHttp: transport.allowInsecureHttp,
 		scopeId: envString(env, "POWERCONTEXT_OPENCODE_SCOPE_ID"),
 		authorization: envString(env, "POWERCONTEXT_OPENCODE_AUTHORIZATION"),
+		promptRecall: envBoolean(env, "POWERCONTEXT_OPENCODE_PROMPT_RECALL") ?? DEFAULTS.promptRecall,
 		capturePrompts: envBoolean(env, "POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS") ?? DEFAULTS.capturePrompts,
 		requestTimeoutMs,
 		httpBudgetMs,
@@ -2306,23 +2586,20 @@ var StatusTimeoutError = class extends Error {
 		this.name = "StatusTimeoutError";
 	}
 };
-function httpOutcome(status) {
+function httpOutcome(status, code) {
 	if (status === 401) return "authentication_failed";
-	if (status === 404) return "version_mismatch";
+	if (status === 404 && code === void 0) return "version_mismatch";
 	if (status === 503) return "server_unavailable";
 	return "invalid_response";
 }
-function scopeFailureOutcome(error) {
+function requestFailureOutcome(error) {
 	if (error instanceof StatusTimeoutError) return "server_unavailable";
-	if (error instanceof ServerResponseError) return httpOutcome(error.statusCode);
+	if (error instanceof ServerResponseError) return httpOutcome(error.statusCode, error.code);
 	if (error instanceof UnavailableError) return "server_unavailable";
 	return "invalid_response";
 }
-function statsFailureOutcome(result) {
-	if (result.code === "authentication_failed") return "authentication_failed";
-	if (result.code === "unavailable") return "server_unavailable";
-	if (typeof result.status === "number") return httpOutcome(result.status);
-	return "invalid_response";
+async function loadStats(client, period, scopeId, signal) {
+	return (await client.request("get_stats", scopedPayload("get_stats", { period }, scopeId), signal)).value;
 }
 function textNode(text, color, onMouseUp) {
 	const node = createElement("text");
@@ -2358,35 +2635,27 @@ async function loadStatuslineStatus(runtime, sessionID, cwd, signal) {
 	} catch (error) {
 		return {
 			connected: false,
-			label: failureLabel(scopeFailureOutcome(error))
+			label: failureLabel(requestFailureOutcome(error))
 		};
 	}
 	try {
-		const [today, month] = await Promise.all([withTimeout(invokeOperation(runtime.client, "get_stats", { period: "today" }, scopeId, signal), STATUS_TIMEOUT_MS), withTimeout(invokeOperation(runtime.client, "get_stats", { period: "30d" }, scopeId, signal), STATUS_TIMEOUT_MS)]);
-		if (!today.ok) return {
-			connected: false,
-			label: failureLabel(statsFailureOutcome(today))
-		};
-		if (!month.ok) return {
-			connected: false,
-			label: failureLabel(statsFailureOutcome(month))
-		};
-		const todayTotals = tokenTotals(today.data);
-		const monthTotals = tokenTotals(month.data);
+		const [today, month] = await Promise.all([withTimeout(loadStats(runtime.client, "today", scopeId, signal), STATUS_TIMEOUT_MS), withTimeout(loadStats(runtime.client, "30d", scopeId, signal), STATUS_TIMEOUT_MS)]);
+		const todayTotals = tokenTotals(today);
+		const monthTotals = tokenTotals(month);
 		if (!todayTotals || !monthTotals) return {
 			connected: false,
 			label: failureLabel("invalid_response")
 		};
 		return {
 			connected: true,
-			label: formatPowerContextStatus(today.data, month.data),
+			label: formatPowerContextStatus(today, month),
 			todayReduction: todayTotals.token_reduction,
 			monthReduction: monthTotals.token_reduction
 		};
 	} catch (error) {
 		return {
 			connected: false,
-			label: failureLabel(scopeFailureOutcome(error))
+			label: failureLabel(requestFailureOutcome(error))
 		};
 	}
 }

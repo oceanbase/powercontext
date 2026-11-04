@@ -1,3 +1,8 @@
+---
+title: "RFC 1770: Decision policy governance"
+description: A proposal for governing bounded DecisionModel consumers through policy manifests, shadow modes, audit evidence, replay, and promotion criteria.
+---
+
 - Proposal Name: `decision_policy_governance`
 - Start Date: 2026-09-28
 - RFC PR: [oceanbase/powercontext#1770](https://github.com/oceanbase/powercontext/pull/1770)

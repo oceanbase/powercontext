@@ -17,7 +17,8 @@
 mod api;
 pub mod wire;
 pub use api::{
-    ApiFailure, AtomicMemoryDetail, DiscoveryDocument, MemorySaveResponse, MemorySearchHit,
+    ApiFailure, AtomicMemoryDetail, DiscoveryDocument, ExactRecallTokenStatistics,
+    ExactScopeStatistics, ExactScopeStatisticsItem, MemorySaveResponse, MemorySearchHit,
     MemorySearchResponse, ServerApi, validate_text,
 };
 

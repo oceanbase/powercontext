@@ -16,7 +16,7 @@ openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 1.4.1
+  version: 1.5.0
 x-powercontext-feature-contracts:
   access.principal: {major: 1, minor: 0}
   scope.selection: {major: 1, minor: 0}
@@ -1479,7 +1479,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PreparedContext"
+                $ref: "#/components/schemas/PrepareContextResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1490,6 +1490,49 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/context/check:
+    post:
+      tags: [context]
+      summary: Check a final model request or complete raw response
+      description: >-
+        Read-only privacy and current context-reuse admission. This operation does not retrieve, rewrite, call a
+        model, or grant model execution authority. Only allow with complete coverage permits the corresponding
+        phase. The execution adapter must send or release exactly the approved bytes before their deadline.
+      operationId: check_context
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckContextRequest'
+      responses:
+        '200':
+          description: A phase-specific allow, block, or withhold decision; HTTP success alone is not approval.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextCheckResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: The complete payload exceeds the configured admission limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /v1/context/bootstrap:
     post:
       tags: [context]
@@ -5819,6 +5862,77 @@ paths:
           $ref: '#/components/responses/InvalidRequest'
         '503':
           $ref: '#/components/responses/Unavailable'
+  /v1/access/ownership/plan:
+    post:
+      tags: [access]
+      summary: Inventory ownership data missing after switching Access enforcement on
+      operationId: plan_access_ownership
+      description: >-
+        Inspect the Scopes that were written while Access was disabled: missing Artifact owners, pending
+        Review Candidates without an owner attestation, and, when named, the background Principal's
+        per-Scope write authority. Produces no change. In enforced mode completes as a deployment
+        administrator; in disabled mode completes without authentication because the Server cannot yet
+        protect anything. A background Principal check requires an available Access store; otherwise it
+        reports 503 relationship_management_unavailable. Use the offline ownership command to check the
+        proposed background Principal before enforcement is enabled.
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanAccessOwnershipRequest"
+      responses:
+        "200":
+          description: The missing-attribution inventory for the requested Scopes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessOwnershipPlan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/ownership/apply:
+    post:
+      tags: [access]
+      summary: Backfill missing Artifact owners and Candidate owner attestations
+      operationId: apply_access_ownership
+      description: >-
+        Grant the missing ownership data to the explicitly named Principal; the Server never derives it.
+        Existing Artifact owners and Candidate attestations are preserved and reported as conflicts when
+        they disagree with the named Principal. Identities with recorded ownership recovery evidence
+        are reported as conflicts and must retain their original attribution. Every item is one idempotent
+        write, so interrupted or
+        repeated runs refill only still-missing items. Set dry_run first to preview the exact items.
+        Requires a deployment administrator; while Access is disabled the Server has no ownership store
+        and reports 503 ownership_migration_unavailable.
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyAccessOwnershipRequest"
+      responses:
+        "200":
+          description: The applied, or, in dry-run, previewed ownership backfill.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessOwnershipApplyResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     BearerAuth:
@@ -8052,6 +8166,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PreparedContextSchema"
+        context_protection:
+          $ref: '#/components/schemas/ContextProtectionCapabilities'
     ExtractionStatus:
       type: object
       additionalProperties: false
@@ -9676,6 +9792,177 @@ components:
         stage: {type: string}
         duration_ms: {type: number, minimum: 0}
         count: {type: integer, minimum: 1}
+    PrepareContextResult:
+      oneOf:
+        - $ref: '#/components/schemas/PreparedContext'
+        - $ref: '#/components/schemas/PreparedContextWithReuse'
+      discriminator:
+        propertyName: schema
+        mapping:
+          powercontext.prepared-context.v1: '#/components/schemas/PreparedContext'
+          powercontext.prepared-context-with-reuse.v1: '#/components/schemas/PreparedContextWithReuse'
+    PreparedContextWithReuse:
+      type: object
+      additionalProperties: false
+      required: [schema, context, reuse]
+      properties:
+        schema: {type: string, enum: [powercontext.prepared-context-with-reuse.v1]}
+        context:
+          $ref: '#/components/schemas/PreparedContext'
+        reuse:
+          $ref: '#/components/schemas/ContextReuse'
+    ContextReuse:
+      type: object
+      additionalProperties: false
+      required: [schema, constraints, expires_at, binding]
+      properties:
+        schema: {type: string, enum: [powercontext.context-reuse.v1]}
+        constraints:
+          $ref: '#/components/schemas/ContextReuseConstraints'
+        expires_at: {type: string, format: date-time}
+        binding: {type: string, minLength: 1, maxLength: 65536}
+    ContextReuseConstraints:
+      type: object
+      additionalProperties: false
+      required: [preserve, refresh_on]
+      properties:
+        preserve:
+          type: array
+          minItems: 4
+          maxItems: 4
+          uniqueItems: true
+          items: {type: string, enum: [content, citations, trust, order]}
+        refresh_on:
+          type: array
+          minItems: 3
+          maxItems: 3
+          uniqueItems: true
+          items: {type: string, enum: [permission_change, source_ineligible, context_boundary]}
+    ModelJsonPayload:
+      type: object
+      additionalProperties: false
+      required: [schema, headers, body]
+      properties:
+        schema: {type: string, enum: [powercontext.model-json-payload.v1]}
+        headers:
+          type: object
+          minProperties: 1
+          maxProperties: 16
+          additionalProperties: {type: string, maxLength: 1024}
+          description: Content and protocol headers only; credentials and transport override headers are forbidden.
+        body:
+          type: string
+          minLength: 2
+          maxLength: 1048576
+          description: Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported.
+    ModelJsonTextLocation:
+      type: object
+      additionalProperties: false
+      required: [schema, pointer, start_byte, end_byte]
+      properties:
+        schema: {type: string, enum: [powercontext.model-json-text-location.v1]}
+        pointer: {type: string, minLength: 1, maxLength: 256}
+        start_byte: {type: integer, minimum: 0}
+        end_byte: {type: integer, minimum: 1}
+    PreparedContextLocation:
+      type: object
+      additionalProperties: false
+      required: [binding, location]
+      properties:
+        binding: {type: string, minLength: 1, maxLength: 65536}
+        location:
+          $ref: '#/components/schemas/ModelJsonTextLocation'
+    CheckContextBeforeSend:
+      type: object
+      additionalProperties: false
+      required: [scope_id, phase, target_profile, payload, prepared_contexts]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        phase: {type: string, enum: [before_send]}
+        target_profile: {type: string, minLength: 1, maxLength: 128}
+        payload:
+          $ref: '#/components/schemas/ModelJsonPayload'
+        prepared_contexts:
+          type: array
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/PreparedContextLocation'
+    CheckContextBeforeRelease:
+      type: object
+      additionalProperties: false
+      required: [scope_id, phase, target_profile, request_binding, payload, completion]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        phase: {type: string, enum: [before_release]}
+        target_profile: {type: string, minLength: 1, maxLength: 128}
+        request_binding: {type: string, minLength: 1, maxLength: 65536}
+        payload:
+          $ref: '#/components/schemas/ModelJsonPayload'
+        completion: {type: string, enum: [complete]}
+    CheckContextRequest:
+      oneOf:
+        - $ref: '#/components/schemas/CheckContextBeforeSend'
+        - $ref: '#/components/schemas/CheckContextBeforeRelease'
+      discriminator:
+        propertyName: phase
+        mapping:
+          before_send: '#/components/schemas/CheckContextBeforeSend'
+          before_release: '#/components/schemas/CheckContextBeforeRelease'
+    ContextCheckCoverage:
+      type: object
+      additionalProperties: false
+      required: [profile, complete]
+      properties:
+        profile: {type: string, enum: [text-and-tools.v1]}
+        complete: {type: boolean}
+    ContextCheckResult:
+      type: object
+      additionalProperties: false
+      required: [schema, phase, decision, reason_codes, coverage, policy_version, valid_until]
+      properties:
+        schema: {type: string, enum: [powercontext.context-check.v1]}
+        phase: {type: string, enum: [before_send, before_release]}
+        decision: {type: string, enum: [allow, block, withhold]}
+        reason_codes:
+          type: array
+          maxItems: 32
+          items: {type: string, maxLength: 128}
+        coverage:
+          $ref: '#/components/schemas/ContextCheckCoverage'
+        policy_version: {type: string, minLength: 1, maxLength: 128}
+        valid_until: {type: string, format: date-time}
+        correlate_until:
+          type: string
+          format: date-time
+          description: Present only for a before_send allow; this deadline never permits a new send.
+        binding:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          description: Present only for allow, bound to this phase, identity, target, policy, and exact payload.
+    ContextProtectionCapabilities:
+      type: object
+      additionalProperties: false
+      required: [check_versions, payload_versions, reuse_versions, reuse_families, enforcing, limits]
+      properties:
+        check_versions: {type: array, items: {type: string}}
+        payload_versions: {type: array, items: {type: string}}
+        reuse_versions: {type: array, items: {type: string}}
+        reuse_families: {type: array, items: {type: string}}
+        enforcing: {type: boolean}
+        limits:
+          $ref: '#/components/schemas/ContextProtectionCapabilitiesLimits'
+    ContextProtectionCapabilitiesLimits:
+      type: object
+      additionalProperties: false
+      required: [payload_bytes, binding_bytes, prepared_contexts, dependencies, send_seconds, correlate_seconds]
+      properties:
+        payload_bytes: {type: integer, minimum: 1}
+        binding_bytes: {type: integer, minimum: 1}
+        prepared_contexts: {type: integer, minimum: 1}
+        dependencies: {type: integer, minimum: 1}
+        send_seconds: {type: integer, minimum: 1}
+        correlate_seconds: {type: integer, minimum: 1}
     BootstrapContextItem:
       type: object
       additionalProperties: false
@@ -11714,6 +12001,12 @@ components:
           type: boolean
           default: false
           description: Opt into current-Scope native code evidence. No index is built during preparation.
+        include_reuse:
+          type: boolean
+          default: false
+          description: >-
+            Return a versioned context and reuse envelope. Supported for single-Scope Atomic Memory with complete
+            bounded dependencies; unsupported selected families, code, or references are rejected explicitly.
         include_receipt:
           type: boolean
           default: false
@@ -14228,3 +14521,102 @@ components:
           - discovery
           - control
           default: discovery
+    PlanAccessOwnershipRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scope_ids:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1, maxLength: 256}
+          description: Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.
+        background_principal:
+          allOf:
+            - $ref: "#/components/schemas/AccessPrincipal"
+          nullable: true
+          description: >-
+            Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each
+            selected Scope is checked for scope.contribute and write permission on an existing Profile,
+            including after all ownership gaps have been filled. An available Access store is required.
+    OwnershipGapKind:
+      type: string
+      enum: [artifact_owner, candidate_attestation]
+    OwnershipGapItem:
+      type: object
+      additionalProperties: false
+      required: [kind, scope_id, family]
+      properties:
+        kind:
+          $ref: "#/components/schemas/OwnershipGapKind"
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        family: {type: string, minLength: 1, maxLength: 128}
+        artifact_id: {type: string, maxLength: 256, nullable: true}
+        entry_id: {type: string, maxLength: 256, nullable: true}
+        candidate_id: {type: string, maxLength: 128, nullable: true}
+        version: {type: integer, minimum: 1, nullable: true}
+        conflict_code: {type: string, maxLength: 64, nullable: true}
+    AccessOwnershipScopePlan:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact_gaps, candidate_gaps]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        artifact_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+        candidate_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+    BackgroundPermissionGap:
+      type: object
+      additionalProperties: false
+      required: [scope_id, principal_id, allowed, reason_code]
+      properties:
+        scope_id: {type: string, minLength: 1, maxLength: 256}
+        principal_id: {type: string, minLength: 1, maxLength: 255}
+        allowed: {type: boolean, enum: [false]}
+        reason_code: {type: string, maxLength: 64, nullable: true}
+    AccessOwnershipPlan:
+      type: object
+      additionalProperties: false
+      required: [mode, scopes, background]
+      properties:
+        mode:
+          $ref: "#/components/schemas/AccessControlMode"
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessOwnershipScopePlan"
+        background:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackgroundPermissionGap"
+    ApplyAccessOwnershipRequest:
+      type: object
+      additionalProperties: false
+      required: [owner]
+      properties:
+        owner:
+          $ref: "#/components/schemas/AccessPrincipal"
+        scope_ids:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1, maxLength: 256}
+          description: Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.
+        dry_run: {type: boolean, default: false}
+    AccessOwnershipApplyResult:
+      type: object
+      additionalProperties: false
+      required: [dry_run, applied, conflicts]
+      properties:
+        dry_run: {type: boolean}
+        applied:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"
+        conflicts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnershipGapItem"

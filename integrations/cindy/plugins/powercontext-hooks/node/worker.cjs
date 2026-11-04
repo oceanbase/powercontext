@@ -563,6 +563,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	check_context: {
+		method: "POST",
+		path: "/v1/context/check",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	prepare_bootstrap_context: {
 		method: "POST",
 		path: "/v1/context/bootstrap",
@@ -1779,6 +1790,28 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "none",
 		pathParameters: ["instance_id", "operation"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	plan_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/plan",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	apply_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/apply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],

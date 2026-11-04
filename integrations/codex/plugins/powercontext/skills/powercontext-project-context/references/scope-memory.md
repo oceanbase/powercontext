@@ -17,7 +17,9 @@ Use the available Server resolver only when the host binding permits it. Creatin
 
 Call `remember_memory` only when the user explicitly asks to persist reusable project context.
 
-Store concise, self-contained entries such as a decision, constraint, current-state, task-outcome, or next-step. Never store secrets, credentials, private tokens, or transient logs.
+Choose a `kind` that preserves the user's meaning. The schema accepts an application-defined string; recommended values are `fact`, `preference`, `decision`, `constraint`, and `working_note`. Use `preference` for an explicit preference such as "I prefer uv for Python", and `constraint` for a requirement or restriction. Preserve a kind explicitly supplied by the user. Store concise, self-contained `text`. Never store secrets, credentials, private tokens, or transient logs.
+
+For `remember I prefer uv for Python`, use `kind: "preference"` and `text: "The user prefers uv for Python."` with the exact resolved Scope or the host's implicitly bound tool.
 
 `remember_memory` returns `records` with independent ArtifactRefs. Omit `expected_revision` or pass null; legacy collection revision preconditions are unsupported.
 

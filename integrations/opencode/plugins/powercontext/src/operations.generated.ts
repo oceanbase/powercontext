@@ -59,6 +59,7 @@ export const OPERATIONS = {
   commit_connector_checkpoint: { method: 'POST', path: '/v1/connector-checkpoints/commit', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   query_code: { method: 'POST', path: '/v1/scopes/{scope_id}/code/query', location: "body", scopeMode: 'current', pathParameters: ['scope_id'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   prepare_context: { method: 'POST', path: '/v1/context/prepare', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  check_context: { method: 'POST', path: '/v1/context/check', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   prepare_bootstrap_context: { method: 'POST', path: '/v1/context/bootstrap', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   record_bootstrap_delivery: { method: 'POST', path: '/v1/context/bootstrap/receipts', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   create_work_contract: { method: 'POST', path: '/v1/work/contracts/create', location: "body", scopeMode: 'current', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [202], emptyStatuses: [] },
@@ -165,6 +166,8 @@ export const OPERATIONS = {
   source_channel_reply: { method: 'POST', path: '/v1/source-management/channel/reply', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   source_channel_close: { method: 'POST', path: '/v1/source-management/channel/close', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   source_instance_exchange: { method: 'POST', path: '/v1/source-management/instances/{instance_id}/{operation}', location: "body", scopeMode: 'none', pathParameters: ['instance_id', 'operation'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  plan_access_ownership: { method: 'POST', path: '/v1/access/ownership/plan', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  apply_access_ownership: { method: 'POST', path: '/v1/access/ownership/apply', location: "body", scopeMode: 'none', pathParameters: [], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
 } as const
 
 export type OperationId = keyof typeof OPERATIONS

@@ -21,10 +21,10 @@ HIDDEN_PARAMETERS = frozenset(
         "expected_revision",
         "max_bytes",
         "include_code",
+        "include_reuse",
         # Diagnostics stay off the model-facing surface: a Workflow routes `result.content`.
         "include_receipt",
         "assembly",
         "bootstrap_receipt_id",
     }
 )
-MEMORY_KINDS = ("decision", "constraint", "current-state", "task-outcome", "next-step", "agent-note")

@@ -75,6 +75,46 @@ pub struct AtomicMemoryDetail {
     pub source_refs: Vec<SourceTypeReference>,
 }
 
+/// Desktop accepts one exact Scope, never an all-Scopes or subtree selection.
+/// Use the concrete generated selection so this IPC boundary cannot widen it.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactScopeStatistics {
+    pub selection: ExactScopeSelection,
+    pub scope_ids: Vec<String>,
+    pub as_of: String,
+    pub inventory: InventoryStatistics,
+    pub usage: UsageStatistics,
+    pub recall: ExactRecallTokenStatistics,
+    pub by_scope: Vec<ExactScopeStatisticsItem>,
+}
+
+// The public contract permits a null estimator at both aggregation levels.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactRecallTokenStatistics {
+    pub period: ResolvedUsagePeriod,
+    pub estimator: Option<TokenEstimatorProfile>,
+    pub totals: RecallTokenValue,
+    pub daily: Vec<RecallTokenDay>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactScopeStatisticsItem {
+    pub scope_id: String,
+    pub inventory: InventoryStatistics,
+    pub usage: UsageStatistics,
+    pub recall: ExactRecallTokenStatistics,
+    pub recurrence: RecurrenceStatistics,
+}
+
+#[derive(Serialize)]
+struct ExactStatsRequest {
+    selection: ExactScopeSelection,
+    period: StatsPeriod,
+}
+
 pub struct ServerApi {
     transport: Transport,
     endpoint: Endpoint,
@@ -388,6 +428,36 @@ impl ServerApi {
     pub async fn default_scope(&self) -> Result<ScopeDescriptor, ApiFailure> {
         self.execute(ObservedOperation::GetDefaultScope, None, &[], None, false)
             .await
+    }
+    pub async fn stats(
+        &self,
+        scope: &str,
+        period: StatsPeriod,
+    ) -> Result<ExactScopeStatistics, ApiFailure> {
+        validate_scope(scope)?;
+        let selection =
+            ExactScopeSelection::new(ExactScopeSelectionMode::Exact, vec![scope.into()]);
+        let request = ExactStatsRequest {
+            selection: selection.clone(),
+            period,
+        };
+        let body = serde_json::to_value(request).map_err(|_| SafeError::InvalidInput)?;
+        let result: ExactScopeStatistics = self
+            .execute(ObservedOperation::GetStats, None, &[], Some(body), false)
+            .await?;
+        if result.selection != selection
+            || result.scope_ids != [scope]
+            || result.by_scope.len() != 1
+            || result.by_scope[0].scope_id != scope
+            || result.usage.period.preset != period
+            || result.recall.period != result.usage.period
+            || result.usage.daily.len() > 30
+            || result.recall.daily.len() > 30
+            || result.usage.by_purpose.len() > 16
+        {
+            return Err(SafeError::InvalidResponse.into());
+        }
+        Ok(result)
     }
     pub async fn remember(
         &self,

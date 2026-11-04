@@ -1,3 +1,8 @@
+---
+title: RFC 1223：人和 Agent 的工作连续性
+description: 工作连续性的设计提案，通过 Work Contract、Handoff、接收确认和 Task Outcome 保存委托、交接与结果证据。
+---
+
 - Proposal Name: `human_agent_work_continuity`
 - RFC Number: 1223
 - Start Date: 2026-08-13

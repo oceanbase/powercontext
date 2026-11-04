@@ -1,3 +1,8 @@
+---
+title: "RFC 0014: Memory layer design"
+description: "The original Memory design proposal for entry identities, immutable versions, Handoff citations, and search index updates."
+---
+
 - Proposal Name: `memory_layer_design`
 - Start Date: 2026-07-14
 - RFC PR: [oceanbase/powercontext#14](https://github.com/oceanbase/powercontext/pull/14)

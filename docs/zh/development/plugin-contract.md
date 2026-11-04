@@ -1,6 +1,6 @@
 ---
 title: 插件集成约定
-description: 插件可见集成诊断 RFC 的约定。
+description: PowerContext Agent 插件的故障分类、诊断字段和宿主提示渠道约定。
 ---
 
 # 插件可见诊断约定

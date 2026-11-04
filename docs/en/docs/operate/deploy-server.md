@@ -116,6 +116,137 @@ that missing models may affect some artifact features and links to the
 [configuration reference](https://powercontext.oceanbase.io/en/docs/reference/configuration/).
 The notice is omitted when both generation and embedding models are configured.
 
+## Listen on a Unix domain socket
+
+On Linux and macOS, a same-host proxy or gateway can connect to the Server over HTTP on a Unix domain socket (UDS).
+Set `POWERCONTEXT_SERVER_HTTP_UDS` to select this listener:
+
+```bash
+export POWERCONTEXT_SERVER_HTTP_UDS="$HOME/.pc-run/core.sock"
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN"
+powercontext server run
+```
+
+Alternatively, pass `powercontext server run --uds /absolute/path/core.sock`. The CLI option overrides the environment
+setting. With UDS selected, the Server opens no TCP listener and ignores configured `HTTP_HOST` and `HTTP_PORT` values.
+Explicit `--host` or `--port` options are rejected when combined with an effective UDS setting. With UDS unset, the
+existing TCP behavior applies. UDS supports the `all` and `api` roles; `api` still requires OceanBase. The `background`
+role rejects UDS because its infrastructure listener uses TCP.
+
+When a trusted same-user proxy terminates HTTPS and is the sole external entry to this private socket, set
+`POWERCONTEXT_SERVER_HTTP_UDS_EXTERNAL_SCHEME=https` and preserve the browser-facing `Host` header. This fixed
+operator declaration makes Dashboard Origin validation use HTTPS and issue Secure cookies. It applies to **every**
+request on the socket, so do not use it for a proxy that also forwards plaintext external traffic. Unset it for direct
+HTTP-over-UDS access. Only `http` and `https` are accepted; setting it without `HTTP_UDS` is rejected.
+The Server still ignores `X-Forwarded-Proto` and `X-Forwarded-For`, even with `FORWARDED_ALLOW_IPS=*`, and does not
+replace the native UDS peer with a loopback identity. `PUBLIC_URL` advertises an endpoint; it does not grant scheme trust.
+
+Choose a short, private run directory:
+
+- The socket path must be absolute, contain neither `..` nor NUL, and occupy at most 103 bytes in the filesystem
+  encoding. Windows rejects UDS configuration without falling back to TCP.
+- The Server creates a missing parent directory with mode `0700`. An existing immediate parent must be a real directory,
+  owned by the Server's effective user, with no group or other access. A symlink parent is rejected. The socket has mode
+  `0600`, so the gateway must run as the same user.
+- A `core.sock.lock` file with mode `0600` beside the socket serializes startup and remains after shutdown. Graceful shutdown
+  removes only the socket created by that process. After a crash, restart reclaims a socket only when its identity matches
+  the lock record and a connection attempt confirms it is stale. Files, symlinks, live sockets, and unrecognized sockets
+  are preserved and cause startup to fail. Keep the lock file in place for crash recovery.
+
+Verify readiness and an authenticated API request from the same user:
+
+```bash
+curl --fail --unix-socket "$POWERCONTEXT_SERVER_HTTP_UDS" http://localhost/health/ready
+curl --fail --unix-socket "$POWERCONTEXT_SERVER_HTTP_UDS" \
+  --header "Authorization: Bearer ${POWERCONTEXT_DEPLOYMENT_TOKEN}" \
+  http://localhost/v1/capabilities
+```
+
+For the Python Client, supply an HTTPX UDS transport:
+
+```python
+import asyncio
+import os
+
+import httpx
+
+from powercontext.client import PowerContextClient
+
+
+async def main():
+    transport = httpx.AsyncHTTPTransport(uds=os.environ["POWERCONTEXT_SERVER_HTTP_UDS"], retries=0)
+    async with httpx.AsyncClient(transport=transport, trust_env=False) as http:
+        client = PowerContextClient(
+            "http://localhost",
+            token=os.environ["POWERCONTEXT_DEPLOYMENT_TOKEN"],
+            http_client=http,
+            trust_transport_security=True,
+        )
+        print((await client.get_capabilities()).model_dump_json())
+
+
+asyncio.run(main())
+```
+
+Here `http://localhost` is a routing label; the transport connects to the socket. The existing API paths, request and
+response schemas, authentication, and authorization still apply. Socket permissions do not replace Bearer authentication.
+`create_server_app()` creates an application; the CLI above owns the listener and its lifecycle.
+
+Personal `service` commands, local `ops` management, and Desktop local management support TCP listeners only and reject
+UDS configurations. The configuration wizard also produces TCP configurations. Agent host setup needs an explicit proxy
+HTTP(S) URL when the Core uses UDS. Remote Skill Receiver endpoints retain their HTTPS or loopback-peer requirement;
+direct UDS does not supply a loopback peer and does not waive that check.
+
+Automatic Source deployment with `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` or
+`POWERCONTEXT_SERVER_SOURCE_MANAGEMENT_AUTOSTART` requires `POWERCONTEXT_SERVER_PUBLIC_URL` pointing to the proxy
+when the Server uses UDS. The collect manager and runtimes connect through that URL; missing configuration is rejected
+before deployment credentials or processes are created. `source load --kind write` accepts the same setting or an explicit
+`--server-url`. These commands do not infer a TCP endpoint from `HTTP_PORT` in UDS mode.
+
+This listener provides the Core transport for the [Rust Gateway design (RFC #2199)](https://github.com/oceanbase/powercontext/pull/2199).
+The Rust executable, joint launcher, gateway settings, private channel authentication, private routes, and gateway state
+tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over
+UDS with channel and user authentication.
+
+### Gateway context injection
+
+When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared
+context by default into Chat and Responses requests that belong to a conversation. Within a conversation it prepares
+once per new user message and replays the exact result for the rest of that turn, such as an agent's tool loop.
+
+The gateway identifies the conversation from the first of these request headers that is present:
+
+| Header | Sent by | Conversation |
+| --- | --- | --- |
+| `X-PowerContext-Conversation-ID` | a host that integrates with PowerContext | the header value; overrides every other source |
+| `x-claude-code-session-id`, with `x-claude-code-agent-id` | Claude Code | the session, separately for each subagent |
+| `x-opencode-session-id` | OpenCode | the session; a child session has its own ID |
+| `thread-id` (Responses route only) | Codex | the thread; a subagent has its own thread ID |
+
+Headers that a client shares between a parent and its subagents, such as Codex `session-id` and `prompt_cache_key` or
+OpenCode `x-opencode-session` and `x-session-affinity`, do not identify a conversation. Claude Code speaks the Anthropic
+Messages API, which the gateway does not serve, so its headers apply only when a proxy in front of the gateway
+translates its requests to the Chat or Responses route and forwards them. Set `PC_GATEWAY_INJECTION=on` to inject every request
+(requests without a conversation ID then prepare individually), `PC_GATEWAY_INJECTION=off` to turn injection off, or
+`PC_GATEWAY_INJECTION_RESPONSES=off` to keep only the Responses route uninjected. A standalone gateway
+(`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
+without injection.
+
+### Gateway instruction
+
+`PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the
+Responses route (`/gateway/v1/responses`); the Chat route is never changed. The gateway reads the file once at startup.
+It must be UTF-8, non-empty after trimming, at most 4,096 bytes, and free of PowerContext's reserved
+`BEGIN_POWERCONTEXT_` markers; otherwise the gateway exits at startup instead of running without it. Nothing is added
+when the variable is unset.
+
+The text becomes the first content block of the developer message that follows the client's first developer message,
+which is where Codex places its own `developer_instructions`. Without such a message, the gateway inserts a new developer
+message after the client's first developer message, or before the first user message when the request has no developer
+message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the
+final request like any other request text. It is independent of context injection, capture, and replay.
+
 ## Run with Docker
 
 Build the image from the repository root:
@@ -184,6 +315,57 @@ Disabling it does not affect team API or MCP access. For personal setup, see
 A shared static token does not enforce human review or prevent an Agent from approving its own Candidate. For separate
 submission and approval, use distinct authenticated Principals and grant review permission only to the reviewer.
 See [Separate Agent submission from review](../workflows/review-candidates.md#separate-agent-submission-from-review).
+
+### Migrate data written before enforcement
+
+Data accepted while `ACCESS_MODE=disabled` has no Artifact owner and no Candidate owner attestation. After switching to
+`enforced`, that data stays readable, but modifying it returns `403` and approving its pending Candidates returns
+`503 artifact_owner_pending`, while data created under enforcement keeps working. The Server never derives ownership,
+so an administrator migrates the missing attribution explicitly:
+
+1. Back up the database. The offline command below works while the Server is stopped, before or after the switch:
+2. Inventory the affected data with `powercontext server access-ownership-migrate --action plan`. The same command
+   also runs before the switch, while `ACCESS_MODE=disabled`. Add
+   `--background-principal service:BACKGROUND_ID` with the future `ACCESS_BACKGROUND_PRINCIPAL_ID` to check
+   every selected Scope for `scope.contribute` and existing Profile write permission. These checks still run
+   after all ownership gaps have been filled. HTTP planning accepts `background_principal` when an Access
+   store is available; otherwise it returns `503 relationship_management_unavailable`. Use the offline
+   command for this check before enabling enforcement.
+   For a configured single-token deployment, the check includes the worker's static Scope preset without
+   creating bindings. An existing Profile still requires its own Artifact write permission.
+3. Backfill with an explicitly named owning Principal — for a single-user static-token deployment that is the
+   `server-token` service Principal:
+
+   ```bash
+   powercontext server access-ownership-migrate \
+     --action apply --owner service:server-token --maintenance-confirmed
+   ```
+
+   `apply` requires `--maintenance-confirmed` after stopping every Server process. Pass `--scope-id` to migrate
+   Scopes incrementally on large deployments. Every item is one idempotent write, so interrupted or repeated runs
+   refill only still-missing items. Existing owners and Candidate attestations are preserved and reported as
+   conflicts, never overwritten. Run `apply` again with another `--owner` when different identities must own
+   different Scopes; multi-user deployments keep this identity boundary explicit.
+
+   The inventory includes merged and retired Artifact identities so supported restoration remains authorized.
+   It also includes committed Handoffs and each published Handoff copy under its recorded identity.
+   Offline `apply`, HTTP `apply`, and the HTTP preview report `owner-recovery-pending` or
+   `owner-recovery-delivered_relation_missing` when durable recovery evidence already records an identity.
+   They preserve that evidence and do not replace its owner. Candidate recovery checks cover the families accepted
+   by migration, including Prompt Candidates, independently of which families require standalone Artifact ownership.
+   Complete pending ownership delivery through the
+   [ownership recovery procedure](../workflows/scopes-and-access.md#recover-external-ownership-writes).
+   With an external Access store, migration retains durable ownership delivery work if its audit write fails.
+   Repeating the same HTTP `apply` completes that original audit before reporting success, even if the owner
+   relation already exists. A preview does not replay pending work.
+
+   Without a stopped-deployment window, the same flow is available over HTTP on a running Server:
+   `POST /v1/access/ownership/apply` with `{"owner": {"type": "service", "id": "server-token"}, "dry_run": true}`
+   previews first; in enforced mode both HTTP operations require `server.admin`, and `apply` reports
+   `503 ownership_migration_unavailable` while `ACCESS_MODE=disabled`.
+4. Verify: modify a previously immutable Artifact, approve a previously blocked Candidate, and confirm `plan` now
+   reports no ownership gaps. Include the background Principal in the plan and check that `background` is empty.
+   Identities without the required Artifact write or Candidate review authority still receive `403`.
 
 ## Check the deployment
 

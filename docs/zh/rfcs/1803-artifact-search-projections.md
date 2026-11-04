@@ -1,5 +1,6 @@
 ---
-title: 制品检索投影与无 JOIN 召回
+title: RFC 1803：Artifact 检索投影
+description: Artifact 检索投影的设计提案，要求 OceanBase 召回不依赖业务表 JOIN，并与权威状态同步维护可重建投影。
 ---
 
 - 提案名称：`artifact_search_projections`

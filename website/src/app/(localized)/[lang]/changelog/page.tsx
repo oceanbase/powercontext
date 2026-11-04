@@ -24,6 +24,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { isLanguage } from '@/lib/i18n';
 import { releases } from '@/lib/releases';
 import { baseOptions } from '@/lib/site';
+import { pageMetadata } from '@/lib/metadata';
 
 const labels = {
   en: {
@@ -86,4 +87,13 @@ export default async function ChangelogPage({ params }: { params: Promise<{ lang
       <SiteFooter lang={lang} />
     </HomeLayout>
   );
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }) {
+  const { lang } = await params;
+  if (!isLanguage(lang)) notFound();
+  return pageMetadata({
+    path: `/${lang}/changelog/`, lang, title: labels[lang].title, description: labels[lang].description,
+    translations: { en: '/en/changelog/', zh: '/zh/changelog/' },
+  });
 }

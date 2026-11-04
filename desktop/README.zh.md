@@ -8,10 +8,13 @@
 
 ## 观察
 
-侧栏提供总览、连接、记忆、观察入口，“设置与诊断”位于侧栏底部。默认进入总览。“观察”包含运行状态、当前 Scope 库存与用量、本次会话三个标签页。数据视图接入前明确显示尚未可用；进入页面或切换标签不会执行连接检查或本机诊断。观察页面沿用现有中英文和主题设置。
+侧栏提供总览、连接、记忆、观察入口，“设置与诊断”位于侧栏底部。默认进入总览。“观察”包含运行状态、当前 Scope 库存与用量、本次会话三个标签页。库存与用量已接入统计视图；本次会话读取原生会话观察。运行状态接入前明确显示尚未可用。进入页面或切换标签不会执行连接检查或本机诊断。观察页面沿用现有中英文和主题设置。
 
-原生宿主独立于页面导航，采集有界的内存窗口，分别记录 HTTP 请求和 Memory/Scope 用户操作。可信的类型化 IPC 提供白名单摘要、重置和安全 JSON 预览。窗口最多保留 512 条终态记录，保留取消及未知写入的区别，不包含内容或目标身份。测量单位、覆盖范围、重置和故障隔离见[会话观察契约](../docs/zh/development/desktop-session-observations.md)。本次会话页面和剪贴板流程仍需独立的 UI 集成。
+原生宿主独立于页面导航，采集有界的内存窗口，分别记录 HTTP 请求和 Memory/Scope 用户操作。可信的类型化 IPC 提供白名单摘要、重置和安全 JSON 预览。窗口最多保留 512 条终态记录，保留取消及未知写入的区别，不包含内容或目标身份。测量单位、覆盖范围、重置和故障隔离见[会话观察契约](../docs/zh/development/desktop-session-observations.md)。本次会话分别显示请求与操作的数量、结果和毫秒延迟，以及 UTC 快照时间和保留范围；支持手动刷新和确认后重置。“预览安全诊断摘要”展示原生生成的准确文本，复制是独立的显式操作，提供成功或失败反馈及可选择的手动复制文本。离开视图或切换上下文会关闭预览并丢弃晚到的界面响应。
 
+
+本地安装与运维使用独立的有界诊断表格，展示安全阶段、沿用原义的 Ops 结果、错误码和受支持的不透明操作引用。
+这些快照纳入显式的安全预览与复制，单独显示保留范围和采集丢失，不计入 HTTP 或 Memory/Scope 操作延迟。
 
 ## 统一反馈与当前上下文
 
@@ -131,7 +134,9 @@ pnpm --dir desktop desktop:dev
 }
 ```
 
-Desktop 在每次诊断前检查固定路径和摘要，然后只允许 `service status --json` 或 `doctor codex claude-code dsh openclaw opencode pi hermes workbuddy kimi-code zcode --json`。收到符合格式的诊断响应后，尝试读取实际 CLI 版本用于显示；版本查询失败时显示“未知”，不阻止有效诊断结果。版本查询最长 15 秒，服务检查最长 20 秒，集成检查最长 60 秒；每次进程调用的 stdout/stderr 合计最多 256 KiB。窗口隐藏，进程及其后代归属于本次专属 Windows Job，结束或超时后清理。界面只显示允许的状态字段，不显示任意 detail、路径或原始输出。合法 JSON 配合退出码 1 仍可显示不健康结果。
+在 Linux 上，配置文件放在 `$XDG_DATA_HOME/com.powercontext.desktop.preview/diagnostic-cli.json`；如果没有设置 `XDG_DATA_HOME`，则使用 `~/.local/share/com.powercontext.desktop.preview/diagnostic-cli.json`。`executable` 必须是名为 `powercontext` 的文件的绝对路径（不是 `powercontext.exe`），`sha256` 必须是经核对的 64 位摘要，`source` 必须为 `explicit_local_installation`。
+
+Desktop 在每次诊断前检查固定路径和摘要，然后只允许 `service status --json` 或 `doctor codex claude-code dsh openclaw opencode pi hermes workbuddy kimi-code zcode --json`。收到符合格式的诊断响应后，尝试读取实际 CLI 版本用于显示；版本查询失败时显示“未知”，不阻止有效诊断结果。版本查询最长 15 秒，服务检查最长 20 秒，集成检查最长 60 秒；每次进程调用的 stdout/stderr 合计最多 256 KiB。Windows 辅助进程运行在专属 Windows Job 中；Linux 和 macOS 辅助进程运行在专属 POSIX 进程组中。完成、超时或取消时会清理辅助进程及其后代，不影响其他无关进程。界面只显示允许的状态字段，不显示任意 detail、路径或原始输出。合法 JSON 配合退出码 1 仍可显示不健康结果。
 
 未配置或未通过核验时，本机诊断不可用，独立远程业务仍可使用。进程树清理和隔离真实 CLI 测试已通过；安装后交互与完整 S2 资格仍待验收。
 
@@ -144,6 +149,18 @@ Desktop 在每次诊断前检查固定路径和摘要，然后只允许 `service
 保存成功但没有返回记忆记录时，只报告操作成功，不编造引用。请求发出后的超时或中断可能意味着「结果未知」：先核对原连接和范围，再决定是否重新提交；相同正文不能证明属于这次操作。应用不会自动重试写入，也没有离线队列。切换连接或范围后隐藏旧结果，本次会话只保留最小操作状态和原目标。测试范围与剩余验收见 [验证说明](VALIDATION.md)。
 
 [验证说明](VALIDATION.md)列出可复现的检查方式和待完成的平台、产品验收项。
+
+## 当前范围的存量与用量
+
+统计需要显式选择 `sqlite-stats-63e9665c-v1` 配置；独立验证的
+`sqlite-atomic-3cefa45a-v1` 配置仅覆盖 Memory 操作。
+
+在“观察 → 当前 Scope 库存与用量”中显式启用已验证兼容的连接、选择精确范围和“今天／最近 7 天／最近
+30 天”后，点击“加载统计”。页面展示 Server 时间、范围覆盖、存量快照、已记录
+的 UTC 模型用量和召回 token 估算。缺失 token 数保持“未知”；估算不代表账单
+节省或质量提升。每个图表均有等价表格，滚动区域可通过键盘聚焦。统计错误不禁用
+独立的 Memory 操作。详见[开发契约](../docs/zh/development/desktop-statistics.md)和
+[资格证据](VALIDATION.md#current-scope-statistics-qualification)。
 
 ## 远程安装包验收
 
@@ -161,7 +178,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 从早期预览版升级后，请打开「连接」并选中已保存的连接。与当前 API 契约匹配的配置显示在「此 Desktop 构建可用」中；先核对已测试的 Server 构建与实际部署，再明确选择、保存、检查并使用该连接。新连接默认不选择兼容配置。
 
-历史配置显示为不可选择的记录。已保存的不匹配或不可用配置仍会显示并说明原因，须明确替换，不会静默升级。对于已资格化的当前 Server 源码，请按记录的 Server 源码和 wheel 明确选择 `sqlite-atomic-68491568-v1`，检查连接后再选择范围。该记录匹配本构建的契约，并保留独立验证的操作集合。包括 `sqlite-atomic-c535d816-v1` 在内的历史配置保留原有 Server 源码、契约和操作集合，不匹配本构建的打包契约。已记录的 Server 源码和 wheel 身份必须与实际部署一致。独立验证的 `ci-fixtures` 构建仅用于临时验收测试。历史资格证据和剩余要求见[验证说明](VALIDATION.md)。
+契约摘要不匹配的历史记录不可选择。已保存的不匹配或不可用配置仍会显示，须明确替换，不会静默升级。使用统计时，请明确选择 `sqlite-stats-63e9665c-v1`，并核对部署与记录的 Server 源码、wheel 身份一致，再检查和激活连接、选择精确范围。该记录匹配打包契约，覆盖包括 `get_stats` 在内的十二项桌面操作。其他记录保留各自的源码、摘要、wheel 和操作集合，选择记录不会扩展其统计资格。`ci-fixtures` 仅用于临时验收。[验证说明](VALIDATION.md#server-63e9665c-statistics-product-qualification)记录来源和剩余平台要求。
 
 ## 在 macOS 上构建
 

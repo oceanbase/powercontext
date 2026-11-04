@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import date as date_aliased
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum, StrEnum
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -1448,6 +1448,191 @@ class PreparedContextStageTiming(BaseModel):
     count: Annotated[StrictInt, Field(ge=1)]
 
 
+class Schema5(StrEnum):
+    POWERCONTEXT_PREPARED_CONTEXT_WITH_REUSE_V1 = "powercontext.prepared-context-with-reuse.v1"
+
+
+class Schema6(StrEnum):
+    POWERCONTEXT_CONTEXT_REUSE_V1 = "powercontext.context-reuse.v1"
+
+
+class PreserveEnum(StrEnum):
+    CONTENT = "content"
+    CITATIONS = "citations"
+    TRUST = "trust"
+    ORDER = "order"
+
+
+class RefreshOnEnum(StrEnum):
+    PERMISSION_CHANGE = "permission_change"
+    SOURCE_INELIGIBLE = "source_ineligible"
+    CONTEXT_BOUNDARY = "context_boundary"
+
+
+class ContextReuseConstraints(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preserve: Annotated[list[PreserveEnum], Field(max_length=4, min_length=4)]
+    refresh_on: Annotated[list[RefreshOnEnum], Field(max_length=3, min_length=3)]
+
+
+class Schema7(StrEnum):
+    POWERCONTEXT_MODEL_JSON_PAYLOAD_V1 = "powercontext.model-json-payload.v1"
+
+
+class ModelJsonPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema7, Field(alias="schema")]
+    headers: Annotated[
+        dict[str, StrictStr],
+        Field(
+            description="Content and protocol headers only; credentials and transport override headers are forbidden.",
+            max_length=16,
+            min_length=1,
+        ),
+    ]
+    body: Annotated[
+        StrictStr,
+        Field(
+            description="Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported.",
+            max_length=1048576,
+            min_length=2,
+        ),
+    ]
+
+
+class Schema8(StrEnum):
+    POWERCONTEXT_MODEL_JSON_TEXT_LOCATION_V1 = "powercontext.model-json-text-location.v1"
+
+
+class ModelJsonTextLocation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema8, Field(alias="schema")]
+    pointer: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    start_byte: Annotated[StrictInt, Field(ge=0)]
+    end_byte: Annotated[StrictInt, Field(ge=1)]
+
+
+class PreparedContextLocation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
+    location: ModelJsonTextLocation
+
+
+class Phase1(StrEnum):
+    BEFORE_SEND = "before_send"
+
+
+class CheckContextBeforeSend(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    phase: Literal["before_send"]
+    target_profile: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    payload: ModelJsonPayload
+    prepared_contexts: Annotated[list[PreparedContextLocation], Field(max_length=16)]
+
+
+class Phase2(StrEnum):
+    BEFORE_RELEASE = "before_release"
+
+
+class Completion(StrEnum):
+    COMPLETE = "complete"
+
+
+class CheckContextBeforeRelease(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    phase: Literal["before_release"]
+    target_profile: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    request_binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
+    payload: ModelJsonPayload
+    completion: Completion
+
+
+class CheckContextRequest(RootModel[CheckContextBeforeSend | CheckContextBeforeRelease]):
+    root: Annotated[CheckContextBeforeSend | CheckContextBeforeRelease, Field(discriminator="phase")]
+
+
+class Profile(StrEnum):
+    TEXT_AND_TOOLS_V1 = "text-and-tools.v1"
+
+
+class ContextCheckCoverage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    profile: Profile
+    complete: StrictBool
+
+
+class Schema9(StrEnum):
+    POWERCONTEXT_CONTEXT_CHECK_V1 = "powercontext.context-check.v1"
+
+
+class Phase3(StrEnum):
+    BEFORE_SEND = "before_send"
+    BEFORE_RELEASE = "before_release"
+
+
+class Decision(StrEnum):
+    ALLOW = "allow"
+    BLOCK = "block"
+    WITHHOLD = "withhold"
+
+
+class ReasonCode(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=128)]
+
+
+class ContextCheckResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema9, Field(alias="schema")]
+    phase: Phase3
+    decision: Decision
+    reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
+    coverage: ContextCheckCoverage
+    policy_version: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    valid_until: AwareDatetime
+    correlate_until: Annotated[
+        AwareDatetime | None,
+        Field(description="Present only for a before_send allow; this deadline never permits a new send."),
+    ] = None
+    binding: Annotated[
+        StrictStr | None,
+        Field(
+            description="Present only for allow, bound to this phase, identity, target, policy, and exact payload.",
+            max_length=65536,
+            min_length=1,
+        ),
+    ] = None
+
+
+class ContextProtectionCapabilitiesLimits(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    payload_bytes: Annotated[StrictInt, Field(ge=1)]
+    binding_bytes: Annotated[StrictInt, Field(ge=1)]
+    prepared_contexts: Annotated[StrictInt, Field(ge=1)]
+    dependencies: Annotated[StrictInt, Field(ge=1)]
+    send_seconds: Annotated[StrictInt, Field(ge=1)]
+    correlate_seconds: Annotated[StrictInt, Field(ge=1)]
+
+
 class RepairSurface(StrEnum):
     EXPERIENCE_CONTENT = "experience_content"
     WORKING_STATE = "working_state"
@@ -2285,7 +2470,7 @@ class CodeQueryRequest(BaseModel):
         return self
 
 
-class Schema5(StrEnum):
+class Schema10(StrEnum):
     POWERCONTEXT_CODE_QUERY_V1 = "powercontext.code-query.v1"
 
 
@@ -2303,7 +2488,7 @@ class CodeQueryResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema5, Field(alias="schema")] = Schema5.POWERCONTEXT_CODE_QUERY_V1
+    schema_: Annotated[Schema10, Field(alias="schema")] = Schema10.POWERCONTEXT_CODE_QUERY_V1
     scope_id: StrictStr
     fingerprint: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
     before_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
@@ -2318,7 +2503,7 @@ class CodeQueryResult(BaseModel):
     limitations: list[StrictStr] | None = None
 
 
-class Schema6(StrEnum):
+class Schema11(StrEnum):
     POWERCONTEXT_CODE_STATUS_V1 = "powercontext.code-status.v1"
 
 
@@ -2341,7 +2526,7 @@ class CodeStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema6, Field(alias="schema")] = Schema6.POWERCONTEXT_CODE_STATUS_V1
+    schema_: Annotated[Schema11, Field(alias="schema")] = Schema11.POWERCONTEXT_CODE_STATUS_V1
     scope_id: StrictStr
     status: Status3
     freshness: Freshness = Freshness.UNKNOWN
@@ -3075,13 +3260,13 @@ class PromptInstructions(BaseModel):
     demonstrations: list[PromptDemonstration]
 
 
-class ProfileEnum(StrEnum):
+class Profile1Enum(StrEnum):
     CODING = "coding"
     CONVERSATION = "conversation"
 
 
-class Profile(RootModel[ProfileEnum | None]):
-    root: ProfileEnum | None = None
+class Profile1(RootModel[Profile1Enum | None]):
+    root: Profile1Enum | None = None
 
 
 class BuiltinPromptInstructions(BaseModel):
@@ -3089,7 +3274,7 @@ class BuiltinPromptInstructions(BaseModel):
         extra="forbid",
     )
     version: StrictStr
-    profile: Annotated[Profile | None, Field(...)]
+    profile: Annotated[Profile1 | None, Field(...)]
     instructions: Annotated[
         StrictStr, Field(description="Exact default instructions from the active Runtime Prompt Definition.")
     ]
@@ -4095,6 +4280,104 @@ class SourceInstancesQuery(BaseModel):
     view: View1 = View1.DISCOVERY
 
 
+class ScopeId1(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class PlanAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    background_principal: Annotated[
+        AccessPrincipal | None,
+        Field(
+            description="Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each selected Scope is checked for scope.contribute and write permission on an existing Profile, including after all ownership gaps have been filled. An available Access store is required."
+        ),
+    ] = None
+
+
+class OwnershipGapKind(StrEnum):
+    ARTIFACT_OWNER = "artifact_owner"
+    CANDIDATE_ATTESTATION = "candidate_attestation"
+
+
+class OwnershipGapItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: OwnershipGapKind
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    artifact_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    entry_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    candidate_id: Annotated[StrictStr | None, Field(max_length=128)] = None
+    version: Annotated[StrictInt | None, Field(ge=1)] = None
+    conflict_code: Annotated[StrictStr | None, Field(max_length=64)] = None
+
+
+class AccessOwnershipScopePlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    artifact_gaps: list[OwnershipGapItem]
+    candidate_gaps: list[OwnershipGapItem]
+
+
+class Allowed(Enum):
+    BOOLEAN_FALSE = False
+
+
+class BackgroundPermissionGap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    principal_id: Annotated[StrictStr, Field(max_length=255, min_length=1)]
+    allowed: Allowed
+    reason_code: Annotated[StrictStr | None, Field(max_length=64)]
+
+
+class AccessOwnershipPlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AccessControlMode
+    scopes: list[AccessOwnershipScopePlan]
+    background: list[BackgroundPermissionGap]
+
+
+class ApplyAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    owner: AccessPrincipal
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    dry_run: StrictBool = False
+
+
+class AccessOwnershipApplyResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dry_run: StrictBool
+    applied: list[OwnershipGapItem]
+    conflicts: list[OwnershipGapItem]
+
+
 class RecallManifestRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4722,6 +5005,28 @@ class PreparedContextPromptIdentity(BaseModel):
     selected_version: StrictStr
     compiled_digest: StrictStr
     artifact_address: PreparedContextPromptArtifactAddress | None
+
+
+class ContextReuse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema6, Field(alias="schema")]
+    constraints: ContextReuseConstraints
+    expires_at: AwareDatetime
+    binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
+
+
+class ContextProtectionCapabilities(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    check_versions: list[StrictStr]
+    payload_versions: list[StrictStr]
+    reuse_versions: list[StrictStr]
+    reuse_families: list[StrictStr]
+    enforcing: StrictBool
+    limits: ContextProtectionCapabilitiesLimits
 
 
 class BootstrapContextItem(BaseModel):
@@ -5501,6 +5806,12 @@ class PrepareContextRequest(BaseModel):
         StrictBool,
         Field(description="Opt into current-Scope native code evidence. No index is built during preparation."),
     ] = False
+    include_reuse: Annotated[
+        StrictBool,
+        Field(
+            description="Return a versioned context and reuse envelope. Supported for single-Scope Atomic Memory with complete bounded dependencies; unsupported selected families, code, or references are rejected explicitly."
+        ),
+    ] = False
     include_receipt: Annotated[
         StrictBool | None, Field(description="Opt into a bounded, content-free PreparedContext Receipt.")
     ] = False
@@ -5601,6 +5912,7 @@ class Capabilities(BaseModel):
     ]
     search_modes: list[MemorySearchMode]
     context_versions: list[PreparedContextSchema]
+    context_protection: ContextProtectionCapabilities | None = None
 
 
 class WorkClaim(BaseModel):
@@ -6085,10 +6397,23 @@ class PreparedContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[PreparedContextSchema, Field(alias="schema")]
+    schema_: Annotated[Literal["powercontext.prepared-context.v1"], Field(alias="schema")]
     status: PreparedContextStatus
     content: Annotated[StrictStr | None, Field(...)]
     content_bytes: Annotated[StrictInt, Field(ge=0)]
     receipt: Annotated[
         PreparedContextReceipt | None, Field(description="Present only when requested and successfully assembled.")
     ] = None
+
+
+class PreparedContextWithReuse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Literal["powercontext.prepared-context-with-reuse.v1"], Field(alias="schema")]
+    context: PreparedContext
+    reuse: ContextReuse
+
+
+class PrepareContextResult(RootModel[PreparedContext | PreparedContextWithReuse]):
+    root: Annotated[PreparedContext | PreparedContextWithReuse, Field(discriminator="schema_")]

@@ -177,7 +177,7 @@ pub async fn local_diagnostics<R: tauri::Runtime>(
     kind: crate::diagnostics::DiagnosticKind,
 ) -> Result<crate::diagnostics::DiagnosticReport, SafeError> {
     authorize_window(window.label())?;
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     {
         state
             .local
@@ -186,13 +186,32 @@ pub async fn local_diagnostics<R: tauri::Runtime>(
             .run(kind)
             .await
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = (state, kind);
         Err(SafeError::NotFound)
     }
 }
 
+#[tauri::command]
+pub async fn get_stats<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+    period: crate::transport::wire::StatsPeriod,
+) -> Result<crate::transport::ExactScopeStatistics, ApiFailure> {
+    manager(&window, &state)?.stats(generation, period).await
+}
+#[tauri::command]
+pub fn cancel_stats_reads<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<(), ApiFailure> {
+    manager(&window, &state)?
+        .cancel_stats_reads(generation)
+        .map_err(Into::into)
+}
 #[tauri::command]
 pub async fn remember_memory<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,

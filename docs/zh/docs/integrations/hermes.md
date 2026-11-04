@@ -1,7 +1,7 @@
 ---
-status: community
 title: Hermes
 description: 安装 Hermes MemoryProvider 和独立 slash-command 插件，并连接到 PowerContext Server。
+status: community
 ---
 
 # Hermes
