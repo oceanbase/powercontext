@@ -32,9 +32,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
 )
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 
-PROFILE = EmbeddingProfile(
-    profile_id="related-pagination-sql", model="fixture", dimension=3, normalization="unit"
-)
+PROFILE = EmbeddingProfile(profile_id="related-pagination-sql", model="fixture", dimension=3, normalization="unit")
 
 
 class _Result:
@@ -130,9 +128,7 @@ def test_oceanbase_related_page_binds_every_placeholder(mode: Literal["fts", "ve
             "hybrid": (_fts_rows("memory-1"), _vector_rows("memory-1"), _body_rows("memory-1")),
         }[mode]
         connection = _Connection(batches=batches)
-        page = await OceanBaseAtomicMemoryIndex(PROFILE).related_page(
-            cast(Any, connection), "scope", _request(mode)
-        )
+        page = await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request(mode))
         assert page is not None and tuple(hit.artifact_ref.artifact_id for hit in page.hits) == ("memory-1",)
         for statement, parameters in connection.executed:
             assert _placeholder_names(statement) <= set(parameters)
@@ -155,12 +151,8 @@ def test_oceanbase_rank_queries_keep_bodies_out_of_rank_rows() -> None:
 
 def test_oceanbase_hybrid_rank_queries_share_the_rank_identity_columns() -> None:
     async def scenario() -> None:
-        connection = _Connection(
-            batches=(_fts_rows("memory-1"), _vector_rows("memory-1"), _body_rows("memory-1"))
-        )
-        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(
-            cast(Any, connection), "scope", _request("hybrid")
-        )
+        connection = _Connection(batches=(_fts_rows("memory-1"), _vector_rows("memory-1"), _body_rows("memory-1")))
+        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("hybrid"))
         rank_statements = tuple(
             statement
             for statement, _ in connection.executed
@@ -177,9 +169,7 @@ def test_oceanbase_related_page_rejects_incomplete_vector_rows_beyond_the_first_
     async def scenario() -> None:
         connection = _Connection(scalar=1)
         with pytest.raises(AtomicMemoryIndexError) as raised:
-            await OceanBaseAtomicMemoryIndex(PROFILE).related_page(
-                cast(Any, connection), "scope", _request("vector")
-            )
+            await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("vector"))
         assert raised.value.code == "incomplete-vector"
 
     asyncio.run(scenario())
