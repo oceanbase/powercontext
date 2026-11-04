@@ -62,6 +62,17 @@ def tls_certificate(tmp_path):
     if not openssl:
         pytest.skip("HTTPS download acceptance requires openssl")
     cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    config = tmp_path / "openssl.cnf"
+    config.write_text(
+        "[req]\n"
+        "distinguished_name = subject\n"
+        "x509_extensions = server\n"
+        "[subject]\n"
+        "[server]\n"
+        "subjectAltName = DNS:localhost\n"
+        "basicConstraints = critical,CA:FALSE\n",
+        encoding="utf-8",
+    )
     subprocess.run(
         [
             openssl,
@@ -78,10 +89,8 @@ def tls_certificate(tmp_path):
             "1",
             "-subj",
             "/CN=localhost",
-            "-addext",
-            "subjectAltName=DNS:localhost",
-            "-addext",
-            "basicConstraints=critical,CA:FALSE",
+            "-config",
+            str(config),
         ],
         check=True,
         capture_output=True,
