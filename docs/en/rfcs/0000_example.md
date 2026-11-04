@@ -1,3 +1,8 @@
+---
+title: "RFC 0000: Proposal template"
+description: "A proposal template for contributors to explain a change, its motivation, technical design, alternatives, and open questions."
+---
+
 - Proposal Name: (fill me in with a unique identifier, `my_awesome_feature`)
 - Start Date: (fill me in with today's date, YYYY-MM-DD)
 - RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)

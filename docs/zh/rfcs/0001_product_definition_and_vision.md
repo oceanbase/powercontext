@@ -1,3 +1,8 @@
+---
+title: "RFC 0001：产品定义与愿景"
+description: "提出 PowerContext 如何支持人和 Agent 接手已有工作，并定义各阶段的产品范围与验收标准。"
+---
+
 - Proposal Name: `product_definition_and_vision`
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#0001](https://github.com/oceanbase/powercontext/pull/0001)

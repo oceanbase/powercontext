@@ -18,6 +18,12 @@ import { ArrowRight } from 'lucide-react';
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { Card, Cards } from 'fumadocs-ui/components/card';
 import { apiSource } from '@/lib/openapi-source';
+import { pageMetadata } from '@/lib/metadata';
+
+export const metadata = pageMetadata({
+  path: '/api/', title: 'HTTP API reference',
+  description: 'PowerContext Server endpoints and schemas, generated from the OpenAPI contract.',
+});
 
 export default function ApiOverviewPage() {
   const pages = apiSource.getPages();

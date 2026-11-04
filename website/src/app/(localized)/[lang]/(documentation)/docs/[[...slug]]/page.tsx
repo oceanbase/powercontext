@@ -20,6 +20,8 @@ import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layo
 import { createPageLink, getMDXComponents } from '@/components/mdx';
 import { isLanguage, languages } from '@/lib/i18n';
 import { source } from '@/lib/source';
+import { contentMetadata } from '@/lib/content-seo';
+import { ContentPageActions } from '@/components/content-page-actions';
 
 interface PageProps {
   params: Promise<{ lang: string; slug?: string[] }>;
@@ -45,6 +47,7 @@ export default async function DocumentationPage({ params }: PageProps) {
           <DocsDescription>{page.data.description}</DocsDescription>
         </>
       ) : null}
+      <ContentPageActions page={page} />
       <DocsBody>
         <MDX components={getMDXComponents({ a: createPageLink(page) })} />
       </DocsBody>
@@ -66,8 +69,5 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const page = getDocumentationPage(lang, slug);
   if (!page) notFound();
 
-  return {
-    title: page.data.title,
-    description: page.data.description,
-  };
+  return contentMetadata(page);
 }

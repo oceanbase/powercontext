@@ -1,4 +1,5 @@
 ---
+description: "Migrate existing Artifact processing state before starting the Supervisor, with planning, recovery, and readiness checks."
 title: Migrate Artifact processing state
 ---
 

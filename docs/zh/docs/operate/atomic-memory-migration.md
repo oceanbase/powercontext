@@ -1,4 +1,5 @@
 ---
+description: "备份数据库后，将旧版 Memory 集合离线转换为 Atomic Memory，并核对身份和版本链。"
 title: 迁移到 Atomic Memory
 ---
 

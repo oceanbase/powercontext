@@ -15,11 +15,11 @@
     "lint": "oxlint"
   },
   "dependencies": {
-    "fumadocs-core": "16.15.4",
-    "fumadocs-mdx": "15.4.0",
+    "fumadocs-core": "16.17.10",
+    "fumadocs-mdx": "15.4.10",
     "fumadocs-openapi": "11.3.5",
-    "fumadocs-python": "1.0.1",
-    "fumadocs-ui": "npm:@fumadocs/base-ui@16.15.4",
+    "fumadocs-python": "1.0.5",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.17.10",
     "lucide-react": "1.34.0",
     "next": "16.4.1",
     "react": "19.2.8",

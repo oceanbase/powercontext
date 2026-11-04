@@ -19,6 +19,7 @@ import { notFound } from 'next/navigation';
 import { DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { OpenAPIPage } from '@/components/openapi-page';
 import { apiSource } from '@/lib/openapi-source';
+import { pageMetadata } from '@/lib/metadata';
 
 interface PageProps {
   params: Promise<{ slug: string[] }>;
@@ -45,5 +46,5 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { slug } = await params;
   const page = apiSource.getPage(slug);
   if (!page) notFound();
-  return { title: page.data.title, description: page.data.description };
+  return pageMetadata({ path: page.url, title: page.data.title, description: page.data.description });
 }

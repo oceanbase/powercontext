@@ -20,6 +20,8 @@ import { DocsBody, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { createPageLink, getMDXComponents } from '@/components/mdx';
 import { isLanguage, languages } from '@/lib/i18n';
 import { source } from '@/lib/source';
+import { contentMetadata } from '@/lib/content-seo';
+import { ContentPageActions } from '@/components/content-page-actions';
 
 interface PageProps {
   params: Promise<{ lang: string; slug?: string[] }>;
@@ -39,6 +41,7 @@ export default async function RfcPage({ params }: PageProps) {
   return (
     <DocsPage full={page.data.full} toc={page.data.toc}>
       {slug?.length ? <DocsTitle>{page.data.title}</DocsTitle> : null}
+      <ContentPageActions page={page} />
       <DocsBody>
         <MDX components={getMDXComponents({ a: createPageLink(page) })} />
       </DocsBody>
@@ -60,8 +63,5 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const page = getRfcPage(lang, slug);
   if (!page) notFound();
 
-  return {
-    title: page.data.title,
-    description: page.data.description,
-  };
+  return contentMetadata(page);
 }

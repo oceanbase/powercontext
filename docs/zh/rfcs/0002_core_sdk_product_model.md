@@ -1,3 +1,8 @@
+---
+title: "RFC 0002：Core SDK 产品模型"
+description: "首版 Python Core SDK 的设计提案，涵盖 Source 引用、不可变 Artifact Revision 和证据追踪。"
+---
+
 - Proposal Name: `core_sdk_product_model`
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/pull/2)

@@ -1,4 +1,5 @@
 ---
+description: "在启动 Supervisor 前迁移已有的 Artifact 后台处理状态，完成迁移规划、异常恢复和就绪检查。"
 title: 迁移 Artifact 后台处理状态
 ---
 
