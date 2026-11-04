@@ -111,6 +111,7 @@ powercontext archive restore ./backups/payments.pcb --yes
 | --- | --- |
 | Scope identity、层级、context/external reference 和创建 identity | Scope access binding 和 host-local default selection |
 | Source journal head、Source record 和引用的远程 Source Definition manifest | 搜索 projection 和 index |
+| 已接受的 Memory evidence：逐 Source 的 declaration binding、其引用的 Definition manifest 和精确 revision 的 evidence snapshot | 当前 registry 的 declaration，它不会覆盖已保存的快照 |
 | Artifact Revision 及其时间戳、actor、回滚元数据；稳定句柄、lineage、跨 Scope 发布来源和 head | Source cursor 和 scheduler state |
 | Atomic Memory 合并关系和带合并输入标记的 lineage | External Skill registration 和 host-local installation state |
 | Candidate version、decision head 及其 evidence reference | Audit event、usage fact、evaluation receipt 和 restore receipt |

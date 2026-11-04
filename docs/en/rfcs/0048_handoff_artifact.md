@@ -1,3 +1,8 @@
+---
+title: "RFC 0048: Handoff artifacts and continuation"
+description: Design semantics for temporary and committed Handoffs, evidence checks, and continuing work without granting new authority.
+---
+
 - Proposal Name: `handoff_artifact`
 - RFC Number: 0048
 - Start Date: 2026-07-29

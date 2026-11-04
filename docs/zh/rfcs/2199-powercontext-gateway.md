@@ -1,6 +1,6 @@
 ---
-title: PowerContext Gateway：受控模型调用与上下文复用
-description: Rust 网关复用原端口，经本机 IPC 调用 Core，在共享三后端数据库中管理复用状态，并预留第三方插件接入。
+title: RFC 2199：PowerContext Gateway 模型网关
+description: PowerContext Gateway 的设计提案，通过可选 Rust 模型网关执行 Core 隐私与复用规则，管理发送、重放和原生缓存。
 ---
 
 - Proposal Name: `powercontext_gateway`

@@ -8,13 +8,17 @@ home:
       - 让工作跨会话
       - 继续推进。
     lead: PowerContext 把决定、约束、依据和当前进展留在项目中。换人、换 Agent 或换个会话时，可以直接核对当前状态并继续工作。
-    actions:
-      - label: 安装并开始使用
-        href: zh/docs/get-started/quickstart/
-        kind: primary
-      - label: 了解工作原理
-        href: zh/docs/get-started/core-concepts/
-        kind: secondary
+    action:
+      label: 安装并开始使用
+      href: zh/docs/get-started/quickstart/
+    learn_more:
+      label: 了解工作原理
+      href: zh/docs/get-started/core-concepts/
+    community:
+      star_label: Star on GitHub
+      contributors_label: 查看全部贡献者
+      contribute_label: 参与贡献
+      license_label: Apache-2.0 开源
   onboarding:
     title: 从安装到第一条记忆
     lead: 先部署 Server，通过向导选择所需能力，再接入 Agent。完整指南覆盖本机使用和从其他设备访问。

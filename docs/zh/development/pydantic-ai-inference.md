@@ -1,3 +1,8 @@
+---
+title: "配置 Pydantic AI 推理"
+description: "通过 Pydantic AI 配置结构化 Memory 候选生成，并单独配置向量检索所需的 Embedding。"
+---
+
 # 配置 Pydantic AI 推理
 
 PowerContext 使用生成模型从 Source 提取 Memory，使用向量模型为支持向量检索的索引生成向量。这两项能力可以分别配置。

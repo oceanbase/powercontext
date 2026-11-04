@@ -1,3 +1,8 @@
+---
+title: RFC 1770：决策策略治理
+description: 决策策略治理的设计提案，为有限范围的 DecisionModel 调用规定策略清单、影子模式、审计证据、回放与启用条件。
+---
+
 - Proposal Name: `decision_policy_governance`
 - Start Date: 2026-09-28
 - RFC PR: [oceanbase/powercontext#1770](https://github.com/oceanbase/powercontext/pull/1770)

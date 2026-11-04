@@ -296,7 +296,7 @@ async def _commit_window(
     security,
     prepared_indexes=None,
 ):
-    from powercontext.server.authz import AccessAction, ResourceRef
+    from powercontext.server.authz import AccessAction, ResourceRef, bounded_idempotency_key
 
     validated = _validate_drafts(declaration, source_evidence, artifact_evidence, drafts)
     repository = custom_artifact_repository(declaration["family"], sources, prepared=prepared_indexes)
@@ -318,7 +318,9 @@ async def _commit_window(
                     await bound.establish_artifact_owner(
                         resource,
                         security.principal,
-                        idempotency_key=f"background-custom-owner:{assignment.scope_id}:{draft.family}:{draft.artifact_id}",
+                        idempotency_key=bounded_idempotency_key(
+                            "background-custom-owner", assignment.scope_id, draft.family, draft.artifact_id
+                        ),
                         context=security.context,
                     )
             else:

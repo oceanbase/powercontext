@@ -1,3 +1,8 @@
+---
+title: "Configure Pydantic AI inference"
+description: "Set up Pydantic AI generation for structured Memory candidates and configure embedding separately for vector search."
+---
+
 # Configure Pydantic AI inference
 
 PowerContext uses a generation model to extract Memory from Sources and an embedding model to generate vectors for indexes that support vector search. You can configure each capability independently.

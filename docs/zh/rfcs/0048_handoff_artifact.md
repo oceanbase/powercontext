@@ -1,3 +1,8 @@
+---
+title: RFC 0048：Handoff 制品与工作继续
+description: Handoff 的设计记录，区分临时交接与已提交版本，规定证据核对和继续工作的权限边界。
+---
+
 - Proposal Name: `handoff_artifact`
 - RFC Number: 0048
 - Start Date: 2026-07-29

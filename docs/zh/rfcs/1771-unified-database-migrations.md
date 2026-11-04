@@ -1,5 +1,6 @@
 ---
-title: 统一版本化数据库迁移
+title: RFC 1771：统一数据库迁移
+description: 统一数据库迁移的设计提案，使用 Alembic 管理 SQLite、seekDB 与 OceanBase，规定版本校验、计划确认和备份要求。
 ---
 
 - Proposal Name: `unified_versioned_database_migrations`

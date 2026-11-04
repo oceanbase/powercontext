@@ -1,5 +1,6 @@
 ---
-title: Topic Memory 通用 Artifact 接口补全
+title: RFC 1614：补全 Topic Memory 通用接口
+description: Topic Memory 通用接口的设计提案，补齐创建、替换、标签与跨 Scope 发布，并保证正文和检索索引一致提交。
 ---
 
 # Topic Memory 通用 Artifact 接口补全

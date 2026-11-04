@@ -57,7 +57,20 @@ JSON and console logs use the same explicit operational field allowlist. Unrecog
 | `duration_ms`, `error_code`, `error_category` | Duration in milliseconds, diagnostic code, and bounded operational error classification |
 | `stage`, `processing_stage`, `failure_reason`, `input_item_count`, `estimated_input_tokens`, `token_estimator_id`, `effective_budget`, `provider_request_id`, `finish_reason`, `failure_location`, `cause_exception_type` | Processing failure stage/reason and safe accounting fields; `stage` names the emitting boundary or domain location (Worker/supervisor stage, domain block name, or `worker` fallback), `processing_stage` the bounded domain stage. See [Processing failure diagnostics](../../development/processing-failures.md) |
 
-Server roles are `all` (API and supervisor), `api`, and `background`; child processes use `worker`. Explicit logging configuration without a deployment role uses `server`. JSON identity fields correspond to trace resource attributes `service.name`, `service.version`, `service.instance.id`, and `powercontext.service.role`. `service_version` is absent when installed distribution metadata is unavailable, such as a source checkout or a frozen bundle. A new process receives a new instance ID; a worker retry receives a new `worker_id`. None of these execution identifiers are metric labels.
+`reason` is a bounded cause for a retained-evidence downgrade. The `atomic_memory.evidence.neutral` event reports that
+accepted evidence could not be attested and therefore resolved to `untrusted` / `unknown`; it never carries material,
+declaration bodies, or requested content. Its `unit` is the retained fact (`source`, `declaration`, `manifest`, or
+`revision`), `outcome` is `neutral`, and `reason` is one of `schema_mismatch`, `digest_mismatch`, `no_manifest`,
+`decode_failed`, `legacy_unverifiable`, `invalid_declaration`, `manifest_conflict`, `definition_missing`, or
+`evidence_mismatch`. Integrity causes are emitted at `WARNING`; expected historical gaps stay at `INFO` or `DEBUG`.
+Integrity causes such as `manifest_conflict` are alertable and distinct from an absent declaration.
+
+Server roles are `all` (API and supervisor), `api`, and `background`; child processes use `worker`. Explicit logging
+configuration without a deployment role uses `server`. JSON identity fields correspond to trace resource attributes
+`service.name`, `service.version`, `service.instance.id`, and `powercontext.service.role`. `service_version` is absent
+when installed distribution metadata is unavailable, such as a source checkout or a frozen bundle. A new process
+receives a new instance ID; a worker retry receives a new `worker_id`. None of these execution identifiers are metric
+labels.
 
 The request ID is inherited by nested request logs unless an event provides an explicit ID. Scheduled processing does not acquire the request ID that happened to be active when the supervisor started, including supervisor control logs. Trace IDs still exist with recording disabled, but do not imply that a backend has stored the trace. Child logging alone does not establish cross-process trace propagation.
 

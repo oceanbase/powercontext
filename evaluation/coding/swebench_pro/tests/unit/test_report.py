@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 
 import pytest
@@ -142,6 +144,22 @@ def test_metrics_written_before_cached_and_reasoning_counts_still_load() -> None
     metrics = MetricSet.model_validate(older, strict=True)
     assert metrics.cached_input_tokens is None
     assert metrics.reasoning_output_tokens is None
+
+
+def test_isolation_flags_round_trip_and_older_reports_load_without_them() -> None:
+    bundle = _valid_bundle()
+    flagged = bundle.model_copy(
+        update={"on": bundle.on.model_copy(update={"isolation_flags": ("network_command", "web_search")})}
+    )
+    parsed = ReportBundle.model_validate_json(flagged.model_dump_json(), strict=True)
+    assert parsed.on.isolation_flags == ("network_command", "web_search")
+    report = render_report(parsed)
+    assert "| Isolation flags | network_command, web_search |" in report
+    assert "| Isolation flags | N/A |" in report
+
+    older = bundle.model_dump(mode="json")
+    del older["off"]["isolation_flags"]
+    assert ReportBundle.model_validate_json(json.dumps(older), strict=True).off.isolation_flags == ()
 
 
 def test_invalid_treatment_is_not_scored_as_failure() -> None:

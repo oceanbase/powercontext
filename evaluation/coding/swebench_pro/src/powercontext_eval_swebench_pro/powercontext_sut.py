@@ -56,6 +56,7 @@ from urllib.parse import parse_qsl, quote, quote_plus, unquote, urlsplit
 
 from powercontext_eval_swebench_pro import docker_pressure
 from powercontext_eval_swebench_pro.artifacts import ArtifactStore
+from powercontext_eval_swebench_pro.egress import PYTHON_INSTALL_MIRROR, AllowlistProxy, EgressPolicy
 from powercontext_eval_swebench_pro.codex import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_REASONING_EFFORT,
@@ -661,6 +662,8 @@ class SutConfig:
     tokensflow_binary: Path | None = None
     tokensflow_egress_network: str | None = None
     proxy: ProxyRelayConfig | None = None
+    # Built-in allowlisted egress; mutually exclusive with a deployment's own proxy upstream.
+    egress: EgressPolicy | None = None
     docker_network_pool: str = DEFAULT_DOCKER_NETWORK_POOL
     extra_no_proxy_hosts: tuple[str, ...] = ()
     model: str = DEFAULT_CODEX_MODEL
@@ -703,6 +706,11 @@ class SutConfig:
                 or _SAFE_DOCKER_NETWORK.fullmatch(self.tokensflow_egress_network) is None
             ):
                 raise TokensFlowInfrastructureError("TokensFlow egress network is unsafe")
+        if self.proxy is not None and self.egress is not None:
+            raise UnsafeSutConfiguration("Use either a proxy upstream or the egress allowlist")
+        if self.egress is not None and self.tokensflow_enabled:
+            # TokensFlow attaches its own unrestricted egress network to the agent container.
+            raise UnsafeSutConfiguration("TokensFlow egress bypasses the egress allowlist")
         _validated_docker_network_pool(self.docker_network_pool)
         _validated_no_proxy_hosts(self.extra_no_proxy_hosts)
         try:
@@ -954,13 +962,22 @@ class DockerSut:
         docker: Any,
         *,
         relay_factory: Callable[[], ProxyRelay] = SocatProxyRelay,
+        egress_factory: Callable[[frozenset[int]], AllowlistProxy] = lambda ports: AllowlistProxy(ports=ports),
         clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self._docker = _DockerPressureRunner(docker)
         self._relay_factory = relay_factory
+        self._egress_factory = egress_factory
+        # One allowlist proxy per live run network; pairs on different networks run concurrently.
+        self._egress_proxies: dict[str, AllowlistProxy] = {}
+        self._egress_lock = threading.Lock()
         self._clock = clock
         self._sleeper = sleeper
+
+    def _egress_proxy(self, network: str) -> AllowlistProxy | None:
+        with self._egress_lock:
+            return self._egress_proxies.get(network)
 
     def network_gateway(self, network: str, cwd: Path) -> str:
         if (
@@ -1086,6 +1103,7 @@ class DockerSut:
     def _run_network(self, config: SutConfig, cwd: Path) -> Iterator[tuple[str, str | None]]:
         network = f"powercontext-eval-{config.run_id}"
         relay = self._relay_factory() if config.proxy is not None else None
+        egress = self._egress_factory(config.egress.ports) if config.egress is not None else None
         network_created = False
         preserve_for_diagnosis = False
         try:
@@ -1102,6 +1120,10 @@ class DockerSut:
                     gateway = self.network_gateway(network, cwd)
                     assert config.proxy is not None
                     relay_url = relay.start(gateway, config.proxy)
+                if egress is not None:
+                    relay_url = egress.start(self.network_gateway(network, cwd))
+                    with self._egress_lock:
+                        self._egress_proxies[network] = egress
             yield network, relay_url
         except BaseException:
             preserve_for_diagnosis = network_created
@@ -1111,6 +1133,10 @@ class DockerSut:
                 try:
                     if relay is not None:
                         relay.stop()
+                    if egress is not None:
+                        with self._egress_lock:
+                            self._egress_proxies.pop(network, None)
+                        egress.stop()
                 finally:
                     remove_network = network_created and (
                         not preserve_for_diagnosis
@@ -1132,7 +1158,7 @@ class DockerSut:
                 "docker",
                 "network",
                 "create",
-                *(("--internal",) if config.proxy is not None else ()),
+                *(("--internal",) if config.proxy is not None or config.egress is not None else ()),
                 "--subnet",
                 subnet,
                 "--gateway",
@@ -1243,7 +1269,14 @@ class DockerSut:
                 tokensflow_binary_staged = True
             self._initialize_workspace(config, arm, paths)
             trim_future_history(self._docker, paths.workspace)
+            egress = self._egress_proxy(network)
+            if egress is not None and config.egress is not None:
+                egress.allow(f"{arm.value}:prewarm", config.egress.prewarm)
             self._prewarm(config, arm, paths, network, relay_url)
+            if egress is not None and config.egress is not None:
+                # From here on only the model endpoint is reachable: a package index or source host can serve
+                # a newer release of the task's own project, including the reference fix.
+                egress.allow(f"{arm.value}:agent", config.egress.agent)
             self._start_container(
                 config,
                 arm,
@@ -1328,6 +1361,12 @@ class DockerSut:
                 if tokensflow_drain_failed:
                     self._write_tokensflow_recovery_marker(paths, "tokensflow_drain_failed")
                     raise TokensFlowInfrastructureError("TokensFlow drain failed") from None
+            if egress is not None:
+                prefix = f"{arm.value}:"
+                store.write_json(
+                    "egress/decisions.json",
+                    [item for item in egress.decisions() if str(item["phase"]).startswith(prefix)],
+                )
             tokensflow_provenance: Path | None = None
             if tokensflow is not None:
                 tokensflow_provenance = store.write_json("tokensflow/provenance.json", tokensflow.as_dict())
@@ -1420,6 +1459,9 @@ class DockerSut:
                 self._write_tokensflow_recovery_marker(paths, "infrastructure_failure_retained")
             raise
         finally:
+            closing = self._egress_proxy(network)
+            if closing is not None:
+                closing.allow(f"{arm.value}:closed", frozenset())
             if not handed_off:
                 preserve_for_diagnosis = preserve_after_drain_failure or preserve_after_infrastructure_failure
                 try:
@@ -2427,6 +2469,8 @@ class DockerSut:
             "UV_CACHE_DIR": "/runtime/uv-cache",
             "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
             "UV_PYTHON": _CONTAINER_UV_PYTHON,
+            # Older uv versions download managed Python from GitHub, which the prewarm allowlist does not include.
+            **({"UV_PYTHON_INSTALL_MIRROR": PYTHON_INSTALL_MIRROR} if config.egress is not None else {}),
         }
         command = (
             "docker",
