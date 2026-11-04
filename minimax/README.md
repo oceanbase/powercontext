@@ -89,7 +89,8 @@ python -m pip install pymysql fastapi uvicorn pytest requests
 | `MINIMAX_SCENARIO_USER` / `MINIMAX_SCENARIO_PASSWORD` | `minimax_test` / `minimax_test_dev` | 演练库账号（只操作 `minimax_scenario*`） |
 | `SEEKDB_REPO` | — | seekdb 源码目录，规格中的代码来源从这里实时读取并计算哈希 |
 | `MINIMAX_TASK_ID` | `task-arr-element-dml` | 任务标识 |
-| `MINIMAX_API_KEY` | — | 设置后 MiniMax 走 API（ChatCompletion） |
+| `MINIMAX_API_KEY` | — | MiniMax API Key；也可以不设，改用下面的文件 |
+| `MINIMAX_API_KEY_FILE` | `~/.minimax_key` | 未设 `MINIMAX_API_KEY` 时从这个文件读 key（不进 shell 历史） |
 | `MINIMAX_MODEL` / `MINIMAX_BASE_URL` | `MiniMax-Text-01` / `https://api.minimaxi.com/v1` | MiniMax API 参数 |
 | `MINIMAX_AGENT_CMD` | — | 设置后 MiniMax 走命令行 Agent |
 | `MINIMAX_AGENT_OUTPUT` | — | 设置后走"人工粘贴"：从该文件读取 MiniMax 的回答 |
@@ -163,7 +164,7 @@ curl http://127.0.0.1:8099/ready
 
 ### 5.3 MiniMax 接入（三种方式，运行说明中已注明实际采用的方式与版本）
 
-* 已设置 `MINIMAX_API_KEY`：POST `{base}/chat/completions`，模型见 `MINIMAX_MODEL`；
+* 已设置 `MINIMAX_API_KEY`（或存在 `~/.minimax_key`）：POST `{base}/chat/completions`，模型见 `MINIMAX_MODEL`；
 * 已设置 `MINIMAX_AGENT_CMD`：以 `prompt.md` 为参数调用该命令，读取标准输出；
 * 否则（本机没有 MiniMax Key 时的默认路径）：程序生成 `agent/artifacts/<stage>/prompt.md`，把该提示词粘进 MiniMax Code，再把回答存成文件，设置 `MINIMAX_AGENT_OUTPUT=<文件>` 后重跑 `agent --step prepare`。
 
@@ -180,14 +181,14 @@ Authorization: Bearer <key>
 
 即 `MINIMAX_BASE_URL` 默认值 `https://api.minimaxi.com/v1` 是对的；`MINIMAX_MODEL` 填你账号控制台里实际可用的模型名（如 `MiniMax-M2`）。该域名本机可直连，无需代理。
 
-接通真实 API 的步骤：
+接通真实 API 的步骤（详细版见 [`docs/接通MiniMax.md`](docs/接通MiniMax.md)）：
 
 ```bash
-# 1) 在 MiniMax 控制台创建 API Key，写进当前会话
-export MINIMAX_API_KEY="sk-..."
+# 1) 把控制台复制的整串 key 写进文件，避免进入 shell 历史
+#    PowerShell: "sk-真实key" | Set-Content -NoNewline -Encoding ascii "$env:USERPROFILE\.minimax_key"
 export MINIMAX_MODEL="MiniMax-M2"        # 换成你套餐里的模型名
 
-# 2) 先做一次极小的连通性自检（只发 "ping"）
+# 2) 自检：只发 "ping"，确认鉴权通过
 python -c "from context import minimax; print(minimax.run_api('ping').to_record())"
 
 # 3) 正式调用：组装上下文 → MiniMax → 抽补丁 → 保存状态

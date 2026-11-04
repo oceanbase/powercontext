@@ -3,8 +3,11 @@
 MiniMax can participate in three ways; the system supports all of them and records
 which one produced each artifact:
 
-``api``    -- MiniMax ChatCompletion over HTTPS.  Enabled when ``MINIMAX_API_KEY`` is
-              set.  The key never leaves this process and never enters the database.
+``api``    -- MiniMax ChatCompletion over HTTPS.  The key is read from
+              ``MINIMAX_API_KEY`` or, when that is empty, from the file named by
+              ``MINIMAX_API_KEY_FILE`` (default ``~/.minimax_key``) so it never has to
+              sit in shell history.  It never leaves this process and never enters the
+              database.
 ``cli``    -- the MiniMax agent CLI, driven as ``MINIMAX_AGENT_CMD`` from a prepared
               prompt file.
 ``manual`` -- the developer pastes the prepared prompt into MiniMax and drops the
@@ -73,12 +76,32 @@ def prepare_prompt(context_text: str, instruction: str) -> str:
     )
 
 
+def api_key() -> str:
+    """Read the key from the environment, or from a file when the env var is empty.
+
+    ``MINIMAX_API_KEY_FILE`` (default ``~/.minimax_key``) keeps the secret out of shell
+    history and out of any transcript: write the key to that file once and leave the
+    environment variable unset.
+    """
+    value = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if value:
+        return value
+    path = Path(os.environ.get("MINIMAX_API_KEY_FILE", "~/.minimax_key")).expanduser()
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    return ""
+
+
 def run_api(prompt: str) -> AgentRun:
-    api_key = os.environ.get("MINIMAX_API_KEY", "")
+    key = api_key()
     model = os.environ.get("MINIMAX_MODEL", DEFAULT_MODEL)
     base_url = os.environ.get("MINIMAX_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
-    if not api_key:
-        return AgentRun("api", model, len(prompt), "", False, "MINIMAX_API_KEY is not set")
+    if not key:
+        return AgentRun(
+            "api", model, len(prompt), "", False,
+            "no API key: set MINIMAX_API_KEY or write it to ~/.minimax_key "
+            "(or set MINIMAX_API_KEY_FILE)",
+        )
 
     body = json.dumps(
         {
@@ -96,7 +119,7 @@ def run_api(prompt: str) -> AgentRun:
         data=body,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {key}",
         },
         method="POST",
     )
@@ -146,7 +169,7 @@ def run_manual(prompt: str) -> AgentRun:
 
 def dispatch(prompt: str, workdir: Path | None = None) -> AgentRun:
     """Prefer a configured API key, then the configured CLI, then a pasted answer."""
-    if os.environ.get("MINIMAX_API_KEY"):
+    if api_key():
         run = run_api(prompt)
         if run.ok:
             return run
