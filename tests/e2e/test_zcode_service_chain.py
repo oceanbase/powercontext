@@ -64,7 +64,14 @@ class DeterministicSourcePipeline:
 
 
 def _invoke_hook(
-    *, node: str, base_url: str, scope_id: str | None, session_id: str, turn_id: str, prompt: str
+    *,
+    node: str,
+    base_url: str,
+    scope_id: str | None,
+    session_id: str,
+    turn_id: str,
+    prompt: str,
+    accepted_stderr: tuple[str, ...] = ("",),
 ) -> dict[str, Any]:
     environment = dict(os.environ)
     environment.pop("POWERCONTEXT_ZCODE_SCOPE_ID", None)
@@ -88,7 +95,7 @@ def _invoke_hook(
         env=environment,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stderr == ""
+    assert result.stderr in accepted_stderr
     return json.loads(result.stdout)
 
 
@@ -104,6 +111,22 @@ def _wait_for_processed_memory(client: httpx.Client, scope_id: str, text: str) -
             return generated
         time.sleep(0.05)
     pytest.fail("The original flush must commit the captured source")
+
+
+def _delay_first_capture_response():
+    delayed = False
+
+    async def middleware(request, call_next):
+        nonlocal delayed
+        response = await call_next(request)
+        if request.url.path == "/v1/sources/content" and not delayed:
+            # The source commits before this delay. The Hook must report an
+            # unknown receipt, and the caller must verify the committed source.
+            delayed = True
+            await asyncio.sleep(1.2)
+        return response
+
+    return middleware
 
 
 @pytest.mark.parametrize("slow_flush_receipt", [False, True])
@@ -134,6 +157,8 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
             # after Stop's fixed 800 ms request budget.
             await asyncio.sleep(1.2)
         return response
+
+    app.middleware("http")(_delay_first_capture_response())
 
     with socket.socket() as socket_probe:
         socket_probe.bind(("127.0.0.1", 0))
@@ -212,6 +237,10 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                 session_id="binding-probe",
                 turn_id="probe-1",
                 prompt="Scope binding synthetic probe.",
+                accepted_stderr=(
+                    "",
+                    '{"component":"powercontext.zcode","stage":"capture","code":"timeout"}\n',
+                ),
             )
             assert session_scope in probe["hookSpecificOutput"]["additionalContext"]
             probe_sources = client.get(f"/v1/scopes/{session_scope}/sources")

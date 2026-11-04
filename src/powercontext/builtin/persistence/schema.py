@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 
 from sqlalchemy import Connection, MetaData, Table, inspect, text
@@ -73,9 +74,7 @@ async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /)
             )
 
     if any(table.name == "pc_artifact_search_text" for table in tables):
-        from powercontext.builtin.persistence.artifact_search_schema import ensure_search_support
-
-        await connection.run_sync(ensure_search_support)
+        await _ensure_artifact_search_support(connection)
     if connection.dialect.name != "sqlite" and any(table.name == "pc_artifact_vector_spaces" for table in tables):
         from sqlalchemy import select
 
@@ -89,6 +88,33 @@ async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /)
                 for index in declaration.indexes:
                     await register_definition(connection, row["family"], row["schema_version"], index)
         await connection.run_sync(provision_native_spaces)
+
+
+async def _ensure_artifact_search_support(connection: AsyncConnection) -> None:
+    from powercontext.builtin.persistence.artifact_search_schema import ensure_search_support
+
+    delays = (0.1, 0.2, 0.4, 0.8, 1.6)
+    for attempt in range(len(delays) + 1):
+        try:
+            await connection.run_sync(ensure_search_support)
+        except DBAPIError as error:
+            # OceanBase can reject index creation with a transient DDL lock.
+            # Recheck this derived index without replaying table/business writes
+            # or ending the caller's transaction, as for Topic Memory FTS.
+            if (
+                connection.dialect.name != "mysql"
+                or mysql_error_code(error) != 1205
+                or error.statement
+                != (
+                    "CREATE FULLTEXT INDEX ix_pc_artifact_search_fts "
+                    "ON pc_artifact_search_text (searchable_text) WITH PARSER SPACE"
+                )
+                or attempt == len(delays)
+            ):
+                raise
+            await asyncio.sleep(delays[attempt])
+        else:
+            return
 
 
 def _create_mysql_tables(connection: Connection, tables: Sequence[Table]) -> None:
