@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+# Source checkout first, so the script always exercises the working tree.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from syncrecall.service import Service  # noqa: E402

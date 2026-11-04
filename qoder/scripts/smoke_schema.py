@@ -1,4 +1,4 @@
-"""Smoke check: create the schema and read back its definition."""
+﻿"""Smoke check: create the schema and read back its definition."""
 
 import sys
 from pathlib import Path

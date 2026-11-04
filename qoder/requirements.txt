@@ -1,6 +1,10 @@
+# Runtime dependencies.
+# Install with:  pip install -r requirements.txt
 fastapi>=0.110
 uvicorn>=0.27
 pymysql>=1.1
+
 # Optional but recommended: real semantic embeddings on the local CPU.
 # Without it the app falls back to the deterministic hashing embedder.
-sentence-transformers>=2.7
+#   pip install -e ".[semantic]"
+# sentence-transformers>=2.7

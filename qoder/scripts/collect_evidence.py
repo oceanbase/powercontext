@@ -1,4 +1,4 @@
-"""Collect the evidence quoted in docs/技术使用记录.md.
+﻿"""Collect the evidence quoted in docs/技术使用记录.md.
 
 Writes docs/evidence/ with:
   explain-plan.txt          seekdb execution plan of the hybrid statement

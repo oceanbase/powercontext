@@ -1,4 +1,4 @@
-"""Print the seekdb execution plan of the hybrid statement.
+﻿"""Print the seekdb execution plan of the hybrid statement.
 
 The plan is the proof that the two branches really run inside the database:
 

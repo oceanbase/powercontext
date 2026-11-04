@@ -1,4 +1,4 @@
-"""Smoke check for the PowerContext memory layer (requires a running Server)."""
+﻿"""Smoke check for the PowerContext memory layer (requires a running Server)."""
 
 import io
 import sys

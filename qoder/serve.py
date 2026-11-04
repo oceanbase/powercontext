@@ -25,7 +25,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT / "src"))
+# Run directly from a source checkout: make ``src/`` importable.
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 
 from syncrecall.memory import PowerContextUnavailable  # noqa: E402
 from syncrecall.service import Service  # noqa: E402
