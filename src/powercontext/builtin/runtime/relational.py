@@ -1575,7 +1575,7 @@ class RelationalContexts:
         *,
         atomic_context: ArtifactSearchExecutionContext | None = None,
         window: tuple[int, int] | None = None,
-    ) -> "PreparedMemoryWindow | MemoryFlushResult":
+    ) -> PreparedMemoryWindow | MemoryFlushResult:
         """Prepare one Memory window's decisions without publishing it.
 
         ``window`` pins the logical input to persisted ``(after, through)`` boundaries
@@ -1862,7 +1862,7 @@ class _RelationalTriggers:
         limit: int,
         atomic_context: ArtifactSearchExecutionContext | None = None,
         window: tuple[int, int] | None = None,
-    ) -> "PreparedMemoryWindow | MemoryFlushResult":
+    ) -> PreparedMemoryWindow | MemoryFlushResult:
         """Prepare one window's decisions while holding the activation lock.
 
         The lock is released before the caller publishes, so the fenced Work

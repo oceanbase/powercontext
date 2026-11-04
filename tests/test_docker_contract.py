@@ -108,9 +108,7 @@ def test_distributed_compose_separates_roles_and_model_credentials() -> None:
         assert ("ANTHROPIC_API_KEY" in environment) is (role == "worker")
 
 
-_COMPOSE_VARIABLE = re.compile(
-    r"\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([-?])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
-)
+_COMPOSE_VARIABLE = re.compile(r"\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([-?])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def _compose_interpolate(text: str, environment: dict[str, str]) -> str:
@@ -159,7 +157,7 @@ def _run_compose_rendered_migrator(tmp_path: Path, environment: dict[str, str]) 
     )
     stub.chmod(0o755)
 
-    result = subprocess.run(  # noqa: S603 - fixed argument list, local stub binary.
+    result = subprocess.run(
         ["/bin/sh", "-ec", rendered],
         capture_output=True,
         text=True,
@@ -179,7 +177,7 @@ def test_compose_rendered_migrator_runs_with_the_default_backup_policy(tmp_path:
     # Every deployment variable is present; the shell bookkeeping variables are not host variables.
     arguments = _run_compose_rendered_migrator(
         tmp_path,
-        {"POWERCONTEXT_MIGRATION_STATE_DIR": "/tmp/migration-state"},
+        {"POWERCONTEXT_MIGRATION_STATE_DIR": str(tmp_path / "migration-state")},
     )
     assert arguments[:3] == ["server", "db-migrate", "apply"]
     assert arguments[arguments.index("--plan-id") + 1] == "plan-abc"
@@ -191,7 +189,7 @@ def test_compose_rendered_migrator_honors_the_skip_backup_policy(tmp_path: Path)
     arguments = _run_compose_rendered_migrator(
         tmp_path,
         {
-            "POWERCONTEXT_MIGRATION_STATE_DIR": "/tmp/migration-state",
+            "POWERCONTEXT_MIGRATION_STATE_DIR": str(tmp_path / "migration-state"),
             "POWERCONTEXT_MIGRATION_BACKUP_POLICY": "skip",
         },
     )

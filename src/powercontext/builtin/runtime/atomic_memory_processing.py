@@ -142,7 +142,7 @@ class PreparedMemoryWindow:
 
     def __init__(
         self,
-        processor: "AtomicMemorySourceWindowProcessor",
+        processor: AtomicMemorySourceWindowProcessor,
         *,
         scope_id: str,
         context: ArtifactSearchExecutionContext | None,
@@ -204,9 +204,7 @@ class PreparedMemoryWindow:
             "memory.commit",
             {
                 "powercontext.memory.commit.memory_changed": bool(writes),
-                "powercontext.memory.commit.artifact_revision_count": sum(
-                    write.draft is not None for write in writes
-                ),
+                "powercontext.memory.commit.artifact_revision_count": sum(write.draft is not None for write in writes),
             },
         ):
             # Every Atomic write uses journal -> heads. Source capture's journal
@@ -262,9 +260,7 @@ class PreparedMemoryWindow:
                     source_read_set = await processor.sources.preload(
                         connection,
                         scope_id,
-                        tuple(
-                            source for write in writes if write.draft is not None for source in write.draft.sources
-                        ),
+                        tuple(source for write in writes if write.draft is not None for source in write.draft.sources),
                         known=current_window,
                     )
                     results = await application.service.commit_window(
@@ -438,7 +434,7 @@ class AtomicMemorySourceWindowProcessor:
             else:
                 after, through = window
                 if state.sequence != after or through <= after:
-                    raise AtomicMemoryConflictError("The Source cursor moved before window preparation")
+                    raise AtomicMemoryConflictError("The Source cursor moved before window preparation")  # noqa: TRY003
                 # Express the persisted window as the trigger's own bounded signal:
                 # sequence=through with limit=through-after activates exactly this span.
                 high_watermark, limit = through, through - after
