@@ -14,28 +14,37 @@
  * limitations under the License.
  */
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[tokio::main]
 async fn main() {
     use powercontext_desktop::{
         diagnostics::{DiagnosticKind, LocalDiagnostics},
         error::SafeError,
     };
+    #[cfg(any(windows, target_os = "linux"))]
     use sha2::{Digest, Sha256};
-    // A copied probe is a synthetic CLI whose diagnostic protocol works without --version.
-    let probe = std::env::current_exe().unwrap();
-    if probe.file_name().and_then(|name| name.to_str()) == Some("powercontext.exe") {
-        if std::env::args().skip(1).collect::<Vec<_>>() == ["service", "status", "--json"] {
-            println!(
-                "{}",
-                serde_json::json!({"support":"supported","registration":"not_installed",
-                "definition":"unknown","manager_ownership":"unknown","manager":"unknown",
-                "server_liveness":"unknown"})
-            );
+    #[cfg(windows)]
+    {
+        // A copied probe is a synthetic CLI whose diagnostic protocol works without --version.
+        let probe = std::env::current_exe().unwrap();
+        let expected_name = if cfg!(windows) {
+            "powercontext.exe"
         } else {
-            std::process::exit(1);
+            "powercontext"
+        };
+        if probe.file_name().and_then(|name| name.to_str()) == Some(expected_name) {
+            if std::env::args().skip(1).collect::<Vec<_>>() == ["service", "status", "--json"] {
+                println!(
+                    "{}",
+                    serde_json::json!({"support":"supported","registration":"not_installed",
+                    "definition":"unknown","manager_ownership":"unknown","manager":"unknown",
+                    "server_liveness":"unknown"})
+                );
+            } else {
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
     }
     let path = std::path::PathBuf::from(
         std::env::args_os()
@@ -71,13 +80,70 @@ async fn main() {
         .run(DiagnosticKind::Integrations)
         .await
         .expect("real integrations projection");
-    assert!(
-        service
+    #[cfg(windows)]
+    {
+        assert!(
+            service
+                .items
+                .iter()
+                .any(|v| v.field == "registration" && v.status == "not_installed")
+        );
+        assert_eq!(integrations.hosts.len(), 10);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let support = service
             .items
             .iter()
-            .any(|v| v.field == "registration" && v.status == "not_installed")
+            .find(|item| item.field == "support")
+            .expect("service support field");
+        assert!(matches!(
+            support.status.as_str(),
+            "supported" | "unsupported"
+        ));
+
+        let registration = service
+            .items
+            .iter()
+            .find(|item| item.field == "registration")
+            .expect("service registration field");
+        assert!(matches!(
+            registration.status.as_str(),
+            "installed" | "not_installed" | "unknown"
+        ));
+
+        let mut hosts: Vec<_> = integrations
+            .hosts
+            .iter()
+            .map(|host| host.host.as_str())
+            .collect();
+        hosts.sort_unstable();
+        assert_eq!(
+            hosts,
+            vec![
+                "claude-code",
+                "codex",
+                "dsh",
+                "hermes",
+                "kimi-code",
+                "openclaw",
+                "opencode",
+                "pi",
+                "workbuddy",
+                "zcode",
+            ]
+        );
+    }
+    let kimi = integrations
+        .hosts
+        .iter()
+        .find(|host| host.host == "kimi-code")
+        .expect("Kimi diagnostics host");
+    assert!(
+        kimi.checks.iter().any(|item| item.field == "profile"),
+        "configured Kimi diagnostics must preserve the profile check"
     );
-    assert_eq!(integrations.hosts.len(), 10);
     let mut legacy = registration.clone();
     legacy["version"] = "0.0.0".into();
     let legacy_path = invalid_directory.path().join("legacy.json");
@@ -89,30 +155,55 @@ async fn main() {
     assert_eq!(legacy_service.items, service.items);
     assert_eq!(legacy_service.cli_version, service.cli_version);
 
-    let synthetic_executable = invalid_directory.path().join("powercontext.exe");
-    std::fs::copy(probe, &synthetic_executable).unwrap();
-    let synthetic_registration = invalid_directory.path().join("unavailable-version.json");
-    std::fs::write(
-        &synthetic_registration,
-        serde_json::to_vec(&serde_json::json!({
-            "executable":synthetic_executable,
-            "sha256":format!("{:x}", Sha256::digest(std::fs::read(&synthetic_executable).unwrap())),
-            "source":"explicit_local_installation"
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    let synthetic_report = LocalDiagnostics::new(synthetic_registration)
-        .run(DiagnosticKind::Service)
-        .await
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        let synthetic_executable = invalid_directory.path().join(if cfg!(windows) {
+            "powercontext.exe"
+        } else {
+            "powercontext"
+        });
+        #[cfg(windows)]
+        {
+            let probe = std::env::current_exe().unwrap();
+            std::fs::copy(probe, &synthetic_executable).unwrap();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(
+                &synthetic_executable,
+                "#!/bin/sh\nif [ \"$1\" = service ] && [ \"$2\" = status ] && [ \"$3\" = --json ]; then\nprintf '%s\\n' '{\"support\":\"supported\",\"registration\":\"not_installed\",\"definition\":\"unknown\",\"manager_ownership\":\"unknown\",\"manager\":\"unknown\",\"server_liveness\":\"unknown\"}'\nelse\nexit 1\nfi\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(
+                &synthetic_executable,
+                std::fs::Permissions::from_mode(0o700),
+            )
+            .unwrap();
+        }
+        let synthetic_registration = invalid_directory.path().join("unavailable-version.json");
+        std::fs::write(
+            &synthetic_registration,
+            serde_json::to_vec(&serde_json::json!({
+                "executable":synthetic_executable,
+                "sha256":format!("{:x}", Sha256::digest(std::fs::read(&synthetic_executable).unwrap())),
+                "source":"explicit_local_installation"
+            }))
+            .unwrap(),
+        )
         .unwrap();
-    assert_eq!(synthetic_report.cli_version, None);
-    assert!(
-        synthetic_report
-            .items
-            .iter()
-            .any(|item| item.field == "registration" && item.status == "not_installed")
-    );
+        let synthetic_report = LocalDiagnostics::new(synthetic_registration)
+            .run(DiagnosticKind::Service)
+            .await
+            .unwrap();
+        assert_eq!(synthetic_report.cli_version, None);
+        assert!(
+            synthetic_report
+                .items
+                .iter()
+                .any(|item| item.field == "registration" && item.status == "not_installed")
+        );
+    }
     println!(
         "{}",
         serde_json::json!({"service":service,"integrations":integrations,
@@ -120,7 +211,7 @@ async fn main() {
                 "digestMismatchRejected":true,"unavailableVersionDoesNotBlock":true}})
     );
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn main() {
-    panic!("Windows qualification required");
+    panic!("Windows or Linux qualification required");
 }
