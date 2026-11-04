@@ -1,0 +1,7 @@
+$ docker exec seekdb-kb bash -lc mysql -h127.0.0.1 -P2881 -uroot -e 'SELECT VERSION();'
+(cwd: .)
+exit: 0
+
+VERSION()
+5.7.25-OceanBase seekdb-v1.4.0.0
+

@@ -1,0 +1,33 @@
+$ D:\develop\python\python.exe -m syncrecall health
+(cwd: D:\code\oceanbase\powercontext-clone\qoder)
+exit: 0
+
+{
+  "seekdb": {
+    "ok": true,
+    "version": "5.7.25-OceanBase seekdb-v1.4.0.0"
+  },
+  "powercontext": {
+    "ok": true,
+    "url": "http://127.0.0.1:18080",
+    "ready": {
+      "status": "ready",
+      "checks": {
+        "runtime": "ready",
+        "database": "ready",
+        "artifact_processing_supervisor": "disabled",
+        "access_mode": "disabled",
+        "authentication_provider": "disabled",
+        "access_provider": "disabled",
+        "access_resource_kinds": "server,scope,artifact",
+        "access_artifact_families": "atomic-memory:enabled,experience:enabled,handoff:enabled,memory:enabled,profile:enabled,prompt:enabled,skill:enabled"
+      }
+    }
+  },
+  "embedding": {
+    "provider": "hash-ngram",
+    "dim": 384
+  },
+  "ok": true
+}
+

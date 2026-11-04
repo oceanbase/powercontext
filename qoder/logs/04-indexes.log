@@ -1,0 +1,10 @@
+$ mysql -h127.0.0.1 -P2881 -uroot --protocol=TCP --default-character-set=utf8mb4 -e SHOW INDEX FROM syncrecall.note;
+(cwd: .)
+exit: 0
+
+Table	Non_unique	Key_name	Seq_in_index	Column_name	Collation	Cardinality	Sub_part	Packed	Null	Index_type	Comment	Index_comment	Visible	Expression
+note	0	PRIMARY	1	note_id	A	NULL	NULL	NULL		BTREE	available		YES	NULL
+note	1	ft_note	1	title	A	NULL	NULL	NULL		FULLTEXT	available		YES	NULL
+note	1	ft_note	2	body	A	NULL	NULL	NULL		FULLTEXT	available		YES	NULL
+note	1	vidx_note	1	embedding	A	NULL	NULL	NULL		VECTOR	available		YES	NULL
+

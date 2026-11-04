@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SyncRecall · 把读过的资料变成能被问出来的记忆</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">Sync<span>Recall</span></span>
+    <span class="tagline">seekdb 混合检索 × PowerContext 记忆</span>
+  </div>
+  <div class="status">
+    <span id="status-seekdb" class="chip">seekdb …</span>
+    <span id="status-pc" class="chip">PowerContext …</span>
+    <span id="status-embed" class="chip">embedding …</span>
+  </div>
+</header>
+
+<main>
+  <section class="panel recall-panel">
+    <h1>问一句，从自己的资料里找答案</h1>
+    <p class="hint">检索会先读 PowerContext 里记住的偏好（课程范围、关键词/向量权重、标签），再在 seekdb 里用<b>一条 SQL</b>完成全文 + 向量 + 结构化过滤的混合检索。</p>
+    <form id="recall-form">
+      <input id="question" name="question" placeholder="例如：Raft 怎么保证不丢已提交的日志" autocomplete="off" />
+      <button type="submit">检索</button>
+    </form>
+    <div id="examples" class="examples"></div>
+
+    <div id="recall-result" class="result hidden">
+      <div class="result-head">
+        <div>
+          <span class="label">命中的检索参数（来自 PowerContext）</span>
+          <div id="filter-view" class="filters"></div>
+        </div>
+        <div class="metrics">
+          <span id="recall-elapsed" class="metric"></span>
+          <span id="recall-count" class="metric"></span>
+        </div>
+      </div>
+      <ol id="hits" class="hits"></ol>
+
+      <details class="trace" open>
+        <summary>技术链路：每一步是哪套系统在干活</summary>
+        <ul id="memory-events" class="chain"></ul>
+        <label class="inline">
+          <input type="checkbox" id="show-sql" /> 显示 seekdb 实际执行的那条 SQL
+        </label>
+        <pre id="sql-view" class="sql hidden"></pre>
+      </details>
+    </div>
+  </section>
+
+  <aside class="sidebar">
+    <section class="panel">
+      <h2>记住我</h2>
+      <p class="hint small">这里的设置写进 PowerContext，下次打开或换一台设备都还在。</p>
+      <form id="profile-form">
+        <label>检索范围（课程）</label>
+        <div id="course-checks" class="checks"></div>
+
+        <label>来源类型</label>
+        <div id="type-checks" class="checks"></div>
+
+        <label for="tag">标签过滤</label>
+        <input id="tag" name="tag" placeholder="例如 Raft（留空=不过滤）" />
+
+        <label>关键词权重 <output id="kw-out">0.6</output></label>
+        <input id="kw" type="range" min="0" max="1" step="0.05" value="0.6" />
+        <label>向量权重 <output id="vw-out">0.4</output></label>
+        <input id="vw" type="range" min="0" max="1" step="0.05" value="0.4" />
+
+        <label for="topk">返回条数 <output id="topk-out">8</output></label>
+        <input id="topk" type="range" min="1" max="20" step="1" value="8" />
+
+        <label for="focus">当前聚焦</label>
+        <input id="focus" name="focus" placeholder="例如 分布式系统期末复习" />
+
+        <div class="row">
+          <button type="submit">保存到 PowerContext</button>
+          <button type="button" id="focus-btn" class="ghost">只更新聚焦</button>
+        </div>
+      </form>
+      <div id="profile-state" class="memory-state"></div>
+    </section>
+
+    <section class="panel">
+      <h2>复习队列</h2>
+      <p class="hint small">题目由笔记生成、排期存在 seekdb；你答错的点会写回 PowerContext，下一轮优先出现。</p>
+      <div class="row">
+        <select id="review-course"></select>
+        <button type="button" id="review-btn" class="ghost">刷新</button>
+      </div>
+      <div id="review-meta" class="memory-state"></div>
+      <div id="cards" class="cards"></div>
+    </section>
+  </aside>
+</main>
+
+<section class="panel wide">
+  <h2>最近发生的事（seekdb 事件日志）</h2>
+  <p class="hint small">每条检索、评分、记忆写入都落在 seekdb 的 <code>event_log</code> 表里，可用来核对技术是否真的参与了流程。</p>
+  <table id="events-table">
+    <thead><tr><th>时间</th><th>动作</th><th>用户</th><th>耗时</th><th>细节</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<footer>
+  <span>SyncRecall · Qoder × OceanBase 2026 生态赛道作品</span>
+  <span>数据全部在本机：seekdb 容器 + PowerContext Server</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

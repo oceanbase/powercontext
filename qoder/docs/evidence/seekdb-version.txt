@@ -1,0 +1,20 @@
+seekdb version: 5.7.25-OceanBase seekdb-v1.4.0.0
+index PRIMARY: column=note_id type=None
+index ft_note: column=title type=None
+index ft_note: column=body type=None
+index vidx_note: column=embedding type=None
+
+CREATE TABLE `note` (
+  `note_id` varchar(64) NOT NULL,
+  `source_type` varchar(32) NOT NULL,
+  `course` varchar(128) NOT NULL DEFAULT '',
+  `topic` varchar(128) NOT NULL DEFAULT '',
+  `tags` varchar(512) NOT NULL DEFAULT '',
+  `title` varchar(512) NOT NULL,
+  `body` text NOT NULL,
+  `embedding` VECTOR(384) NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  PRIMARY KEY (`note_id`),
+  FULLTEXT KEY `ft_note` (`title`, `body`) WITH PARSER ik PARSER_PROPERTIES=(ik_mode="smart") BLOCK_SIZE 16384,
+  VECTOR KEY `vidx_note` (`embedding`) WITH (DISTANCE=COSINE, TYPE=HNSW, LIB=VSAG, M=16, EF_CONSTRUCTION=200, EF_SEARCH=64) BLOCK_SIZE 16384
+) ORGANIZATION INDEX DEFAULT CHARSET = utf8mb4 ROW_FORMAT = DYNAMIC COMPRESSION = 'zstd_1.3.8' BLOCK_SIZE = 16384 TABLET_SIZE = 134217728 PCTFREE = 0

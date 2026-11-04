@@ -1,0 +1,202 @@
+{
+  "user": {
+    "display_name": "林知远",
+    "student_id": "demo-user",
+    "term": "2026 秋",
+    "goal": "两周内把分布式系统期末复习到能独立讲清楚 Raft、Paxos 和 2PC 的差别，同时完成数据库课程大作业"
+  },
+  "courses": ["分布式系统", "数据库系统", "软件工程"],
+  "papers": [
+    {
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "title": "In Search of an Understandable Consensus Algorithm (Raft)",
+      "authors": "Diego Ongaro, John Ousterhout",
+      "venue": "USENIX ATC 2014",
+      "url": "https://raft.github.io/raft.pdf",
+      "abstract": "Raft is a consensus algorithm for managing a replicated log. It separates the problem into leader election, log replication and safety, and unlike Paxos it is designed to be easier to understand: the paper reports a user study where students scored better and described Raft as easier to implement."
+    },
+    {
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "title": "Paxos Made Simple",
+      "authors": "Leslie Lamport",
+      "venue": "ACM SIGACT News 2001",
+      "url": "https://lamport.azurewebsites.net/pubs/paxos-simple.pdf",
+      "abstract": "A short description of the Paxos consensus algorithm in plain English. Phase 1 asks acceptors to promise not to accept lower-numbered proposals; phase 2 asks them to accept a value. A value is chosen once a majority accepts it, and any later proposer is forced to re-propose that value."
+    },
+    {
+      "course": "分布式系统",
+      "topic": "事务",
+      "title": "Concurrency Control in Distributed Database Systems",
+      "authors": "Philip A. Bernstein, Nathan Goodman",
+      "venue": "ACM Computing Surveys 1981",
+      "url": "https://dl.acm.org/doi/10.1145/356842.356846",
+      "abstract": "Surveys concurrency control for distributed databases, including two-phase locking and timestamp ordering, and shows how the serializability theorem is used to argue correctness of each protocol."
+    },
+    {
+      "course": "数据库系统",
+      "topic": "存储引擎",
+      "title": "The Bw-Tree: A B-tree for New Hardware Platforms",
+      "authors": "Justin Levandoski, David Lomet, Sudipta Sengupta",
+      "venue": "ICDE 2013",
+      "url": "https://www.microsoft.com/en-us/research/publication/the-bw-tree-a-b-tree-for-new-hardware-platforms/",
+      "abstract": "The Bw-Tree replaces in-place page updates with delta records and an in-memory mapping table, which removes the cache line flush on every update. It is the index behind Microsoft Hekaton's memory-optimized tables."
+    }
+  ],
+  "notes": [
+    {
+      "id": "dist-raft-election",
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "source_type": "note",
+      "tags": ["Raft", "选举", "任期"],
+      "title": "Raft 领导者选举与任期",
+      "body": "Raft 的每个节点处于 follower、candidate、leader 三种状态之一。follower 在 election timeout 内没有收到心跳就转成 candidate，term 加一并向所有节点请求投票。投票规则是每个 term 最多投一票，且只投给日志至少和自己一样新的 candidate：先比较最后一条日志的 term，term 相同再比较长度。拿到多数票就赢得选举。随机化 election timeout 是为了让分裂选票很快收敛，避免无限平票。leader 通过追加条目和发送心跳维持权威，如果 follower 发现 leader 的 term 更小会拒绝并携带自己的 term，leader 看到更大的 term 就主动退回 follower。这条规则保证任意时刻每个 term 至多一个 leader。"
+    },
+    {
+      "id": "dist-raft-replication",
+      "course": "分布式系统",
+      "topic": "日志复制",
+      "source_type": "note",
+      "tags": ["Raft", "日志复制", "提交"],
+      "title": "Raft 日志复制与提交规则",
+      "body": "leader 用 nextIndex 和 matchIndex 两个游标推进复制。nextIndex 表示下一个要发给某个 follower 的条目位置，初始是 leader 日志长度加一；匹配失败时 nextIndex 回退一格重试，成功后 matchIndex 更新为已确认的位置。一个条目只有在被多数节点复制之后才算 committed：leader 记录每条目在自己的 term 内达到多数复制的最高位置，提交位置左移，然后把这个提交位置随下一次心跳广播出去。前面 term 的条目只能随当前 term 的条目间接提交，这是为了满足 leader 完整性，即已提交的条目一定出现在后续所有 leader 的日志里。"
+    },
+    {
+      "id": "dist-raft-论文对比",
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "source_type": "note",
+      "tags": ["Raft", "Paxos", "论文"],
+      "title": "论文精读：Raft 与 Paxos 到底是什么关系",
+      "body": "Ongaro 的论文明确说 Raft 和 Paxos 在等价性上属于同一类算法，差别在于可理解性。Paxos 是把一致性问题抽象成“决定一个值”，multi-Paxos 才扩展成日志复制，而 Raft 一上来就把日志复制、leader 选举、成员变更塞进一套规则里。但 Raft 也引入了 Paxos 没有的约束，比如日志只能从 leader 流向 follower，选 leader 必须选日志最新的节点，代价是选举可能迟迟选不出来而不是做出错误决定。论文的用户研究里，43 名学生里 Raft 的平均理解分比 Paxos 高不少，实验部分的结论是可理解性确实能降低实现出错的概率。"
+    },
+    {
+      "id": "dist-paxos-phases",
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "source_type": "note",
+      "tags": ["Paxos", "两阶段"],
+      "title": "Paxos 两个阶段",
+      "body": "Paxos 有 proposer、acceptor、learner 三种角色，一个节点可以同时担任多个角色。phase 1 是 prepare，proposer 选一个提案编号 n 发给多数 acceptor，acceptor 如果没承诺过更大的编号就承诺不再接受小于 n 的提案，并返回它已经接受过的最大编号提案。phase 2 是 accept，proposer 如果收到多数 promise，就用 phase 1 返回的那个值做提案发出去，没有返回值就用自己的值；acceptor 收到 accept 请求后接受该提案。一个值被多数 acceptor 接受就是 chosen。learners 通过 accept 响应知道自己需要学习的最大提案。活锁问题在于两个 proposer 交替抬高编号，解决办法是选一个稳定 leader 做 proposer，也就是 multi-Paxos。"
+    },
+    {
+      "id": "dist-2pc",
+      "course": "分布式系统",
+      "topic": "事务",
+      "source_type": "note",
+      "tags": ["2PC", "事务", "阻塞"],
+      "title": "两阶段提交的阻塞点",
+      "body": "两阶段提交有两个阶段：prepare 阶段协调者询问所有参与者是否能提交，参与者写 undo/redo 日志并回答 yes 或 no；commit 阶段协调者根据所有回答决定 commit 或 abort，参与者按决定执行。参与者回答 yes 之后就处在不确定状态，必须等协调者的决定，如果协调者在发出决定之前崩溃，参与者会一直持锁阻塞，这就是 2PC 的阻塞问题。3PC 在 prepare 和 commit 之间插入 precommit，并把超时机制加进参与者，缓解阻塞，但在网络分区下依然可能出现不一致，所以工业界更多用 Raft 复制协调者日志来避免单点，例如 TiKV 的做法是每个 region 内部 Raft，跨 region 事务用 Percolator 两阶段提交。"
+    },
+    {
+      "id": "dist-一致性哈希",
+      "course": "分布式系统",
+      "topic": "分区",
+      "source_type": "note",
+      "tags": ["一致性哈希", "虚拟节点"],
+      "title": "一致性哈希与虚拟节点",
+      "body": "一致性哈希把节点和键都映射到 2^32 的环上，键顺时针找到的第一个节点就是归属节点。节点增删只影响环上相邻的一段，平均只有 1/N 的键需要迁移。原始方案的问题是节点少时分布不均，解决办法是每个物理节点虚拟出很多虚拟节点散落到环上，虚拟节点越多方差越小。一致性哈希广泛用于缓存和分片中间件，比如 Redis Cluster 用的是哈希槽而不是一致性哈希，但目标一样：扩容时尽量少搬数据。"
+    },
+    {
+      "id": "db-mvcc",
+      "course": "数据库系统",
+      "topic": "事务隔离",
+      "source_type": "note",
+      "tags": ["MVCC", "隔离级别"],
+      "title": "MVCC 与四种隔离级别",
+      "body": "MVCC 通过给每行保存版本号让读不阻塞写、写不阻塞读。InnoDB 的做法是每行隐藏两个字段：事务 id（当前版本由哪个事务产生）和回滚指针（指向 undo log 里的旧版本），读的时候通过 Read View 判断哪个版本可见。Read view 的关键是活跃事务列表 m_ids 和创建时刻的 up_limit_id、low_limit_id。RC 隔离级别每个语句新建 Read View，所以能读到别人刚提交的数据；RR 只在第一个语句时建 Read View，因此可重复读。MySQL InnoDB 的 RR 通过间隙锁在部分场景下避免了幻读。快照读和当前读的区别在于快照读走的是 Read View，当前读（select for update、update、insert）读最新数据并加锁。"
+    },
+    {
+      "id": "db-bplus-tree",
+      "course": "数据库系统",
+      "topic": "索引",
+      "source_type": "note",
+      "tags": ["B+树", "索引", "页分裂"],
+      "title": "B+ 树索引与页分裂",
+      "body": "B+ 树把所有数据放在叶子节点、内部节点只存键和指针，叶子之间用链表串起来，所以既能做二分查找也能做范围扫描。InnoDB 的页大小默认 16KB，非叶子节点每个指针加键约 14 字节，一层能放一千多个键，所以三层 B+ 树大概能撑两千万行。随机主键插入会让 B+ 树频繁页分裂并导致碎片，所以推荐自增主键或有序 uuid。聚簇索引叶子节点直接存整行数据，二级索引叶子节点存的是主键值，用二级索引查非覆盖列要先查二级索引再回表，这就是覆盖索引能减少随机 IO 的原因。"
+    },
+    {
+      "id": "db-redo-undo",
+      "course": "数据库系统",
+      "topic": "崩溃恢复",
+      "source_type": "note",
+      "tags": ["redo log", "undo log", "崩溃恢复"],
+      "title": "redo log 与 undo log 的分工",
+      "body": "redo log 是物理逻辑日志，记录的是页级别的修改，用来保证持久性。InnoDB 使用 WAL，先顺序写 redo 再异步刷脏页，write pos 与 checkpoint 之间的环形缓冲区满了就触发刷脏页。undo log 记录的是逻辑反向操作，用来回滚事务和支撑 MVCC 快照读。崩溃恢复时，先重放 redo 恢复已提交的数据，再用 undo 回滚未提交的事务，顺序是 redo 后 undo。binlog 是 server 层日志，记录逻辑 SQL，用于主从复制和基于时间点的恢复。两阶段提交是为了保证 redo 和 binlog 一致：先写 redo 并标记 prepare，写 binlog，再写 redo 并标记 commit，如果崩溃发生在中间，用 binlog 是否完整来决定回滚还是提交。"
+    },
+    {
+      "id": "db-查询优化",
+      "course": "数据库系统",
+      "topic": "查询优化",
+      "source_type": "note",
+      "tags": ["执行计划", "索引下推", "回表"],
+      "title": "执行计划怎么看",
+      "body": "explain 的 type 列从好到坏依次是 system、const、eq_ref、ref、range、index、all。key 列是真正用到的索引，rows 是预估扫描行数，filtered 是过滤后剩余比例，两者相乘决定效率。extra 里出现 using index 表示覆盖索引，using index condition 表示索引下推，using filesort 和 using temporary 说明排序或临时表在内存里做，需要关注。优化顺序一般是先加合适的联合索引，让最左前缀命中，再用覆盖索引消除回表，最后才考虑改写 SQL。慢查询日志配合 performance_schema 可以定位高频且有问题的语句。"
+    },
+    {
+      "id": "db-论文bwtree",
+      "course": "数据库系统",
+      "topic": "存储引擎",
+      "source_type": "note",
+      "tags": ["Bw-tree", "论文", "无锁"],
+      "title": "论文精读：Bw-Tree 为什么放弃原地更新",
+      "body": "Bw-Tree 的核心思想是把对页的原地更新改成追加 delta record 的写时复制，再用一个无锁的 mapping table 从逻辑页 id 映射到物理地址。好处有三个：第一，更新只需要 CAS 修改 mapping table，不需要 cache line flush，适合 NVM 和内存数据库；第二，可以在 delta record 上做前缀压缩，减小节点体积；第三，可以把多个 delta 合并成完整页来减少链长。代价是读路径必须先解析 delta 链，所以作者提出了整合成一层的办法。它和 B+ 树的区别在于 B+ 树通过行锁和 latch crabbing 保证并发，Bw-Tree 用的是乐观并发控制加重试。"
+    },
+    {
+      "id": "db-论文2pc",
+      "course": "分布式系统",
+      "topic": "事务",
+      "source_type": "note",
+      "tags": ["2PC", "论文", "Percolator"],
+      "title": "论文精读：Percolator 如何在 TiKV 上做跨行事务",
+      "body": "Percolator 论文的出发表是 Google 需要在 Bigtable 这种只支持单行事务的存储上实现跨行快照隔离。它的做法是每条数据额外带三个列：lock、write、data，并依赖一个全局时间戳分配器。事务开始时拿启动时间戳，先在 data 列写值，再在一个主锁上写 lock 列并记录主锁位置，这一步成功就代表事务能否提交已经确定，然后提交主锁再清理其它锁。读的时候查 write 列找小于读时间戳的最新已提交版本。Percolator 本质上是优化过的两阶段提交：把决策点和主锁绑定，并用后台清理脚本来处理崩溃残留的锁，所以不会永久阻塞，但存在读取需要等待清理的风险。"
+    },
+    {
+      "id": "sw-testing",
+      "course": "软件工程",
+      "topic": "测试",
+      "source_type": "note",
+      "tags": ["单元测试", "覆盖率"],
+      "title": "单元测试与覆盖率的边界",
+      "body": "覆盖率衡量的是代码被执行过，而不是行为被验证过。行覆盖率高但断言很弱的测试依然拦不住缺陷。更有价值的是针对边界条件的断言：空输入、超长输入、并发竞争、外部依赖超时。分层测试策略是单元测试测纯逻辑、集成测试测数据库和消息队列、端到端测用户路径。测试应该能快速失败，所以要把随机性和时间隔离出去，让测试可重复。"
+    },
+    {
+      "id": "sw-code-review",
+      "course": "软件工程",
+      "topic": "协作",
+      "source_type": "note",
+      "tags": ["code review", "设计文档"],
+      "title": "设计文档与代码评审要点",
+      "body": "设计文档的价值在于把约束提前写清楚：目标、非目标、备选方案与取舍、风险与回滚。评审代码时优先看接口契约和数据竞争，再看错误处理和日志，最后才纠结命名风格。一个好的提交应该只做一件事，方便回滚和二分定位。评审意见要给出可执行的修改建议，而不是只说不好。"
+    },
+    {
+      "id": "chat-组会纪要",
+      "course": "分布式系统",
+      "topic": "课程作业",
+      "source_type": "chat",
+      "tags": ["组会", "分工", "答辩"],
+      "title": "组会纪要：分布式课程设计分工",
+      "body": "周五组会决定课程设计选 Raft 风格的最小键值存储。分工：李明负责日志模块和持久化，王芳负责选举和成员变更，张磊负责网络层和压测脚本，林知远负责整合和答辩 PPT。里程碑：下周三前完成选举单测，下周五前跑通三节点集群，答辩前一周做故障注入测试。老师说评分重点是能不能说清楚安全性论证，所以答辩要专门讲 leader 完整性和选举限制为什么能保证不丢已提交的日志。"
+    },
+    {
+      "id": "chat-复习讨论",
+      "course": "数据库系统",
+      "topic": "复习",
+      "source_type": "chat",
+      "tags": ["复习", "答疑", "MVCC"],
+      "title": "答疑记录：快照读与间隙锁",
+      "body": "同学问为什么 InnoDB 的可重复读（RR）下执行 update 之后 select 能看到别人的修改。回答是 update 属于当前读，它读的是最新提交版本并且加锁，而普通 select 是快照读，走的是第一次查询时创建的 Read View，所以两者看到的数据不一样。这并不违反可重复读，因为 RR 保证的是同一个快照读在事务内一致。间隙锁加在索引区间上，用来防止其它事务往区间里插入新行，因此能防住幻读，但只对索引列生效，没有索引时会退化成锁全表。"
+    },
+    {
+      "id": "meeting-周报",
+      "course": "软件工程",
+      "topic": "周报",
+      "source_type": "meeting",
+      "tags": ["周报", "进展"],
+      "title": "本周工作周报草稿（第 6 周）",
+      "body": "本周完成：1）分布式课程设计确定使用 Raft 风格键值存储，完成选举模块初版；2）数据库实验二完成 B+ 树索引的构建，对比了有索引和无索引的查询耗时，从 1.2 秒降到 8 毫秒；3）精读 Raft 和 Paxos 两篇论文并整理了对比笔记。下周计划：完成日志复制和持久化，准备组会分享。风险：课程设计答辩和数据库期末考试在同一周，时间比较紧。"
+    }
+  ]
+}

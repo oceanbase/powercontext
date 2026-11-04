@@ -1,0 +1,71 @@
+===========================================================================================
+|ID|OPERATOR                                             |NAME      |EST.ROWS|EST.TIME(us)|
+-------------------------------------------------------------------------------------------
+|0 |TOP-N SORT                                           |          |4       |81          |
+|1 |└─SUBPLAN SCAN                                       |ranked    |4       |77          |
+|2 |  └─WINDOW FUNCTION                                  |          |4       |76          |
+|3 |    └─SORT                                           |          |4       |70          |
+|4 |      └─WINDOW FUNCTION                              |          |4       |66          |
+|5 |        └─SORT                                       |          |4       |60          |
+|6 |          └─SUBPLAN SCAN                             |candidates|4       |56          |
+|7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |4       |56          |
+===========================================================================================
+Outputs & filters:
+-------------------------------------
+  0 - output([ranked.note_id], [ranked.title], [ranked.course], [ranked.topic], [ranked.source_type], [ranked.tags], [substr(ranked.body, 1, 420)], [ranked.fts_score],
+       [ranked.vec_score], [ROUND(cast(0.7, DECIMAL(2, 1)) / cast(60, DECIMAL(4, 0)) + coalesce(cast(ranked.fts_rank, DECIMAL(20, 0)), cast(61, DECIMAL(20, 0))),
+       6) + ROUND(cast(0.3, DECIMAL(2, 1)) / cast(60, DECIMAL(4, 0)) + coalesce(cast(ranked.vec_rank, DECIMAL(20, 0)), cast(61, DECIMAL(20, 0))), 6)]), filter(nil), rowset=16
+      sort_keys([ROUND(cast(0.7, DECIMAL(2, 1)) / cast(60, DECIMAL(4, 0)) + coalesce(cast(ranked.fts_rank, DECIMAL(20, 0)), cast(61, DECIMAL(20, 0))), 6) 
+      + ROUND(cast(0.3, DECIMAL(2, 1)) / cast(60, DECIMAL(4, 0)) + coalesce(cast(ranked.vec_rank, DECIMAL(20, 0)), cast(61, DECIMAL(20, 0))), 6), DESC], [ranked.title,
+       ASC]), topn(6)
+  1 - output([ranked.fts_score], [ranked.vec_score], [ranked.note_id], [ranked.title], [ranked.course], [ranked.topic], [ranked.source_type], [ranked.tags],
+       [ranked.body], [ranked.fts_rank], [ranked.vec_rank]), filter([ranked.fts_score IS NOT NULL AND ranked.fts_score > cast(0, DOUBLE(-1, -1)) OR ranked.vec_score 
+      IS NOT NULL]), rowset=16
+      access([ranked.fts_score], [ranked.vec_score], [ranked.note_id], [ranked.title], [ranked.course], [ranked.topic], [ranked.source_type], [ranked.tags],
+       [ranked.body], [ranked.fts_rank], [ranked.vec_rank])
+  2 - output([candidates.note_id], [candidates.title], [candidates.course], [candidates.topic], [candidates.source_type], [candidates.tags], [candidates.body],
+       [candidates.fts_score], [candidates.vec_score], [T_WIN_FUN_RANK()], [T_WIN_FUN_RANK()]), filter(nil), rowset=16
+      win_expr(T_WIN_FUN_RANK()), partition_by([candidates.vec_score IS NULL]), order_by([candidates.vec_score, DESC]), window_type(RANGE), upper(UNBOUNDED 
+      PRECEDING), lower(UNBOUNDED FOLLOWING)
+  3 - output([candidates.note_id], [candidates.title], [candidates.course], [candidates.topic], [candidates.source_type], [candidates.tags], [candidates.body],
+       [candidates.fts_score], [candidates.vec_score], [T_WIN_FUN_RANK()], [candidates.vec_score IS NULL]), filter(nil), rowset=16
+      sort_keys([candidates.vec_score IS NULL, ASC], [candidates.vec_score, DESC])
+  4 - output([candidates.note_id], [candidates.title], [candidates.course], [candidates.topic], [candidates.source_type], [candidates.tags], [candidates.body],
+       [candidates.fts_score], [candidates.vec_score], [T_WIN_FUN_RANK()], [candidates.vec_score IS NULL]), filter(nil), rowset=16
+      win_expr(T_WIN_FUN_RANK()), partition_by([candidates.fts_score IS NULL]), order_by([candidates.fts_score, DESC]), window_type(RANGE), upper(UNBOUNDED 
+      PRECEDING), lower(UNBOUNDED FOLLOWING)
+  5 - output([candidates.note_id], [candidates.title], [candidates.course], [candidates.topic], [candidates.source_type], [candidates.tags], [candidates.body],
+       [candidates.fts_score], [candidates.vec_score], [candidates.fts_score IS NULL]), filter(nil), rowset=16
+      sort_keys([candidates.fts_score IS NULL, ASC], [candidates.fts_score, DESC])
+  6 - output([candidates.note_id], [candidates.title], [candidates.course], [candidates.topic], [candidates.source_type], [candidates.tags], [candidates.body],
+       [candidates.fts_score], [candidates.vec_score], [candidates.fts_score IS NULL]), filter(nil), rowset=16
+      access([candidates.note_id], [candidates.title], [candidates.course], [candidates.topic], [candidates.source_type], [candidates.tags], [candidates.body],
+       [candidates.fts_score], [candidates.vec_score])
+  7 - output([note.note_id], [note.title], [note.course], [note.topic], [note.source_type], [note.tags], [note.body], [MATCH(note.title, note.body) AGAINST('Raft 
+      不丢已提交 不丢已 丢已提 已提交 日志')], [cast(1, DOUBLE(-1, -1)) - cosine_distance(note.embedding, cast('[0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,-0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.089803,0.000000,0.000000,0.089803,
+      0.000000,0.000000,0.000000,0.179605,-0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,-0.089803,0.000000,0.000000,-0.089803,0.000000,0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,-0.359211,0.000000,0.000000,0.000000,0.000000,0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,-0.179605,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,-0.269408,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.179605,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      -0.269408,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.269408,0.000000,0.000000,0.000000,0.179605,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,-0.179605,0.000000,-0.089803,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.179605,0.000000,0.000000,0.000000,0.000000,0.000000,0.089803,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,-0.089803,0.000000,0.000000,0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.269408,0.000000,0.000000,0.449013,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,-0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.089803,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,-0.089803,0.000000,
+      0.000000,0.179605,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,
+      0.000000,0.000000,0.000000,0.000000,0.000000,0.000000]', ARRAY(18, -1)))]), filter([note.source_type = 'note'], [note.course = '分布式系统']), rowset=16
+      access([note.note_id], [note.embedding], [note.course], [note.source_type], [note.title], [note.topic], [note.tags], [note.body]), partitions(p0)
+      is_index_back=true, is_global_index=false, filter_before_indexback[false,false], 
+      range_key([note.note_id]), range(MIN ; MAX)always true, has_functional_lookup=true

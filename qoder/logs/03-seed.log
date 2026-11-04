@@ -1,0 +1,11 @@
+$ D:\develop\python\python.exe -m syncrecall seed --reset
+(cwd: D:\code\oceanbase\powercontext-clone\qoder)
+exit: 0
+
+{
+  "notes": 21,
+  "cards": 60,
+  "papers": 4,
+  "embedder": "hash-ngram"
+}
+

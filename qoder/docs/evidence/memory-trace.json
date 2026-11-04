@@ -1,0 +1,158 @@
+{
+  "question": "Raft 怎么保证不丢已提交的日志",
+  "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+  "memory_events": [
+    {
+      "signal": "读取检索偏好",
+      "system": "PowerContext",
+      "api": "POST /v1/memory/search",
+      "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+      "result": {
+        "courses": [
+          "分布式系统"
+        ],
+        "source_types": [
+          "note"
+        ],
+        "keyword_weight": 0.7,
+        "vector_weight": 0.3,
+        "top_k": 6,
+        "tag": ""
+      },
+      "source": "powercontext"
+    },
+    {
+      "signal": "混合检索",
+      "system": "seekdb",
+      "api": "SQL: MATCH ... AGAINST + cosine_distance ... APPROXIMATE + RRF",
+      "filters": {
+        "courses": [
+          "分布式系统"
+        ],
+        "source_types": [
+          "note"
+        ],
+        "tag": ""
+      },
+      "weights": [
+        0.7,
+        0.3
+      ],
+      "hits": [
+        "dist-raft-replication",
+        "dist-raft-论文对比",
+        "dist-2pc",
+        "db-论文2pc",
+        "dist-paxos-phases",
+        "dist-raft-election"
+      ],
+      "elapsed_ms": 28
+    },
+    {
+      "signal": "写回会话交接",
+      "system": "PowerContext",
+      "api": "POST /v1/memory/remember",
+      "kind": "session",
+      "artifact_id": "art_1be22aebf5504776b32d5e8671690995",
+      "changed": true,
+      "text": "11-04 15:03 检索「Raft 怎么保证不丢已提交的日志」，最相关的是《Raft 日志复制与提交规则》（分布式系统），共 6 条命中。"
+    }
+  ],
+  "hits": [
+    {
+      "note_id": "dist-raft-replication",
+      "title": "Raft 日志复制与提交规则",
+      "course": "分布式系统",
+      "topic": "日志复制",
+      "source_type": "note",
+      "tags": [
+        "Raft",
+        "日志复制",
+        "提交"
+      ],
+      "excerpt": "leader 用 nextIndex 和 matchIndex 两个游标推进复制。nextIndex 表示下一个要发给某个 follower 的条目位置，初始是 leader 日志长度加一；匹配失败时 nextIndex 回退一格重试，成功后 matchIndex 更新为已确认的位置。一个条目只有在被多数节点复制之后才算 committed：leader 记录每条目在自己的 term 内达到多数复制的最高位置，提交位置左移，然后把这个提交位置随下一次心跳广播出去。前面 term 的条目只能随当前 term 的条目间接提交，这是为了满足 leader 完整性，即已提交的条目一定出现在后续所有 leader 的日志里。",
+      "fts_score": 0.833175,
+      "vec_score": 0.227678,
+      "score": 0.016393
+    },
+    {
+      "note_id": "dist-raft-论文对比",
+      "title": "论文精读：Raft 与 Paxos 到底是什么关系",
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "source_type": "note",
+      "tags": [
+        "Raft",
+        "Paxos",
+        "论文"
+      ],
+      "excerpt": "Ongaro 的论文明确说 Raft 和 Paxos 在等价性上属于同一类算法，差别在于可理解性。Paxos 是把一致性问题抽象成“决定一个值”，multi-Paxos 才扩展成日志复制，而 Raft 一上来就把日志复制、leader 选举、成员变更塞进一套规则里。但 Raft 也引入了 Paxos 没有的约束，比如日志只能从 leader 流向 follower，选 leader 必须选日志最新的节点，代价是选举可能迟迟选不出来而不是做出错误决定。论文的用户研究里，43 名学生里 Raft 的平均理解分比 Paxos 高不少，实验部分的结论是可理解性确实能降低实现出错的概率。",
+      "fts_score": 0.603489,
+      "vec_score": 0.127942,
+      "score": 0.016052
+    },
+    {
+      "note_id": "dist-2pc",
+      "title": "两阶段提交的阻塞点",
+      "course": "分布式系统",
+      "topic": "事务",
+      "source_type": "note",
+      "tags": [
+        "2PC",
+        "事务",
+        "阻塞"
+      ],
+      "excerpt": "两阶段提交有两个阶段：prepare 阶段协调者询问所有参与者是否能提交，参与者写 undo/redo 日志并回答 yes 或 no；commit 阶段协调者根据所有回答决定 commit 或 abort，参与者按决定执行。参与者回答 yes 之后就处在不确定状态，必须等协调者的决定，如果协调者在发出决定之前崩溃，参与者会一直持锁阻塞，这就是 2PC 的阻塞问题。3PC 在 prepare 和 commit 之间插入 precommit，并把超时机制加进参与者，缓解阻塞，但在网络分区下依然可能出现不一致，所以工业界更多用 Raft 复制协调者日志来避免单点，例如 TiKV 的做法是每个 region 内部 Raft，跨 region 事务用 Percolator 两阶段提交。",
+      "fts_score": 0.558024,
+      "vec_score": 0.097288,
+      "score": 0.015799
+    },
+    {
+      "note_id": "db-论文2pc",
+      "title": "论文精读：Percolator 如何在 TiKV 上做跨行事务",
+      "course": "分布式系统",
+      "topic": "事务",
+      "source_type": "note",
+      "tags": [
+        "2PC",
+        "论文",
+        "Percolator"
+      ],
+      "excerpt": "Percolator 论文的出发表是 Google 需要在 Bigtable 这种只支持单行事务的存储上实现跨行快照隔离。它的做法是每条数据额外带三个列：lock、write、data，并依赖一个全局时间戳分配器。事务开始时拿启动时间戳，先在 data 列写值，再在一个主锁上写 lock 列并记录主锁位置，这一步成功就代表事务能否提交已经确定，然后提交主锁再清理其它锁。读的时候查 write 列找小于读时间戳的最新已提交版本。Percolator 本质上是优化过的两阶段提交：把决策点和主锁绑定，并用后台清理脚本来处理崩溃残留的锁，所以不会永久阻塞，但存在读取需要等待清理的风险。",
+      "fts_score": 0.445396,
+      "vec_score": 0.055724,
+      "score": 0.015553
+    },
+    {
+      "note_id": "dist-paxos-phases",
+      "title": "Paxos 两个阶段",
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "source_type": "note",
+      "tags": [
+        "Paxos",
+        "两阶段"
+      ],
+      "excerpt": "Paxos 有 proposer、acceptor、learner 三种角色，一个节点可以同时担任多个角色。phase 1 是 prepare，proposer 选一个提案编号 n 发给多数 acceptor，acceptor 如果没承诺过更大的编号就承诺不再接受小于 n 的提案，并返回它已经接受过的最大编号提案。phase 2 是 accept，proposer 如果收到多数 promise，就用 phase 1 返回的那个值做提案发出去，没有返回值就用自己的值；acceptor 收到 accept 请求后接受该提案。一个值被多数 acceptor 接受就是 chosen。learners 通过 accept 响应知道自己需要学习的最大提案。活锁问题在于两个 proposer 交替抬高编号，解决办法是选一个稳定 leader 做 proposer，也就是 multi-Paxos。",
+      "fts_score": 0.0,
+      "vec_score": 0.137279,
+      "score": 0.015445
+    },
+    {
+      "note_id": "dist-raft-election",
+      "title": "Raft 领导者选举与任期",
+      "course": "分布式系统",
+      "topic": "共识算法",
+      "source_type": "note",
+      "tags": [
+        "Raft",
+        "选举",
+        "任期"
+      ],
+      "excerpt": "Raft 的每个节点处于 follower、candidate、leader 三种状态之一。follower 在 election timeout 内没有收到心跳就转成 candidate，term 加一并向所有节点请求投票。投票规则是每个 term 最多投一票，且只投给日志至少和自己一样新的 candidate：先比较最后一条日志的 term，term 相同再比较长度。拿到多数票就赢得选举。随机化 election timeout 是为了让分裂选票很快收敛，避免无限平票。leader 通过追加条目和发送心跳维持权威，如果 follower 发现 leader 的 term 更小会拒绝并携带自己的 term，leader 看到更大的 term 就主动退回 follower。这条规则保证任意时刻每个 term 至多一个 leader。",
+      "fts_score": 0.301188,
+      "vec_score": 0.039498,
+      "score": 0.015314
+    }
+  ]
+}

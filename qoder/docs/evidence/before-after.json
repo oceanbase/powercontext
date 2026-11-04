@@ -1,0 +1,165 @@
+{
+  "question": "Raft 怎么保证不丢已提交的日志",
+  "before": {
+    "profile": {
+      "courses": [],
+      "source_types": [],
+      "keyword_weight": 0.6,
+      "vector_weight": 0.4,
+      "top_k": 6,
+      "tag": ""
+    },
+    "source": "powercontext",
+    "hits": [
+      {
+        "note_id": "chat-组会纪要",
+        "title": "组会纪要：分布式课程设计分工",
+        "course": "分布式系统",
+        "score": 0.016288
+      },
+      {
+        "note_id": "dist-raft-replication",
+        "title": "Raft 日志复制与提交规则",
+        "course": "分布式系统",
+        "score": 0.016234
+      },
+      {
+        "note_id": "dist-raft-论文对比",
+        "title": "论文精读：Raft 与 Paxos 到底是什么关系",
+        "course": "分布式系统",
+        "score": 0.015625
+      },
+      {
+        "note_id": "dist-2pc",
+        "title": "两阶段提交的阻塞点",
+        "course": "分布式系统",
+        "score": 0.015292
+      },
+      {
+        "note_id": "db-redo-undo",
+        "title": "redo log 与 undo log 的分工",
+        "course": "数据库系统",
+        "score": 0.014805
+      },
+      {
+        "note_id": "db-论文2pc",
+        "title": "论文精读：Percolator 如何在 TiKV 上做跨行事务",
+        "course": "分布式系统",
+        "score": 0.014706
+      }
+    ]
+  },
+  "after": {
+    "profile": {
+      "courses": [
+        "分布式系统"
+      ],
+      "source_types": [
+        "note",
+        "paper"
+      ],
+      "keyword_weight": 0.7,
+      "vector_weight": 0.3,
+      "top_k": 6,
+      "tag": ""
+    },
+    "source": "powercontext",
+    "hits": [
+      {
+        "note_id": "dist-raft-replication",
+        "title": "Raft 日志复制与提交规则",
+        "course": "分布式系统",
+        "score": 0.016393
+      },
+      {
+        "note_id": "dist-raft-论文对比",
+        "title": "论文精读：Raft 与 Paxos 到底是什么关系",
+        "course": "分布式系统",
+        "score": 0.016052
+      },
+      {
+        "note_id": "dist-2pc",
+        "title": "两阶段提交的阻塞点",
+        "course": "分布式系统",
+        "score": 0.015799
+      },
+      {
+        "note_id": "db-论文2pc",
+        "title": "论文精读：Percolator 如何在 TiKV 上做跨行事务",
+        "course": "分布式系统",
+        "score": 0.015384
+      },
+      {
+        "note_id": "dist-paxos-phases",
+        "title": "Paxos 两个阶段",
+        "course": "分布式系统",
+        "score": 0.015287
+      },
+      {
+        "note_id": "paper-in-search-of-an-understandable-consensus",
+        "title": "In Search of an Understandable Consensus Algorithm (Raft)",
+        "course": "分布式系统",
+        "score": 0.015224
+      }
+    ]
+  },
+  "memory_events": [
+    {
+      "signal": "读取检索偏好",
+      "system": "PowerContext",
+      "api": "POST /v1/memory/search",
+      "scope_id": "scp_4k4da8x9y0cd199v7h132kjpsm",
+      "result": {
+        "courses": [
+          "分布式系统"
+        ],
+        "source_types": [
+          "note",
+          "paper"
+        ],
+        "keyword_weight": 0.7,
+        "vector_weight": 0.3,
+        "top_k": 6,
+        "tag": ""
+      },
+      "source": "powercontext"
+    },
+    {
+      "signal": "混合检索",
+      "system": "seekdb",
+      "api": "SQL: MATCH ... AGAINST + cosine_distance ... APPROXIMATE + RRF",
+      "filters": {
+        "courses": [
+          "分布式系统"
+        ],
+        "source_types": [
+          "note",
+          "paper"
+        ],
+        "tag": ""
+      },
+      "weights": [
+        0.7,
+        0.3
+      ],
+      "hits": [
+        "dist-raft-replication",
+        "dist-raft-论文对比",
+        "dist-2pc",
+        "db-论文2pc",
+        "dist-paxos-phases",
+        "paper-in-search-of-an-understandable-consensus"
+      ],
+      "elapsed_ms": 45
+    },
+    {
+      "signal": "写回会话交接",
+      "system": "PowerContext",
+      "api": "POST /v1/memory/remember",
+      "kind": "session",
+      "artifact_id": "art_9e536c0634e4482ea319eb17a1a8a91e",
+      "changed": true,
+      "text": "11-04 15:03 检索「Raft 怎么保证不丢已提交的日志」，最相关的是《Raft 日志复制与提交规则》（分布式系统），共 6 条命中。"
+    }
+  ]
+}

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SyncRecall · 用 seekdb 混合检索 + PowerContext 记忆解决「复习时找不到笔记」</title>
+<meta name="description" content="SyncRecall：把课程笔记、论文、群聊和会议纪要放进 seekdb 做混合检索，用 PowerContext 记住你的检索偏好和薄弱点，答错的自动变成下次复习题。" />
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #131922; --panel2: #1a2230; --line: #24303f;
+    --text: #e8edf3; --muted: #93a0b0; --accent: #4f8cff; --accent2: #25c2a0; --warn: #f0a34a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.75 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  header.hero { padding: 84px 0 56px; background:
+    radial-gradient(900px 420px at 15% -10%, #1c3050 0%, transparent 60%),
+    radial-gradient(700px 380px at 85% 0%, #10382f 0%, transparent 62%); }
+  .kicker { color: var(--accent2); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
+  h1 { font-size: 44px; line-height: 1.2; margin: 14px 0 16px; }
+  h1 span { color: var(--accent); }
+  .lede { font-size: 18px; color: #c3ccd8; max-width: 760px; }
+  .btns { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 600;
+    text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--panel2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  section { padding: 52px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 26px; margin: 0 0 8px; }
+  h3 { font-size: 17px; margin: 26px 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .grid { display: grid; gap: 16px; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; }
+  .card h3 { margin-top: 0; }
+  .num { display: inline-flex; width: 26px; height: 26px; border-radius: 8px; align-items: center;
+    justify-content: center; background: #14223a; color: #9cc0ff; font-size: 13px; font-weight: 700; margin-right: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  code { background: #0e141c; border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 13px; }
+  pre { background: #0a0f15; border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+    overflow: auto; font-size: 13px; line-height: 1.65; }
+  figure { margin: 22px 0 0; }
+  figure img { width: 100%; border: 1px solid var(--line); border-radius: 12px; display: block; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .chain { counter-reset: step; list-style: none; padding: 0; margin: 0; }
+  .chain li { position: relative; padding: 2px 0 18px 36px; }
+  .chain li::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: 0;
+    width: 24px; height: 24px; border-radius: 50%; background: #14223a; color: #9cc0ff;
+    font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .chain li::after { content: ""; position: absolute; left: 11px; top: 26px; bottom: 2px; width: 2px; background: var(--line); }
+  .chain li:last-child::after { display: none; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--muted); margin-right: 6px; }
+  .badge.pc { border-color: #1f5f50; color: var(--accent2); }
+  .badge.db { border-color: #24406b; color: #9cc0ff; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 8px; }
+  .metric { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 16px; text-align: center; }
+  .metric b { display: block; font-size: 24px; color: var(--accent); }
+  .metric span { color: var(--muted); font-size: 12.5px; }
+  footer { padding: 40px 0 60px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); }
+  @media (max-width: 860px) { .g3, .g2, .metrics { grid-template-columns: 1fr; } h1 { font-size: 32px; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">Qoder × OceanBase · 2026 生态赛道</div>
+    <h1>复习时找不到上学期的笔记？<br /><span>SyncRecall</span> 让读过的资料变成能被问出来的记忆</h1>
+    <p class="lede">
+      把课程笔记、论文、群聊答疑、会议纪要一起放进 <strong>seekdb</strong>，用一条 SQL 同时做全文与向量检索；
+      再用 <strong>PowerContext</strong> 记住你的检索偏好、当前聚焦和薄弱点——下一次开口，它已经知道你要找什么。
+    </p>
+    <div class="btns">
+      <a class="btn primary" href="#run">运行说明</a>
+      <a class="btn" href="#demo">看截图</a>
+      <a class="btn" href="https://github.com/yuexingjian/powercontext/tree/2026-competition-ecosystem/qoder">代码仓库</a>
+    </div>
+    <p class="sub" style="margin-top:20px">体验入口：本地 `http://127.0.0.1:8788/`（按下方步骤 5 分钟起好）</p>
+  </div>
+</header>
+
+<section id="problem">
+  <div class="wrap">
+    <h2>要解决的问题</h2>
+    <p class="sub">期末复习时最费时间的不是「学」，而是「找回上次学到哪、哪一段讲了这个」。</p>
+    <div class="grid g3">
+      <div class="card">
+        <h3>资料散在四个地方</h3>
+        <p>课件笔记在文档里、论文在 PDF 里、答疑在群里、分工在会议纪要里。关键词只对得上一半，换个说法就搜不到。</p>
+      </div>
+      <div class="card">
+        <h3>每次都要重新说一遍</h3>
+        <p>「只在分布式系统里找」「多看论文少看聊天记录」——这些偏好每次检索都要手工设置，下次打开又忘了。</p>
+      </div>
+      <div class="card">
+        <h3>答错的地方没有回声</h3>
+        <p>这次没搞懂的 Paxos 阶段，下次复习照旧从头开始，薄弱点从来不参与排期。</p>
+      </div>
+    </div>
+    <figure>
+      <img src="ui-home.png" alt="SyncRecall 主界面" />
+      <figcaption>主界面：左侧提问检索，右侧「记住我」的偏好与复习队列，底部是 seekdb 里的事件日志。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>核心功能</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3><span class="num">1</span>一条 SQL 的混合检索</h3>
+        <p>关键词分支走 <code>ik</code> 分词的全文索引，语义分支走 HNSW 向量索引，
+        课程 / 来源类型 / 标签这些结构化条件作为过滤一起下推到数据库，最后在库内用加权 RRF 融合。
+        应用层只发一条语句、只收一份排序结果。</p>
+      </div>
+      <div class="card">
+        <h3><span class="num">2</span>偏好记在 PowerContext</h3>
+        <p>「只看分布式系统」「关键词权重 0.7」「最近在看 Raft」这些都是记忆，写进 PowerContext 的 Scope。
+        下一次检索先读记忆，再决定过滤条件和融合权重。</p>
+      </div>
+      <div class="card">
+        <h3><span class="num">3</span>读过的资料自动变成复习题</h3>
+        <p>每条笔记切出 2–3 个回忆题，排期用 SM-2 存在 seekdb。到期和薄弱点优先，
+        答错的主题写回 PowerContext，下一轮自动往前排。</p>
+      </div>
+      <div class="card">
+        <h3><span class="num">4</span>每一步都能核对</h3>
+        <p>界面里可以直接展开「seekdb 实际执行的 SQL」和「PowerContext 读了什么、写了什么」；
+        所有检索、评分、记忆写入都落进 seekdb 的 <code>event_log</code> 表。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="wrap">
+    <h2>演示：记忆真的改变了检索结果</h2>
+    <p class="sub">同一个问题「Raft 怎么保证不丢已提交的日志」，在 PowerContext 记住新偏好之前与之后。</p>
+    <figure>
+      <img src="ui-recall-after-memory.png" alt="记忆生效后的检索结果" />
+      <figcaption>
+        记住「只在分布式系统 + note/paper 中检索、关键词权重 0.7」之后：命中范围被收窄到 Raft 相关笔记与 Raft 原始论文，
+        首位从组会纪要换成了《论文精读：Raft 与 Paxos 到底是什么关系》。
+      </figcaption>
+    </figure>
+    <div class="metrics">
+      <div class="metric"><b>21</b><span>条资料入库（笔记 / 论文 / 聊天 / 会议）</span></div>
+      <div class="metric"><b>60</b><span>道复习题自动生成</span></div>
+      <div class="metric"><b>~50 ms</b><span>seekdb 单条混合检索耗时</span></div>
+      <div class="metric"><b>1 条</b><span>SQL 同时用上全文索引与向量索引</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="tech">
+  <div class="wrap">
+    <h2>技术分工</h2>
+    <p class="sub">两套系统的职责界限清楚：一个负责「找到」，一个负责「记得」。</p>
+    <table>
+      <tr><th style="width:150px">组件</th><th>做什么</th><th>具体落点</th></tr>
+      <tr>
+        <td><span class="badge db">seekdb</span></td>
+        <td>资料检索 + 复习排期 + 审计日志</td>
+        <td><code>note</code>（<code>FULLTEXT ... WITH PARSER ik</code> + <code>VECTOR INDEX ... HNSW</code>）、
+        <code>review_card</code>（SM-2 的 <code>next_review_at</code>）、<code>event_log</code></td>
+      </tr>
+      <tr>
+        <td><span class="badge pc">PowerContext</span></td>
+        <td>跨会话记忆：检索偏好、当前聚焦、薄弱/掌握、会话交接</td>
+        <td>每用户一个 Scope；<code>kind</code> 取 <code>profile / focus / learning / session</code>；
+        每次检索前后各一次读写（<code>memory/search</code>、<code>memory/remember</code>）</td>
+      </tr>
+      <tr>
+        <td><span class="badge">本地嵌入</span></td>
+        <td>把问题和资料变成向量，不出本机</td>
+        <td>默认 <code>paraphrase-multilingual-MiniLM-L12-v2</code>（384 维）；没装依赖时退化为确定性 n-gram 哈希嵌入</td>
+      </tr>
+    </table>
+
+    <h3>一次检索的完整链路</h3>
+    <ol class="chain">
+      <li><b>读记忆</b>　PowerContext 返回该用户最新的检索偏好与当前聚焦。</li>
+      <li><b>生成向量</b>　本地模型把问题编码成 384 维向量。</li>
+      <li><b>一条 SQL</b>　seekdb 内完成：结构化过滤 → <code>MATCH ... AGAINST</code> 全文分支与
+        <code>ORDER BY cosine_distance(...) APPROXIMATE</code> 向量分支 → 加权 RRF 融合 → Top-N。</li>
+      <li><b>写回交接</b>　把本次「问了什么、命中了哪篇」写回 PowerContext，下一次会话接着来。</li>
+      <li><b>留痕</b>　seekdb 的 <code>event_log</code> 记下这次检索的 SQL 参数、权重、命中列表和耗时。</li>
+    </ol>
+
+    <h3>执行计划（seekdb 1.4.0 实测）</h3>
+<pre>|7 |└─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note|21|
+   + MATCH(note.title, note.body) AGAINST('Raft 不丢已提交 ...' IN NATURAL LANGUAGE MODE)
+   + cosine_distance(note.embedding, '[...]')  ORDER BY ... APPROXIMATE</pre>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <h2>运行说明（约 5 分钟）</h2>
+    <h3>1. 起 seekdb</h3>
+<pre>docker run -d --name seekdb-kb -p 2881:2881 -e MODE=mini \
+  oceanbase/seekdb:1.4.0-100000172026082615</pre>
+    <h3>2. 起 PowerContext Server</h3>
+<pre>pip install "powercontext[cli,server]==1.5.0"
+powercontext config init --language zh --output powercontext.env   # 存储选 seekdb
+powercontext server run --env-file powercontext.env                # 默认 127.0.0.1:18080</pre>
+    <h3>3. 起应用</h3>
+<pre>cd qoder
+pip install -r requirements.txt
+python -m syncrecall seed          # 建表 + 导入 21 条示例资料 + 60 道复习题
+python -m uvicorn serve:app --host 127.0.0.1 --port 8788</pre>
+    <h3>4. 打开</h3>
+    <p><code>http://127.0.0.1:8788/</code>：输入「Raft 怎么保证不丢已提交的日志」→ 看到命中与 SQL；
+    在右侧「记住我」改成只看分布式系统并保存 → 再问一次，结果范围随之收窄。</p>
+    <p class="sub">完整步骤、环境变量、验证样例见仓库里的 <code>qoder/README.md</code> 与 <code>qoder/docs/验证样例.md</code>。</p>
+  </div>
+</section>
+
+<section id="links">
+  <div class="wrap">
+    <h2>链接</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3>代码仓库</h3>
+        <p><a href="https://github.com/yuexingjian/powercontext/tree/2026-competition-ecosystem/qoder">powercontext @ 2026-competition-ecosystem / qoder</a></p>
+        <p class="sub">分支基于比赛分支，全部改动都在 <code>qoder/</code> 目录内。</p>
+      </div>
+      <div class="card">
+        <h3>材料</h3>
+        <p>运行说明、验证样例、技术使用记录、Qoder 开发记录都在仓库 <code>qoder/docs/</code> 下。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    SyncRecall · 使用 Qoder 开发，核心功能基于 seekdb 与 PowerContext ·
+    示例资料为虚构的学习场景数据，不含个人隐私。
+  </div>
+</footer>
+
+</body>
+</html>
