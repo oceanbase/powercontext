@@ -6,12 +6,15 @@
     "main"
   ],
   "permissions": [
+    "core:webview:allow-set-webview-zoom",
     "allow-foundation-info",
     "allow-local-diagnostics",
     "allow-remember-memory",
     "allow-search-memory",
     "allow-atomic-memory-entry",
     "allow-cancel-memory-reads",
+    "allow-get-stats",
+    "allow-cancel-stats-reads",
     "allow-desktop-state",
     "allow-save-profile",
     "allow-remove-profile",

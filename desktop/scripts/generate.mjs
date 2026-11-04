@@ -47,6 +47,7 @@ const wanted = [
   "remember_memory",
   "search_memory",
   "get_artifact_revision",
+  "get_stats",
 ];
 const operations = {};
 const operationFeatures = {};
