@@ -103,4 +103,8 @@ Credentials live only in server-side environment variables; they are never accep
 
 ## Tests
 
+`cargo test --locked -p pc-gateway-app --test gateway_behaviors` verifies the public proxy contract through a real gateway subprocess and loopback HTTP peers: Chat fields and the developer role, Responses text input, tool continuations, streamed arguments and usage, error statuses, and the exact bytes submitted to both check phases. See the [fixture notes](crates/pc-gateway-app/tests/fixtures/republic/README.md) for sources and licenses. Core verdicts and provider responses are scripted; real Core and provider compatibility require separate acceptance checks.
+
+`make gateway-tck` runs pinned upstream SDK compatibility and Open Responses compliance tests against a direct baseline and the actual Rust gateway. It requires Node/npm, Go 1.26+, Python 3.11+, and network access to fetch pinned test sources and dependencies. See [protocol test coverage](tck/README.md) for the selected suites and execution boundary.
+
 `cargo test` — 27 tests covering the failure-semantics table (gate unavailable, withhold terminal, bounded retry, indeterminate no-resend, blocked turns never sediment), renderer fidelity (no timestamps/request ids injected), byte-range declaration, UDS connection-pool correctness over a real Unix socket, and live integration tests against a real PowerContext Server (binding validity, cross-scope rejection, deadlines) that skip gracefully when no server is reachable.

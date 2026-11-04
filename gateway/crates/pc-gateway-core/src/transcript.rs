@@ -346,6 +346,7 @@ mod tests {
             content,
             content_null: false,
             tool_calls,
+            extra_fields: Default::default(),
             tool_call_id: None,
         };
         let mut messages = vec![message(Role::User, vec![Value::from("task")], None)];
@@ -412,6 +413,7 @@ mod tests {
             content: vec![value],
             content_null: false,
             tool_calls: None,
+            extra_fields: Default::default(),
             tool_call_id: None,
         };
         let mut request = chat_turn(&[]);

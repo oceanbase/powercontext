@@ -20,7 +20,7 @@ ignore = [
 
 [suites]
 
-gateway = ["gateway/**", ".github/workflows/gateway.yml"]
+gateway = ["gateway/**", ".github/workflows/gateway.yml", "tests/e2e/gateway_tck.py"]
 
 helm = ["deploy/helm/**", "tests/test_helm*.py", "tests/e2e/helm_*.py"]
 tests = [

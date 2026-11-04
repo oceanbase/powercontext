@@ -58,6 +58,12 @@ unit-test: ## Run tests that do not cross the Server boundary end to end.
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e
 
+.PHONY: gateway-tck
+gateway-tck: ## Check gateway protocol behavior against pinned upstream compatibility suites.
+	@npm ci --prefix gateway/tck --no-audit --no-fund
+	@cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
+	@uv run --no-project --python 3.11 python tests/e2e/gateway_tck.py $(ARGS)
+
 .PHONY: evaluation-unit-test
 evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and agent tool recovery suites included.
 	@uv sync --project evaluation --frozen --extra capture-ownership
