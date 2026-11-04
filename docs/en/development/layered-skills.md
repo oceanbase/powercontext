@@ -44,6 +44,8 @@ Hosts discover the same `powercontext-project-context` entry through their nativ
 
 Installation refreshes the packaged guidance while preserving personal text outside managed regions and user-added files. Kimi stores its resolved configuration in `references/host.md`. If that file is missing, rerun `powercontext setup kimi-code` before changing the configuration.
 
+When upgrading a Skill with a legacy resource manifest, setup rejects a newly packaged non-Markdown resource that would overwrite a different user file. The existing installation remains intact. Move the conflicting file to a separate name and rerun setup; identical files do not block the upgrade. Successful migration removes the obsolete manifest.
+
 ## Capabilities and authority
 
 A shared reference describes a workflow, while the host adapter determines its available operations, Scope binding, and approval path. The Agent follows the active catalog's exact tool names, inputs, and return shapes. For example, OpenClaw does not expose Memory inventory or candidate Review even though those references ship with the shared Skill.

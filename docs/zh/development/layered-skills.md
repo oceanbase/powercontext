@@ -44,6 +44,8 @@ Host-owned MCP declarations ---> Native MCP configuration
 
 安装会刷新打包指引，并保留受管理区域之外的个人文本和用户附加文件。Kimi 将已解析的配置写入 `references/host.md`。该文件缺失时，先重新执行 `powercontext setup kimi-code`，再修改配置。
 
+升级带旧版资源清单的 Skill 时，如果新增的非 Markdown 包资源会覆盖内容不同的用户文件，setup 会拒绝升级并保留原有安装。请将冲突文件另存为其他名称后重新执行 setup；内容相同的文件不会阻止升级。迁移成功后会移除废弃的资源清单。
+
 ## 能力与权限
 
 公共参考文件描述流程，宿主适配器决定可用操作、Scope 绑定和审批渠道。Agent 遵循当前目录中的准确工具名、输入和返回结构。例如，OpenClaw 随包提供公共参考文件，但不开放 Memory 盘点或候选 Review。

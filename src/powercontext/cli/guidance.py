@@ -29,6 +29,7 @@ SKILL_FILE = SKILL_DIRECTORY / "SKILL.md"
 START = "<!-- POWERCONTEXT-GUIDANCE:START -->"
 YAML_START = "# POWERCONTEXT-GUIDANCE:START"
 END = "<!-- POWERCONTEXT-GUIDANCE:END -->"
+LEGACY_RESOURCE_MANIFEST = ".powercontext-guidance.json"
 
 
 @dataclass(frozen=True)
@@ -206,6 +207,33 @@ def _render_installed_markdown(
     return generated.encode("utf-8")
 
 
+def _validate_legacy_resource_collisions(source: Path, previous: Path, resources: set[str]) -> None:
+    """Use a legacy package inventory to protect newly colliding user resources."""
+    manifest = previous / LEGACY_RESOURCE_MANIFEST
+    if not manifest.is_file():
+        return
+    if not manifest.resolve().is_relative_to(previous.resolve()):
+        raise GuidanceError("legacy guidance manifest escapes its package")  # noqa: TRY003
+    try:
+        inventory = json.loads(manifest.read_text(encoding="utf-8"))
+        prior_resources = inventory["resources"]
+        if inventory["schema_version"] != 1 or not isinstance(prior_resources, list):
+            raise ValueError  # noqa: TRY301 - normalize invalid migration evidence.
+        if not all(isinstance(name, str) for name in prior_resources):
+            raise ValueError  # noqa: TRY301 - normalize invalid migration evidence.
+    except (KeyError, TypeError, ValueError, UnicodeError) as error:
+        raise GuidanceError("invalid legacy guidance manifest") from error  # noqa: TRY003
+    for name in sorted(resources - set(prior_resources)):
+        current = previous / name
+        if current.suffix == ".md" or not current.is_file():
+            continue
+        if not current.resolve().is_relative_to(previous.resolve()):
+            raise GuidanceError("user Skill resource escapes its package")  # noqa: TRY003
+        if current.read_bytes() != (source / name).read_bytes():
+            message = f"unrecognized existing Skill resource: {name}; move it aside before refreshing"
+            raise GuidanceError(message)
+
+
 def _validate_resource_transition(source: Path, previous: Path, resources: set[str]) -> None:
     """Do not promote retired or ambiguously owned package files into user content."""
     if previous.is_dir():
@@ -214,6 +242,7 @@ def _validate_resource_transition(source: Path, previous: Path, resources: set[s
         if removed:
             message = f"removing owned guidance requires an explicit migration: {sorted(removed)}"
             raise GuidanceError(message)
+        _validate_legacy_resource_collisions(source, previous, resources)
         for path in previous.rglob("*"):
             if not path.is_file() or (source / path.relative_to(previous)).exists():
                 continue
@@ -262,6 +291,8 @@ def refresh_skill(
             shutil.copy2(old, destination)
         else:
             write_if_changed(destination, content)
+    if not (source / LEGACY_RESOURCE_MANIFEST).exists():
+        (target / LEGACY_RESOURCE_MANIFEST).unlink(missing_ok=True)
 
 
 def preserve_installed_guidance(previous_plugin: Path, staged_plugin: Path) -> None:
@@ -276,6 +307,8 @@ def preserve_installed_guidance(previous_plugin: Path, staged_plugin: Path) -> N
             raise GuidanceError(message)
         refresh_skill(staged, staged, previous=previous)
         for path in previous.rglob("*"):
+            if path.relative_to(previous).as_posix() == LEGACY_RESOURCE_MANIFEST:
+                continue
             destination = staged / path.relative_to(previous)
             if path.is_file() and not destination.exists():
                 if not path.resolve().is_relative_to(previous.resolve()):

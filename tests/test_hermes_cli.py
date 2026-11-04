@@ -142,6 +142,45 @@ def test_setup_hermes_preserves_customizations_when_moving_skill_to_native_direc
     assert (skill / "personal.txt").read_bytes() == b"Updated native notes\r\n"
 
 
+@pytest.mark.parametrize("resource", ["references/examples.json", "agents/openai.yaml"])
+def test_setup_hermes_rejects_collision_with_legacy_user_resource(
+    resource: str, tmp_path: Path, monkeypatch, installed_agent_checks, hermes_activation
+) -> None:
+    checkout = tmp_path / "source"
+    package = _write_plugin(checkout)
+    home = tmp_path / "hermes"
+    installed = _write_installed_plugins(home)
+    relative = Path("skills/powercontext-project-context")
+    previous = installed / relative
+    # Actual packaged Skill from 745ebf2e, before native discovery and these resources.
+    shutil.copytree(Path(__file__).parent / "fixtures/integration-guidance/hermes-legacy", previous)
+    user_file = previous / resource
+    user_file.parent.mkdir(parents=True, exist_ok=True)
+    user_file.write_bytes(b"Keep my personal resource\r\n")
+    before = {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()}
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(hermes_cli, "which", lambda _name: "/usr/bin/hermes")
+    monkeypatch.setattr(hermes_cli.subprocess, "run", _successful_hermes_run)
+    arguments = ["setup", "hermes", "--source", str(checkout)]
+
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+
+    assert result.exit_code == 1, result.output
+    assert "unrecognized existing Skill resource" in result.output
+    assert {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()} == before
+    user_file.rename(previous / "personal.txt")
+    incoming = package / relative / resource
+    user_file.write_bytes(incoming.read_bytes())
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+    assert result.exit_code == 0, result.output
+    assert (home / relative / "personal.txt").read_bytes() == b"Keep my personal resource\r\n"
+    incoming.write_bytes(b'{"updated": true}\n')
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+    assert result.exit_code == 0, result.output
+    assert (home / relative / resource).read_bytes() == incoming.read_bytes()
+
+
 def test_setup_hermes_refuses_package_omitting_installed_guidance(
     tmp_path: Path, monkeypatch, installed_agent_checks, hermes_activation
 ) -> None:
