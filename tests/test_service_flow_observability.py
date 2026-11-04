@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,8 +40,9 @@ from powercontext.builtin.runtime.processing_contracts import ArtifactProcessing
 from powercontext.builtin.runtime.processing_observation import observe_processing
 from powercontext.server.authz.errors import AccessDeniedError
 from powercontext.server.factory import create_server_app
-from powercontext.server.logging import JsonFormatter, OperationalContextFilter
+from powercontext.server.logging import JsonFormatter, OperationalContextFilter, _HumanContextFilter
 from powercontext.server.settings import McpConfig, ServerSettings
+from powercontext.server.tracing import ServerTracing
 from tests.builtin.runtime.test_processing_scheduler import _Launcher, _profile, _request, _wait
 
 
@@ -211,6 +214,118 @@ def test_retry_causes_are_scoped_and_cleared_after_acknowledgement(tmp_path):
                 assert recovered.last_error_worker_id is None and recovered.last_error_trace_id is None
 
     asyncio.run(scenario())
+
+
+@pytest.fixture
+def failure_block_recovery(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="powercontext.builtin.runtime.artifact_processing")
+
+    async def scenario():
+        async with _profile(tmp_path, "failure-block-recovery") as profile:
+            await _request(profile.database, "memory-source-window", "blocked")
+            policy_blocked = False
+            block_checks = 0
+            release_recovery = asyncio.Event()
+
+            async def check(_connection, _scope, _binding):
+                nonlocal block_checks
+                if policy_blocked:
+                    block_checks += 1
+                    return ArtifactProcessingBlock("frontier", "budget", "window_attempt_limit")
+                return None
+
+            async def work(_assignment):
+                nonlocal policy_blocked
+                if len(launcher.assignments) == 1:
+                    policy_blocked = True
+                    raise AccessDeniedError()
+                await release_recovery.wait()
+
+            launcher = _Launcher(profile.database, on_work=work)
+            tracing = ServerTracing.context_only()
+            try:
+                async with ArtifactProcessingSupervisor(
+                    database=profile.database,
+                    bindings=(ArtifactProcessingBinding("memory-source-window", "memory", launcher, work_block=check),),
+                    lease_mode="single-process",
+                    retry_base_seconds=1,
+                    retry_jitter=lambda: 1,
+                    blocked_check_seconds=0.05,
+                    tracing=tracing,
+                ) as supervisor:
+                    group = ArtifactProcessingSupervisors((supervisor,))
+
+                    async def observation():
+                        return (await observe_processing(profile.database, ("blocked",), group))["blocked"][0]
+
+                    await _wait(lambda: supervisor.family_status["memory"]["failed"] == 1)
+                    failed = await observation()
+                    await _wait(lambda: block_checks >= 2)
+                    blocked = await observation()
+                    policy_blocked = False
+                    await _wait(lambda: len(launcher.assignments) == 2)
+                    running = await observation()
+                    release_recovery.set()
+                    await _wait(lambda: supervisor.family_status["memory"]["completed"] == 1)
+                    return failed, blocked, running, await observation()
+            finally:
+                tracing.provider.shutdown()
+
+    return asyncio.run(scenario()), [
+        record for record in caplog.records if getattr(record, "event", None) == "artifact_processing.blocked"
+    ]
+
+
+def test_policy_blocks_retain_failure_evidence_until_acknowledgement(failure_block_recovery):
+    (failed, blocked, running, recovered), _records = failure_block_recovery
+    assert failed.last_error_code == "access_denied"
+    assert failed.last_error_stage == "authorization"
+    assert isinstance(failed.last_error_at, datetime)
+    assert failed.last_error_worker_id and failed.last_error_trace_id
+    assert blocked.state == "blocked" and blocked.block_code == "window_attempt_limit"
+    assert running.state == "running" and running.block_code is None
+    assert running.worker_id != failed.last_error_worker_id
+    assert recovered.state == "acknowledged"
+    for field in (
+        "last_error_code",
+        "last_error_stage",
+        "last_error_at",
+        "last_error_worker_id",
+        "last_error_trace_id",
+    ):
+        assert getattr(blocked, field) == getattr(failed, field)
+        assert getattr(running, field) == getattr(failed, field)
+        assert getattr(recovered, field) is None
+
+
+@pytest.mark.parametrize("log_format", ["json", "console"])
+def test_policy_block_logs_render_retained_failure_evidence(failure_block_recovery, log_format):
+    (failed, *_observations), records = failure_block_recovery
+    assert records
+    for source_record in records:
+        record = copy.copy(source_record)
+        if log_format == "json":
+            assert OperationalContextFilter().filter(record)
+            rendered = JsonFormatter().format(record)
+            payload = json.loads(rendered)
+        else:
+            assert _HumanContextFilter().filter(record)
+            rendered = logging.Formatter("%(message)s%(processing_context)s").format(record)
+            payload = {
+                field: getattr(record, field)
+                for field in (
+                    "last_error_code",
+                    "last_error_stage",
+                    "last_error_at",
+                    "last_error_worker_id",
+                    "last_error_trace_id",
+                )
+            }
+        assert payload["last_error_at"] == failed.last_error_at.isoformat()
+        for field in ("last_error_code", "last_error_stage", "last_error_worker_id", "last_error_trace_id"):
+            assert payload[field] == getattr(failed, field)
+            assert getattr(failed, field) in rendered
+        assert "window_attempt_limit" in rendered
 
 
 def test_processing_explains_block_and_retry_without_inventing_remote_state(tmp_path):

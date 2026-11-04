@@ -1189,8 +1189,8 @@ class ArtifactProcessingSupervisor:
         state.pending_since.setdefault(scope, time.time())
         code, failure_stage = (None, None) if error is None else _processing_failure(error, stage)
         failure_at = None if error is None else datetime.now(UTC)
-        if error is None and block is None and (previous := state.retries.get(scope)) is not None:
-            # A control conflict reschedules the same cycle; it does not acknowledge recovery.
+        if error is None and (previous := state.retries.get(scope)) is not None:
+            # A policy block or control conflict does not acknowledge recovery.
             code, failure_stage, failure_at = (
                 previous.last_error_code,
                 previous.last_error_stage,
@@ -1265,7 +1265,9 @@ class ArtifactProcessingSupervisor:
                     self._wait_for_block(state, assignment, block)
                     continue
             if retry is not None and retry.block is not None:
-                state.retries[scope] = _RetryState(retry.failures, asyncio.get_running_loop().time())
+                state.retries[scope] = replace(
+                    retry, deadline=asyncio.get_running_loop().time(), block=None, probe_error=None
+                )
             running = _RunningWorker(assignment, asyncio.get_running_loop().time())
             running.queue_wait_ms = None if queued_at is None else max(0, running.started_at - queued_at) * 1000
             running.task = asyncio.create_task(
@@ -1346,7 +1348,11 @@ class ArtifactProcessingSupervisor:
                     "trace_id": trace_id,
                     "last_error_code": None if previous is None else previous.last_error_code,
                     "last_error_stage": None if previous is None else previous.last_error_stage,
-                    "last_error_at": None if previous is None else previous.last_error_at,
+                    "last_error_at": (
+                        None
+                        if previous is None or previous.last_error_at is None
+                        else previous.last_error_at.isoformat()
+                    ),
                     "last_error_worker_id": None if previous is None else previous.last_error_worker_id,
                     "last_error_trace_id": last_error_trace_id,
                     "supervisor_group": self._supervisor_group,

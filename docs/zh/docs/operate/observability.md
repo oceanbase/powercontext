@@ -72,7 +72,7 @@ Code 专用诊断字段仅在 `code.*` events 中输出。
 | `duration_ms`、`error_code`、`error_category` | 毫秒耗时、诊断 code 和有限取值的 operational error category |
 | `stage`、`processing_stage`、`failure_reason`、`input_item_count`、`estimated_input_tokens`、`token_estimator_id`、`effective_budget`、`provider_request_id`、`finish_reason`、`failure_location`、`cause_exception_type` | 处理失败 stage/reason 与安全计数字段；`stage` 表示发出失败的位置或领域位置（Worker/supervisor stage、领域 block 名称或 `worker` 兜底），`processing_stage` 表示有界的领域阶段。详见 [处理失败诊断](../../development/processing-failures.md) |
 | `queue_wait_ms` | Processing 的观察边界，以及从本地入队到派发的非负毫秒数；无法取得排队耗时时省略该值 |
-| `last_error_code`、`last_error_stage`、`last_error_at` | 进入规则阻止前最近一次 failed attempt 的诊断 code、stage 和时间；没有前置失败时省略 |
+| `last_error_code`、`last_error_stage`、`last_error_at` | 进入规则阻止前最近一次 failed attempt 的诊断 code、stage 和 ISO-8601 UTC 时间；没有前置失败时省略 |
 | `last_error_worker_id`、`last_error_trace_id` | 最近失败 attempt 的 worker 和 trace；可用于继续查日志或调用链，不表示 trace 已保存 |
 | `transport`、`status_code` | 访问事件的传输类型和已观察到的 HTTP 响应码；代码诊断也可携带其映射状态码 |
 | `provider`、`model_capability` | Provider 事件使用的有限 SDK 系统名及 `generation`/`embedding` 协议能力；OpenAI 兼容路由可统一显示为 `openai`，不表示实际供应商公司 |
@@ -450,7 +450,7 @@ Scope 的后台处理结果尚未确认写入成功；长时间大于零可能�
 Worker 跨子进程保留 `access_denied`、`access_identity_required`、`access_unavailable` 三类安全错误代码。
 权限拒绝归类为 `authorization`，缺少身份为 `authentication`，授权服务不可用为 `dependency`。
 代码不包含 Principal、Binding、异常正文或凭据；未分类错误仍为 `processing_failed`。
-统计观察的 `last_error_worker_id` 保留最近失败的既有 worker 身份，`last_error_trace_id` 在 tracing adapter 提供时保留同次 trace 身份。它们随当前重试周期保留，再次排队或执行不会替换为新 worker；确认完成、重启或缓存淘汰时清除。准入阶段尚未启动 worker 时为空。身份不进入 metric label；有 trace ID 也不证明已采样或保存。
+统计观察的 `last_error_worker_id` 保留最近失败的既有 worker 身份，`last_error_trace_id` 在 tracing adapter 提供时保留同次 trace 身份。它们随当前重试周期保留，进入规则阻止、解除阻止后再次排队或执行都不会替换为新 worker；确认完成、重启或缓存淘汰时清除。准入阶段尚未启动 worker 时为空。身份不进入 metric label；有 trace ID 也不证明已采样或保存。
 统计接口的每 Scope 重试诊断属于本地观察，不是持久化审计历史；参见[Scope 与业务看板](reference-observability-stack.md#scope-与业务看板)。
 
 Processing labels 仅使用已注册 family 和有界 outcome，不包含 scope/worker/request identity。Scrape 只读取内存 snapshot；

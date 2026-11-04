@@ -74,7 +74,7 @@ including code stages. Code-specific diagnostic fields are included only for `co
 | `duration_ms`, `error_code`, `error_category` | Duration in milliseconds, diagnostic code, and bounded operational error classification |
 | `stage`, `processing_stage`, `failure_reason`, `input_item_count`, `estimated_input_tokens`, `token_estimator_id`, `effective_budget`, `provider_request_id`, `finish_reason`, `failure_location`, `cause_exception_type` | Processing failure stage/reason and safe accounting fields; `stage` names the emitting boundary or domain location (Worker/supervisor stage, domain block name, or `worker` fallback), `processing_stage` the bounded domain stage. See [Processing failure diagnostics](../../development/processing-failures.md) |
 | `queue_wait_ms` | Processing observation boundary and nonnegative milliseconds from local queue admission to dispatch; an unavailable queue duration is omitted |
-| `last_error_code`, `last_error_stage`, `last_error_at` | Diagnostic code, stage and time of the most recent failed attempt before a policy block; omitted when there was no prior failure |
+| `last_error_code`, `last_error_stage`, `last_error_at` | Diagnostic code, stage and ISO-8601 UTC time of the most recent failed attempt before a policy block; omitted when there was no prior failure |
 | `last_error_worker_id`, `last_error_trace_id` | Worker and trace from the most recent failed attempt; use them to continue the log or trace investigation, but do not imply the trace was stored |
 | `transport`, `status_code` | Transport kind and observed HTTP response code on access events; code diagnostics can also carry their mapped status |
 | `provider`, `model_capability` | Bounded SDK provider system and `generation`/`embedding` protocol capability on provider events; OpenAI-compatible routes can use `openai` regardless of the upstream company |
@@ -513,8 +513,9 @@ boundary. Denial is classified as `authorization`; missing identity as `authenti
 see [Scope and business dashboards](reference-observability-stack.md#scope-and-business-dashboards).
 
 `last_error_worker_id` identifies the failed execution. Optional `last_error_trace_id` reuses that execution's existing
-trace ID when the tracing adapter exposes one. A retry retains these identities until verified acknowledgement;
-the next running worker does not replace them. Admission failures without an execution have neither identity.
+trace ID when the tracing adapter exposes one. A retry retains these identities through policy blocks and resumed
+execution until verified acknowledgement; the next running worker does not replace them. Admission failures without
+an execution have neither identity.
 Restart and retry-cache eviction can remove them. A trace ID does not prove sampling or storage. These identities
 are available in the Scope statistics response and evidence links, never as metric labels.
 
