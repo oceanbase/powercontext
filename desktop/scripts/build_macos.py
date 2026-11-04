@@ -16,18 +16,20 @@
 
 from __future__ import annotations
 
+import errno
 import plistlib
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parents[1]
 
 
-def discard_busy_image(output: str) -> None:
+def discard_busy_image(output: str, artifacts: Path) -> Path | None:
     created = re.findall(r"^created: (.+/rw\.\d+\..+\.dmg)$", output, re.MULTILINE)
     if len(created) != 1:
         message = "Cannot identify the temporary DMG from this packaging attempt"
@@ -52,9 +54,16 @@ def discard_busy_image(output: str) -> None:
             message = "Cannot identify the temporary DMG's whole disk"
             raise RuntimeError(message)
         # This image belongs to the failed attempt and will be discarded, never published.
-        subprocess.run([hdiutil, "detach", "-force", devices[0]], check=True)  # noqa: S603 -- Validated disk identity.
+        detached = subprocess.run([hdiutil, "detach", "-force", devices[0]], check=False)  # noqa: S603 -- Validated disk identity.
+        if detached.returncode == errno.EBUSY:
+            # Keep the mounted backing file intact, but outside the directory
+            # that create-dmg copies on the next attempt. Rename without copying.
+            quarantine = Path(tempfile.mkdtemp(prefix="busy-dmg-", dir=artifacts))
+            return image.rename(quarantine / image.name)
+        detached.check_returncode()
     # A stale raw image must not be copied into the next DMG's source directory.
     image.unlink()
+    return None
 
 
 def main() -> int:
@@ -92,7 +101,12 @@ def main() -> int:
             ):
                 return status if status > 0 else 1
             if busy_detach:
-                discard_busy_image(failure)
+                preserved = discard_busy_image(failure, artifacts)
+                if preserved is not None:
+                    warning = f"DMG detach returned exit {errno.EBUSY}; preserved mounted image at {preserved}."
+                    print(warning, flush=True)
+                    log.write(warning + "\n")
+                    log.flush()
             print("Retrying busy DMG packaging without recompilation.", flush=True)
             time.sleep(attempt * 5)
             command = [pnpm, "tauri", "bundle", "--ci", "--verbose"]
