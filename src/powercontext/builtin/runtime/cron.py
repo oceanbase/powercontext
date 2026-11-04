@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -65,10 +66,11 @@ class CronSchedule:
                 continue
             for hour in sorted(self.hours):
                 for minute in sorted(self.minutes):
-                    candidate = datetime.combine(candidate_date, time(hour, minute), self.timezone)
-                    if candidate < start or not _is_local_time(candidate):
-                        continue
-                    return candidate.astimezone(UTC).replace(tzinfo=None)
+                    naive = datetime.combine(candidate_date, time(hour, minute))
+                    for candidate in _local_occurrences(naive, self.timezone):
+                        if candidate.astimezone(UTC) <= utc:
+                            continue
+                        return candidate.astimezone(UTC).replace(tzinfo=None)
         raise ValueError("cron expression has no occurrence in the next eight years")  # noqa: TRY003
 
     def _matches_date(self, value: date) -> bool:
@@ -111,6 +113,22 @@ def _field_value(value: str, names: dict[str, int] | None) -> int:
     if not value.isdecimal():
         raise ValueError("cron field must be numeric or a supported name")  # noqa: TRY003
     return int(value)
+
+
+def _local_occurrences(naive: datetime, timezone: ZoneInfo) -> Iterator[datetime]:
+    """Yield every real instant of a local wall time, earliest UTC instant first.
+
+    Ambiguous local times (DST fall-back repeated hour) occur twice; nonexistent
+    local times (spring-forward gap) never occur and yield nothing.
+    """
+
+    first = naive.replace(tzinfo=timezone)
+    if not _is_local_time(first):
+        return
+    yield first
+    second = naive.replace(tzinfo=timezone, fold=1)
+    if second.astimezone(UTC) != first.astimezone(UTC):
+        yield second
 
 
 def _is_local_time(value: datetime) -> bool:
