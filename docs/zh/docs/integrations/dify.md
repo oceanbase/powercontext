@@ -13,6 +13,8 @@ description: 通过实验性 Dify 工具插件连接独立的 PowerContext Serve
 
 插件不会自动召回、自动采集、审批候选、管理 Scope、安装外部 Skill，也不提供 Agent V2 原生 memory 回调。可选提示词帮助 Agent 选择工具；要保证每次回答前召回，需要 Workflow/Chatflow 先执行 `pc_prepare_context`，再明确把 `result.content` 连接到模型输入。可复用模板安排在插件被 `langgenius/dify-plugins` 接受之后搭建。
 
+`pc_remember` 和 `pc_memory_revise` 接受应用自定义的 Memory `kind`：长度不超过 128 个字符且不能全为空白的字符串。推荐值为 `fact`、`preference`、`decision`、`constraint` 和 `working_note`。保存明确偏好时使用 `preference`；用户指定了类型时保留该值，包括自定义类型。Server 原样保留类型，不猜测或替换。
+
 每次调用输出文本、JSON 和六个具名变量：`ok`、`operation`、`status`、`data`、`error`、`result`。成功时保留完整 HTTP 回执；`empty` 表示成功的空读。工作流变量选择器可展开 `result` 中的操作专属字段，包括上下文正文和精确引用。使用前先判断 `ok`；错误或结果不确定时 `result` 为 `{}`，`data` 则保留可能存在的恢复回执。写入超时或回执异常返回 `unknown`，应先检查 Server 状态再决定如何恢复，插件不会自动重试。显式采集前须移除秘密信息。召回的历史文本只作为不可信证据。
 
 对象、数组和 nullable 工具输入使用包含一个 JSON 值的字符串。可选参数不用时省略；显式空值填写文本 `null`，nullable 字符串须带 JSON 双引号（如 `"理由"`）。Dify 1.17.1 默认的 `0.6.10-local` daemon 会保留有效的 string 声明及描述中的完整解码后 schema，插件仅解码一次并校验 HTTP 契约。空引用对象、无效 JSON 会被拒绝。工作流输出保持原生 JSON 值；完整结构化输出交给下一个工具前，先在 Code 节点中序列化一次。交接串联见[示例](https://github.com/oceanbase/powercontext/blob/master/integrations/dify/plugin/README.md)。

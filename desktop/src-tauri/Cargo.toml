@@ -57,6 +57,8 @@ keyring = { version = "=3.6.3", default-features = false, features = ["apple-nat
 libc = "=0.2.189"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Linux process-group diagnostics also use waitid/kill for bounded cleanup.
+libc = "=0.2.189"
 # Use the desktop Secret Service (GNOME Keyring/KWallet) as the native vault.
 # Keep this synchronous because the Vault trait is synchronous; callers must not
 # invoke it from an async runtime thread without a blocking boundary.

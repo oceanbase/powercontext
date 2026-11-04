@@ -349,15 +349,18 @@ def test_finished_response_releases_capacity_before_cleanup_without_releasing_a_
         first = asyncio.create_task(_invoke(app, response_send=observe_send))
         second: asyncio.Task[tuple[list[Message], int]] | None = None
         try:
-            await asyncio.wait_for(cleaning_up.wait(), timeout=1)
-            await asyncio.wait_for(response_sent.wait(), timeout=1)
-            second = asyncio.create_task(_invoke(app))
-            await asyncio.wait_for(second_started.wait(), timeout=1)
-            cleanup.set()
-            await first
-            overloaded, _ = await _invoke(app)
-            assert overloaded[0]["status"] == 503
-            assert calls == 2
+            # Assert event ordering; the watchdog detects deadlocks without
+            # imposing a one-second scheduling budget on loaded CI workers.
+            async with asyncio.timeout(10):
+                await cleaning_up.wait()
+                await response_sent.wait()
+                second = asyncio.create_task(_invoke(app))
+                await second_started.wait()
+                cleanup.set()
+                await first
+                overloaded, _ = await _invoke(app)
+                assert overloaded[0]["status"] == 503
+                assert calls == 2
         finally:
             cleanup.set()
             second_release.set()

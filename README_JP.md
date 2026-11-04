@@ -103,10 +103,10 @@ Server に接続して正確な Scope を選択すると、その記憶を検索
 
 ## 効果の検証
 
-![LoCoMo と SWE-bench Pro における PowerContext の結果をまとめた比較図](docs/assets/readme-benchmark-summary.svg)
+![LoCoMo の精度と SWE-bench Pro の 100 タスクあたりの入力トークン消費量をベースラインと比較した図](docs/assets/readme-benchmark-summary.svg)
 
-- **長い会話の記憶（LoCoMo；カテゴリ 1–4 の 1,540 件の採点対象質問）：精度 90.78%**。PowerMem は 87.79%、全文コンテキストの再生は 52.9% で、**+37.88 ポイント**です。
-- **コーディングタスク（SWE-bench Pro；公開 v2 の 731 タスクによるプロジェクトのペア実行で、公式提出ではありません）：PowerContext 有効時のタスク解決率 86.73%、無効時 82.35%**。**+4.38 ポイント**、32 タスク多く解決しました。
+- **長い会話の記憶（LoCoMo；カテゴリ 1–4 の 1,540 件の採点対象質問）：精度 90.78%**。全文コンテキストの再生は 52.9% で、**+37.88 ポイント**です。
+- **コーディングタスク（SWE-bench Pro のペア比較）：100 タスクあたりの入力トークンは PowerContext 有効時に約 2 億 2,532 万、無効時に約 3 億 218 万**。入力トークンは約 **25.4%**、100 タスクあたり約 7,686 万少なくなりました。
 - **想起の品質（LoCoMo Plus）**：ネイティブの PowerContext と、検索後に Jev で候補を絞り込んだ場合の比較です。各モデルは Memory 抽出と回答生成の両方に使用し、埋め込みには `qwen3.7-text-embedding`（1024 次元）を使用しています。
 
   | モデル | PowerContext | PowerContext + Jev | 差 |

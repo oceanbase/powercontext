@@ -80,6 +80,14 @@ struct FakeGate {
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
     captured: Mutex<Vec<(String, String)>>,
+    /// 设置后，capture 记录请求后返回该错误。
+    capture_error: Mutex<Option<GateError>>,
+    /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
+    prepare_barrier: Mutex<Option<Arc<tokio::sync::Barrier>>>,
+    /// 依次给出的 prepare 结果，先于 `prepare_result` 使用。
+    prepare_queue: Mutex<VecDeque<Result<PrepareContextResult, GateError>>>,
+    /// 依次对应每次 prepare：`Some` 时等通知后才返回，用于控制完成顺序。
+    prepare_holds: Mutex<VecDeque<Option<Arc<tokio::sync::Notify>>>>,
 }
 
 impl GateClient for FakeGate {
@@ -116,18 +124,31 @@ impl GateClient for FakeGate {
         request: PrepareContextRequest,
     ) -> impl Future<Output = Result<PrepareContextResult, GateError>> + Send {
         self.prepare_queries.lock().unwrap().push(request.query);
+        let queued = self.prepare_queue.lock().unwrap().pop_front();
+        let hold = self.prepare_holds.lock().unwrap().pop_front().flatten();
         let step =
-            self.prepare_result
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap_or(Ok(PrepareContextResult::Plain(PreparedContext {
-                    schema: "powercontext.prepared-context.v1".into(),
-                    status: "empty".into(),
-                    content: None,
-                    content_bytes: 0,
-                })));
-        async move { step }
+            if let Some(queued) = queued {
+                queued
+            } else {
+                self.prepare_result.lock().unwrap().take().unwrap_or(Ok(
+                    PrepareContextResult::Plain(PreparedContext {
+                        schema: "powercontext.prepared-context.v1".into(),
+                        status: "empty".into(),
+                        content: None,
+                        content_bytes: 0,
+                    }),
+                ))
+            };
+        let barrier = self.prepare_barrier.lock().unwrap().clone();
+        async move {
+            if let Some(barrier) = barrier {
+                barrier.wait().await;
+            }
+            if let Some(hold) = hold {
+                hold.notified().await;
+            }
+            step
+        }
     }
 
     async fn capture(
@@ -138,7 +159,10 @@ impl GateClient for FakeGate {
             .lock()
             .unwrap()
             .push((request.source_id, request.content));
-        Ok(serde_json::json!({"captured": true}))
+        match self.capture_error.lock().unwrap().take() {
+            Some(error) => Err(error),
+            None => Ok(serde_json::json!({"captured": true})),
+        }
     }
 }
 
@@ -221,6 +245,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         headers: vec![("authorization".into(), "Bearer secret".into())],
         degrade_policy: degrade,
         inject_context: false,
+        conversation_id: None,
         sediment: false,
         prepared_contexts: Vec::new(),
     }
@@ -304,8 +329,12 @@ fn harness(
         seen: Mutex::new(Vec::new()),
         prepared_seen: Mutex::new(Vec::new()),
         prepare_result: Mutex::new(None),
+        prepare_barrier: Mutex::new(None),
+        prepare_queue: Mutex::new(VecDeque::new()),
+        prepare_holds: Mutex::new(VecDeque::new()),
         prepare_queries: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
+        capture_error: Mutex::new(None),
     });
     let executor = Executor::new(
         FakeGateRef(gate.clone()),
@@ -640,6 +669,129 @@ async fn injects_block_and_declares_exact_location() {
     assert_eq!(transport.sends.lock().unwrap().len(), 1);
 }
 
+#[tokio::test]
+async fn responses_injection_targets_input_text_and_declares_input_pointer() {
+    let (executor, _renderer, transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[{\"content\":\"测试命令\"}]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    let mut c = call(DegradePolicy::Pause);
+    // Responses 的形态：developer 条目原样封装在前，用户消息由 input_text 部件组成。
+    c.request.messages = vec![
+        CanonicalMessage {
+            role: Role::Tool,
+            content: vec![serde_json::json!({"type": "message", "role": "developer",
+                "content": [{"type": "input_text", "text": "base"}]})],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        },
+        CanonicalMessage {
+            role: Role::User,
+            content: vec![
+                serde_json::json!({"type": "input_text", "text": "Fix the bug"}),
+                serde_json::json!({"type": "input_text", "text": "in util.py"}),
+            ],
+            content_null: false,
+            tool_calls: None,
+            tool_call_id: None,
+        },
+    ];
+    c.inject_context = true;
+    let outcome = executor
+        .run(
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+
+    // 检索词来自 input_text 部件。
+    assert_eq!(
+        gate.prepare_queries.lock().unwrap()[0],
+        "Fix the bug\nin util.py"
+    );
+
+    // 声明的指针在送检的 Responses 请求体中指向注入的字节。
+    let declared = gate.prepared_seen.lock().unwrap().clone();
+    let loc = &declared[0][0].location;
+    assert_eq!(loc.pointer, "/input/1/content/0/text");
+    let seen = gate.seen.lock().unwrap().clone();
+    let body: serde_json::Value = serde_json::from_str(&seen[0].1).unwrap();
+    let text = body.pointer(&loc.pointer).and_then(|v| v.as_str()).unwrap();
+    assert_eq!(
+        &text.as_bytes()[loc.start_byte as usize..loc.end_byte as usize],
+        block.as_bytes()
+    );
+    assert!(text.ends_with("Fix the bug"));
+    // 其他部件与 developer 条目不变。
+    assert_eq!(body["input"][1]["content"][1]["text"], "in util.py");
+    assert_eq!(body["input"][0]["role"], "developer");
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn responses_string_content_uses_a_supported_location_only_when_injected() {
+    let block = "测试记忆 🧪";
+    let user_text = "Alpha deployment 查询";
+    for (inject, prepared) in [(false, block), (true, ""), (true, block)] {
+        let (executor, _renderer, transport, gate) = harness(
+            vec![
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+            ],
+            vec![raw_response()],
+            2,
+        );
+        *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(prepared)));
+        let mut c = call(DegradePolicy::Pause);
+        c.request.messages[0].content = vec![serde_json::json!(user_text)];
+        c.inject_context = inject;
+        let outcome = executor
+            .run(
+                c,
+                &pc_gateway_protocol::GatewayRenderer::Responses(
+                    pc_gateway_protocol::OpenAiResponsesRenderer,
+                ),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+
+        let seen = gate.seen.lock().unwrap();
+        let body: serde_json::Value = serde_json::from_str(&seen[0].1).unwrap();
+        let declarations = gate.prepared_seen.lock().unwrap();
+        if inject && !prepared.is_empty() {
+            assert_eq!(gate.prepare_queries.lock().unwrap()[0], user_text);
+            assert_eq!(declarations[0].len(), 1);
+            let loc = &declarations[0][0].location;
+            assert_eq!(loc.pointer, "/input/0/content/0/text");
+            assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+            let text = body.pointer(&loc.pointer).unwrap().as_str().unwrap();
+            assert_eq!(text, format!("{block}\n\n{user_text}"));
+            assert_eq!(
+                &text.as_bytes()[loc.start_byte as usize..loc.end_byte as usize],
+                block.as_bytes()
+            );
+        } else {
+            assert!(declarations[0].is_empty());
+            assert_eq!(body["input"][0]["content"], user_text);
+        }
+        // The admission check and the upstream must see the same bytes.
+        assert_eq!(
+            transport.sends.lock().unwrap()[0].as_ref(),
+            seen[0].1.as_bytes()
+        );
+    }
+}
+
 fn extract_user_text(before_send_payload: &str) -> String {
     // FakeGate 记录的即渲染后的请求体 JSON
     let body: serde_json::Value = serde_json::from_str(before_send_payload).unwrap();
@@ -720,8 +872,10 @@ async fn sediment_captures_released_turn_synchronously() {
         captured[0].0
     );
     let v: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
-    assert_eq!(v["user"], "hello");
-    assert_eq!(v["model"], "test-model");
+    assert_eq!(
+        v,
+        serde_json::json!({"kind": "gateway_turn", "user": "hello", "steps": [], "assistant": "ok"})
+    );
 }
 
 #[tokio::test]
@@ -1406,4 +1560,698 @@ async fn typed_parts_pointer_targets_text_field() {
         loc.location.pointer, "/messages/0/content/0/text",
         "精确指针格式"
     );
+}
+
+// ---------- 回合内复用（RFC 2199：新用户消息才触发一次准备） ----------
+
+/// 工具循环的第 `step` 个请求：同一条用户消息之后跟着 `step` 轮工具调用与输出。
+fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall {
+    let mut c = call(DegradePolicy::Pause);
+    c.inject_context = true;
+    c.conversation_id = Some("conversation-a".into());
+    let user = if responses {
+        serde_json::json!({"type": "input_text", "text": user_text})
+    } else {
+        serde_json::json!(user_text)
+    };
+    c.request.messages = vec![CanonicalMessage {
+        role: Role::User,
+        content: vec![user],
+        content_null: false,
+        tool_calls: None,
+        tool_call_id: None,
+    }];
+    for i in 0..step {
+        let id = format!("call_{i}");
+        if responses {
+            for item in [
+                serde_json::json!({"type": "function_call", "call_id": id, "name": "run", "arguments": "{}"}),
+                serde_json::json!({"type": "function_call_output", "call_id": id, "output": "ok"}),
+            ] {
+                c.request.messages.push(CanonicalMessage {
+                    role: Role::Tool,
+                    content: vec![item],
+                    content_null: false,
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+            }
+        } else {
+            c.request.messages.push(CanonicalMessage {
+                role: Role::Assistant,
+                content: vec![],
+                content_null: true,
+                tool_calls: Some(vec![serde_json::json!({
+                    "id": id, "type": "function", "function": {"name": "run", "arguments": "{}"}
+                })]),
+                tool_call_id: None,
+            });
+            c.request.messages.push(CanonicalMessage {
+                role: Role::Tool,
+                content: vec![serde_json::json!("ok")],
+                content_null: false,
+                tool_calls: None,
+                tool_call_id: Some(id),
+            });
+        }
+    }
+    c
+}
+
+fn allow_runs(n: usize) -> Vec<Result<ContextCheckResult, GateError>> {
+    (0..n)
+        .flat_map(|_| {
+            [
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+            ]
+        })
+        .collect()
+}
+
+/// before_send 送检的请求体与声明（每个请求一条）。
+fn sends(gate: &FakeGate) -> Vec<(String, Vec<PreparedContextLocation>)> {
+    let seen = gate.seen.lock().unwrap().clone();
+    let declared = gate.prepared_seen.lock().unwrap().clone();
+    seen.into_iter()
+        .zip(declared)
+        .filter(|((phase, _), _)| *phase == CheckPhase::BeforeSend)
+        .map(|((_, body), declared)| (body, declared))
+        .collect()
+}
+
+async fn run_tool_loop(responses: bool) {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, transport, gate) =
+        harness(allow_runs(4), (0..4).map(|_| raw_response()).collect(), 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    for step in 0..3 {
+        let c = tool_loop_call("hello", step, responses);
+        let outcome = if responses {
+            executor
+                .run(
+                    c,
+                    &pc_gateway_protocol::OpenAiResponsesRenderer,
+                    &NoopEvidenceSink,
+                )
+                .await
+        } else {
+            executor
+                .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+                .await
+        };
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    // 一个回合只准备一次；每一步注入同一个块、声明同一个绑定和位置。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    let sent = sends(&gate);
+    assert_eq!(sent.len(), 3);
+    for (body, declared) in &sent {
+        assert_eq!(declared.len(), 1);
+        assert_eq!(declared[0].binding, "opaque-binding");
+        assert_eq!(declared[0].location.pointer, sent[0].1[0].location.pointer);
+        assert_eq!(
+            declared[0].location.end_byte,
+            sent[0].1[0].location.end_byte
+        );
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        let text = body
+            .pointer(&declared[0].location.pointer)
+            .unwrap()
+            .as_str()
+            .unwrap();
+        assert!(text.starts_with(block));
+    }
+    // 新的用户消息开始新回合：重新准备一次。
+    let c = tool_loop_call("next question", 0, responses);
+    if responses {
+        executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+    } else {
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(transport.sends.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn chat_tool_loop_prepares_once_per_user_message() {
+    run_tool_loop(false).await;
+}
+
+#[tokio::test]
+async fn responses_tool_loop_prepares_once_per_user_message() {
+    run_tool_loop(true).await;
+}
+
+#[tokio::test]
+async fn empty_preparation_is_reused_within_the_turn() {
+    let (executor, renderer, transport, gate) =
+        harness(allow_runs(3), (0..3).map(|_| raw_response()).collect(), 2);
+    for step in 0..3 {
+        let outcome = executor
+            .run(
+                tool_loop_call("hello", step, false),
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 1);
+    assert!(sends(&gate).iter().all(|(_, declared)| declared.is_empty()));
+    assert_eq!(transport.sends.lock().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn failed_preparation_is_retried_on_the_next_step_without_blocking() {
+    let (executor, renderer, transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    *gate.prepare_result.lock().unwrap() = Some(Err(GateError::GateUnavailable("down".into())));
+    for step in 0..2 {
+        let outcome = executor
+            .run(
+                tool_loop_call("hello", step, false),
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "prepare 失败不阻塞主链路"
+        );
+    }
+    // 失败不缓存：第二步重新准备（这次得到空结果）。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(transport.sends.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn conversations_with_identical_messages_prepare_separately() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    for conversation in ["conversation-a", "conversation-b"] {
+        let mut c = tool_loop_call("hello", 0, false);
+        c.conversation_id = Some(conversation.into());
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn requests_without_a_conversation_id_never_inherit_an_injection() {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    for step in 0..2 {
+        let mut c = tool_loop_call("hello", step, false);
+        c.conversation_id = None;
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    // 每个请求各自准备；第二次准备返回空，第二个请求不得沿用第一个请求的块。
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    let sent = sends(&gate);
+    assert_eq!(sent[0].1.len(), 1);
+    assert!(sent[1].1.is_empty());
+}
+
+#[tokio::test]
+async fn concurrent_requests_of_a_turn_commit_one_prepared_value() {
+    let block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n{\"items\":[]}\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1";
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(3), (0..3).map(|_| raw_response()).collect(), 2);
+    // 两个并发请求都错过缓存并同时准备：第一个得到块，第二个得到空结果。
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(block)));
+    *gate.prepare_barrier.lock().unwrap() = Some(Arc::new(tokio::sync::Barrier::new(2)));
+    let r = RendererRef(renderer.clone());
+    let (a, b) = tokio::join!(
+        executor.run(tool_loop_call("hello", 0, false), &r, &NoopEvidenceSink),
+        executor.run(tool_loop_call("hello", 1, false), &r, &NoopEvidenceSink),
+    );
+    assert!(matches!(a, ManagedOutcome::Released { .. }));
+    assert!(matches!(b, ManagedOutcome::Released { .. }));
+    assert_eq!(
+        gate.prepare_queries.lock().unwrap().len(),
+        2,
+        "both requests prepared concurrently"
+    );
+    *gate.prepare_barrier.lock().unwrap() = None;
+
+    // 稍后的同一回合请求重放已提交的那一份。
+    executor
+        .run(tool_loop_call("hello", 2, false), &r, &NoopEvidenceSink)
+        .await;
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    let injected = |(body, declared): &(String, Vec<PreparedContextLocation>)| {
+        declared.first().map(|d| {
+            let body: serde_json::Value = serde_json::from_str(body).unwrap();
+            let text = body
+                .pointer(&d.location.pointer)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_owned();
+            (
+                d.binding.clone(),
+                text[..d.location.end_byte as usize].to_owned(),
+            )
+        })
+    };
+    let sent = sends(&gate);
+    assert_eq!(sent.len(), 3);
+    // 三个请求注入同一个值（同为同一个块，或同为不注入）。
+    assert_eq!(injected(&sent[0]), injected(&sent[1]));
+    assert_eq!(injected(&sent[1]), injected(&sent[2]));
+}
+
+#[tokio::test]
+async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_turn() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(3), (0..3).map(|_| raw_response()).collect(), 2);
+    for snapshot in [
+        "memory-snapshot-1",
+        "memory-snapshot-2",
+        "memory-snapshot-3",
+    ] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(snapshot)));
+    }
+    let earlier = Arc::new(tokio::sync::Notify::new());
+    gate.prepare_holds
+        .lock()
+        .unwrap()
+        .extend([Some(earlier.clone()), None, None]);
+    let r = RendererRef(renderer.clone());
+    // 上一回合的请求先开始准备、最后才完成；用户在此期间发了新消息，新回合先准备并提交。
+    let current_turn = async {
+        let outcome = executor
+            .run(tool_loop_call("second", 0, false), &r, &NoopEvidenceSink)
+            .await;
+        earlier.notify_one();
+        outcome
+    };
+    let (late, current) = tokio::join!(
+        executor.run(tool_loop_call("first", 0, false), &r, &NoopEvidenceSink),
+        current_turn,
+    );
+    assert!(matches!(late, ManagedOutcome::Released { .. }));
+    assert!(matches!(current, ManagedOutcome::Released { .. }));
+    // 当前回合的续写仍重放它已提交的内容，不再准备。
+    executor
+        .run(tool_loop_call("second", 1, false), &r, &NoopEvidenceSink)
+        .await;
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    let current_turn_sends: Vec<_> = sends(&gate)
+        .into_iter()
+        .filter(|(body, _)| body.contains("second"))
+        .collect();
+    assert_eq!(current_turn_sends.len(), 2);
+    assert!(
+        current_turn_sends
+            .iter()
+            .all(|(body, _)| body.contains("memory-snapshot-2")
+                && !body.contains("memory-snapshot-3"))
+    );
+}
+
+// ---------- #2407：每个用户回合在终止响应时沉淀一次规范化记录 ----------
+
+fn delivered(body: serde_json::Value) -> SendOutcome {
+    SendOutcome::Delivered(pc_gateway_transport::RawResponse {
+        status: 200,
+        content_type: "application/json".into(),
+        ttft_ms: None,
+        body: bytes::Bytes::from(body.to_string()),
+        usage: None,
+    })
+}
+
+fn chat_tool_call_response() -> SendOutcome {
+    delivered(serde_json::json!({
+        "id": "chatcmpl-1",
+        "choices": [{"finish_reason": "tool_calls", "message": {"role": "assistant", "content": null,
+            "tool_calls": [{"id": "call_9", "type": "function", "function": {"name": "run", "arguments": "{}"}}]}}],
+        "usage": {"total_tokens": 7}
+    }))
+}
+
+fn chat_final_response(text: &str) -> SendOutcome {
+    delivered(serde_json::json!({
+        "id": "chatcmpl-2",
+        "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": text}}],
+        "usage": {"total_tokens": 9}
+    }))
+}
+
+fn responses_output(items: serde_json::Value) -> SendOutcome {
+    delivered(serde_json::json!({
+        "id": "resp_1", "object": "response", "status": "completed", "output": items,
+        "usage": {"input_tokens": 10, "output_tokens": 2}
+    }))
+}
+
+fn reasoning_item() -> serde_json::Value {
+    serde_json::json!({"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": "gAAAA-secret"})
+}
+
+/// 规范化记录不得含推理密文、各类 ID、用量等元数据。
+fn assert_no_transport_metadata(content: &str) {
+    for field in [
+        "encrypted_content",
+        "gAAAA-secret",
+        "call_id",
+        "call_0",
+        "call_9",
+        "rs_1",
+        "resp_1",
+        "chatcmpl",
+        "usage",
+        "total_tokens",
+        "BEGIN_POWERCONTEXT",
+    ] {
+        assert!(
+            !content.contains(field),
+            "transcript contains {field}: {content}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn chat_tool_loop_captures_once_at_the_terminal_response() {
+    let (executor, renderer, _transport, gate) = harness(
+        allow_runs(2),
+        vec![chat_tool_call_response(), chat_final_response("done")],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let r = RendererRef(renderer.clone());
+    for step in 0..2 {
+        let mut c = tool_loop_call("fix the bug", step, false);
+        c.sediment = true;
+        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+        let expected = step;
+        assert_eq!(
+            gate.captured.lock().unwrap().len(),
+            expected,
+            "a tool-calling response is not captured"
+        );
+    }
+    let captured = gate.captured.lock().unwrap().clone();
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        transcript,
+        serde_json::json!({
+            "kind": "gateway_turn",
+            "user": "fix the bug",
+            "steps": [
+                {"type": "tool_call", "name": "run", "arguments": "{}"},
+                {"type": "tool_output", "output": "ok"}
+            ],
+            "assistant": "done"
+        })
+    );
+    assert_no_transport_metadata(&captured[0].1);
+}
+
+#[tokio::test]
+async fn responses_tool_loop_captures_once_at_the_terminal_response() {
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(2),
+        vec![
+            responses_output(serde_json::json!([
+                reasoning_item(),
+                {"id": "fc_1", "type": "function_call", "call_id": "call_0", "name": "run", "arguments": "{\"cmd\":\"ls\"}"}
+            ])),
+            responses_output(serde_json::json!([
+                reasoning_item(),
+                {"id": "msg_1", "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+            ])),
+        ],
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    for step in 0..2 {
+        let mut c = tool_loop_call("fix the bug", step, true);
+        c.sediment = true;
+        if step == 1 {
+            // 下一个请求带回上一步的推理条目与工具调用。
+            c.request.messages.insert(
+                1,
+                CanonicalMessage {
+                    role: Role::Tool,
+                    content: vec![reasoning_item()],
+                    content_null: false,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+            );
+        }
+        let outcome = executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+        assert_eq!(gate.captured.lock().unwrap().len(), step);
+    }
+    let captured = gate.captured.lock().unwrap().clone();
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        transcript,
+        serde_json::json!({
+            "kind": "gateway_turn",
+            "user": "fix the bug",
+            "steps": [
+                {"type": "tool_call", "name": "run", "arguments": "{}"},
+                {"type": "tool_output", "output": "ok"}
+            ],
+            "assistant": "done"
+        })
+    );
+    assert_no_transport_metadata(&captured[0].1);
+}
+
+#[tokio::test]
+async fn a_failed_capture_still_releases_and_is_recorded() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(1), vec![chat_final_response("done")], 2);
+    *gate.capture_error.lock().unwrap() = Some(GateError::GateUnavailable("down".into()));
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = call(DegradePolicy::Pause);
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    assert_eq!(gate.captured.lock().unwrap().len(), 1);
+    assert!(evidence
+        .not_sent()
+        .iter()
+        .any(|(_, reason)| reason.starts_with("sediment_failed:")));
+}
+
+#[tokio::test]
+async fn a_blocked_release_is_never_captured() {
+    let (executor, renderer, _transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(
+                CheckPhase::BeforeRelease,
+                CheckDecision::Block,
+                &["privacy.denied"],
+            )),
+        ],
+        vec![chat_final_response("secret answer")],
+        2,
+    );
+    let mut c = call(DegradePolicy::Pause);
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Blocked { .. }));
+    assert!(gate.captured.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_degraded_delivery_is_never_captured() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![Err(GateError::GateUnavailable("down".into()))],
+        vec![chat_final_response("unchecked answer")],
+        2,
+    );
+    let mut c = call(DegradePolicy::PassthroughWithoutMemory);
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Degraded { .. }));
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    assert!(gate.captured.lock().unwrap().is_empty());
+}
+
+/// 每次放行的 release binding 都不同（Core 每次重新封装），与真实行为一致。
+fn allow_runs_with_fresh_release_bindings(n: usize) -> Vec<Result<ContextCheckResult, GateError>> {
+    (0..n)
+        .flat_map(|i| {
+            [
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(ContextCheckResult {
+                    binding: Some(format!("release-{i}")),
+                    ..result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])
+                }),
+            ]
+        })
+        .collect()
+}
+
+fn captured_ids(gate: &FakeGate) -> Vec<String> {
+    gate.captured
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn retried_and_concurrent_terminal_requests_of_a_turn_share_one_source_id() {
+    let (executor, renderer, _transport, gate) = harness(
+        allow_runs_with_fresh_release_bindings(5),
+        (0..5)
+            .map(|i| chat_final_response(&format!("done {i}")))
+            .collect(),
+        2,
+    );
+    let r = RendererRef(renderer.clone());
+    let terminal = |conversation: &str| {
+        let mut c = tool_loop_call("fix the bug", 1, false);
+        c.inject_context = false;
+        c.sediment = true;
+        c.conversation_id = Some(conversation.into());
+        c
+    };
+    // 同一回合：先后重试两次，再并发重复两次。
+    executor
+        .run(terminal("conversation-a"), &r, &NoopEvidenceSink)
+        .await;
+    executor
+        .run(terminal("conversation-a"), &r, &NoopEvidenceSink)
+        .await;
+    tokio::join!(
+        executor.run(terminal("conversation-a"), &r, &NoopEvidenceSink),
+        executor.run(terminal("conversation-a"), &r, &NoopEvidenceSink),
+    );
+    let ids = captured_ids(&gate);
+    assert_eq!(ids.len(), 4);
+    assert!(
+        ids.iter().all(|id| id == &ids[0]),
+        "one turn, one Source ID: {ids:?}"
+    );
+    // 另一个会话中相同的消息是另一个回合。
+    executor
+        .run(terminal("conversation-b"), &r, &NoopEvidenceSink)
+        .await;
+    assert_ne!(captured_ids(&gate)[4], ids[0]);
+}
+
+#[tokio::test]
+async fn without_a_conversation_identical_turns_are_never_merged() {
+    let (executor, renderer, _transport, gate) = harness(
+        allow_runs_with_fresh_release_bindings(2),
+        vec![chat_final_response("done"), chat_final_response("done")],
+        2,
+    );
+    for _ in 0..2 {
+        let mut c = tool_loop_call("fix the bug", 1, false);
+        c.inject_context = false;
+        c.sediment = true;
+        c.conversation_id = None;
+        executor
+            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .await;
+    }
+    let ids = captured_ids(&gate);
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+}
+
+#[tokio::test]
+async fn a_turn_already_captured_with_other_content_is_recorded_as_a_duplicate() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(1), vec![chat_final_response("done again")], 2);
+    // Core 对同一 Source ID 的不同内容返回 409 source_conflict。
+    *gate.capture_error.lock().unwrap() = Some(GateError::GateRejected(409));
+    let evidence = BufferedEvidenceSink::new();
+    let mut c = tool_loop_call("fix the bug", 1, false);
+    c.inject_context = false;
+    c.sediment = true;
+    let outcome = executor
+        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let reasons: Vec<String> = evidence.not_sent().into_iter().map(|(_, r)| r).collect();
+    assert_eq!(reasons, vec!["sediment_duplicate".to_string()]);
+}
+
+#[tokio::test]
+async fn a_hosted_tool_response_is_terminal_but_a_client_tool_call_is_not() {
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(3),
+        vec![
+            responses_output(serde_json::json!([
+                {"id": "cu_1", "type": "computer_call", "call_id": "call_9", "status": "completed",
+                 "action": {"type": "screenshot"}}
+            ])),
+            responses_output(serde_json::json!([
+                {"id": "x_1", "type": "frobnicate_request", "status": "completed"}
+            ])),
+            responses_output(serde_json::json!([
+                {"id": "ws_1", "type": "web_search_call", "status": "completed",
+                 "action": {"type": "search", "query": "loader"}},
+                {"id": "msg_1", "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "found it", "annotations": []}]}
+            ])),
+        ],
+        2,
+    );
+    for expected in [0, 0, 1] {
+        let mut c = tool_loop_call("fix the bug", 0, true);
+        c.inject_context = false;
+        c.sediment = true;
+        executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert_eq!(gate.captured.lock().unwrap().len(), expected);
+    }
+    let captured = gate.captured.lock().unwrap().clone();
+    let transcript: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        transcript["steps"],
+        serde_json::json!([{"type": "tool_call", "name": "web_search_call",
+            "arguments": "{\"query\":\"loader\",\"type\":\"search\"}"}])
+    );
+    assert_eq!(transcript["assistant"], "found it");
 }

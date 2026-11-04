@@ -6,10 +6,14 @@ See [中文说明](README.zh.md), [security boundary](SECURITY.md), and [validat
 
 ## Observation
 
-The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Their data views are explicitly unavailable until integrated; opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
+The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Runtime state and inventory data remain explicitly unavailable until integrated. This session reads native session observations; opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
 
-The native host collects a bounded, in-memory window of HTTP requests and Memory/Scope user operations independently of page navigation. Trusted typed IPC provides an allowlisted summary, reset and safe JSON preview. The window retains at most 512 terminal records; it preserves cancellation and unknown-write outcomes and contains no content or target identities. See the [session observation contract](../docs/en/development/desktop-session-observations.md) for measurement units, coverage, reset and failure isolation. The This session page and clipboard flow require separate UI integration.
+The native host collects a bounded, in-memory window of HTTP requests and Memory/Scope user operations independently of page navigation. Trusted typed IPC provides an allowlisted summary, reset and safe JSON preview. The window retains at most 512 terminal records; it preserves cancellation and unknown-write outcomes and contains no content or target identities. See the [session observation contract](../docs/en/development/desktop-session-observations.md) for measurement units, coverage, reset and failure isolation. This session shows separate request/action counts, outcomes and millisecond latency, UTC snapshot/retention coverage, manual refresh and confirmed reset. **Preview safe diagnostic summary** opens the exact native text; copying is a separate explicit action with feedback and selectable text for manual recovery. Leaving the view or changing context closes its preview and discards late UI responses.
 
+
+Local setup and operations have a separate bounded diagnostic table with safe phases, unchanged Ops outcomes,
+error codes and supported opaque operation references. These snapshots are included in explicit safe preview/copy,
+with independent retention/loss coverage, and contribute no HTTP or Memory/Scope action latency.
 
 ## Shared feedback and current context
 
@@ -173,9 +177,11 @@ Register an explicitly trusted local installation in `%APPDATA%/com.powercontext
 }
 ```
 
+On Linux, put the same file at `$XDG_DATA_HOME/com.powercontext.desktop.preview/diagnostic-cli.json`; when `XDG_DATA_HOME` is unset, this resolves to `~/.local/share/com.powercontext.desktop.preview/diagnostic-cli.json`. The registered executable must be the absolute path to the `powercontext` file (not `powercontext.exe`), and the `sha256` value must be the verified 64-character digest. The `source` must be `explicit_local_installation`.
+
 The native adapter verifies the absolute executable path and pinned digest before running either `service status --json` or `doctor codex claude-code dsh openclaw opencode pi hermes workbuddy kimi-code zcode --json`. Registration does not require a version; legacy `version` fields are ignored. Compatibility is determined by the diagnostic response matching the adapter's supported output schema. The observed CLI version is collected for display after a valid diagnostic response; an unavailable version is shown as unknown and does not reject the response. This is a local installation pin, not publisher-signature verification; the Python environment and dependencies must also be trusted. Update the registered digest if the executable changes. No PATH-first CLI selection or renderer-provided commands are accepted.
 
-The optional version query has a 15-second deadline, service status 20 seconds, and integration diagnostics 60 seconds. Each invocation limits combined stdout/stderr to 256 KiB. Helpers run hidden in an owned Windows Job; completion, timeout and cancellation clean up their descendants. Only allowlisted status fields reach the UI. Valid unhealthy JSON remains useful even with exit code 1. Isolated real-CLI checks pass; installed-application qualification remains open in [validation guide](VALIDATION.md).
+The optional version query has a 15-second deadline, service status 20 seconds, and integration diagnostics 60 seconds. Each invocation limits combined stdout/stderr to 256 KiB. Windows helpers run hidden in an owned Windows Job; Linux and macOS helpers run in a private POSIX process group. Completion, timeout and cancellation clean up the helper and its descendants without affecting unrelated processes. Only allowlisted status fields reach the UI. Valid unhealthy JSON remains useful even with exit code 1. Isolated real-CLI checks pass; installed-application qualification remains open in [validation guide](VALIDATION.md).
 
 [Validation guide](VALIDATION.md) describes reproducible checks and outstanding platform and product gates.
 

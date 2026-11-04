@@ -1782,6 +1782,28 @@ const OPERATIONS = {
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
+	},
+	plan_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/plan",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	apply_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/apply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);
@@ -2237,9 +2259,9 @@ function errorResult(error) {
 		message: "PowerContext is unavailable; continue the task."
 	};
 }
-async function invokeOperation(client, operationId, payload, scopeId, signal) {
+function scopedPayload(operationId, payload, scopeId) {
 	const mode = OPERATIONS[operationId].scopeMode;
-	const body = mode === "selection" ? {
+	return mode === "selection" ? {
 		...payload,
 		selection: {
 			mode: "exact",
@@ -2249,6 +2271,9 @@ async function invokeOperation(client, operationId, payload, scopeId, signal) {
 		...payload,
 		scope_id: scopeId
 	} : payload;
+}
+async function invokeOperation(client, operationId, payload, scopeId, signal) {
+	const body = scopedPayload(operationId, payload, scopeId);
 	if (operationMutates(operationId) && hasSecret(body)) return {
 		ok: false,
 		code: "secret_rejected",
@@ -2570,23 +2595,20 @@ var StatusTimeoutError = class extends Error {
 		this.name = "StatusTimeoutError";
 	}
 };
-function httpOutcome(status) {
+function httpOutcome(status, code) {
 	if (status === 401) return "authentication_failed";
-	if (status === 404) return "version_mismatch";
+	if (status === 404 && code === void 0) return "version_mismatch";
 	if (status === 503) return "server_unavailable";
 	return "invalid_response";
 }
-function scopeFailureOutcome(error) {
+function requestFailureOutcome(error) {
 	if (error instanceof StatusTimeoutError) return "server_unavailable";
-	if (error instanceof ServerResponseError) return httpOutcome(error.statusCode);
+	if (error instanceof ServerResponseError) return httpOutcome(error.statusCode, error.code);
 	if (error instanceof UnavailableError) return "server_unavailable";
 	return "invalid_response";
 }
-function statsFailureOutcome(result) {
-	if (result.code === "authentication_failed") return "authentication_failed";
-	if (result.code === "unavailable") return "server_unavailable";
-	if (typeof result.status === "number") return httpOutcome(result.status);
-	return "invalid_response";
+async function loadStats(client, period, scopeId, signal) {
+	return (await client.request("get_stats", scopedPayload("get_stats", { period }, scopeId), signal)).value;
 }
 function textNode(text, color, onMouseUp) {
 	const node = createElement("text");
@@ -2622,35 +2644,27 @@ async function loadStatuslineStatus(runtime, sessionID, cwd, signal) {
 	} catch (error) {
 		return {
 			connected: false,
-			label: failureLabel(scopeFailureOutcome(error))
+			label: failureLabel(requestFailureOutcome(error))
 		};
 	}
 	try {
-		const [today, month] = await Promise.all([withTimeout(invokeOperation(runtime.client, "get_stats", { period: "today" }, scopeId, signal), STATUS_TIMEOUT_MS), withTimeout(invokeOperation(runtime.client, "get_stats", { period: "30d" }, scopeId, signal), STATUS_TIMEOUT_MS)]);
-		if (!today.ok) return {
-			connected: false,
-			label: failureLabel(statsFailureOutcome(today))
-		};
-		if (!month.ok) return {
-			connected: false,
-			label: failureLabel(statsFailureOutcome(month))
-		};
-		const todayTotals = tokenTotals(today.data);
-		const monthTotals = tokenTotals(month.data);
+		const [today, month] = await Promise.all([withTimeout(loadStats(runtime.client, "today", scopeId, signal), STATUS_TIMEOUT_MS), withTimeout(loadStats(runtime.client, "30d", scopeId, signal), STATUS_TIMEOUT_MS)]);
+		const todayTotals = tokenTotals(today);
+		const monthTotals = tokenTotals(month);
 		if (!todayTotals || !monthTotals) return {
 			connected: false,
 			label: failureLabel("invalid_response")
 		};
 		return {
 			connected: true,
-			label: formatPowerContextStatus(today.data, month.data),
+			label: formatPowerContextStatus(today, month),
 			todayReduction: todayTotals.token_reduction,
 			monthReduction: monthTotals.token_reduction
 		};
 	} catch (error) {
 		return {
 			connected: false,
-			label: failureLabel(scopeFailureOutcome(error))
+			label: failureLabel(requestFailureOutcome(error))
 		};
 	}
 }

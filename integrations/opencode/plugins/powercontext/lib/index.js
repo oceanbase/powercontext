@@ -1782,6 +1782,28 @@ const OPERATIONS = {
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
+	},
+	plan_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/plan",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	apply_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/apply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);
@@ -2309,9 +2331,9 @@ function errorResult(error) {
 		message: "PowerContext is unavailable; continue the task."
 	};
 }
-async function invokeOperation(client, operationId, payload, scopeId, signal) {
+function scopedPayload(operationId, payload, scopeId) {
 	const mode = OPERATIONS[operationId].scopeMode;
-	const body = mode === "selection" ? {
+	return mode === "selection" ? {
 		...payload,
 		selection: {
 			mode: "exact",
@@ -2321,6 +2343,9 @@ async function invokeOperation(client, operationId, payload, scopeId, signal) {
 		...payload,
 		scope_id: scopeId
 	} : payload;
+}
+async function invokeOperation(client, operationId, payload, scopeId, signal) {
+	const body = scopedPayload(operationId, payload, scopeId);
 	if (operationMutates(operationId) && hasSecret(body)) return {
 		ok: false,
 		code: "secret_rejected",
