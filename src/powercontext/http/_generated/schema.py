@@ -10229,8 +10229,35 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ContextCheckCoverage": {
                 "properties": {
-                    "profile": {"type": "string", "enum": ["text-and-tools.v1"]},
-                    "complete": {"type": "boolean"},
+                    "profile": {
+                        "type": "string",
+                        "enum": ["text-and-tools.v1", "context-bindings.v1"],
+                        "description": "text-and-tools.v1 "
+                        "includes "
+                        "enforcing "
+                        "privacy "
+                        "inspection. "
+                        "context-bindings.v1 "
+                        "validates "
+                        "context "
+                        "and "
+                        "request/response "
+                        "bindings "
+                        "in "
+                        "disabled, "
+                        "shadow, "
+                        "or "
+                        "advisory "
+                        "mode "
+                        "without "
+                        "asserting "
+                        "privacy "
+                        "coverage.",
+                    },
+                    "complete": {
+                        "type": "boolean",
+                        "description": "Whether all checks required by the named coverage profile completed.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -10241,7 +10268,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "schema": {"type": "string", "enum": ["powercontext.context-check.v1"]},
                     "phase": {"type": "string", "enum": ["before_send", "before_release"]},
                     "decision": {"type": "string", "enum": ["allow", "block", "withhold"]},
-                    "reason_codes": {"items": {"type": "string", "maxLength": 128}, "type": "array", "maxItems": 32},
+                    "reason_codes": {
+                        "items": {"type": "string", "maxLength": 128},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Reasons "
+                        "for "
+                        "refusal, "
+                        "or "
+                        "non-blocking "
+                        "request "
+                        "observations "
+                        "in "
+                        "shadow "
+                        "and "
+                        "advisory "
+                        "modes. "
+                        "Use "
+                        "decision "
+                        "to "
+                        "determine "
+                        "whether "
+                        "execution "
+                        "is "
+                        "admitted.",
+                    },
                     "coverage": {"$ref": "#/components/schemas/ContextCheckCoverage"},
                     "policy_version": {"type": "string", "maxLength": 128, "minLength": 1},
                     "valid_until": {"type": "string", "format": "date-time"},

@@ -156,7 +156,9 @@ def _withheld(
         phase=request.phase,
         decision="withhold",
         reason_codes=(reason,),
-        coverage=PrivacyCoverage(complete=False),
+        coverage=PrivacyCoverage(
+            profile="text-and-tools.v1" if config.mode == "enforcing" else "context-bindings.v1", complete=False
+        ),
         policy_version=config.policy_version,
         valid_until=now,
     )
@@ -283,7 +285,10 @@ async def _validate_prepared(
     profile = config.targets[request.target_profile]
     if profile.require_prepared_contexts and not request.prepared_contexts:
         raise InvalidRuntimeRequestError("context-binding-required")
-    body = parse_model_json(request.payload.body.encode("utf-8"), max_depth=config.max_json_depth)
+    try:
+        body = parse_model_json(request.payload.body.encode("utf-8"), max_depth=config.max_json_depth)
+    except (ValueError, RecursionError, UnicodeError):
+        raise InvalidRuntimeRequestError("context-payload-json") from None
     previous: tuple[int, int, int] | None = None
     locations: dict[str, list[tuple[int, int]]] = {}
     expiry: datetime | None = None
@@ -337,7 +342,7 @@ async def _correlate(
         await validate_reuse(binding)
 
 
-async def check_context(
+async def check_context(  # noqa: C901 - all privacy modes share phase-specific binding validation
     request: CheckContextRequest,
     *,
     scope_id: str,
@@ -356,21 +361,28 @@ async def check_context(
     limit = config.max_payload_bytes if request.phase == "before_send" else config.max_response_bytes
     if len(body) > min(limit, MAX_CHECK_BODY_BYTES):
         raise ContextCheckTooLargeError
-    if config.mode != "enforcing":
-        return _withheld(request, config, now, "enforcement-not-configured")
-    policy = PrivacyPolicy(config)
-    assessed = policy.inspect_json(
-        body, phase=request.phase, target_profile=request.target_profile, headers=request.payload.headers
-    )
-    if assessed.decision != "allow" or not assessed.coverage.complete:
-        return ContextCheckResult(
-            phase=request.phase,
-            decision=assessed.decision if assessed.decision != "allow" else "withhold",
-            reason_codes=assessed.reason_codes,
-            coverage=assessed.coverage,
-            policy_version=assessed.policy_version,
-            valid_until=now,
+    if config.targets.get(request.target_profile) is None:
+        return _withheld(request, config, now, "target_unsupported")
+    coverage = PrivacyCoverage(profile="context-bindings.v1", complete=True)
+    reasons: tuple[str, ...] = ()
+    if config.mode == "enforcing" or (config.mode in {"shadow", "advisory"} and request.phase == "before_send"):
+        assessed = PrivacyPolicy(config).inspect_json(
+            body, phase=request.phase, target_profile=request.target_profile, headers=request.payload.headers
         )
+        if config.mode == "enforcing":
+            if assessed.decision != "allow" or not assessed.coverage.complete:
+                return ContextCheckResult(
+                    phase=request.phase,
+                    decision=assessed.decision if assessed.decision != "allow" else "withhold",
+                    reason_codes=assessed.reason_codes,
+                    coverage=assessed.coverage,
+                    policy_version=assessed.policy_version,
+                    valid_until=now,
+                )
+            coverage = assessed.coverage
+        else:
+            # Observation diagnostics do not block delivery or claim privacy coverage.
+            reasons = assessed.reason_codes
     fingerprint = _fingerprint(config)
     expiry: datetime | None = None
     try:
@@ -416,7 +428,8 @@ async def check_context(
     return ContextCheckResult(
         phase=request.phase,
         decision="allow",
-        coverage=assessed.coverage,
+        reason_codes=reasons,
+        coverage=coverage,
         policy_version=config.policy_version,
         valid_until=deadline,
         correlate_until=correlate_until,

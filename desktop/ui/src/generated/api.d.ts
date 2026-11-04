@@ -4271,8 +4271,12 @@ export interface components {
         };
         CheckContextRequest: components["schemas"]["CheckContextBeforeSend"] | components["schemas"]["CheckContextBeforeRelease"];
         ContextCheckCoverage: {
-            /** @enum {string} */
-            profile: "text-and-tools.v1";
+            /**
+             * @description text-and-tools.v1 includes enforcing privacy inspection. context-bindings.v1 validates context and request/response bindings in disabled, shadow, or advisory mode without asserting privacy coverage.
+             * @enum {string}
+             */
+            profile: "text-and-tools.v1" | "context-bindings.v1";
+            /** @description Whether all checks required by the named coverage profile completed. */
             complete: boolean;
         };
         ContextCheckResult: {
@@ -4282,6 +4286,7 @@ export interface components {
             phase: "before_send" | "before_release";
             /** @enum {string} */
             decision: "allow" | "block" | "withhold";
+            /** @description Reasons for refusal, or non-blocking request observations in shadow and advisory modes. Use decision to determine whether execution is admitted. */
             reason_codes: string[];
             coverage: components["schemas"]["ContextCheckCoverage"];
             policy_version: string;

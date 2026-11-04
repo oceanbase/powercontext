@@ -27,6 +27,25 @@ Its default mode is `disabled`, preserving existing inference behavior. `shadow`
 materialized requests only; they do not inspect responses or stop delivery. They must not be described as preventing disclosure. `enforcing` blocks or withholds when a
 required check fails. Representation or context reuse options cannot disable an enforcing check.
 
+The Gateway and `/v1/context/check` support all four modes:
+
+| Mode | Request privacy inspection | Response privacy inspection | Privacy findings stop delivery |
+| --- | --- | --- | --- |
+| `disabled` | None | None | No |
+| `shadow` / `advisory` | Observations only | None | No |
+| `enforcing` | Required | Required | Yes |
+
+All modes still require a configured `target_profile` for protocol-aware context validation. They retain
+payload bounds, prepared-context authorization and exact-content checks, binding expiry, and the association
+between a response and its admitted request. Disabling privacy inspection does not bypass these checks.
+Model-window, output-budget, and content restrictions belong to `enforcing` mode.
+
+An admitted non-enforcing check returns `coverage.profile="context-bindings.v1"`. Its `complete=true` means
+the context-binding checks completed; it does not claim that text or images were inspected for privacy.
+An enforcing admission uses `text-and-tools.v1`. In `shadow` and `advisory`, an allowed request can include
+non-blocking observations in `reason_codes`; callers must use `decision` to determine admission.
+Changing the mode invalidates outstanding request bindings, so a response cannot cross a policy change.
+
 For example, construct an inference configuration with a controlled text-only endpoint:
 
 ```python
@@ -62,7 +81,7 @@ It does not redact request or response content.
 The endpoint, model, and limits are illustrative. This example deliberately withholds until the deployment has
 verified that its model's tokenizer and protocol template fit the conservative UTF-8 bound and configured protocol
 reserve, then sets `validated_utf8_token_bound=True`. A character-count estimate is not a hard model-window bound.
-Generating targets need a declared context window, output limit, and an actual positive output limit in the final
+In `enforcing` mode, generating targets need a declared context window, output limit, and an actual positive output limit in the final
 request. A payload that exceeds the bound is withheld.
 
 Server deployments can set the same object as JSON in `POWERCONTEXT_SERVER_INFERENCE_PROTECTION`.

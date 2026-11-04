@@ -1567,14 +1567,22 @@ class CheckContextRequest(RootModel[CheckContextBeforeSend | CheckContextBeforeR
 
 class Profile(StrEnum):
     TEXT_AND_TOOLS_V1 = "text-and-tools.v1"
+    CONTEXT_BINDINGS_V1 = "context-bindings.v1"
 
 
 class ContextCheckCoverage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    profile: Profile
-    complete: StrictBool
+    profile: Annotated[
+        Profile,
+        Field(
+            description="text-and-tools.v1 includes enforcing privacy inspection. context-bindings.v1 validates context and request/response bindings in disabled, shadow, or advisory mode without asserting privacy coverage."
+        ),
+    ]
+    complete: Annotated[
+        StrictBool, Field(description="Whether all checks required by the named coverage profile completed.")
+    ]
 
 
 class Schema9(StrEnum):
@@ -1603,7 +1611,13 @@ class ContextCheckResult(BaseModel):
     schema_: Annotated[Schema9, Field(alias="schema")]
     phase: Phase3
     decision: Decision
-    reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
+    reason_codes: Annotated[
+        list[ReasonCode],
+        Field(
+            description="Reasons for refusal, or non-blocking request observations in shadow and advisory modes. Use decision to determine whether execution is admitted.",
+            max_length=32,
+        ),
+    ]
     coverage: ContextCheckCoverage
     policy_version: Annotated[StrictStr, Field(max_length=128, min_length=1)]
     valid_until: AwareDatetime

@@ -36,6 +36,7 @@ from powercontext.builtin.runtime.context_reuse import ContextReuseError, Valida
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 
 NOW = datetime(2026, 10, 26, tzinfo=UTC)
+MODES = ("disabled", "shadow", "advisory", "enforcing")
 
 
 @pytest.fixture
@@ -137,22 +138,25 @@ async def test_null_error_does_not_authorize_incomplete_output(protocol):
 
 
 @pytest.mark.anyio
-async def test_separate_send_deadline_and_response_correlation():
+@pytest.mark.parametrize("mode", MODES)
+async def test_separate_send_deadline_and_response_correlation(mode):
     codec = BindingCodec()
-    send = await _check(_send(), codec)
+    config = _config(mode=mode)
+    send = await _check(_send(), codec, config=config)
     assert send.decision == "allow" and send.binding
     assert send.valid_until == NOW + timedelta(seconds=60)
     assert send.correlate_until == NOW + timedelta(seconds=300)
-    release = await _check(_release(send.binding), codec, now=NOW + timedelta(seconds=90))
+    release = await _check(_release(send.binding), codec, config=config, now=NOW + timedelta(seconds=90))
     assert release.decision == "allow" and release.binding
     assert release.correlate_until is None
-    wrong_phase = await _check(_release(release.binding), codec)
+    wrong_phase = await _check(_release(release.binding), codec, config=config)
     assert wrong_phase.decision == "withhold"
-    expired = await _check(_release(send.binding), codec, now=NOW + timedelta(seconds=301))
+    expired = await _check(_release(send.binding), codec, config=config, now=NOW + timedelta(seconds=301))
     assert expired.decision == "withhold"
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize(
     "changed",
     [
@@ -161,10 +165,13 @@ async def test_separate_send_deadline_and_response_correlation():
         {"config": _config(forbidden_values=(SecretStr("a different rule under the same version"),))},
     ],
 )
-async def test_request_binding_cannot_cross_identity_scope_or_current_policy(changed):
+async def test_request_binding_cannot_cross_identity_scope_or_current_policy(changed, mode):
     codec = BindingCodec()
-    send = await _check(_send(), codec)
+    config = _config(mode=mode)
+    send = await _check(_send(), codec, config=config)
     assert send.binding
+    changed = dict(changed)
+    changed["config"] = changed.get("config", config).model_copy(update={"mode": mode})
     result = await _check(_release(send.binding), codec, **changed)
     assert result.decision == "withhold" and result.binding is None
 
@@ -182,13 +189,75 @@ async def test_raw_request_and_response_block_without_echoing_content():
 
 
 @pytest.mark.anyio
-async def test_shadow_never_issues_an_execution_binding():
-    result = await _check(_send(), BindingCodec(), config=_config(mode="shadow"))
-    assert result.decision == "withhold" and not result.coverage.complete and result.binding is None
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory"])
+@pytest.mark.parametrize(
+    ("text", "extra", "observed_reason"),
+    [
+        ("synthetic-forbidden-value", {}, "forbidden_content"),
+        ("safe", {"image": {"context_compression": "disabled"}}, "content_unsupported"),
+    ],
+)
+async def test_non_enforcing_modes_allow_content_with_binding_only_coverage(mode, text, extra, observed_reason):
+    config = _config(mode=mode)
+    codec = BindingCodec()
+    request = _send(payload=_payload({"model": "test", "messages": [{"role": "user", "content": text}], **extra}))
+    send = await _check(request, codec, config=config)
+    assert send.decision == "allow" and send.binding
+    assert send.coverage.profile == "context-bindings.v1" and send.coverage.complete
+    assert send.reason_codes == (() if mode == "disabled" else (observed_reason,))
+    release = _release(send.binding, "synthetic-forbidden-value").model_copy(
+        update={
+            "payload": _payload({"image": {"context_compression": "disabled"}, "output": "synthetic-forbidden-value"})
+        }
+    )
+    result = await _check(release, codec, config=config)
+    assert result.decision == "allow" and result.binding
+    assert result.coverage.profile == "context-bindings.v1" and result.coverage.complete
+    assert result.reason_codes == ()
 
 
 @pytest.mark.anyio
-async def test_utf8_exact_block_requires_user_position_and_complete_binding():
+@pytest.mark.parametrize("mode", MODES)
+async def test_missing_target_withholds_in_every_mode_without_issuing_a_binding(mode):
+    for request in (_send(), _release("unissued")):
+        result = await _check(request, BindingCodec(), config=_config(mode=mode, targets={}))
+        assert result.decision == "withhold" and result.binding is None
+        assert result.reason_codes == ("target_unsupported",)
+        assert not result.coverage.complete
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory"])
+@pytest.mark.parametrize("body", ['{"messages":', '{"messages": [], "messages": []}', "[]"])
+async def test_non_enforcing_modes_require_an_unambiguous_json_request_for_context_binding(mode, body):
+    request = _send(payload=ModelJsonPayload(headers={"content-type": "application/json"}, body=body))
+    with pytest.raises(InvalidRuntimeRequestError, match="context-payload-json"):
+        await _check(request, BindingCodec(), config=_config(mode=mode))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("send_mode", "release_mode"),
+    [
+        ("disabled", "shadow"),
+        ("shadow", "advisory"),
+        ("advisory", "disabled"),
+        ("enforcing", "disabled"),
+        ("disabled", "enforcing"),
+    ],
+)
+async def test_mode_changes_invalidate_existing_request_bindings(send_mode, release_mode):
+    codec = BindingCodec()
+    send = await _check(_send(), codec, config=_config(mode=send_mode))
+    assert send.decision == "allow" and send.binding
+    result = await _check(_release(send.binding), codec, config=_config(mode=release_mode))
+    assert result.decision == "withhold" and result.binding is None
+    assert result.reason_codes == ("context-refresh-required",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", MODES)
+async def test_utf8_exact_block_requires_user_position_and_complete_binding(mode):
     block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\n历史资料\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1"
     prefix = "当前任务: \n"
 
@@ -210,10 +279,11 @@ async def test_utf8_exact_block_requires_user_position_and_complete_binding():
         },
     }
     request = _send(prefix + block, prepared_contexts=(location,))
-    result = await _check(request, BindingCodec(), validate_reuse=validate)
+    config = _config(mode=mode)
+    result = await _check(request, BindingCodec(), config=config, validate_reuse=validate)
     assert result.decision == "allow"
     with pytest.raises(InvalidRuntimeRequestError, match="binding-required"):
-        await _check(_send(prefix + block), BindingCodec())
+        await _check(_send(prefix + block), BindingCodec(), config=config)
     promoted = _send(
         payload=_payload({
             "model": "test",
@@ -223,19 +293,22 @@ async def test_utf8_exact_block_requires_user_position_and_complete_binding():
         prepared_contexts=(location,),
     )
     with pytest.raises(InvalidRuntimeRequestError, match="location-trust"):
-        await _check(promoted, BindingCodec(), validate_reuse=validate)
+        await _check(promoted, BindingCodec(), config=config, validate_reuse=validate)
     altered = _send(prefix + block.replace("资料", "伪造"), prepared_contexts=(location,))
     with pytest.raises(InvalidRuntimeRequestError, match="location-content"):
-        await _check(altered, BindingCodec(), validate_reuse=validate)
+        await _check(altered, BindingCodec(), config=config, validate_reuse=validate)
 
 
 @pytest.mark.anyio
-async def test_current_dependency_failure_withholds_instead_of_refreshing():
+@pytest.mark.parametrize("mode", MODES)
+async def test_current_dependency_failure_withholds_instead_of_refreshing(mode):
     async def revoked(_binding):
         raise ContextReuseError("context-reuse-source-changed")
 
     item = {"binding": "opaque", "location": {"pointer": "/messages/0/content", "start_byte": 0, "end_byte": 4}}
-    result = await _check(_send(prepared_contexts=(item,)), BindingCodec(), validate_reuse=revoked)
+    result = await _check(
+        _send(prepared_contexts=(item,)), BindingCodec(), config=_config(mode=mode), validate_reuse=revoked
+    )
     assert result.decision == "withhold" and result.reason_codes == ("context-refresh-required",)
 
 
@@ -288,9 +361,10 @@ async def test_multiple_retained_blocks_require_every_exact_ordered_utf8_locatio
 
 
 @pytest.mark.anyio
-async def test_total_utf8_budget_is_enforced_before_policy():
+@pytest.mark.parametrize("mode", MODES)
+async def test_total_utf8_budget_is_enforced_before_policy(mode):
     with pytest.raises(ContextCheckTooLargeError):
-        await _check(_send("数据" * 90), BindingCodec(), config=_config(max_payload_bytes=256))
+        await _check(_send("数据" * 90), BindingCodec(), config=_config(mode=mode, max_payload_bytes=256))
 
 
 def test_phase_dto_and_headers_do_not_accept_cross_phase_or_authority_override():
