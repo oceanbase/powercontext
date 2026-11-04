@@ -289,7 +289,7 @@ Export secrets and deployment choices without writing them into Compose:
 ```bash
 export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN"
-export POWERCONTEXT_GENERATION_MODEL="openai:gpt-4.1-mini"
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai:gpt-4.1-mini"
 export OPENAI_API_KEY
 docker compose --file docker/compose.distributed.yaml up migrate
 docker compose --file docker/compose.distributed.yaml up -d api-a api-b scheduler-a scheduler-b worker-a worker-b
