@@ -54,7 +54,16 @@ From a repository checkout, `uv sync` followed by `uv run powercontext server ru
 
 ## 2. Run an example
 
-In a second terminal, set the provider key and run one example:
+The example modules live in the repository, not in the published wheel, so they must be run from a clone. The
+`uv tool install` in step 1 installs only the Server and CLI. In a second terminal:
+
+```bash
+git clone https://github.com/oceanbase/powercontext.git
+cd powercontext
+uv sync
+```
+
+Then, from the repository root, set the provider key and run one example:
 
 ```bash
 export OPENAI_API_KEY=replace-with-a-secret-store-value

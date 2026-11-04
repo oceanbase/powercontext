@@ -50,7 +50,16 @@ powercontext server run
 
 ## 2. 运行示例
 
-在第二个终端中设置供应商密钥并运行一个示例：
+示例模块位于仓库中，不在发布的 wheel 中，因此必须在克隆目录中运行。第 1 步的 `uv tool install` 只安装 Server 和 CLI。
+在第二个终端中：
+
+```bash
+git clone https://github.com/oceanbase/powercontext.git
+cd powercontext
+uv sync
+```
+
+然后在仓库根目录设置供应商密钥并运行一个示例：
 
 ```bash
 export OPENAI_API_KEY=replace-with-a-secret-store-value
