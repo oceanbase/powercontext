@@ -1423,6 +1423,26 @@ class _PreconditionRequiredError(RuntimeError):
     """Raised when an Artifact mutation omits If-Match."""
 
 
+def _mount_boundary_routes(
+    app: FastAPI,
+    *,
+    infrastructure_only: bool,
+    route_profile: Literal["full", "health"],
+) -> bool:
+    """Mount the health boundary and report whether the data plane stays unmounted.
+
+    ``infrastructure_only`` exposes liveness alone. ``route_profile="health"`` adds readiness for
+    distributed Scheduler/Worker roles; metrics are mounted by the caller and every business route
+    stays on the API replicas.
+    """
+
+    _add_route(app, GET_LIVENESS, get_liveness)
+    if infrastructure_only:
+        return True
+    _add_route(app, GET_READINESS, get_readiness)
+    return route_profile == "health"
+
+
 def create_app(
     *,
     application: ServerApplication | None = None,
@@ -1554,15 +1574,7 @@ def create_app(
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
 
-    if infrastructure_only:
-        _add_route(app, GET_LIVENESS, get_liveness)
-        return app
-
-    _add_route(app, GET_LIVENESS, get_liveness)
-    _add_route(app, GET_READINESS, get_readiness)
-    if route_profile == "health":
-        # Health/metrics boundary: metrics are mounted by the caller. Every
-        # business route stays on the API replicas.
+    if _mount_boundary_routes(app, infrastructure_only=infrastructure_only, route_profile=route_profile):
         return app
 
     _add_route(app, CREATE_DREAM_RUN, create_dream_run)
