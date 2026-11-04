@@ -18,7 +18,11 @@ does not need a Hermes installation or network access.
 
 Supply an existing Hermes Git checkout at commit
 `4131fd95700685444c3522bf1ea07578c4003523`. The harness requires that exact HEAD and
-no tracked modifications. It never downloads, installs into, or modifies that checkout.
+no tracked modifications. A checkout-root `.env` (including a dangling symlink) is
+rejected with `checkout_local_config` before any Hermes import, even when Git ignores
+it. Use a separate checkout without local configuration; the harness does not read,
+delete, rename or modify that file. It never downloads, installs into, or modifies
+that checkout.
 Use Python 3.14 for this pinned Hermes revision; its older-Python metadata exists for
 the updater bridge. The interpreter needs the dependencies used by Hermes' manager and
 this repository's development dependencies (including pytest, httpx, uvicorn and the
@@ -59,8 +63,9 @@ uv run pytest tests/integration_conformance/hermes -q -rs \
 ```
 
 The subprocess receives a temporary HOME, Hermes profile, configuration/cache directories
-and working directory. It receives no inherited model credentials or PowerContext
-connection overrides, and disables user site packages and bytecode writes. The current
+and working directory, plus an explicitly empty managed-configuration directory so
+system-wide Hermes policy is not loaded. It receives no inherited model credentials or
+PowerContext connection overrides, and disables user site packages and bytecode writes. The current
 repository's adapter is loaded directly; no plugin is copied into Hermes. The real
 `MemoryManager.add_provider`, `initialize_all`, `sync_all`, `on_session_end`,
 `on_pre_compress`, `flush_pending` and `shutdown_all` run without replacing their methods.

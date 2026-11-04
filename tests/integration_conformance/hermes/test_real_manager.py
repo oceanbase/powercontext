@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.integration_conformance.hermes.run_manager import reject_checkout_dotenv
 from tests.integration_conformance.hermes.support import FIXTURE_HASH, FIXTURE_ID
 
 HERMES_SHA = "4131fd95700685444c3522bf1ea07578c4003523"
@@ -81,9 +82,13 @@ def test_real_memory_manager_http_storage(tmp_path, request):
         assert sha == HERMES_SHA
         stage = "checkout_modified"
         assert not git(checkout, "status", "--porcelain", "--untracked-files=no")
+        stage = "checkout_local_config"
+        reject_checkout_dotenv(checkout)
 
         home = tmp_path / "home"
         home.mkdir()
+        managed = home / "managed"
+        managed.mkdir()
         # Do not inherit model keys, secret scopes, user profiles, proxies or provider overrides.
         environment = {
             key: value
@@ -94,6 +99,7 @@ def test_real_memory_manager_http_storage(tmp_path, request):
             "HOME": str(home),
             "USERPROFILE": str(home),
             "HERMES_HOME": str(tmp_path / "scenario" / "manager" / "profile"),
+            "HERMES_MANAGED_DIR": str(managed),
             "XDG_CONFIG_HOME": str(home / "config"),
             "XDG_DATA_HOME": str(home / "data"),
             "XDG_CACHE_HOME": str(home / "cache"),
@@ -118,6 +124,7 @@ def test_real_memory_manager_http_storage(tmp_path, request):
                 ENTRY,
                 str(tmp_path / "scenario"),
                 str(result_path),
+                str(checkout),
             ],
             cwd=home,
             env=environment,

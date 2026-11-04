@@ -20,13 +20,28 @@ import importlib.util
 import io
 import json
 import logging
+import os
 import platform
 import sys
 from pathlib import Path
 
 
+class CheckoutLocalConfigError(ValueError):
+    """The external checkout could load developer-local configuration."""
+
+    def __init__(self):
+        super().__init__("Hermes conformance requires a checkout without a local .env")
+
+
+def reject_checkout_dotenv(checkout: Path) -> None:
+    # Git's tracked-file check excludes .env, and Hermes reads it during imports.
+    # lexists also rejects dangling links without opening the file or its target.
+    if os.path.lexists(checkout / ".env"):
+        raise CheckoutLocalConfigError
+
+
 def main():
-    directory, output = map(Path, sys.argv[1:])
+    directory, output, checkout = map(Path, sys.argv[1:])
     report = {
         "real-manager": {"status": "failed", "executed": False, "failure_category": "dependency_error"},
         "adapter-only": {"status": "unverified", "executed": False},
@@ -38,6 +53,7 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     current = "real-manager"
     try:
+        reject_checkout_dotenv(checkout)
         from agent.memory_manager import MemoryManager  # ty: ignore[unresolved-import]
         from agent.memory_provider import MemoryProvider  # ty: ignore[unresolved-import]
 
@@ -75,7 +91,10 @@ def main():
         assert_projected(logs.getvalue())
         return_code = 0
     except Exception as error:
-        category = "dependency_error" if isinstance(error, ImportError) else "behavior_mismatch"
+        if isinstance(error, CheckoutLocalConfigError):
+            category = "checkout_local_config"
+        else:
+            category = "dependency_error" if isinstance(error, ImportError) else "behavior_mismatch"
         report[current].update(status="failed", failure_category=category)
         return_code = 1
     finally:
