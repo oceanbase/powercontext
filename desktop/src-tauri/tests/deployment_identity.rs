@@ -269,53 +269,55 @@ impl Fixture {
 
 #[tokio::test]
 async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal_fence() {
-    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
-    fixture.state.lock().unwrap().discovery.1["feature_contracts"]
-        .as_object_mut()
-        .unwrap()
-        .remove("connection.identity");
-    let generation = fixture.select().await;
-    let report = fixture.manager.state().unwrap().active.unwrap().report;
-    assert!(report.connection_identity.is_none());
-    assert!(!report.anonymous_access);
-    assert_eq!(report.supported_operations.len(), 11);
-    assert!(
-        !report
-            .supported_operations
-            .iter()
-            .any(|op| op == "get_connection_identity")
-    );
-    assert_eq!(
-        fixture
-            .manager
-            .remember(generation, "legacy authenticated note")
-            .await
+    for compatibility in ["sqlite-atomic-112db11e-v1", "sqlite-atomic-3cefa45a-v1"] {
+        let fixture = Fixture::with_profile(true, Some(compatibility)).await;
+        fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+            .as_object_mut()
             .unwrap()
-            .record
-            .status,
-        WriteStatus::Succeeded
-    );
-    fixture.state.lock().unwrap().principal = Some("changed-principal".into());
-    assert_eq!(
-        fixture
-            .manager
-            .search_memory(generation, "private")
-            .await
-            .err()
-            .unwrap()
-            .code,
-        SafeError::StaleContext
-    );
-    fixture.assert_disconnected(generation);
-    assert!(
-        !fixture
-            .state
-            .lock()
-            .unwrap()
-            .requests
-            .iter()
-            .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
-    );
+            .remove("connection.identity");
+        let generation = fixture.select().await;
+        let report = fixture.manager.state().unwrap().active.unwrap().report;
+        assert!(report.connection_identity.is_none());
+        assert!(!report.anonymous_access);
+        assert_eq!(report.supported_operations.len(), 11);
+        assert!(
+            !report
+                .supported_operations
+                .iter()
+                .any(|op| op == "get_connection_identity")
+        );
+        assert_eq!(
+            fixture
+                .manager
+                .remember(generation, "legacy authenticated note")
+                .await
+                .unwrap()
+                .record
+                .status,
+            WriteStatus::Succeeded
+        );
+        fixture.state.lock().unwrap().principal = Some("changed-principal".into());
+        assert_eq!(
+            fixture
+                .manager
+                .search_memory(generation, "private")
+                .await
+                .err()
+                .unwrap()
+                .code,
+            SafeError::StaleContext
+        );
+        fixture.assert_disconnected(generation);
+        assert!(
+            !fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
+        );
+    }
 }
 
 #[tokio::test]

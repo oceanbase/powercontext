@@ -1,5 +1,58 @@
 # Desktop validation
 
+## Server afa13bcb current-client qualification
+
+`sqlite-atomic-afa13bcb-v1` qualifies twelve Desktop operations for Server source
+`afa13bcb1d3c1b11d3f672f53d00254588089dca`, normalized OpenAPI SHA-256
+`6d7cc69254c757895f82a5f71db1676f35fb85d97c268a806679180d38068f18`, and
+`powercontext-1.5.1.dev0+gafa13bcb-py3-none-any.whl`, SHA-256
+`04192db2416fef6786f659088f8da0393e34b8675d1466d7757f6ec61fcd1d25`.
+All 686 runtime files in `powercontext/` and `powercontext_service_bootstrap/` match the
+exact Git archive after CRLF normalization. The wheel uses an explicit archive-build version.
+The source includes master `63e9665c` and the readiness/connection-identity implementation.
+
+On 2026-11-04, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes, first with
+fixture qualification and then with ordinary `ConnectionManager::new` and the bundled
+product record. The existing assertions cover inactive save/passive check, explicit
+readiness/activation/Scope selection, Memory save/search/exact reads, uncertain committed
+writes without replay, Principal changes, revocation and Scope pagination.
+
+Separate `authenticatedClients` entries qualify the original eleven operations of both
+`sqlite-atomic-112db11e-v1` and `sqlite-atomic-3cefa45a-v1` for this client contract.
+Each passed static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the product manager, including Principal revalidation. Their Server sources,
+contracts, original wheel identities, operation sets and earlier evidence remain intact.
+They do not gain `get_connection_identity` or qualify anonymous access.
+
+The 112db11e run uses the rebuilt wheel and exact runtime manifest documented below.
+The 3cefa45a run uses `powercontext-1.4.2.dev174+g3cefa45ad-py3-none-any.whl`, SHA-256
+`f297342bf9b829f2a5c8891eaa120c1b8256d0a986f5720ea9caa4092a027738`.
+Its 686 runtime files match source `3cefa45ad08490423391148439c9eb73f1d48f58` byte for byte,
+with the same sorted runtime manifest as the original qualification:
+`70dbff69bfbd0011fcab5389b6956ec21f015f3c01f8755ed0c200d2237f31e7`.
+The rebuilt legacy archives differ from their original recorded wheels; the original
+artifacts were not rerun. Their runtime equivalence is checked against the recorded manifests.
+
+The debug native probe SHA-256 is
+`c60fd8aa31c1f72cb92eb7bbb65e8bdcdf72c57457797f50225600e0435875cd`.
+The Desktop catalog was dirty; Server runtime files come from exact archived sources.
+Ignored reports are retained under `.artifacts/nov4-current/`, with wheel identities in
+that directory and `.artifacts/nov4-3cefa45a/`. These results qualify SQLite protocol
+behavior, not installed WebView, system credentials, signing or Windows 11/macOS acceptance.
+
+The complete native suite passes 99 tests plus its spawned-process proxy recheck, and
+all 173 frontend tests pass. The real child-process module includes the baseline's atomic
+PID readiness-file publication. API/JS/IPC generation, Clippy, frontend lint/typecheck/build,
+pre-commit file hooks and Linux-target type checks pass. The default Windows type hook
+reports 88 platform diagnostics. Required remote upgrade/CI gates remain separate evidence.
+
+本记录绑定合并基线后的准确源码、契约及 wheel，686 个运行时文件逐一核对。当前 Server 的匿名本机、
+Bearer、HTTPS 自定义 CA／路径前缀和强制 Provider 四种模式，使用临时资格及普通产品管理器分别通过。
+112db11e 与 3cefa45a 两个旧版的三种已认证模式也通过，保留原始资格身份和十一项操作；匿名旧版仍须升级。
+旧版使用重建 wheel，运行时清单与原记录一致，未重新运行原 wheel。原生 99 项及独立进程代理复核、
+前端 173 项通过；本机验证不代替远端升级门禁、安装后界面、系统凭据库、签名和平台验收。
+
 ## Authenticated Server 112db11e current-client qualification
 
 `sqlite-atomic-112db11e-v1` retains its original Server source, contract, wheel digest,

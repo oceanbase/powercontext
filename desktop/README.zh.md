@@ -179,7 +179,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 从早期预览版升级后，请打开「连接」并选中已保存的连接。与当前 API 契约匹配，或具有当前已认证客户端独立验证证据的配置显示在「此 Desktop 构建可用」中；先核对已测试的 Server 构建与实际部署，再明确选择、保存、检查并使用该连接。新连接默认不选择兼容配置。
 
-历史配置仅在独立的当前客户端证据覆盖所选认证模式时可用。`sqlite-atomic-112db11e-v1` 在 Bearer 模式下保留原操作集、已保存选择和 Principal 复核；匿名使用仍须升级。其他契约不匹配的历史配置不可选择。已保存的不匹配配置仍会显示，须明确替换，不会静默升级。对于 Server 源码 `0d89e591`，请选择 `sqlite-atomic-0d89e591-v1`；记录中的源码、wheel 和契约必须与实际部署一致，然后检查并显式激活连接。其他源码对应的记录保留其身份和证据。独立的 `ci-fixtures` 资格仅用于临时测试。已验证操作及平台限制见[验证说明](VALIDATION.md#server-0d89e591-connection-identity-qualification)。
+历史配置仅在独立的当前客户端证据覆盖所选认证模式时可用。`sqlite-atomic-112db11e-v1` 和 `sqlite-atomic-3cefa45a-v1` 在 Bearer 模式下保留原操作集、已保存选择和 Principal 复核；匿名使用仍须升级。其他契约不匹配的历史配置不可选择。已保存的不匹配配置仍会显示，须明确替换，不会静默升级。对于 Server 源码 `afa13bcb`，请选择 `sqlite-atomic-afa13bcb-v1`；记录中的源码、wheel 和契约必须与实际部署一致，然后检查并显式激活连接。其他源码对应的记录保留其身份和证据。独立的 `ci-fixtures` 资格仅用于临时测试。已验证操作及平台限制见[验证说明](VALIDATION.md#server-afa13bcb-current-client-qualification)。
 
 ## 在 macOS 上构建
 

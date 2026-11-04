@@ -32,9 +32,11 @@ import type {
   DesktopState,
   DiscoveryResult,
   ProfileView,
+  CompatibilityProfile,
 } from "../src/generated/ipc";
 import { contractSha256 } from "../src/generated/operations";
-import qualifications from "../../src-tauri/src/connections/compatibility.json";
+import bundledQualifications from "../../src-tauri/src/connections/compatibility.json";
+const qualifications = bundledQualifications as CompatibilityProfile[];
 vi.mock("../src/shared/ipc", () => ({
   getFoundationInfo: vi.fn().mockResolvedValue(null),
   desktopApi: {
