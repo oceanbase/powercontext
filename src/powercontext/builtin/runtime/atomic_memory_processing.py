@@ -37,7 +37,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     project_atomic_memory_evidence,
     require_atomic_memory_pipeline,
 )
-from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent, PreparedAtomicMemory
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
     AtomicMemoryArtifactEvidence,
@@ -73,7 +73,7 @@ from powercontext.builtin.persistence.errors import (
     RepositoryNotFoundError,
 )
 from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
-from powercontext.builtin.persistence.sources import SourceRepository
+from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
@@ -149,11 +149,11 @@ class PreparedMemoryWindow:
         cursor,
         transition,
         action,
-        window: tuple,
-        eligible: tuple,
-        consulted_artifacts: tuple,
+        window: tuple[StoredSource, ...],
+        eligible: tuple[StoredSource, ...],
+        consulted_artifacts: tuple[ArtifactRef, ...],
         workset: AtomicMemoryWindowWorkset,
-        prepared: tuple,
+        prepared: tuple[PreparedAtomicMemory, ...],
         decision,
         observation,
         high_watermark: int,
