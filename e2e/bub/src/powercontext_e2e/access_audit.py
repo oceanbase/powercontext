@@ -59,6 +59,8 @@ ACCESS_OPERATIONS = frozenset({
     "revoke_access_binding",
     "replace_access_binding",
     "list_access_audit",
+    "plan_access_ownership",
+    "apply_access_ownership",
 })
 # Checks the Server reports to the caller rather than enforces: which actions a Candidate offers, and the Access API's
 # permission check. Denying one does not reject the request that asked.

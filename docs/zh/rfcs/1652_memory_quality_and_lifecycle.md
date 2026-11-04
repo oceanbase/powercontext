@@ -195,6 +195,21 @@ Memory entry 写入时，必须把声明版本及解析后的 authority/verifica
 进行对比：限制低 authority 类别在固定候选池或最终 Context Pack 中占用的位置/字节份额，但必须保留显式路径，允许
 确实能回答问题的证据进入。它是 opt-in 的评测实验，不是第一阶段默认行为，也不能替代 Source 声明 contract。
 
+## 当前实现修订：Source 证据声明
+
+上文要求的 Source 证据前置条件已按此规格实现。本节取代“暂称”的表述，以及 `SourceDefinition` 不携带
+authority/verification 声明的说法。
+
+- `SourceDefinition` 与 `AdapterSourceDefinition` 提供可选的 `memory_evidence` 声明，包含 `authority`、
+  `verification` 与 `declaration_version="1"`。
+- 声明只能由受信任的 adapter 代码，或在部署配置中以精确 `(name, version, fingerprint)` Definition manifest
+  为键提供。Source 正文、`SourceRef`、模型输出与检索排名都不能。
+- 每个 Atomic Memory revision 保留当时接受的声明、精确 Source materialization 与 manifest fingerprint。同一
+  revision 的相同事实另有索引拥有的派生投影；该投影可丢弃，并由保留证据重建，不查询当前 registry。
+- 声明缺失、无效或不可验证时，读取与重建都保持 `untrusted`/`unknown`。不做信任回填，既有写入权威、生成资格、
+  正文、content hash、citation 与搜索契约不变。
+- 第一阶段质量排序、生命周期操作与基于投递回执的使用反馈仍未实现。该能力只是其前置条件，不替代它们。
+
 ## 独立质量维度
 
 四个维度必须独立：

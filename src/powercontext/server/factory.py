@@ -44,6 +44,7 @@ from powercontext.builtin.authz import (
     PrincipalRef,
     ResourceRef,
     access_control_for_mode,
+    bounded_idempotency_key,
 )
 from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.authz.owner_recovery import (
@@ -600,7 +601,7 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                 await bound.establish_artifact_owner(
                     resource,
                     principal,
-                    idempotency_key=f"profile-owner:{scope_id}",
+                    idempotency_key=bounded_idempotency_key("profile-owner", scope_id),
                     context=context,
                 )
             if candidate is not None:
@@ -610,7 +611,7 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                     family="profile",
                     proposed_owner=principal,
                     target=None if candidate.target is None else resource,
-                    idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+                    idempotency_key=bounded_idempotency_key("candidate-owner", scope_id, candidate.candidate_id),
                 )
 
         recovery = (

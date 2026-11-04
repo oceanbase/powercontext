@@ -25,6 +25,7 @@ from powercontext.builtin.authz.errors import (
     AccessInvalidRequestError,
     AccessUnavailableError,
 )
+from powercontext.builtin.authz.keys import IDEMPOTENCY_KEY_LIMIT, bounded_idempotency_key
 from powercontext.builtin.authz.models import (
     DEFAULT_DEPLOYMENT_ID,
     PUBLIC_ACCESS_ACTIONS,
@@ -93,6 +94,7 @@ def __getattr__(name: str) -> object:
 
 __all__ = (
     "DEFAULT_DEPLOYMENT_ID",
+    "IDEMPOTENCY_KEY_LIMIT",
     "PUBLIC_ACCESS_ACTIONS",
     "ROLE_CARDINALITIES",
     "AccessAction",
@@ -143,4 +145,5 @@ __all__ = (
     "ResourceRef",
     "ResourceSearchRequest",
     "access_control_for_mode",
+    "bounded_idempotency_key",
 )

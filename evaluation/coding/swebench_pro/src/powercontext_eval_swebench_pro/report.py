@@ -98,8 +98,17 @@ class ArmReport(BaseModel):
     pass_to_pass: TestGroupReport = Field(default_factory=lambda: TestGroupReport(passed=0, total=0))
     log_excerpt: str | None = Field(default=None, max_length=4_000)
     metrics: MetricSet = Field(default_factory=MetricSet)
+    # Signals that the agent may have reached outside the task (provider web search, network commands).
+    isolation_flags: tuple[str, ...] = ()
     failure_status: str | None = None
     invalid_reason: str | None = None
+
+    @field_validator("isolation_flags", mode="before")
+    @classmethod
+    def parse_serialized_isolation_flags(cls, value: object) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
 
     @field_validator("state", mode="before")
     @classmethod
@@ -341,6 +350,7 @@ def _arm_section(label: str, arm: ArmReport) -> list[str]:
         f"| Output tokens | {_cell(metrics.output_tokens)} |",
         f"| Reasoning output tokens | {_cell(metrics.reasoning_output_tokens)} |",
         f"| Elapsed seconds | {_cell(metrics.elapsed_seconds)} |",
+        f"| Isolation flags | {_cell(', '.join(arm.isolation_flags) or None)} |",
         f"| Failure or invalid reason | {_cell(details)} |",
         "",
     ]

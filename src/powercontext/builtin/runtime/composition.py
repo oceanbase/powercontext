@@ -225,7 +225,7 @@ from powercontext.builtin.sources import (
 )
 from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
-from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
+from powercontext.sources import AdapterSourceDefinition, Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -554,6 +554,7 @@ async def open_builtin_runtime(  # noqa: C901
     cursor_secret: bytes | None = None,
     handoff_verification_keys: tuple[bytes, ...] = (),
     recall_effort_sink: RecallEffortSink | None = None,
+    dispatch_processing: bool = True,
     _archive_recovery: bool = False,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime.
@@ -561,6 +562,10 @@ async def open_builtin_runtime(  # noqa: C901
     Recall efforts use the scoped relational statistics recorder by default.
     An explicit ``recall_effort_sink`` replaces that recorder rather than adding
     a second observation. A disabled gate invokes neither recorder nor sink.
+
+    Set ``dispatch_processing=False`` for offline maintenance. This skips supervisor
+    startup without changing deployment configuration, manifest validation, or archive
+    recovery behavior.
 
     ``worker_initializer`` is an optional bootstrap for automatically composed spawn
     workers. A ``WorkerInitializerPreparation`` can own per-launch resources through
@@ -921,6 +926,7 @@ async def open_builtin_runtime(  # noqa: C901
                 contexts,
                 processing_bindings,
                 tracing=tracing,
+                dispatch_processing=dispatch_processing,
                 recovery=_archive_recovery,
                 processing_observer=processing_observer,
             )
@@ -959,7 +965,20 @@ def _validate_processing_source_registry(
         type(source_registry) is not SourceDefinitionRegistry
         or len(definitions) != len(builtin_definitions)
         or any(
-            definition is not expected for definition, expected in zip(definitions, builtin_definitions, strict=True)
+            # A host may replace only the evidence declaration while keeping the
+            # builtin adapter, version and projections. `memory_evidence` is
+            # deliberately excluded: it is the dimension this registration adds.
+            not (
+                definition is expected
+                or (
+                    type(definition) is AdapterSourceDefinition
+                    and type(expected) is AdapterSourceDefinition
+                    and definition.adapter is expected.adapter
+                    and definition.version == expected.version
+                    and definition.projections is expected.projections
+                )
+            )
+            for definition, expected in zip(definitions, builtin_definitions, strict=True)
         )
     ):
         raise BuiltinConfigurationError("artifact-processing-source-registry")
@@ -1114,10 +1133,11 @@ async def _open_artifact_processing_supervisor(
     bindings: Sequence[ArtifactProcessingBinding],
     *,
     tracing: RuntimeTracing | None = None,
+    dispatch_processing: bool = True,
     recovery: bool = False,
     processing_observer: Callable[[str, str, float], None] | None = None,
 ) -> AsyncIterator[ArtifactProcessingSupervisors | None]:
-    if recovery or config.runtime.artifact_processing_role == "api" or not bindings:
+    if not dispatch_processing or recovery or config.runtime.artifact_processing_role == "api" or not bindings:
         yield None
         return
     groups = (

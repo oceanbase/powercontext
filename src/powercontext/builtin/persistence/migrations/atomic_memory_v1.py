@@ -1429,8 +1429,13 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
     snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
     owner_decisions: Mapping[tuple[str, str, str], OwnerDecision] | None = None,
     require_owners: bool = False,
+    require_evidence: bool = True,
 ) -> AtomicMemoryMigrationReport:
-    """Archive, import, convert references, then remove legacy collections and citation columns from public tables."""
+    """Archive, import, convert references, then remove legacy collections and citation columns from public tables.
+
+    ``require_evidence`` is false only for a frozen pre-evidence revision that
+    converts history before the registered evidence tables exist.
+    """
 
     if not maintenance_confirmed:
         raise AtomicMemoryMigrationError(("apply requires stopped old writers and --maintenance-confirmed",))
@@ -1552,6 +1557,7 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
             check_projection=not rebuilt_projection,
             thorough=True,
             collections_removed=False,
+            require_evidence=require_evidence,
             snapshot_budget_bytes=snapshot_budget_bytes,
         )
     if not report.ready:
@@ -1562,8 +1568,16 @@ async def apply_atomic_memory_migration(  # noqa: C901 - One ordered offline mai
         raise AtomicMemoryMigrationError((str(error),)) from error
     async with database.transaction() as connection:
         await drop_legacy_citation_columns(connection)
+        if require_evidence and "pc_artifacts" in await _tables(connection):
+            from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_evidence
+
+            # Imported revisions never accepted a declaration; derive neutral facts
+            # from the converted lineage without manufacturing historical snapshots.
+            await rebuild_atomic_memory_evidence(connection, index)
     async with database.transaction() as connection:
-        residual = await residual_issues(connection, await _tables(connection), thorough=False)
+        residual = await residual_issues(
+            connection, await _tables(connection), thorough=False, require_evidence=require_evidence
+        )
     if rebuilt_projection:
         residual.append(
             "the obsolete development projection was recreated empty; run "
@@ -1641,6 +1655,7 @@ async def _verify_atomic_memory_migration(  # noqa: C901 - One frozen import ver
     check_projection: bool,
     thorough: bool,
     collections_removed: bool = True,
+    require_evidence: bool = True,
     snapshot_budget_bytes: int = DEFAULT_SNAPSHOT_BUDGET_BYTES,
 ) -> AtomicMemoryMigrationReport:
 
@@ -1651,7 +1666,15 @@ async def _verify_atomic_memory_migration(  # noqa: C901 - One frozen import ver
         return AtomicMemoryMigrationReport(action="verify", errors=error.errors)
     errors = list(inventory.errors)
     tables = await _tables(connection)
-    errors.extend(await residual_issues(connection, tables, thorough=thorough, collections_removed=collections_removed))
+    errors.extend(
+        await residual_issues(
+            connection,
+            tables,
+            thorough=thorough,
+            collections_removed=collections_removed,
+            require_evidence=require_evidence,
+        )
+    )
     schema_errors = await _merge_schema_errors(connection, tables)
     required = {"pc_artifact_heads", "pc_artifact_lineage_artifacts"}
     if check_projection:

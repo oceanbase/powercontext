@@ -17,17 +17,21 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+import json
+import sqlite3
+from contextlib import asynccontextmanager, closing
 from typing import cast
 
 import httpx
 import pytest
+from typer.testing import CliRunner
 
 from powercontext.builtin.authz import AccessUnavailableError, PrincipalRef, RelationshipStore, ResourceRef
 from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import RuntimeConfig
+from powercontext.cli.app import create_cli
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
@@ -177,6 +181,252 @@ def test_candidate_http_failure_retains_a_replayable_proposer_attestation(tmp_pa
             )
             assert response.status_code == 200, response.text
             assert response.json()["candidate_id"] == candidate_id
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(("kind", "count"), [("artifact", 1), ("candidate", 101)])
+def test_ownership_migration_cannot_replace_pending_original_attribution(tmp_path, kind, count):
+    async def scenario():
+        async with _server(tmp_path, interrupted=True) as (app, client, access):
+            scope_id = await _scope(client)
+            if kind == "artifact":
+                created = await client.post(
+                    f"/v1/scopes/{scope_id}/artifacts",
+                    json={"family": "profile", "content": {"content": "# Original private profile"}},
+                )
+                assert created.status_code == 503, created.text
+            else:
+                source = await client.post(f"/v1/scopes/{scope_id}/sources", json={"content": "Original evidence."})
+                assert source.status_code == 201, source.text
+                for index in range(count):
+                    created = await client.post(
+                        "/v1/experience/propose",
+                        json={
+                            "scope_id": scope_id,
+                            "proposal": {
+                                "situation": f"Observation {index}.",
+                                "action": "Retain the original proposer.",
+                                "outcome": "Ownership delivery is pending.",
+                                "lesson": "Preserve recorded attribution.",
+                            },
+                            "source_refs": [{"name": "content", "source_id": source.json()["source_id"]}],
+                            "artifact_refs": [],
+                        },
+                    )
+                    assert created.status_code == 503, created.text
+            pending = await app.state.owner_recovery.pending(scope_id=scope_id, limit=500)
+            assert len(pending) == count
+            for dry_run in (True, False):
+                response = await client.post(
+                    "/v1/access/ownership/apply",
+                    json={"scope_ids": [scope_id], "owner": {"type": "user", "id": "bob"}, "dry_run": dry_run},
+                )
+                assert response.status_code == 200, response.text
+                result = response.json()
+                assert result["applied"] == []
+                assert len(result["conflicts"]) == count
+                assert {item["conflict_code"] for item in result["conflicts"]} == {"owner-recovery-pending"}
+            access.relationships.unavailable = False
+            for intent in pending:
+                await app.state.owner_recovery.replay(intent.operation_id)
+                if intent.resource is not None:
+                    relation = await access.artifact_owner(intent.resource)
+                    assert relation is not None and relation.owner == ALICE
+                else:
+                    attestation = await access.candidate_owner(scope_id, intent.candidate_id)
+                    assert attestation is not None and attestation.proposed_owner == ALICE
+            assert await app.state.owner_recovery.pending(scope_id=scope_id) == ()
+
+    asyncio.run(scenario())
+
+
+def test_migration_preserves_completed_ownership_evidence_after_external_relation_loss(tmp_path):
+    async def scenario():
+        async with _server(tmp_path, interrupted=True) as (app, client, access):
+            scope_id = await _scope(client)
+            created = await client.post(
+                f"/v1/scopes/{scope_id}/artifacts",
+                json={"family": "profile", "content": {"content": "# Original private profile"}},
+            )
+            assert created.status_code == 503, created.text
+            (intent,) = await app.state.owner_recovery.pending(scope_id=scope_id)
+            access.relationships.unavailable = False
+            await app.state.owner_recovery.replay(intent.operation_id)
+            # Model out-of-band loss in the external relationship store after delivery was acknowledged.
+            with closing(sqlite3.connect(tmp_path / "relationships.db")) as connection:
+                connection.execute("DELETE FROM pc_access_owners WHERE owner_kind = 'artifact'")
+                connection.commit()
+            for dry_run in (True, False):
+                response = await client.post(
+                    "/v1/access/ownership/apply",
+                    json={"scope_ids": [scope_id], "owner": {"type": "user", "id": "bob"}, "dry_run": dry_run},
+                )
+                assert response.status_code == 200, response.text
+                result = response.json()
+                assert result["applied"] == []
+                assert [item["conflict_code"] for item in result["conflicts"]] == [
+                    "owner-recovery-delivered_relation_missing"
+                ]
+            assert await access.artifact_owner(intent.resource) is None
+            assert await app.state.owner_recovery.pending(scope_id=scope_id) == ()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("completed", [False, True])
+@pytest.mark.parametrize("operation", ["profile", "handoff", "publication"])
+def test_offline_migration_preserves_external_owner_evidence(tmp_path, completed, operation):
+    from powercontext.server.cli import app as server_cli
+
+    async def seed():
+        async with _server(tmp_path) as (app, client, access):
+            scope_id = await _scope(client)
+            path = f"/v1/scopes/{scope_id}/artifacts"
+            payload = {"family": "profile", "content": {"content": "# Original private profile"}}
+            if operation != "profile":
+                source = await client.post(f"/v1/scopes/{scope_id}/sources", json={"content": "Verified task state."})
+                assert source.status_code == 201, source.text
+                content = {
+                    "schema": "powercontext.handoff.v1",
+                    "objective": "Continue verified work.",
+                    "state": [
+                        {
+                            "text": "Verified task state.",
+                            "citations": [
+                                {
+                                    "kind": "source",
+                                    "source_ref": {"name": "content", "source_id": source.json()["source_id"]},
+                                }
+                            ],
+                        }
+                    ],
+                    "disposition": "complete",
+                    "next_action": None,
+                    "omissions": [],
+                }
+                payload = {"family": "handoff", "content": content}
+                if operation == "publication":
+                    original = await client.post(path, json=payload)
+                    assert original.status_code == 201, original.text
+                    target = await client.post(
+                        "/v1/scopes",
+                        json={"title": "Target", "summary": "Recovery", "idempotency_key": "recovery-target"},
+                    )
+                    assert target.status_code == 201, target.text
+                    destination = target.json()["scope_id"]
+                    path = "/v1/artifact-publications"
+                    payload = {
+                        "source": {
+                            "scope_id": scope_id,
+                            "artifact": {"family": "handoff", "artifact_id": "handoff", "revision": 1},
+                        },
+                        "target_scope_id": destination,
+                        "idempotency_key": "recovery-publication",
+                    }
+                    scope_id = destination
+            access.relationships.unavailable = True
+            created = await client.post(path, json=payload)
+            assert created.status_code == 503, created.text
+            (intent,) = await app.state.owner_recovery.pending(scope_id=scope_id)
+            if completed:
+                access.relationships.unavailable = False
+                await app.state.owner_recovery.replay(intent.operation_id)
+            else:
+                preview = await client.post(
+                    "/v1/access/ownership/apply",
+                    json={"scope_ids": [scope_id], "owner": {"type": "user", "id": "bob"}, "dry_run": True},
+                )
+                assert preview.status_code == 200, preview.text
+                assert preview.json()["applied"] == []
+                assert [item["conflict_code"] for item in preview.json()["conflicts"]] == ["owner-recovery-pending"]
+            return scope_id, intent
+
+    scope_id, intent = asyncio.run(seed())
+    environment = tmp_path / "offline.env"
+    environment.write_text(
+        f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\n"
+        f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{(tmp_path / 'domain.db').as_posix()}\n"
+        "POWERCONTEXT_SERVER_ACCESS_MODE=disabled\n"
+        "POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID=external-test\n"
+        "POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES=[]\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        create_cli([server_cli]),
+        [
+            "server",
+            "access-ownership-migrate",
+            "--env-file",
+            str(environment),
+            "--action",
+            "apply",
+            "--owner",
+            "user:bob",
+            "--scope-id",
+            scope_id,
+            "--maintenance-confirmed",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    report = json.loads(result.output)
+    assert report["applied"] == []
+    reason = "delivered_relation_missing" if completed else "pending"
+    assert [item["detail"] for item in report["conflicts"]] == [f"owner-recovery-{reason}"]
+
+    async def verify():
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'domain.db'}")
+        async with open_builtin_access_control(database, deployment_id="external-test") as local:
+            assert await local.artifact_owner(intent.resource) is None
+        async with _server(tmp_path) as (app, _, access):
+            await app.state.owner_recovery.replay(intent.operation_id)
+            relation = await access.artifact_owner(intent.resource)
+            assert relation is not None and relation.owner == ALICE
+            assert await app.state.owner_recovery.pending(scope_id=scope_id) == ()
+
+    asyncio.run(verify())
+
+
+def test_migration_retries_complete_external_owner_audit(tmp_path, monkeypatch):
+    async def scenario():
+        async with _server(tmp_path) as (app, client, access):
+            scope_id = await _scope(client)
+            await app.state.application.records.for_scope(scope_id).create_artifact(
+                "profile", ArtifactWrite(content={"content": "# Legacy profile"})
+            )
+            resource = ResourceRef.artifact(scope_id, family="profile", artifact_id="profile")
+            payload = {"scope_ids": [scope_id], "owner": {"type": ALICE.type, "id": ALICE.id}}
+
+            async def unavailable(event):
+                if event.reason_code == "artifact-owner-established":
+                    raise AccessUnavailableError("external_audit_unavailable")
+                return await append(event)
+
+            append = access.audit.append_audit
+            with monkeypatch.context() as patch:
+                patch.setattr(access.audit, "append_audit", unavailable)
+                patch.setattr(access.audit, "append_audit_once", unavailable)
+                for _ in range(2):
+                    response = await client.post("/v1/access/ownership/apply", json=payload)
+                    assert response.status_code == 503, response.text
+                    relation = await access.artifact_owner(resource)
+                    assert relation is not None and relation.owner == ALICE
+                    pending = await app.state.owner_recovery.pending(scope_id=scope_id)
+                    assert len(pending) == 1 and pending[0].resource == resource
+                preview = await client.post("/v1/access/ownership/apply", json={**payload, "dry_run": True})
+                assert preview.status_code == 200, preview.text
+                assert await app.state.owner_recovery.pending(scope_id=scope_id) == pending
+            response = await client.post("/v1/access/ownership/apply", json=payload)
+            assert response.status_code == 200, response.text
+            assert await app.state.owner_recovery.pending(scope_id=scope_id) == ()
+            audit = await access.audit.list_audit(resource=resource, limit=100)
+            owners = [event for event in audit if event.reason_code == "artifact-owner-established"]
+            assert len(owners) == 1 and owners[0].principal == ALICE
+            assert owners[0].operation == "access.ownership.apply"
+            response = await client.post("/v1/access/ownership/apply", json=payload)
+            assert response.status_code == 200, response.text
+            audit = await access.audit.list_audit(resource=resource, limit=100)
+            assert [event for event in audit if event.reason_code == "artifact-owner-established"] == owners
 
     asyncio.run(scenario())
 

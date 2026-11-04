@@ -20,11 +20,12 @@ import ipaddress
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from powercontext_eval_swebench_pro.codex import DEFAULT_CODEX_MODEL, is_safe_codex_model
+from powercontext_eval_swebench_pro.egress import validated_hosts
 from powercontext_eval_swebench_pro.powercontext_sut import (
     DEFAULT_DOCKER_NETWORK_POOL,
     ProxyRelayConfig,
@@ -106,6 +107,9 @@ class WebConfig(BaseModel):
     auth_json: Path = Field(exclude=True, repr=False)
     codex_config: Path | None = Field(default=None, exclude=True, repr=False)
     proxy_url: str | None = Field(default=None, exclude=True, repr=False)
+    # Run-network egress: "allowlist" (default) or "native"; ignored when proxy_url is set.
+    egress: Literal["allowlist", "native"] = "allowlist"
+    allow_hosts: tuple[str, ...] = ()
     docker_network_pool: str = DEFAULT_DOCKER_NETWORK_POOL
     extra_no_proxy_hosts: tuple[str, ...] = ()
     host: str = Field(default="127.0.0.1", min_length=1)
@@ -201,6 +205,12 @@ class WebConfig(BaseModel):
             raise ValueError("Additional no-proxy hosts are invalid")
         return deduplicated
 
+    @field_validator("allow_hosts")
+    @classmethod
+    def require_dns_allow_hosts(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        validated_hosts(value)
+        return tuple(dict.fromkeys(host.lower() for host in value))
+
     @field_validator("codex_models")
     @classmethod
     def require_safe_codex_models_with_default(cls, value: tuple[str, ...]) -> tuple[str, ...]:
@@ -224,8 +234,10 @@ class WebConfig(BaseModel):
             for value in (self.tokensflow_binary, self.tokensflow_user_home, self.tokensflow_egress_network)
         ):
             raise ValueError("TokensFlow requires a binary, user home, and egress network when enabled")
-        if self.proxy_url is None and self.extra_no_proxy_hosts:
-            raise ValueError("Additional no-proxy hosts require the evaluation proxy")
+        if self.proxy_url is None and self.egress == "native" and self.extra_no_proxy_hosts:
+            raise ValueError("Additional no-proxy hosts require the evaluation proxy or the egress allowlist")
+        if self.tokensflow_enabled and self.proxy_url is None and self.egress == "allowlist":
+            raise ValueError("TokensFlow attaches an unrestricted egress network; set egress to native or disable it")
         return self
 
     @classmethod
@@ -236,6 +248,8 @@ class WebConfig(BaseModel):
         tokensflow_enabled: bool = False,
         tokensflow_egress_network: str | None = None,
         proxy_url: str | None = None,
+        egress: Literal["allowlist", "native"] = "allowlist",
+        allow_hosts: tuple[str, ...] = (),
         database_path: Path | None = None,
         run_root: Path | None = None,
         frontend_dist: Path | None = None,
@@ -293,6 +307,8 @@ class WebConfig(BaseModel):
             auth_json=auth_json or root / "codex-home" / "auth.json",
             codex_config=codex_config,
             proxy_url=proxy_url,
+            egress=egress,
+            allow_hosts=allow_hosts,
             docker_network_pool=docker_network_pool,
             extra_no_proxy_hosts=extra_no_proxy_hosts,
             host=host,
@@ -369,6 +385,8 @@ class WebConfig(BaseModel):
                 environ.get(f"{prefix}TOKENSFLOW_EGRESS_NETWORK") if features.tokensflow_enabled else None
             ),
             proxy_url=environ.get(f"{prefix}PROXY_URL"),
+            egress=cast(Literal["allowlist", "native"], environ.get(f"{prefix}EGRESS", "allowlist")),
+            allow_hosts=tuple(host for host in environ.get(f"{prefix}ALLOW_HOSTS", "").split(",") if host),
             uv_binary=path("UV_BINARY"),
             registry_binary=path("REGISTRY_BINARY"),
             auth_json=path("AUTH_JSON"),

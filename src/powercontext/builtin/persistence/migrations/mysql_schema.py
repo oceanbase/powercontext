@@ -37,6 +37,7 @@ from .models import MigrationError, digest
 _LEXEME = re.compile(
     r"\s+|`(?:``|[^`])*`|'(?:''|\\.|[^'\\])*'|[A-Za-z_][A-Za-z_0-9$]*|[0-9]+|>=|<=|<>|!=|[(),.=<>+*/%\^&|~!?:@-]"
 )
+
 _CONTROL_TABLE = "pc_schema_revision"
 _PHYSICAL_VALUES = frozenset({
     "row_format",
