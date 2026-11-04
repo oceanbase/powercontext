@@ -1210,7 +1210,13 @@ class _RateLimitWindowMaintenance:
             try:
                 await self.purge_once()
             except Exception as error:
-                log_safely(logging.WARNING, "rate limit window maintenance failed: %s", error)
+                log_safely(
+                    logger,
+                    logging.WARNING,
+                    f"rate limit window maintenance failed: {error}",
+                    exc_info=error,
+                    extra={"event": "rate-limit.window.maintenance-failed"},
+                )
             try:
                 await asyncio.wait_for(self._stop_requested.wait(), timeout=self._interval_seconds)
             except TimeoutError:

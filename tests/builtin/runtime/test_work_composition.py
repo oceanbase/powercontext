@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from time import monotonic
 from types import SimpleNamespace
@@ -239,7 +240,7 @@ def test_distributed_ledger_wires_the_work_observer_into_every_component(monkeyp
 
     async def scenario() -> None:
         observer = _RecordingObserver()
-        constructed: dict[str, object] = {}
+        constructed: dict[str, dict[str, object]] = {}
 
         class _SpyComponent:
             def __init__(self, *args, **kwargs) -> None:
@@ -340,6 +341,51 @@ def test_single_node_maintenance_purges_expired_rate_limit_windows(tmp_path) -> 
             # The maintenance loop deleted the expired window row without any
             # distributed ledger execution.
             assert rows == 0
+
+    asyncio.run(scenario())
+
+
+def test_rate_limit_maintenance_reports_a_failed_purge_and_keeps_running(tmp_path, caplog) -> None:
+    """A failing purge must be logged through the module logger, not dropped, and must not stop the loop."""
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            attempts: list[int] = []
+            twice = asyncio.Event()
+
+            class _FailingPurge:
+                async def purge_expired(self, connection, *, limit):
+                    attempts.append(limit)
+                    if len(attempts) >= 2:
+                        twice.set()
+                    raise RuntimeError("purge failed")  # noqa: TRY003
+
+            from powercontext.builtin.runtime.composition import _RateLimitWindowMaintenance
+
+            maintenance = _RateLimitWindowMaintenance(
+                database=contexts.database,
+                interval_seconds=0.05,
+                batch_size=7,
+                repository=_FailingPurge(),
+            )
+            maintenance.start()
+            await asyncio.wait_for(twice.wait(), timeout=5)
+            await maintenance.stop()
+
+            # The loop retried after the failure instead of exiting.
+            assert len(attempts) >= 2
+            assert set(attempts) == {7}
+            failures = [
+                record
+                for record in caplog.records
+                if record.name == "powercontext.builtin.runtime.composition"
+                and getattr(record, "event", None) == "rate-limit.window.maintenance-failed"
+            ]
+            assert len(failures) == len(attempts)
+            assert all(
+                record.getMessage() == "rate limit window maintenance failed: purge failed" for record in failures
+            )
+            assert all(record.levelno == logging.WARNING for record in failures)
 
     asyncio.run(scenario())
 
