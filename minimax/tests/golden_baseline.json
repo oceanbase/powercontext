@@ -1,0 +1,299 @@
+{
+  "recorded_at": "2026-11-04T03:55:30.017289+00:00",
+  "purpose": "oracle for the guard; produced by the unmodified tree",
+  "server": "127.0.0.1:2883",
+  "cases": [
+    {
+      "case_id": "TC-INSERT-01",
+      "spec_id": "ARR-001",
+      "title": "INSERT with an element target writes only that element",
+      "kind": "acceptance",
+      "codes": [
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          false,
+          1064
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ]
+      ],
+      "rows": [
+        [
+          "1",
+          "[0,0,0,0]",
+          "widen"
+        ]
+      ],
+      "messages": [
+        "",
+        "",
+        "",
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2], note) values (2, 42, 'target')' at line 1",
+        "",
+        ""
+      ],
+      "result_digest": "2fe209d43db1486c",
+      "server": "127.0.0.1:2883"
+    },
+    {
+      "case_id": "TC-UPDATE-01",
+      "spec_id": "ARR-002",
+      "title": "UPDATE with an element target rewrites one element in place",
+      "kind": "acceptance",
+      "codes": [
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          false,
+          1064
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          false,
+          1064
+        ]
+      ],
+      "rows": [
+        [
+          "1",
+          "[4,3,2,1]",
+          "before"
+        ]
+      ],
+      "messages": [
+        "",
+        "",
+        "",
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2] = 20, note = 'after' where id = 1' at line 1",
+        "",
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2] from tc_update' at line 1"
+      ],
+      "result_digest": "fdf4bafdaea4e685",
+      "server": "127.0.0.1:2883"
+    },
+    {
+      "case_id": "TC-DELETE-01",
+      "spec_id": "ARR-003",
+      "title": "DELETE uses an element predicate",
+      "kind": "acceptance",
+      "codes": [
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          false,
+          1064
+        ],
+        [
+          true,
+          0
+        ]
+      ],
+      "rows": [
+        [
+          "1",
+          "[4,3,2,1]"
+        ],
+        [
+          "2",
+          "[9,3,2,1]"
+        ]
+      ],
+      "messages": [
+        "",
+        "",
+        "",
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[4] = 4' at line 1",
+        ""
+      ],
+      "result_digest": "be5c8c7f34dc2b4a",
+      "server": "127.0.0.1:2883"
+    },
+    {
+      "case_id": "TC-READ-01",
+      "spec_id": "ARR-004",
+      "title": "Element read returns the element at a 1-based index",
+      "kind": "acceptance",
+      "codes": [
+        [
+          false,
+          1064
+        ],
+        [
+          false,
+          1064
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          false,
+          1064
+        ],
+        [
+          false,
+          1064
+        ]
+      ],
+      "rows": [],
+      "messages": [
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2]' at line 1",
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[5]' at line 1",
+        "",
+        "",
+        "",
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[1] from tc_read' at line 1",
+        "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[6] from tc_read' at line 1"
+      ],
+      "result_digest": "c7c31fa8ec7a418b",
+      "server": "127.0.0.1:2883"
+    },
+    {
+      "case_id": "TC-COMPAT-01",
+      "spec_id": "ARR-006",
+      "title": "Existing array arithmetic, helper and reverse behaviour is unchanged",
+      "kind": "compat",
+      "codes": [
+        [
+          false,
+          7602
+        ],
+        [
+          false,
+          5083
+        ],
+        [
+          false,
+          5083
+        ],
+        [
+          false,
+          5083
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ]
+      ],
+      "rows": [
+        [
+          "[2,1]"
+        ],
+        [
+          "cba"
+        ]
+      ],
+      "messages": [
+        "array type mismatch found between definition and data",
+        "Invalid data type for the operation",
+        "Invalid data type for the operation",
+        "Invalid data type for the operation",
+        "",
+        ""
+      ],
+      "result_digest": "3d359fdfe8c22a0c",
+      "server": "127.0.0.1:2883"
+    },
+    {
+      "case_id": "TC-COMPAT-02",
+      "spec_id": "ARR-007",
+      "title": "Current ARRAY DDL/DML shapes keep working",
+      "kind": "compat",
+      "codes": [
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ],
+        [
+          true,
+          0
+        ]
+      ],
+      "rows": [
+        [
+          null,
+          "[2,1,57584]",
+          null
+        ],
+        [
+          "1",
+          "[3,2,1]",
+          "[6,5,4]"
+        ]
+      ],
+      "messages": [
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "result_digest": "c9f24b2bea17aa69",
+      "server": "127.0.0.1:2883"
+    }
+  ]
+}

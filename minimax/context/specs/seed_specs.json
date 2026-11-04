@@ -1,0 +1,279 @@
+{
+  "dataset": "oceanbase-seekdb-array-element-dml",
+  "repository": "https://github.com/oceanbase/seekdb",
+  "baseline": {
+    "product": "OceanBase seekdb",
+    "version": "1.4.0.0",
+    "revision": "100000172026082615-0003f8d4b32a2cfe3b75ae8f4dbe26fcee994541",
+    "image": "oceanbase/seekdb:1.4.0-100000172026082615",
+    "note": "Probed on 2026-11-04 against this exact build; the image is the artifact the context module reads."
+  },
+  "specs": [
+    {
+      "id": "ARR-001",
+      "title": "Element-wise INSERT target `col[i]` is rejected by the SQL grammar",
+      "category": "grammar",
+      "kind": "must-change",
+      "state": "open",
+      "statement": "INSERT ... (c1, arr[i], c3) VALUES (...) must be accepted by the parser and resolved as a partial write of element i of the ARRAY column arr. Today the statement fails in the grammar before name resolution runs.",
+      "evidence": {
+        "observed": "ERROR 1064: ... near '[1], bar[2], bar[3], bar[4], label) VALUES (...)' at line 1\nERROR 1064: ... near '[2]) VALUES (3, 'row3', 52)' at line 1",
+        "repro": "create table w(id int not null primary key, slots array(int), bar array(int), label varchar(8));\ninsert into w(id, bar[1], bar[2], label) values (1, 40, 50, 'row1');"
+      },
+      "sources": [
+        {
+          "path": "src/sql/parser/sql_parser_mysql_mode.y",
+          "line": 8252,
+          "symbol": "column_list",
+          "quote": "column_list:\nno_param_column_ref { $$ = $1; }",
+          "note": "The INSERT target list only admits plain column references; no ARRAY element form exists."
+        },
+        {
+          "path": "src/sql/parser/sql_parser_mysql_mode.y",
+          "line": 3171,
+          "symbol": "'[' expr_list ']'",
+          "quote": "| '[' expr_list ']'\n{\n  malloc_non_terminal_node($$, result->malloc_pool_, T_FUN_SYS_ARRAY, 1, $2);\n}",
+          "note": "`[1]` parses as an ARRAY literal, so `bar[1]` leaves the token `[1]` before the next `,`."
+        },
+        {
+          "path": "src/sql/parser/sql_parser_mysql_mode.y",
+          "line": 8058,
+          "symbol": "single_table_insert",
+          "quote": "| dml_table_name '(' column_list ')' values_clause",
+          "note": "Every INSERT form shares this target-list production."
+        }
+      ],
+      "tests": ["parser_only"],
+      "depends_on": ["ARR-005"]
+    },
+    {
+      "id": "ARR-002",
+      "title": "Element-wise UPDATE target `col[i]` is rejected by the SQL grammar",
+      "category": "grammar",
+      "kind": "must-change",
+      "state": "open",
+      "statement": "UPDATE t SET arr[i] = v must be accepted and must rewrite only element i of arr in every updated row.",
+      "evidence": {
+        "observed": "ERROR 1064: ... near '[3] = 7 WHERE id = 1' at line 1",
+        "repro": "create table t(id int not null primary key, slots array(int));\ninsert into t values (1, [1,2,3,4]);\nupdate t set slots[3] = 7 where id = 1;"
+      },
+      "sources": [
+        {
+          "path": "src/sql/parser/sql_parser_mysql_mode.y",
+          "line": 3918,
+          "symbol": "update_asgn_factor",
+          "quote": "update_asgn_factor:\nno_param_column_ref COMP_EQ expr_or_default",
+          "note": "The assignment target is a bare column reference only."
+        },
+        {
+          "path": "src/sql/parser/sql_parser_mysql_mode.y",
+          "line": 3907,
+          "symbol": "update_asgn_list",
+          "quote": "update_asgn_list:",
+          "note": "List of update_asgn_factor for `UPDATE ... SET` and `INSERT ... SET`."
+        }
+      ],
+      "tests": ["parser_only", "live_server"],
+      "depends_on": ["ARR-005"]
+    },
+    {
+      "id": "ARR-003",
+      "title": "Element-wise DELETE predicate `col[i] = v` is rejected by the SQL grammar",
+      "category": "grammar",
+      "kind": "must-change",
+      "state": "open",
+      "statement": "The predicate `arr[i] = v` must be usable wherever a boolean expression is allowed (starting with DELETE ... WHERE) and must select the rows whose element i equals v.",
+      "evidence": {
+        "observed": "ERROR 1064: ... near '[3] = 60' at line 1",
+        "repro": "delete from w2 where slots[3] = 60;"
+      },
+      "sources": [
+        {
+          "path": "src/sql/parser/sql_parser_mysql_mode.y",
+          "line": 3171,
+          "symbol": "'[' expr_list ']'",
+          "quote": "| '[' expr_list ']'\n{\n  malloc_non_terminal_node($$, result->malloc_pool_, T_FUN_SYS_ARRAY, 1, $2);\n}",
+          "note": "`slots[3]` reaches the expression grammar as a column followed by an ARRAY literal."
+        },
+        {
+          "path": "src/sql/engine/dml/ob_table_delete_op.cpp",
+          "symbol": "ObTableDeleteOp::inner_open",
+          "note": "DELETE reuses the normal predicate/scan path, so one expression form covers the whole family."
+        }
+      ],
+      "tests": ["parser_only", "live_server"],
+      "depends_on": ["ARR-005"]
+    },
+    {
+      "id": "ARR-004",
+      "title": "Element reads `col[i]` are unsupported in expressions",
+      "category": "expression",
+      "kind": "must-change",
+      "state": "open",
+      "statement": "`SELECT arr[i]` and any expression that reads one element must be supported once ARR-005 provides the node.",
+      "evidence": {
+        "observed": "ERROR 1064: ... near '[2] FROM dual' at line 1",
+        "repro": "select [10,20,30][2] from dual;"
+      },
+      "sources": [
+        {
+          "path": "src/sql/resolver/expr/ob_raw_expr_resolver_impl.cpp",
+          "line": 2116,
+          "symbol": "set_geo_func_name",
+          "quote": "case T_FUN_SYS_ARRAY: {\n  OX(func_expr->set_func_name(N_ARRAY));\n  break;\n}",
+          "note": "An ARRAY node can only become the N_ARRAY function; it has no 'value of my first element' meaning."
+        }
+      ],
+      "tests": ["parser_only", "live_server"],
+      "depends_on": ["ARR-005"]
+    },
+    {
+      "id": "ARR-005",
+      "title": "Parser must expose an ARRAY_INDEX node for `col[i]`",
+      "category": "grammar",
+      "kind": "must-change",
+      "state": "open",
+      "statement": "The grammar must build an element-access node for `<column-ref> '[' expr ']'`, and that node must be distinguishable from the ARRAY literal node `'[' expr_list ']'`.",
+      "evidence": {
+        "observed": "No node exists: `SELECT slots[1] ...` fails in the lexer/parser, and the only node the grammar can build for brackets is T_FUN_SYS_ARRAY (1737), which is the ARRAY literal.",
+        "repro": "select slots[1] from t;"
+      },
+      "sources": [
+        {
+          "path": "src/query/api/query/parser/ob_item_type.h",
+          "line": 766,
+          "symbol": "T_FUN_SYS_ARRAY",
+          "quote": "T_FUN_SYS_ARRAY = 1737,",
+          "note": "The ARRAY literal node; there is no companion element-access node."
+        },
+        {
+          "path": "src/query/api/query/parser/ob_item_type.h",
+          "line": 991,
+          "symbol": "T_COLUMN_REF",
+          "quote": "T_COLUMN_REF = 3290,",
+          "note": "Potential anchor: element access takes a column reference as its base."
+        },
+        {
+          "path": "src/sql/parser/sql_parser_mysql_mode.y",
+          "line": 3171,
+          "symbol": "'[' expr_list ']'",
+          "quote": "| '[' expr_list ']'",
+          "note": "The ARRAY literal production that currently swallows `[i]` after a column."
+        }
+      ],
+      "tests": ["parser_only"],
+      "depends_on": []
+    },
+    {
+      "id": "ARR-005a",
+      "title": "The element-access expression reads `col[i]` in SELECT",
+      "category": "expression",
+      "kind": "must-change",
+      "state": "open",
+      "statement": "`SELECT arr[i] FROM t` must return the element at 1-based position i, and must return NULL when i is out of range or NULL.",
+      "evidence": {
+        "observed": "unsupported today (no node, see ARR-005)",
+        "repro": "select slots[1] from t where t.slots = [1,2,3,4];"
+      },
+      "sources": [
+        {
+          "path": "src/sql/engine/expr/ob_expr_operator_factory.cpp",
+          "symbol": "ObExprOperatorFactory",
+          "note": "Expression operators are registered here; a function-grade operator can live in sysfunc."
+        },
+        {
+          "path": "src/sql/engine/expr/ob_expr_array_first.cpp",
+          "symbol": "ob_expr_*",
+          "note": "ARRAY helpers (array_first, array_map, reverse) live here and show the expected shape for array-aware evaluation."
+        }
+      ],
+      "tests": ["live_server"],
+      "depends_on": ["ARR-005"]
+    },
+    {
+      "id": "ARR-005b",
+      "title": "Writes targets resolve through the shared `insert_columns` / assignment path",
+      "category": "resolution",
+      "kind": "must-change",
+      "state": "open",
+      "statement": "Element targets must be accepted by the resolver entry points that already validate INSERT target columns and UPDATE assignment columns, and an out-of-range element index must raise a clear error instead of silently appending.",
+      "evidence": {
+        "observed": "`resolve_insert_columns()` accepts only `ref_expr->is_column_ref_expr()`; `update_asgn_factor` never reaches it.",
+        "repro": "see ARR-001 / ARR-002"
+      },
+      "sources": [
+        {
+          "path": "src/sql/resolver/dml/ob_del_upd_resolver.cpp",
+          "line": 2123,
+          "symbol": "ObDelUpdResolver::resolve_insert_columns",
+          "quote": "} else if (!ref_expr->is_column_ref_expr()) {\n  ret = OB_ERR_UNEXPECTED;\n}",
+          "note": "The single validation gate for INSERT target lists."
+        },
+        {
+          "path": "src/sql/resolver/dml/ob_insert_resolver.cpp",
+          "line": 396,
+          "symbol": "ObInsertResolver::resolve_insert_field",
+          "quote": "OB_FAIL(resolve_insert_columns(insert_into.children_[1], insert_stmt->get_insert_table_info()))",
+          "note": "INSERT resolution entry that reaches the shared validation gate."
+        }
+      ],
+      "tests": ["parser_only"],
+      "depends_on": ["ARR-005"]
+    },
+    {
+      "id": "ARR-006",
+      "title": "Existing ARRAY literal, helper and vector overload rules keep today's results",
+      "category": "compat",
+      "kind": "must-keep",
+      "state": "open",
+      "statement": "ARRAY literal + ARRAY literal with different cardinality keeps its current error, ARRAY +/- scalar keeps its current error, the lambda helpers must reject a scalar number input and `reverse()` must keep its scalar and array behaviour; none of these may change to support element access, and none may stop working.",
+      "evidence": {
+        "observed": "array(1,2)+array(3) -> 7602 'array type mismatch found between definition and data'\narray(1,2)+3 -> 5083 'Invalid data type for the operation'\narray_map(x->x, 5) -> 5083 'Invalid data type for the operation'\narray_first(x->x>0, 5) -> 5083 'Invalid data type for the operation'\nreverse(array(1,2)) -> '[2,1]'\nreverse('abc') -> 'cba'",
+        "repro": "select array(1,2) + array(3);\nselect array(1,2) + 3;\nselect array_map(x -> x, 5);\nselect reverse(array(1,2));"
+      },
+      "sources": [
+        {
+          "path": "src/sql/engine/expr/ob_expr_add.cpp",
+          "symbol": "ObExprAdd::calc_result_type2",
+          "note": "The shared arithmetic overload used by every array arithmetic test."
+        },
+        {
+          "path": "src/sql/engine/expr/ob_expr_array_map.cpp",
+          "symbol": "ObExprArrayMap",
+          "note": "Lambda helper argument typing."
+        },
+        {
+          "path": "src/sql/engine/expr/ob_expr_reverse.cpp",
+          "symbol": "ObExprReverse",
+          "note": "`reverse()` is the only existing function that switches behaviour on the argument being an ARRAY."
+        }
+      ],
+      "tests": ["live_server"],
+      "depends_on": []
+    },
+    {
+      "id": "ARR-007",
+      "title": "Deprecated vector/index paths and current ARRAY DML forms must keep working",
+      "category": "compat",
+      "kind": "must-keep",
+      "state": "open",
+      "statement": "`analyze table`, of an ARRAY column, the array_arith_op / array_ddl suites' current statements, and the vector `l2_distance` ordering must keep their current results; adding element access must not disturb them.",
+      "evidence": {
+        "observed": "tests/seatbelt/array_arith_op_mysql.test + array_ddl_mysql.test pass on the baseline build",
+        "repro": "run tools/deploy/mysql_test/test_suite/array from the current tree"
+      },
+      "sources": [
+        {
+          "path": "tools/deploy/mysql_test/test_suite/array/t/array_ddl_mysql.test",
+          "note": "DDL and DML shapes that must keep working: [1,2], array(1,2), [[..]], insert into arr_t1(c2) values([57584])."
+        },
+        {
+          "path": "tools/deploy/mysql_test/test_suite/array/t/array_arith_op_mysql.test",
+          "note": "Arithmetic result and overflow error codes that must keep working."
+        }
+      ],
+      "tests": ["live_server"],
+      "depends_on": []
+    }
+  ]
+}

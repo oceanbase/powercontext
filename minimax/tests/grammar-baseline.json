@@ -1,0 +1,35 @@
+{
+  "ok": false,
+  "node": "T_INVALID",
+  "defined": false,
+  "token": "",
+  "productions": [],
+  "detail": "the grammar can only build an ARRAY literal for bracketed expressions (line 3171); the only ARRAY node the grammar builds from brackets is T_FUN_SYS_ARRAY (the ARRAY literal itself), so `col[i]` cannot become a distinct node",
+  "probes": [
+    {
+      "statement": "select slots[2] from tc_read",
+      "bracket_after_name": true,
+      "expected": "ERROR 1064: the grammar has no production for col[i]"
+    },
+    {
+      "statement": "insert into tc_read(id, slots[2]) values (2, 9)",
+      "bracket_after_name": true,
+      "expected": "ERROR 1064: the grammar has no production for col[i]"
+    },
+    {
+      "statement": "update tc_read set slots[2] = 9 where id = 1",
+      "bracket_after_name": true,
+      "expected": "ERROR 1064: the grammar has no production for col[i]"
+    },
+    {
+      "statement": "delete from tc_read where slots[2] = 9",
+      "bracket_after_name": true,
+      "expected": "ERROR 1064: the grammar has no production for col[i]"
+    },
+    {
+      "statement": "select [10,20,30][2] from dual",
+      "bracket_after_name": true,
+      "expected": "ERROR 1064: the grammar has no production for col[i]"
+    }
+  ]
+}

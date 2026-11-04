@@ -1,0 +1,383 @@
+{
+  "stage": "after",
+  "at": "2026-11-04T11:55:58",
+  "success": false,
+  "verdict": "acceptance 1/5 pass, compatibility 2/2 pass",
+  "results": [
+    {
+      "case_id": "TC-INSERT-01",
+      "spec_id": "ARR-001",
+      "kind": "acceptance",
+      "check": "live_server",
+      "stage": "after",
+      "status": "fail",
+      "basis": "feature",
+      "detail": "#3: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #4: rows expected [['1', '[0,0,0,0]', 'widen'], ['2', '[0,42,0,0]', 'target']], got [['1', '[0,0,0,0]', 'widen']]; #5: rows expected [['2']], got []",
+      "result_digest": "2fe209d43db1486c",
+      "statements": [
+        {
+          "statement": "drop table if exists tc_insert",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "create table tc_insert(id int not null primary key, slots array(int) not null, note varchar(32))",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "insert into tc_insert values (1, [0, 0, 0, 0], 'widen')",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "insert into tc_insert(id, slots[2], note) values (2, 42, 'target')",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2], note) values (2, 42, 'target')' at line 1",
+          "rows": []
+        },
+        {
+          "statement": "select id, reverse(slots), note from tc_insert order by id",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": [
+            [
+              1,
+              "[0,0,0,0]",
+              "widen"
+            ]
+          ]
+        },
+        {
+          "statement": "select id from tc_insert where slots = [0, 42, 0, 0] order by id",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        }
+      ]
+    },
+    {
+      "case_id": "TC-UPDATE-01",
+      "spec_id": "ARR-002",
+      "kind": "acceptance",
+      "check": "live_server",
+      "stage": "after",
+      "status": "fail",
+      "basis": "feature",
+      "detail": "#3: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #5: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #3: rows expected [['1', '[4,20,3,1]', 'after']], got []; #4: rows expected [['20']], got [['1', '[4,3,2,1]', 'before']]",
+      "result_digest": "fdf4bafdaea4e685",
+      "statements": [
+        {
+          "statement": "drop table if exists tc_update",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "create table tc_update(id int not null primary key, slots array(int) not null, note varchar(32))",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "insert into tc_update values (1, [1, 2, 3, 4], 'before')",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "update tc_update set slots[2] = 20, note = 'after' where id = 1",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2] = 20, note = 'after' where id = 1' at line 1",
+          "rows": []
+        },
+        {
+          "statement": "select id, reverse(slots), note from tc_update",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": [
+            [
+              1,
+              "[4,3,2,1]",
+              "before"
+            ]
+          ]
+        },
+        {
+          "statement": "select slots[2] from tc_update",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2] from tc_update' at line 1",
+          "rows": []
+        }
+      ]
+    },
+    {
+      "case_id": "TC-DELETE-01",
+      "spec_id": "ARR-003",
+      "kind": "acceptance",
+      "check": "live_server",
+      "stage": "after",
+      "status": "fail",
+      "basis": "feature",
+      "detail": "#3: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #3: rows expected [['2', '[9,3,2,1]']], got []",
+      "result_digest": "be5c8c7f34dc2b4a",
+      "statements": [
+        {
+          "statement": "drop table if exists tc_delete",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "create table tc_delete(id int not null primary key, slots array(int) not null, note varchar(32))",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "insert into tc_delete values (1, [1, 2, 3, 4], 'drop'), (2, [1, 2, 3, 9], 'keep')",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "delete from tc_delete where slots[4] = 4",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[4] = 4' at line 1",
+          "rows": []
+        },
+        {
+          "statement": "select id, reverse(slots) from tc_delete order by id",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": [
+            [
+              1,
+              "[4,3,2,1]"
+            ],
+            [
+              2,
+              "[9,3,2,1]"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "TC-READ-01",
+      "spec_id": "ARR-004",
+      "kind": "acceptance",
+      "check": "live_server",
+      "stage": "after",
+      "status": "fail",
+      "basis": "feature",
+      "detail": "#0: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #1: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #5: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #6: expected success, got error 1064: You have an error in your SQL syntax; check the manual that corresponds to your OceanBase ; #0: rows expected [['30']], got []; #1: rows expected [['null']], got []; #5: rows expected [['5']], got []; #6: rows expected [['null']], got []",
+      "result_digest": "c7c31fa8ec7a418b",
+      "statements": [
+        {
+          "statement": "select [10,20,30][2]",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[2]' at line 1",
+          "rows": []
+        },
+        {
+          "statement": "select [10,20,30][5]",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[5]' at line 1",
+          "rows": []
+        },
+        {
+          "statement": "drop table if exists tc_read",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "create table tc_read(id int not null primary key, slots array(int) not null, note varchar(32))",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "insert into tc_read values (1, [5, 6, 7, 8], 'r')",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "select slots[1] from tc_read",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[1] from tc_read' at line 1",
+          "rows": []
+        },
+        {
+          "statement": "select slots[6] from tc_read",
+          "ok": false,
+          "code": 1064,
+          "message": "You have an error in your SQL syntax; check the manual that corresponds to your OceanBase version for the right syntax to use near '[6] from tc_read' at line 1",
+          "rows": []
+        }
+      ]
+    },
+    {
+      "case_id": "TC-COMPAT-01",
+      "spec_id": "ARR-006",
+      "kind": "compat",
+      "check": "live_server",
+      "stage": "after",
+      "status": "pass",
+      "basis": "feature",
+      "detail": "matches the unmodified tree",
+      "result_digest": "3d359fdfe8c22a0c",
+      "statements": [
+        {
+          "statement": "select array(1,2) + array(3)",
+          "ok": false,
+          "code": 7602,
+          "message": "array type mismatch found between definition and data",
+          "rows": []
+        },
+        {
+          "statement": "select array(1,2) + 3",
+          "ok": false,
+          "code": 5083,
+          "message": "Invalid data type for the operation",
+          "rows": []
+        },
+        {
+          "statement": "select array_map(x -> x, 5)",
+          "ok": false,
+          "code": 5083,
+          "message": "Invalid data type for the operation",
+          "rows": []
+        },
+        {
+          "statement": "select array_first(x -> x > 0, 5)",
+          "ok": false,
+          "code": 5083,
+          "message": "Invalid data type for the operation",
+          "rows": []
+        },
+        {
+          "statement": "select reverse(array(1,2))",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": [
+            [
+              "[2,1]"
+            ]
+          ]
+        },
+        {
+          "statement": "select reverse('abc')",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": [
+            [
+              "cba"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "TC-COMPAT-02",
+      "spec_id": "ARR-007",
+      "kind": "compat",
+      "check": "live_server",
+      "stage": "after",
+      "status": "pass",
+      "basis": "feature",
+      "detail": "matches the unmodified tree",
+      "result_digest": "c9f24b2bea17aa69",
+      "statements": [
+        {
+          "statement": "drop table if exists tc_ddl",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "create table tc_ddl(c1 int, c2 array(int), c3 array(bigint))",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "insert into tc_ddl values (1, [1, 2, 3], [4, 5, 6])",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "insert into tc_ddl(c2) values ([57584, 1, 2])",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": []
+        },
+        {
+          "statement": "select c1, reverse(c2), reverse(c3) from tc_ddl order by c1",
+          "ok": true,
+          "code": 0,
+          "message": "",
+          "rows": [
+            [
+              null,
+              "[2,1,57584]",
+              null
+            ],
+            [
+              1,
+              "[3,2,1]",
+              "[6,5,4]"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "check": "parser_only",
+      "status": "pass",
+      "elapsed_ms": 134,
+      "detail": "element-access node: T_OP_ARRAY_INDEX",
+      "output": "repository: D:\\code\\oceanbase\\experiments\\worktree\nelement-access node: T_OP_ARRAY_INDEX\nlexer token:         none\nproduction:          3178: malloc_non_terminal_node($$, result->malloc_pool_, T_FUN_SYS_ARRAY, 1, $2); } | column_ref '[' expr ']' {   /* col[i] reads or assigns one element of an ARRAY column */\ndetail:              the grammar builds T_OP_ARRAY_INDEX from a bracketed column reference; 1 production(s) use it\n  select slots[2] from tc_read                         -> reduces into T_OP_ARRAY_INDEX via the production at line 3178\n  insert into tc_read(id, slots[2]) values (2, 9)      -> reduces into T_OP_ARRAY_INDEX via the production at line 3178\n  update tc_read set slots[2] = 9 where id = 1         -> reduces into T_OP_ARRAY_INDEX via the production at line 3178\n  delete from tc_read where slots[2] = 9               -> reduces into T_OP_ARRAY_INDEX via the production at line 3178\n  select [10,20,30][2] from dual                       -> reduces into T_OP_ARRAY_INDEX via the production at line 3178\nGRAMMAR-CHECK: PASS",
+      "case_id": "TC-PARSER-01",
+      "kind": "acceptance",
+      "spec_id": "ARR-005",
+      "stage": "after",
+      "basis": "feature"
+    }
+  ]
+}

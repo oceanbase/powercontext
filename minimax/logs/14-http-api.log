@@ -1,0 +1,12 @@
+### HTTP 接口（uvicorn serve:app，127.0.0.1:8099）
+GET /health
+{"ok":true,"server":"5.7.25-OceanBase seekdb-v1.4.0.0","user":"minimax_ctx@%","specs":9}
+
+GET /tasks/task-arr-element-dml/history
+[{"revision":1,"reason":"save after after"},{"revision":2,"reason":"save after after"},{"revision":3,"reason":"after code apply"},{"revision":4,"reason":"save after after"}]
+
+GET /specs 前两项
+[{"id":"ARR-001","kind":"must-change","state":"done",...},{"id":"ARR-002","kind":"must-change","state":"open",...}]
+
+说明：HTTP 接口与 run.py 共用 context/operations.py 与 context/powercontext.py，
+所有读取都直接查 seekdb，没有进程内缓存。

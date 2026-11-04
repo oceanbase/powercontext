@@ -1,0 +1,212 @@
+# MiniMax × OceanBase — 规所依：面向软件持续演进的 SDD 上下文管理系统
+
+本目录是参赛作品。它演示一条完整的 **Spec-Driven Development（SDD）** 工作流：把工程规格、代码与测试来源存进 **seekdb**，把任务进展与验证结果通过 **PowerContext** 保存/复用，由 **MiniMax** 依据组装出的开发上下文参与真实代码修改，并用可复现的验收/兼容检查证明"该改的改了、不该动的没动"。
+
+作品处理的业务工程是 **seekdb**（OceanBase 的单机版 SQL 引擎，C++），任务是对它做一次真实的局部功能修改：
+
+> **任务**：seekdb 的 ARRAY 列不支持按元素访问（`col[i]`）。需要在 `INSERT` / `UPDATE` / `DELETE` / `SELECT` 中支持 1-based 元素访问，且不得改变既有的数组字面量、数组函数与向量检索行为。
+
+---
+
+## 1. 目录结构
+
+```
+minimax/
+├── README.md                  # 本文件：依赖、配置、初始化、调用入口、已知限制
+├── run.py                     # 唯一命令行入口（生成器/验收/上下文/状态/就绪度）
+├── serve.py                   # HTTP 接口（FastAPI + uvicorn，挂在 run.py 同一套逻辑上）
+├── context/                   # 上下文模块
+│   ├── db.py                  # 数据库边界：schema、连接（只从环境变量取配置）
+│   ├── powercontext.py        # PowerContext 边界：状态保存 / 恢复 / 再导入 / 历史
+│   ├── build_context.py       # 上下文组装：规格 + 代码来源 + 既有测试 + 环境实测
+│   ├── harness.py             # 环境执行：对真实 seekdb 跑 SQL 并记录错误码与行
+│   ├── scenarios.py           # 验证样例的定义（生成 tests/suite.json）
+│   ├── guard.py               # 验收：修改前必红、修改后必绿、兼容项恒绿
+│   ├── operations.py          # run.py 与 serve.py 共用的操作
+│   ├── minimax.py             # MiniMax 边界：api / cli / manual 三种接入
+│   ├── patchutil.py           # 补丁抽取与 `git apply` 封装
+│   ├── config.py              # 任务常量
+│   └── specs/seed_specs.json  # 规格数据集（导入 seekdb 的源数据）
+├── scripts/
+│   ├── init_db.py             # 从空环境拉起 seekdb 容器并建库建账号
+│   ├── build_specs.py         # 把规格数据集导入 seekdb 并索引源代码
+│   └── record_baseline.py     # 记录"修改前"的基准观测（golden oracle）
+├── grammar_check/
+│   ├── static_check.py        # 语法检查：文法中是否存在 col[i] 节点（before/after）
+│   └── array_index_probe.cpp  # 可选的 libobparser 编译期探针
+├── tests/
+│   ├── suite.json             # 验证样例（任务中列出的 SQL，可复现）
+│   ├── golden_baseline.json   # 修改前的基准观测（oracle）
+│   ├── fixtures/smoke_answer.md
+│   └── test_context.py        # 上下文模块自身的测试（pytest）
+├── agent/
+│   ├── instruction.md         # 交给 MiniMax 的任务说明（含规格编号）
+│   ├── MINIMAX-LOG.md         # MiniMax 实际参与记录
+│   └── artifacts/             # 每次调用留下的上下文/提示词/回答/补丁
+├── docs/
+│   ├── 验证样例.md
+│   ├── 代码与测试.md
+│   ├── 技术使用记录.md
+│   └── 一页技术说明.md
+└── logs/                      # 本次提交的运行日志（逐条命令与输出）
+```
+
+---
+
+## 2. 依赖版本
+
+| 依赖 | 版本 | 用途 |
+| --- | --- | --- |
+| Python | 3.10.4（脚本按 3.10+ 编写） | 全部模块 |
+| PyMySQL | 2.2.8 | 访问 seekdb / OceanBase |
+| requests | 2.34.2 | （可选）HTTP 客户端 |
+| fastapi | 0.162.0 | HTTP 接口 |
+| uvicorn | 0.54.0 | HTTP 服务 |
+| pytest | 8.x | 上下文模块测试 |
+| Docker | 29.6.1（Engine 已运行） | 启动 seekdb |
+| seekdb 镜像 | `oceanbase/seekdb:1.4.0-100000172026082615` | 被测工程 + 数据库 |
+| seekdb 源码 | `https://github.com/oceanbase/seekdb`，提交 `108fe22` | 规格中的代码来源 |
+
+被测数据库版本（`select version()`）：`5.7.25-OceanBase seekdb-v1.4.0.0`。
+
+安装依赖：
+
+```bash
+python -m pip install pymysql fastapi uvicorn pytest requests
+```
+
+---
+
+## 3. 配置
+
+全部配置走环境变量，代码里没有硬编码的主机和口令：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MINIMAX_DB_HOST` | `127.0.0.1` | seekdb / OceanBase 地址 |
+| `MINIMAX_DB_PORT` | `2883` | 端口 |
+| `MINIMAX_DB_USER` / `MINIMAX_DB_PASSWORD` | `minimax_ctx` / `minimax_ctx_dev` | 规格库账号（只读写 `minimax_sdd_ctx`） |
+| `MINIMAX_SCENARIO_USER` / `MINIMAX_SCENARIO_PASSWORD` | `minimax_test` / `minimax_test_dev` | 演练库账号（只操作 `minimax_scenario*`） |
+| `SEEKDB_REPO` | — | seekdb 源码目录，规格中的代码来源从这里实时读取并计算哈希 |
+| `MINIMAX_TASK_ID` | `task-arr-element-dml` | 任务标识 |
+| `MINIMAX_API_KEY` | — | 设置后 MiniMax 走 API（ChatCompletion） |
+| `MINIMAX_MODEL` / `MINIMAX_BASE_URL` | `MiniMax-Text-01` / `https://api.minimaxi.com/v1` | MiniMax API 参数 |
+| `MINIMAX_AGENT_CMD` | — | 设置后 MiniMax 走命令行 Agent |
+| `MINIMAX_AGENT_OUTPUT` | — | 设置后走"人工粘贴"：从该文件读取 MiniMax 的回答 |
+| `MINIMAX_GRAMMAR_CHECK` | `grammar_check/static_check.py` | after 阶段语法检查命令 |
+
+> 口令类变量只用于本地开发；`scripts/init_db.py` 会在新环境里重新创建这两个账号。
+
+---
+
+## 4. 从空环境启动（评测请按此顺序执行）
+
+```bash
+cd minimax
+export SEEKDB_REPO=/path/to/seekdb          # 规格引用的源码仓库
+export PYTHONIOENCODING=utf-8
+
+# 1) 拉起 seekdb（首次会拉镜像），建库 + 建账号，并验证两个账号都能登录
+python scripts/init_db.py --reset
+
+# 2) 导入规格数据集（读 src/... 校验行号并写入代码来源哈希）
+python scripts/build_specs.py --reset
+
+# 3) 记录"修改前"的基准观测（golden oracle）
+python scripts/record_baseline.py
+
+# 4) 上下文模块自测
+python -m pytest tests -q
+```
+
+第 1 步等价于手动执行：
+
+```bash
+docker run -d --name minimax-context-seekdb \
+  -e ROOT_PASSWORD=minimax_root_pw -p 2883:2881 \
+  oceanbase/seekdb:1.4.0-100000172026082615
+docker exec minimax-context-seekdb mysql -h127.0.0.1 -P2881 -uroot -pminimax_root_pw \
+  -e "CREATE DATABASE minimax_sdd_ctx"
+```
+
+---
+
+## 5. 调用入口
+
+### 5.1 命令行（`run.py`）
+
+```bash
+python run.py specs                        # 列出规格库
+python run.py context                      # 打印开发上下文（--json / --compact / --out）
+python run.py context --spec ARR-001 --spec ARR-005
+python run.py guard --stage baseline       # 修改前：与基准观测一致，且验收项全红
+python run.py guard --stage after          # 修改后：验收项全绿，兼容项恒绿
+python run.py agent --step prepare         # 组装上下文 + 调 MiniMax + 保存任务状态
+python run.py agent --step apply --worktree <seekdb 检出>   # 读取状态、再导入、应用补丁
+python run.py state show                   # 最新任务状态（来自 seekdb）
+python run.py state history                # 状态版本历史
+python run.py state import                 # 重启后再导入
+python run.py state log                    # 使用记录
+python run.py ready                        # 任务就绪度（全部规格 done 才算完成）
+```
+
+### 5.2 HTTP 接口（`serve.py`）
+
+```bash
+python -m uvicorn serve:app --host 127.0.0.1 --port 8099
+
+curl http://127.0.0.1:8099/health
+curl "http://127.0.0.1:8099/context?spec=ARR-001&spec=ARR-005"
+curl -X POST http://127.0.0.1:8099/tasks/task-arr-element-dml/import
+curl http://127.0.0.1:8099/ready
+```
+
+### 5.3 MiniMax 接入（三种方式，运行说明中已注明实际采用的方式与版本）
+
+* 已设置 `MINIMAX_API_KEY`：POST `{base}/chat/completions`，模型见 `MINIMAX_MODEL`；
+* 已设置 `MINIMAX_AGENT_CMD`：以 `prompt.md` 为参数调用该命令，读取标准输出；
+* 否则（本机没有 MiniMax Key 时的默认路径）：程序生成 `agent/artifacts/<stage>/prompt.md`，把该提示词粘进 MiniMax Code，再把回答存成文件，设置 `MINIMAX_AGENT_OUTPUT=<文件>` 后重跑 `agent --step prepare`。
+
+三种方式产物一致：回答里必须包含 `diff --git` 补丁，程序只抽取补丁部分并校验。
+
+---
+
+## 6. 典型的一次完整运行（也见 `docs/代码与测试.md`）
+
+```bash
+python run.py guard --stage baseline        # 修改前：验收项全红（记录为证据）
+python run.py guard --stage after           # 修改前跑同一组检查：失败 → 证明检查有效
+python run.py agent --step prepare          # 上下文 → MiniMax → 补丁 + 保存状态
+#  —— 到此可以结束进程，评测"重启后仍能读取并使用状态" ——
+python run.py state history                 # 新进程：读历史
+python run.py agent --step apply --worktree <新检出的 seekdb>   # 再导入状态并应用补丁
+python run.py guard --stage after           # 修改后：验收项全绿、兼容项恒绿
+python run.py state save --stage after       # 保存最终状态
+python run.py state mark --spec ARR-001 --spec ARR-005 --state done
+python run.py ready                         # 全部 done 才返回 0
+```
+
+---
+
+## 7. 数据模型（seekdb 中的表）
+
+| 表 | 作用 |
+| --- | --- |
+| `spec` | 规格条目：`must-change` / `must-keep`、陈述、证据、复现 SQL、关联检查 |
+| `spec_source` | 规格的代码来源：路径、符号、行号、原文、说明 |
+| `test_case` | 检查项与基准观测摘要（`oracle_key`） |
+| `task` / `task_state` | 任务当前状态快照（带版本号），是"重启后恢复"的唯一来源 |
+| `task_state_history` | 每次保存的历史版本，供评审核对 |
+| `artifact` | MiniMax 给出的补丁、最终代码差异（按任务+阶段+摘要寻址） |
+| `session_log` | 使用记录：MiniMax 调用、验收运行、状态导入（写入原始值，不写口令） |
+
+---
+
+## 8. 已知限制
+
+1. **本机无法构建 seekdb。** Windows 上没有 bazel/g++，seekdb 14 万行文件全量编译也不现实。"代码修改有效"用两层检查替代：语法层（`grammar_check/` 直接读文法源，判断 `col[i]` 是否已产生独立节点）和真实服务层（guard 对运行中的 seekdb 1.4.0 执行同一组 SQL）。**没有在本机编译过 C++ 补丁**，这一点在 `docs/代码与测试.md` 中如实标注。
+2. **被测 seekdb 是镜像中的 1.4.0 构建，不是打过补丁的构建**；因此 after 阶段在真实服务层的验收项会保持红色，直到有可用构建。guard 会把这个结果原样报告，不会伪造。
+3. **MiniMax 无 API Key 时走人工粘贴路径**，流程、提示词、补丁校验完全可用，但回答由操作者粘贴。
+4. `array_index_probe.cpp` 需要与 seekdb 构建一致的 `libobparser` 头文件与链接参数，本机未验证编译；默认使用 `static_check.py`。
+5. 规格引用的行号对应 seekdb `108fe22`；`build_specs.py` 与上下文组装会校验符号仍在原处，漂移会打印警告而不是静默改号。
+6. 口令写在开发脚本中并可用环境变量覆盖，仅适用于本地演示环境。

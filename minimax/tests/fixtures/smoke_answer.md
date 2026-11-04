@@ -1,0 +1,23 @@
+Hand-written answer for the smoke test (not a MiniMax answer).
+
+```diff
+diff --git a/src/sql/parser/sql_parser_mysql_mode.y b/src/sql/parser/sql_parser_mysql_mode.y
+index 1111111..2222222 100644
+--- a/src/sql/parser/sql_parser_mysql_mode.y
++++ b/src/sql/parser/sql_parser_mysql_mode.y
+@@ -3170,6 +3170,12 @@
+ | '[' expr_list ']'
+ {
+   malloc_non_terminal_node($$, result->malloc_pool_, T_FUN_SYS_ARRAY, 1, $2);
+ }
++| column_ref '[' expr ']'
++{
++  /* col[i] reads or assigns one element of an ARRAY column */
++  malloc_non_terminal_node($$, result->malloc_pool_, T_OP_ARRAY_INDEX, 2, $1, $3);
++  $$->flag_ = 0;
++}
+ | vector_distance_expr
+ {
+   $$ = $1;
+ }
+```
