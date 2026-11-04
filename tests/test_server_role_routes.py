@@ -25,9 +25,7 @@ from powercontext.server.settings import ServerSettings
 def _settings(role: str, **overrides) -> ServerSettings:
     values = {
         "deployment": DeploymentConfig(mode="distributed", role=role, id=f"node-{role}"),
-        "database": OceanBaseConfig(
-            url="mysql+aoceanbase://user:pass@localhost:2881/powercontext?charset=utf8mb4"
-        ),
+        "database": OceanBaseConfig(url="mysql+aoceanbase://user:pass@localhost:2881/powercontext?charset=utf8mb4"),
         # A distributed Worker validates a generation model at composition time;
         # the route table assertions below never open the runtime.
         "inference": {"generation_model": "stub:model"},

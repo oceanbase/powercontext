@@ -202,9 +202,7 @@ def test_documented_obloader_restore_layers_are_parent_first() -> None:
 
     restore_layers = restore_plans[0]
     durable_tables = tuple(
-        table
-        for table in BUILTIN_TABLES
-        if table.name not in transient_tables and table.name != "pc_artifact_vectors"
+        table for table in BUILTIN_TABLES if table.name not in transient_tables and table.name != "pc_artifact_vectors"
     )
     assert {table.name for table in BUILTIN_TABLES} - {table.name for table in durable_tables} == (
         transient_tables | {"pc_artifact_vectors"}
