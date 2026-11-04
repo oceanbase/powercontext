@@ -476,11 +476,13 @@ jobs:
     # for environment setup and diagnostic uploads.
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    env:
+      SEEKDB_MIGRATION_SHARD_COUNT: "3"
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.14"]
-        migration-shard: [0, 1]
+        migration-shard: [0, 1, 2]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -533,8 +535,8 @@ jobs:
 
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
-        # Last-client shutdown adds native startup work. Partition runner nodes;
-        # every node keeps its 180-second deadline.
+        # Native startup puts the 37 runner cases beyond two 25m steps. Use
+        # three shards; every node keeps its independent 180-second deadline.
         timeout-minutes: 25
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
@@ -580,7 +582,7 @@ jobs:
             exit 1
           fi
           for index in "${!seekdb_runner_nodes[@]}"; do
-            if [ "$((index % 2))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
+            if [ "$((index % SEEKDB_MIGRATION_SHARD_COUNT))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
               continue
             fi
             seekdb_runner_node="${seekdb_runner_nodes[$index]}"

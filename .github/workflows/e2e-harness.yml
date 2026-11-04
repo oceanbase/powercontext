@@ -449,11 +449,12 @@ jobs:
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
       - name: Test long-query retrieval and admission without skips
-        # Eight isolated cases include full Server setup and retain 180s deadlines.
+        # A full Server-backed case already takes 165s on the OceanBase runner.
+        # Include bounded query execution and teardown in a 240s case deadline.
         timeout-minutes: 30
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/long-query" --tests \
+            oceanbase --case-timeout 240 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py
 
