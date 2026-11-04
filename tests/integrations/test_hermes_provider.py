@@ -214,7 +214,8 @@ def test_prefetch_uses_profile_and_user_scoped_context(provider_and_client):
 
     recalled = provider.prefetch("What did we decide about the deployment?")
 
-    assert "remembered project context" in recalled
+    # The Server's prepared content carries the trust policy; the provider adds only its heading.
+    assert recalled == "## PowerContext recalled context\n\nremembered project context"
     assert client.calls[0] == (
         "prepare_context",
         ("scp_00000000000000000000000000", "What did we decide about the deployment?"),
