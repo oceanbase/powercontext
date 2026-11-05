@@ -111,6 +111,13 @@ When `auto` is set and the model provider prefix is outside `anthropic`, `openai
 `openai-responses`, an `inference.generation.streaming_not_applied` WARNING with `unit` `inference` reports that
 the model stayed on a non-streaming request. The event carries no prompt or response content and does not change
 the request result.
+With prefixed extraction configured (`POWERCONTEXT_SERVER_INFERENCE_PREFIX_EXTRACTION_GATEWAY_URL`), an INFO
+`atomic_memory.prefixed_extraction` event with `operation` `atomic_memory.extract` and `unit` `inference` reports each
+attempt for a window that holds one gateway turn with a prefix handle. `outcome` is `success` when the reply over the
+cached prefix was used, or `fallback` when normal extraction ran instead; `fallback_reason` is then one of
+`not_cheaper`, `prefix_size_unknown`, `prefix_unavailable`, `target_mismatch`, `disabled`, `invalid_instruction`, `check_rejected`, `gateway_unavailable`,
+`provider_error`, `gateway_error`, or `invalid_output`. Windows without such a turn emit no event. The event carries no handle, prompt,
+or response content.
 For child cancellation, the supervisor emits `artifact_processing.failed` at `INFO` with outcome/category `cancelled`
 and diagnostic code `worker_cancelled`. Application spans classify mapped diagnostic codes even when sensitive
 exception values are excluded from logs and traces.

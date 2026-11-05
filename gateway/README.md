@@ -87,6 +87,7 @@ PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider/v1/chat/completions \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 ./target/release/pc-gateway
 
+# Requests without an output limit get the max_output_tokens the Server configures for PC_GATEWAY_UPSTREAM_PROFILE.
 # Injection (prepare + inject on the Chat and Responses routes): in the combined deployment (PC_GATEWAY_CORE_UDS)
 # requests that belong to a conversation (X-PowerContext-Conversation-ID or a recognized client session header)
 # are injected by default; standalone is off by default.
@@ -96,7 +97,9 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 # base prompt; read and validated at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_DEGRADE=passthrough (no-memory passthrough when Core is unreachable; never applies
 # to deployments with enforcing protection), PC_GATEWAY_MAX_CONCURRENT / PC_GATEWAY_MAX_BODY_BYTES,
-# PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled).
+# PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled),
+# PC_GATEWAY_PREFIX_EXTRACTION=on (with PC_GATEWAY_SEDIMENT=on: keep each Responses turn's prefix in memory for
+# 30 minutes and serve POST /gateway/v1/extract, so Core extracts memory over the provider's prompt cache).
 ```
 
 Credentials live only in server-side environment variables; they are never accepted from request fields and never enter check payloads.

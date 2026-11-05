@@ -10196,6 +10196,117 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "array",
                         "maxItems": 16,
                     },
+                    "conversation_id": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "description": "Trusted conversation of the request, as resolved by the executor.",
+                    },
+                    "parent_conversation_id": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "description": "For "
+                        "a "
+                        "subagent, "
+                        "the "
+                        "conversation "
+                        "that "
+                        "handed "
+                        "it "
+                        "its "
+                        "task. "
+                        "Receipts "
+                        "issued "
+                        "to "
+                        "that "
+                        "conversation "
+                        "also "
+                        "prove "
+                        "the "
+                        "origin "
+                        "of "
+                        "encrypted "
+                        "items "
+                        "in "
+                        "this "
+                        "request.",
+                    },
+                    "encrypted_receipts": {
+                        "items": {"type": "string", "maxLength": 65536, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Receipts "
+                        "from "
+                        "earlier "
+                        "check "
+                        "results. "
+                        "For "
+                        "a "
+                        "target "
+                        "that "
+                        "admits "
+                        "encrypted "
+                        "items, "
+                        "each "
+                        "admitted "
+                        "encrypted "
+                        "value "
+                        "must "
+                        "be "
+                        "proven, "
+                        "unexpired, "
+                        "by "
+                        "a "
+                        "receipt "
+                        "for "
+                        "the "
+                        "same "
+                        "principal, "
+                        "Scope "
+                        "and "
+                        "target "
+                        "issued "
+                        "to "
+                        "this "
+                        "conversation. "
+                        "A "
+                        "receipt "
+                        "issued "
+                        "to "
+                        "the "
+                        "parent "
+                        "conversation "
+                        "proves "
+                        "only "
+                        "the "
+                        "values "
+                        "it "
+                        "holds "
+                        "for "
+                        "handover, "
+                        "and "
+                        "only "
+                        "as "
+                        "an "
+                        "agent_message "
+                        "task. "
+                        "Otherwise "
+                        "the "
+                        "request "
+                        "is "
+                        "withheld "
+                        "with "
+                        "encrypted-origin-unverified. "
+                        "Admission "
+                        "does "
+                        "not "
+                        "mean "
+                        "Core "
+                        "inspected "
+                        "the "
+                        "plaintext.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -10209,6 +10320,24 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "request_binding": {"type": "string", "maxLength": 65536, "minLength": 1},
                     "payload": {"$ref": "#/components/schemas/ModelJsonPayload"},
                     "completion": {"type": "string", "enum": ["complete"]},
+                    "conversation_id": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "description": "Trusted "
+                        "conversation "
+                        "of "
+                        "the "
+                        "request; "
+                        "receipts "
+                        "are "
+                        "issued "
+                        "only "
+                        "when "
+                        "it "
+                        "is "
+                        "present.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -10269,6 +10398,109 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "exact "
                         "payload.",
                     },
+                    "receipt": {
+                        "type": "string",
+                        "maxLength": 65536,
+                        "minLength": 1,
+                        "description": "For "
+                        "a "
+                        "target "
+                        "that "
+                        "admits "
+                        "encrypted "
+                        "items "
+                        "and "
+                        "a "
+                        "request "
+                        "that "
+                        "names "
+                        "a "
+                        "conversation. "
+                        "On a "
+                        "before_release "
+                        "allow "
+                        "it "
+                        "proves "
+                        "the "
+                        "response's "
+                        "encrypted "
+                        "values "
+                        "and, "
+                        "for "
+                        "handover, "
+                        "the "
+                        "values "
+                        "of "
+                        "its "
+                        "function-call "
+                        "arguments "
+                        "that "
+                        "the "
+                        "checked "
+                        "request "
+                        "declared "
+                        "encrypted, "
+                        "for "
+                        "one "
+                        "hour. "
+                        "On a "
+                        "before_send "
+                        "allow "
+                        "it "
+                        "replaces "
+                        "the "
+                        "receipts "
+                        "of "
+                        "that "
+                        "conversation "
+                        "that "
+                        "the "
+                        "request "
+                        "presented: "
+                        "it "
+                        "carries "
+                        "every "
+                        "unexpired "
+                        "proof "
+                        "they "
+                        "held "
+                        "with "
+                        "its "
+                        "expiry, "
+                        "and "
+                        "renews "
+                        "for "
+                        "one "
+                        "hour "
+                        "the "
+                        "values "
+                        "the "
+                        "request "
+                        "carried "
+                        "and "
+                        "the "
+                        "proven "
+                        "handover "
+                        "values "
+                        "its "
+                        "replayed "
+                        "function "
+                        "calls "
+                        "carry. "
+                        "A "
+                        "check "
+                        "whose "
+                        "values "
+                        "do "
+                        "not "
+                        "fit "
+                        "one "
+                        "receipt "
+                        "is "
+                        "withheld "
+                        "with "
+                        "encrypted-receipt-capacity-exceeded.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -10290,6 +10522,48 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "reuse_families": {"items": {"type": "string"}, "type": "array"},
                     "enforcing": {"type": "boolean"},
                     "limits": {"$ref": "#/components/schemas/ContextProtectionCapabilitiesLimits"},
+                    "output_limits": {
+                        "additionalProperties": {"type": "integer", "minimum": 1.0},
+                        "type": "object",
+                        "description": "Configured "
+                        "`max_output_tokens` "
+                        "by "
+                        "target "
+                        "profile, "
+                        "for "
+                        "targets "
+                        "that "
+                        "declare "
+                        "one. "
+                        "A "
+                        "colocated "
+                        "gateway "
+                        "uses "
+                        "the "
+                        "value "
+                        "of "
+                        "its "
+                        "own "
+                        "target "
+                        "when "
+                        "a "
+                        "client "
+                        "request "
+                        "omits "
+                        "an "
+                        "output "
+                        "limit; "
+                        "the "
+                        "final "
+                        "request "
+                        "is "
+                        "still "
+                        "checked "
+                        "against "
+                        "the "
+                        "same "
+                        "limit.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

@@ -73,13 +73,21 @@ impl WireRenderer for RecordingRenderer {
 }
 
 /// 脚本化检查客户端：按序弹出结果，记录请求阶段与载荷。
+type SendIdentities = Vec<(Option<String>, Option<String>, Vec<String>)>;
+
 struct FakeGate {
     results: Mutex<VecDeque<Result<ContextCheckResult, GateError>>>,
     seen: Mutex<Vec<(CheckPhase, String)>>,
     prepared_seen: Mutex<Vec<Vec<PreparedContextLocation>>>,
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
+    /// 每次 before_send 携带的会话、父会话和加密内容回执。
+    send_identities: Mutex<SendIdentities>,
+    /// 每次 before_release 携带的会话。
+    release_conversations: Mutex<Vec<Option<String>>>,
     captured: Mutex<Vec<(String, String)>>,
+    /// 每次 capture 携带的 Source 元数据。
+    captured_metadata: Mutex<Vec<Option<serde_json::Value>>>,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
@@ -109,6 +117,28 @@ impl GateClient for FakeGate {
             } => prepared_contexts.clone(),
             _ => Vec::new(),
         };
+        if let ContextCheckRequest::BeforeSend {
+            conversation_id,
+            parent_conversation_id,
+            encrypted_receipts,
+            ..
+        } = &request
+        {
+            self.send_identities.lock().unwrap().push((
+                conversation_id.clone(),
+                parent_conversation_id.clone(),
+                encrypted_receipts.clone(),
+            ));
+        }
+        if let ContextCheckRequest::BeforeRelease {
+            conversation_id, ..
+        } = &request
+        {
+            self.release_conversations
+                .lock()
+                .unwrap()
+                .push(conversation_id.clone());
+        }
         self.prepared_seen.lock().unwrap().push(declared);
         self.seen.lock().unwrap().push((phase, note));
         let step = self.results.lock().unwrap().pop_front();
@@ -155,6 +185,10 @@ impl GateClient for FakeGate {
         &self,
         request: CaptureContentSourceRequest,
     ) -> Result<serde_json::Value, GateError> {
+        self.captured_metadata
+            .lock()
+            .unwrap()
+            .push(request.metadata);
         self.captured
             .lock()
             .unwrap()
@@ -210,6 +244,7 @@ fn result(phase: CheckPhase, decision: CheckDecision, reasons: &[&str]) -> Conte
         valid_until: "2999-01-01T00:00:00Z".into(),
         correlate_until: None,
         binding: matches!(decision, CheckDecision::Allow).then(|| "binding-1".to_string()),
+        receipt: None,
     }
 }
 
@@ -245,7 +280,10 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         headers: vec![("authorization".into(), "Bearer secret".into())],
         degrade_policy: degrade,
         inject_context: false,
+        capture_prefix: false,
+        background: false,
         conversation_id: None,
+        parent_conversation_id: None,
         sediment: false,
         prepared_contexts: Vec::new(),
     }
@@ -333,7 +371,10 @@ fn harness(
         prepare_queue: Mutex::new(VecDeque::new()),
         prepare_holds: Mutex::new(VecDeque::new()),
         prepare_queries: Mutex::new(Vec::new()),
+        send_identities: Mutex::new(Vec::new()),
+        release_conversations: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
+        captured_metadata: Mutex::new(Vec::new()),
         capture_error: Mutex::new(None),
     });
     let executor = Executor::new(
@@ -2050,6 +2091,122 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
 }
 
 #[tokio::test]
+async fn a_terminal_responses_turn_keeps_its_prefix_for_extraction() {
+    let output = serde_json::json!([
+        reasoning_item(),
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, transport, gate) = harness(
+        allow_runs(2),
+        vec![
+            responses_output(output.clone()),
+            responses_output(output.clone()),
+        ],
+        2,
+    );
+    for capture_prefix in [true, false] {
+        let mut c = tool_loop_call("fix the bug", 0, true);
+        c.inject_context = false;
+        c.sediment = true;
+        c.capture_prefix = capture_prefix;
+        c.parent_conversation_id = Some("conversation-parent".into());
+        let outcome = executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    }
+    let metadata = gate.captured_metadata.lock().unwrap().clone();
+    assert!(
+        metadata[1].as_ref().unwrap().get("prefix_handle").is_none(),
+        "without opt-in nothing is kept"
+    );
+    let handle = metadata[0].as_ref().unwrap()["prefix_handle"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let prefix = executor.prefix(&handle, "project:test").unwrap();
+    assert_eq!(prefix.conversation_id, "conversation-a");
+    // 抽取请求沿用原请求的父会话，子代理任务凭父会话的回执放行。
+    assert_eq!(
+        prefix.parent_conversation_id.as_deref(),
+        Some("conversation-parent")
+    );
+    assert_eq!(prefix.target_profile, "openai:test");
+    assert_eq!(
+        prefix.request_body,
+        transport.sends.lock().unwrap()[0],
+        "the prefix is the exact body sent upstream"
+    );
+    assert_eq!(serde_json::Value::from(prefix.response_output), output);
+    assert!(executor.prefix(&handle, "project:other").is_none());
+    // 前缀规模取自终止响应的用量，供 Core 判断复用前缀是否更便宜。
+    assert_eq!(metadata[0].as_ref().unwrap()["prefix_input_tokens"], 10);
+    assert_eq!(metadata[0].as_ref().unwrap()["prefix_output_tokens"], 2);
+}
+
+#[tokio::test]
+async fn a_turn_the_source_does_not_fully_represent_keeps_no_prefix() {
+    let output = serde_json::json!([
+        {"id": "msg_1", "type": "message", "role": "assistant",
+         "content": [{"type": "output_text", "text": "done", "annotations": []}]}
+    ]);
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(3),
+        (0..3).map(|_| responses_output(output.clone())).collect(),
+        2,
+    );
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let image =
+        serde_json::json!({"type": "input_image", "image_url": "https://example.com/a.png"});
+    let long = "x".repeat(crate_max_field_bytes() + 1);
+    for case in ["injected", "image", "truncated"] {
+        let mut c = tool_loop_call(
+            if case == "truncated" {
+                &long
+            } else {
+                "fix the bug"
+            },
+            0,
+            true,
+        );
+        c.sediment = true;
+        c.capture_prefix = true;
+        c.inject_context = case == "injected";
+        if case == "image" {
+            c.request.messages[0].content.push(image.clone());
+        }
+        let outcome = executor
+            .run(
+                c,
+                &pc_gateway_protocol::OpenAiResponsesRenderer,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }), "{case}");
+    }
+    // 注入的记忆块、Source 无法呈现的图片、截断的文本都不在 Source 里：不保留前缀，Core 走普通抽取。
+    for (case, metadata) in ["injected", "image", "truncated"]
+        .iter()
+        .zip(gate.captured_metadata.lock().unwrap().iter())
+    {
+        assert!(
+            metadata.as_ref().unwrap().get("prefix_handle").is_none(),
+            "{case}"
+        );
+    }
+}
+
+/// 规范化记录中单个字段的字节上限（与 transcript 模块一致）。
+fn crate_max_field_bytes() -> usize {
+    8 * 1024
+}
+
+#[tokio::test]
 async fn a_failed_capture_still_releases_and_is_recorded() {
     let (executor, renderer, _transport, gate) =
         harness(allow_runs(1), vec![chat_final_response("done")], 2);
@@ -2254,4 +2411,182 @@ async fn a_hosted_tool_response_is_terminal_but_a_client_tool_call_is_not() {
             "arguments": "{\"query\":\"loader\",\"type\":\"search\"}"}])
     );
     assert_eq!(transcript["assistant"], "found it");
+}
+
+// ---------- #2420：加密内容回执按会话保存，并转交给当前会话和子代理 ----------
+
+fn release_with_receipt(receipt: &str) -> Result<ContextCheckResult, GateError> {
+    Ok(ContextCheckResult {
+        receipt: Some(receipt.into()),
+        ..result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])
+    })
+}
+
+#[tokio::test]
+async fn a_send_receipt_replaces_the_receipts_its_request_presented() {
+    let allow_send_with = |receipt: Option<&str>| {
+        let mut r = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
+        r.receipt = receipt.map(String::from);
+        Ok(r)
+    };
+    let (executor, renderer, _transport, gate) = harness(
+        vec![
+            allow_send_with(None),
+            release_with_receipt("release-1"),
+            allow_send_with(Some("merged-2")),
+            release_with_receipt("release-2"),
+            allow_send_with(Some("merged-3")),
+            release_with_receipt("release-3"),
+        ],
+        (0..3).map(|_| raw_response()).collect(),
+        2,
+    );
+    let r = RendererRef(renderer.clone());
+    for _ in 0..3 {
+        let mut c = call(DegradePolicy::Pause);
+        c.conversation_id = Some("codex-thread:root".into());
+        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "{outcome:?}"
+        );
+    }
+    let presented: Vec<Vec<String>> = gate
+        .send_identities
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, _, receipts)| receipts.clone())
+        .collect();
+    assert_eq!(
+        presented,
+        vec![
+            vec![],
+            vec!["release-1".to_string()],
+            vec!["release-2".to_string(), "merged-2".to_string()],
+        ],
+        "each request presents the latest consolidated receipt and the releases since it"
+    );
+}
+
+#[tokio::test]
+async fn a_background_extraction_keeps_the_conversations_current_receipts() {
+    // 对旧前缀的后台抽取只借用会话回执过验证：Core 按该请求的内容签发合并回执（只覆盖旧回合的值），
+    // 落库它会替换掉活跃会话的回执，下一个正常请求重放新回合的值就失去证明。
+    let allow_send_with = |receipt: Option<&str>| {
+        let mut r = result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]);
+        r.receipt = receipt.map(String::from);
+        Ok(r)
+    };
+    let (executor, renderer, _transport, gate) = harness(
+        vec![
+            allow_send_with(None),
+            release_with_receipt("release-1"),
+            allow_send_with(Some("merged-2")),
+            release_with_receipt("release-2"),
+            // 后台抽取：Core 只看到旧前缀里的值，合并回执不覆盖新回合。
+            allow_send_with(Some("merged-bg")),
+            release_with_receipt("release-bg"),
+            allow_send_with(None),
+            release_with_receipt("release-4"),
+        ],
+        (0..4).map(|_| raw_response()).collect(),
+        2,
+    );
+    let r = RendererRef(renderer.clone());
+    for background in [false, false, true, false] {
+        let mut c = call(DegradePolicy::Pause);
+        c.conversation_id = Some("codex-thread:root".into());
+        c.background = background;
+        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "{outcome:?}"
+        );
+    }
+    let presented: Vec<Vec<String>> = gate
+        .send_identities
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, _, receipts)| receipts.clone())
+        .collect();
+    assert_eq!(presented.len(), 4);
+    assert_eq!(
+        presented[2],
+        vec!["release-2".to_string(), "merged-2".to_string()],
+        "the background extraction presents the conversation's live receipts for verification"
+    );
+    assert_eq!(
+        presented[3],
+        vec!["release-2".to_string(), "merged-2".to_string()],
+        "a later request still presents the live receipts; the background run stored nothing"
+    );
+}
+
+#[tokio::test]
+async fn release_receipts_are_presented_for_the_conversation_and_its_subagents() {
+    let allow_send = || Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]));
+    let (executor, renderer, _transport, gate) = harness(
+        vec![
+            allow_send(),
+            release_with_receipt("receipt-root"),
+            allow_send(),
+            release_with_receipt("receipt-child"),
+            allow_send(),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+            allow_send(),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        (0..4).map(|_| raw_response()).collect(),
+        2,
+    );
+    let r = RendererRef(renderer.clone());
+    let request = |conversation: Option<&str>, parent: Option<&str>| {
+        let mut c = call(DegradePolicy::Pause);
+        c.conversation_id = conversation.map(String::from);
+        c.parent_conversation_id = parent.map(String::from);
+        c
+    };
+    for c in [
+        request(Some("codex-thread:root"), None),
+        request(Some("codex-thread:child"), Some("codex-thread:root")),
+        request(Some("codex-thread:root"), None),
+        request(None, None),
+    ] {
+        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "{outcome:?}"
+        );
+    }
+    let sends = gate.send_identities.lock().unwrap().clone();
+    let strings = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        sends,
+        vec![
+            (Some("codex-thread:root".into()), None, vec![]),
+            (
+                Some("codex-thread:child".into()),
+                Some("codex-thread:root".into()),
+                strings(&["receipt-root"]),
+            ),
+            (
+                Some("codex-thread:root".into()),
+                None,
+                strings(&["receipt-root"])
+            ),
+            (None, None, vec![]),
+        ],
+        "a subagent receives its parent's receipts; a request without a conversation receives none"
+    );
+    assert_eq!(
+        *gate.release_conversations.lock().unwrap(),
+        vec![
+            Some("codex-thread:root".to_string()),
+            Some("codex-thread:child".to_string()),
+            Some("codex-thread:root".to_string()),
+            None,
+        ]
+    );
 }

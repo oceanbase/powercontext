@@ -70,6 +70,36 @@ Keep secret values in the deployment's protected configuration. Never put real c
 Exact model aliases returned by a provider must be explicitly listed in `response_models` when they differ from
 the requested model.
 
+An `openai-responses` target can set `admit_encrypted_items` to `["reasoning"]`, `["agent_message"]`, or both.
+It is empty by default. Clients such as Codex send `store: false` with `include: ["reasoning.encrypted_content"]`,
+so responses carry encrypted reasoning that later requests replay, and a subagent receives its task as an encrypted
+`agent_message` part. Core cannot inspect these values:
+
+- At `before_release`, Core admits the encrypted reasoning in the response. When the request names a conversation, it
+  returns a `receipt` for that principal, Scope, target and conversation, valid for one hour. The receipt proves the
+  response's encrypted values. It also proves, as handover values, the function-call argument values that the checked
+  request's tool definitions declare `"encrypted": true` (Codex declares the task of `spawn_agent` this way). Other
+  argument values are not receipted.
+- At `before_send`, an encrypted value at an admitted position is admitted only when it is proven, unexpired, by a
+  presented receipt issued to the request's conversation. The positions are the `encrypted_content` of a root
+  `reasoning` item, and an `agent_message` content part whose only fields are `type: "encrypted_content"` and
+  `encrypted_content`. A receipt issued to the request's `parent_conversation_id` proves only its handover values, and
+  only in an `agent_message` part: a subagent can receive its task, never the parent's reasoning. Otherwise the request
+  is withheld with `encrypted-origin-unverified`.
+- An allowed `before_send` with a conversation also returns one `receipt` that replaces the receipts of that
+  conversation the request presented. It carries every unexpired proof those receipts held, with its expiry, so a
+  retried or divergent history keeps its proof. It renews for one hour the values the request carried and the proven
+  handover values its replayed function calls carry, so a parent that keeps talking does not strand a pending
+  subagent's task. A long conversation therefore presents a constant number of receipts, and a value stays admissible
+  for one hour after its last verified use.
+- One receipt holds at most 1,024 values. A check whose values do not fit is withheld with
+  `encrypted-receipt-capacity-exceeded` rather than leaving a later request without proof.
+- Encrypted values at any other position, and an `agent_message` part with any other field, stay
+  `content_unsupported`.
+
+Admission proves where a value came from, not what it contains: Core has not inspected the plaintext. The PowerContext
+gateway keeps and presents receipts per conversation.
+
 The supported rules match configured exact values and optional bounded formats: `email`, `private_key`, and
 `api_token`. Both raw JSON and decoded text, tool arguments, and numeric spellings are inspected. Duplicate JSON
 keys, opaque image/audio/file carriers, unknown request fields, incomplete output, and unsupported targets cannot

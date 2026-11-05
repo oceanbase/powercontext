@@ -112,25 +112,162 @@ enum Format {
     Responses,
 }
 
+/// 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
+fn unauthorized(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+    let expected = state.api_key.as_ref()?;
+    let provided = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+    (provided != Some(expected.as_str())).then(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "invalid_gateway_key" })),
+        )
+            .into_response()
+    })
+}
+
+/// Core 复用会话前缀抽取记忆的请求（#2413）。
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExtractRequest {
+    /// 沉淀的 Source 元数据中的 `prefix_handle`。
+    handle: String,
+    /// Core 的抽取指令，作为一条用户消息追加在前缀之后。
+    instruction: String,
+    #[serde(default)]
+    max_output_tokens: Option<u32>,
+}
+
+const MAX_EXTRACT_INSTRUCTION_BYTES: usize = 64 * 1024;
+
+/// 在保留的前缀后追加 Core 的抽取指令并发送。请求照常经过 before_send/before_release 检查，沿用原请求的准入
+/// 上下文（会话与父会话的回执，后台调用只读）；不注入、不沉淀、不保留前缀。前缀不可用时返回 404，由 Core 回退到普通抽取。
+pub async fn extract(
+    State((state, _)): State<SharedProxy>,
+    headers: HeaderMap,
+    Json(request): Json<ExtractRequest>,
+) -> Response {
+    let error = |status: StatusCode, code: &str| {
+        (status, Json(serde_json::json!({ "error": code }))).into_response()
+    };
+    if !state.prefix_extraction {
+        return error(StatusCode::NOT_FOUND, "prefix_extraction_disabled");
+    }
+    if let Some(rejected) = unauthorized(&state, &headers) {
+        return rejected;
+    }
+    if request.instruction.trim().is_empty()
+        || request.instruction.len() > MAX_EXTRACT_INSTRUCTION_BYTES
+    {
+        return error(StatusCode::BAD_REQUEST, "invalid_instruction");
+    }
+    let Some(prefix) = state.executor.prefix(&request.handle, &state.default_scope) else {
+        return error(StatusCode::NOT_FOUND, "prefix_unavailable");
+    };
+    if prefix.target_profile != state.upstream_profile {
+        return error(StatusCode::CONFLICT, "target_mismatch");
+    }
+    let canonical = prefixed_request(&prefix, &request)
+        .and_then(|body| serde_json::from_value::<OpenAiResponsesRequest>(body).ok())
+        .and_then(|parsed| to_canonical_responses(parsed).ok());
+    let Some(canonical) = canonical else {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "prefix_invalid");
+    };
+    let call = ManagedCall {
+        scope_id: state.default_scope.clone(),
+        target_profile: state.upstream_profile.clone(),
+        request: canonical,
+        target_url: state.upstream_responses.clone(),
+        headers: bearer_headers(&state.upstream_responses_api_key),
+        degrade_policy: pc_gateway_core::DegradePolicy::Pause,
+        inject_context: false,
+        capture_prefix: false,
+        background: true,
+        conversation_id: Some(prefix.conversation_id.clone()),
+        parent_conversation_id: prefix.parent_conversation_id.clone(),
+        sediment: false,
+        prepared_contexts: Vec::new(),
+    };
+    let renderer = pc_gateway_protocol::GatewayRenderer::Responses(Default::default());
+    match state
+        .executor
+        .run(call, &renderer, state.evidence.as_ref())
+        .await
+    {
+        ManagedOutcome::Released { status, body, .. } if (200..300).contains(&status) => {
+            match serde_json::from_slice::<serde_json::Value>(&body) {
+                Ok(response) => Json(serde_json::json!({
+                    "text": responses_output_text(&response),
+                    "usage": response.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+                    "model": response.get("model").cloned().unwrap_or(serde_json::Value::Null),
+                }))
+                .into_response(),
+                Err(_) => error(StatusCode::BAD_GATEWAY, "invalid_upstream_response"),
+            }
+        }
+        outcome => respond(outcome),
+    }
+}
+
+/// 前缀请求：原始请求的 input 依次接上终止响应的输出（去掉 `id`/`status`，与客户端重放的形式一致）和 Core 的
+/// 指令。其余字段（工具、`prompt_cache_key`、推理设置等）不变，只把 `tool_choice` 设为 `none`、改为非流式，
+/// 并在 Core 给出时设置输出上限：这些字段不影响前缀缓存。
+fn prefixed_request(
+    prefix: &pc_gateway_core::PrefixEntry,
+    request: &ExtractRequest,
+) -> Option<serde_json::Value> {
+    let mut body: serde_json::Value = serde_json::from_slice(&prefix.request_body).ok()?;
+    let input = body.get_mut("input")?.as_array_mut()?;
+    for item in &prefix.response_output {
+        let mut item = item.clone();
+        if let Some(fields) = item.as_object_mut() {
+            fields.remove("id");
+            fields.remove("status");
+        }
+        input.push(item);
+    }
+    input.push(serde_json::json!({
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": request.instruction}],
+    }));
+    body["tool_choice"] = "none".into();
+    body["stream"] = false.into();
+    if let Some(limit) = request.max_output_tokens {
+        body["max_output_tokens"] = limit.into();
+    }
+    Some(body)
+}
+
+/// Responses 响应中助手消息的文本。
+fn responses_output_text(response: &serde_json::Value) -> String {
+    response
+        .get("output")
+        .and_then(|output| output.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|item| item.get("type").and_then(|t| t.as_str()) == Some("message"))
+        .flat_map(|item| {
+            item.get("content")
+                .and_then(|c| c.as_array())
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|part| part.get("text").and_then(|t| t.as_str()))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 async fn ingress_common(
     state: Arc<AppState>,
     headers: HeaderMap,
     req: Request,
     format: Format,
 ) -> Response {
-    // 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
-    if let Some(expected) = &state.api_key {
-        let provided = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "));
-        if provided != Some(expected.as_str()) {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "invalid_gateway_key" })),
-            )
-                .into_response();
-        }
+    if let Some(rejected) = unauthorized(&state, &headers) {
+        return rejected;
     }
 
     // Applies the configured limit to the consumed body as well: chunked requests have no Content-Length,
@@ -155,7 +292,7 @@ async fn ingress_common(
         }
     };
     let mut client_stream = false;
-    let canonical = match format {
+    let mut canonical = match format {
         Format::Chat => {
             let chat: OpenAiChatRequest = match serde_json::from_slice(&body) {
                 Ok(c) => c,
@@ -205,6 +342,7 @@ async fn ingress_common(
             }
         }
     };
+    apply_default_output_limit(&mut canonical, state.default_max_output_tokens);
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
     if let Format::Responses = format {
         if state.upstream_responses.is_empty() {
@@ -248,7 +386,10 @@ async fn ingress_common(
             state.inject_responses,
             conversation.is_some(),
         ),
+        capture_prefix: state.prefix_extraction && matches!(format, Format::Responses),
+        background: false,
         conversation_id: conversation,
+        parent_conversation_id: parent_conversation_id(&headers, &format),
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
@@ -414,6 +555,19 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     out
 }
 
+/// 客户端没有设置输出上限时补上 Core 为本目标配置的上限（例如 Codex 从不发送 `max_output_tokens`，而 enforcing
+/// 的 Core 要求有上限）。补上的值会出现在送检和发送的最终请求里；客户端设置的值和字段保持不变。
+/// Chat 入口补值时用 `max_completion_tokens`：o 系列模型拒绝 `max_tokens`。
+fn apply_default_output_limit(request: &mut CanonicalRequest, default: Option<u32>) {
+    if request.output_limits.max_output_tokens.is_some() {
+        return;
+    }
+    if let Some(limit) = default {
+        request.output_limits.max_output_tokens = Some(limit);
+        request.token_limit_field = Some("max_completion_tokens".into());
+    }
+}
+
 /// `PC_GATEWAY_INJECTION` 决定注入范围（默认只注入带会话 ID 的请求）并作用于两个入口；`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses。
 fn injects(format: &Format, injection: Injection, responses: bool, has_conversation: bool) -> bool {
     let enabled = match injection {
@@ -458,6 +612,32 @@ fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
     }
 }
 
+/// 子代理的父会话，按与 [`conversation_id`] 相同的来源和前缀解析：Claude Code 的父代理（顶层子代理的父会话是主会话），
+/// OpenCode 的父会话，Responses 入口上 Codex 的父线程。宿主提供 `X-PowerContext-Conversation-ID` 时没有父会话。
+/// 父会话只决定转交哪些回执；Core 仍要求回执属于同一主体、Scope 和目标。
+fn parent_conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
+    if header_id(headers, CONVERSATION_ID_HEADER).is_some() {
+        return None;
+    }
+    if let Some(session) = header_id(headers, CLAUDE_CODE_SESSION_HEADER) {
+        header_id(headers, CLAUDE_CODE_AGENT_HEADER)?;
+        return Some(match header_id(headers, CLAUDE_CODE_PARENT_AGENT_HEADER) {
+            Some(parent) => format!("claude-code:{session} {parent}"),
+            None => format!("claude-code:{session}"),
+        });
+    }
+    if header_id(headers, OPENCODE_SESSION_HEADER).is_some() {
+        return header_id(headers, OPENCODE_PARENT_SESSION_HEADER)
+            .map(|id| format!("opencode:{id}"));
+    }
+    match format {
+        Format::Responses => {
+            header_id(headers, CODEX_PARENT_THREAD_HEADER).map(|id| format!("codex-thread:{id}"))
+        }
+        Format::Chat => None,
+    }
+}
+
 fn header_id<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     let value = headers.get(name)?.to_str().ok()?;
     let valid =
@@ -470,6 +650,9 @@ const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
 const CODEX_THREAD_ID_HEADER: &str = "thread-id";
+const CLAUDE_CODE_PARENT_AGENT_HEADER: &str = "x-claude-code-parent-agent-id";
+const OPENCODE_PARENT_SESSION_HEADER: &str = "x-opencode-parent-session-id";
+const CODEX_PARENT_THREAD_HEADER: &str = "x-codex-parent-thread-id";
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
     if key.is_empty() {
@@ -721,6 +904,67 @@ mod tests {
         })
     }
 
+    #[test]
+    fn a_missing_output_limit_gets_the_configured_default_on_both_routes() {
+        use pc_gateway_protocol::WireRenderer;
+        // Codex 0.145 sends no max_output_tokens.
+        let mut codex = codex_request(false);
+        assert!(codex.get("max_output_tokens").is_none());
+        let render = |canonical: &CanonicalRequest| -> serde_json::Value {
+            let payload = pc_gateway_protocol::OpenAiResponsesRenderer
+                .render(canonical, None)
+                .unwrap();
+            serde_json::from_slice(&payload.bytes).unwrap()
+        };
+        let canonical = |client: &serde_json::Value| {
+            to_canonical_responses(serde_json::from_value(client.clone()).unwrap()).unwrap()
+        };
+
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, None);
+        assert!(
+            render(&request).get("max_output_tokens").is_none(),
+            "no default configured"
+        );
+
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, Some(32000));
+        assert_eq!(render(&request)["max_output_tokens"], 32000);
+
+        codex["max_output_tokens"] = serde_json::json!(512);
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, Some(32000));
+        assert_eq!(
+            render(&request)["max_output_tokens"],
+            512,
+            "the client's limit is kept"
+        );
+
+        let render_chat = |body: &str, default: Option<u32>| -> serde_json::Value {
+            let chat: OpenAiChatRequest = serde_json::from_str(body).unwrap();
+            let mut request = to_canonical_chat(chat).unwrap();
+            apply_default_output_limit(&mut request, default);
+            let payload = pc_gateway_protocol::OpenAiChatRenderer
+                .render(&request, None)
+                .unwrap();
+            serde_json::from_slice(&payload.bytes).unwrap()
+        };
+        // An omitted limit on an o-series Chat request is filled with the field o-series models accept.
+        let filled = render_chat(
+            r#"{"model":"o3","messages":[{"role":"user","content":"hi"}]}"#,
+            Some(32000),
+        );
+        assert_eq!(filled["max_completion_tokens"], 32000);
+        assert!(filled.get("max_tokens").is_none());
+        // A client's own field and value are kept.
+        let explicit = render_chat(
+            r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":256}"#,
+            Some(32000),
+        );
+        assert_eq!(explicit["max_tokens"], 256);
+        assert!(explicit.get("max_completion_tokens").is_none());
+    }
+
     fn render_responses(client: &serde_json::Value) -> serde_json::Value {
         use pc_gateway_protocol::WireRenderer;
         let r: OpenAiResponsesRequest = serde_json::from_value(client.clone()).unwrap();
@@ -729,6 +973,62 @@ mod tests {
             .render(&canonical, None)
             .unwrap();
         serde_json::from_slice(&payload.bytes).unwrap()
+    }
+
+    #[test]
+    fn an_extraction_request_extends_the_sent_prefix_unchanged() {
+        let sent = render_responses(&codex_request(false));
+        let output = vec![
+            serde_json::json!({"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": "gAAAA-x"}),
+            serde_json::json!({"id": "msg_1", "type": "message", "role": "assistant", "status": "completed",
+                "content": [{"type": "output_text", "text": "done", "annotations": []}]}),
+        ];
+        let prefix = pc_gateway_core::PrefixEntry {
+            scope_id: "s".into(),
+            target_profile: "codex".into(),
+            conversation_id: "codex-thread:a".into(),
+            parent_conversation_id: None,
+            request_body: serde_json::to_vec(&sent).unwrap().into(),
+            response_output: output,
+        };
+        let request = ExtractRequest {
+            handle: "h".into(),
+            instruction: "Extract memories.".into(),
+            max_output_tokens: Some(2000),
+        };
+        let extract = render_responses(&prefixed_request(&prefix, &request).unwrap());
+
+        let before = sent["input"].as_array().unwrap();
+        let after = extract["input"].as_array().unwrap();
+        assert_eq!(
+            after[..before.len()],
+            before[..],
+            "the sent input is kept as is"
+        );
+        // 响应输出按客户端重放的形式接上：去掉 id 与 status。
+        assert_eq!(
+            after[before.len()..],
+            [
+                serde_json::json!({"type": "reasoning", "summary": [], "encrypted_content": "gAAAA-x"}),
+                serde_json::json!({"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "done", "annotations": []}]}),
+                // 与客户端追加的用户消息渲染方式相同。
+                serde_json::json!({"role": "user",
+                    "content": [{"type": "input_text", "text": "Extract memories."}]}),
+            ]
+        );
+        assert_eq!(extract["tool_choice"], "none");
+        assert_eq!(extract["max_output_tokens"], 2000);
+        assert_ne!(extract["stream"], true);
+        // 影响缓存的其余字段（模型、指令、工具、prompt_cache_key、推理设置）不变。
+        let rest = |body: &serde_json::Value| {
+            let mut fields = body.as_object().unwrap().clone();
+            for key in ["input", "tool_choice", "stream", "max_output_tokens"] {
+                fields.remove(key);
+            }
+            fields
+        };
+        assert_eq!(rest(&extract), rest(&sent));
     }
 
     #[test]
@@ -1178,6 +1478,55 @@ mod tests {
         affinity_only.insert("x-opencode-session", affinity.parse().unwrap());
         affinity_only.insert("x-session-affinity", affinity.parse().unwrap());
         assert_eq!(conversation_id(&affinity_only, &Format::Chat), None);
+    }
+
+    #[test]
+    fn a_subagent_names_the_conversation_that_handed_it_the_task() {
+        let mut codex = codex_headers("child");
+        codex.insert(CODEX_PARENT_THREAD_HEADER, "root".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&codex, &Format::Responses).as_deref(),
+            Some("codex-thread:root")
+        );
+        assert_eq!(parent_conversation_id(&codex, &Format::Chat), None);
+        assert_eq!(
+            parent_conversation_id(&codex_headers("root"), &Format::Responses),
+            None
+        );
+
+        let mut claude = HeaderMap::new();
+        claude.insert(CLAUDE_CODE_SESSION_HEADER, "session-1".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat),
+            None,
+            "the main agent"
+        );
+        claude.insert(CLAUDE_CODE_AGENT_HEADER, "agent-a".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat).as_deref(),
+            Some("claude-code:session-1"),
+            "a top-level subagent's parent is the main session"
+        );
+        claude.insert(CLAUDE_CODE_PARENT_AGENT_HEADER, "agent-a".parse().unwrap());
+        claude.insert(CLAUDE_CODE_AGENT_HEADER, "agent-b".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat).as_deref(),
+            Some("claude-code:session-1 agent-a")
+        );
+
+        let mut opencode = HeaderMap::new();
+        opencode.insert(OPENCODE_SESSION_HEADER, "ses_child".parse().unwrap());
+        opencode.insert(
+            OPENCODE_PARENT_SESSION_HEADER,
+            "ses_parent".parse().unwrap(),
+        );
+        assert_eq!(
+            parent_conversation_id(&opencode, &Format::Chat).as_deref(),
+            Some("opencode:ses_parent")
+        );
+
+        codex.insert(CONVERSATION_ID_HEADER, "host-1".parse().unwrap());
+        assert_eq!(parent_conversation_id(&codex, &Format::Responses), None);
     }
 
     #[test]

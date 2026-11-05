@@ -28,8 +28,10 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::prefix_store::{PrefixEntry, PrefixStore};
+use crate::receipt_store::{Presented, ReceiptStore};
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
-use crate::transcript::turn_transcript;
+use crate::transcript::{represents_turn, turn_transcript};
 use crate::{GateClient, GateError};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
@@ -62,6 +64,13 @@ pub struct ManagedCall {
     pub inject_context: bool,
     /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
     pub conversation_id: Option<String>,
+    /// 子代理的父会话（派发任务的会话）：父会话的加密内容回执也随请求转交。
+    pub parent_conversation_id: Option<String>,
+    /// 沉淀时保留本回合的上游请求与响应输出，供 Core 复用前缀缓存抽取记忆（#2413，默认关）。
+    pub capture_prefix: bool,
+    /// 后台旁路调用（如对已存旧前缀的抽取）：只借用会话回执完成验证，Core 签发的合并回执与释放回执
+    /// 都不落库，否则替换会丢掉活跃会话后续回合仍要重放的值的证明。
+    pub background: bool,
     pub sediment: bool,
     pub prepared_contexts: Vec<PreparedContextLocation>,
 }
@@ -101,6 +110,8 @@ pub struct Executor<G, T> {
     max_attempts: NonZeroU32,
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
+    receipts: ReceiptStore,
+    prefixes: PrefixStore,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -122,6 +133,8 @@ where
             transport,
             max_attempts,
             replays: ReplayCache::default(),
+            receipts: ReceiptStore::default(),
+            prefixes: PrefixStore::default(),
         }
     }
 
@@ -162,12 +175,7 @@ where
             content_headers(&call.headers, payload.content_type),
             payload_body,
         );
-        let check = ContextCheckRequest::BeforeSend {
-            scope_id: call.scope_id.clone(),
-            target_profile: call.target_profile.clone(),
-            payload: model_payload,
-            prepared_contexts: call.prepared_contexts.clone(),
-        };
+        let (check, presented) = self.send_check(&call, model_payload);
 
         let admission = match self.gate.check(check).await {
             Err(e) => {
@@ -184,6 +192,9 @@ where
                             degrade_policy: DegradePolicy::Pause,
                             inject_context: false,
                             conversation_id: None,
+                            parent_conversation_id: None,
+                            capture_prefix: false,
+                            background: call.background,
                             sediment: false,
                             prepared_contexts: Vec::new(),
                         };
@@ -195,10 +206,13 @@ where
             }
             Ok(result) => match result.decision {
                 CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
-                    Ok((binding, deadline)) => Admission {
-                        binding,
-                        valid_until_ms: deadline,
-                    },
+                    Ok((binding, deadline)) => {
+                        self.consolidate(&call, &presented, result.receipt);
+                        Admission {
+                            binding,
+                            valid_until_ms: deadline,
+                        }
+                    }
                     Err(outcome) => return outcome,
                 },
                 CheckDecision::Block => {
@@ -248,19 +262,18 @@ where
                             let _ = sent_binding;
                         }
                         // P1-4：重试前重新准入——撤销在这里被看见。
-                        let recheck = ContextCheckRequest::BeforeSend {
-                            scope_id: call.scope_id.clone(),
-                            target_profile: call.target_profile.clone(),
-                            payload: ModelJsonPayload::new(
+                        let (recheck, presented) = self.send_check(
+                            &call,
+                            ModelJsonPayload::new(
                                 content_headers(&call.headers, payload.content_type),
                                 String::from_utf8(payload.bytes.to_vec()).unwrap_or_default(),
                             ),
-                            prepared_contexts: call.prepared_contexts.clone(),
-                        };
+                        );
                         match self.gate.check(recheck).await {
                             Ok(r) if r.decision == CheckDecision::Allow => {
                                 match validate_allow(&r, CheckPhase::BeforeSend) {
                                     Ok((binding, deadline)) => {
+                                        self.consolidate(&call, &presented, r.receipt);
                                         current = Admission {
                                             binding,
                                             valid_until_ms: deadline,
@@ -305,6 +318,7 @@ where
                 release_body.clone(),
             ),
             completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
+            conversation_id: call.conversation_id.clone(),
         };
         match self.gate.check(release_check).await {
             Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
@@ -318,6 +332,16 @@ where
                         };
                     // P1-4：释放前验 release verdict 的 valid_until（fail-closed）。
                     let release_deadline = parse_rfc3339_ms(&result.valid_until).unwrap_or(0);
+                    // 响应里的加密内容之后会被重放：保存 Core 签发的回执，后续 before_send 转交。
+                    // 后台调用的响应不会进入会话，回执同样不落库。
+                    if !call.background {
+                        if let (Some(receipt), Some(conversation)) =
+                            (result.receipt.clone(), call.conversation_id.as_deref())
+                        {
+                            self.receipts
+                                .add(&call.scope_id, conversation, receipt, now_ms());
+                        }
+                    }
                     if now_ms() >= release_deadline {
                         return ManagedOutcome::AdmissionExpired;
                     }
@@ -341,14 +365,38 @@ where
                                 .map(simple_digest)
                                 .unwrap_or_else(|| simple_digest(&release_body))
                         });
+                        let mut metadata = serde_json::json!({
+                            "kind": "gateway_turn",
+                            "target_profile": call.target_profile,
+                        });
+                        // 只有 Source 完整呈现了模型将看到的这一回合时才保留前缀：注入的记忆块、截断或省略的内容
+                        // 都不在 Source 里，不能被当作这一回合的证据。
+                        let represented = call.prepared_contexts.is_empty()
+                            && represents_turn(
+                                &pristine_request,
+                                &transcript,
+                                renderer.message_list_key(),
+                            );
+                        if let Some(prefix) = represented
+                            .then(|| {
+                                self.keep_prefix(
+                                    &call,
+                                    &payload.bytes,
+                                    &release_body,
+                                    renderer.message_list_key(),
+                                )
+                            })
+                            .flatten()
+                        {
+                            for (key, value) in prefix {
+                                metadata[key] = value;
+                            }
+                        }
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
                             source_id: format!("gw-turn-{digest}"),
                             content: transcript,
-                            metadata: Some(serde_json::json!({
-                                "kind": "gateway_turn",
-                                "target_profile": call.target_profile,
-                            })),
+                            metadata: Some(metadata),
                         };
                         match self.gate.capture(capture).await {
                             Ok(_) => {}
@@ -388,6 +436,95 @@ where
                     reason_codes: result.reason_codes,
                 },
             },
+        }
+    }
+
+    /// Core 凭句柄取回的前缀（同一 Scope、未过期）。
+    pub fn prefix(&self, handle: &str, scope_id: &str) -> Option<PrefixEntry> {
+        self.prefixes.get(handle, scope_id, now_ms())
+    }
+
+    /// 保留一个 Responses 回合的终止请求与响应输出，返回要写入 Source 元数据的句柄和前缀规模。只用于可信会话：
+    /// 前缀里重放的加密内容要凭该会话的回执放行。规模取自终止响应的用量：输入部分在抽取时命中缓存，输出部分
+    /// 作为新输入计费，Core 据此判断复用前缀是否比普通抽取便宜。
+    fn keep_prefix(
+        &self,
+        call: &ManagedCall,
+        sent: &bytes::Bytes,
+        release_body: &str,
+        list_key: &str,
+    ) -> Option<Vec<(&'static str, serde_json::Value)>> {
+        if !call.capture_prefix || list_key != "input" {
+            return None;
+        }
+        let conversation_id = call.conversation_id.clone()?;
+        let response: serde_json::Value = serde_json::from_str(release_body).ok()?;
+        let response_output = response.get("output")?.as_array()?.clone();
+        let usage = response.get("usage");
+        let tokens = |field: &str| usage.and_then(|u| u.get(field)).and_then(|v| v.as_u64());
+        let handle = self.prefixes.add(
+            PrefixEntry {
+                scope_id: call.scope_id.clone(),
+                target_profile: call.target_profile.clone(),
+                conversation_id,
+                parent_conversation_id: call.parent_conversation_id.clone(),
+                request_body: sent.clone(),
+                response_output,
+            },
+            now_ms(),
+        )?;
+        let mut fields = vec![("prefix_handle", handle.into())];
+        if let (Some(input), Some(output)) = (tokens("input_tokens"), tokens("output_tokens")) {
+            fields.push(("prefix_input_tokens", input.into()));
+            fields.push(("prefix_output_tokens", output.into()));
+        }
+        Some(fields)
+    }
+
+    /// before_send 请求：带上可信会话、父会话，以及它们的加密内容回执；同时返回转交了哪些本会话回执。
+    fn send_check(
+        &self,
+        call: &ManagedCall,
+        payload: ModelJsonPayload,
+    ) -> (ContextCheckRequest, Presented) {
+        let presented = call
+            .conversation_id
+            .as_deref()
+            .map(|conversation| {
+                self.receipts.for_request(
+                    &call.scope_id,
+                    conversation,
+                    call.parent_conversation_id.as_deref(),
+                    now_ms(),
+                )
+            })
+            .unwrap_or_default();
+        let encrypted_receipts = presented.receipts.clone();
+        let check = ContextCheckRequest::BeforeSend {
+            scope_id: call.scope_id.clone(),
+            target_profile: call.target_profile.clone(),
+            payload,
+            prepared_contexts: call.prepared_contexts.clone(),
+            conversation_id: call.conversation_id.clone(),
+            parent_conversation_id: call.parent_conversation_id.clone(),
+            encrypted_receipts,
+        };
+        (check, presented)
+    }
+
+    /// before_send 放行时 Core 返回的合并回执，替换这次转交的本会话回执。后台调用只读，不替换。
+    fn consolidate(&self, call: &ManagedCall, presented: &Presented, receipt: Option<String>) {
+        if call.background {
+            return;
+        }
+        if let (Some(receipt), Some(conversation)) = (receipt, call.conversation_id.as_deref()) {
+            self.receipts.consolidate(
+                &call.scope_id,
+                conversation,
+                &presented.own,
+                receipt,
+                now_ms(),
+            );
         }
     }
 

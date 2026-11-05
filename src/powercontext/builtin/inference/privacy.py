@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from powercontext.builtin.inference.encrypted_items import EncryptedItemKind, admitted_encrypted
 from powercontext.builtin.inference.model_payload import (
     PrivacyProtocol,
     complete_response,
@@ -62,6 +63,16 @@ class UpstreamProfile(BaseModel):
     max_output_tokens: int | None = Field(default=None, ge=1)
     validated_utf8_token_bound: bool = False
     protocol_token_reserve: int = Field(default=64, ge=0, le=65536)
+    # Provider-encrypted Responses items this target may carry; each is admitted only with a Core receipt.
+    admit_encrypted_items: tuple[EncryptedItemKind, ...] = Field(default=(), max_length=2)
+
+    @model_validator(mode="after")
+    def encrypted_items_need_responses(self) -> UpstreamProfile:
+        if self.admit_encrypted_items and self.protocol != "openai-responses":
+            raise ValueError("encrypted items are supported only for openai-responses targets")  # noqa: TRY003
+        if len(set(self.admit_encrypted_items)) != len(self.admit_encrypted_items):
+            raise ValueError("encrypted item kinds must be unique")  # noqa: TRY003
+        return self
 
     @field_validator("endpoint")
     @classmethod
@@ -340,7 +351,10 @@ class PrivacyPolicy:
         headers: Mapping[str, str] | None = None,
         endpoint: str | None = None,
         completion: Literal["complete", "incomplete", "unknown"] = "complete",
+        admit_encrypted: bool = False,
     ) -> PrivacyDecision:
+        """``admit_encrypted`` sets aside the target's admitted encrypted items; only a caller that then verifies
+        their receipts (the context check) may pass it."""
         if self.config.mode == "disabled":
             return self.decision(phase, "allow", "protection_disabled")
         profile = self.config.targets.get(target_profile)
@@ -380,7 +394,9 @@ class PrivacyPolicy:
             return self.decision(phase, "block", "forbidden_content", complete=True)
         if duplicate:
             return self.decision(phase, "withhold", "json_duplicate_key")
-        if contains_opaque_content(value, protocol=profile.protocol):
+        # Encrypted items at admitted positions are set aside here; the check admits them only with a receipt.
+        inspected, _ = admitted_encrypted(value, profile.admit_encrypted_items if admit_encrypted else ())
+        if contains_opaque_content(inspected, protocol=profile.protocol):
             return self.decision(phase, "withhold", "content_unsupported")
         if not all(
             complete_tool_arguments(item, self.config.max_json_depth)
