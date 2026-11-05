@@ -143,6 +143,7 @@ class CodexPluginSettings(BaseSettings):
     bootstrap_max_bytes: int = Field(default=4096, ge=512, le=8192)
     bootstrap_handoff: BootstrapHandoff | None = None
     include_code: bool = False
+    prompt_recall: bool = True
     capture_prompts: bool = True
     flush_on_capture: bool = False
     request_timeout_seconds: float = Field(default=3.0, gt=0)

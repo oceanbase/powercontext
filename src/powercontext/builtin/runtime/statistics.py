@@ -82,6 +82,7 @@ from powercontext.builtin.statistics import (
     StatisticsPeriod,
     UsageStatistics,
 )
+from powercontext.builtin.statistics.models import BootstrapDeliveryReading, BootstrapDeliveryStatistics
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 
 _PERIOD_DAYS = {
@@ -101,6 +102,7 @@ class _ScopeReads:
     recall: tuple[StoredRecallTokenUsage, ...]
     observations: tuple[RecurrenceObservation, ...]
     unlinked_handoff_citations: int
+    bootstrap_delivery: tuple[BootstrapDeliveryReading, ...]
 
 
 class RelationalScopedStatistics:
@@ -171,6 +173,7 @@ class RelationalScopedStatistics:
             usage=usage,
             recall=recall,
             recurrence=recurrence,
+            bootstrap_delivery=BootstrapDeliveryStatistics(period=period, by_integration=reads.bootstrap_delivery),
         )
 
     def offer_model_usage(
@@ -433,6 +436,9 @@ async def overview_selection(
         inventories = await shared._repository.inventory_many(connection, scope_ids)
         cursors = await shared._cursors.load_many(connection, scope_ids, SOURCE_WINDOW_TRIGGER_NAME)
         usage, recall = await _daily_usage_by_scope(connection, shared._repository, services, resolved_period)
+        deliveries = await shared._repository.bootstrap_delivery_many(
+            connection, scope_ids, resolved_period.start_date, resolved_period.end_date
+        )
         reads = [
             _ScopeReads(
                 inventory=inventories[service._scope_id],
@@ -445,6 +451,7 @@ async def overview_selection(
                     service._scope_id,
                     await service._cited_keys(connection),
                 ),
+                bootstrap_delivery=deliveries[service._scope_id],
             )
             for service in services
         ]

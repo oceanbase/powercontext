@@ -17,12 +17,16 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 
 from powercontext.cli.dsh_runtime import DshProfile, DshTarget, dsh_home
+from powercontext.cli.guidance import SKILL_DIRECTORY, refresh_skill
+from powercontext.cli.installation import publish
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.cli.transport import configure_connection
 from powercontext.paths import powercontext_data_dir
@@ -129,13 +133,24 @@ class DshInstaller:
         executable = target.command if target and target.command else dsh_executable()
         with source.package("dsh", linked=True) as package:
             require_built_plugin(package)
-            _run_dsh("plugin", "--profile", profile, "add", str(package), executable=executable)
+            skill = dsh_home() / SKILL_DIRECTORY
+            skill.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".powercontext-", dir=skill.parent) as temporary:
+                staged = Path(temporary) / "skill"
+                if skill.exists():
+                    shutil.copytree(skill, staged)
+                refresh_skill(package / SKILL_DIRECTORY, staged, previous=skill)
+                publish(
+                    [(staged, skill)],
+                    action=lambda: _run_dsh("plugin", "--profile", profile, "add", str(package), executable=executable),
+                )
             return {
                 "plugin": DSH_PLUGIN_NAME,
                 "plugin_path": str(package),
                 "data_dir": str(powercontext_data_dir()),
                 "profile": profile,
                 "profile_dir": str(dsh_home() / "profiles" / profile),
+                "skill_path": str(skill),
             }
 
     def configure(self, connection):

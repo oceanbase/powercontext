@@ -474,11 +474,63 @@ The historical Server c535d816 protocol qualification below records the specific
 
 [compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The `sqlite-atomic-112db11e-v1` record qualifies its eleven recorded SQLite protocol operations against the exact Server source and wheel below. Separate `authenticatedClients` evidence qualifies those operations for the current client contract in Bearer mode with a valid Principal; it does not replace the original Server contract or qualify anonymous access. Historical records retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest remain disabled unless separate authenticated-client evidence covers the current contract and selected authentication mode. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
+Statistics additionally require `get_stats` in the selected record's independently qualified operation set.
+
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit. Historical record `sqlite-atomic-f3a90b2f-v1` remains preserved with its original identities and is disabled for this contract.
 
 Selecting a compatibility profile does not attest the remote binary identity. Existing `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selections require explicitly choosing an available matching profile and rechecking the connection. Desktop reads memories only through Atomic Memory references, so Servers that answer only with Memory entry citations are not qualified. CLI diagnostics separately verify the registered executable path and digest, then validate the diagnostic response schema. The observed version is optional report information; a registration does not require a version.
 
 ### Current-Scope statistics qualification
+
+#### Server 4568b499 statistics product qualification
+
+`sqlite-observability-stats-4568b499-v1` qualifies all twelve Desktop operations,
+including `get_stats` and discovery, against Server source
+`4568b4999f2a69350d00dabd4f1414ac9776c737`.
+Normalized OpenAPI SHA-256:
+`de74d806343998bae877effb732b1606b3eb27ee9c31fbc39509ee3937fa2a4a`.
+Wheel: `powercontext-1.4.2.dev238+g4568b4999-py3-none-any.whl`.
+Wheel SHA-256: `5c11517fc8966fe34e953adedb370ef270595da1b0c37a2efd941f8b589ea563`.
+All 736 packaged runtime files match this Server source byte for byte, and the
+combined Desktop checkout has no changes to those runtime sources.
+
+On 2026-11-05, macOS 26.5.2 ARM64, Python 3.11.15 and Rust 1.95.0 passed all four
+built-wheel SQLite modes: anonymous loopback, static Bearer loopback, explicit-CA
+HTTPS with a base path, and enforced authentication Provider. The default native
+probe, built without `ci-fixtures`, ran from clean Desktop commit
+`e4d5e873c42cf160d9233a74a3d2d5a9da1524a6`. It selected the checked-in record
+through ordinary `ConnectionManager::new` profile checking, activation and
+exact-Scope selection. The report confirms `qualificationSource: bundled product records`
+and the exact qualification ID. An independent disposable fixture run at clean
+Desktop commit `581cf26bfe1125cba34e20cb165901d98de5f5eb` passed the same modes.
+
+Statistics reads cover empty and persisted inventory, UTC today/7d/30d,
+zero-filled and partial token reports, Scope isolation and permission revocation.
+The exact-Scope adapter accepts the contract's optional `processing` and
+`bootstrap_delivery` fields while retaining null estimator handling and selection
+validation. A public manager regression reproduced `InvalidResponse` before this
+adapter repair and passes after it. Partial usage is explicit Runtime-recorder
+fixture input; it is not a real model-provider invocation. The probe also verifies
+independent Memory operations, identity changes, lost write responses without
+replay, pagination and Server survival after client exit.
+
+```sh
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run python desktop/tests/real_server.py --product-qualification sqlite-observability-stats-4568b499-v1
+cargo +1.95.0 test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib --tests
+```
+
+The matching-digest product gate failed with only eleven-operation records and
+passes with this separate record. All 46 master records and all 42 prior feature
+records retain their exact source, contract, wheel and operation identities.
+The native suite passed 133 tests with two explicit ignores; all seven statistics
+tests and all 183 frontend tests passed. Type checking, Clippy, Rust formatting,
+generated IPC checks and all 62 API/Desktop contract tests passed. Local reports
+are retained under ignored `desktop/.artifacts/real-server.json`,
+`desktop/.artifacts/stats-fixture-581cf26b.json` and `desktop/.artifacts/server-wheel/`.
+These results establish the local native/SQLite protocol. Installed UI, native
+credentials, Windows execution, external production deployments and release
+acceptance require separate evidence. Discovery does not attest remote binary identity.
 
 #### Server 63e9665c statistics product qualification
 
@@ -2194,3 +2246,91 @@ retained the 180-second fixture startup allowance; protocol assertions and produ
 were unchanged. This qualifies SQLite protocol behavior for this snapshot and wheel, not
 Windows/macOS execution, native credential persistence, installed UI or release readiness.
 Historical qualification records retain their identities and evidence.
+
+## Managed observability protocol qualification
+
+`sqlite-observability-9f279e4e-v1` qualifies the eleven declared Desktop protocol operations
+against Server runtime sources at `9f279e4ee8b83894ac86dea49e9c1daeffc1c563`.
+
+OpenAPI SHA-256: `44194cfe8ab1516f87831d6f1290c74b2bb9fae84dfee42705e86adbc3cf98cd`.
+Wheel: `powercontext-1.4.2.dev123+g9f279e4ee-py3-none-any.whl`.
+Wheel SHA-256: `f29f48354a64ffaacc1c55bb7e462c0530dd08860c6e9b949504af20f3bcab71`.
+
+On 2026-11-02, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced access. The native
+`server_probe` was built from the current product sources and generated contract.
+The probe verified server identity, save/search/exact reads, Scope selection, lost write
+responses without replay, identity changes, revocation, and Server survival after client exit.
+
+The packaged runtime files match the recorded source bytes. Local evidence is retained under
+ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+This record covers local SQLite protocol behavior; installed UI, native credentials,
+Windows, and external production systems require their own validation.
+
+## Managed observability with inference privacy
+
+`sqlite-observability-a9f6fd36-v1` qualifies the eleven declared Desktop protocol operations against
+Server runtime sources at `a9f6fd36a572ea33612138bf5aab99a5e032827c`.
+
+OpenAPI SHA-256: `ad6c1e7690899b3c8677ffcdfbb06e7af3122d96b85f2a63e25d89b1abb1b201`.
+Wheel: `powercontext-1.4.2.dev134+ga9f6fd36a-py3-none-any.whl`.
+Wheel SHA-256: `53e8b83243ebf8517bc69f875a3d7bf4c3d2e94816c46b13d1294f97e3409b83`.
+
+On 2026-11-02, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced access. The native
+`server_probe` was built from the matching product sources and generated contract.
+The probe verified identity, save/search/exact reads, Scope selection, lost write responses
+without replay, revocation, and Server survival after client exit.
+
+All 716 packaged runtime files match the recorded source bytes. Evidence is retained
+under ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+The separate privacy/Provider transport regression verifies admission and response-release
+behavior with a controlled HTTP transport; it is not external Provider or backend evidence.
+This record covers local SQLite protocol behavior. Installed UI, native credentials, Windows,
+and external production systems require their own validation.
+
+## Server da44b918 protocol qualification
+
+`sqlite-observability-da44b918-v1` qualifies the eleven declared Desktop protocol operations
+against Server runtime sources at `da44b91805e91be667beef5ac4f6c2d15de9de93`.
+
+OpenAPI SHA-256: `4d8334f58b97ff18f7130d8efc28ac4cec8f7c5a1cfb6f297b6654bf1b06c6d3`.
+Wheel: `powercontext-1.4.2.dev154+gda44b9180-py3-none-any.whl`.
+Wheel SHA-256: `f5e58f0119f441b5081da2ff0d38d842511fa9a3e8fb2b3369d3014e5de9a850`.
+
+On 2026-11-03, macOS 26.5.2 arm64, Python 3.14.7 and Rust 1.95.0 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer,
+HTTPS with an explicit CA/base path, and injected-provider/enforced access. The native
+`server_probe` was built from the matching product sources and generated contract.
+It verified save/search/exact reads, Scope selection, lost write responses without replay,
+identity changes, revocation, and Server survival after client exit.
+
+All 719 packaged runtime files match the recorded source bytes. Evidence is retained under
+ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+This record covers local SQLite protocol behavior. Installed UI, native credentials, Windows,
+and external production systems require their own validation. Historical records retain
+their source, contract and wheel identities.
+
+## Server 4568b499 protocol qualification
+
+`sqlite-observability-4568b499-v1` qualifies the eleven declared Desktop protocol operations
+against Server runtime sources at `4568b4999f2a69350d00dabd4f1414ac9776c737`.
+
+OpenAPI SHA-256: `de74d806343998bae877effb732b1606b3eb27ee9c31fbc39509ee3937fa2a4a`.
+Wheel: `powercontext-1.4.2.dev238+g4568b4999-py3-none-any.whl`.
+Wheel SHA-256: `5c11517fc8966fe34e953adedb370ef270595da1b0c37a2efd941f8b589ea563`.
+
+On 2026-11-04, macOS arm64, Python 3.11.15 and Rust 1.95.0 passed all four built-wheel
+SQLite modes in `desktop/tests/real_server.py`: anonymous loopback, Bearer, HTTPS with an
+explicit CA/base path, and injected-provider/enforced access. The native `server_probe`
+was built from the matching product sources and generated contract. The harness supplied
+the exact wheel and contract through its disposable fixture profile and exercised the native
+ConnectionManager, including save/search/exact reads, Scope selection, lost write responses
+without replay, identity changes, revocation, and Server survival after client exit.
+
+All 736 packaged runtime files match the recorded Git source bytes. Evidence is retained
+under ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+This record covers local SQLite protocol behavior. It does not establish installed UI,
+native credential persistence, Windows execution, external production acceptance or release readiness.

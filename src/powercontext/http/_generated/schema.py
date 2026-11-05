@@ -8933,6 +8933,266 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["period", "estimator", "totals", "daily"],
             },
+            "ProcessingState": {
+                "type": "string",
+                "enum": ["idle", "dirty", "pending", "acknowledged", "queued", "running", "retry_wait", "blocked"],
+            },
+            "ProcessingReason": {
+                "type": "string",
+                "enum": [
+                    "unobserved",
+                    "waiting_schedule",
+                    "waiting_dispatch",
+                    "waiting_capacity",
+                    "executing",
+                    "retry_backoff",
+                    "policy_block",
+                    "idle",
+                ],
+            },
+            "ProcessingObservation": {
+                "properties": {
+                    "binding": {"type": "string"},
+                    "family": {"type": "string", "nullable": True},
+                    "state": {"$ref": "#/components/schemas/ProcessingState"},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "scheduler_observed": {"type": "boolean", "default": False},
+                    "reason": {"$ref": "#/components/schemas/ProcessingReason", "default": "unobserved"},
+                    "requested_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "handled_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "dirty_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "clean_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "pending_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Local lower bound, not the durable age of all pending work.",
+                        "nullable": True,
+                    },
+                    "running_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "next_check_seconds": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "description": "Estimated seconds until a scheduler check, not a promised execution deadline.",
+                        "nullable": True,
+                    },
+                    "worker_id": {"type": "string", "nullable": True},
+                    "attempt_generation": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "retry_failures": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "block_code": {"type": "string", "nullable": True},
+                    "last_error_code": {
+                        "type": "string",
+                        "description": "Content-free "
+                        "failure "
+                        "category "
+                        "for "
+                        "this "
+                        "Scope "
+                        "and "
+                        "binding's "
+                        "current "
+                        "local "
+                        "retry "
+                        "cycle. "
+                        "Absent "
+                        "before "
+                        "observation "
+                        "or "
+                        "after "
+                        "acknowledgement, "
+                        "restart, "
+                        "or "
+                        "retry-cache "
+                        "eviction. "
+                        "Never "
+                        "an "
+                        "exception "
+                        "message.",
+                        "nullable": True,
+                    },
+                    "last_error_stage": {
+                        "type": "string",
+                        "description": "Owning "
+                        "observation "
+                        "boundary "
+                        "such "
+                        "as "
+                        "authorization, "
+                        "inference, "
+                        "worker, "
+                        "work_admission, "
+                        "or "
+                        "completion. "
+                        "Does "
+                        "not "
+                        "locate "
+                        "an "
+                        "internal "
+                        "domain "
+                        "operation.",
+                        "nullable": True,
+                    },
+                    "last_error_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC "
+                        "time "
+                        "the "
+                        "local "
+                        "supervisor "
+                        "observed "
+                        "this "
+                        "failure, "
+                        "not "
+                        "the "
+                        "child "
+                        "event "
+                        "time "
+                        "or "
+                        "a "
+                        "durable "
+                        "history.",
+                        "nullable": True,
+                    },
+                    "last_error_worker_id": {
+                        "type": "string",
+                        "description": "Existing "
+                        "execution "
+                        "identity "
+                        "of "
+                        "the "
+                        "last "
+                        "failed "
+                        "worker "
+                        "in "
+                        "this "
+                        "local "
+                        "retry "
+                        "cycle. "
+                        "Absent "
+                        "for "
+                        "admission "
+                        "failures "
+                        "without "
+                        "a "
+                        "launched "
+                        "worker. "
+                        "Not "
+                        "a "
+                        "metric "
+                        "label.",
+                        "nullable": True,
+                    },
+                    "last_error_trace_id": {
+                        "type": "string",
+                        "description": "Existing "
+                        "trace "
+                        "identity "
+                        "of "
+                        "the "
+                        "last "
+                        "failed "
+                        "worker "
+                        "when "
+                        "supplied "
+                        "by "
+                        "the "
+                        "tracing "
+                        "adapter. "
+                        "Does "
+                        "not "
+                        "prove "
+                        "sampling "
+                        "or "
+                        "backend "
+                        "storage. "
+                        "Cleared "
+                        "with "
+                        "the "
+                        "local "
+                        "failure "
+                        "observation.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "state", "observed_at"],
+                "description": "Durable invocation counters "
+                "plus an optional local "
+                "scheduler sample. "
+                "Acknowledgement is not "
+                "artifact creation. Missing "
+                "local coverage does not "
+                "imply stopped work.",
+            },
+            "BootstrapDeliveryReading": {
+                "properties": {
+                    "integration": {"type": "string"},
+                    "state": {"$ref": "#/components/schemas/BootstrapReceiptState"},
+                    "receipts": {"type": "integer", "minimum": 0.0},
+                    "content_bytes": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Sum "
+                        "of "
+                        "prepared "
+                        "package "
+                        "UTF-8 "
+                        "bytes "
+                        "in "
+                        "this "
+                        "current "
+                        "receipt "
+                        "state, "
+                        "not "
+                        "model "
+                        "tokens "
+                        "or "
+                        "proof "
+                        "of "
+                        "adoption.",
+                    },
+                    "last_prepared_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Latest preparation time in this group, not the delivery completion time.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["integration", "state", "receipts", "content_bytes", "last_prepared_at"],
+                "description": "Retained receipt metadata "
+                "grouped by integration "
+                "and current state; "
+                "package content and "
+                "receipt identities are "
+                "excluded.",
+            },
+            "BootstrapDeliveryStatistics": {
+                "properties": {
+                    "period": {"$ref": "#/components/schemas/ResolvedUsagePeriod"},
+                    "retention_days": {"type": "integer", "default": 30},
+                    "actual_adoption": {"type": "string", "enum": ["unobserved"]},
+                    "by_integration": {
+                        "items": {"$ref": "#/components/schemas/BootstrapDeliveryReading"},
+                        "type": "array",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["period", "retention_days", "actual_adoption", "by_integration"],
+                "description": "Current states of "
+                "retained receipts "
+                "prepared within the "
+                "selected UTC period. "
+                "Injected is "
+                "host-reported and does "
+                "not prove model "
+                "adoption or billing "
+                "savings. Missing "
+                "records do not prove "
+                "no host use.",
+            },
             "ScopeStats": {
                 "properties": {
                     "scope_id": {"type": "string"},
@@ -8940,6 +9200,29 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "usage": {"$ref": "#/components/schemas/UsageStatistics"},
                     "recall": {"$ref": "#/components/schemas/RecallTokenStatistics"},
                     "recurrence": {"$ref": "#/components/schemas/RecurrenceStatistics"},
+                    "processing": {
+                        "items": {"$ref": "#/components/schemas/ProcessingObservation"},
+                        "type": "array",
+                        "description": "Current "
+                        "durable "
+                        "bindings "
+                        "and "
+                        "locally "
+                        "observed "
+                        "scheduling "
+                        "state for "
+                        "this "
+                        "Scope; "
+                        "not a "
+                        "complete "
+                        "attempt "
+                        "history.",
+                        "default": [],
+                    },
+                    "bootstrap_delivery": {
+                        "$ref": "#/components/schemas/BootstrapDeliveryStatistics",
+                        "nullable": True,
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8963,6 +9246,29 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "selection": {"$ref": "#/components/schemas/ScopeSelection"},
                     "period": {"$ref": "#/components/schemas/StatsPeriod", "default": "30d"},
+                    "include_processing": {
+                        "type": "boolean",
+                        "description": "Include "
+                        "current "
+                        "processing "
+                        "intent "
+                        "counters "
+                        "and "
+                        "optional "
+                        "local "
+                        "scheduler "
+                        "observations. "
+                        "Does "
+                        "not "
+                        "reconstruct "
+                        "remote "
+                        "worker "
+                        "state "
+                        "or "
+                        "complete "
+                        "history.",
+                        "default": False,
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

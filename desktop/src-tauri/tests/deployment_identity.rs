@@ -38,6 +38,7 @@ struct State {
     discovery: (u16, Value),
     identity_response: Option<(u16, Value)>,
     readiness_status: u16,
+    capabilities: (u16, Value),
     principal: Option<String>,
     pause: Option<String>,
     requests: Vec<String>,
@@ -90,6 +91,7 @@ impl Fixture {
             discovery: (200, discovery("server-a")),
             identity_response: None,
             readiness_status: 200,
+            capabilities: (403, json!({})),
             principal: authenticated.then(|| "same-principal".into()),
             pause: None,
             requests: vec![],
@@ -159,7 +161,7 @@ impl Fixture {
                                 json!({"status":if state.readiness_status == 200 {"ready"} else {"not_ready"},"checks":{
                                 "access_mode":if state.principal.is_some() {"enforced"} else {"disabled"}}}),
                             ),
-                            "/v1/capabilities" => (403, json!({})),
+                            "/v1/capabilities" => state.capabilities.clone(),
                             "/v1/scopes/default" | "/v1/scopes/scope-a" => (200, scope()),
                             path if path.starts_with("/v1/scopes?") => {
                                 (200, json!({"items":[scope()],"next_cursor":"old-cursor"}))
@@ -586,6 +588,30 @@ async fn review_observation_denial_preserves_qualified_memory_and_deployment_fen
     let fixture = Fixture::new(true).await;
     fixture.state.lock().unwrap().discovery = (403, json!({}));
     let generation = fixture.select().await;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.requests.clear();
+        state.capabilities = (200, runtime_capabilities());
+    }
+    assert!(
+        fixture
+            .manager
+            .observe_runtime_capabilities(generation)
+            .await
+            .unwrap()
+            .fact
+            .value
+            .is_some()
+    );
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/v1/server-info")
+    );
     let saved = fixture
         .manager
         .remember(generation, "authorized scope note")
@@ -1132,4 +1158,165 @@ async fn principal_revocation_while_reading_discards_private_results() {
         SafeError::StaleContext
     );
     fixture.assert_disconnected(generation);
+}
+
+fn runtime_capabilities() -> Value {
+    json!({
+        "source_types": ["private-type"],
+        "artifact_families": ["private-family"],
+        "memory_extraction": false,
+        "handoff_generation": false,
+        "search_modes": ["fts"],
+        "context_versions": [],
+        "extraction": {
+            "configuration": "unconfigured",
+            "background": {"location": "none", "state": "stopped"},
+            "observation": {
+                "status": "observed",
+                "since": "2026-10-01T00:00:00Z",
+                "last_failure": {"code": "private detail", "stage": "worker", "occurred_at": "2026-10-01T01:00:00Z"}
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn runtime_refresh_never_probes_and_observation_denial_preserves_memory_access() {
+    let fixture = Fixture::new(false).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().requests.clear();
+    let liveness = fixture
+        .manager
+        .observe_runtime_liveness(generation)
+        .await
+        .unwrap();
+    let report = fixture
+        .manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    assert!(liveness.fact.value.is_some());
+    assert_eq!(report.fact.error.unwrap().code, SafeError::Forbidden);
+    let denied = fixture
+        .manager
+        .probe_runtime_readiness(generation)
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(denied.code, SafeError::Forbidden);
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready")
+    );
+    assert_eq!(fixture.manager.state().unwrap().generation, generation);
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "fixture")
+            .await
+            .unwrap()
+            .hits
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn runtime_projects_only_its_fields_and_probes_only_on_explicit_action() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.activate().await;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.requests.clear();
+        state.capabilities = (200, runtime_capabilities());
+    }
+    let report = fixture
+        .manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    let value = serde_json::to_value(report.fact.value.unwrap()).unwrap();
+    assert_eq!(
+        value["extraction"]["observation"]["last_failure"]["code"],
+        "unknown"
+    );
+    assert_eq!(value["search_modes"], json!(["fts"]));
+    for excluded in ["private-type", "private-family", "private detail"] {
+        assert!(!value.to_string().contains(excluded));
+    }
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready")
+    );
+    let readiness = fixture
+        .manager
+        .probe_runtime_readiness(generation)
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(readiness.fact.value).unwrap(), "ready");
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|path| *path == "/health/ready")
+            .count(),
+        1
+    );
+    assert_eq!(fixture.manager.state().unwrap().generation, generation);
+}
+
+#[tokio::test]
+async fn runtime_drops_late_results_on_replacement_disconnect_or_cancel() {
+    for transition in ["replacement", "disconnect", "cancel"] {
+        let fixture = Fixture::new(true).await;
+        let generation = fixture.activate().await;
+        {
+            let mut state = fixture.state.lock().unwrap();
+            state.capabilities = (200, runtime_capabilities());
+            state.pause = Some("/v1/capabilities".into());
+        }
+        let manager = fixture.manager.clone();
+        let task =
+            tokio::spawn(async move { manager.observe_runtime_capabilities(generation).await });
+        fixture.entered().await;
+        match transition {
+            "replacement" => {
+                fixture.replace();
+                fixture.release.notify_one();
+                let report = timeout(Duration::from_secs(2), task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(report.fact.error.unwrap().code, SafeError::StaleContext);
+                assert!(report.fact.value.is_none());
+            }
+            "disconnect" | "cancel" => {
+                if transition == "disconnect" {
+                    fixture.manager.disconnect().unwrap();
+                } else {
+                    fixture.manager.cancel_runtime_reads(generation).unwrap();
+                }
+                let result = timeout(Duration::from_secs(2), task)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(result.err().unwrap().code, SafeError::StaleContext);
+            }
+            _ => unreachable!(),
+        }
+    }
 }

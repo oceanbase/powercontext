@@ -41,6 +41,7 @@ async function invoke(home, workspace, prompt, args = []) {
     const child = spawn(process.execPath, [cli, '--prompt', prompt, '--output-format', 'json', '--cwd', workspace, ...args], {
       env: {
         ...process.env,
+        HOME: home,
         USERPROFILE: home,
         ZCODE_STORAGE_DIR: join(home, '.zcode'),
         POWERCONTEXT_ZCODE_SERVER_URL: 'http://127.0.0.1:1',

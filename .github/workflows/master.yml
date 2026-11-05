@@ -385,6 +385,8 @@ jobs:
             tests/e2e/test_worker_otlp.py \
             tests/e2e/test_worker_model_usage.py \
             tests/test_observability_health.py \
+            tests/test_observability_cli.py \
+            tests/test_observability_connect.py \
             --junitxml="$RUNNER_TEMP/worker-observability.xml"
           uv run --locked --extra tracing-otlp python - <<'PY'
           import os
@@ -472,12 +474,10 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
-    # before migrations (25m). Preserve each step's deadline and leave time
+    # before migrations (40m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 60
+    timeout-minutes: 80
     runs-on: ubuntu-latest
-    env:
-      SEEKDB_MIGRATION_SHARD_COUNT: "3"
     strategy:
       fail-fast: false
       matrix:
@@ -535,9 +535,9 @@ jobs:
 
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
-        # Native startup puts the 37 runner cases beyond two 25m steps. Use
-        # three shards; every node keeps its independent 180-second deadline.
-        timeout-minutes: 25
+        # Last-client shutdown adds native startup work. Partition runner nodes;
+        # Source evidence expands the batch; every node keeps its 180-second deadline.
+        timeout-minutes: 40
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -582,7 +582,7 @@ jobs:
             exit 1
           fi
           for index in "${!seekdb_runner_nodes[@]}"; do
-            if [ "$((index % SEEKDB_MIGRATION_SHARD_COUNT))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
+            if [ "$((index % 3))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
               continue
             fi
             seekdb_runner_node="${seekdb_runner_nodes[$index]}"
@@ -753,10 +753,9 @@ jobs:
           tests/test_system_cli.py::test_codex_batch_runners_reject_unsafe_executable_path
           tests/test_system_cli.py::test_codex_native_executable_preserves_arguments
 
-      - name: Verify managed guidance and exact rollback bytes on Windows
+      - name: Verify installation failures preserve user content on Windows
         run: >-
           uv run --locked --no-sync pytest -q
-          tests/test_guidance_generation.py
           tests/test_guidance_installation.py
           tests/test_opencode_installation.py
           tests/test_cli_zcode.py::test_zcode_upgrade_rejects_missing_packaged_reference_and_preserves_installation

@@ -33,6 +33,9 @@ use std::{
 use tokio::sync::watch;
 use ts_rs::TS;
 
+mod runtime;
+pub use runtime::{RuntimeCapabilities, RuntimeFact};
+
 #[derive(Clone, Serialize, TS)]
 pub struct Fact<T> {
     pub value: Option<T>,
@@ -218,6 +221,9 @@ pub struct ConnectionManager {
     writes: tokio::sync::Semaphore,
     memory_reads: watch::Sender<u32>,
     stats_reads: watch::Sender<u32>,
+    runtime_reads: watch::Sender<u32>,
+    runtime_slot: tokio::sync::Semaphore,
+    runtime_liveness_slot: tokio::sync::Semaphore,
 }
 impl ConnectionManager {
     pub fn new(profiles: ProfileRepository) -> Self {
@@ -263,6 +269,9 @@ impl ConnectionManager {
             writes: tokio::sync::Semaphore::new(1),
             memory_reads: watch::channel(0).0,
             stats_reads: watch::channel(0).0,
+            runtime_reads: watch::channel(0).0,
+            runtime_slot: tokio::sync::Semaphore::new(1),
+            runtime_liveness_slot: tokio::sync::Semaphore::new(1),
         }
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Inner>, SafeError> {

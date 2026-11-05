@@ -206,6 +206,55 @@ pub async fn local_diagnostics<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+pub async fn observe_runtime_liveness<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<
+    crate::connections::session::RuntimeFact<crate::transport::wire::HealthResponse>,
+    ApiFailure,
+> {
+    manager(&window, &state)?
+        .observe_runtime_liveness(generation)
+        .await
+}
+#[tauri::command]
+pub async fn observe_runtime_capabilities<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<
+    crate::connections::session::RuntimeFact<crate::connections::session::RuntimeCapabilities>,
+    ApiFailure,
+> {
+    manager(&window, &state)?
+        .observe_runtime_capabilities(generation)
+        .await
+}
+#[tauri::command]
+pub async fn probe_runtime_readiness<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<
+    crate::connections::session::RuntimeFact<crate::transport::wire::ReadinessStatus>,
+    ApiFailure,
+> {
+    manager(&window, &state)?
+        .probe_runtime_readiness(generation)
+        .await
+}
+#[tauri::command]
+pub fn cancel_runtime_reads<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<(), ApiFailure> {
+    manager(&window, &state)?
+        .cancel_runtime_reads(generation)
+        .map_err(Into::into)
+}
+#[tauri::command]
 pub async fn get_stats<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     state: tauri::State<'_, HostState>,
