@@ -64,6 +64,11 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
         ([".github/workflows/desktop.yml"], {"desktop"}),
+        ([".github/workflows/desktop-candidate.yml"], {"tests"}),
+        ([".github/workflows/desktop-release.yml"], {"tests"}),
+        (["scripts/desktop_candidate.py"], {"tests"}),
+        (["scripts/desktop_publication_manifest.py"], {"tests"}),
+        (["scripts/publish_desktop_release.py"], {"tests"}),
         ([".github/workflows/managed-resource-candidates.yml"], {"managed_resources"}),
         (["scripts/produce_managed_resources.py"], {"managed_resources"}),
         (["scripts/build_intel_managed_wheel.py"], {"managed_resources"}),
@@ -105,8 +110,8 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
             {"website", "docs_tests", "tests", "opencode"},
         ),
         (
-            ["scripts/guidance_templates/base/SKILL.md.j2"],
-            {"tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"},
+            ["integrations/agent-plugin/powercontext/skills/powercontext-project-context/SKILL.md"],
+            {"tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi", "skill_guidance"},
         ),
     ],
 )

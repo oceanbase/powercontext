@@ -1,3 +1,8 @@
+---
+title: "配置 Pydantic AI 推理"
+description: "通过 Pydantic AI 配置结构化 Memory 候选生成，并单独配置向量检索所需的 Embedding。"
+---
+
 # 配置 Pydantic AI 推理
 
 PowerContext 在 provider 边界使用 Pydantic AI，同时保持 Memory service 与具体框架无关。generation 用于提取结构化

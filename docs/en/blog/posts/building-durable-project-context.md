@@ -1,7 +1,7 @@
 ---
-slug: building-durable-project-context
 title: "Building Durable Project Context: How MiniMax Code Works with PowerContext"
 description: How MiniMax Code connects screenshots, code, and logs to verifiable evidence, with seekdb for retrieval and PowerContext for project memory and handoffs.
+slug: building-durable-project-context
 cover: assets/blog/building-durable-project-context/cover.png
 cover_alt: MiniMax Code connects code, screenshots and logs to a PowerContext project dossier containing evidence, decisions and unfinished work.
 date: 2026-10-22

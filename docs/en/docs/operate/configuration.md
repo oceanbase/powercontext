@@ -136,7 +136,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` or structured `json` output |
 | `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | Log external HTTP and logical MCP request completion |
 | `POWERCONTEXT_SERVER_LOGGING_FILE` | `false` | Write managed files instead of stdout; enabled by default for macOS/Windows personal services |
-| `POWERCONTEXT_SERVER_LOGGING_DIRECTORY` | User data directory + `logs/` | Managed log directory |
+| `POWERCONTEXT_SERVER_LOGGING_DIRECTORY` | User data directory + `logs/` | Managed log directory; an explicit directory with `LOGGING_FILE=false` adds per-process JSON files alongside stdout |
 | `POWERCONTEXT_SERVER_LOGGING_MAX_BYTES` | `20971520` | Positive size threshold for rotation |
 | `POWERCONTEXT_SERVER_LOGGING_BACKUP_COUNT` | `10` | Positive maximum archive count per active file |
 | `POWERCONTEXT_SERVER_LOGGING_COMPRESSION` | `gzip` | Archive compression: `gzip` or `none` |

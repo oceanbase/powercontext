@@ -1,6 +1,6 @@
 ---
 title: Observability 开发规范
-description: 使用稳定字段、正确的 correlation 和 failure isolation 添加 operational events。
+description: 为日志、指标和 Trace 添加运行事件，保持字段一致、请求关联与日志失败隔离。
 ---
 
 # Observability 开发规范
@@ -81,6 +81,11 @@ JSON formatter 会忽略未登记的 extras。确需新增字段时：
 共享失败词汇与各 Family 覆盖矩阵见 [处理失败诊断](processing-failures.md)。
 
 Service identity 来自 `src/powercontext/server/telemetry.py`，logs 和 traces 共用同一 resource identity。
+可选的 `service_target` / `powercontext.service.target` 是配置的抓取端点，不是进程 ID。
+API/background profile 分别选择所属端点，Server 创建的 Worker 显式继承该值。新增 launcher 时保持此映射。
+含凭据或 URL 路径的值会被排除，未知目标保持缺失。
+Worker 同时继承 `service_owner_role` / `powercontext.service.owner_role`，用于按父角色筛选；
+实际 `service_role` 仍为 `worker`。这些字段不增加执行身份指标标签。
 Error classification 来自 `powercontext._logging.error_category`；`blocked` 等 domain-owned category
 由所属 boundary 明确设置。各 adapter 不应自行定义不同词汇。
 
@@ -127,13 +132,15 @@ Observation timestamp 与 scrape time 要明确区分，并记录
 cache、reset 以及覆盖不完整的语义。
 
 通过默认 `uv sync` 新建的开发环境不包含 `tracing-otlp`。在该环境中，`make test` 会跳过 OTLP worker tests
-和 worker model-usage tests 中的 tracing 用例。`make check` 不执行这些测试。
+和 worker model-usage tests 中的 tracing 用例，以及需要 exporter 的配置用例。
+缺少 exporter 时的拒绝用例仍会运行。`make check` 不执行这些测试。
 `Main` workflow 的 `worker-observability` job 安装该 extra，
 并要求所选测试全部通过，不允许 skip：
 
 ```bash
 uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
-  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py -q
+  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py \
+  tests/test_observability_cli.py tests/test_observability_connect.py -q
 ```
 
 这些检查覆盖真实 spawn、OTLP/HTTP、本地 model fixture、Pydantic AI propagation 和 metrics HTTP surface。

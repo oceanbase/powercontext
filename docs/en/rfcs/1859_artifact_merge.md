@@ -1,3 +1,8 @@
+---
+title: "RFC 1859: Shared Artifact merge and undo"
+description: A proposal for shared Artifact merge and undo operations, common relationship records, and family-owned merge decisions.
+---
+
 - Proposal Name: `artifact_merge`
 - Start Date: 2026-10-07
 - RFC PR: [oceanbase/powercontext#1859](https://github.com/oceanbase/powercontext/pull/1859)

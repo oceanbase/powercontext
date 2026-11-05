@@ -127,7 +127,7 @@ for (const [route, document] of exportedDocuments) {
       continue;
     }
     const targetRoute = normalizeRoute(targetPath.slice(basePath.length) || '/');
-    if (/\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(targetRoute)) {
+    if (/\.(?:avif|gif|jpe?g|png|svg|webp|md|txt)$/i.test(targetRoute)) {
       const assetFile = path.resolve(outputDirectory, `.${targetRoute}`);
       try {
         if (!assetFile.startsWith(`${outputDirectory}${path.sep}`) || !(await stat(assetFile)).isFile()) {

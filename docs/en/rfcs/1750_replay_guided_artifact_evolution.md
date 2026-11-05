@@ -1,3 +1,8 @@
+---
+title: "RFC 1750: Replay-guided Artifact evolution"
+description: A research proposal for evaluating Experience and Skill evolution through faithful replay, bounded comparisons, and existing Dream review boundaries.
+---
+
 - Proposal Name: `replay_guided_artifact_evolution`
 - Start Date: 2026-09-27
 - Tracking Issue: [#1635](https://github.com/oceanbase/powercontext/issues/1635)

@@ -1,7 +1,7 @@
 ---
-status: community
 title: DeepSeek Harness
-description: 安装 PowerContext DeepSeek Harness 插件并控制其本地行为。
+description: 安装 PowerContext DeepSeek Harness 插件，配置 Scope 内的召回和提示词采集，并核对原生工具。
+status: community
 ---
 
 # DeepSeek Harness

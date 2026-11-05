@@ -1,7 +1,7 @@
 ---
-status: evaluation
 title: Evaluation integrations
 description: Bub evaluation use and capability boundaries.
+status: evaluation
 ---
 
 # Evaluation integrations

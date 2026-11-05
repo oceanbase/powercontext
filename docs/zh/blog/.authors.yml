@@ -37,3 +37,10 @@ authors:
     name: jackie-cqz
     description: PowerContext 贡献者
     avatar: assets/blog/authors/jackie-cqz.jpg
+  fengzc:
+    name: fengze
+    description: PowerContext 贡献者，gitropolis 作者
+    avatar: assets/blog/authors/fengzc.jpg
+    socials:
+      github: Fengzdadi
+      x: FengzeCai

@@ -1,5 +1,6 @@
 ---
 title: Migrate Artifact processing state
+description: "Migrate existing Artifact processing state before starting the Supervisor, with planning, recovery, and readiness checks."
 ---
 
 Existing Topic Memory processing databases need explicit maintenance before

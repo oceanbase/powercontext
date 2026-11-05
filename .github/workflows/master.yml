@@ -231,7 +231,8 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    timeout-minutes: 40
+    # Allow the Python 3.14 end-to-end suite's subprocess tail to finish.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && matrix.python-version == '3.14' && 55 || 40 }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -279,8 +280,15 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
-      - name: Run end-to-end tests
+      - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
+        # Preserve the real Hook deadlines without competing with xdist workers.
+        run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+
+      - name: Run remaining end-to-end tests
+        if: matrix.suite == 'e2e'
+        env:
+          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
         run: make e2e-test
 
   isolated-installations:
@@ -385,6 +393,8 @@ jobs:
             tests/e2e/test_worker_otlp.py \
             tests/e2e/test_worker_model_usage.py \
             tests/test_observability_health.py \
+            tests/test_observability_cli.py \
+            tests/test_observability_connect.py \
             --junitxml="$RUNNER_TEMP/worker-observability.xml"
           uv run --locked --extra tracing-otlp python - <<'PY'
           import os
@@ -471,13 +481,16 @@ jobs:
   code-seekdb:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    timeout-minutes: 30
+    # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
+    # before migrations (40m). Preserve each step's deadline and leave time
+    # for environment setup and diagnostic uploads.
+    timeout-minutes: 80
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.14"]
-        migration-shard: [0, 1]
+        migration-shard: [0, 1, 2]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -531,8 +544,8 @@ jobs:
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
         # Last-client shutdown adds native startup work. Partition runner nodes;
-        # every node keeps its 180-second deadline.
-        timeout-minutes: 25
+        # Source evidence expands the batch; every node keeps its 180-second deadline.
+        timeout-minutes: 40
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -577,7 +590,7 @@ jobs:
             exit 1
           fi
           for index in "${!seekdb_runner_nodes[@]}"; do
-            if [ "$((index % 2))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
+            if [ "$((index % 3))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
               continue
             fi
             seekdb_runner_node="${seekdb_runner_nodes[$index]}"
@@ -704,6 +717,16 @@ jobs:
       - name: Verify spawned worker logging on Windows
         run: uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
 
+      - name: Verify offline ownership migration on Windows
+        run: >-
+          uv run --locked --no-sync pytest -q
+          tests/e2e/test_access_ownership_migration.py::test_offline_cli_checks_future_background_principal_before_enforcement
+          tests/e2e/test_access_ownership_migration.py::test_offline_background_plan_uses_configured_static_preset_without_grants
+          tests/e2e/test_access_ownership_migration.py::test_migration_audit_preserves_request_context
+          tests/e2e/test_ownership_maintenance_dispatch.py
+          tests/e2e/test_owner_recovery_http.py::test_offline_migration_preserves_external_owner_evidence
+          tests/e2e/test_candidate_ownership_migration.py
+
       - name: Verify bootstrap receipt persistence and failure recovery on Windows
         run: >-
           uv run --locked --no-sync pytest -q
@@ -738,10 +761,9 @@ jobs:
           tests/test_system_cli.py::test_codex_batch_runners_reject_unsafe_executable_path
           tests/test_system_cli.py::test_codex_native_executable_preserves_arguments
 
-      - name: Verify managed guidance and exact rollback bytes on Windows
+      - name: Verify installation failures preserve user content on Windows
         run: >-
           uv run --locked --no-sync pytest -q
-          tests/test_guidance_generation.py
           tests/test_guidance_installation.py
           tests/test_opencode_installation.py
           tests/test_cli_zcode.py::test_zcode_upgrade_rejects_missing_packaged_reference_and_preserves_installation

@@ -39,7 +39,11 @@ TraceAttribute = str | bool | int | float
 
 
 class RuntimeSpan(Protocol):
-    """Record bounded attributes and a deferred outcome for one internal Runtime stage."""
+    """Record bounded attributes and a deferred outcome for one internal Runtime stage.
+
+    Adapters may expose an existing ``trace_id`` for optional diagnostic correlation;
+    callers must tolerate its absence. It is not proof of sampling or trace storage.
+    """
 
     def set_attributes(self, attributes: Mapping[str, TraceAttribute], /) -> None: ...
 

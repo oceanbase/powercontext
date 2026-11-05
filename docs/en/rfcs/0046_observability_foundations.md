@@ -1,3 +1,8 @@
+---
+title: "RFC 0046: Observability foundations"
+description: A proposal for operational logs, Prometheus metrics, and OpenTelemetry traces with shared operation names and request correlation.
+---
+
 - Proposal Name: `observability_foundations`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#46](https://github.com/oceanbase/powercontext/pull/46)
@@ -293,10 +298,13 @@ metrics, and OpenTelemetry tracing.
 This covers local diagnostics and aggregate behavior but cannot propagate execution context across MCP, Client, and
 remote Server boundaries. Tracing remains optional but is part of the common design.
 
-## Use raw paths and scope identifiers
+## Use raw paths or identities as metric labels
 
-These values are easy to collect but are unstable, potentially sensitive, and often unbounded. The proposal uses
-declared operation identity and bounded outcomes.
+Raw paths remain excluded. Scope-aware operator diagnostics allow an owning Scope ID in the structured log field
+`scope` and span attributes `powercontext.scope.id` / `powercontext.scope.ids`. They do not permit Source or Memory
+content, queries, credentials, or arbitrary paths. Scope IDs remain excluded from metric labels and indexed log
+stream labels; scoped activity is queried from structured events and inventory from the authorized statistics API.
+Shared process/dependency measurements retain their global ownership.
 
 # Prior art
 

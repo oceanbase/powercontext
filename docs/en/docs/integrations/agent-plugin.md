@@ -1,6 +1,6 @@
 ---
 title: Agent Plugin
-description: Load reusable PowerContext skills and MCP configuration in compatible agents.
+description: Load reusable PowerContext Skills and MCP configuration in compatible Agents, and verify the available tools.
 ---
 
 # Agent Plugin

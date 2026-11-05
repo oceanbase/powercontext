@@ -1,3 +1,8 @@
+---
+title: RFC 1745：决策模型驱动的 Memory 重排序
+description: 决策模型重排序的设计提案，对 Memory 粗排候选逐项决定保留或丢弃，保持保留项的原顺序和精确身份。
+---
+
 - Proposal Name: `decision_model_rerank_seam`
 - Start Date: 2026-09-26
 - RFC PR: [oceanbase/powercontext#1745](https://github.com/oceanbase/powercontext/pull/1745)

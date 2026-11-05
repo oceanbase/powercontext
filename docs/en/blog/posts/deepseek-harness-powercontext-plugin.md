@@ -1,9 +1,9 @@
 ---
+title: Building a PowerContext plugin for DeepSeek Harness
+description: Connect project memory, automatic recall, and Handoff to DeepSeek Harness through a thin Cordis adapter.
 draft: true
 authors: []
 slug: deepseek-harness-powercontext-plugin
-title: Building a PowerContext plugin for DeepSeek Harness
-description: Connect project memory, automatic recall, and Handoff to DeepSeek Harness through a thin Cordis adapter.
 date: 2026-08-14
 ---
 
