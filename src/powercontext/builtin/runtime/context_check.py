@@ -547,7 +547,10 @@ def _encrypted_admission(
         proofs[digest] = _Proof(renewed, digest in own and own[digest].handoff)
     for value in replayed_argument_values(parsed, declared):
         digest = value_digest(value)
-        if digest in own or digest in inherited:
+        # Handover status comes only from release evidence: a caller's replayed history never turns an ordinary proof
+        # into a handover proof.
+        known = own.get(digest)
+        if (known is not None and known.handoff) or digest in inherited:
             proofs[digest] = _Proof(renewed, True)
     withheld, receipt = _issue_receipt(
         request, proofs, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
