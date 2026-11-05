@@ -1,0 +1,205 @@
+name: ARC runner image smoke
+
+on:
+  push:
+    branches: [codex/powercontext-ci-runner-smoke]
+    paths: [.github/workflows/runner-smoke.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  smoke:
+    name: Image smoke (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [powercontext-ci-image-canary]
+    env:
+      SMOKE_PREFIX: arc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check runner identity, tools and credential mounts
+        run: |
+          mkdir -p "$RUNNER_TEMP/arc-smoke"
+          test "$RUNNER_ENVIRONMENT" = self-hosted
+          test "$RUNNER_OS" = Linux
+          test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token
+          test ! -e /etc/powercontext-proxy/config.yaml
+          test "$HTTP_PROXY" = http://172.30.0.1:7890
+          {
+            printf 'Runner: %s\n' "$RUNNER_NAME"
+            docker version --format 'Docker client {{.Client.Version}} server {{.Server.Version}}'
+            docker compose version
+            docker buildx version
+            uv --version
+            rustc --version
+            go version
+            helm version --short
+            mihomo -v
+          } | tee "$RUNNER_TEMP/arc-smoke/tools.txt"
+
+      - name: Select cached Python 3.11
+        id: py311
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with: {python-version: "3.11"}
+      - name: Select cached Python 3.12
+        id: py312
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with: {python-version: "3.12"}
+      - name: Select cached Python 3.13
+        id: py313
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with: {python-version: "3.13"}
+      - name: Select cached Python 3.14
+        id: py314
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with: {python-version: "3.14"}
+      - name: Verify Python tool-cache paths
+        env:
+          PY311: ${{ steps.py311.outputs.python-path }}
+          PY312: ${{ steps.py312.outputs.python-path }}
+          PY313: ${{ steps.py313.outputs.python-path }}
+          PY314: ${{ steps.py314.outputs.python-path }}
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/arc-smoke/python-cache.txt"
+          import os
+          import subprocess
+          for key, version in [("PY311", "3.11"), ("PY312", "3.12"), ("PY313", "3.13"), ("PY314", "3.14")]:
+              executable = os.environ[key]
+              assert executable.startswith(f"/opt/hostedtoolcache/Python/{version}."), executable
+              subprocess.run([executable, "-c", "import ssl, sqlite3; print(ssl.OPENSSL_VERSION, sqlite3.sqlite_version)"], check=True)
+              print(version, executable)
+          PY
+
+      - name: Set up the real PowerContext Python environment
+        timeout-minutes: 6
+        uses: ./.github/actions/setup-python-env
+        with: {python-version: "3.12"}
+      - name: Run PowerContext validation and SQLite tests
+        timeout-minutes: 3
+        run: |
+          uv python find 3.9
+          uv run --frozen --no-sync pytest tests/test_code_query_validation.py tests/e2e/test_sqlite_vec.py -q -n 0 \
+            --junitxml="$RUNNER_TEMP/arc-smoke/pytest.xml" \
+            | tee "$RUNNER_TEMP/arc-smoke/pytest.txt"
+      - name: Set up the repository JavaScript tools
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - name: Verify JavaScript tools
+        run: |
+          test "$(node --version)" = v22.19.0
+          test "$(pnpm --version)" = 11.13.1
+          { node --version; pnpm --version; } | tee "$RUNNER_TEMP/arc-smoke/javascript.txt"
+
+      - name: Pull a Docker image and reach its published port
+        if: ${{ !cancelled() }}
+        timeout-minutes: 3
+        run: |
+          docker run --detach --rm --pull=always --name "$SMOKE_PREFIX-http" \
+            --publish 127.0.0.1::8080/tcp docker.io/library/busybox:1.37.0 \
+            sh -eu -c 'mkdir -p /tmp/www; echo arc-smoke-ok >/tmp/www/index.html; exec httpd -f -p 8080 -h /tmp/www'
+          endpoint="$(docker port "$SMOKE_PREFIX-http" 8080/tcp)"
+          for attempt in {1..20}; do
+            body="$(curl --noproxy '*' --fail --silent --max-time 3 "http://$endpoint/" || true)"
+            if [ "$body" = arc-smoke-ok ]; then
+              echo 'Docker pull and published localhost service passed' | tee "$RUNNER_TEMP/arc-smoke/docker-service.txt"
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Build and test nested Docker and Compose networking
+        if: ${{ !cancelled() }}
+        timeout-minutes: 6
+        run: |
+          context="$RUNNER_TEMP/arc-proxy-build"
+          mkdir -p "$context"
+          cat >"$context/Dockerfile" <<'DOCKERFILE'
+          FROM alpine:3.21
+          RUN apk add --no-cache curl ca-certificates && \
+              curl --fail --silent --show-error --max-time 30 \
+              https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json -o /tmp/manifest.json && \
+              test -s /tmp/manifest.json
+          DOCKERFILE
+          docker build --pull --progress=plain -t "$SMOKE_PREFIX:egress" "$context"
+          docker run --rm "$SMOKE_PREFIX:egress" curl --fail --silent --show-error --max-time 30 \
+            https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json -o /dev/null
+          docker network create "$SMOKE_PREFIX-net"
+          docker run --rm --network "$SMOKE_PREFIX-net" "$SMOKE_PREFIX:egress" \
+            curl --fail --silent --show-error --max-time 30 \
+            https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json -o /dev/null
+          cat >"$context/compose.yaml" <<COMPOSE
+          services:
+            egress:
+              image: "$SMOKE_PREFIX:egress"
+              command: ["curl", "--fail", "--silent", "--show-error", "--max-time", "30", "https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json", "-o", "/dev/null"]
+          COMPOSE
+          docker compose -f "$context/compose.yaml" -p "$SMOKE_PREFIX" run --rm egress
+          echo 'Docker build, default/custom bridges and Compose proxy access passed' | tee "$RUNNER_TEMP/arc-smoke/nested-docker.txt"
+
+      - name: Test an independent BuildKit builder
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          docker buildx create --name "$SMOKE_PREFIX-builder" --driver docker-container \
+            --driver-opt "env.HTTP_PROXY=$CI_DOCKER_PROXY_URL" \
+            --driver-opt "env.HTTPS_PROXY=$CI_DOCKER_PROXY_URL" \
+            --driver-opt "\"env.NO_PROXY=$CI_DOCKER_NO_PROXY\"" --bootstrap
+          docker buildx build --builder "$SMOKE_PREFIX-builder" --pull --load --progress=plain \
+            -t "$SMOKE_PREFIX:buildkit" "$RUNNER_TEMP/arc-proxy-build"
+          echo 'Docker-container BuildKit pull and RUN networking passed' | tee "$RUNNER_TEMP/arc-smoke/buildkit.txt"
+
+      - name: Clean up test containers and builders
+        if: always()
+        timeout-minutes: 2
+        run: |
+          docker rm -f "$SMOKE_PREFIX-http" >/dev/null 2>&1 || true
+          docker buildx rm "$SMOKE_PREFIX-builder" >/dev/null 2>&1 || true
+          if [ -f "$RUNNER_TEMP/arc-proxy-build/compose.yaml" ]; then
+            docker compose -f "$RUNNER_TEMP/arc-proxy-build/compose.yaml" -p "$SMOKE_PREFIX" down --remove-orphans
+          fi
+          docker network rm "$SMOKE_PREFIX-net" >/dev/null 2>&1 || true
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: arc-image-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arc-smoke/
+          if-no-files-found: warn
+          retention-days: 7
+
+  job-container:
+    name: Actions container proxy (${{ matrix.runner }})
+    needs: smoke
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [powercontext-ci-image-canary]
+    container:
+      image: python:3.12-slim
+    steps:
+      - name: Verify the proxy propagated to a real Actions job container
+        run: |
+          python - <<'PY'
+          import os
+          import urllib.request
+          assert os.environ.get("http_proxy", os.environ.get("HTTP_PROXY")) == "http://172.30.0.1:7890"
+          url = "https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json"
+          with urllib.request.urlopen(url, timeout=30) as response:
+              assert response.status == 200
+              assert response.read(1)
+          print("Actions job container reached GitHub through the Pod-local proxy")
+          PY
