@@ -32,6 +32,10 @@ import plistlib
 import sys
 from pathlib import Path
 
+if sys.argv[1:] == ["--version"]:
+    print("fixture version")
+    sys.exit(0)
+
 root = Path.cwd()
 case = os.environ["DMG_TEST_CASE"]
 calls = root / "calls.jsonl"
@@ -88,7 +92,12 @@ def test_macos_packaging_recovery(tmp_path: Path, case: str) -> None:
     result = subprocess.run(
         [sys.executable, str(scripts / "build_macos.py")],
         cwd=desktop,
-        env={**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"], "DMG_TEST_CASE": case},
+        env={
+            **os.environ,
+            "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+            "DMG_TEST_CASE": case,
+            "GITHUB_OUTPUT": str(tmp_path / "step-output"),
+        },
         capture_output=True,
         text=True,
         timeout=30,
@@ -103,6 +112,9 @@ def test_macos_packaging_recovery(tmp_path: Path, case: str) -> None:
         assert packages == ["build", "bundle"]
         assert detach == ([] if case == "create" else [["hdiutil", "detach", "-force", "/dev/disk2"]])
         assert "Resource busy" in log and "Finished DMG packaging" in log
+        assert (tmp_path / "step-output").read_text() == "retried=true\n"
+        assert "Resource busy" in (desktop / ".artifacts/macos-build-attempt-1.log").read_text()
+        assert (desktop / ".artifacts/macos-build-attempt-1-state.log").is_file()
         if case == "detach-busy":
             images = list((desktop / ".artifacts").glob("busy-dmg-*/rw.*.dmg"))
             assert len(images) == 1 and images[0].read_bytes() == b"disposable raw image"

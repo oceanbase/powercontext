@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import errno
+import os
 import plistlib
 import re
 import shutil
@@ -24,9 +25,36 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parents[1]
+
+
+def capture_macos_state(artifacts: Path, attempt: int) -> None:
+    with (artifacts / f"macos-build-attempt-{attempt}-state.log").open("w", encoding="utf-8") as state:
+        state.write(f"captured_at={datetime.now(UTC).isoformat()}\n")
+        for command in (
+            ["sw_vers"],
+            ["uname", "-a"],
+            ["xcodebuild", "-version"],
+            ["node", "--version"],
+            ["pnpm", "--version"],
+            ["rustc", "--version"],
+            ["cargo", "--version"],
+            ["hdiutil", "info"],
+            ["diskutil", "list"],
+            ["mount"],
+            ["find", "src-tauri/target/release/bundle", "-maxdepth", "4", "-print"],
+        ):
+            state.write(f"## {' '.join(command)}\n")
+            state.flush()
+            try:
+                subprocess.run(  # noqa: S603 -- Fixed diagnostic commands, no shell.
+                    command, cwd=DESKTOP, stdout=state, stderr=subprocess.STDOUT, check=False, timeout=15
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                state.write(f"Diagnostic unavailable: {type(error).__name__}\n")
 
 
 def discard_busy_image(output: str, artifacts: Path) -> Path | None:
@@ -92,6 +120,8 @@ def main() -> int:
             if status == 0:
                 return 0
             failure = "".join(output)
+            (artifacts / f"macos-build-attempt-{attempt}.log").write_text(failure, encoding="utf-8")
+            capture_macos_state(artifacts, attempt)
             busy_detach = bool(re.search(r'hdiutil: couldn.t eject "disk\d+" - Resource busy', failure))
             busy_create = "hdiutil: create failed - Resource busy" in failure
             if (
@@ -107,6 +137,9 @@ def main() -> int:
                     print(warning, flush=True)
                     log.write(warning + "\n")
                     log.flush()
+            if github_output := os.environ.get("GITHUB_OUTPUT"):
+                with Path(github_output).open("a", encoding="utf-8") as output_file:
+                    output_file.write("retried=true\n")
             print("Retrying busy DMG packaging without recompilation.", flush=True)
             time.sleep(attempt * 5)
             command = [pnpm, "tauri", "bundle", "--ci", "--verbose"]
