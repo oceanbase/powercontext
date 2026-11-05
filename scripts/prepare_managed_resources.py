@@ -175,9 +175,7 @@ def extract_runtime(  # noqa: C901 - one archive validation boundary
             relative = name.removeprefix("python/")
             ResourceFile(path=relative, size=member.size if member.isfile() else 0, sha256="0" * 64)
             key = relative if case_sensitive else relative.casefold()
-            if key in seen_names or not (
-                member.isfile() or member.isdir() or member.issym() or member.islnk()
-            ):
+            if key in seen_names or not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
                 raise ValueError("Interpreter archive has duplicate paths or unsupported file types")
             members[relative] = member
             seen_names.add(key)
