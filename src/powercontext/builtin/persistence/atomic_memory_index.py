@@ -164,12 +164,15 @@ class AtomicMemoryRelatedRank:
 
 @dataclass(frozen=True)
 class AtomicMemoryRelatedCursor:
-    """Opaque keyset position; hybrid keeps its complete lightweight fusion result."""
+    """Complete lightweight rank snapshot taken when the enumeration started.
 
-    last_score: float | None = None
-    last_distance: float | None = None
-    last_artifact_id: str | None = None
-    fused_ranks: tuple[AtomicMemoryRelatedRank, ...] | None = None
+    Later pages slice ``ranks`` by ``offset``. Rankings depend on corpus statistics,
+    so re-ranking a later page could reorder or skip candidates after another Scope
+    changes. No body is retained here: each page still reads and authorizes only
+    its own identities.
+    """
+
+    ranks: tuple[AtomicMemoryRelatedRank, ...]
     offset: int = 0
 
 
@@ -237,7 +240,13 @@ class AtomicMemoryIndex(Protocol):
         request: AtomicMemoryRelatedRequest,
         cursor: AtomicMemoryRelatedCursor | None = None,
         /,
-    ) -> AtomicMemoryRelatedPage | None: ...
+    ) -> AtomicMemoryRelatedPage | None:
+        """Return one page of a complete enumeration.
+
+        The first call ranks the complete eligible set; later calls only read the
+        cursor's lightweight slice. Bodies and authorization stay per page.
+        """
+        ...
 
     async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
@@ -489,13 +498,32 @@ def atomic_memory_bodies_from_rows(rows: Any, /) -> tuple[dict[str, str], dict[s
     return texts, heads
 
 
+def atomic_memory_page_slice(
+    ranks: Sequence[AtomicMemoryRelatedRank], cursor: AtomicMemoryRelatedCursor | None, page_size: int, /
+) -> tuple[tuple[AtomicMemoryRelatedRank, ...], AtomicMemoryRelatedCursor | None] | None:
+    """Slice the stable rank snapshot and carry it forward while pages remain."""
+
+    offset = 0 if cursor is None else cursor.offset
+    page = tuple(ranks[offset : offset + page_size])
+    if not page:
+        return None
+    following = offset + len(page)
+    return page, (AtomicMemoryRelatedCursor(ranks=tuple(ranks), offset=following) if following < len(ranks) else None)
+
+
 def atomic_memory_page_from_ranks(
     ranks: Sequence[AtomicMemoryRelatedRank],
     texts: dict[str, str],
     heads: dict[str, dict[str, object]],
-) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
+    cursor: AtomicMemoryRelatedCursor | None,
+) -> AtomicMemoryRelatedPage:
     """Attach page bodies to lightweight ranks while preserving rank order."""
 
+    missing = next((rank for rank in ranks if rank.artifact_ref.artifact_id not in texts), None)
+    if missing is not None:
+        raise AtomicMemoryIndexError(
+            "stale-recall", f"Related memory {missing.artifact_ref.artifact_id} left the index after ranking"
+        )
     hits = tuple(
         AtomicMemoryIndexHit(
             artifact_ref=rank.artifact_ref,
@@ -509,35 +537,8 @@ def atomic_memory_page_from_ranks(
         for rank in ranks
     )
     identities = {rank.artifact_ref.artifact_id for rank in ranks}
-    return hits, {identity: heads[identity] for identity in identities if identity in heads}
-
-
-def atomic_memory_keyset_sql(
-    parameters: dict[str, object], cursor: AtomicMemoryRelatedCursor | None, /, *, vector: bool
-) -> str:
-    """Return the keyset predicate for the channel ordering; empty when no page was read yet."""
-
-    if cursor is None or cursor.last_artifact_id is None:
-        return ""
-    parameters["last_artifact_id"] = cursor.last_artifact_id
-    if vector:
-        parameters["last_distance"] = cursor.last_distance
-        return " AND (distance > :last_distance OR (distance = :last_distance AND artifact_id > :last_artifact_id))"
-    parameters["last_score"] = cursor.last_score
-    return " WHERE score < :last_score OR (score = :last_score AND artifact_id > :last_artifact_id)"
-
-
-def atomic_memory_next_cursor(rows: Any, page_size: int, /, *, vector: bool) -> AtomicMemoryRelatedCursor | None:
-    """Return the next keyset cursor, or ``None`` when the current page was the last one."""
-
-    if len(rows) < page_size:
-        return None
-    last = rows[-1]
-    if vector:
-        return AtomicMemoryRelatedCursor(
-            last_distance=float(last["distance"]), last_artifact_id=str(last["artifact_id"])
-        )
-    return AtomicMemoryRelatedCursor(last_score=float(last["score"]), last_artifact_id=str(last["artifact_id"]))
+    page_heads = {identity: heads[identity] for identity in identities if identity in heads}
+    return AtomicMemoryRelatedPage(hits=hits, heads=page_heads, cursor=cursor)
 
 
 def atomic_memory_vector_sql(
@@ -1038,9 +1039,8 @@ __all__ = [
     "atomic_memory_embedding_input",
     "atomic_memory_embedding_input_hash",
     "atomic_memory_filter_sql",
-    "atomic_memory_keyset_sql",
-    "atomic_memory_next_cursor",
     "atomic_memory_page_from_ranks",
+    "atomic_memory_page_slice",
     "atomic_memory_profile_fingerprint",
     "combine_atomic_memory_channels",
     "combine_atomic_memory_related_ranks",

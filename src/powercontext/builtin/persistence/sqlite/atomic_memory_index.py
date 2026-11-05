@@ -43,9 +43,8 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     atomic_memory_channel_hits,
     atomic_memory_channel_ranks,
     atomic_memory_filter_sql,
-    atomic_memory_keyset_sql,
-    atomic_memory_next_cursor,
     atomic_memory_page_from_ranks,
+    atomic_memory_page_slice,
     atomic_memory_profile_fingerprint,
     atomic_memory_vector_sql,
     combine_atomic_memory_related_ranks,
@@ -312,7 +311,7 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
     async def enumerate_related_with_heads(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemoryRelatedRequest, /
     ) -> tuple[tuple[AtomicMemoryIndexHit, ...], dict[str, dict[str, object]]]:
-        """Drain complete keyset pages for callers that need the whole related set."""
+        """Drain complete ranked pages for callers that need the whole related set."""
         self.validate_request(request)
         hits: list[AtomicMemoryIndexHit] = []
         heads: dict[str, dict[str, object]] = {}
@@ -339,115 +338,85 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         self.validate_request(request)
         eligibility, parameters = atomic_memory_filter_sql(request.filters, "sqlite")
         parameters["scope_id"] = scope_id
-        parameters["page_size"] = request.page_size
-        if request.mode == "fts":
-            return await self._related_fts_page(connection, scope_id, request, eligibility, parameters, cursor)
-        if request.mode == "vector":
-            return await self._related_vector_page(connection, request, eligibility, parameters, cursor)
-        return await self._related_hybrid_page(connection, scope_id, request, eligibility, parameters, cursor)
+        ranks = (
+            await self._related_ranks(connection, scope_id, request, eligibility, parameters)
+            if cursor is None
+            else cursor.ranks
+        )
+        sliced = atomic_memory_page_slice(ranks, cursor, request.page_size)
+        if sliced is None:
+            return None
+        page_ranks, next_cursor = sliced
+        return await self._related_page_from_ranks(connection, scope_id, page_ranks, next_cursor)
 
-    async def _related_fts_page(
+    async def _related_ranks(
         self,
         connection: AsyncConnection,
         scope_id: str,
         request: AtomicMemoryRelatedRequest,
         eligibility: str,
         parameters: dict[str, object],
-        cursor: AtomicMemoryRelatedCursor | None,
-    ) -> AtomicMemoryRelatedPage | None:
+    ) -> tuple[AtomicMemoryRelatedRank, ...]:
+        """Rank the complete eligible set once; later pages never re-rank it."""
+
+        if request.mode == "fts":
+            return await self._related_fts_ranks(connection, scope_id, request, eligibility, parameters)
+        if request.mode == "vector":
+            return await self._related_vector_ranks(connection, request, eligibility, parameters)
+        return await self._related_hybrid_ranks(connection, scope_id, request, eligibility, parameters)
+
+    async def _related_fts_ranks(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        request: AtomicMemoryRelatedRequest,
+        eligibility: str,
+        parameters: dict[str, object],
+    ) -> tuple[AtomicMemoryRelatedRank, ...]:
         rank_sql = self._related_fts_rank_sql(scope_id, request, eligibility, parameters)
         if rank_sql is None:
-            return None
-        keyset = atomic_memory_keyset_sql(parameters, cursor, vector=False)
-        sql = (
-            f"WITH ranked AS ({rank_sql}) SELECT * FROM ranked{keyset} "  # noqa: S608
-            "ORDER BY score DESC, artifact_id LIMIT :page_size"
-        )
+            return ()
+        sql = f"{rank_sql} ORDER BY score DESC, artifact_id"
         rows = tuple((await connection.execute(text(sql), parameters)).mappings())
-        if not rows:
-            return None
-        return await self._related_page_from_ranks(
-            connection,
-            scope_id,
-            atomic_memory_channel_ranks(rows),
-            atomic_memory_next_cursor(rows, request.page_size, vector=False),
-        )
+        return atomic_memory_channel_ranks(rows)
 
-    async def _related_vector_page(
+    async def _related_vector_ranks(
         self,
         connection: AsyncConnection,
         request: AtomicMemoryRelatedRequest,
         eligibility: str,
         parameters: dict[str, object],
-        cursor: AtomicMemoryRelatedCursor | None,
-    ) -> AtomicMemoryRelatedPage | None:
+    ) -> tuple[AtomicMemoryRelatedRank, ...]:
         await self._require_related_vectors(connection, request, eligibility, parameters)
-        keyset = atomic_memory_keyset_sql(parameters, cursor, vector=True)
-        sql = (
+        sql = self._related_vector_rank_sql(eligibility)
+        rows = tuple((await connection.execute(text(sql), parameters)).mappings())
+        return atomic_memory_channel_ranks(rows, vector=True)
+
+    def _related_vector_rank_sql(self, eligibility: str) -> str:
+        return (
             "WITH ranked AS (SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
             "vec_distance_l2(embedding, :query_vector) AS distance "
             "FROM pc_atomic_memory_current WHERE scope_id = :scope_id "
             f"AND ({eligibility}) AND embedding IS NOT NULL AND embedding_input_hash IS NOT NULL "
             "AND profile_fingerprint = :profile AND projection_format = :projection_format "
             "AND LENGTH(embedding) = :embedding_bytes) "
-            f"SELECT * FROM ranked WHERE distance <= :max_distance{keyset} "
-            "ORDER BY distance, artifact_id LIMIT :page_size"
-        )
-        rows = tuple((await connection.execute(text(sql), parameters)).mappings())
-        if not rows:
-            return None
-        return await self._related_page_from_ranks(
-            connection,
-            str(parameters["scope_id"]),
-            atomic_memory_channel_ranks(rows, vector=True),
-            atomic_memory_next_cursor(rows, request.page_size, vector=True),
+            "SELECT * FROM ranked WHERE distance <= :max_distance ORDER BY distance, artifact_id"
         )
 
-    async def _related_hybrid_page(
+    async def _related_hybrid_ranks(
         self,
         connection: AsyncConnection,
         scope_id: str,
         request: AtomicMemoryRelatedRequest,
         eligibility: str,
         parameters: dict[str, object],
-        cursor: AtomicMemoryRelatedCursor | None,
-    ) -> AtomicMemoryRelatedPage | None:
-        if cursor is not None and cursor.fused_ranks is not None:
-            ranks = cursor.fused_ranks
-            offset = cursor.offset
-        else:
-            await self._require_related_vectors(connection, request, eligibility, parameters)
-            fts_ranks: tuple[AtomicMemoryRelatedRank, ...] = ()
-            rank_sql = self._related_fts_rank_sql(scope_id, request, eligibility, parameters)
-            if rank_sql is not None:
-                fts_sql = (
-                    f"WITH ranked AS ({rank_sql}) SELECT * FROM ranked "  # noqa: S608
-                    "ORDER BY score DESC, artifact_id"
-                )
-                fts_rows = tuple((await connection.execute(text(fts_sql), parameters)).mappings())
-                fts_ranks = atomic_memory_channel_ranks(fts_rows)
-            vector_sql = (
-                "WITH ranked AS (SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
-                "vec_distance_l2(embedding, :query_vector) AS distance "
-                "FROM pc_atomic_memory_current WHERE scope_id = :scope_id "
-                f"AND ({eligibility}) AND embedding IS NOT NULL AND embedding_input_hash IS NOT NULL "
-                "AND profile_fingerprint = :profile AND projection_format = :projection_format "
-                "AND LENGTH(embedding) = :embedding_bytes) "
-                "SELECT * FROM ranked WHERE distance <= :max_distance ORDER BY distance, artifact_id"
-            )
-            vector_rows = tuple((await connection.execute(text(vector_sql), parameters)).mappings())
-            ranks = combine_atomic_memory_related_ranks(
-                fts_ranks, atomic_memory_channel_ranks(vector_rows, vector=True)
-            )
-            offset = 0
-        page_ranks = ranks[offset : offset + request.page_size]
-        if not page_ranks:
-            return None
-        next_offset = offset + len(page_ranks)
-        next_cursor = (
-            AtomicMemoryRelatedCursor(fused_ranks=ranks, offset=next_offset) if next_offset < len(ranks) else None
+    ) -> tuple[AtomicMemoryRelatedRank, ...]:
+        await self._require_related_vectors(connection, request, eligibility, parameters)
+        fts_ranks = await self._related_fts_ranks(connection, scope_id, request, eligibility, parameters)
+        rows = tuple(
+            (await connection.execute(text(self._related_vector_rank_sql(eligibility)), parameters)).mappings()
         )
-        return await self._related_page_from_ranks(connection, scope_id, page_ranks, next_cursor)
+        return combine_atomic_memory_related_ranks(fts_ranks, atomic_memory_channel_ranks(rows, vector=True))
 
     def _related_fts_rank_sql(
         self,
@@ -532,8 +501,7 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             ).mappings()
         )
         texts, heads = atomic_memory_bodies_from_rows(rows)
-        hits, page_heads = atomic_memory_page_from_ranks(ranks, texts, heads)
-        return AtomicMemoryRelatedPage(hits=hits, heads=page_heads, cursor=cursor)
+        return atomic_memory_page_from_ranks(ranks, texts, heads, cursor)
 
     async def _channels(
         self,

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Related recall drains keyset pages without truncating qualified memories."""
+"""Related recall walks one rank snapshot so corpus changes cannot truncate pages."""
 
 from __future__ import annotations
 
@@ -253,5 +253,37 @@ def test_related_page_bodies_are_fetched_in_page_sized_batches(migration_backend
         assert len(body_ids) == 5 and set(body_ids) == {f"memory-{number:03}" for number in range(1, 6)}
         assert all("authority_content" not in statement for statement in rank_statements)
         assert all(" AS projected_text" not in statement for statement in rank_statements)
+
+    asyncio.run(scenario())
+
+
+def test_fts_pages_survive_corpus_changes_in_other_scopes(migration_backend: MigrationBackend) -> None:
+    """Other Scopes changing BM25 statistics must not hide later pages of this Scope."""
+
+    async def scenario() -> None:
+        index = migration_index(migration_backend.config)
+        async with migration_profile(migration_backend.config) as profile:
+            async with profile.database.transaction() as connection:
+                await index.initialize(connection)
+                await _initialize_related_authority(connection)
+                await _seed_memories(connection, index, "scope", 3)
+            request = AtomicMemoryRelatedRequest(
+                query="rollout strategy", filters=AtomicMemoryIndexFilter(), mode="fts", page_size=1
+            )
+            async with profile.database.transaction() as connection:
+                first = await index.related_page(connection, "scope", request)
+                assert first is not None
+                assert tuple(hit.artifact_ref.artifact_id for hit in first.hits) == ("memory-001",)
+                await _seed_memories(connection, index, "other-scope", 100)
+                pages: list[tuple[str, ...]] = []
+                cursor = first.cursor
+                while cursor is not None:
+                    page = await index.related_page(connection, "scope", request, cursor)
+                    if page is None:
+                        break
+                    pages.append(tuple(hit.artifact_ref.artifact_id for hit in page.hits))
+                    cursor = page.cursor
+        identities = tuple(identity for page in pages for identity in page)
+        assert identities == ("memory-002", "memory-003")
 
     asyncio.run(scenario())

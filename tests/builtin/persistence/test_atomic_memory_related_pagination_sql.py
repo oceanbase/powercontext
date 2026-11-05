@@ -175,6 +175,16 @@ def test_oceanbase_related_page_rejects_incomplete_vector_rows_beyond_the_first_
     asyncio.run(scenario())
 
 
+def test_oceanbase_related_page_reports_ranked_memories_without_bodies_as_stale_recall() -> None:
+    async def scenario() -> None:
+        connection = _Connection(batches=(_fts_rows("memory-1"), ()))
+        with pytest.raises(AtomicMemoryIndexError) as raised:
+            await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
+        assert raised.value.code == "stale-recall"
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("page_size", [0, -1, 1001, True, 3.0, "3"])
 def test_oceanbase_related_page_rejects_invalid_page_sizes(page_size: object) -> None:
     async def scenario() -> None:
