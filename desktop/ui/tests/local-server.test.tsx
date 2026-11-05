@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 test.each(["zh", "en"] as const)(
-  "disconnected Memory provides local and existing-Server paths without changing Overview (%s)",
+  "disconnected Memory and Overview share local and existing-Server paths (%s)",
   async (language) => {
     const user = userEvent.setup();
     render(<App />);
@@ -60,10 +60,12 @@ test.each(["zh", "en"] as const)(
     expect(
       screen.getByRole("heading", { level: 1, name: "总览" }),
     ).toBeTruthy();
-    // Overview retains its original content; the two-path entry belongs to Memory.
     expect(
-      screen.queryByRole("button", { name: messages.zh.setUpLocally }),
-    ).toBeNull();
+      screen.getByRole("button", { name: messages.zh.guideLocalOpen }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: messages.zh.guideAddConnection }),
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "设置与诊断" }));
     await user.selectOptions(screen.getByLabelText("语言"), language);
     const t = messages[language];

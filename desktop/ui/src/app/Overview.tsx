@@ -19,6 +19,7 @@ import { messages, type Language } from "./messages";
 import { PageFeedback } from "./PageFeedback";
 import { activeCheckReport, operationSupported } from "./context";
 import { operationRestriction } from "./connection-messages";
+import { OverviewGuide } from "./OverviewGuide";
 import memoryIcon from "../assets/memory.svg";
 import connectionsIcon from "../assets/connections.svg";
 import retrievalIcon from "../assets/retrieval.svg";
@@ -28,6 +29,13 @@ type Props = {
   state: DesktopState | null;
   language: Language;
   onNavigate: (page: Page) => void;
+  onOpenLocalServer: () => void;
+  onOpenProfile: (id: string) => void;
+  onOpenScopes: (trigger: HTMLElement) => void;
+  stateLoading: boolean;
+  contextPending: boolean;
+  guideDismissed: boolean;
+  onGuideDismissedChange: (dismissed: boolean) => void;
   refreshing?: boolean;
   onRefresh?: () => void;
 };
@@ -35,6 +43,13 @@ export function Overview({
   state,
   language,
   onNavigate,
+  onOpenLocalServer,
+  onOpenProfile,
+  onOpenScopes,
+  stateLoading,
+  contextPending,
+  guideDismissed,
+  onGuideDismissedChange,
   refreshing = false,
   onRefresh,
 }: Props) {
@@ -43,7 +58,8 @@ export function Overview({
   const profile = state?.profiles.find((p) => p.id === active?.connectionId);
   const report = activeCheckReport(state);
   const readiness = report?.readiness.value?.status;
-  const enabled = !!active?.scope && !!report?.compatibilityVerified;
+  const enabled =
+    !contextPending && !!active?.scope && !!report?.compatibilityVerified;
   const principal = report?.anonymousAccess
     ? null
     : report?.identity.value?.principal;
@@ -84,94 +100,88 @@ export function Overview({
   ];
   return (
     <div className="stack">
-      <section className="card">
-        <div className="card-heading">
-          <h2>{t.current}</h2>
-          <div className="actions">
-            {active && (
-              <span className={readyBadge(readiness)}>
-                {readiness === "ready"
-                  ? t.serviceReady
-                  : readiness
-                    ? t.serviceNotReady
-                    : t.unverified}
-              </span>
-            )}
-            {onRefresh && (
-              <button disabled={refreshing || !state} onClick={onRefresh}>
-                <span aria-hidden="true">↻ </span>
-                {refreshing ? t.refreshing : t.refresh}
-              </button>
-            )}
-          </div>
-        </div>
-        {refreshing && (
-          <PageFeedback compact kind="loading" title={t.refreshing} />
-        )}
-        {active && profile ? (
-          <>
-            <div className="connection-summary">
-              <img src={connectionsIcon} alt="" />
-              <div>
-                <p className="name">{profile.name}</p>
-                <p className="endpoint">{profile.endpoint}</p>
-              </div>
-              <span className="topbar-spacer" />
-              <button onClick={() => onNavigate("connections")}>
-                {t.manage}
-              </button>
+      <OverviewGuide
+        state={state}
+        language={language}
+        stateLoading={stateLoading}
+        contextPending={contextPending}
+        dismissed={guideDismissed}
+        onDismissedChange={onGuideDismissedChange}
+        onOpenLocalServer={onOpenLocalServer}
+        onOpenConnections={() => onNavigate("connections")}
+        onOpenProfile={onOpenProfile}
+        onOpenScopes={onOpenScopes}
+        onOpenMemories={() => onNavigate("memories")}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+      />
+      {active && (
+        <section className="card">
+          <div className="card-heading">
+            <h2>{t.current}</h2>
+            <div className="actions">
+              {active && (
+                <span className={readyBadge(readiness)}>
+                  {readiness === "ready"
+                    ? t.serviceReady
+                    : readiness
+                      ? t.serviceNotReady
+                      : t.unverified}
+                </span>
+              )}
             </div>
-            <dl className="fact-grid">
-              <div className="fact">
-                <dt>{t.identityLabel}</dt>
-                <dd>{identity}</dd>
+          </div>
+          {refreshing && (
+            <PageFeedback compact kind="loading" title={t.refreshing} />
+          )}
+          {active && profile ? (
+            <>
+              <div className="connection-summary">
+                <img src={connectionsIcon} alt="" />
+                <div>
+                  <p className="name">{profile.name}</p>
+                  <p className="endpoint">{profile.endpoint}</p>
+                </div>
+                <span className="topbar-spacer" />
+                <button onClick={() => onNavigate("connections")}>
+                  {t.manage}
+                </button>
               </div>
-              <div className="fact">
-                <dt>{t.authLabel}</dt>
-                <dd>
-                  {profile.authentication === "bearer"
-                    ? t.authBearer
-                    : t.authAnonymous}
-                </dd>
-              </div>
-              <div className="fact">
-                <dt>{t.currentScopeLabel}</dt>
-                <dd>
-                  {active.scope
-                    ? `${active.scope.title} · ${t.exactScope}`
-                    : t.noScopeSelected}
-                </dd>
-              </div>
-              <div className="fact">
-                <dt>{t.compatibilityLabel}</dt>
-                <dd>
-                  {profile.compatibility
-                    ? `${profile.compatibility} · ${report?.compatibilityVerified ? t.compatibilityVerified : t.unverified}`
-                    : t.noCompatibilitySelected}
-                </dd>
-              </div>
-            </dl>
-            <p className="note-line">{t.readinessNote}</p>
-          </>
-        ) : state ? (
-          <PageFeedback
-            compact
-            headingLevel={3}
-            kind="empty"
-            title={t.noActiveTitle}
-            action={
-              <button
-                className="primary"
-                onClick={() => onNavigate("connections")}
-              >
-                {t.connect}
-              </button>
-            }
-          >
-            <p>{t.noActiveBody}</p>
-          </PageFeedback>
-        ) : null}
-      </section>
+              <dl className="fact-grid">
+                <div className="fact">
+                  <dt>{t.identityLabel}</dt>
+                  <dd>{identity}</dd>
+                </div>
+                <div className="fact">
+                  <dt>{t.authLabel}</dt>
+                  <dd>
+                    {profile.authentication === "bearer"
+                      ? t.authBearer
+                      : t.authAnonymous}
+                  </dd>
+                </div>
+                <div className="fact">
+                  <dt>{t.currentScopeLabel}</dt>
+                  <dd>
+                    {active.scope
+                      ? `${active.scope.title} · ${t.exactScope}`
+                      : t.noScopeSelected}
+                  </dd>
+                </div>
+                <div className="fact">
+                  <dt>{t.compatibilityLabel}</dt>
+                  <dd>
+                    {profile.compatibility
+                      ? `${profile.compatibility} · ${report?.compatibilityVerified ? t.compatibilityVerified : t.unverified}`
+                      : t.noCompatibilitySelected}
+                  </dd>
+                </div>
+              </dl>
+              <p className="note-line">{t.readinessNote}</p>
+            </>
+          ) : null}
+        </section>
+      )}
       <div className="overview-grid">
         <section className="card">
           <div className="card-heading">
@@ -232,39 +242,6 @@ export function Overview({
           <p className="note-line">{t.envNote}</p>
         </section>
       </div>
-      <section className="card">
-        <div className="card-heading">
-          <h2>{t.gettingStarted}</h2>
-        </div>
-        <p>{t.gettingStartedHint}</p>
-        <div className="steps">
-          <div className="step">
-            <span aria-hidden="true" className="step-no">
-              01
-            </span>
-            <div>
-              <h3>{t.stepSave}</h3>
-              <p>{t.stepSaveHint}</p>
-            </div>
-          </div>
-          <div className="step">
-            <span aria-hidden="true" className="step-no">
-              02
-            </span>
-            <div>
-              <h3>{t.stepSearch}</h3>
-              <p>{t.stepSearchHint}</p>
-            </div>
-          </div>
-        </div>
-        <p className="note-line">{t.overviewBoundary}</p>
-        <div className="actions getting-started-actions">
-          <span className="spacer" />
-          <button className="primary" onClick={() => onNavigate("memories")}>
-            {t.openMemories}
-          </button>
-        </div>
-      </section>
     </div>
   );
   function readyBadge(status: string | null | undefined) {

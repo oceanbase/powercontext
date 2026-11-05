@@ -56,6 +56,7 @@ export function App() {
   const [language, setLanguage] = useState<Language>("zh");
   const [theme, setTheme] = useState<Theme>("system");
   const [page, setPage] = useState<Page>("home");
+  const [guideDismissed, setGuideDismissed] = useState(false);
   const [observationTab, setObservationTab] =
     useState<ObservationTab>("runtime");
   const [menu, setMenu] = useState(false);
@@ -364,6 +365,17 @@ export function App() {
               state={desktop}
               language={language}
               onNavigate={navigate}
+              onOpenLocalServer={() =>
+                navigate("settings", { section: "local-server" })
+              }
+              onOpenProfile={(profileId) =>
+                navigate("connections", { profileId })
+              }
+              onOpenScopes={(trigger) => openScopes(trigger, true)}
+              stateLoading={stateLoading}
+              contextPending={contextPending}
+              guideDismissed={guideDismissed}
+              onGuideDismissedChange={setGuideDismissed}
               refreshing={refreshing}
               onRefresh={() => void refresh()}
             />
