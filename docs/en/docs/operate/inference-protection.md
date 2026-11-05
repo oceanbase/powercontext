@@ -92,6 +92,8 @@ so responses carry encrypted reasoning that later requests replay, and a subagen
   handover values its replayed function calls carry, so a parent that keeps talking does not strand a pending
   subagent's task. A long conversation therefore presents a constant number of receipts, and a value stays admissible
   for one hour after its last verified use.
+- A receipt is bound to its target profile's `endpoint` and `protocol`. Changing either for that profile voids the
+  receipts already issued, so a value is never admitted to a destination other than the one that returned it.
 - One receipt holds at most 1,024 values. A check whose values do not fit is withheld with
   `encrypted-receipt-capacity-exceeded` rather than leaving a later request without proof.
 - Encrypted values at any other position, and an `agent_message` part with any other field, stay

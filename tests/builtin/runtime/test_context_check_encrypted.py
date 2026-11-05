@@ -244,6 +244,21 @@ async def test_a_receipt_from_another_principal_or_scope_proves_nothing(changes)
 
 
 @pytest.mark.anyio
+async def test_a_receipt_proves_nothing_after_its_target_profile_is_redefined():
+    codec, config = BindingCodec(), _responses_config()
+    receipt = await _parent_receipt(codec, config)
+    target = config.targets["test"]
+    redefined = config.model_copy(
+        update={"targets": {"test": target.model_copy(update={"endpoint": "https://other.example/v1/responses"})}}
+    )
+    replay = [_user("hi"), _reasoning(REASONING)]
+    unchanged = await _check(_send(replay, conversation_id=PARENT, encrypted_receipts=(receipt,)), codec, config=config)
+    assert unchanged.decision == "allow"
+    result = await _check(_send(replay, conversation_id=PARENT, encrypted_receipts=(receipt,)), codec, config=redefined)
+    assert result.reason_codes == ("encrypted-origin-unverified",)
+
+
+@pytest.mark.anyio
 async def test_a_receipt_expires_with_its_validity():
     codec, config = BindingCodec(), _responses_config()
     receipt = await _parent_receipt(codec, config)

@@ -47,6 +47,7 @@ from powercontext.builtin.inference.privacy import (
     InferenceProtectionConfig,
     PrivacyCoverage,
     PrivacyPolicy,
+    UpstreamProfile,
 )
 from powercontext.builtin.runtime.context_bindings import BindingCodec, ContextBindingError
 from powercontext.builtin.runtime.context_reuse import ContextReuseError, ValidatedContextReuse
@@ -175,6 +176,11 @@ def _fingerprint(config: InferenceProtectionConfig) -> str:
     value = config.model_dump(mode="json")
     value["forbidden_values"] = [item.get_secret_value() for item in config.forbidden_values]
     return sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _target_identity(profile: UpstreamProfile) -> str:
+    # The destination that produced an encrypted value and can read it; redefining the profile voids its receipts.
+    return sha256(json.dumps([profile.endpoint, profile.protocol], separators=(",", ":")).encode()).hexdigest()
 
 
 def _payload_digest(payload: ModelJsonPayload) -> str:
@@ -508,9 +514,11 @@ def _encrypted_admission(
     request declares, which its release uses to select released values.
     """
 
-    kinds = config.targets[request.target_profile].admit_encrypted_items
+    profile = config.targets[request.target_profile]
+    kinds = profile.admit_encrypted_items
     if not kinds:
         return None, None, ()
+    target = _target_identity(profile)
     parsed = parse_model_json(body, max_depth=config.max_json_depth)
     _, encrypted = admitted_encrypted(parsed, kinds)
     renewed = now + RECEIPT_VALIDITY
@@ -523,6 +531,7 @@ def _encrypted_admission(
             codec=codec,
             scope_id=scope_id,
             binding_identity=binding_identity,
+            target=target,
             now=now,
         )
         return withheld, receipt, ()
@@ -530,7 +539,7 @@ def _encrypted_admission(
     if declared is None:
         return _RECEIPT_CAPACITY, None, ()
     own, inherited = _presented_proofs(
-        request, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
+        request, codec=codec, scope_id=scope_id, binding_identity=binding_identity, target=target, now=now
     )
     # A subagent inherits only its parent's handover values, and only as its task; never the parent's reasoning.
     if not all(
@@ -553,7 +562,7 @@ def _encrypted_admission(
         if (known is not None and known.handoff) or digest in inherited:
             proofs[digest] = _Proof(renewed, True)
     withheld, receipt = _issue_receipt(
-        request, proofs, codec=codec, scope_id=scope_id, binding_identity=binding_identity, now=now
+        request, proofs, codec=codec, scope_id=scope_id, binding_identity=binding_identity, target=target, now=now
     )
     return withheld, receipt, declared
 
@@ -571,6 +580,7 @@ def _issue_receipt(
     codec: BindingCodec,
     scope_id: str,
     binding_identity: str,
+    target: str,
     now: datetime,
 ) -> tuple[str | None, str | None]:
     """Seal value proofs for this request's conversation only; return a withhold reason or the receipt.
@@ -598,6 +608,7 @@ def _issue_receipt(
                 "identity": binding_identity,
                 "scope_id": scope_id,
                 "target_profile": request.target_profile,
+                "target": target,
                 "conversation_id": request.conversation_id,
                 "proofs": [
                     [until.isoformat(), pack_digests(values), pack_digests(handoff)]
@@ -618,9 +629,12 @@ def _presented_proofs(
     codec: BindingCodec,
     scope_id: str,
     binding_identity: str,
+    target: str,
     now: datetime,
 ) -> tuple[dict[bytes, _Proof], frozenset[bytes]]:
     """Unexpired proofs in the presented receipts for the same principal, Scope and target.
+
+    The target is the profile's current destination, so a receipt stops proving anything once its profile is redefined.
 
     Returns the proofs of receipts issued to this conversation, and the handover values of receipts issued to the
     parent conversation that started this subagent. Invalid, expired or foreign receipts are ignored.
@@ -639,6 +653,7 @@ def _presented_proofs(
             claims.get("identity") != binding_identity
             or claims.get("scope_id") != scope_id
             or claims.get("target_profile") != request.target_profile
+            or claims.get("target") != target
         ):
             continue
         conversation = claims.get("conversation_id")
