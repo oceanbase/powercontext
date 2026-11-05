@@ -54,6 +54,9 @@ def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failur
         f"#!{sys.executable}\n"
         "import json, os, sys\n"
         "from pathlib import Path\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('test-pnpm')\n"
+        "    sys.exit(0)\n"
         "count = Path('build-attempts')\n"
         "attempt = int(count.read_text()) + 1 if count.exists() else 1\n"
         "count.write_text(str(attempt))\n"
@@ -68,6 +71,7 @@ def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failur
     sleep.chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
     monkeypatch.setenv("TEST_BUILD_FAILURES", json.dumps(failures))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github-output"))
     command = next(
         step["run"]
         for step in workflow("desktop.yml")["jobs"]["macos"]["steps"]
