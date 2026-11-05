@@ -385,6 +385,8 @@ jobs:
             tests/e2e/test_worker_otlp.py \
             tests/e2e/test_worker_model_usage.py \
             tests/test_observability_health.py \
+            tests/test_observability_cli.py \
+            tests/test_observability_connect.py \
             --junitxml="$RUNNER_TEMP/worker-observability.xml"
           uv run --locked --extra tracing-otlp python - <<'PY'
           import os
@@ -472,9 +474,9 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
-    # before migrations (25m). Preserve each step's deadline and leave time
+    # before migrations (40m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 60
+    timeout-minutes: 80
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -534,8 +536,8 @@ jobs:
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
         # Last-client shutdown adds native startup work. Partition runner nodes;
-        # every node keeps its 180-second deadline.
-        timeout-minutes: 25
+        # Source evidence expands the batch; every node keeps its 180-second deadline.
+        timeout-minutes: 40
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"

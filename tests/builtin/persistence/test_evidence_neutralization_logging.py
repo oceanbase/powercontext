@@ -76,6 +76,7 @@ def test_neutral_reason_is_serialized_without_evidence_content(caplog) -> None:
     payload = json.loads(JsonFormatter().format(record))
 
     assert payload["event"] == "atomic_memory.evidence.neutral"
+    assert payload["service_owner_role"] == payload["service_role"] == "server"
     assert (payload["operation"], payload["unit"], payload["outcome"], payload["reason"]) == (
         "atomic_memory.evidence",
         "declaration",
@@ -98,6 +99,7 @@ def test_neutral_reason_is_serialized_without_evidence_content(caplog) -> None:
         "service_name",
         "service_version",
         "service_role",
+        "service_owner_role",
         "service_instance_id",
     }
 
