@@ -48,6 +48,7 @@ from powercontext.builtin.inference import (
 )
 from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
 from powercontext.server.authz import (
     AccessAction,
@@ -931,6 +932,72 @@ def test_authorization_denials_on_early_pages_do_not_hide_later_writable_memorie
             }
             assert compared == {owned[-1].artifact_id}
             assert len(await _list_memories(memory)) == 102
+
+    asyncio.run(scenario())
+
+
+def test_released_page_memory_revision_prevents_stale_commit(tmp_path):
+    configured = _config(tmp_path)
+    configured = configured.model_copy(
+        update={
+            "runtime": configured.runtime.model_copy(
+                update={"atomic_memory_related_page_size": 10, "atomic_memory_related_max_distance": 1.0}
+            )
+        }
+    )
+
+    async def scenario():
+        class RewritingComparedPage(_RecordingCreateReconciler):
+            async def generate(self, request):
+                result = await super().generate(request)
+                if len(self.inputs) == 1:
+                    await contexts.records.replace_artifact(
+                        "project",
+                        "atomic-memory",
+                        owned[0].artifact_id,
+                        '"revision:1"',
+                        ArtifactWrite(content={"kind": "fact", "text": "rollout strategy 1 shifted externally"}),
+                    )
+                return result
+
+        reconciler = RewritingComparedPage()
+        pipeline = AtomicMemoryGenerationPipeline(
+            extractor=_Extractor(), reconciler=reconciler, estimator=character_token_estimator()
+        )
+        async with open_builtin_contexts(
+            configured, embedding_model=_NumberedEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            context = await contexts.get("project")
+            memory = contexts.atomic_memory.for_scope("project")
+            execution, _ = await _configured_flush_context(contexts, PrincipalRef(type="user", id="owner"))
+            owned = await contexts.records.create_atomic_memories(
+                "project",
+                tuple(
+                    {
+                        "kind": "fact",
+                        "text": f"rollout strategy {number}",
+                        "description": "Fixture memory summary",
+                    }
+                    for number in range(1, 22)
+                ),
+                execution_context=execution,
+            )
+            await context.triggers.flush(limit=200)
+            await contexts.records.create_source("project", "content", "rollout strategy 0")
+            await context.triggers.flush(limit=1, atomic_context=execution)
+
+            assert len(reconciler.inputs) > 3
+            assert any(
+                item.text == "rollout strategy 1 shifted externally"
+                for request in reconciler.inputs[3:]
+                for item in request.related
+            )
+            items = await _list_memories(memory)
+            assert len(items) == 22
+            revised = next(item for item in items if item.ref.artifact_id == owned[0].artifact_id)
+            assert revised.ref.revision == 2
+            assert revised.artifact.content.text == "rollout strategy 1 shifted externally"
+            assert sum(item.artifact.content.text == "rollout strategy 0" for item in items) == 1
 
     asyncio.run(scenario())
 
