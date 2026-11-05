@@ -49,7 +49,7 @@ from powercontext.source_management.manager import create_manager_app
 from powercontext.source_management.models import InstanceRegistration, ManagementError
 from powercontext.source_management.runtime import SourceRuntime
 from powercontext.source_management.storage import Store
-from tests.source_helpers import protected, wait_until
+from tests.source_helpers import protected, requires_linux, wait_until
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples/source_plugins"
 
@@ -296,6 +296,25 @@ async def discover_running(host, scope, name="tickets.item"):
     )
 
 
+def test_runtime_reports_unsupported_platform(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    endpoint = Endpoint(url="http://127.0.0.1:1", credential_file=tmp_path / "token")
+    config = RuntimeConfig(
+        instance_id="tickets",
+        plugin=str(EXAMPLES / "tickets"),
+        plugin_dir=tmp_path,
+        management=endpoint,
+        server=endpoint,
+        state_dir=tmp_path / "state",
+        execution_location=str(tmp_path),
+        configuration_digest=configuration_digest(str(EXAMPLES / "tickets"), {}, {}),
+    )
+    with pytest.raises(ManagementError) as raised:
+        SourceRuntime(config)
+    assert raised.value.code == "background-unsupported"
+
+
+@requires_linux
 def test_collect_dynamic_targets_and_pc_permissions(tmp_path, scenario_runner):
     async def scenario():
         async with (
@@ -377,6 +396,7 @@ capabilities = (Capability(name="tickets.item", version="2", kind="write", descr
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_collect_status_keeps_only_the_last_received_submission(tmp_path, scenario_runner):
     async def scenario():
         async with (
@@ -449,6 +469,7 @@ def test_collect_status_keeps_only_the_last_received_submission(tmp_path, scenar
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_discovery_uses_scope_and_keeps_control_permissions(tmp_path, scenario_runner):
     async def scenario():
         async with (
@@ -550,6 +571,7 @@ def test_builtin_write_uses_source_identity_without_management(tmp_path, scenari
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_collect_continues_offline_and_reconnects_without_restarting(tmp_path, scenario_runner, monkeypatch):
     async def scenario():
         async with (
@@ -620,6 +642,7 @@ def test_collect_continues_offline_and_reconnects_without_restarting(tmp_path, s
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_runtime_process_restart_reruns_enabled_apply(tmp_path, scenario_runner):
     async def scenario():
         plugin = tmp_path / "single.py"
@@ -668,6 +691,7 @@ async def apply(ctx, config):
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_reenable_survives_lost_start_confirmation(tmp_path, scenario_runner, monkeypatch):
     async def scenario():
         async with (
@@ -734,6 +758,7 @@ def test_reenable_survives_lost_start_confirmation(tmp_path, scenario_runner, mo
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_managed_plugin_can_collect_autonomously_without_targets(tmp_path, scenario_runner):
     async def scenario():
         plugin = tmp_path / "autonomous.py"
@@ -814,6 +839,7 @@ def test_explicit_update_requires_stopped_state_and_never_enables(tmp_path, scen
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_reconnect_preserves_capabilities_required_by_stopped_targets(tmp_path, scenario_runner):
     async def scenario():
         async with (
@@ -864,6 +890,7 @@ def test_reconnect_preserves_capabilities_required_by_stopped_targets(tmp_path, 
     scenario_runner.run(scenario())
 
 
+@requires_linux
 def test_oversized_normalized_target_is_rejected_without_blocking_sync(tmp_path, scenario_runner):
     async def scenario():
         plugin = tmp_path / "expanded.py"

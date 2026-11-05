@@ -141,6 +141,10 @@ def plugin_source(tmp_path):
     )
     (plugin / "lib").mkdir()
     (plugin / "lib/index.js").write_text("export const name = 'powercontext-dsh'\n")
+    shutil.copytree(
+        Path(__file__).parents[1] / "integrations/dsh/plugins/powercontext/skills",
+        plugin / "skills",
+    )
     return plugin
 
 
