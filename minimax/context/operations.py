@@ -202,36 +202,80 @@ def agent_prepare(instruction: str, stage: str, workdir: Path,
     }
 
 
-def apply_proposal(worktree: Path, stage: str) -> dict[str, Any]:
-    state, summary = powercontext.import_state(TASK_ID, build_context.build)
-    kind = f"proposal:{stage}"
+def latest_proposal(stage: str | None) -> tuple[str, str]:
+    """Return ``(kind, patch)`` for a stage, falling back to the newest proposal.
+
+    ``--step apply`` without ``--stage`` would otherwise look for ``proposal:after``
+    only; when the last call was a focused one, the newest artifact is the right one.
+    The kind actually used is reported so the operator is never guessing.
+    """
     conn = connect()
     try:
         with conn.cursor() as cur:
+            if stage:
+                cur.execute(
+                    """
+                    SELECT kind, content FROM artifact
+                    WHERE task_id = %s AND kind = %s
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (TASK_ID, f"proposal:{stage}"),
+                )
+                row = cur.fetchone()
+                if row is not None:
+                    return row[0], row[1]
             cur.execute(
                 """
-                SELECT content FROM artifact WHERE task_id = %s AND kind = %s
+                SELECT kind, content FROM artifact
+                WHERE task_id = %s AND kind LIKE 'proposal:%%'
                 ORDER BY created_at DESC LIMIT 1
                 """,
-                (TASK_ID, kind),
+                (TASK_ID,),
             )
             row = cur.fetchone()
     finally:
         conn.close()
     if row is None:
-        raise FileNotFoundError(f"no {kind} artifact for {TASK_ID}")
-    patch = row[0]
+        raise FileNotFoundError(
+            f"no proposal artifact for {TASK_ID}; run "
+            "'python run.py agent --step prepare' first"
+        )
+    return row[0], row[1]
+
+
+def apply_proposal(worktree: Path, stage: str | None,
+                   patch_file: Path | None = None) -> dict[str, Any]:
+    state, summary = powercontext.import_state(TASK_ID, build_context.build)
+    if patch_file is not None:
+        if not patch_file.is_file():
+            raise FileNotFoundError(f"patch file not found: {patch_file}")
+        kind = f"file:{patch_file.name}"
+        patch = patchutil.normalize(patchutil.read_patch(patch_file))
+    else:
+        kind, patch = latest_proposal(stage)
+        patch = patchutil.normalize(patch)
+    workdir = ROOT / "agent" / "artifacts" / (stage or kind.split(":", 1)[-1])
+    workdir.mkdir(parents=True, exist_ok=True)
     reason = patchutil.reject_reason(patch, worktree)
     if reason:
-        return {"applied": False, "error": f"proposal rejected: {reason}", "reimport": summary}
-    workdir = ROOT / "agent" / "artifacts" / stage
+        return {"applied": False, "stage_used": kind,
+                "error": f"proposal rejected: {reason}", "reimport": summary}
     patch_path = patchutil.write_patch(workdir / "applied.patch", patch)
+    # Strict first; the recount retry only fixes hunk counters, never content.
     check = patchutil.git_apply(worktree, patch_path, check=True)
+    used_recount = False
     if check.returncode != 0:
-        return {"applied": False, "error": check.stderr.strip(), "reimport": summary}
-    applied = patchutil.git_apply(worktree, patch_path)
+        check = patchutil.git_apply(worktree, patch_path, check=True, recount=True)
+        used_recount = check.returncode == 0
+    if check.returncode != 0:
+        return {"applied": False, "stage_used": kind,
+                "error": check.stderr.strip(), "patch_path": str(patch_path),
+                "reimport": summary}
+    applied = patchutil.git_apply(worktree, patch_path, recount=used_recount)
     if applied.returncode != 0:
-        return {"applied": False, "error": applied.stderr.strip(), "reimport": summary}
+        return {"applied": False, "stage_used": kind,
+                "error": applied.stderr.strip(), "patch_path": str(patch_path),
+                "reimport": summary}
     stats = patchutil.diffstat(worktree)
     full_diff = patchutil.working_diff(worktree)
     powercontext.put_artifact(TASK_ID, "code-diff", full_diff)
@@ -239,9 +283,9 @@ def apply_proposal(worktree: Path, stage: str) -> dict[str, Any]:
     payload["changed_files"] = patchutil.touched_files(worktree)
     payload["completed"] = list(payload.get("completed", [])) + ["code:applied"]
     payload["pending"] = [item for item in payload.get("pending", [])
-                          if not item.startswith("apply:")] + [f"verify:{stage}"]
+                          if not item.startswith("apply:")] + [f"verify:{kind}"]
     saved = powercontext.save(TASK_ID, payload, reason="after code apply")
-    return {"applied": True, "reimport": summary, "diffstat": stats,
+    return {"applied": True, "stage_used": kind, "reimport": summary, "diffstat": stats,
             "changed_files": payload["changed_files"], "revision": saved.revision}
 
 

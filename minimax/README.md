@@ -287,10 +287,11 @@ python run.py ready                         # 全部 done 才返回 0
 
 ## 8. 已知限制
 
-1. **本机无法构建 seekdb。** Windows 上没有 bazel/g++，seekdb 14 万行文件全量编译也不现实。"代码修改有效"用两层检查替代：语法层（`grammar_check/` 直接读文法源，判断 `col[i]` 是否已产生独立节点）和真实服务层（guard 对运行中的 seekdb 1.4.0 执行同一组 SQL）。**没有在本机编译过 C++ 补丁**，这一点在 `docs/代码与测试.md` 中如实标注。
+1. **本机无法构建 seekdb。** Windows 上没有 bazel/g++，seekdb 全量编译也不现实。"代码修改有效"用两层检查替代：语法层（`grammar_check/` 直接读文法源，判断 `col[i]` 是否已产生独立节点）和真实服务层（guard 对运行中的 seekdb 1.4.0 执行同一组 SQL）。**没有在本机编译过 C++ 补丁**，这一点在 `docs/代码与测试.md` 中如实标注。
 2. **被测 seekdb 是镜像中的 1.4.0 构建，不是打过补丁的构建**；因此 after 阶段在真实服务层的验收项会保持红色，直到有可用构建。guard 会把这个结果原样报告，不会伪造。
-3. **当前补丁只是解析层的第一步**：`agent/code/minimax-change.diff` 只新增了文法产生式，`T_OP_ARRAY_INDEX` 的节点定义、解析路径、执行期实现与回归结果都还没有，因此直接编译会失败。需要让 MiniMax 继续产出完整实现（`agent/instruction-2.md` 就是这份后续任务说明），再按 5.4 编译验证。
-4. **MiniMax 无 API Key 时走人工粘贴路径**，流程、提示词、补丁校验完全可用，但回答由操作者粘贴；接通 API 的步骤见 5.3。
-5. `array_index_probe.cpp` 需要与 seekdb 构建一致的 `libobparser` 头文件与链接参数，本机未验证编译；默认使用 `static_check.py`。
-6. 规格引用的行号对应 seekdb `108fe22`；`build_specs.py` 与上下文组装会校验符号仍在原处，漂移会打印警告而不是静默改号。
-7. 口令写在开发脚本中并可用环境变量覆盖，仅适用于本地演示环境。
+3. **当前改动只到解析层（ARR-005）**：`agent/code/author-fix.patch` 加了文法产生式与 `T_OP_ARRAY_INDEX` 枚举（实测可 `git apply`，语法检查 PASS），但解析路径、执行期实现、元素级 INSERT/UPDATE/DELETE 与回归结果都还没有。下一步用 `agent/instruction-2.md` 继续，再按 5.4 编译验证。
+4. **MiniMax 的真实提案未采用**：6 次真实调用（`MiniMax-M3.1-Flash`）给出的补丁因 hunk 计数不自洽与一个字符的上下文转录错误无法应用，记录见 `agent/MINIMAX-LOG.md`；系统按设计拒绝，没有把模型回答当成已完成。
+5. **MiniMax 无可用 Key 时走人工粘贴路径**，流程、提示词、补丁校验完全可用；凭据优先级与 402 余额错误的处理见 5.3 与 `docs/接通MiniMax.md`。
+6. `array_index_probe.cpp` 需要与 seekdb 构建一致的 `libobparser` 头文件与链接参数，本机未验证编译；默认使用 `static_check.py`。
+7. 规格引用的行号对应 seekdb `108fe22`；`build_specs.py` 与上下文组装会校验符号仍在原处，漂移会打印警告而不是静默改号。
+8. 口令写在开发脚本中并可用环境变量覆盖，仅适用于本地演示环境。

@@ -27,6 +27,7 @@ if str(MINIMAX_ROOT) not in sys.path:
     sys.path.insert(0, str(MINIMAX_ROOT))
 
 from context import build_context, config, operations, powercontext  # noqa: E402
+from context.db import DatabaseUnavailable  # noqa: E402
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -68,17 +69,19 @@ def cmd_guard(args: argparse.Namespace) -> int:
 def cmd_agent(args: argparse.Namespace) -> int:
     instruction = Path(args.instruction).read_text(encoding="utf-8")
     if args.step == "prepare":
-        workdir = MINIMAX_ROOT / "agent" / "artifacts" / args.stage
-        result = operations.agent_prepare(instruction, args.stage, workdir,
+        stage = args.stage or "after"
+        workdir = MINIMAX_ROOT / "agent" / "artifacts" / stage
+        result = operations.agent_prepare(instruction, stage, workdir,
                                           spec_override=args.spec or None)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result["ok"]:
-            state = operations.save_state(args.stage, [], result["spec_ids"], "")
+            state = operations.save_state(stage, [], result["spec_ids"], "")
             print(f"saved task state {state['summary']}")
         return 0 if result["ok"] else 2
     if not args.worktree:
         raise SystemExit("--worktree is required for --step apply")
-    result = operations.apply_proposal(Path(args.worktree), args.stage)
+    result = operations.apply_proposal(Path(args.worktree), args.stage or None,
+                                       patch_file=Path(args.patch) if args.patch else None)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["applied"] else 1
 
@@ -142,9 +145,14 @@ def main(argv: list[str] | None = None) -> int:
 
     agent = sub.add_parser("agent", help="call MiniMax with the assembled context")
     agent.add_argument("--step", choices=["prepare", "apply"], required=True)
-    agent.add_argument("--stage", default="after")
+    agent.add_argument("--stage", default="",
+                       help="prepare: artifact folder; apply: proposal stage "
+                            "(default: newest proposal)")
     agent.add_argument("--instruction", default=str(MINIMAX_ROOT / "agent" / "instruction.md"))
     agent.add_argument("--worktree", default="")
+    agent.add_argument("--patch", default="",
+                       help="apply this patch file instead of the stored proposal "
+                            "(author-reviewed fix, or a patch produced elsewhere)")
     agent.add_argument("--spec", action="append", default=[],
                        help="narrow the request to these spec ids (repeatable)")
     agent.set_defaults(handler=cmd_agent)
@@ -168,7 +176,13 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.setdefault("MINIMAX_DB_USER", os.environ.get("MINIMAX_SCENARIO_USER", "minimax_test"))
         os.environ.setdefault("MINIMAX_DB_PASSWORD",
                               os.environ.get("MINIMAX_SCENARIO_PASSWORD", "minimax_test_dev"))
-    return args.handler(args)
+    try:
+        return args.handler(args)
+    except DatabaseUnavailable as exc:
+        # A stopped container is an ordinary operational state, not a bug in the run:
+        # print the recovery steps instead of a traceback.
+        print(f"[database] {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

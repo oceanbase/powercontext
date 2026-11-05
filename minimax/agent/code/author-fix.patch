@@ -1,0 +1,28 @@
+diff --git a/src/query/api/query/parser/ob_item_type.h b/src/query/api/query/parser/ob_item_type.h
+index a2b856c..71f5787 100644
+--- a/src/query/api/query/parser/ob_item_type.h
++++ b/src/query/api/query/parser/ob_item_type.h
+@@ -786,6 +786,7 @@ typedef enum ObItemType
+   T_FUNC_SYS_ARRAY_APPEND = 1757,
+   T_FUNC_SYS_ELEMENT_AT = 1758,
+   T_FUNC_SYS_ARRAY_CARDINALITY = 1759,
++  T_OP_ARRAY_INDEX = 1760,
+   T_FUNC_SYS_ARRAY_PREPEND = 1761,
+   T_FUNC_SYS_ARRAY_CONCAT = 1762,
+   T_FUNC_SYS_ARRAY_DIFFERENCE = 1763,
+diff --git a/src/sql/parser/sql_parser_mysql_mode.y b/src/sql/parser/sql_parser_mysql_mode.y
+index 83adac0..7f2152d 100644
+--- a/src/sql/parser/sql_parser_mysql_mode.y
++++ b/src/sql/parser/sql_parser_mysql_mode.y
+@@ -3168,6 +3168,11 @@ MOD '(' expr ',' expr ')'
+ {
+   malloc_non_terminal_node($$, result->malloc_pool_, T_FUN_SYS_ARRAY, 1, $3);
+ }
++| column_ref '[' expr ']'
++{
++  /* col[i]: read or assign one element of an ARRAY column (1-based) */
++  malloc_non_terminal_node($$, result->malloc_pool_, T_OP_ARRAY_INDEX, 2, $1, $3);
++}
+ | '[' expr_list ']'
+ {
+   malloc_non_terminal_node($$, result->malloc_pool_, T_FUN_SYS_ARRAY, 1, $2);

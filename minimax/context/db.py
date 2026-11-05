@@ -114,19 +114,49 @@ def db_config() -> dict[str, Any]:
     }
 
 
+class DatabaseUnavailable(RuntimeError):
+    """The server or the account is not reachable; the message says what to do next."""
+
+
 def connect(**overrides: Any) -> pymysql.connections.Connection:
     settings = db_config()
     settings.update(overrides)
-    return pymysql.connect(
-        host=settings["host"],
-        port=settings["port"],
-        user=settings["user"],
-        password=settings["password"],
-        database=settings["database"],
-        charset=settings["charset"],
-        autocommit=True,
-        connect_timeout=10,
-    )
+    try:
+        return pymysql.connect(
+            host=settings["host"],
+            port=settings["port"],
+            user=settings["user"],
+            password=settings["password"],
+            database=settings["database"],
+            charset=settings["charset"],
+            autocommit=True,
+            connect_timeout=10,
+        )
+    except pymysql.err.OperationalError as exc:
+        code = exc.args[0] if exc.args else 0
+        where = f"{settings['host']}:{settings['port']} as {settings['user']}"
+        if code == 2003:
+            hint = (
+                "seekdb is not running on that port. Start it with\n"
+                "  docker start minimax-context-seekdb      (existing container)\n"
+                "  python scripts/init_db.py                (create/recreate it)\n"
+                "  python scripts/init_local_instance.py --port <port>   (self-built server)\n"
+                "or point MINIMAX_DB_PORT at the instance you do have."
+            )
+        elif code == 1045:
+            hint = (
+                "the account exists but the password was rejected. Re-run "
+                "python scripts/init_db.py (or init_local_instance.py) to reset it, "
+                "or export MINIMAX_DB_USER / MINIMAX_DB_PASSWORD."
+            )
+        elif code == 1049:
+            hint = (
+                f"database {settings['database']} is missing. Run "
+                "python scripts/init_db.py --reset (or build_specs.py after creating it)."
+            )
+        else:
+            hint = "check the server state and the MINIMAX_DB_* settings."
+        raise DatabaseUnavailable(f"cannot connect to seekdb ({where}): {exc}\n{hint}") from exc
 
 
 @contextmanager

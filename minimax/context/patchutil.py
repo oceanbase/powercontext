@@ -115,6 +115,22 @@ def reject_reason(patch: str, worktree: Path | None = None) -> str:
     return ""
 
 
+def read_patch(path: Path) -> str:
+    """Read a patch whatever encoding the shell used when writing it.
+
+    Windows PowerShell 5.1 writes ``>`` redirections as UTF-16LE, and UTF-8 files may
+    carry a BOM; both would fail as UnicodeDecodeError before git ever sees the patch.
+    """
+    raw = path.read_bytes()
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        text = raw.decode("utf-16")
+    elif raw.startswith(b"\xef\xbb\xbf"):
+        text = raw.decode("utf-8-sig")
+    else:
+        text = raw.decode("utf-8", "replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def write_patch(path: Path, patch: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized = patch.replace("\r\n", "\n").replace("\r", "\n")
@@ -124,10 +140,13 @@ def write_patch(path: Path, patch: str) -> Path:
     return path
 
 
-def git_apply(worktree: Path, patch_path: Path, check: bool = False) -> subprocess.CompletedProcess:
+def git_apply(worktree: Path, patch_path: Path, check: bool = False,
+              recount: bool = False) -> subprocess.CompletedProcess:
     command = ["git", "apply"]
     if check:
         command.append("--check")
+    if recount:
+        command.append("--recount")
     command.append(str(patch_path))
     return subprocess.run(command, cwd=str(worktree), text=True, capture_output=True)
 
