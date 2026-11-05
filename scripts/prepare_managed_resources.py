@@ -151,7 +151,9 @@ def acquire(item: dict[str, Any], destination: Path, cache: Path | None = None) 
     partial.rename(destination)
 
 
-def extract_runtime(archive: Path, output: Path) -> list[dict[str, str]]:  # noqa: C901 - one archive validation boundary
+def extract_runtime(  # noqa: C901 - one archive validation boundary
+    archive: Path, output: Path, *, case_sensitive: bool = False
+) -> list[dict[str, str]]:
     """Materialize regular files and safe internal file aliases, never archive links.
 
     ResourceStore deliberately rejects links. Directory aliases, absolute/external
@@ -162,7 +164,7 @@ def extract_runtime(archive: Path, output: Path) -> list[dict[str, str]]:  # noq
     aliases: list[dict[str, str]] = []
     with tarfile.open(archive, "r:gz") as source:
         members: dict[str, tarfile.TarInfo] = {}
-        casefolded: set[str] = set()
+        seen_names: set[str] = set()
         total = 0
         for member in source:
             name = member.name.rstrip("/")
@@ -172,12 +174,13 @@ def extract_runtime(archive: Path, output: Path) -> list[dict[str, str]]:  # noq
                 raise ValueError("Interpreter archive must contain only the python/ install tree")
             relative = name.removeprefix("python/")
             ResourceFile(path=relative, size=member.size if member.isfile() else 0, sha256="0" * 64)
-            if relative.casefold() in casefolded or not (
+            key = relative if case_sensitive else relative.casefold()
+            if key in seen_names or not (
                 member.isfile() or member.isdir() or member.issym() or member.islnk()
             ):
                 raise ValueError("Interpreter archive has duplicate paths or unsupported file types")
             members[relative] = member
-            casefolded.add(relative.casefold())
+            seen_names.add(key)
             total += member.size
             if len(members) > MAX_FILES or total > MAX_UNPACKED_BYTES:
                 raise ValueError("Interpreter archive exceeds resource limits")
@@ -330,7 +333,7 @@ def prepare(args: argparse.Namespace) -> None:  # noqa: C901 - ordered acquisiti
     with tempfile.TemporaryDirectory(prefix="pc-resource-prepare-") as temporary:
         work = Path(temporary).resolve()
         runtime = work / "runtime"
-        aliases = extract_runtime(output / "python.tar.gz", runtime)
+        aliases = extract_runtime(output / "python.tar.gz", runtime, case_sensitive=spec["platform"] == "linux")
         build_lock = json.loads(_BUILD_TOOLS.read_bytes())
         tooling = work / "tooling"
         tooling.mkdir()

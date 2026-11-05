@@ -233,6 +233,10 @@ impl Trust {
             env.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
             env.insert("TMPDIR".into(), "/tmp".into());
         }
+        #[cfg(target_os = "linux")]
+        if let Some(runtime_dir) = trusted_linux_runtime_dir() {
+            env.insert("XDG_RUNTIME_DIR".into(), runtime_dir);
+        }
         Ok(Launch {
             executable,
             args,
@@ -240,6 +244,34 @@ impl Trust {
             cwd: support.clone(),
         })
     }
+}
+#[cfg(target_os = "linux")]
+fn trusted_linux_runtime_dir() -> Option<String> {
+    trusted_linux_runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from))
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn trusted_linux_runtime_dir_from(configured: Option<PathBuf>) -> Option<String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let uid = unsafe { libc::geteuid() };
+    let path = configured.or_else(|| Some(PathBuf::from(format!("/run/user/{uid}"))))?;
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return None;
+    }
+    let metadata = fs::symlink_metadata(&path).ok()?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != uid
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return None;
+    }
+    path_string(&path).ok()
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

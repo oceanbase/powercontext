@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 
 from powercontext.ops import Ops
+from powercontext.ops import installer as installer_module
 from powercontext.ops.installer import ManagedInstaller, ManagedLayout
 from powercontext.ops.resources import PreparedResource, ResourceCatalog, validate_owned_tree, verify
 from powercontext.service.controller import ServiceController
@@ -70,6 +71,21 @@ def make_managed_ops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[O
         readiness_probe=_manager_probe(adapter),
     )
     return Ops(target, layout.state, controller=controller, installer=installer), adapter, installer
+
+
+def test_linux_layout_uses_user_xdg_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(installer_module.sys, "platform", "linux")
+    monkeypatch.setattr(installer_module, "default_data_dir", lambda: tmp_path / "application-data")
+    for name in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+        monkeypatch.setenv(name, str(tmp_path / name.lower()))
+
+    layout = ManagedLayout.current_user()
+
+    assert layout.programs == tmp_path / "xdg_data_home/PowerContextManaged/programs"
+    assert layout.configuration == tmp_path / "xdg_config_home/PowerContextManaged"
+    assert layout.state == tmp_path / "xdg_state_home/PowerContextManaged"
+    assert layout.cache == tmp_path / "xdg_cache_home/PowerContextManaged"
+    assert layout.data == tmp_path / "application-data"
 
 
 @pytest.fixture

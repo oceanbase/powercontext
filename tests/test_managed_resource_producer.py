@@ -175,6 +175,24 @@ def test_internal_file_alias_is_materialized_and_consumed_with_pinned_catalog(
         catalog.select_current()
 
 
+def test_linux_interpreter_keeps_case_distinct_runtime_paths(tmp_path: Path) -> None:
+    source = tmp_path / "python.tar.gz"
+    with tarfile.open(source, "w:gz") as archive:
+        for name in ("python/bin/python3", "python/lib/TermInfo", "python/lib/terminfo"):
+            content = name.encode()
+            member = tarfile.TarInfo(name)
+            member.size = len(content)
+            member.mode = 0o755 if name.endswith("python3") else 0o644
+            archive.addfile(member, io.BytesIO(content))
+
+    with pytest.raises(ValueError, match="duplicate"):
+        extract_runtime(source, tmp_path / "windows-runtime")
+    extract_runtime(source, tmp_path / "linux-runtime", case_sensitive=True)
+    assert (tmp_path / "linux-runtime/lib/TermInfo").read_bytes() != (
+        tmp_path / "linux-runtime/lib/terminfo"
+    ).read_bytes()
+
+
 @pytest.mark.parametrize(
     "alias,directory", [("../outside", False), ("/absolute/python.exe", False), ("lib", True), ("pythonw.exe", False)]
 )

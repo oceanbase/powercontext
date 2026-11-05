@@ -879,6 +879,22 @@ fn managed_catalog_copy_is_private_immutable_and_pinned_across_launches() {
     ));
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_runtime_environment_is_preserved_only_for_a_private_owned_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = fixture_dir();
+    private(dir.path());
+    assert_eq!(
+        trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).as_deref(),
+        dir.path().to_str()
+    );
+
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).is_none());
+}
+
 #[test]
 fn database_admission_v1_extensions_remain_bounded_and_actionable() {
     let r = request(OpsAction::Inspect, json!({}));
