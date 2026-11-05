@@ -3951,7 +3951,7 @@ def _dream_principal(request: Request) -> str:
 
 
 async def create_dream_run(
-    scope_id: str,
+    scope_id: _ScopePathId,
     request: CreateDreamRunRequest,
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -3967,8 +3967,8 @@ async def create_dream_run(
 
 
 async def get_dream_run(
-    scope_id: str,
-    run_id: str,
+    scope_id: _ScopePathId,
+    run_id: Annotated[str, Path(min_length=1, max_length=64)],
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> DreamRun:
@@ -3995,7 +3995,7 @@ def _list_dreams_query(
 
 
 async def list_dream_runs(
-    scope_id: str,
+    scope_id: _ScopePathId,
     request: Annotated[ListDreamRunsRequest, Depends(_list_dreams_query)],
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
