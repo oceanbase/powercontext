@@ -177,9 +177,14 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-`sqlite-observability-stats-4568b499-v1` matches the bundled API contract and qualifies
-all twelve operations, including statistics, for its exact Server source and wheel below.
-The separate `sqlite-observability-4568b499-v1` retains its eleven-operation evidence.
+`sqlite-operations-e958f47c-v1` matches the current bundled API contract and qualifies all
+twelve Desktop operations for Server source `cd7e4be52e25726094e4a6205d28bf48ae4de402`.
+The contract digest moved because the Operations paths were added to `openapi/powercontext.yaml`;
+the bundled Desktop operation set itself did not change, so the new record repeats the same
+twelve operations against the new contract and wheel.
+`sqlite-observability-stats-4568b499-v1` retains its own twelve-operation qualification for
+the earlier digest, and the separate `sqlite-observability-4568b499-v1` retains its
+eleven-operation evidence.
 
 [compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence. A record qualifies only its recorded Server source, wheel and contract; records with a different contract digest are disabled in the selector. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
@@ -208,6 +213,44 @@ The sorted newline-terminated `wheel/path sha256` manifest hashes to
 The four isolated SQLite Server configurations (anonymous loopback, static
 Bearer, HTTPS with an explicit CA and reverse-proxy base path, and an enforced
 authentication Provider) passed with `desktopWorkingTreeDirty=false`.
+
+#### Server e958f47c protocol qualification
+
+`sqlite-operations-e958f47c-v1` qualifies all twelve Desktop operations against clean
+Server source `cd7e4be52e25726094e4a6205d28bf48ae4de402` and normalized OpenAPI digest
+`e958f47cc4b5668d0e06b8be009032530baca108736fe64235c5ffee862ec0e2`. The digest moved
+because this change adds the four `/v1/scopes/{scope_id}/operations` paths to
+`openapi/powercontext.yaml`; the bundled Desktop operation set is unchanged, so the record
+repeats the same twelve operations against the new contract and wheel.
+Wheel: `powercontext-1.2.1.dev686+gcd7e4be52-py3-none-any.whl`.
+Wheel SHA-256: `40733fd201a95ac3894970d2e39caa1db3c89bb09de6246b1f6bbac1f6849e19`.
+All 753 packaged runtime files in `powercontext/` and
+`powercontext_service_bootstrap/` match the clean source byte for byte.
+The sorted newline-terminated `wheel/path sha256` manifest hashes to
+`a00b3e8720fb41552089bb4db403ff978fb91dd83192b96583a9bc081d930dc5`.
+
+On 2026-11-05, macOS 27.2 ARM64, Python 3.14.7 and Rust 1.95.0 ran the default native
+`server_probe`, built without `ci-fixtures`, against the extracted wheel in all four
+isolated SQLite configurations: anonymous loopback, static Bearer, HTTPS with an explicit
+CA and reverse-proxy base path, and an enforced authentication Provider. The probe reached
+this record through ordinary `ConnectionManager` profile checking, activation and
+exact-Scope selection, and the report records
+`qualificationSource: bundled product records` with
+`qualificationId: sqlite-operations-e958f47c-v1`. Coverage is save/search/exact reads,
+identity changes, binding revocation, lost write responses without replay, Scope
+pagination and Server survival after client exit.
+
+```sh
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-operations-e958f47c-v1
+```
+
+The earlier records keep their exact source, contract, wheel and operation identities and
+remain disabled for this contract digest. Evidence is retained under ignored
+`desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`. This record
+covers local SQLite protocol behavior only; installed UI, native credential persistence,
+Windows execution, external production deployments and release acceptance are not
+established.
 
 #### Server 4568b499 statistics product qualification
 
