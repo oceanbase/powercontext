@@ -111,7 +111,7 @@ class SQLiteProfile:
         engine_options: dict[str, object] = {"echo": config.echo, "hide_parameters": True}
         if not config.is_persistent:
             engine_options["poolclass"] = StaticPool
-        engine = create_async_engine(config.url, **engine_options)
+        engine = _create_sqlite_engine(config.url, **engine_options)
         _configure_sqlite(engine, config, load_vector_extension=load_vector_extension)
         database = AsyncDatabase.own(engine, shared_connection=not config.is_persistent)
         profile = cls(database=database, tables=tables)
@@ -145,7 +145,7 @@ class SQLiteProfile:
 
         if not config.is_persistent:
             raise ValueError("read-only SQLite inspection requires a persistent database")  # noqa: TRY003
-        engine = create_async_engine(_readonly_sqlite_url(config.url), echo=config.echo, hide_parameters=True)
+        engine = _create_sqlite_engine(_readonly_sqlite_url(config.url), echo=config.echo, hide_parameters=True)
         _configure_sqlite(engine, config, load_vector_extension=load_vector_extension, read_only=True)
         database = AsyncDatabase.own(engine)
         try:
@@ -193,6 +193,38 @@ def _create_database_directory(value: str) -> None:
     if not database or database == ":memory:":
         return
     Path(database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+
+
+def _create_sqlite_engine(url: str | URL, **options: Any) -> AsyncEngine:
+    if aiosqlite.__version__ != "0.22.1":
+        return create_async_engine(url, **options)
+    parsed = make_url(url)
+    args, kwargs = parsed.get_dialect()().create_connect_args(parsed)
+
+    async def connect() -> Connection:
+        driver = aiosqlite.connect(*args, **kwargs)
+        stop = _make_sqlite_stop_idempotent(driver)
+        try:
+            return await driver
+        except BaseException as error:
+            if driver._thread.ident is None:
+                raise
+            # Failed connects never reach SQLAlchemy's connect event. Drain the
+            # driver's final callback before its caller can close the event loop.
+            stopped = stop()
+            interrupted = None
+            if stopped is not None:
+                while not stopped.done():
+                    try:
+                        await asyncio.shield(stopped)
+                    except asyncio.CancelledError as cancellation:
+                        interrupted = cancellation
+                stopped.result()
+            if interrupted is not None:
+                raise interrupted from error
+            raise
+
+    return create_async_engine(url, async_creator=connect, **options)
 
 
 def _configure_sqlite(
@@ -259,6 +291,9 @@ def _track_sqlite_cursors(connection: Connection) -> WeakSet[Cursor]:
 
 
 def _make_sqlite_stop_idempotent(connection: Connection) -> Callable[[], asyncio.Future[Any] | None]:
+    existing = getattr(connection, "_powercontext_sqlite_stop", None)
+    if existing is not None:
+        return existing
     original_stop = connection.stop
     requested = False
     stopped: asyncio.Future[Any] | None = None
@@ -272,6 +307,7 @@ def _make_sqlite_stop_idempotent(connection: Connection) -> Callable[[], asyncio
         return asyncio.shield(stopped) if stopped is not None else None
 
     setattr(connection, "stop", stop_once)  # noqa: B010 - patch one connection; the shared aiosqlite class stays untouched
+    setattr(connection, "_powercontext_sqlite_stop", stop_once)  # noqa: B010 - retain the waiter across pool admission
     return stop_once
 
 

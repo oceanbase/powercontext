@@ -1477,6 +1477,123 @@
       ]
     },
     {
+      "id": "prompt-recall-can-be-disabled",
+      "description": "POWERCONTEXT_CODEX_PROMPT_RECALL turns preparation off: the prompt is captured and no context is injected.",
+      "steps": [
+        {
+          "hook": "hooks/recall.py",
+          "environment": {
+            "POWERCONTEXT_CODEX_PROMPT_RECALL": "false"
+          },
+          "payload": {
+            "session_id": "thread-a",
+            "turn_id": "turn-1",
+            "transcript_path": "$CONFIG/sessions/2026/10/26/rollout-thread-a.jsonl",
+            "cwd": "$CWD",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "gpt-5.5",
+            "prompt": "Which service owns the retry budget?"
+          },
+          "server": {
+            "POST /v1/scope-bindings/resolve": [
+              "scope"
+            ],
+            "POST /v1/context/prepare": [
+              "ready"
+            ],
+            "POST /v1/sources/content": [
+              "accepted"
+            ]
+          },
+          "expected": {
+            "exit_code": 0,
+            "requests": [
+              {
+                "method": "POST",
+                "path": "/v1/scope-bindings/resolve",
+                "headers": "client",
+                "body": {
+                  "binding_keys": [
+                    {
+                      "external_id": "thread-a",
+                      "integration": "codex",
+                      "kind": "session"
+                    },
+                    {
+                      "external_id": "$WORKSPACE_KEY",
+                      "integration": "codex",
+                      "kind": "workspace"
+                    }
+                  ],
+                  "explicit_scope_id": null
+                }
+              },
+              {
+                "method": "POST",
+                "path": "/v1/sources/content",
+                "headers": "client-dream-contract",
+                "body": {
+                  "content": "Which service owns the retry budget?",
+                  "metadata": {
+                    "cwd": "$CWD",
+                    "event": "user_prompt_submit",
+                    "origin": "codex",
+                    "session_id": "thread-a",
+                    "turn_id": "turn-1"
+                  },
+                  "scope_id": "scope-characterized",
+                  "source_id": "codex-user-prompt:d624469cd52a51e771cda027909092c971ee7584700ea37535efa17355ad7c7a"
+                }
+              }
+            ],
+            "stdout": [],
+            "stderr": [],
+            "state": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "prompt-recall-and-capture-can-be-disabled",
+      "description": "With prompt recall and capture both off, the prompt hook sends no request and writes nothing.",
+      "steps": [
+        {
+          "hook": "hooks/recall.py",
+          "environment": {
+            "POWERCONTEXT_CODEX_PROMPT_RECALL": "false",
+            "POWERCONTEXT_CODEX_CAPTURE_PROMPTS": "false"
+          },
+          "payload": {
+            "session_id": "thread-a",
+            "turn_id": "turn-1",
+            "transcript_path": "$CONFIG/sessions/2026/10/26/rollout-thread-a.jsonl",
+            "cwd": "$CWD",
+            "hook_event_name": "UserPromptSubmit",
+            "model": "gpt-5.5",
+            "prompt": "Which service owns the retry budget?"
+          },
+          "server": {
+            "POST /v1/scope-bindings/resolve": [
+              "scope"
+            ],
+            "POST /v1/context/prepare": [
+              "ready"
+            ],
+            "POST /v1/sources/content": [
+              "accepted"
+            ]
+          },
+          "expected": {
+            "exit_code": 0,
+            "requests": [],
+            "stdout": [],
+            "stderr": [],
+            "state": {}
+          }
+        }
+      ]
+    },
+    {
       "id": "git-subdirectory-binds-the-repository-root",
       "description": "From a repository subdirectory, the workspace binding key identifies the repository root.",
       "workspace": {
