@@ -42,13 +42,13 @@ def parse_shard(value: str) -> tuple[int, int]:
     raise argparse.ArgumentTypeError(message)
 
 
-def run_pytest(arguments: list[str], log: Path) -> int:
+def run_pytest(arguments: list[str], log: Path, *, timeout_seconds: int = 180) -> int:
     # GNU timeout also terminates native child processes; never retry a failed node.
     command = [
         "timeout",
         "--signal=TERM",
         "--kill-after=10s",
-        "180s",
+        f"{timeout_seconds}s",
         sys.executable,
         "-m",
         "pytest",
@@ -59,7 +59,7 @@ def run_pytest(arguments: list[str], log: Path) -> int:
         return subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, check=False).returncode  # noqa: S603
 
 
-def run_node(node: str, directory: Path) -> bool:
+def run_node(node: str, directory: Path, *, timeout_seconds: int) -> bool:
     directory.mkdir()
     (directory / "node.txt").write_text(node + "\n")
     report = directory / "junit.xml"
@@ -81,6 +81,7 @@ def run_node(node: str, directory: Path) -> bool:
             node,
         ],
         log,
+        timeout_seconds=timeout_seconds,
     )
     passed = False
     try:
@@ -106,10 +107,18 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--collect-only", action="store_true")
     parser.add_argument(
+        "--test-timeout",
+        type=int,
+        default=180,
+        help="Positive per-test process deadline in seconds, including setup and cleanup (default: 180)",
+    )
+    parser.add_argument(
         "--shard", type=parse_shard, default=(0, 1), help="Run zero-based shard INDEX/COUNT (default: 0/1)"
     )
     parser.add_argument("--tests", nargs="+", default=SUITES, help="Pytest files to run instead of clean migration")
     args = parser.parse_args()
+    if args.test_timeout <= 0:
+        parser.error("--test-timeout must be a positive number of seconds")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     shard_index, shard_count = args.shard
@@ -150,7 +159,7 @@ def main() -> int:
     # their schema creation and cleanup separate from other test cases.
     try:
         for index, node in enumerate(selected, 1):
-            if not run_node(node, output / f"{index:03d}"):
+            if not run_node(node, output / f"{index:03d}", timeout_seconds=args.test_timeout):
                 return 1
             passed_nodes.append(node)
         summary["complete"] = True
