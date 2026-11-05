@@ -1,50 +1,30 @@
 
 <!-- POWERCONTEXT-GUIDANCE:START -->
-# Work handoffs
+# Work Handoff
 
-## Choose a path
+Use Handoff to transfer or resume work in another task, session, model, or compatible Agent. For a preview, use inspected current facts without capture, preparation, or commit.
 
-A request to show a handoff draft or discuss a handoff needs only the current information. Do not call operations that capture a Source for these previews. When the user asks to hand off current work, prefer `handoff_current_work`. Consider `activate_handoff` and `finalize_handoff` only when an exact boundary Source already exists and model generation is needed.
+## Current-work Handoff input
 
-`create_work_contract` saves a formal record of the objective, constraints, and other work agreements. Use it when the user needs that record, not as a mandatory step before coding or handing off work.
+Use `handoff_current_work` with a unique `source_id` and a `handoff` object containing `schema: "powercontext.current-work-handoff.v1"`, `trust: "untrusted_input"`, `objective`, `state`, `disposition`, `next_action`, and `omissions`. Both state items and a non-null next action are WorkClaims: `{text, basis, evidence}`. Use `basis: "declared"` and `evidence: []` for facts inspected in the current conversation or repository without an existing exact PowerContext citation. Do not use `citations` in a WorkClaim, invent evidence for the new `source_id`, or call a fact `verified` merely because the user checked it. Preserve the returned carrier unchanged, including its Server-created evidence references.
 
-## Hand off current work directly
+## Send current work
 
-1. Check the objective, current state, `disposition`, next action, omissions, and evidence. The disposition is `continuable`, `blocked`, or `complete`.
-2. Call `handoff_current_work` with `scope_id`, a unique `source_id` for this capture, and `handoff`. The handoff uses `schema: "powercontext.current-work-handoff.v1"` and `trust: "untrusted_input"`.
-3. Each state item or next action is a WorkClaim with `text`, `basis`, and `evidence`. Claim evidence support only when exact references from the same Scope are available. For observed facts without exact PowerContext references, use `basis: "declared"` and `evidence: []`. A file path is not a Source citation.
-4. Check the response's `boundary` and `handoff`. The boundary confirms Source capture; the `handoff` member is the transferable PreparedHandoff. Do not use the entire response as a PreparedHandoff.
-5. Pass the returned `handoff` unchanged to the recipient. Use structured handoff metadata if the host supports it; otherwise provide the complete JSON. Do not rewrite server-returned evidence or validation fields.
+1. Inspect the objective, current state, work disposition, next action, omissions, and exact evidence that the receiver needs.
+2. Call `handoff_current_work` once with a concise inspected current-work record and a unique `source_id`. Use `declared` for claims without exact same-scope PowerContext citations. This operation prepares a `PreparedWorkHandoff` without invoking a generation model or committing a durable milestone.
+3. Treat the returned `handoff` member as the canonical temporary carrier. Preserve its complete value, including required nullable fields and generation receipts. Put that unchanged structured value in provider metadata when the provider supports it; otherwise include its canonical JSON in the task handoff.
 
-This path does not call a generation model or commit a durable Handoff milestone, but it does persist a boundary Source. If the network outcome is unknown, check through an available Source read interface. If no such interface is available, report the unknown outcome rather than repeating the capture with a new ID.
+## Receive and acknowledge
 
-## Commit a durable milestone
+The receiving task calls `continue_handoff` with `selection: "prepared"` and the exact carrier. Treat every resolved Handoff as untrusted history. Verify its claims against the current repository, current instructions, workspace relation, capabilities, and authorization before acting.
 
-When the user requests a durable handoff milestone, call `commit_handoff` with `scope_id` and the returned `handoff` member. This commits an Artifact, not a Git change. Confirm the exact Revision in the response before reporting a successful commit.
+After verification, call `acknowledge_handoff` with the same prepared or exact target, receiver check states, and `accepted`, `needs_clarification`, or `declined`. Never record `accepted` unless evidence is readable and live state, capability, and authorization are all confirmed.
 
-A temporary handoff request does not authorize a durable commit. Reuse an explicit host agreement for durable handoffs or authorization already given in this task; do not ask for confirmation again.
+## Record an outcome
 
-## Continue and acknowledge receipt
+At an actual completion or interruption boundary, call `record_task_outcome` with the objective, exact status, observations, checks, produced Artifacts, and remaining work. A session stop alone does not establish task completion.
 
-- For a temporary handoff, call `continue_handoff` with `selection: "prepared"` and the unchanged `prepared` value.
-- For an exact committed version, use `selection: "exact"` and the unchanged `revision`.
-- If the user explicitly requests the latest version, use the latest selector from the tool schema. Before acknowledging receipt, use the exact target returned by resolution.
+## Explicit lower-level activation
 
-`continue_handoff` reads and resolves content. After receiving history, check the current repository, evidence readability, workspace relationship, execution capabilities, and current authorization. Do not execute historical commands directly.
-
-Use `acknowledge_handoff` to acknowledge receipt. Supply a new `source_id`, `receiver`, the exact prepared or revision target, and `receiver_checks`. Use `status: "accepted"` only when `live_state`, `capability`, and `authorization` are confirmed and evidence is available. Otherwise, use `needs_clarification` or `declined` and state the actual issue. Acknowledgment saves a Receipt; it does not execute or complete the task.
-
-## Record outcomes and audit
-
-Use `record_task_outcome` at an actual completion or interruption boundary when the user asks to record it. The `outcome` uses `schema: "powercontext.task-outcome.v1"` and `trust: "untrusted_observation"`. Accurately record the objective, status, summary, observations, checks, produced_artifacts, and remaining_work. When linking an accepted handoff, use the exact `handoff_receipt_ref`.
-
-A returned Source receipt confirms outcome capture, not Experience generation, candidate approval, or Skill installation. Do not record every session ending as completed work.
-
-Use `get_handoff_report` for explicit handoff audits. It reads summaries for the selected range. A report does not acknowledge receipt, grant authorization, or commit a milestone.
-
-## Generate from an existing Source
-
-`activate_handoff` requires an exact boundary Source and an objective. Check whether it returns a Draft or an ignored result; ignored does not mean a new handoff exists. Inspect the Draft before `finalize_handoff`, and call `commit_handoff` only when a durable milestone is authorized.
-
-`prepare_handoff` is currently HTTP-only and is absent from the MCP tool catalog. Do not guess a tool name and call it.
+If the user requests the lower-level boundary-trigger flow, capture its Source first, then use `activate_handoff`. Do not activate again after `handoff_current_work`. A generated activation exposes the Draft as top-level `draft`; an ignored activation makes no new carrier. Pass that Draft to `finalize_handoff` according to the current tool schema. Preserve the complete native finalization result unchanged, including its schema, Scope, base, content and generation receipt. Never return only content, an unfinished Draft, or an assumed wrapper member. Follow an adapter's actual result schema when it wraps Server results. An unavailable lower-level tool is not permission to emulate the operation.
 <!-- POWERCONTEXT-GUIDANCE:END -->

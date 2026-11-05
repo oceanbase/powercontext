@@ -25,12 +25,12 @@ import { registerMcp, registerMcpPolicy, type McpScopeResolutionRequest } from '
 import { loadPeer } from './peers.ts'
 import { runRecallPreStep, type PromptMessage } from './recall.ts'
 import { resolveScopeId } from './scope.ts'
-import { registerGuidance, registerSkill } from './skill.ts'
+import { registerGuidance } from './guidance.ts'
 import { RuntimeStatus } from './status.ts'
 
 export const name = PLUGIN_NAME
 
-export const inject = ['tools', 'agents', 'commands', 'skills', 'systemPrompt']
+export const inject = ['tools', 'agents', 'commands', 'systemPrompt']
 
 export interface Config extends PluginConfig {}
 
@@ -163,6 +163,5 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
   registerCommands(ctx, runtime)
-  registerSkill(ctx)
   await registerMcp(ctx, runtime.config)
 }

@@ -27,12 +27,13 @@ import httpx
 import pytest
 import yaml
 
-from tests.source_helpers import protected, wait_until
+from tests.source_helpers import protected, requires_linux, wait_until
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples/source_plugins"
 DEPLOYMENT_TIMEOUT_SECONDS = 100
 
 
+@requires_linux
 @pytest.mark.parametrize("remote", [False, True])
 def test_load_real_background_processes_and_preserves_disabled_state(tmp_path, remote):  # noqa: C901 - real deployment lifecycle
     import hashlib

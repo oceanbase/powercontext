@@ -26,10 +26,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = Path(sys.executable).with_name("powercontext")
 TOKENS = {name: f"source-write-e2e-{name}" for name in ("deployer", "host", "reader")}
+requires_linux = pytest.mark.skipif(sys.platform != "linux", reason="Source collect Runtimes require Linux")
 
 
 @asynccontextmanager

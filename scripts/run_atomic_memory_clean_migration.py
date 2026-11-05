@@ -59,7 +59,7 @@ def run_pytest(arguments: list[str], log: Path, *, timeout_seconds: int = 180) -
         return subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, check=False).returncode  # noqa: S603
 
 
-def run_node(node: str, directory: Path, *, timeout_seconds: int = 180) -> bool:
+def run_node(node: str, directory: Path, *, timeout_seconds: int) -> bool:
     directory.mkdir()
     (directory / "node.txt").write_text(node + "\n")
     report = directory / "junit.xml"
@@ -106,14 +106,19 @@ def main() -> int:
     parser.add_argument("backend", choices=("seekdb", "oceanbase"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--collect-only", action="store_true")
-    parser.add_argument("--case-timeout", type=int, default=180, help="Positive per-case process deadline in seconds")
+    parser.add_argument(
+        "--test-timeout",
+        type=int,
+        default=180,
+        help="Positive per-test process deadline in seconds, including setup and cleanup (default: 180)",
+    )
     parser.add_argument(
         "--shard", type=parse_shard, default=(0, 1), help="Run zero-based shard INDEX/COUNT (default: 0/1)"
     )
     parser.add_argument("--tests", nargs="+", default=SUITES, help="Pytest files to run instead of clean migration")
     args = parser.parse_args()
-    if args.case_timeout <= 0:
-        parser.error("case-timeout must be positive")
+    if args.test_timeout <= 0:
+        parser.error("--test-timeout must be a positive number of seconds")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     shard_index, shard_count = args.shard
@@ -122,7 +127,6 @@ def main() -> int:
         "backend": args.backend,
         "shard_index": shard_index,
         "shard_count": shard_count,
-        "case_timeout_seconds": args.case_timeout,
         "collected_nodes": [],
         "passed_nodes": passed_nodes,
         "complete": False,
@@ -155,7 +159,7 @@ def main() -> int:
     # their schema creation and cleanup separate from other test cases.
     try:
         for index, node in enumerate(selected, 1):
-            if not run_node(node, output / f"{index:03d}", timeout_seconds=args.case_timeout):
+            if not run_node(node, output / f"{index:03d}", timeout_seconds=args.test_timeout):
                 return 1
             passed_nodes.append(node)
         summary["complete"] = True

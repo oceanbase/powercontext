@@ -23,7 +23,8 @@
     "lib/invariant.js",
     "lib/index.d.ts",
     "lib/invariant.d.ts",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "skills"
   ],
   "dsh": {
     "bundle": {
@@ -46,7 +47,6 @@
     "@deepseek-ai/dsh-llm": "*",
     "@deepseek-ai/dsh-mcp-client": "*",
     "@deepseek-ai/dsh-session": "*",
-    "@deepseek-ai/dsh-skill": "*",
     "@deepseek-ai/dsh-system-prompt": "*",
     "@deepseek-ai/schemastery": "*"
   },
@@ -67,9 +67,6 @@
       "optional": true
     },
     "@deepseek-ai/dsh-session": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-skill": {
       "optional": true
     },
     "@deepseek-ai/dsh-system-prompt": {

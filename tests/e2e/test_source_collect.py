@@ -32,7 +32,7 @@ from tests.e2e.source_collect_helpers import (
     set_enabled,
     stop_services,
 )
-from tests.source_helpers import ROOT, create_scope, running_server
+from tests.source_helpers import ROOT, create_scope, requires_linux, running_server
 
 EXAMPLE = ROOT / "examples/source_plugins/ticket_chat"
 
@@ -77,6 +77,7 @@ async def received(client, scope, target, count, *, namespace):
             await asyncio.sleep(0.1)
 
 
+@requires_linux
 def test_managed_instances_isolate_scopes_and_release_resources(tmp_path):
     asyncio.run(_managed_instances(tmp_path))
 
@@ -197,6 +198,7 @@ async def apply(ctx, config):
             await stop_services(directory, state)
 
 
+@requires_linux
 def test_scope_shrink_preserves_progress_and_offline_discovery(tmp_path):
     asyncio.run(_scope_shrink_and_discovery(tmp_path))
 
@@ -327,6 +329,7 @@ async def _scope_shrink_and_discovery(directory):
             await stop_services(directory, state)
 
 
+@requires_linux
 def test_tickets_refreshes_targets_when_a_later_scope_is_disabled(tmp_path):
     asyncio.run(_tickets_target_refresh(tmp_path))
 

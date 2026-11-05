@@ -109,7 +109,7 @@ def test_packaged_skill_pin_accepts_checkout_line_endings_but_rejects_drift(tmp_
     elif mutation == "added":
         (source / "extra.json").write_text("{}", encoding="utf-8")
     elif mutation == "removed":
-        (source / ".powercontext-guidance.json").unlink()
+        (source / "references/scope-memory.md").unlink()
     if mutation in {"unchanged", "crlf"}:
         assert check()["files"]
     else:
