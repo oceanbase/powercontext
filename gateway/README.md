@@ -87,6 +87,7 @@ PC_GATEWAY_UPSTREAM_URL_CHAT=https://provider/v1/chat/completions \
 PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 ./target/release/pc-gateway
 
+# Requests without an output limit get the max_output_tokens the Server configures for PC_GATEWAY_UPSTREAM_PROFILE.
 # Injection (prepare + inject on the Chat and Responses routes): in the combined deployment (PC_GATEWAY_CORE_UDS)
 # requests that belong to a conversation (X-PowerContext-Conversation-ID or a recognized client session header)
 # are injected by default; standalone is off by default.

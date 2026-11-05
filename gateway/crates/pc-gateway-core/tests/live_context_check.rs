@@ -81,6 +81,9 @@ async fn before_send(scope: &str) -> Result<ContextCheckResult, GateError> {
             target_profile: TARGET_PROFILE.to_string(),
             payload: payload(MODEL_BODY),
             prepared_contexts: Vec::new(),
+            conversation_id: None,
+            parent_conversation_id: None,
+            encrypted_receipts: Vec::new(),
         })
         .await
 }
@@ -93,6 +96,7 @@ async fn before_release(scope: &str, binding: &str) -> Result<ContextCheckResult
             request_binding: binding.to_string(),
             payload: payload(RESPONSE_BODY),
             completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.to_string(),
+            conversation_id: None,
         })
         .await
 }

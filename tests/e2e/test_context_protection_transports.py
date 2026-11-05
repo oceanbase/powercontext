@@ -404,6 +404,9 @@ def test_prepare_check_preserve_bytes_and_authority_over_real_transport(tmp_path
         async with _process_server(tmp_path, short_tmp_path / "context.sock", tls_port) as http:
             assert (await http.get("/v1/capabilities", headers={"Authorization": ""})).status_code == 401
             assert (await http.get("/v1/capabilities", headers={"Authorization": "Bearer invalid"})).status_code == 401
+            capabilities = await http.get("/v1/capabilities", headers={"Authorization": f"Bearer {_ADMIN.id}"})
+            # A colocated gateway fills omitted output limits from its own target's configured limit.
+            assert capabilities.json()["context_protection"]["output_limits"] == {"model": 64}
             client = PowerContextClient(str(http.base_url), token=_ADMIN.id, http_client=http)
             remote_envelope = await client.prepare_context(prepare)
             assert isinstance(remote_envelope, PreparedContextWithReuse)

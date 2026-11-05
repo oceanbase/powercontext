@@ -63,6 +63,29 @@ Server 可通过 `POWERCONTEXT_SERVER_INFERENCE_PROTECTION` 设置相同对象�
 真实禁止值放在受保护的部署配置中，不写入提交的示例。若响应中的模型名不同于请求别名，
 需要在 `response_models` 中明确列出获准别名。
 
+`openai-responses` 目标可以把 `admit_encrypted_items` 设为 `["reasoning"]`、`["agent_message"]` 或两者，默认为空。
+Codex 等客户端发送 `store: false` 并请求 `include: ["reasoning.encrypted_content"]`，因此响应带有之后请求会重放的加密
+推理；子代理收到的任务也是 `agent_message` 中的加密部分。Core 无法检查这些值：
+
+- 在 `before_release`，Core 放行响应中的加密推理。请求带有会话时，Core 返回一个 `receipt`，绑定该主体、Scope、目标和
+  会话，有效期一小时。回执证明响应中的加密值；受检请求的工具定义中声明为 `"encrypted": true` 的函数调用参数的值，
+  作为可交接值一并证明（Codex 以这种方式声明 `spawn_agent` 的任务）。其他参数值不记入回执。
+- 在 `before_send`，位于准入位置的加密值只有由签发给本请求会话的未过期回执证明时才放行。准入位置是根级
+  `reasoning` 条目的 `encrypted_content`，以及只含 `type: "encrypted_content"` 和 `encrypted_content` 两个字段的
+  `agent_message` 内容部分。签发给本请求 `parent_conversation_id` 的回执只证明其中的可交接值，而且只用于
+  `agent_message` 部分：子代理能收到自己的任务，但拿不到父会话的推理。否则请求以 `encrypted-origin-unverified` 被扣留。
+- 带会话的 `before_send` 放行时，Core 还会返回一个 `receipt`，替换该请求提交的、属于本会话的回执。它保留这些回执中
+  所有未过期的证明及其原有效期，因此重试或分叉的历史不会丢失证明；并为该请求携带的值、以及历史重放的函数调用中
+  已证明的可交接值重新计算一小时有效期，因此父会话继续对话也不会让尚未交接的子代理任务失去证明。长会话每次提交的
+  回执数因此保持不变；一个值在最后一次通过验证后的一小时内仍可放行。
+- 回执绑定目标配置的 `endpoint` 和 `protocol`。修改其中任一项后，已签发的回执全部失效，因此加密值不会被放行到
+  返回它的目标之外的地方。
+- 一个回执最多容纳 1024 个值。放不下的检查以 `encrypted-receipt-capacity-exceeded` 被扣留，而不是让之后的请求失去
+  证明。
+- 其他位置的加密值，以及含有其他字段的 `agent_message` 部分，仍按 `content_unsupported` 处理。
+
+放行只证明值的来源，不代表 Core 检查过其中的明文。PowerContext 网关按会话保存并提交回执。
+
 规则检查配置的准确值，以及可选的有限格式：`email`、`private_key`、`api_token`。
 检查覆盖原始 JSON、解码文本、工具参数和数字词法表示。重复 JSON 键、不透明图片/音频/文件、
 未知请求字段、不完整输出和不支持的目标无法取得完整覆盖。

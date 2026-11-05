@@ -155,7 +155,7 @@ async fn ingress_common(
         }
     };
     let mut client_stream = false;
-    let canonical = match format {
+    let mut canonical = match format {
         Format::Chat => {
             let chat: OpenAiChatRequest = match serde_json::from_slice(&body) {
                 Ok(c) => c,
@@ -205,6 +205,7 @@ async fn ingress_common(
             }
         }
     };
+    apply_default_output_limit(&mut canonical, state.default_max_output_tokens);
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
     if let Format::Responses = format {
         if state.upstream_responses.is_empty() {
@@ -249,6 +250,7 @@ async fn ingress_common(
             conversation.is_some(),
         ),
         conversation_id: conversation,
+        parent_conversation_id: parent_conversation_id(&headers, &format),
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
     };
@@ -414,6 +416,19 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     out
 }
 
+/// 客户端没有设置输出上限时补上 Core 为本目标配置的上限（例如 Codex 从不发送 `max_output_tokens`，而 enforcing
+/// 的 Core 要求有上限）。补上的值会出现在送检和发送的最终请求里；客户端设置的值和字段保持不变。
+/// Chat 入口补值时用 `max_completion_tokens`：o 系列模型拒绝 `max_tokens`。
+fn apply_default_output_limit(request: &mut CanonicalRequest, default: Option<u32>) {
+    if request.output_limits.max_output_tokens.is_some() {
+        return;
+    }
+    if let Some(limit) = default {
+        request.output_limits.max_output_tokens = Some(limit);
+        request.token_limit_field = Some("max_completion_tokens".into());
+    }
+}
+
 /// `PC_GATEWAY_INJECTION` 决定注入范围（默认只注入带会话 ID 的请求）并作用于两个入口；`PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses。
 fn injects(format: &Format, injection: Injection, responses: bool, has_conversation: bool) -> bool {
     let enabled = match injection {
@@ -458,6 +473,32 @@ fn conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
     }
 }
 
+/// 子代理的父会话，按与 [`conversation_id`] 相同的来源和前缀解析：Claude Code 的父代理（顶层子代理的父会话是主会话），
+/// OpenCode 的父会话，Responses 入口上 Codex 的父线程。宿主提供 `X-PowerContext-Conversation-ID` 时没有父会话。
+/// 父会话只决定转交哪些回执；Core 仍要求回执属于同一主体、Scope 和目标。
+fn parent_conversation_id(headers: &HeaderMap, format: &Format) -> Option<String> {
+    if header_id(headers, CONVERSATION_ID_HEADER).is_some() {
+        return None;
+    }
+    if let Some(session) = header_id(headers, CLAUDE_CODE_SESSION_HEADER) {
+        header_id(headers, CLAUDE_CODE_AGENT_HEADER)?;
+        return Some(match header_id(headers, CLAUDE_CODE_PARENT_AGENT_HEADER) {
+            Some(parent) => format!("claude-code:{session} {parent}"),
+            None => format!("claude-code:{session}"),
+        });
+    }
+    if header_id(headers, OPENCODE_SESSION_HEADER).is_some() {
+        return header_id(headers, OPENCODE_PARENT_SESSION_HEADER)
+            .map(|id| format!("opencode:{id}"));
+    }
+    match format {
+        Format::Responses => {
+            header_id(headers, CODEX_PARENT_THREAD_HEADER).map(|id| format!("codex-thread:{id}"))
+        }
+        Format::Chat => None,
+    }
+}
+
 fn header_id<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     let value = headers.get(name)?.to_str().ok()?;
     let valid =
@@ -470,6 +511,9 @@ const CLAUDE_CODE_SESSION_HEADER: &str = "x-claude-code-session-id";
 const CLAUDE_CODE_AGENT_HEADER: &str = "x-claude-code-agent-id";
 const OPENCODE_SESSION_HEADER: &str = "x-opencode-session-id";
 const CODEX_THREAD_ID_HEADER: &str = "thread-id";
+const CLAUDE_CODE_PARENT_AGENT_HEADER: &str = "x-claude-code-parent-agent-id";
+const OPENCODE_PARENT_SESSION_HEADER: &str = "x-opencode-parent-session-id";
+const CODEX_PARENT_THREAD_HEADER: &str = "x-codex-parent-thread-id";
 
 fn bearer_headers(key: &str) -> Vec<(String, String)> {
     if key.is_empty() {
@@ -719,6 +763,67 @@ mod tests {
             "prompt_cache_key": "session-1",
             "client_metadata": {"x-codex-turn-metadata": "{}"}
         })
+    }
+
+    #[test]
+    fn a_missing_output_limit_gets_the_configured_default_on_both_routes() {
+        use pc_gateway_protocol::WireRenderer;
+        // Codex 0.145 sends no max_output_tokens.
+        let mut codex = codex_request(false);
+        assert!(codex.get("max_output_tokens").is_none());
+        let render = |canonical: &CanonicalRequest| -> serde_json::Value {
+            let payload = pc_gateway_protocol::OpenAiResponsesRenderer
+                .render(canonical, None)
+                .unwrap();
+            serde_json::from_slice(&payload.bytes).unwrap()
+        };
+        let canonical = |client: &serde_json::Value| {
+            to_canonical_responses(serde_json::from_value(client.clone()).unwrap()).unwrap()
+        };
+
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, None);
+        assert!(
+            render(&request).get("max_output_tokens").is_none(),
+            "no default configured"
+        );
+
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, Some(32000));
+        assert_eq!(render(&request)["max_output_tokens"], 32000);
+
+        codex["max_output_tokens"] = serde_json::json!(512);
+        let mut request = canonical(&codex);
+        apply_default_output_limit(&mut request, Some(32000));
+        assert_eq!(
+            render(&request)["max_output_tokens"],
+            512,
+            "the client's limit is kept"
+        );
+
+        let render_chat = |body: &str, default: Option<u32>| -> serde_json::Value {
+            let chat: OpenAiChatRequest = serde_json::from_str(body).unwrap();
+            let mut request = to_canonical_chat(chat).unwrap();
+            apply_default_output_limit(&mut request, default);
+            let payload = pc_gateway_protocol::OpenAiChatRenderer
+                .render(&request, None)
+                .unwrap();
+            serde_json::from_slice(&payload.bytes).unwrap()
+        };
+        // An omitted limit on an o-series Chat request is filled with the field o-series models accept.
+        let filled = render_chat(
+            r#"{"model":"o3","messages":[{"role":"user","content":"hi"}]}"#,
+            Some(32000),
+        );
+        assert_eq!(filled["max_completion_tokens"], 32000);
+        assert!(filled.get("max_tokens").is_none());
+        // A client's own field and value are kept.
+        let explicit = render_chat(
+            r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":256}"#,
+            Some(32000),
+        );
+        assert_eq!(explicit["max_tokens"], 256);
+        assert!(explicit.get("max_completion_tokens").is_none());
     }
 
     fn render_responses(client: &serde_json::Value) -> serde_json::Value {
@@ -1178,6 +1283,55 @@ mod tests {
         affinity_only.insert("x-opencode-session", affinity.parse().unwrap());
         affinity_only.insert("x-session-affinity", affinity.parse().unwrap());
         assert_eq!(conversation_id(&affinity_only, &Format::Chat), None);
+    }
+
+    #[test]
+    fn a_subagent_names_the_conversation_that_handed_it_the_task() {
+        let mut codex = codex_headers("child");
+        codex.insert(CODEX_PARENT_THREAD_HEADER, "root".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&codex, &Format::Responses).as_deref(),
+            Some("codex-thread:root")
+        );
+        assert_eq!(parent_conversation_id(&codex, &Format::Chat), None);
+        assert_eq!(
+            parent_conversation_id(&codex_headers("root"), &Format::Responses),
+            None
+        );
+
+        let mut claude = HeaderMap::new();
+        claude.insert(CLAUDE_CODE_SESSION_HEADER, "session-1".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat),
+            None,
+            "the main agent"
+        );
+        claude.insert(CLAUDE_CODE_AGENT_HEADER, "agent-a".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat).as_deref(),
+            Some("claude-code:session-1"),
+            "a top-level subagent's parent is the main session"
+        );
+        claude.insert(CLAUDE_CODE_PARENT_AGENT_HEADER, "agent-a".parse().unwrap());
+        claude.insert(CLAUDE_CODE_AGENT_HEADER, "agent-b".parse().unwrap());
+        assert_eq!(
+            parent_conversation_id(&claude, &Format::Chat).as_deref(),
+            Some("claude-code:session-1 agent-a")
+        );
+
+        let mut opencode = HeaderMap::new();
+        opencode.insert(OPENCODE_SESSION_HEADER, "ses_child".parse().unwrap());
+        opencode.insert(
+            OPENCODE_PARENT_SESSION_HEADER,
+            "ses_parent".parse().unwrap(),
+        );
+        assert_eq!(
+            parent_conversation_id(&opencode, &Format::Chat).as_deref(),
+            Some("opencode:ses_parent")
+        );
+
+        codex.insert(CONVERSATION_ID_HEADER, "host-1".parse().unwrap());
+        assert_eq!(parent_conversation_id(&codex, &Format::Responses), None);
     }
 
     #[test]

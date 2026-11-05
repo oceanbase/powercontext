@@ -213,6 +213,19 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有
 设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。
 
+### 网关输出上限
+
+enforcing 模式的 Server 要求每个生成请求都设置输出上限，而有些客户端从不发送；例如 Codex 0.145 不发送
+`max_output_tokens`。Chat 或 Responses 请求没有设置上限时，网关补上 Server 推理保护配置中为其目标
+（`PC_GATEWAY_UPSTREAM_PROFILE`）配置的 `max_output_tokens`。网关在启动时从 Server 的 capabilities 读取一次该值，
+因此上限只需在 Server 上配置。Chat 入口补值时使用 `max_completion_tokens`。补值发生在送检之前，Server 照常检查最终
+请求；客户端自己设置的上限及其字段保持不变。目标没有配置上限时不补值。
+
+目标在 Server 配置中设置了 `admit_encrypted_items` 时，网关按会话保存 Core 返回的加密内容回执，保留一小时，并随同一
+会话之后的请求、以及由该会话派生的子代理会话（`x-codex-parent-thread-id`、Claude Code 父代理、OpenCode 父会话）的
+请求一起提交。发送检查返回合并回执时，网关只替换该请求提交的、属于本会话的回执；此后新加入的回执和父会话的回执
+保持不变。没有会话的请求不会继承回执。
+
 ### 网关固定指令
 
 `PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 入口
