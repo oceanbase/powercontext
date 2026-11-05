@@ -17,10 +17,16 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 from powercontext.source_management.models import ManagementError
+
+
+def require_process_identity() -> None:
+    if sys.platform != "linux":
+        raise ManagementError("background-unsupported", "Source collect Runtimes currently require Linux")
 
 
 def protected_directory(directory: Path) -> None:

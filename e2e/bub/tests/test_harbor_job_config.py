@@ -847,7 +847,7 @@ def _kimi_installation(home: Path) -> dict[str, object]:
             text = path.read_text(encoding="utf-8")
             if (
                 path.relative_to(home).as_posix()
-                == "plugins/managed/powercontext/skills/powercontext-project-context/SKILL.md"
+                == "plugins/managed/powercontext/skills/powercontext-project-context/references/host.md"
             ):
                 # Each installation must point at its own installed script before paths are normalized for comparison.
                 script = home / "plugins/managed/powercontext/scripts/scope.mjs"

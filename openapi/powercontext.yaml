@@ -8742,6 +8742,138 @@ components:
           maxItems: 30
           items:
             $ref: "#/components/schemas/RecallTokenDay"
+    ProcessingState:
+      type: string
+      enum: [idle, dirty, pending, acknowledged, queued, running, retry_wait, blocked]
+    ProcessingReason:
+      type: string
+      enum: [unobserved, waiting_schedule, waiting_dispatch, waiting_capacity, executing, retry_backoff, policy_block, idle]
+    ProcessingObservation:
+      type: object
+      additionalProperties: false
+      description: Durable invocation counters plus an optional local scheduler sample. Acknowledgement is not artifact creation. Missing local coverage does not imply stopped work.
+      required: [binding, state, observed_at]
+      properties:
+        binding:
+          type: string
+        family:
+          type: string
+          nullable: true
+        state:
+          $ref: "#/components/schemas/ProcessingState"
+        observed_at:
+          type: string
+          format: date-time
+        scheduler_observed:
+          type: boolean
+          default: false
+        reason:
+          $ref: "#/components/schemas/ProcessingReason"
+          default: unobserved
+        requested_generation:
+          type: integer
+          minimum: 0
+          default: 0
+        handled_generation:
+          type: integer
+          minimum: 0
+          default: 0
+        dirty_generation:
+          type: integer
+          minimum: 0
+          default: 0
+        clean_generation:
+          type: integer
+          minimum: 0
+          default: 0
+        pending_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: Local lower bound, not the durable age of all pending work.
+        running_seconds:
+          type: number
+          minimum: 0
+          nullable: true
+        next_check_seconds:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Estimated seconds until a scheduler check, not a promised execution deadline.
+        worker_id:
+          type: string
+          nullable: true
+        attempt_generation:
+          type: integer
+          minimum: 0
+          nullable: true
+        retry_failures:
+          type: integer
+          minimum: 0
+          nullable: true
+        block_code:
+          type: string
+          nullable: true
+        last_error_code:
+          type: string
+          nullable: true
+          description: Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message.
+        last_error_stage:
+          type: string
+          nullable: true
+          description: Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation.
+        last_error_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: UTC time the local supervisor observed this failure, not the child event time or a durable history.
+        last_error_worker_id:
+          type: string
+          nullable: true
+          description: Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label.
+        last_error_trace_id:
+          type: string
+          nullable: true
+          description: Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation.
+    BootstrapDeliveryReading:
+      type: object
+      additionalProperties: false
+      description: Retained receipt metadata grouped by integration and current state; package content and receipt identities are excluded.
+      required: [integration, state, receipts, content_bytes, last_prepared_at]
+      properties:
+        integration:
+          type: string
+        state:
+          $ref: "#/components/schemas/BootstrapReceiptState"
+        receipts:
+          type: integer
+          minimum: 0
+        content_bytes:
+          type: integer
+          minimum: 0
+          description: Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption.
+        last_prepared_at:
+          type: string
+          format: date-time
+          description: Latest preparation time in this group, not the delivery completion time.
+    BootstrapDeliveryStatistics:
+      type: object
+      additionalProperties: false
+      description: Current states of retained receipts prepared within the selected UTC period. Injected is host-reported and does not prove model adoption or billing savings. Missing records do not prove no host use.
+      required: [period, retention_days, actual_adoption, by_integration]
+      properties:
+        period:
+          $ref: "#/components/schemas/ResolvedUsagePeriod"
+        retention_days:
+          type: integer
+          default: 30
+        actual_adoption:
+          type: string
+          enum: [unobserved]
+        by_integration:
+          type: array
+          items:
+            $ref: "#/components/schemas/BootstrapDeliveryReading"
     ScopeStats:
       type: object
       additionalProperties: false
@@ -8757,6 +8889,15 @@ components:
           $ref: "#/components/schemas/RecallTokenStatistics"
         recurrence:
           $ref: "#/components/schemas/RecurrenceStatistics"
+        processing:
+          type: array
+          description: Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.
+          default: []
+          items:
+            $ref: "#/components/schemas/ProcessingObservation"
+        bootstrap_delivery:
+          $ref: "#/components/schemas/BootstrapDeliveryStatistics"
+          nullable: true
     ScopedStats:
       type: object
       additionalProperties: false
@@ -8792,6 +8933,10 @@ components:
         period:
           $ref: "#/components/schemas/StatsPeriod"
           default: 30d
+        include_processing:
+          type: boolean
+          default: false
+          description: Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history.
     WorkClaimBasis:
       description: >-
         Use declared for inspected conversation or repository facts, even when the user calls progress verified.

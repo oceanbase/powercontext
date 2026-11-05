@@ -46,7 +46,7 @@ from opentelemetry.trace import (
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from typing_extensions import override
 
-from powercontext._logging import error_category
+from powercontext._logging import current_log_context, error_category
 from powercontext.builtin.runtime.protocols import RuntimeTraceContext
 from powercontext.server.context import bind_request_id, is_internal_bridge, reset_request_id
 from powercontext.server.settings import TracingConfig
@@ -65,6 +65,14 @@ _MISSING_OTLP_EXPORTER = (
 _TraceAttribute = str | bool | int | float
 
 
+def _scope_attributes(attributes: Mapping[str, Any] | None) -> dict[str, Any]:
+    scope = current_log_context().get("scope")
+    return {
+        **({"powercontext.scope.id": scope} if isinstance(scope, str) else {}),
+        **(attributes or {}),
+    }
+
+
 class _SuppressibleTracer(Tracer):
     """Delegate inference spans unless the current task is a readiness probe."""
 
@@ -74,16 +82,56 @@ class _SuppressibleTracer(Tracer):
         self._noop = trace.NoOpTracer()
 
     @override
-    def start_span(self, name: str, *args: Any, **kwargs: Any) -> Span:
-        return self._selected().start_span(name, *args, **kwargs)
+    def start_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Mapping[str, Any] | None = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+    ) -> Span:
+        return self._selected().start_span(
+            name,
+            context=context,
+            kind=kind,
+            attributes=_scope_attributes(attributes),
+            links=links,
+            start_time=start_time,
+            record_exception=record_exception,
+            set_status_on_exception=set_status_on_exception,
+        )
 
     @override
-    def start_as_current_span(self, name: str, *args: Any, **kwargs: Any) -> Any:
+    def start_as_current_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Mapping[str, Any] | None = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+        end_on_exit: bool = True,
+    ) -> Any:
         # Provider exceptions can echo Source or prompt content. Disable the SDK's automatic
         # exception events and status descriptions, then apply only bounded failure metadata.
-        kwargs["record_exception"] = False
-        kwargs["set_status_on_exception"] = False
-        return _sanitized_span(self._selected().start_as_current_span(name, *args, **kwargs))
+        return _sanitized_span(
+            self._selected().start_as_current_span(
+                name,
+                context=context,
+                kind=kind,
+                attributes=_scope_attributes(attributes),
+                links=links,
+                start_time=start_time,
+                record_exception=False,
+                set_status_on_exception=False,
+                end_on_exit=end_on_exit,
+            )
+        )
 
     def _selected(self) -> Tracer:
         return self._noop if self._suppressed.get() else self._delegate
@@ -139,7 +187,7 @@ class ServerTracing:
             self.tracer,
             name,
             kind=kind,
-            attributes=attributes,
+            attributes=_scope_attributes(attributes),
             context=context,
             links=links,
         )
@@ -301,6 +349,14 @@ class _ActiveSpan:
     def request_id(self) -> str:
         return request_id_from_span(self.span)
 
+    @property
+    def trace_id(self) -> str | None:
+        """Expose an existing trace identity; it does not establish sampling or storage."""
+        with suppress(Exception):
+            if self.span is not None and (context := self.span.get_span_context()).is_valid:
+                return f"{context.trace_id:032x}"
+        return None
+
     def set_attributes(self, attributes: Mapping[str, Any]) -> None:
         category = attributes.get("powercontext.error.category")
         if isinstance(category, str):
@@ -461,7 +517,9 @@ def _otel_links(contexts: Sequence[RuntimeTraceContext]) -> tuple[Link, ...]:
     return tuple(links)
 
 
-def configure_server_tracing(config: TracingConfig, *, role: str = "server") -> ServerTracing:
+def configure_server_tracing(
+    config: TracingConfig, *, role: str = "server", target: str | None = None, owner_role: str | None = None
+) -> ServerTracing:
     """Build request context and optional OTLP export from standard OTel configuration."""
 
     exporter_type = None
@@ -471,7 +529,7 @@ def configure_server_tracing(config: TracingConfig, *, role: str = "server") -> 
         except ImportError as error:
             raise RuntimeError(_MISSING_OTLP_EXPORTER) from error
     provider = TracerProvider(
-        resource=service_resource(role),
+        resource=service_resource(role, target=target, owner_role=owner_role),
         sampler=None if config.enabled else ParentBased(ALWAYS_OFF),
         shutdown_on_exit=False,
     )

@@ -271,7 +271,7 @@ fi
 }
 
 #[test]
-fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
+fn connection_commands_reject_untrusted_callers_before_accessing_the_connection() {
     use powercontext_desktop::{commands, error::SafeError};
     use tauri::Manager;
     let app = mock_builder()
@@ -284,6 +284,10 @@ fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
             commands::atomic_memory_entry,
             commands::cancel_memory_reads,
             commands::get_stats,
+            commands::observe_runtime_liveness,
+            commands::observe_runtime_capabilities,
+            commands::probe_runtime_readiness,
+            commands::cancel_runtime_reads,
             commands::cancel_stats_reads
         ])
         .build(test_context())
@@ -301,6 +305,10 @@ fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
         "atomic_memory_entry",
         "cancel_memory_reads",
         "get_stats",
+        "observe_runtime_liveness",
+        "observe_runtime_capabilities",
+        "probe_runtime_readiness",
+        "cancel_runtime_reads",
         "cancel_stats_reads",
     ] {
         for (label, origin) in [

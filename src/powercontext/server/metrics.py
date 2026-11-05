@@ -25,7 +25,9 @@ from threading import RLock
 from time import perf_counter, time
 from typing import TYPE_CHECKING, Any, cast
 
+from fastapi.routing import APIRoute
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from opentelemetry import trace
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
@@ -38,6 +40,7 @@ from prometheus_client import (
     generate_latest,
 )
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
+from starlette.routing import BaseRoute
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from typing_extensions import override
 
@@ -49,6 +52,8 @@ from powercontext.server.operational_metrics import OperationalMetricsCollector
 
 if TYPE_CHECKING:
     from powercontext.builtin.runtime.application import BuiltinRuntime
+from powercontext.server.process_metrics import ProcessInventoryCollector
+from powercontext.server.provider_metrics import ProviderMetrics
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -200,17 +205,33 @@ class _ModelUsageMetricsCollector:
 class ServerMetrics:
     """Own one Server instance's Prometheus registry and instruments."""
 
-    def __init__(self, *, role: str = "server") -> None:
+    def __init__(self, *, role: str = "server", exemplars_enabled: bool = False) -> None:
         self.registry = CollectorRegistry()
         self.operational = OperationalMetricsCollector(role=role)
         self._snapshot_lock = RLock()
+        self._exemplars_enabled = exemplars_enabled
+        self._provider_metrics = ProviderMetrics(self.registry)
+        self.observe_provider = self._provider_metrics.observe
+        self.observe_worker_provider = self._provider_metrics.observe_worker
         ProcessCollector(registry=self.registry)
+        self.registry.register(ProcessInventoryCollector())
         PlatformCollector(registry=self.registry)
         GCCollector(registry=self.registry)
         self.transport_requests = Counter(
             "powercontext_server_transport_requests_total",
             "External transport requests completed by the Server.",
             ("transport", "operation", "outcome"),
+            registry=self.registry,
+        )
+        self.http_responses = Counter(
+            "powercontext_server_http_responses_total",
+            "External REST response headers successfully sent to the ASGI server, by actual status.",
+            ("operation", "status_code"),
+            registry=self.registry,
+        )
+        self.http_response_observation_enabled = Gauge(
+            "powercontext_server_http_response_observation_enabled",
+            "Whether this process observes external REST response headers; not a traffic or readiness signal.",
             registry=self.registry,
         )
         self.transport_duration = Histogram(
@@ -235,6 +256,24 @@ class ServerMetrics:
             "powercontext_server_application_operation_duration_seconds",
             "PowerContext application operation duration.",
             ("operation", "outcome"),
+            registry=self.registry,
+        )
+        self.retrieval_requests = Counter(
+            "powercontext_server_retrieval_requests_total",
+            "Dispatched retrievals by final result: nonempty, empty, failure or cancelled; not relevance or adoption.",
+            ("operation", "family", "outcome"),
+            registry=self.registry,
+        )
+        self.retrieval_duration = Histogram(
+            "powercontext_server_retrieval_duration_seconds",
+            "Final retrieval operation time including authorization revalidation and assembly; excludes host network time.",
+            ("operation", "family", "outcome"),
+            registry=self.registry,
+        )
+        self.artifact_read_duration = Histogram(
+            "powercontext_server_artifact_read_duration_seconds",
+            "Dispatched Artifact head/revision read duration; excludes host network time and does not establish adoption.",
+            ("operation", "family", "outcome"),
             registry=self.registry,
         )
         self.topic_memory_searches = Counter(
@@ -370,7 +409,7 @@ class ServerMetrics:
                 transport=transport,
                 operation=operation,
                 outcome=outcome,
-            ).observe(duration)
+            ).observe(duration, exemplar=_sampled_exemplar() if self._exemplars_enabled else None)
         with suppress(Exception):
             self.transport_in_progress.labels(transport=transport, operation=operation).dec()
 
@@ -379,11 +418,25 @@ class ServerMetrics:
         with suppress(Exception):
             self.application_operations.labels(operation=operation, outcome=outcome).inc()
         with suppress(Exception):
-            self.application_duration.labels(operation=operation, outcome=outcome).observe(duration)
+            self.application_duration.labels(operation=operation, outcome=outcome).observe(
+                duration, exemplar=_sampled_exemplar() if self._exemplars_enabled else None
+            )
+
+    def observe_retrieval(self, operation: str, family: str, outcome: str, duration: float) -> None:
+        for result_kind in ("nonempty", "empty", "failure", "cancelled"):
+            self.retrieval_requests.labels(operation, family, result_kind)
+        self.retrieval_requests.labels(operation, family, outcome).inc()
+        self.retrieval_duration.labels(operation, family, outcome).observe(duration)
 
     def observe_topic_memory_search(self, mode: str, fallback: bool) -> None:
         with suppress(Exception):
             self.topic_memory_searches.labels(mode=mode, fallback=str(fallback).lower()).inc()
+
+    def observe_artifact_read(self, operation: str, family: str, outcome: str, duration: float) -> None:
+        with suppress(Exception):
+            self.artifact_read_duration.labels(operation=operation, family=family, outcome=outcome).observe(
+                duration, exemplar=_sampled_exemplar() if self._exemplars_enabled else None
+            )
 
     def set_ready(self, ready: bool) -> None:
         with suppress(Exception):
@@ -545,6 +598,69 @@ class ServerMetrics:
         return generate_latest(self.registry)
 
 
+def _sampled_exemplar() -> dict[str, str] | None:
+    context = trace.get_current_span().get_span_context()
+    if context.is_valid and context.trace_flags.sampled:
+        return {"trace_id": format(context.trace_id, "032x")}
+    return None
+
+
+def http_operations(routes: Sequence[BaseRoute]) -> dict[tuple[str, str], str]:
+    """Resolve only declared HTTP operation identities, never request paths as labels."""
+    return {
+        (method, route.path): route.operation_id
+        for route in routes
+        if isinstance(route, APIRoute) and route.operation_id is not None
+        for method in route.methods or ()
+    }
+
+
+class HttpResponseMetricsMiddleware:
+    """Observe final response headers outside the framework's error handler."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        metrics: ServerMetrics,
+        operations: dict[tuple[str, str], str],
+        skip_paths: tuple[str, ...] = (),
+    ) -> None:
+        self.app = app
+        self.metrics = metrics
+        self.operations = operations
+        self.skip_paths = skip_paths
+        with suppress(Exception):
+            self.metrics.http_response_observation_enabled.set(1)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] != "http"
+            or is_internal_bridge()
+            or any(
+                scope["path"] == path or scope["path"].startswith(path.rstrip("/") + "/") for path in self.skip_paths
+            )
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        observed = False
+
+        async def send_with_status(message: Message) -> None:
+            nonlocal observed
+            await send(message)
+            if message["type"] != "http.response.start" or observed or not 200 <= message["status"] <= 599:
+                return
+            observed = True
+            route = scope.get("route")
+            path = route.path if isinstance(route, APIRoute) else scope["path"]
+            operation = self.operations.get((scope["method"], path), "unmatched")
+            with suppress(Exception):
+                self.metrics.http_responses.labels(operation, str(message["status"])).inc()
+
+        await self.app(scope, receive, send_with_status)
+
+
 class HttpMetricsMiddleware:
     """Measure external HTTP requests with declared operation identities."""
 
@@ -568,33 +684,30 @@ class HttpMetricsMiddleware:
 
         operation = self.operations.get((scope["method"], scope["path"]), "unmatched")
         started_at = self.metrics.start_transport("http", operation)
-        completed = False
+        response_complete = False
         status_code = 500
 
         async def send_with_metrics(message: Message) -> None:
-            nonlocal completed, status_code
+            nonlocal response_complete, status_code
             if message["type"] == "http.response.start":
                 status_code = message["status"]
             await send(message)
             if message["type"] == "http.response.body" and not message.get("more_body", False):
-                self.metrics.finish_transport(
-                    "http",
-                    operation,
-                    "success" if status_code < 400 else "failure",
-                    started_at,
-                )
-                completed = True
+                response_complete = True
 
         try:
             await self.app(scope, receive, send_with_metrics)
         except asyncio.CancelledError:
-            if not completed:
-                self.metrics.finish_transport("http", operation, "cancelled", started_at)
+            self.metrics.finish_transport("http", operation, "cancelled", started_at)
             raise
         except Exception:
-            if not completed:
-                self.metrics.finish_transport("http", operation, "failure", started_at)
+            self.metrics.finish_transport("http", operation, "failure", started_at)
             raise
+        else:
+            # A streaming/body or response background-task error can follow the final body frame.
+            self.metrics.finish_transport(
+                "http", operation, "success" if response_complete and status_code < 400 else "failure", started_at
+            )
 
 
 class McpMetricsMiddleware(Middleware):
@@ -626,6 +739,8 @@ class McpMetricsMiddleware(Middleware):
 __all__ = [
     "CONTENT_TYPE_LATEST",
     "HttpMetricsMiddleware",
+    "HttpResponseMetricsMiddleware",
     "McpMetricsMiddleware",
     "ServerMetrics",
+    "http_operations",
 ]

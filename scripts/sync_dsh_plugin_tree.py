@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / "integrations" / "dsh" / "plugins" / "powercontext"
 COPY_NAMES = (
     "src",
+    "skills",
     "scripts",
     "tests",
     "package.json",

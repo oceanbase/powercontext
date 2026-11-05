@@ -54,3 +54,10 @@ The `Build Docker image` GitHub workflow builds downloadable Linux amd64 and arm
 changes merged to `master`, and manual runs. Publishing a GitHub Release pushes a multi-platform image to Docker Hub.
 Repository configuration must provide `DOCKER_USERNAME` and `DOCKER_PASSWORD` secrets plus a `DOCKER_PUSH_BASE`
 variable such as `oceanbase`; Release tags must use `vX.Y.Z` or `X.Y.Z` semantic versioning.
+
+## Optional observability
+
+The image includes the optional OTLP/HTTP exporter. Tracing remains disabled unless configured. Use the installed
+`powercontext observability up --server-mode docker` workflow to generate a monitoring stack and a business Compose
+override, retaining the existing data volume. See
+[connect an existing Server](../docs/en/docs/operate/reference-observability-stack.md).

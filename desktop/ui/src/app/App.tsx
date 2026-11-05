@@ -43,6 +43,7 @@ import { Diagnostics } from "./Diagnostics";
 import { Connections } from "./Connections";
 import { Scopes } from "./Scopes";
 import { Observation, type ObservationTab } from "./Observation";
+import { Runtime } from "./Runtime";
 import { SessionView } from "./SessionView";
 import { connectionMessages } from "./connection-messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
@@ -422,6 +423,16 @@ export function App() {
               tab={observationTab}
               onTabChange={setObservationTab}
               panels={{
+                runtime: (
+                  <Runtime
+                    language={language}
+                    active={desktop?.active ?? null}
+                    contextPending={contextPending}
+                    onManage={() =>
+                      navigate("settings", { section: "local-server" })
+                    }
+                  />
+                ),
                 inventory: (
                   <Statistics
                     key={`statistics-${desktop?.active?.generation ?? "none"}`}
