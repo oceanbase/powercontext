@@ -1,6 +1,6 @@
 ---
-title: PowerContext Gateway for Controlled Model Calls and Context Reuse
-description: A Rust gateway reuses the existing port, calls Core over local IPC, stores replay state in Server's three-backend database, and reserves third-party plugins.
+title: "RFC 2199: PowerContext Gateway"
+description: A proposal for an optional Rust model gateway that applies Core privacy and reuse rules to controlled sends, replay, and native caching.
 ---
 
 - Proposal Name: `powercontext_gateway`

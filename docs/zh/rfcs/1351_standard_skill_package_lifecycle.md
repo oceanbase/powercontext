@@ -1,3 +1,8 @@
+---
+title: RFC 1351：标准 Skill 包生命周期
+description: 标准 Skill 包的设计提案，涵盖版本、审核、原样发布、本地与远程分发，以及安全取消发布。
+---
+
 - Proposal Name: `standard_skill_package_lifecycle`
 - Start Date: 2026-08-21
 - RFC PR: [oceanbase/powercontext#1351](https://github.com/oceanbase/powercontext/pull/1351)

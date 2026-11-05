@@ -1,7 +1,7 @@
 ---
-status: community
 title: Pydantic AI
 description: Review the current Pydantic AI adapter API and its installation status.
+status: community
 ---
 
 # Pydantic AI

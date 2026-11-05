@@ -1,6 +1,6 @@
 ---
 title: 配置向量检索
-description: 启用基于 embedding 的 vector 和 hybrid Memory 检索，并验证 Runtime capability。
+description: 配置 Embedding 模型，启用 Memory 向量与混合检索，并检查 Runtime 报告的检索能力。
 ---
 
 # 配置向量检索

@@ -1,3 +1,8 @@
+---
+title: "RFC 1437: Source and Artifact REST APIs"
+description: A proposal for scoped Source creation and Artifact management through common HTTP operations, family-owned writes, and exact lineage.
+---
+
 + Proposal Name: `source_artifact_rest_api`
 + Start Date: 2026-09-01
 + RFC PR: [oceanbase/powercontext#1437](https://github.com/oceanbase/powercontext/pull/1437)

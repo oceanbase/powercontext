@@ -1,3 +1,8 @@
+---
+title: "已发布 Server 的结构采集"
+description: "从已安装的正式版 Server 采集数据库结构和示例记录，用于注册迁移基线。"
+---
+
 # 已发布 Server 的结构采集
 
 `scripts/capture_release_schema.py` 为注册受支持的源版本采集真实证据。

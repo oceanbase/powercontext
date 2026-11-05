@@ -16,12 +16,18 @@
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
+  ExactScopeStatistics,
+  StatsPeriod,
   FoundationInfo,
   WriteOutcome,
   AtomicMemoryDetail,
   ArtifactReference,
   MemorySearchResponse,
   DiagnosticKind,
+  RuntimeFact,
+  RuntimeCapabilities,
+  HealthResponse,
+  ReadinessStatus,
   DiagnosticReport,
   DesktopState,
   ProfileInput,
@@ -34,6 +40,24 @@ export async function getFoundationInfo(): Promise<FoundationInfo | null> {
 }
 
 export const desktopApi = {
+  observeRuntimeLiveness: (generation: number) =>
+    invoke<RuntimeFact<HealthResponse>>("observe_runtime_liveness", {
+      generation,
+    }),
+  observeRuntimeCapabilities: (generation: number) =>
+    invoke<RuntimeFact<RuntimeCapabilities>>("observe_runtime_capabilities", {
+      generation,
+    }),
+  probeRuntimeReadiness: (generation: number) =>
+    invoke<RuntimeFact<ReadinessStatus>>("probe_runtime_readiness", {
+      generation,
+    }),
+  cancelRuntime: (generation: number) =>
+    invoke<void>("cancel_runtime_reads", { generation }),
+  stats: (generation: number, period: StatsPeriod) =>
+    invoke<ExactScopeStatistics>("get_stats", { generation, period }),
+  cancelStats: (generation: number) =>
+    invoke<void>("cancel_stats_reads", { generation }),
   sessionSummary: () => invoke<SessionSummary>("session_summary"),
   resetSessionObservations: () => invoke<void>("reset_session_observations"),
   previewSessionDiagnostics: () =>

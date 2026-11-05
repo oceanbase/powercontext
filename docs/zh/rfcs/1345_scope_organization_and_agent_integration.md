@@ -1,3 +1,8 @@
+---
+title: RFC 1345：Scope 组织与 Agent 接入
+description: Scope 的设计记录，说明数据归属、组织父级、获授权的上下文引用，以及 Agent 如何绑定当前 Scope。
+---
+
 - Proposal Name: `scope_organization_and_agent_integration`
 - Start Date: 2026-08-21
 - Related Discussion: [oceanbase/powercontext#1238](https://github.com/oceanbase/powercontext/pull/1238)、

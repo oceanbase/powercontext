@@ -1,7 +1,7 @@
 ---
-status: community
 title: DeepSeek Harness
-description: Install the PowerContext DeepSeek Harness plugin and control its local behavior.
+description: Install the PowerContext DeepSeek Harness plugin, configure scoped recall and prompt capture, and verify its native tools.
+status: community
 ---
 
 # DeepSeek Harness

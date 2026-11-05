@@ -1,6 +1,6 @@
 ---
 title: Observability 开发规范
-description: 使用稳定字段、正确的 correlation 和 failure isolation 添加 operational events。
+description: 为日志、指标和 Trace 添加运行事件，保持字段一致、请求关联与日志失败隔离。
 ---
 
 # Observability 开发规范

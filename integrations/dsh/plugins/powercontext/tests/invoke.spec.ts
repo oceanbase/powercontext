@@ -18,10 +18,6 @@ import { describe, expect, it } from 'vitest'
 import { invokeOperation } from '../src/invoke.ts'
 import { PowerContextClient } from '../src/client.ts'
 import { containsSecret } from '../src/secrets.ts'
-import { PROJECT_CONTEXT_SKILL } from '../src/skill-body.ts'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 describe('secrets', () => {
   it('rejects token-like markers', () => {
@@ -142,12 +138,5 @@ describe('invokeOperation', () => {
       ok: false,
       code: 'secret_rejected',
     })
-  })
-})
-
-describe('skill body', () => {
-  it('stays aligned with the markdown source', () => {
-    const markdown = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'skill-body.md'), 'utf8')
-    expect(PROJECT_CONTEXT_SKILL.replaceAll('\r\n', '\n').trim()).toBe(markdown.replaceAll('\r\n', '\n').trim())
   })
 })

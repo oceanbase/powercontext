@@ -56,7 +56,13 @@ const labels: Record<string, [string, string]> = {
   hooks: ["事件钩子", "Hooks"],
   mcp: ["MCP", "MCP"],
 };
-export function Diagnostics({ language }: { language: Language }) {
+export function Diagnostics({
+  language,
+  serviceOnly = false,
+}: {
+  language: Language;
+  serviceOnly?: boolean;
+}) {
   const zh = language === "zh";
   const t = messages[language];
   const [busy, setBusy] = useState(false);
@@ -80,12 +86,18 @@ export function Diagnostics({ language }: { language: Language }) {
   const code = typeof error === "string" ? error : null;
   return (
     <section className="card stack">
-      <h2>{zh ? "本地诊断" : "Local diagnostics"}</h2>
-      <p>
-        {zh
-          ? "仅检查此电脑，与活动连接的远程状态分开。集成检查可能启动短暂的 Agent 辅助进程；不代表实际记忆写入或读取已通过。"
-          : "Checks this computer independently of the active remote connection. Integration checks may start temporary Agent helper processes; they do not prove actual memory capture or recall."}
-      </p>
+      {serviceOnly ? (
+        <h2>{zh ? "登记的本机 CLI" : "Registered local CLI"}</h2>
+      ) : (
+        <h2>{zh ? "本地诊断" : "Local diagnostics"}</h2>
+      )}
+      {!serviceOnly && (
+        <p>
+          {zh
+            ? "仅检查此电脑，与活动连接的远程状态分开。集成检查可能启动短暂的 Agent 辅助进程；不代表实际记忆写入或读取已通过。"
+            : "Checks this computer independently of the active remote connection. Integration checks may start temporary Agent helper processes; they do not prove actual memory capture or recall."}
+        </p>
+      )}
       <p className="small">
         {zh
           ? "需要先按使用文档登记可信的本机 CLI。缺少 CLI 不影响远程业务。"
@@ -95,9 +107,11 @@ export function Diagnostics({ language }: { language: Language }) {
         <button disabled={busy} onClick={() => void run("service")}>
           {zh ? "检查本机服务" : "Check local service"}
         </button>
-        <button disabled={busy} onClick={() => void run("integrations")}>
-          {zh ? "检查本机 Agent 集成" : "Check local Agent integrations"}
-        </button>
+        {!serviceOnly && (
+          <button disabled={busy} onClick={() => void run("integrations")}>
+            {zh ? "检查本机 Agent 集成" : "Check local Agent integrations"}
+          </button>
+        )}
       </div>
       {busy && (
         <PageFeedback

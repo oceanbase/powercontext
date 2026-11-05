@@ -262,3 +262,38 @@ fi
         SafeError::StaleContext
     );
 }
+
+#[tokio::test]
+#[ignore = "requires a trusted, installed PowerContext CLI path"]
+async fn registered_powercontext_cli_returns_service_facts() {
+    let executable = std::path::PathBuf::from(
+        std::env::var_os("POWERCONTEXT_DIAGNOSTIC_TEST_CLI").expect("set trusted CLI path"),
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let registration = directory.path().join("diagnostic-cli.json");
+    let digest = format!("{:x}", Sha256::digest(std::fs::read(&executable).unwrap()));
+    std::fs::write(
+        &registration,
+        serde_json::to_vec(&serde_json::json!({
+            "executable": executable,
+            "sha256": digest,
+            "source": "explicit_local_installation"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let report = LocalDiagnostics::new(registration)
+        .run(DiagnosticKind::Service)
+        .await
+        .unwrap();
+    for fact in [
+        "registration",
+        "manager_ownership",
+        "manager",
+        "server_liveness",
+    ] {
+        assert!(report.items.iter().any(|item| item.field == fact), "{fact}");
+    }
+    assert!(report.cli_version.is_some());
+    assert!(report.hosts.is_empty());
+}

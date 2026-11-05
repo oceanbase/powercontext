@@ -1,6 +1,6 @@
 ---
-title: PowerContext 上下文隐私安全拦截与 Token 效率优化
-description: 在现有上下文组织、策略治理和推理适配中实现隐私安全拦截与 Token 效率优化，预留自有及第三方网关接入契约。
+title: RFC 2086：上下文隐私与 Token 效率
+description: 上下文隐私与 Token 效率的设计提案，在可控推理边界检查请求和响应，并按当前授权与精确证据复用上下文。
 ---
 
 - Proposal Name: `integrated_privacy_interception_and_token_efficiency`

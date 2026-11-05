@@ -1,3 +1,8 @@
+---
+title: "Candidate 迁移重放原型"
+description: "在 SQLite、seekDB 或 OceanBase 重放 s1300 到 s1400 的 Candidate 迁移，采集数据库结构并对照注册检查点。"
+---
+
 # Candidate 迁移重放原型
 
 开发命令在真实 SQLite、嵌入式 seekDB 或 OceanBase 上重放冻结的 `s1300` → `s1400` Candidate 转换，从数据库反射生成全库结构和有序变化，再与现有注册内容比较。它不修改生产迁移资源、checksum 或注册格式。

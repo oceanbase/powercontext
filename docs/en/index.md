@@ -8,13 +8,17 @@ home:
       - Keep work moving
       - across sessions.
     lead: PowerContext keeps decisions, constraints, evidence, and current progress with the project. When a person or agent takes over, they can verify the state and continue without reconstructing the last conversation.
-    actions:
-      - label: Install and get started
-        href: en/docs/get-started/quickstart/
-        kind: primary
-      - label: How it works
-        href: en/docs/get-started/core-concepts/
-        kind: secondary
+    action:
+      label: Install and get started
+      href: en/docs/get-started/quickstart/
+    learn_more:
+      label: How it works
+      href: en/docs/get-started/core-concepts/
+    community:
+      star_label: Star on GitHub
+      contributors_label: View all contributors
+      contribute_label: Contribute
+      license_label: Apache-2.0 license
   onboarding:
     title: From installation to your first memory
     lead: Start with a Server, configure the capabilities you need, then connect your Agent. The guide covers local use and access from another device.

@@ -255,12 +255,14 @@ jobs:
 
       # Each group keeps a hard deadline. The six independent recovery scenarios
       # must not consume a single shared deadline before client-exit recovery runs.
+      # One scenario reloads the baseline, upgrades the full Server chain, recovers
+      # it, and verifies history, so the group budget covers 6 x ~110s plus collection.
       - name: Recover committed Server DDL and domain checkpoints on real OceanBase without skips
         env:
           POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
-          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+          timeout --signal=TERM --kill-after=10s 900s uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_full_server_interruption_preserves_history_and_original_maintenance \
             -o faulthandler_timeout=180 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-checkpoints.xml
@@ -299,8 +301,8 @@ jobs:
               Path(".powercontext/recall-effort-ci/full-server-maintenance.xml"),
           )
           cases = [case for report in reports for case in ElementTree.parse(report).iter("testcase")]
-          if len(cases) != 11 or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
-              raise SystemExit("All eleven native full Server recovery and maintenance scenarios must pass without skips.")
+          if len(cases) != 13 or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
+              raise SystemExit("All thirteen native full Server recovery and maintenance scenarios must pass without skips.")
           PY
 
       - name: Collect the database log
@@ -341,7 +343,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 145
+    # Test steps total 155m; reserve 25m for setup, diagnostics and artifact upload.
+    timeout-minutes: 180
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -427,33 +430,35 @@ jobs:
             tests/e2e/test_scope_search_migration.py
 
       - name: Test background listener lifecycle without skips
-        timeout-minutes: 5
+        # One full Server case (300s), collection (180s), and termination grace.
+        timeout-minutes: 10
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
-        timeout-minutes: 60
+        # Up to 16 cases per shard at 300s each, plus collection and termination grace.
+        timeout-minutes: 90
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/clean-migration"
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/clean-migration"
 
       - name: Test concurrent managed startup without skips
-        # Collection and three isolated cases retain their 180s process deadlines.
+        # Each shard runs one full Server case (300s), plus collection (180s).
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
             tests/e2e/test_managed_startup_read_consistency.py
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
       - name: Test long-query retrieval and admission without skips
-        # Eight isolated cases include full Server setup and retain 180s deadlines.
+        # Up to three full Server cases per shard at 300s each, plus collection (180s).
         timeout-minutes: 30
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/long-query" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py
 

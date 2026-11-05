@@ -1,0 +1,14 @@
+{
+  "sqlite": [
+    "CREATE TABLE pc_atomic_memory_evidence_schema (\n\tschema_version VARCHAR(32) NOT NULL, \n\tPRIMARY KEY (schema_version)\n)",
+    "CREATE TABLE pc_atomic_memory_evidence_history (\n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision BIGINT NOT NULL, \n\tsources BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, revision), \n\tCONSTRAINT ck_pc_atomic_memory_evidence_history_revision CHECK (revision > 0)\n)",
+    "CREATE TABLE pc_source_evidence_bindings (\n\tscope_id VARCHAR(256) NOT NULL, \n\tsource_type VARCHAR(128) NOT NULL, \n\tsource_id VARCHAR(256) NOT NULL, \n\tmaterial_digest VARCHAR(71) NOT NULL, \n\tdefinition_name TEXT NOT NULL, \n\tdefinition_version TEXT NOT NULL, \n\tmanifest_fingerprint VARCHAR(71), \n\tdeclaration BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, source_type, source_id)\n)",
+    "INSERT INTO pc_atomic_memory_evidence_schema (schema_version) VALUES ('p0005')"
+  ],
+  "mysql": [
+    "CREATE TABLE pc_atomic_memory_evidence_schema (\n\tschema_version VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tPRIMARY KEY (schema_version)\n)",
+    "CREATE TABLE pc_atomic_memory_evidence_history (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tartifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\trevision BIGINT NOT NULL, \n\tsources LONGBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, artifact_id, revision), \n\tCONSTRAINT ck_pc_atomic_memory_evidence_history_revision CHECK (revision > 0)\n)",
+    "CREATE TABLE pc_source_evidence_bindings (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_type VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tsource_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tmaterial_digest VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tdefinition_name MEDIUMTEXT NOT NULL, \n\tdefinition_version MEDIUMTEXT NOT NULL, \n\tmanifest_fingerprint VARCHAR(71) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tdeclaration LONGBLOB NOT NULL, \n\tPRIMARY KEY (scope_id, source_type, source_id)\n)",
+    "INSERT INTO pc_atomic_memory_evidence_schema (schema_version) VALUES ('p0005')"
+  ]
+}

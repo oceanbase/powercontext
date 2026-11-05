@@ -1,7 +1,7 @@
 ---
-status: community
 title: Hermes
 description: Install the Hermes MemoryProvider and slash-command companion, then connect them to PowerContext Server.
+status: community
 ---
 
 # Hermes

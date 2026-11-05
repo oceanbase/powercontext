@@ -1,3 +1,8 @@
+---
+title: RFC 1458：Artifact 生成时的 Source 访问
+description: Artifact 生成证据访问的设计提案，由 Source 服务统一校验存储身份，并区分显式引用与日志消费的处理规则。
+---
+
 - Proposal Name: `artifact_generation_source_access`
 - Start Date: 2026-09-04
 - RFC PR: [oceanbase/powercontext#1458](https://github.com/oceanbase/powercontext/pull/1458)

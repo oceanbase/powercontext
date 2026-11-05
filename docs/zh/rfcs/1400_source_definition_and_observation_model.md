@@ -1,3 +1,8 @@
+---
+title: RFC 1400：Source 定义与观测模型
+description: Source 的设计提案，定义稳定身份、不可变观测、版本化定义与投影，以及 Connector 的检查点语义。
+---
+
 - Proposal Name: `source_definition_and_observation_model`
 - Start Date: 2026-08-27
 - Related Discussion: [oceanbase/powercontext#1240](https://github.com/oceanbase/powercontext/issues/1240)
