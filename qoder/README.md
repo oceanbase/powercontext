@@ -132,7 +132,7 @@ qoder/
 │   └── cli.py         # python -m syncrecall seed|recall|review|memory|health
 ├── serve.py           # FastAPI 接口 + 静态页面
 ├── web/               # 前端（原生 JS，无构建步骤）
-├── tests/             # 20 个测试：单元 + 真实 seekdb / PowerContext 集成
+├── tests/             # 22 个测试：单元 + 真实 seekdb / PowerContext 集成
 ├── data/seed.json     # 示例资料：笔记 / 论文 / 群聊 / 会议纪要（虚构数据）
 ├── scripts/           # 造数、截图、取证、执行计划等辅助脚本
 ├── docs/              # 运行说明、验证样例、技术使用记录、Qoder 开发记录、证据
@@ -190,10 +190,10 @@ python verify.py
 
 ```bash
 cd qoder
-python -m pytest tests -q          # 20 passed
+python -m pytest tests -q          # 22 passed
 ```
 
-- 单元测试（11 个）不需要任何外部服务；
+- 单元测试（12 个）不需要任何外部服务；
 - 集成测试会检测 seekdb / PowerContext 是否可达，不可达时**跳过并给出原因**，不会报错。
 
 ## 7. 已知限制
