@@ -1001,6 +1001,90 @@ class RecallTokenDay(BaseModel):
     token_reduction: StrictInt
 
 
+class ProcessingState(StrEnum):
+    IDLE = "idle"
+    DIRTY = "dirty"
+    PENDING = "pending"
+    ACKNOWLEDGED = "acknowledged"
+    QUEUED = "queued"
+    RUNNING = "running"
+    RETRY_WAIT = "retry_wait"
+    BLOCKED = "blocked"
+
+
+class ProcessingReason(StrEnum):
+    UNOBSERVED = "unobserved"
+    WAITING_SCHEDULE = "waiting_schedule"
+    WAITING_DISPATCH = "waiting_dispatch"
+    WAITING_CAPACITY = "waiting_capacity"
+    EXECUTING = "executing"
+    RETRY_BACKOFF = "retry_backoff"
+    POLICY_BLOCK = "policy_block"
+    IDLE = "idle"
+
+
+class ProcessingObservation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: StrictStr
+    family: StrictStr | None = None
+    state: ProcessingState
+    observed_at: AwareDatetime
+    scheduler_observed: StrictBool = False
+    reason: ProcessingReason = ProcessingReason.UNOBSERVED
+    requested_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    handled_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    dirty_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    clean_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    pending_since: Annotated[
+        AwareDatetime | None, Field(description="Local lower bound, not the durable age of all pending work.")
+    ] = None
+    running_seconds: Annotated[StrictFloat | None, Field(ge=0.0)] = None
+    next_check_seconds: Annotated[
+        StrictFloat | None,
+        Field(description="Estimated seconds until a scheduler check, not a promised execution deadline.", ge=0.0),
+    ] = None
+    worker_id: StrictStr | None = None
+    attempt_generation: Annotated[StrictInt | None, Field(ge=0)] = None
+    retry_failures: Annotated[StrictInt | None, Field(ge=0)] = None
+    block_code: StrictStr | None = None
+    last_error_code: Annotated[
+        StrictStr | None,
+        Field(
+            description="Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message."
+        ),
+    ] = None
+    last_error_stage: Annotated[
+        StrictStr | None,
+        Field(
+            description="Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation."
+        ),
+    ] = None
+    last_error_at: Annotated[
+        AwareDatetime | None,
+        Field(
+            description="UTC time the local supervisor observed this failure, not the child event time or a durable history."
+        ),
+    ] = None
+    last_error_worker_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label."
+        ),
+    ] = None
+    last_error_trace_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation."
+        ),
+    ] = None
+
+
+class ActualAdoption(StrEnum):
+    UNOBSERVED = "unobserved"
+
+
 class WorkClaimBasis(StrEnum):
     DECLARED = "declared"
     VERIFIED = "verified"
@@ -4913,6 +4997,35 @@ class RecallTokenStatistics(BaseModel):
     daily: Annotated[list[RecallTokenDay], Field(max_length=30)]
 
 
+class BootstrapDeliveryReading(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integration: StrictStr
+    state: BootstrapReceiptState
+    receipts: Annotated[StrictInt, Field(ge=0)]
+    content_bytes: Annotated[
+        StrictInt,
+        Field(
+            description="Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption.",
+            ge=0,
+        ),
+    ]
+    last_prepared_at: Annotated[
+        AwareDatetime, Field(description="Latest preparation time in this group, not the delivery completion time.")
+    ]
+
+
+class BootstrapDeliveryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: ResolvedUsagePeriod
+    retention_days: StrictInt
+    actual_adoption: ActualAdoption
+    by_integration: list[BootstrapDeliveryReading]
+
+
 class ScopeStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4922,6 +5035,14 @@ class ScopeStats(BaseModel):
     usage: UsageStatistics
     recall: RecallTokenStatistics
     recurrence: RecurrenceStatistics
+    processing: Annotated[
+        list[ProcessingObservation],
+        Field(
+            description="Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.",
+            validate_default=True,
+        ),
+    ] = []
+    bootstrap_delivery: BootstrapDeliveryStatistics | None = None
 
 
 class ScopedStats(BaseModel):
@@ -4943,6 +5064,12 @@ class GetStatsRequest(BaseModel):
     )
     selection: ScopeSelection
     period: StatsPeriod = StatsPeriod.FIELD_30D
+    include_processing: Annotated[
+        StrictBool,
+        Field(
+            description="Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history."
+        ),
+    ] = False
 
 
 class WorkSourceReceipt(BaseModel):

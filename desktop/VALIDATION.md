@@ -179,11 +179,55 @@ The historical Server c535d816 protocol qualification below records the specific
 
 [compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence, including the eleven-operation `sqlite-atomic-56683483-v1` qualification and the twelve-operation `sqlite-stats-63e9665c-v1` statistics qualification. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification. The [57d79337 statistics qualification](#server-57d79337-statistics-product-qualification) covers all twelve Desktop operations for its fixed source and wheel under the current contract digest.
 
+The observability qualification records are retained alongside the inference-protection records. `sqlite-observability-stats-4568b499-v1` matches the current bundled API contract and independently qualifies all twelve operations, including `get_stats`; `sqlite-observability-4568b499-v1` retains its eleven-operation evidence. Statistics require `get_stats` in the selected record's independently qualified operation set.
+
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit. Historical record `sqlite-atomic-f3a90b2f-v1` remains preserved with its original identities and is disabled for this contract.
 
 Selecting a compatibility profile does not attest the remote binary identity. Existing `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selections require explicitly choosing an available matching profile and rechecking the connection. Desktop reads memories only through Atomic Memory references, so Servers that answer only with Memory entry citations are not qualified. CLI diagnostics separately verify the registered executable path and digest, then validate the diagnostic response schema. The observed version is optional report information; a registration does not require a version.
 
 ### Current-Scope statistics qualification
+
+#### Server 4568b499 statistics product qualification
+
+`sqlite-observability-stats-4568b499-v1` qualifies all twelve Desktop operations,
+including `get_stats` and discovery, against Server source
+`4568b4999f2a69350d00dabd4f1414ac9776c737`.
+Normalized OpenAPI SHA-256:
+`de74d806343998bae877effb732b1606b3eb27ee9c31fbc39509ee3937fa2a4a`.
+Wheel: `powercontext-1.4.2.dev238+g4568b4999-py3-none-any.whl`.
+Wheel SHA-256: `5c11517fc8966fe34e953adedb370ef270595da1b0c37a2efd941f8b589ea563`.
+All 736 packaged runtime files match this Server source byte for byte, and the
+combined Desktop checkout has no changes to those runtime sources.
+
+On 2026-11-05, macOS 26.5.2 ARM64, Python 3.11.15 and Rust 1.95.0 passed all four
+built-wheel SQLite modes: anonymous loopback, static Bearer, explicit-CA HTTPS
+with a base path, and enforced authentication Provider. The default native probe,
+built without `ci-fixtures`, selected the checked-in record through ordinary
+`ConnectionManager::new` profile checking, activation and exact-Scope selection.
+An independent disposable fixture run passed the same modes.
+
+Statistics reads cover empty and persisted inventory, UTC today/7d/30d,
+zero-filled and partial token reports, Scope isolation and permission revocation.
+The exact-Scope adapter accepts the contract's optional `processing` and
+`bootstrap_delivery` fields while retaining null estimator handling and selection
+validation. Partial usage is explicit Runtime-recorder fixture input; it is not a
+real model-provider invocation. The probe also verifies independent Memory
+operations, identity changes, lost write responses without replay, pagination and
+Server survival after client exit.
+
+```sh
+cargo +1.95.0 build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run python desktop/tests/real_server.py --product-qualification sqlite-observability-stats-4568b499-v1
+cargo +1.95.0 test --locked --manifest-path desktop/src-tauri/Cargo.toml --lib --tests
+```
+
+The matching-digest product gate failed with only eleven-operation records and
+passes with this separate record. All prior feature records retain their exact
+source, contract, wheel and operation identities. The native suite, statistics
+tests, frontend tests, type checking, Clippy, Rust formatting, generated IPC
+checks and API/Desktop contract tests passed. These results establish the local
+native/SQLite protocol. Installed UI, native credentials, Windows execution,
+external production deployments and release acceptance require separate evidence.
 
 #### Server 57d79337 statistics product qualification
 
@@ -191,6 +235,9 @@ Selecting a compatibility profile does not attest the remote binary identity. Ex
 `get_stats` and discovery, against Server source
 `57d7933796ffa6fe4fe5bbf487cc6170bad2766b` and normalized OpenAPI digest
 `d8cf5d802888351929a19191bfde32a36db1c06e2293d3ad12df6721f0bef85e`.
+The merged-contract catalog entry `sqlite-stats-57d79337-merged-v1` preserves
+the same source and wheel identity under the post-merge contract digest
+`3ff44a9c7cb016f488343b9041f3182eeb621e48248b79bec1a1f5daea3a5a5e`.
 Wheel: `powercontext-1.5.1.dev100+g57d793379-py3-none-any.whl`.
 Wheel SHA-256: `129c6dd4c27a4237ca4df21e26efc1b9ab7f37f65a3361b10630e87721285daf`.
 All 703 packaged runtime files in `powercontext/` and

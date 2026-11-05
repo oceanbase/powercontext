@@ -656,6 +656,110 @@ impl std::fmt::Display for AtomicMemoryState {
     }
 }
 
+/// BootstrapDeliveryReading : Retained receipt metadata grouped by integration and current state; package content and receipt identities are excluded.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapDeliveryReading {
+    #[serde(rename = "integration")]
+    pub integration: String,
+    #[serde(rename = "state")]
+    pub state: BootstrapReceiptState,
+    #[serde(rename = "receipts")]
+    pub receipts: i64,
+    /// Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption.
+    #[serde(rename = "content_bytes")]
+    pub content_bytes: i64,
+    /// Latest preparation time in this group, not the delivery completion time.
+    #[serde(rename = "last_prepared_at")]
+    pub last_prepared_at: String,
+}
+
+impl BootstrapDeliveryReading {
+    /// Retained receipt metadata grouped by integration and current state; package content and receipt identities are excluded.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        integration: String,
+        state: BootstrapReceiptState,
+        receipts: i64,
+        content_bytes: i64,
+        last_prepared_at: String,
+    ) -> BootstrapDeliveryReading {
+        BootstrapDeliveryReading {
+            integration,
+            state,
+            receipts,
+            content_bytes,
+            last_prepared_at,
+        }
+    }
+}
+
+/// BootstrapDeliveryStatistics : Current states of retained receipts prepared within the selected UTC period. Injected is host-reported and does not prove model adoption or billing savings. Missing records do not prove no host use.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapDeliveryStatistics {
+    #[serde(rename = "period")]
+    pub period: ResolvedUsagePeriod,
+    #[serde(rename = "retention_days")]
+    pub retention_days: i64,
+    #[serde(rename = "actual_adoption")]
+    pub actual_adoption: ActualAdoption,
+    #[serde(rename = "by_integration")]
+    pub by_integration: Vec<BootstrapDeliveryReading>,
+}
+
+impl BootstrapDeliveryStatistics {
+    /// Current states of retained receipts prepared within the selected UTC period. Injected is host-reported and does not prove model adoption or billing savings. Missing records do not prove no host use.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        period: ResolvedUsagePeriod,
+        retention_days: i64,
+        actual_adoption: ActualAdoption,
+        by_integration: Vec<BootstrapDeliveryReading>,
+    ) -> BootstrapDeliveryStatistics {
+        BootstrapDeliveryStatistics {
+            period,
+            retention_days,
+            actual_adoption,
+            by_integration,
+        }
+    }
+}
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum ActualAdoption {
+    #[serde(rename = "unobserved")]
+    #[default]
+    Unobserved,
+}
+
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum BootstrapReceiptState {
+    #[serde(rename = "pending")]
+    #[default]
+    Pending,
+    #[serde(rename = "injected")]
+    Injected,
+    #[serde(rename = "skipped")]
+    Skipped,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+impl std::fmt::Display for BootstrapReceiptState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Pending => write!(f, "pending"),
+            Self::Injected => write!(f, "injected"),
+            Self::Skipped => write!(f, "skipped"),
+            Self::Failed => write!(f, "failed"),
+        }
+    }
+}
+
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
 )]
@@ -1304,6 +1408,10 @@ pub struct GetStatsRequest {
     #[ts(optional)]
     #[serde(rename = "period", skip_serializing_if = "Option::is_none")]
     pub period: Option<StatsPeriod>,
+    /// Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history.
+    #[ts(optional)]
+    #[serde(rename = "include_processing", skip_serializing_if = "Option::is_none")]
+    pub include_processing: Option<bool>,
 }
 
 impl GetStatsRequest {
@@ -1312,6 +1420,7 @@ impl GetStatsRequest {
         GetStatsRequest {
             selection,
             period: None,
+            include_processing: None,
         }
     }
 }
@@ -1587,6 +1696,274 @@ impl std::fmt::Display for PreparedContextSchema {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::PowercontextPreparedContextV1 => write!(f, "powercontext.prepared-context.v1"),
+        }
+    }
+}
+
+/// ProcessingObservation : Durable invocation counters plus an optional local scheduler sample. Acknowledgement is not artifact creation. Missing local coverage does not imply stopped work.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessingObservation {
+    #[serde(rename = "binding")]
+    pub binding: String,
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "family",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub family: Option<Option<String>>,
+    #[serde(rename = "state")]
+    pub state: ProcessingState,
+    #[serde(rename = "observed_at")]
+    pub observed_at: String,
+    #[ts(optional)]
+    #[serde(rename = "scheduler_observed", skip_serializing_if = "Option::is_none")]
+    pub scheduler_observed: Option<bool>,
+    #[ts(optional)]
+    #[serde(rename = "reason", skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ProcessingReason>,
+    #[ts(optional)]
+    #[serde(
+        rename = "requested_generation",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub requested_generation: Option<i64>,
+    #[ts(optional)]
+    #[serde(rename = "handled_generation", skip_serializing_if = "Option::is_none")]
+    pub handled_generation: Option<i64>,
+    #[ts(optional)]
+    #[serde(rename = "dirty_generation", skip_serializing_if = "Option::is_none")]
+    pub dirty_generation: Option<i64>,
+    #[ts(optional)]
+    #[serde(rename = "clean_generation", skip_serializing_if = "Option::is_none")]
+    pub clean_generation: Option<i64>,
+    /// Local lower bound, not the durable age of all pending work.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "pending_since",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pending_since: Option<Option<String>>,
+    #[ts(optional)]
+    #[ts(type = "number | null")]
+    #[serde(
+        rename = "running_seconds",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub running_seconds: Option<Option<f64>>,
+    /// Estimated seconds until a scheduler check, not a promised execution deadline.
+    #[ts(optional)]
+    #[ts(type = "number | null")]
+    #[serde(
+        rename = "next_check_seconds",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub next_check_seconds: Option<Option<f64>>,
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "worker_id",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub worker_id: Option<Option<String>>,
+    #[ts(optional)]
+    #[ts(type = "number | null")]
+    #[serde(
+        rename = "attempt_generation",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub attempt_generation: Option<Option<i64>>,
+    #[ts(optional)]
+    #[ts(type = "number | null")]
+    #[serde(
+        rename = "retry_failures",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub retry_failures: Option<Option<i64>>,
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "block_code",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub block_code: Option<Option<String>>,
+    /// Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "last_error_code",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_error_code: Option<Option<String>>,
+    /// Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "last_error_stage",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_error_stage: Option<Option<String>>,
+    /// UTC time the local supervisor observed this failure, not the child event time or a durable history.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "last_error_at",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_error_at: Option<Option<String>>,
+    /// Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "last_error_worker_id",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_error_worker_id: Option<Option<String>>,
+    /// Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation.
+    #[ts(optional)]
+    #[ts(type = "string | null")]
+    #[serde(
+        rename = "last_error_trace_id",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_error_trace_id: Option<Option<String>>,
+}
+
+impl ProcessingObservation {
+    /// Durable invocation counters plus an optional local scheduler sample. Acknowledgement is not artifact creation. Missing local coverage does not imply stopped work.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        binding: String,
+        state: ProcessingState,
+        observed_at: String,
+    ) -> ProcessingObservation {
+        ProcessingObservation {
+            binding,
+            family: None,
+            state,
+            observed_at,
+            scheduler_observed: None,
+            reason: None,
+            requested_generation: None,
+            handled_generation: None,
+            dirty_generation: None,
+            clean_generation: None,
+            pending_since: None,
+            running_seconds: None,
+            next_check_seconds: None,
+            worker_id: None,
+            attempt_generation: None,
+            retry_failures: None,
+            block_code: None,
+            last_error_code: None,
+            last_error_stage: None,
+            last_error_at: None,
+            last_error_worker_id: None,
+            last_error_trace_id: None,
+        }
+    }
+}
+
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum ProcessingReason {
+    #[serde(rename = "unobserved")]
+    #[default]
+    Unobserved,
+    #[serde(rename = "waiting_schedule")]
+    WaitingSchedule,
+    #[serde(rename = "waiting_dispatch")]
+    WaitingDispatch,
+    #[serde(rename = "waiting_capacity")]
+    WaitingCapacity,
+    #[serde(rename = "executing")]
+    Executing,
+    #[serde(rename = "retry_backoff")]
+    RetryBackoff,
+    #[serde(rename = "policy_block")]
+    PolicyBlock,
+    #[serde(rename = "idle")]
+    Idle,
+}
+
+impl std::fmt::Display for ProcessingReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Unobserved => write!(f, "unobserved"),
+            Self::WaitingSchedule => write!(f, "waiting_schedule"),
+            Self::WaitingDispatch => write!(f, "waiting_dispatch"),
+            Self::WaitingCapacity => write!(f, "waiting_capacity"),
+            Self::Executing => write!(f, "executing"),
+            Self::RetryBackoff => write!(f, "retry_backoff"),
+            Self::PolicyBlock => write!(f, "policy_block"),
+            Self::Idle => write!(f, "idle"),
+        }
+    }
+}
+
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, TS, Default,
+)]
+pub enum ProcessingState {
+    #[serde(rename = "idle")]
+    #[default]
+    Idle,
+    #[serde(rename = "dirty")]
+    Dirty,
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "acknowledged")]
+    Acknowledged,
+    #[serde(rename = "queued")]
+    Queued,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "retry_wait")]
+    RetryWait,
+    #[serde(rename = "blocked")]
+    Blocked,
+}
+
+impl std::fmt::Display for ProcessingState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "idle"),
+            Self::Dirty => write!(f, "dirty"),
+            Self::Pending => write!(f, "pending"),
+            Self::Acknowledged => write!(f, "acknowledged"),
+            Self::Queued => write!(f, "queued"),
+            Self::Running => write!(f, "running"),
+            Self::RetryWait => write!(f, "retry_wait"),
+            Self::Blocked => write!(f, "blocked"),
         }
     }
 }
@@ -2124,6 +2501,13 @@ pub struct ScopeStats {
     pub recall: RecallTokenStatistics,
     #[serde(rename = "recurrence")]
     pub recurrence: RecurrenceStatistics,
+    /// Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.
+    #[ts(optional)]
+    #[serde(rename = "processing", skip_serializing_if = "Option::is_none")]
+    pub processing: Option<Vec<ProcessingObservation>>,
+    #[ts(optional)]
+    #[serde(rename = "bootstrap_delivery", skip_serializing_if = "Option::is_none")]
+    pub bootstrap_delivery: Option<BootstrapDeliveryStatistics>,
 }
 
 impl ScopeStats {
@@ -2141,6 +2525,8 @@ impl ScopeStats {
             usage,
             recall,
             recurrence,
+            processing: None,
+            bootstrap_delivery: None,
         }
     }
 }
@@ -2484,6 +2870,7 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <AccessProviderCapabilities as ts_rs::TS>::decl(config),
         <AccessResourceType as ts_rs::TS>::decl(config),
         <AccessRole as ts_rs::TS>::decl(config),
+        <ActualAdoption as ts_rs::TS>::decl(config),
         <AllScopeSelection as ts_rs::TS>::decl(config),
         <AllScopeSelectionMode as ts_rs::TS>::decl(config),
         <ArtifactDreamingOperationCapability as ts_rs::TS>::decl(config),
@@ -2496,6 +2883,9 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <AtomicMemorySearchHit as ts_rs::TS>::decl(config),
         <AtomicMemorySearchMode as ts_rs::TS>::decl(config),
         <AtomicMemoryState as ts_rs::TS>::decl(config),
+        <BootstrapDeliveryReading as ts_rs::TS>::decl(config),
+        <BootstrapDeliveryStatistics as ts_rs::TS>::decl(config),
+        <BootstrapReceiptState as ts_rs::TS>::decl(config),
         <BuiltinProfile as ts_rs::TS>::decl(config),
         <CandidateFamily as ts_rs::TS>::decl(config),
         <CandidateFamilyCount as ts_rs::TS>::decl(config),
@@ -2533,6 +2923,9 @@ pub fn declarations(config: &ts_rs::Config) -> Vec<String> {
         <ModelUsageValue as ts_rs::TS>::decl(config),
         <OutputKind as ts_rs::TS>::decl(config),
         <PreparedContextSchema as ts_rs::TS>::decl(config),
+        <ProcessingObservation as ts_rs::TS>::decl(config),
+        <ProcessingReason as ts_rs::TS>::decl(config),
+        <ProcessingState as ts_rs::TS>::decl(config),
         <Product as ts_rs::TS>::decl(config),
         <PromptCapability as ts_rs::TS>::decl(config),
         <PromptCapabilityStatus as ts_rs::TS>::decl(config),

@@ -231,7 +231,8 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    timeout-minutes: 40
+    # Allow the Python 3.14 end-to-end suite's subprocess tail to finish.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && matrix.python-version == '3.14' && 55 || 40 }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -279,8 +280,15 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
-      - name: Run end-to-end tests
+      - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
+        # Preserve the real Hook deadlines without competing with xdist workers.
+        run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+
+      - name: Run remaining end-to-end tests
+        if: matrix.suite == 'e2e'
+        env:
+          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
         run: make e2e-test
 
   isolated-installations:
@@ -385,6 +393,8 @@ jobs:
             tests/e2e/test_worker_otlp.py \
             tests/e2e/test_worker_model_usage.py \
             tests/test_observability_health.py \
+            tests/test_observability_cli.py \
+            tests/test_observability_connect.py \
             --junitxml="$RUNNER_TEMP/worker-observability.xml"
           uv run --locked --extra tracing-otlp python - <<'PY'
           import os
@@ -472,9 +482,9 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
-    # before migrations (25m). Preserve each step's deadline and leave time
+    # before migrations (40m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 60
+    timeout-minutes: 80
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -534,8 +544,8 @@ jobs:
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
         # Last-client shutdown adds native startup work. Partition runner nodes;
-        # every node keeps its 180-second deadline.
-        timeout-minutes: 25
+        # Source evidence expands the batch; every node keeps its 180-second deadline.
+        timeout-minutes: 40
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"

@@ -16,6 +16,7 @@
 
 use crate::error::SafeError;
 use serde::Serialize;
+use tauri::Manager;
 use ts_rs::TS;
 
 #[derive(Serialize, TS)]
@@ -41,7 +42,7 @@ pub fn foundation_info<R: tauri::Runtime>(
 ) -> Result<FoundationInfo, SafeError> {
     authorize_window(window.label())?;
     Ok(FoundationInfo {
-        version: env!("CARGO_PKG_VERSION").into(),
+        version: window.package_info().version.to_string(),
         phase: "S3".into(),
         credential_backend: credential_backend(current_target_os()).into(),
         server_connected: false,

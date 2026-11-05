@@ -1,0 +1,291 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+rule_files:
+- alerts.yaml
+evaluation_interval: 1m
+tests:
+- name: idle, hold and no-op do not mean stalled work
+  interval: 1m
+  input_series:
+  - series: powercontext_server_artifact_processing_oldest_observed_pending_timestamp_seconds{family="memory"}
+    values: 0+0x20
+  - series: powercontext_server_artifact_processing_last_success_timestamp_seconds{family="memory"}
+    values: 0+0x20
+  - series: powercontext_server_artifact_processing_leader{family="memory"}
+    values: 1+0x20
+  - series: powercontext_server_artifact_processing_blocked{family="memory"}
+    values: 0+0x20
+  - series: powercontext_server_artifact_processing_discovered_timestamp_seconds{family="memory"}
+    values: 0+60x20
+  - series: powercontext_server_application_operations_total{outcome="noop",instance="quiet"}
+    values: 0+1x20
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: PowerContextProcessingStalled
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: PowerContextSustainedErrors
+    exp_alerts: []
+- name: low traffic failures do not trigger sustained error alert
+  interval: 1m
+  input_series:
+  - series: powercontext_server_application_operations_total{outcome="failure",instance="quiet"}
+    values: 0+0x10 1+0x10
+  alert_rule_test:
+  - eval_time: 15m
+    alertname: PowerContextSustainedErrors
+    exp_alerts: []
+- name: recovery resolves target alert
+  interval: 1m
+  input_series:
+  - series: up{job="powercontext",instance="demo"}
+    values: 0 0 0 1 1
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: PowerContextTargetDown
+    exp_alerts: []
+- name: target outage fires after hold and resolves on recovery
+  interval: 1m
+  input_series:
+  - series: up{job="powercontext",instance="demo"}
+    values: 0 0 0 0 1 1
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: PowerContextTargetDown
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: powercontext
+        instance: demo
+      exp_annotations:
+        summary: PowerContext 指标目标不可达
+        description: 检查目标地址、进程、凭据和网络，再决定是否重启。
+        runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontexttargetdown
+  - eval_time: 5m
+    alertname: PowerContextTargetDown
+    exp_alerts: []
+- name: dependency timeout fires and resolves
+  interval: 1m
+  input_series:
+  - series: powercontext_server_dependency_state{dependency="database",state="timeout",instance="demo"}
+    values: 1 1 1 1 0 0
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: PowerContextDependencyFailure
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        dependency: database
+        state: timeout
+        instance: demo
+      exp_annotations:
+        summary: 已配置的依赖不可用
+        description: 检查依赖标签、就绪日志、凭据、数据库和模型服务。
+        runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextdependencyfailure
+  - eval_time: 5m
+    alertname: PowerContextDependencyFailure
+    exp_alerts: []
+- name: sustained service errors fire
+  interval: 1m
+  input_series:
+  - series: powercontext_server_application_operations_total{outcome="failure",job="powercontext",instance="demo"}
+    values: 0+10x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: PowerContextSustainedErrors
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: powercontext
+        instance: demo
+      exp_annotations:
+        summary: 应用持续失败：5 分钟内失败超过 5% 且至少 5 次
+        description: 查看操作/结果、日志和采样调用链；空操作、阻止和取消不算失败。
+        runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextsustainederrors
+- name: pending without verified progress fires
+  interval: 1m
+  input_series:
+  - series: powercontext_server_artifact_processing_oldest_observed_pending_timestamp_seconds{family="memory"}
+    values: 1+0x20
+  - series: powercontext_server_artifact_processing_last_success_timestamp_seconds{family="memory"}
+    values: 0+0x20
+  - series: powercontext_server_artifact_processing_leader{family="memory"}
+    values: 1+0x20
+  - series: powercontext_server_artifact_processing_blocked{family="memory"}
+    values: 0+0x20
+  - series: powercontext_server_artifact_processing_discovered_timestamp_seconds{family="memory"}
+    values: 0+60x20
+  alert_rule_test:
+  - eval_time: 16m
+    alertname: PowerContextProcessingStalled
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        family: memory
+      exp_annotations:
+        summary: 后台待处理任务长时间没有确认进展
+        description: 检查处理类型、子进程和模型超时；按预期任务时长调整阈值。
+        runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextprocessingstalled
+- name: policy-held pending does not fire stalled alert
+  interval: 1m
+  input_series:
+  - series: powercontext_server_artifact_processing_oldest_observed_pending_timestamp_seconds{family="memory"}
+    values: 0+0x20
+  - series: powercontext_server_artifact_processing_last_success_timestamp_seconds{family="memory"}
+    values: 0+0x20
+  - series: powercontext_server_artifact_processing_leader{family="memory"}
+    values: 1+0x20
+  - series: powercontext_server_artifact_processing_blocked{family="memory"}
+    values: 1+0x20
+  - series: powercontext_server_artifact_processing_discovered_timestamp_seconds{family="memory"}
+    values: 0+60x20
+  alert_rule_test:
+  - eval_time: 16m
+    alertname: PowerContextProcessingStalled
+    exp_alerts: []
+- name: missing readiness detected on a scraped target
+  interval: 1m
+  input_series:
+  - series: up{job="powercontext",instance="demo"}
+    values: 1+0x10
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: PowerContextReadinessMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: powercontext
+        instance: demo
+      exp_annotations:
+        summary: 运行中的目标缺少就绪观测
+        description: 确认该端点有 PowerContext 指标且已启用指标。
+        runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextreadinessmissing
+- name: stale dependency observations detected
+  interval: 1m
+  input_series:
+  - series: up{job="powercontext",instance="demo"}
+    values: 1+0x10
+  - series: powercontext_server_readiness_evaluated_timestamp_seconds{job="powercontext",instance="demo"}
+    values: 1+0x10
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: PowerContextReadinessStale
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: powercontext
+        instance: demo
+      exp_annotations:
+        summary: 就绪状态评估已过期
+        description: 检查就绪评估器和进程日志；抓取不会刷新依赖探测。
+        runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextreadinessstale
+- name: sustained failures before application dispatch are detectable
+  interval: 1m
+  input_series:
+  - series: powercontext_server_transport_requests_total{outcome="failure",job="powercontext",instance="demo"}
+    values: 0+10x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: PowerContextSustainedTransportErrors
+    exp_alerts:
+    - exp_labels:
+        job: powercontext
+        instance: demo
+        severity: warning
+      exp_annotations:
+        summary: 请求持续失败：5 分钟内失败超过 5% 且至少 5 次
+        description: 按操作和错误分类查日志；先区分客户端问题与服务故障。
+        runbook_url: https://github.com/oceanbase/powercontext/blob/master/deploy/observability/RUNBOOKS.md#powercontextsustainedtransporterrors
+- name: retired target historical zero does not create a new outage
+  interval: 1m
+  input_series:
+  - series: up{job="powercontext",instance="retired"}
+    values: 0 _ _ _ _
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: PowerContextTargetDown
+    exp_alerts: []
+- name: retired healthy target is not missing readiness
+  interval: 1m
+  input_series:
+  - series: up{job="powercontext",instance="retired"}
+    values: 1 _ _ _ _
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: PowerContextReadinessMissing
+    exp_alerts: []
+
+- name: role-filtered overview counts actual sustained alerts
+  interval: 15s
+  input_series:
+  - series: up{job="powercontext",instance="api-one",role="api"}
+    values: 1+0x44
+  - series: powercontext_server_readiness_evaluated_timestamp_seconds{job="powercontext",instance="api-one",role="api"}
+    values: 1+15x44
+  - series: powercontext_server_application_operations_total{job="powercontext",instance="api-one",role="api",outcome="failure"}
+    values: 0+10x44
+  - series: up{job="powercontext",instance="api-two",role="api"}
+    values: 1+0x44
+  - series: powercontext_server_readiness_evaluated_timestamp_seconds{job="powercontext",instance="api-two",role="api"}
+    values: 1+15x44
+  - series: powercontext_server_application_operations_total{job="powercontext",instance="api-two",role="api",outcome="failure"}
+    values: 0+10x44
+  - series: up{job="powercontext",instance="combined",role="all"}
+    values: 1+0x44
+  - series: powercontext_server_readiness_evaluated_timestamp_seconds{job="powercontext",instance="combined",role="all"}
+    values: 1+15x44
+  - series: powercontext_server_application_operations_total{job="powercontext",instance="combined",role="all",outcome="failure"}
+    values: 0+10x44
+  promql_expr_test:
+  - expr: count(ALERTS{job="powercontext",alertstate="firing",role=~"api",instance=~".*"}
+      and (time() - timestamp(ALERTS{job="powercontext",alertstate="firing",role=~"api",instance=~".*"})
+      < 30)) or (count(up{job="powercontext",role=~"api",instance=~".*"} and (time()
+      - timestamp(up{job="powercontext",role=~"api",instance=~".*"}) < 45)) * 0)
+    eval_time: 10m
+    exp_samples:
+    - labels: '{}'
+      value: 2
+  - expr: count(ALERTS{job="powercontext",alertstate="firing",role=~"all",instance=~".*"}
+      and (time() - timestamp(ALERTS{job="powercontext",alertstate="firing",role=~"all",instance=~".*"})
+      < 30)) or (count(up{job="powercontext",role=~"all",instance=~".*"} and (time()
+      - timestamp(up{job="powercontext",role=~"all",instance=~".*"}) < 45)) * 0)
+    eval_time: 10m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+  - expr: count(ALERTS{job="powercontext",alertstate="firing",role=~".*",instance=~".*"}
+      and (time() - timestamp(ALERTS{job="powercontext",alertstate="firing",role=~".*",instance=~".*"})
+      < 30)) or (count(up{job="powercontext",role=~".*",instance=~".*"} and (time()
+      - timestamp(up{job="powercontext",role=~".*",instance=~".*"}) < 45)) * 0)
+    eval_time: 10m
+    exp_samples:
+    - labels: '{}'
+      value: 3
+  - expr: count(ALERTS{job="powercontext",alertstate="firing",role=~"api",instance=~"api-one"}
+      and (time() - timestamp(ALERTS{job="powercontext",alertstate="firing",role=~"api",instance=~"api-one"})
+      < 30)) or (count(up{job="powercontext",role=~"api",instance=~"api-one"} and
+      (time() - timestamp(up{job="powercontext",role=~"api",instance=~"api-one"})
+      < 45)) * 0)
+    eval_time: 10m
+    exp_samples:
+    - labels: '{}'
+      value: 1
+  - expr: count(ALERTS{job="powercontext",alertstate="firing",role=~"api",instance=~"missing"}
+      and (time() - timestamp(ALERTS{job="powercontext",alertstate="firing",role=~"api",instance=~"missing"})
+      < 30)) or (count(up{job="powercontext",role=~"api",instance=~"missing"} and
+      (time() - timestamp(up{job="powercontext",role=~"api",instance=~"missing"})
+      < 45)) * 0)
+    eval_time: 10m
+    exp_samples: []
