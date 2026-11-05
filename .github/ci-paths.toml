@@ -29,6 +29,10 @@ tests = [
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
   "scripts/check_atomic_memory_migration_shards.py",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
+  # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
+  ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
+  ".github/workflows/desktop-release.yml", "scripts/desktop_publication_manifest.py",
+  "scripts/publish_desktop_release.py",
   # These evaluator suites still live under the root tests/ directory.
   "evaluation/memory/locomo/**", "evaluation/memory/locomo_plus/**", "evaluation/memory/write_gate/**",
   "evaluation/performance/input_encoding/**",

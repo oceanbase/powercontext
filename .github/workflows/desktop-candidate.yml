@@ -1,11 +1,6 @@
 name: Desktop candidate assembly
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/desktop-candidate.yml'
-      - 'scripts/desktop_candidate.py'
-      - 'tests/test_desktop_candidate.py'
   workflow_dispatch:
     inputs:
       version:

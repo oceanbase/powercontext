@@ -231,7 +231,8 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    timeout-minutes: 40
+    # Allow the Python 3.14 end-to-end suite's subprocess tail to finish.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && matrix.python-version == '3.14' && 55 || 40 }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
