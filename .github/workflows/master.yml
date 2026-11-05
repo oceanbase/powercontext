@@ -280,8 +280,15 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
-      - name: Run end-to-end tests
+      - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
+        # Preserve the real Hook deadlines without competing with xdist workers.
+        run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+
+      - name: Run remaining end-to-end tests
+        if: matrix.suite == 'e2e'
+        env:
+          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
         run: make e2e-test
 
   isolated-installations:
