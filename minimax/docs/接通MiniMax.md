@@ -38,7 +38,20 @@ python -c "from context import minimax; k=minimax.api_key(); print('len=', len(k
 
 ```powershell
 $env:MINIMAX_API_KEY="sk-在这里粘贴你的完整key"
-$env:MINIMAX_MODEL="MiniMax-M2"     # 换成你套餐里实际可用的模型名
+$env:MINIMAX_MODEL="MiniMax-M3.1-Flash"   # 换成你套餐里实际可用的模型名
+```
+
+### 方式 C：直接用 MiniMax CLI 已登录的凭据（本机实测可用）
+
+如果 `mmx auth status` 显示已登录、`mmx quota show` 有剩余额度，那么**不需要再复制 key**：
+程序在环境变量与 `~/.minimax_key` 都没有时会自动读取 `~/.mmx/config.json` 里的 `api_key`。
+
+```powershell
+mmx auth status                  # method=api-key，能看到 key 后四位与剩余额度
+mmx quota show --output json     # current_interval_remaining_percent 等字段
+cd D:\code\oceanbase\powercontext\minimax
+python -c "from context import minimax; k,s=minimax.api_key_with_source(); print('source=', s)"
+# 期望 source= mmx:C:\Users\<你>\.mmx\config.json
 ```
 
 ## 3. 自检（只发一个 “ping”，消耗极小）
@@ -48,8 +61,13 @@ cd D:\code\oceanbase\powercontext\minimax
 python -c "from context import minimax; print(minimax.run_api('ping').to_record())"
 ```
 
-- 成功：`{'backend': 'api', ..., 'ok': True, ...}`
+- 成功：`{'backend': 'api', ..., 'ok': True, 'output_chars': 2, ...}`
 - key 不对：`'error': 'HTTP 401: {... authorized_error ... (1004)}'` → 回第 1 步重新复制完整 key
+- **额度问题**：`'error': 'HTTP 402: {... insufficient_balance_error ... (1008)}'`
+  → 这把 key 所属账号没有可用额度（或套餐没打给它），换一把能用的，或按方式 C 复用 mmx 已登录的 key。
+  本机实测：`~/.minimax_key` 里的 `sk-api-…` 返回 402，而 `~/.mmx/config.json` 里的 key 正常返回。
+- 空回答：`'error': 'the model returned an empty message (finish_reason=length, reasoning_tokens=...)'`
+  → 推理 token 吃满了预算，调大 `MINIMAX_MAX_TOKENS`（默认 32768）或缩小上下文
 - 模型名不对：通常返回 4xx 且 message 里带 model/not found → 改 `MINIMAX_MODEL`
 - 代理干扰：本机 `api.minimaxi.com` 可直连，若你开了全局代理导致异常，可临时
   `$env:NO_PROXY="api.minimaxi.com"`

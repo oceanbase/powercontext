@@ -122,12 +122,19 @@ def run_guard(stage: str) -> dict[str, Any]:
     return guard.run(stage, save=True)
 
 
-def agent_prepare(instruction: str, stage: str, workdir: Path) -> dict[str, Any]:
-    spec_ids = sorted(set(TOKEN.findall(instruction)))
+def agent_prepare(instruction: str, stage: str, workdir: Path,
+                  spec_override: list[str] | None = None) -> dict[str, Any]:
+    """Assemble the context, ask MiniMax for a patch, and persist what came back.
+
+    ``spec_override`` narrows the request to a subset of specs: a smaller context keeps
+    the reasoning budget and the wall-clock time of one call manageable when the task
+    is split into several focused requests.
+    """
+    spec_ids = sorted(set(spec_override or TOKEN.findall(instruction)))
     if not spec_ids:
         raise ValueError("the instruction does not reference any spec id such as [ARR-001]")
     context_data = context_payload(spec_ids)
-    context_text = build_context.render(context_data)
+    context_text = build_context.render(context_data, with_code=True)
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "context.md").write_text(context_text, encoding="utf-8")
     prompt = minimax.prepare_prompt(context_text, instruction)
@@ -144,7 +151,13 @@ def agent_prepare(instruction: str, stage: str, workdir: Path) -> dict[str, Any]
     if run.ok:
         try:
             patch = minimax.extract_patch(run.output)
-            measure = minimax.measure(patch)
+            reason = patchutil.reject_reason(patch, Path(os.environ["SEEKDB_REPO"]).resolve()
+                                             if os.environ.get("SEEKDB_REPO") else None)
+            if reason:
+                problem = f"proposal rejected: {reason}"
+                patch = ""
+            else:
+                measure = minimax.measure(patch)
         except ValueError as exc:
             problem = str(exc)
     else:
@@ -208,6 +221,9 @@ def apply_proposal(worktree: Path, stage: str) -> dict[str, Any]:
     if row is None:
         raise FileNotFoundError(f"no {kind} artifact for {TASK_ID}")
     patch = row[0]
+    reason = patchutil.reject_reason(patch, worktree)
+    if reason:
+        return {"applied": False, "error": f"proposal rejected: {reason}", "reimport": summary}
     workdir = ROOT / "agent" / "artifacts" / stage
     patch_path = patchutil.write_patch(workdir / "applied.patch", patch)
     check = patchutil.git_apply(worktree, patch_path, check=True)

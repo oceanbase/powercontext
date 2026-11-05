@@ -62,6 +62,20 @@ def _spec_snapshot(cur, spec_ids: list[str]) -> dict[str, str]:
     }
 
 
+def snippet_lines() -> int:
+    """How many source lines to quote around each cited location.
+
+    A model without repository access cannot invent a valid hunk from a 4-line excerpt,
+    so the prompt carries a configurable window (default 6 lines, raise it when asking
+    for a larger patch).
+    """
+    try:
+        value = int(os.environ.get("MINIMAX_SNIPPET_LINES", "6"))
+    except ValueError:
+        value = 6
+    return max(0, min(value, 400))
+
+
 def load_specs(spec_ids: list[str] | None = None) -> list[dict[str, Any]]:
     repo = repo_root()
     conn = connect()
@@ -104,7 +118,8 @@ def load_specs(spec_ids: list[str] | None = None) -> list[dict[str, Any]]:
                                 break
                     if exists and line_no:
                         start = max(0, int(line_no) - 1)
-                        current = "\n".join(lines[start:start + 4])
+                        window = snippet_lines()
+                        current = "\n".join(lines[start:start + window])
                     sources.append(
                         {
                             "path": path,
@@ -114,6 +129,7 @@ def load_specs(spec_ids: list[str] | None = None) -> list[dict[str, Any]]:
                             "note": note,
                             "exists": exists,
                             "sha": _sha(current) if current else "",
+                            "snippet": current,
                         }
                     )
                 specs.append(
@@ -268,8 +284,12 @@ def snapshot() -> dict[str, str]:
         conn.close()
 
 
-def render(context: dict[str, Any], compact: bool = False) -> str:
-    """Render the context as text for a developer or an agent prompt."""
+def render(context: dict[str, Any], compact: bool = False, with_code: bool = False) -> str:
+    """Render the context as text for a developer or an agent prompt.
+
+    ``with_code`` also prints the source window around each cited location, which is
+    what a model needs in order to produce a hunk that applies.
+    """
     lines: list[str] = []
     task = context.get("task")
     lines.append("== TASK ==")
@@ -295,6 +315,12 @@ def render(context: dict[str, Any], compact: bool = False) -> str:
                 f"{' (' + source['symbol'] + ')' if source['symbol'] else ''}"
                 f" sha={source['sha'] or 'missing'}"
             )
+            if with_code and source.get("snippet"):
+                # Emit the excerpt verbatim: any indentation added here ends up in the
+                # model's hunks and makes them fail to apply against the real file.
+                lines.append("  ```")
+                lines.extend(source["snippet"].splitlines())
+                lines.append("  ```")
 
     lines.append("")
     lines.append("== CHECKS ==")

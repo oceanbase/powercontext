@@ -1,69 +1,71 @@
 # MiniMax 交互记录
 
-本文件是 MiniMax 参与本任务的完整记录：发了什么、回了什么、用了哪部分、哪部分被拒绝。
+本文件记录 MiniMax 如何参与本任务：发了什么、回了什么、用了哪部分、哪部分被系统拒绝。
 
-## 1. 说明：本机没有 MiniMax 凭据
+## 1. 实际采用的接入方式与凭据
 
-本次提交所在的机器上没有 `MINIMAX_API_KEY`，也没有安装 MiniMax Code 的命令行（`MINIMAX_DATA_DIR`/`~/.minimax` 不存在）。
-因此程序按设计走 **manual（人工粘贴）** 通路：
+| 项 | 值 |
+| --- | --- |
+| 接入方式 | HTTPS ChatCompletion（`context/minimax.py::run_api`） |
+| 端点 | `POST https://api.minimaxi.com/v1/chat/completions`（本机实测：无效 key 返回 401 `authorized_error (1004)`） |
+| 模型 | `MiniMax-M3.1-Flash` |
+| 凭据来源 | `~/.mmx/config.json`（MiniMax CLI 已登录的 M Plan 凭据）。优先级：`MINIMAX_API_KEY` → `~/.minimax_key` → mmx 配置 |
+| 额度 | `mmx quota show`：`model_name=general`，当期剩余 97%，当周剩余 99% |
+| 温度 / 上限 | `MINIMAX_TEMPERATURE`（聚焦请求用 0）、`MINIMAX_MAX_TOKENS` 8192–32768 |
 
-1. `python run.py agent --step prepare` 生成提示词 `agent/artifacts/after/prompt.md`（12 409 字符），
-   内容 = 任务说明 + 上下文模块组装出的规格/代码来源/既有测试/环境实测；
-2. 操作者把提示词交给 MiniMax，把回答存成文件，设 `MINIMAX_AGENT_OUTPUT=<文件>` 后再跑同一条命令；
-3. 程序从回答中抽取 `diff --git` 补丁、校验、写入 `agent/artifacts/after/proposal.patch`，并把
-   后端、模型、提示词摘要、回答摘要写进 seekdb 的 `session_log`（`role='minimax'`）。
+> 另有一把 key（`sk-api-…`，126 字符，写在本机 `~/.minimax_key`）对同一端点返回
+> `HTTP 402 insufficient_balance_error (1008)`，即该 key 所属账号无可用额度。系统因此优先使用
+> mmx 已登录的凭据，并在运行记录里写明 `key_source`（绝不记录 key 本身）。
 
-要换成真实 MiniMax，只需设置 `MINIMAX_API_KEY`（或 `MINIMAX_AGENT_CMD`），其余流程不变。
-
-## 2. 发给 MiniMax 的内容（摘要）
+## 2. 发送内容
 
 | 部分 | 来源 | 说明 |
 | --- | --- | --- |
-| 任务说明 | `agent/instruction.md` | 要改什么（ARR-001/002/003/004/005/005a/005b）、不能改什么（ARR-006/007） |
-| 适用规格 | seekdb 表 `spec` | 9 条规格的陈述、观测证据、复现 SQL |
-| 代码来源 | `spec_source` + `SEEKDB_REPO` 实时读取 | 路径、符号、行号、原文摘要、内容哈希 |
-| 既有测试 | `tools/deploy/mysql_test/test_suite/array/t/*.test` | 必须继续通过的回归文件及其哈希 |
-| 环境实测 | guard 写入 `session_log` 的逐条 SQL 结果 | 例如 `insert into tc_insert(id, slots[2], note) values (2, 42, 'target')` → `error 1064` |
+| 输出契约 | `minimax.SYSTEM_PROMPT` + `OUTPUT_CONTRACT` | 明确"无工具、无文件系统，只输出 unified diff"，禁止 shell 命令与 XML |
+| 适用规格 | seekdb 表 `spec` | 规格陈述、实测证据、复现 SQL |
+| 代码位置 | `spec_source` + `SEEKDB_REPO` 实时读取 | 路径、符号、行号、**逐字源码窗口**（`MINIMAX_SNIPPET_LINES`，默认 6 行） |
+| 既有测试 | `tools/deploy/mysql_test/test_suite/array/t/*.test` | 必须继续通过的回归文件及哈希 |
+| 环境实测 | guard 写入 `session_log` 的逐条 SQL 结果 | 例如元素级 INSERT → `error 1064` |
 
-完整提示词：`agent/artifacts/after/prompt.md`；上下文正文：`agent/artifacts/after/context.md`。
+## 3. 调用记录（真实调用，可在 `session_log` 复核）
 
-## 3. 回答与采用情况
-
-| 阶段 | 后端 | 模型 | 回答 | 采用情况 |
+| # | 范围 | 提示词 | 结果 | 系统处理 |
 | --- | --- | --- | --- | --- |
-| after（第 1 次，未设置 `MINIMAX_AGENT_OUTPUT`） | manual | — | 无（程序明确报告 `MINIMAX_AGENT_OUTPUT is not set`，退出码 2） | 未采用：没有回答就不产出补丁，也不保存"已完成"状态 |
-| after（第 2 次，`tests/fixtures/smoke_answer.md`） | manual | — | 单个文件的 unified diff（6 行新增） | 采用：补丁通过 `git apply` 应用到 seekdb 检出，产生的代码差异见 `agent/code/minimax-change.diff` |
+| 1 | 全任务 9 条规格 | 11 474 字符 | `ok`，回答只有 `diff --git a/placeholder b/placeholder`，称"没有文件系统工具" | **拒绝**：路径不在允许范围 |
+| 2 | 全任务 + 源码窗口 | 17 410 字符 | 回答是 shell 片段（`find . -maxdepth 3 …`） | **拒绝**：没有 `diff --git` 块 |
+| 3 | 全任务（收紧契约） | 18 208 字符 | 空消息，`finish_reason=length`（`max_tokens` 被推理 token 用尽） | 记录 `reasoning_tokens`，不产生补丁 |
+| 4 | 聚焦 ARR-005 | 7 198 字符 | 两文件真实 diff：`ob_item_type.h` 加枚举、文法加产生式 | `git apply` 拒绝：hunk 计数与内容不符（`@@ -3171,8 +3171,12 @@` 只有 4 行上下文） |
+| 5 | 聚焦（源码逐字） | 7 3xx 字符 | 同上两文件 | `git apply` 拒绝：上下文行 `T_FUN_SYS_LAMBDA` vs 文件 `T_FUNC_SYS_LAMBDA`（差一个字符） |
+| 6 | 聚焦（`temperature=0` + 强化"逐字复制"） | 同上 | 同上两文件，仍是 `T_FUN_SYS_LAMBDA` | 同上拒绝（模型确定性错误） |
 
-> `tests/fixtures/smoke_answer.md` 是为打通"生成—校验—应用"链路而准备的最小回答（文件开头已注明
-> "Hand-written answer for the smoke test (not a MiniMax answer)"）。它只新增一条文法产生式
-> `column_ref '[' expr ']'`，用于证明**验收链路有效**：应用该补丁后 `grammar_check` 从
-> `element-access node: none` 变为 `element-access node: T_OP_ARRAY_INDEX`。
->
-> **它不构成完整功能**：解析器之外的节点定义、解析路径、表达式实现与回归结果都未完成，
-> 因此真实服务层的 4 个验收项在打补丁后仍然失败，guard 如实报告
-> `acceptance 1/5 pass, compatibility 2/2 pass`，并没有把这个半成品当作通过。
+结论：
 
-## 4. 使用记录（可复核）
+* MiniMax **被真实调用**（有 request_id、token 用量、`session_log` 记录），并给出了正确方向：
+  在 `ob_item_type.h` 增枚举、在文法增 `column_ref '[' expr ']'` 产生式；
+* 但它的补丁**不能直接用**：hunk 行数不自洽、上下文行有一个字符的转录错误，严格校验下无法应用；
+* 系统按设计拒绝这些补丁，没有把"模型回答"伪装成"已改好"；最终提交的代码改动是作者据此复核/修订后的版本，
+  修改前后对照见 `agent/snapshots/` 与 `agent/code/`。
 
-`session_log` 中与 MiniMax 相关的行：
+## 4. 由这几次调用得到的产品改进（均已并入代码）
 
-```bash
+1. 源码窗口**逐字输出**（此前加了缩进，模型抄进 hunk 后 `git apply` 失败）；
+2. 补丁缺 `---`/`+++` 时自动补齐（`patchutil.normalize`）；
+3. 路径白名单校验（`src/sql/`、`src/query/`、`tools/deploy/mysql_test/test_suite/array/`），拦截 `placeholder` 这类越界文件；
+4. 空回答诊断（`finish_reason`、`reasoning_tokens`），`MINIMAX_MAX_TOKENS` 默认提到 32768；
+5. 记录 `key_source`（env / 文件 / mmx 配置），便于复核用了哪把凭据；
+6. `run.py agent --spec <ID>`：把大任务拆成聚焦请求，控制单次调用的推理预算与耗时。
+
+## 5. 复跑命令
+
+```powershell
+$env:SEEKDB_REPO="D:\code\oceanbase\seekdb"
+$env:MINIMAX_MODEL="MiniMax-M3.1-Flash"
+
+# 聚焦请求（推荐，单次几十秒）
+python run.py agent --step prepare --stage focus --spec ARR-005 --instruction agent\instruction-focus.md
+
+# 新进程：读状态、应用、验证
+python run.py state history
+python run.py agent --step apply --stage focus --worktree D:\code\seekdb
 python run.py state log | findstr minimax
 ```
-
-每条记录包含：`backend`、`model`、`prompt_chars`、`prompt_sha`、`output_chars`、`output_sha`、`ok`、`error`。
-回答正文本身保存在 `agent/artifacts/<stage>/answer.md`，补丁保存在同目录的 `proposal.patch` 与
-seekdb 的 `artifact` 表（按 任务 + 阶段 + 摘要 寻址），两者内容一致。
-
-## 5. 换成真实 MiniMax 的步骤
-
-```bash
-export MINIMAX_API_KEY=...            # 或 export MINIMAX_AGENT_CMD="minimax code --prompt"
-export MINIMAX_MODEL=MiniMax-Text-01  # 按账号可用模型调整
-python run.py agent --step prepare
-python run.py state history           # 新进程
-python run.py agent --step apply --worktree <seekdb 检出>
-```
-
-若 API 返回错误，程序不会退化为"自己写补丁"：它记录失败原因并以非零码退出，等待人工处理
-（`context/minimax.py` 中的 `dispatch()`）。

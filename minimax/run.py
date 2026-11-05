@@ -69,7 +69,8 @@ def cmd_agent(args: argparse.Namespace) -> int:
     instruction = Path(args.instruction).read_text(encoding="utf-8")
     if args.step == "prepare":
         workdir = MINIMAX_ROOT / "agent" / "artifacts" / args.stage
-        result = operations.agent_prepare(instruction, args.stage, workdir)
+        result = operations.agent_prepare(instruction, args.stage, workdir,
+                                          spec_override=args.spec or None)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result["ok"]:
             state = operations.save_state(args.stage, [], result["spec_ids"], "")
@@ -144,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
     agent.add_argument("--stage", default="after")
     agent.add_argument("--instruction", default=str(MINIMAX_ROOT / "agent" / "instruction.md"))
     agent.add_argument("--worktree", default="")
+    agent.add_argument("--spec", action="append", default=[],
+                       help="narrow the request to these spec ids (repeatable)")
     agent.set_defaults(handler=cmd_agent)
 
     state = sub.add_parser("state", help="inspect or change the saved task state")
