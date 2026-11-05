@@ -907,6 +907,9 @@ jobs:
       - name: Test DSH package
         run: make js-test
 
+      - name: Verify DSH npm archive installation
+        run: node --test integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
 

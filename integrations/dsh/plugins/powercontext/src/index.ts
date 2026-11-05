@@ -55,7 +55,7 @@ export const Config = {
 type CreateUserMessage = (input: {
   content: Array<{ type: 'text'; text: string }>
   source: {
-    kind: 'plugin'; plugin: string; form: 'snapshot'
+    kind: `plugin:${string}`; form: 'snapshot'
     sections: Array<{ name: string; text: string }>
   }
 }) => unknown
@@ -138,14 +138,14 @@ function registerRecall(
       wrapContent: (text) => createUserMessage({
         content: [{ type: 'text', text }],
         source: {
-          kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
+          kind: `plugin:${PLUGIN_NAME}`, form: 'snapshot',
           sections: [{ name: 'PowerContext', text }],
         },
       }),
       wrapScope: (text) => createUserMessage({
         content: [{ type: 'text', text }],
         source: {
-          kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
+          kind: `plugin:${PLUGIN_NAME}`, form: 'snapshot',
           sections: [{ name: 'PowerContext Scope routing', text }],
         },
       }),

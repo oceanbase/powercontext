@@ -293,17 +293,23 @@ describe('registered automatic path', () => {
     expect(JSON.stringify(result.messages)).not.toContain(PRIVATE)
   })
 
-  it('adds one snapshot with exact text and preserves the downstream decision', async () => {
+  it('attributes recall and routing snapshots to their producer for DSH format v4', async () => {
     const h = await fixture(successfulRequest)
     const next = vi.fn(async () => ({ kind: 'enter', messages: [userMessage], startsRequestSeries: true }))
     const result = await h.run({ next })
+    if (!('messages' in result)) throw new Error('The host did not admit the step')
     expect(result).toHaveProperty('startsRequestSeries', true)
     expect(next).toHaveBeenCalledOnce()
     expect(result.messages).toHaveLength(3)
     const message = messageInSection(result.messages, 'PowerContext')
     expect(message.source).toEqual({
-      kind: 'plugin', plugin: 'powercontext-dsh', form: 'snapshot',
+      kind: 'plugin:powercontext-dsh', form: 'snapshot',
       sections: [{ name: 'PowerContext', text: message.content[0].text }],
+    })
+    const routing = messageInSection(result.messages, 'PowerContext Scope routing')
+    expect(routing.source).toEqual({
+      kind: 'plugin:powercontext-dsh', form: 'snapshot',
+      sections: [{ name: 'PowerContext Scope routing', text: routing.content[0].text }],
     })
     expect(message.content[0].text).toContain('untrusted historical evidence')
     expect(message.content[0].text.endsWith(TEXT)).toBe(true)

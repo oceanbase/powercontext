@@ -8,9 +8,24 @@ status: community
 
 `community`
 
+## 安装已发布的 npm 包
+
+目标版本发布到 npm 后，在 DSH Web 或 Desktop 中打开 **Plugins → Add plugin**，输入 `powercontext-dsh`，
+点击 **Install**。固定版本时填写 `powercontext-dsh@<version>`；国内镜像尚未同步该版本时，切换为官方 npm 源。
+发布包包含已构建的代码和 bundle patch，不需要下载源码或编译 TypeScript。
+
+插件连接独立运行的 PowerContext Server。按照下文安装匹配的 Server 并配置连接；npm 安装不会启动或配置 Server。
+默认连接地址为 `http://127.0.0.1:8000`，也会读取 `powercontext setup dsh` 已保存的连接设置。
+安装后按宿主提示重启 DSH，在会话中运行 `/pc doctor`。确认 Server 就绪且原生 MCP 工具可见后，再验证采集和召回。
+
+npm 版本跟随 PowerContext Release：`1.6.0rc1` 对应 `1.6.0-rc.1`，alpha、beta 同样转换。
+正式版本使用 `latest` 标签，预发布版本使用 `next`。安装前确认目标 npm 版本已存在。
+本地 `.tgz` 安装仅验证发布包安装路径，不能证明 npm 或镜像已可用。
+
 ## 安装匹配的 Server 和插件
 
-先安装 DeepSeek Harness Web 或 Desktop。真实宿主验收固定使用 DSH 0.1.2-rc.1。
+先安装 DeepSeek Harness Web 或 Desktop。自动化真实宿主测试固定使用 DSH `0.1.2-rc.1`；
+macOS Desktop `0.2.1-rc.5` 也已完成原生 MCP 写入和新会话召回的人工验收。
 选择以下一种 PowerContext 安装方式，让 Server 和插件保持匹配。
 
 使用本站对应的配置向导版本：

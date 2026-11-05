@@ -28,6 +28,7 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       source_sha: ${{ steps.release.outputs.source_sha }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - name: Resolve the published Release and pin its source
         id: release
@@ -84,6 +85,7 @@ jobs:
           event.write_text(json.dumps({"release": release}, ensure_ascii=False), encoding="utf-8")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"tag={tag}\nsource_sha={commit}\n")
+              output.write(f"prerelease={str(release['prerelease']).lower()}\n")
           PY
       - name: Preserve the Release notes used for validation
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -104,10 +106,123 @@ jobs:
       release_tag: ${{ needs.resolve-release.outputs.tag }}
       skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
 
+  dsh-release-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: resolve-release
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      tag: ${{ steps.package.outputs.tag }}
+    steps:
+      - name: Check out pinned release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up project tools
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+
+      - name: Cache DSH dependencies
+        uses: ./.github/actions/cache-pnpm
+        with:
+          working-directory: integrations/dsh/plugins/powercontext
+          cache-dependency-glob: integrations/dsh/plugins/powercontext/pnpm-lock.yaml
+
+      - name: Resolve npm version and channel
+        id: package
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+          PRERELEASE: ${{ needs.resolve-release.outputs.prerelease }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          import { releaseMetadata } from './integrations/dsh/plugins/powercontext/scripts/stamp-version.mjs';
+          const { version, tag } = releaseMetadata(process.env.RELEASE_TAG, process.env.PRERELEASE === 'true');
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ntag=${tag}\n`);
+          JS
+
+      - name: Test and build DSH plugin
+        working-directory: integrations/dsh/plugins/powercontext
+        run: |
+          pnpm install --frozen-lockfile --config.auto-install-peers=false
+          pnpm test
+          pnpm build
+
+      - name: Pack and install the release archive
+        env:
+          POWERCONTEXT_DSH_PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+          DIST_TAG: ${{ steps.package.outputs.tag }}
+        run: |
+          package_dir=integrations/dsh/plugins/powercontext
+          node "$package_dir/scripts/pack-release.mjs" "$POWERCONTEXT_DSH_PACKAGE_VERSION" "$PWD/dist/dsh"
+          export POWERCONTEXT_DSH_TARBALL="$PWD/dist/dsh/powercontext-dsh-$POWERCONTEXT_DSH_PACKAGE_VERSION.tgz"
+          node --test "$package_dir/tests/pack-release.test.mjs"
+          npm publish "$POWERCONTEXT_DSH_TARBALL" --dry-run --ignore-scripts --access public --tag "$DIST_TAG"
+
+      - name: Preserve verified npm archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dsh-release-package
+          path: dist/dsh/*.tgz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
+  npm-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: [resolve-release, release-build, dsh-release-build, pypi-publish]
+    if: github.repository == 'oceanbase/powercontext'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out pinned release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Node for npm trusted publishing
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Download verified npm archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dsh-release-package
+          path: dist/dsh/
+
+      - name: Check whether the exact artifact is already published
+        id: registry
+        env:
+          PACKAGE_VERSION: ${{ needs.dsh-release-build.outputs.version }}
+        run: |
+          node integrations/dsh/plugins/powercontext/scripts/check-registry.mjs \
+            "dist/dsh/powercontext-dsh-$PACKAGE_VERSION.tgz" "$PACKAGE_VERSION"
+
+      - name: Publish with npm trusted publishing
+        if: steps.registry.outputs.published != 'true'
+        env:
+          PACKAGE_VERSION: ${{ needs.dsh-release-build.outputs.version }}
+          DIST_TAG: ${{ needs.dsh-release-build.outputs.tag }}
+        run: |
+          npm publish "dist/dsh/powercontext-dsh-$PACKAGE_VERSION.tgz" \
+            --ignore-scripts --access public --tag "$DIST_TAG" --registry=https://registry.npmjs.org/
+
+      - name: Verify published archive integrity
+        env:
+          PACKAGE_VERSION: ${{ needs.dsh-release-build.outputs.version }}
+        run: |
+          node integrations/dsh/plugins/powercontext/scripts/check-registry.mjs \
+            "dist/dsh/powercontext-dsh-$PACKAGE_VERSION.tgz" "$PACKAGE_VERSION" --required
+
   pypi-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: release-build
+    needs: [release-build, dsh-release-build]
     permissions:
       id-token: write
     steps:
@@ -123,7 +238,7 @@ jobs:
   release-assets:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [resolve-release, release-build]
+    needs: [resolve-release, release-build, dsh-release-build]
     permissions:
       contents: write
     steps:
@@ -138,6 +253,19 @@ jobs:
         with:
           tag_name: ${{ needs.resolve-release.outputs.tag }}
           files: dist/*
+          fail_on_unmatched_files: true
+
+      - name: Download verified npm archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dsh-release-package
+          path: dist/dsh/
+
+      - name: Upload npm archive to GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          tag_name: ${{ needs.resolve-release.outputs.tag }}
+          files: dist/dsh/*.tgz
           fail_on_unmatched_files: true
 
   release-verify:

@@ -29,7 +29,7 @@ const MAX_RESPONSE_BYTES = 1048576;
 const MAX_CONTEXT_BYTES = 32768;
 const MAX_SOURCE_LENGTH = 2e5;
 const PLUGIN_NAME = "powercontext-dsh";
-const PLUGIN_VERSION = "0.0.2";
+const PLUGIN_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const PLUGIN_USER_AGENT = `${PLUGIN_NAME}/${PLUGIN_VERSION}`;
 function safeRequestId(value) {
 	return value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value) ? value : void 0;
@@ -4433,8 +4433,7 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 					text
 				}],
 				source: {
-					kind: "plugin",
-					plugin: PLUGIN_NAME,
+					kind: `plugin:${PLUGIN_NAME}`,
 					form: "snapshot",
 					sections: [{
 						name: "PowerContext",
@@ -4448,8 +4447,7 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 					text
 				}],
 				source: {
-					kind: "plugin",
-					plugin: PLUGIN_NAME,
+					kind: `plugin:${PLUGIN_NAME}`,
 					form: "snapshot",
 					sections: [{
 						name: "PowerContext Scope routing",
