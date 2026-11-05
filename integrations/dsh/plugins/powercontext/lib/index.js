@@ -3041,7 +3041,7 @@ function mapServerErrorCore(error) {
 		message: "This request uses the unsupported legacy Memory collection protocol.",
 		recovery: MEMORY_PROTOCOL_RECOVERY,
 		status: 422,
-		request_id: error.requestId
+		...requestIdField(error.requestId)
 	};
 	const code = publicErrorCode(error.code);
 	if (error.statusCode === 400) return {

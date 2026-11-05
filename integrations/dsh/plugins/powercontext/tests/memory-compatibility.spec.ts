@@ -21,17 +21,19 @@ import { toToolResult } from '../src/invoke.ts'
 // A legacy response may carry user content in message/details. Only the known code
 // and locally owned recovery instructions should be exposed by this mapping.
 describe('legacy Memory rejection', () => {
-  it('preserves the code and gives recovery without leaking response content', () => {
+  it.each(['req-compat', undefined])('preserves safe recovery as lossless JSON with request ID %j', requestId => {
     const error = new ServerResponseError({
-      statusCode: 422, path: '/v1/memory/entries/revise', requestId: 'req-compat',
+      statusCode: 422, path: '/v1/memory/entries/revise', requestId,
       code: 'legacy_memory_operation_unsupported', message: 'private-response-marker',
     })
     const result = toToolResult(error)
     expect(result).toMatchObject({
-      ok: false, status: 422, code: 'legacy_memory_operation_unsupported', request_id: 'req-compat',
+      ok: false, status: 422, code: 'legacy_memory_operation_unsupported',
       recovery: expect.stringContaining('powercontext setup dsh'),
     })
     expect(result.recovery).toContain('Do not drop collection CAS')
+    expect(result.request_id).toBe(requestId)
+    expect(JSON.parse(JSON.stringify(result))).toStrictEqual(result)
     expect(JSON.stringify(result)).not.toContain('private-response-marker')
   })
 })

@@ -88,7 +88,7 @@ function requestIdField(requestId: string | undefined): { request_id?: string } 
 function mapServerErrorCore(error: ServerResponseError): ToolResult {
   if (error.statusCode === 422 && error.code === 'legacy_memory_operation_unsupported') return {
     ok: false, code: error.code, message: 'This request uses the unsupported legacy Memory collection protocol.',
-    recovery: MEMORY_PROTOCOL_RECOVERY, status: 422, request_id: error.requestId,
+    recovery: MEMORY_PROTOCOL_RECOVERY, status: 422, ...requestIdField(error.requestId),
   }
   const code = publicErrorCode(error.code)
   if (error.statusCode === 400) {
