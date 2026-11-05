@@ -227,8 +227,18 @@ API 出错时程序不会自己写补丁：它记录失败原因并以非零码�
 ### 5.4 在自建的 seekdb 上验证补丁（需要 Linux 构建机）
 
 本机是 Windows，没有 bazel/g++，所以服务层验收只能停在"未打补丁的 1.4.0 镜像"上。
-拿到一台能构建的 Linux 机器（或 WSL2，建议 ≥16 GB 内存、≥40 GB 空闲磁盘）后按下面执行，
-服务层验收就会从红转绿：
+拿到一台能构建的 Linux 机器后按下面执行，服务层验收才会从红转绿。
+
+**先判断这台机器够不够**（`build.py` 会下载 Bazel 9.3.0 与 `deps/3rd/tools/llvm18`，
+所以系统 gcc 版本不重要，**glibc、内存、磁盘、网络**才重要）：
+
+```bash
+bash scripts/preflight_linux.sh
+```
+
+判据：glibc ≥ 2.28、内存 ≥ 16 GB、磁盘 ≥ 50 GB、能访问 github.com。
+CentOS 7（glibc 2.17、9 GB 内存）**不满足**，会直接给出替代方案（换 Ubuntu 22.04 容器 / 走 CI）。
+没有 git 的机器用 `bash scripts/apply_without_git.sh <seekdb 目录>` 应用（GNU `patch -p1`，已实测）。
 
 ```bash
 # 一键：应用补丁 → 构建 → 起实例 → 建库 → 验收（脚本在 scripts/verify_on_linux.sh）
