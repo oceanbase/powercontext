@@ -2162,6 +2162,10 @@ function resolveConfig(env = process.env) {
 }
 
 //#endregion
+//#region src/memory-compatibility.ts
+const MEMORY_PROTOCOL_RECOVERY = "Update the PowerContext CLI/SDK and plugin to a release compatible with the Server; run powercontext setup opencode for the affected profile, then fully restart the host and rerun Doctor. Search again for an Atomic Memory artifact reference before retrying. Do not drop collection CAS preconditions or automatically replay writes.";
+
+//#endregion
 //#region src/memory-operations.ts
 var MemoryOperationError = class extends Error {
 	code;
@@ -2285,6 +2289,14 @@ function errorResult(error) {
 		message: error.message
 	};
 	if (error instanceof ServerResponseError) {
+		if (error.statusCode === 422 && error.code === "legacy_memory_operation_unsupported") return {
+			ok: false,
+			code: error.code,
+			message: "This request uses the unsupported legacy Memory collection protocol.",
+			recovery: MEMORY_PROTOCOL_RECOVERY,
+			status: 422,
+			request_id: error.requestId
+		};
 		if (error.statusCode === 401) return {
 			ok: false,
 			code: "authentication_failed",

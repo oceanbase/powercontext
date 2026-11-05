@@ -30,6 +30,7 @@ from typing import Any, ClassVar
 
 from . import commands, trace
 from .client import (
+    MEMORY_PROTOCOL_RECOVERY,
     PowerContextClient,
     PowerContextError,
     PowerContextHTTPError,
@@ -187,6 +188,8 @@ def _diagnostic_classification(
             return "version_mismatch", status, error.code
         if status == 503:
             return "server_unavailable", status, error.code
+        if status == 422 and error.code == "legacy_memory_operation_unsupported":
+            return "invalid_response", status, error.code
         if status in {404, 409, 422} and error.path not in _AUTOMATIC_OPERATION_PATHS.get(event, frozenset()):
             return None
         return "invalid_response", status, error.code
@@ -281,7 +284,9 @@ class PowerContextMemoryProvider(MemoryProvider):
             payload["http_status"] = status
         if error_code is not None:
             payload["error_code"] = error_code
-        if outcome == "server_unavailable":
+        if status == 422 and error_code == "legacy_memory_operation_unsupported":
+            payload["recovery"] = MEMORY_PROTOCOL_RECOVERY
+        elif outcome == "server_unavailable":
             payload["recovery"] = "powercontext doctor"
         logger.warning("%s", json.dumps(payload, separators=(",", ":")))
 

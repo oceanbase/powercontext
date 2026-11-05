@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { MEMORY_PROTOCOL_RECOVERY } from './memory-compatibility.ts'
 import type { PowerContextClient, JsonObject } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { failureEvent, isVersionMismatch, publicErrorCode, SCOPE_BINDING_TARGET_MISSING_RECOVERY } from './diagnostics.ts'
@@ -37,6 +38,7 @@ export interface ToolResult extends BodyFailureDetails {
   code?: string
   error_code?: string
   message?: string
+  recovery?: string
   status?: number
   request_id?: string
   etag?: string
@@ -84,6 +86,10 @@ function requestIdField(requestId: string | undefined): { request_id?: string } 
  * outcomes, not domain outcomes.
  */
 function mapServerErrorCore(error: ServerResponseError): ToolResult {
+  if (error.statusCode === 422 && error.code === 'legacy_memory_operation_unsupported') return {
+    ok: false, code: error.code, message: 'This request uses the unsupported legacy Memory collection protocol.',
+    recovery: MEMORY_PROTOCOL_RECOVERY, status: 422, request_id: error.requestId,
+  }
   const code = publicErrorCode(error.code)
   if (error.statusCode === 400) {
     // The Server's 400 is not only a malformed request: `invalid_cursor` (RFC 1502) is the

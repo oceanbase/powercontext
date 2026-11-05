@@ -85,5 +85,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "powercontext": {
+    "memoryProtocol": "atomic-artifact-v1"
   }
 }

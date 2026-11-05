@@ -67,5 +67,8 @@
   "engines": {
     "node": ">=20",
     "opencode": ">=1.18.21 <2"
+  },
+  "powercontext": {
+    "memoryProtocol": "atomic-artifact-v1"
   }
 }

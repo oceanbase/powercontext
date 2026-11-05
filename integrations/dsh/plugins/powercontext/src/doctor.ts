@@ -16,6 +16,7 @@
 
 import type { ClientSuccess } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
+import { MEMORY_PROTOCOL_RECOVERY, memoryProtocolCheck } from './memory-compatibility.ts'
 import { publicErrorCode } from './diagnostics.ts'
 import { authenticationRejection, bodyFailureDetails, type BodyFailureDetails, InvalidResponseError,
   RESPONSE_ISSUES, ResponseReadError, ServerResponseError, TransportError } from './errors.ts'
@@ -40,6 +41,8 @@ export interface DoctorCheck extends BodyFailureDetails {
 const CORE_OPERATIONS: OperationId[] = [
   'get_liveness', 'get_readiness', 'get_capabilities', 'resolve_scope_binding',
   'prepare_context', 'capture_content_source', 'remember_memory', 'search_memory',
+  'list_atomic_memories', 'get_artifact', 'get_artifact_revision', 'replace_artifact',
+  'get_atomic_memory_state', 'change_atomic_memory_lifecycle',
 ]
 const DEPENDENCY_RECOVERY: Record<string, string> = {
   runtime: 'Inspect the running Server startup and service logs for Runtime initialization failures.',
@@ -128,6 +131,8 @@ export function operationFailure(operation: string, error: unknown): DoctorCheck
       'Set POWERCONTEXT_DSH_AUTHORIZATION to the intended Server credential and restart the DSH process so it receives the override.')
     else if (error.statusCode === 403) result = check(operation, 'authorization_failed', 'The authenticated principal is not allowed to perform this operation.',
       'Check the principal permissions for this operation and selected Scope on the running Server.')
+    else if (error.statusCode === 422 && code === 'legacy_memory_operation_unsupported') result = check(operation, code,
+      'The request uses the unsupported legacy Memory collection protocol.', MEMORY_PROTOCOL_RECOVERY)
     else if (error.statusCode === 404 && error.code === undefined) result = check(operation, 'required_route_missing', 'The required operation returned HTTP 404 without a domain error code.',
       'Check this operation in the Server API and proxy route table, the plugin base-path setting, and the installed Server/plugin refs. A 404 alone cannot identify which configuration is wrong.')
     else if (error.statusCode === 404 && code === 'scope_not_found') result = check(operation, code, 'The Server could not find the requested Scope.',
@@ -238,6 +243,9 @@ function routes(response: ClientSuccess, flush: boolean): DoctorCheck {
   const body = response.value
   if (response.status !== 200 || !record(body) || typeof body.openapi !== 'string' || !body.openapi.startsWith('3.')
     || !record(body.paths)) invalid(operation, response, 'openapi')
+  const memory = memoryProtocolCheck(body['x-powercontext-feature-contracts'], 'openapi')
+  if (!memory.ok) return { ...check(operation, memory.code, memory.message, memory.recovery),
+    http_status: response.status, ...requestId(response.requestId) }
   const required = [...CORE_OPERATIONS, ...flush ? ['flush_memory' as const] : []]
   const paths = body.paths
   const missing = required.filter(id => {
@@ -278,6 +286,10 @@ function nativeMcpCatalog(catalog: unknown, scope?: unknown): DoctorCheck {
   const mcpTools = schemas.flatMap(schema => record(schema) && typeof schema.name === 'string'
     ? [schema.name] : []).filter(name => name.startsWith('mcp__'))
   const powerContextTools = mcpTools.filter(name => name.startsWith('mcp__powercontext__'))
+  if (powerContextTools.some(name => ['mcp__powercontext__revise_memory_entry', 'mcp__powercontext__retire_memory_entry'].includes(name))) {
+    return check(operation, 'legacy_memory_operation_unsupported',
+      'The running tool catalog still exposes legacy Memory collection mutations.', MEMORY_PROTOCOL_RECOVERY)
+  }
   if (powerContextTools.length) {
     return { ...check(operation, 'native_mcp_tools_visible',
       'The active DSH tool catalog exposes native PowerContext MCP tools.', undefined, 'ok'), tools: powerContextTools }
@@ -371,7 +383,7 @@ export async function diagnoseServer(
     'Resolve the Scope check first.', 'skipped')
   checks.mcp_catalog = nativeMcpCatalog(toolCatalog, toolScope)
   return {
-    ok: Object.entries(checks).every(([name, value]) => name === 'mcp_catalog' || value.state === 'ok'),
+    ok: Object.entries(checks).every(([name, value]) => (name === 'mcp_catalog' && value.code !== 'legacy_memory_operation_unsupported') || value.state === 'ok'),
     configuration: { ...config.summary, readiness_request_timeout_ms: runtime.client.requestTimeoutMsFor('get_readiness') }, checks,
     coverage: 'Read-only checks of the current configuration. Native MCP catalog visibility is reported separately and does not establish '
       + 'HTTP plugin health. Write routes are declared by the contract but not executed; processing, capture and injection are not verified by Doctor.',
