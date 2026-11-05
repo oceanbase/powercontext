@@ -429,10 +429,12 @@ jobs:
             tests/e2e/test_scope_search_migration.py
 
       - name: Test background listener lifecycle without skips
-        timeout-minutes: 5
+        # Cold Server schema/index creation consumed 165s before the lifecycle checks.
+        # Keep the CLI startup/stop deadlines and give only this combined case 300s.
+        timeout-minutes: 10
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --case-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
