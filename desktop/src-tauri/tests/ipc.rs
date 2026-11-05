@@ -16,7 +16,7 @@
 
 use powercontext_desktop::ipc::allowed_navigation;
 use tauri::{
-    ipc::{CallbackFn, InvokeBody},
+    ipc::{CallbackFn, InvokeBody, InvokeResponseBody},
     test::{INVOKE_KEY, get_ipc_response, mock_builder},
     webview::InvokeRequest,
 };
@@ -31,6 +31,43 @@ const LOCAL_ORIGIN: &str = if cfg!(any(windows, target_os = "android")) {
 fn test_context<R: tauri::Runtime>() -> tauri::Context<R> {
     // The macOS plist must be embedded once per test executable.
     tauri::generate_context!()
+}
+
+#[test]
+fn foundation_info_reports_the_runtime_candidate_version() {
+    use tauri::Manager;
+
+    let mut context = test_context();
+    context.package_info_mut().version = "1.2.3".parse().unwrap();
+    let app = mock_builder()
+        .invoke_handler(tauri::generate_handler![
+            powercontext_desktop::ipc::foundation_info
+        ])
+        .build(context)
+        .unwrap();
+    let window = app.get_webview_window("main").unwrap_or_else(|| {
+        tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap()
+    });
+    let response = get_ipc_response(
+        &window,
+        InvokeRequest {
+            cmd: "foundation_info".into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: LOCAL_ORIGIN.parse().unwrap(),
+            body: InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: INVOKE_KEY.into(),
+        },
+    )
+    .unwrap();
+    let InvokeResponseBody::Json(body) = response else {
+        panic!("foundation_info must return JSON");
+    };
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["version"], "1.2.3");
 }
 
 #[test]
