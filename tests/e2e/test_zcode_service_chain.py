@@ -104,7 +104,10 @@ def _invoke_hook(
         output = json.loads(result.stdout)
         diagnostics = [json.loads(line) for line in result.stderr.splitlines()]
         if diagnostics != [{"component": "powercontext.zcode", "stage": "scope", "code": "timeout"}]:
-            allowed = [{"component": "powercontext.zcode", "stage": stage, "code": "timeout"} for stage in allowed_timeout_stages]
+            allowed = [
+                {"component": "powercontext.zcode", "stage": stage, "code": "timeout"}
+                for stage in allowed_timeout_stages
+            ]
             assert all(diagnostic in allowed for diagnostic in diagnostics), result.stderr
             return output
         # Scope resolution failed before capture. A capture timeout may have
@@ -174,6 +177,25 @@ def _observe_binding_replies(app, binding_delay: float) -> list[tuple[str, dict[
     return binding_mutations
 
 
+def _wait_for_workspace_binding(
+    client: httpx.Client, binding_mutations: list[tuple[str, dict[str, Any]]], expected: str | None
+) -> None:
+    deadline = time.monotonic() + 10
+    while True:
+        if binding_mutations:
+            selected = client.post(
+                "/v1/scope-bindings/resolve",
+                json={"binding_keys": [binding_mutations[0][1]["key"]], "allow_default": False},
+            )
+            if expected is None and selected.status_code == 404:
+                return
+            if selected.status_code == 200 and selected.json()["scope_id"] == expected:
+                return
+            assert selected.status_code in {200, 404}, selected.text
+        assert time.monotonic() < deadline, (expected, binding_mutations)
+        time.sleep(0.05)
+
+
 def _exercise_scope_bindings(
     client: httpx.Client,
     node: str,
@@ -183,28 +205,13 @@ def _exercise_scope_bindings(
     binding_delay: float,
     slow_initial_prepare: bool,
 ) -> None:
-    def wait_for_workspace_binding(expected: str | None) -> None:
-        deadline = time.monotonic() + 10
-        while True:
-            if binding_mutations:
-                selected = client.post(
-                    "/v1/scope-bindings/resolve",
-                    json={"binding_keys": [binding_mutations[0][1]["key"]], "allow_default": False},
-                )
-                if expected is None and selected.status_code == 404:
-                    return
-                if selected.status_code == 200 and selected.json()["scope_id"] == expected:
-                    return
-                assert selected.status_code in {200, 404}, selected.text
-            assert time.monotonic() < deadline, (expected, binding_mutations)
-            time.sleep(0.05)
 
     binding = _run_scope(node, environment, "bind", "--scope-id", scope_id)
     if binding_delay:
         assert binding["status"] == "failed" and binding["binding"]["status"] == "unknown", binding
     if binding["status"] == "resolved":
         assert binding["scope_id"] == scope_id, binding
-    wait_for_workspace_binding(scope_id)
+    _wait_for_workspace_binding(client, binding_mutations, scope_id)
     assert len(binding_mutations) == 1
     assert binding_mutations[0][0] == "/v1/scope-bindings"
     other = client.post(
@@ -266,11 +273,9 @@ def _exercise_scope_bindings(
         assert unbinding["status"] == "failed" and unbinding["binding"]["status"] == "unknown", unbinding
     if unbinding["status"] == "resolved":
         assert unbinding["scope_id"] == session_scope, unbinding
-    wait_for_workspace_binding(None)
+    _wait_for_workspace_binding(client, binding_mutations, None)
     assert [path for path, _ in binding_mutations] == ["/v1/scope-bindings", "/v1/scope-bindings/clear"]
     assert binding_mutations[0][1]["key"] == binding_mutations[1][1]["key"]
-
-
 
 
 def _wait_for_processed_memory(client: httpx.Client, scope_id: str, text: str) -> dict[str, Any]:
@@ -349,11 +354,23 @@ class _HookBoundaryFaults:
 
 @pytest.mark.parametrize(
     ("processing_delay", "binding_delay", "slow_flush_receipt", "slow_retry_resolution", "slow_initial_prepare"),
-    [(0, 0, False, False, False), (0, 0, True, False, False), (0, 0, True, True, False),
-     (0, 0, False, False, True), (1.2, 0, False, False, False), (0, 1.2, False, False, False)],
+    [
+        (0, 0, False, False, False),
+        (0, 0, True, False, False),
+        (0, 0, True, True, False),
+        (0, 0, False, False, True),
+        (1.2, 0, False, False, False),
+        (0, 1.2, False, False, False),
+    ],
 )
 def test_zcode_source_is_processed_and_recalled_in_a_new_session(
-    tmp_path: Path, monkeypatch, processing_delay, binding_delay, slow_flush_receipt, slow_retry_resolution, slow_initial_prepare
+    tmp_path: Path,
+    monkeypatch,
+    processing_delay,
+    binding_delay,
+    slow_flush_receipt,
+    slow_retry_resolution,
+    slow_initial_prepare,
 ) -> None:
     monkeypatch.setenv("ZCODE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
     node = shutil.which("node")
@@ -397,13 +414,14 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
             )
             created.raise_for_status()
             scope_id = created.json()["scope_id"]
-            scope_script = HOOK.parent.parent / "scripts" / "scope.mjs"
             environment = dict(os.environ)
             environment.pop("POWERCONTEXT_ZCODE_SCOPE_ID", None)
             environment.pop("ZCODE_SESSION_ID", None)
             environment["POWERCONTEXT_ZCODE_SERVER_URL"] = base_url
 
-            _exercise_scope_bindings(client, node, environment, scope_id, binding_mutations, binding_delay, slow_initial_prepare)
+            _exercise_scope_bindings(
+                client, node, environment, scope_id, binding_mutations, binding_delay, slow_initial_prepare
+            )
             first = _invoke_hook(
                 node=node,
                 base_url=base_url,
