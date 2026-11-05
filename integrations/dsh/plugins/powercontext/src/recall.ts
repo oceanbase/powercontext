@@ -87,8 +87,16 @@ function isRuntimeContextSnapshot(message: unknown): boolean {
     && value.form === 'snapshot'
 }
 
+function isHostSkillMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false
+  const source = (message as { source?: unknown }).source
+  if (!source || typeof source !== 'object') return false
+  const kind = (source as { kind?: unknown }).kind
+  return kind === 'skill-catalog' || kind === 'skill-invocation'
+}
+
 export function messagesToQuery(messages: readonly unknown[]): string {
-  return messagesToText(messages.filter((message) => !isRuntimeContextSnapshot(message)))
+  return messagesToText(messages.filter((message) => !isRuntimeContextSnapshot(message) && !isHostSkillMessage(message)))
 }
 
 export function messagesToUserPrompt(messages: readonly unknown[]): string {

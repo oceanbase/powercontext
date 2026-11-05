@@ -15,6 +15,7 @@
  */
 let node_crypto = require("node:crypto");
 let node_readline = require("node:readline");
+let node_fs = require("node:fs");
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -22,7 +23,15 @@ const MAX_RESPONSE_BYTES = 1048576;
 const MAX_CONTEXT_BYTES = 32768;
 const MAX_SOURCE_LENGTH = 2e5;
 const PLUGIN_NAME = "powercontext-dsh";
-const PLUGIN_VERSION = "0.0.2";
+function readPluginVersion() {
+	try {
+		const manifest = JSON.parse((0, node_fs.readFileSync)(new URL("../package.json", require("url").pathToFileURL(__filename).href), "utf8"));
+		return typeof manifest.version === "string" && manifest.version.trim() ? manifest.version : "unknown";
+	} catch {
+		return "unknown";
+	}
+}
+const PLUGIN_VERSION = readPluginVersion();
 const PLUGIN_USER_AGENT = `${PLUGIN_NAME}/${PLUGIN_VERSION}`;
 function safeRequestId(value) {
 	return value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value) ? value : void 0;

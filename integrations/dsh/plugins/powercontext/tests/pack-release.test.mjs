@@ -1,16 +1,31 @@
-/* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import spawn from 'cross-spawn'
 
 const root = resolve(import.meta.dirname, '..')
 
-test('release archive installs and loads without checkout files or install scripts', { timeout: 120000 }, () => {
+test('release archive installs and loads without checkout files or install scripts', { timeout: 120000 }, async () => {
   const consumer = mkdtempSync(join(tmpdir(), 'powercontext dsh (consumer)-'))
   const original = readFileSync(join(root, 'package.json'), 'utf8')
   try {
@@ -28,6 +43,10 @@ test('release archive installs and loads without checkout files or install scrip
     assert.equal(manifest.version, version)
     assert.equal(manifest.scripts, undefined)
     assert.equal(manifest.devDependencies, undefined)
+    const plugin = await import(pathToFileURL(join(installed, manifest.main)).href)
+    assert.ok(plugin.inject.includes('skills'))
+    assert.match(readFileSync(join(installed, 'skills/powercontext-project-context/SKILL.md'), 'utf8'),
+      /name: powercontext-project-context/)
     for (const file of [...manifest.files, 'README.md', 'LICENSE', manifest.dsh.bundle.patch]) {
       assert.ok(existsSync(join(installed, file)), `missing published asset: ${file}`)
     }

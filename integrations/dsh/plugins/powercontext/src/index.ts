@@ -15,6 +15,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { readFileSync } from 'node:fs'
 import { PowerContextClient } from './client.ts'
 import { registerCommands } from './commands.ts'
 import { resolveConfig, type PluginConfig } from './config.ts'
@@ -26,11 +27,12 @@ import { loadPeer } from './peers.ts'
 import { runRecallPreStep, type PromptMessage } from './recall.ts'
 import { resolveScopeId } from './scope.ts'
 import { registerGuidance } from './guidance.ts'
+import { requireService } from './dsh-service.ts'
 import { RuntimeStatus } from './status.ts'
 
 export const name = PLUGIN_NAME
 
-export const inject = ['tools', 'agents', 'commands', 'systemPrompt']
+export const inject = ['tools', 'agents', 'commands', 'skills', 'systemPrompt']
 
 export interface Config extends PluginConfig {}
 
@@ -155,11 +157,23 @@ function registerRecall(
   }) as never)
 }
 
+function registerSkill(ctx: Context): void {
+  const skills = requireService<{ register(skill: Record<string, unknown>): unknown }>(ctx, 'skills')
+  const content = readFileSync(new URL('../skills/powercontext-project-context/SKILL.md', import.meta.url), 'utf8')
+  skills.register({
+    name: 'powercontext-project-context',
+    description: 'PowerContext memory search/save, inventory, work handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.',
+    source: 'runtime',
+    content,
+  })
+}
+
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
   const sessionScope = createSessionScopeResolver(runtime)
   registerMcpPolicy(ctx, sessionScope.forTool)
+  registerSkill(ctx)
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
   registerCommands(ctx, runtime)

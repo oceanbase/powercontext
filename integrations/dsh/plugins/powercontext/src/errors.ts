@@ -21,7 +21,18 @@ export const MAX_RESPONSE_BYTES = 1_048_576
 export const MAX_CONTEXT_BYTES = 32_768
 export const MAX_SOURCE_LENGTH = 200_000
 export const PLUGIN_NAME = 'powercontext-dsh'
-export const PLUGIN_VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+
+function readPluginVersion(): string {
+  try {
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: unknown }
+    return typeof manifest.version === 'string' && manifest.version.trim() ? manifest.version : 'unknown'
+  } catch {
+    // Shared adapters such as Cindy bundle this module without the DSH package manifest.
+    return 'unknown'
+  }
+}
+
+export const PLUGIN_VERSION = readPluginVersion()
 export const PLUGIN_USER_AGENT = `${PLUGIN_NAME}/${PLUGIN_VERSION}`
 
 export function safeRequestId(value: string | undefined): string | undefined {
