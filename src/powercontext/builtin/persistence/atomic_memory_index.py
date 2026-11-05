@@ -49,7 +49,7 @@ from powercontext.builtin.tags import TagFilter
 
 AtomicMemorySearchMode = Literal["fts", "vector", "hybrid"]
 ATOMIC_MEMORY_RRF_CONSTANT = 60
-DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE = 100
+DEFAULT_ATOMIC_MEMORY_RELATED_PAGE_SIZE = 250
 # Columns of unreleased development layouts; their tables are derived and rebuilt rather than migrated.
 _OBSOLETE_PROJECTION_COLUMNS = frozenset({"read_grants", "owner_type", "owner_id"})
 

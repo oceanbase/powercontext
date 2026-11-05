@@ -43,7 +43,7 @@ def test_artifact_processing_configuration_defaults_match_the_rfc() -> None:
 
     assert runtime.topic_memory_schedule_seconds is None
     assert runtime.topic_memory_source_window_limit == 10
-    assert runtime.atomic_memory_related_page_size == 100
+    assert runtime.atomic_memory_related_page_size == 250
     assert runtime.topic_memory_history_max_candidates == 20
     assert runtime.topic_memory_history_rrf_threshold == 70
     assert runtime.topic_memory_history_min_candidates == 5
@@ -86,8 +86,8 @@ def test_artifact_processing_configuration_rejects_invalid_bounds() -> None:
 def test_atomic_memory_processing_config_validates_the_page_size() -> None:
     assert AtomicMemoryProcessingConfig(related_page_size=60).related_page_size == 60
     assert AtomicMemoryProcessingConfig(related_page_size=1000).related_page_size == 1000
-    assert AtomicMemoryProcessingConfig().related_page_size == 100
-    assert AtomicMemoryProcessingConfig.from_runtime(RuntimeConfig()).related_page_size == 100
+    assert AtomicMemoryProcessingConfig().related_page_size == 250
+    assert AtomicMemoryProcessingConfig.from_runtime(RuntimeConfig()).related_page_size == 250
     for invalid in (0, -1, 1001, True, 3.0, "3"):
         with pytest.raises(ValueError):
             AtomicMemoryProcessingConfig(**cast(Any, {"related_page_size": invalid}))
