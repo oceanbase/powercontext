@@ -236,7 +236,9 @@ CA and reverse-proxy base path, and an enforced authentication Provider. The pro
 this record through ordinary `ConnectionManager` profile checking, activation and
 exact-Scope selection, and the report records
 `qualificationSource: bundled product records` with
-`qualificationId: sqlite-operations-e958f47c-v1`. Coverage is save/search/exact reads,
+`qualificationId: sqlite-operations-e958f47c-v1`. The four configurations passed with
+`desktopWorkingTreeDirty=false` at Desktop commit
+`9efb56f7cde564cd5d4b369c38e1b4f308e4b396`. Coverage is save/search/exact reads,
 identity changes, binding revocation, lost write responses without replay, Scope
 pagination and Server survival after client exit.
 
