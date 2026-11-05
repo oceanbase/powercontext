@@ -544,8 +544,8 @@ jobs:
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ubuntu-latest
-    # OceanBase regressions can take 32 minutes before the separate replay scenarios.
-    timeout-minutes: ${{ matrix.database == 'oceanbase' && 60 || 40 }}
+    # Reserve 50m for OceanBase regressions, 15m for replay, and 10m for setup/evidence/cleanup.
+    timeout-minutes: ${{ matrix.database == 'oceanbase' && 75 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -564,7 +564,8 @@ jobs:
           version: ${{ env.UV_VERSION }}
 
       - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
-        timeout-minutes: 40
+        # The 22 tests alone took 39m; this step also starts the database and installs dependencies.
+        timeout-minutes: 50
         if: matrix.database == 'oceanbase'
         env:
           COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
