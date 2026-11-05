@@ -895,6 +895,29 @@ fn linux_runtime_environment_is_preserved_only_for_a_private_owned_directory() {
     assert!(trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).is_none());
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_xdg_home_environment_preserves_a_non_default_layout() {
+    let dir = fixture_dir();
+    let values = [
+        ("XDG_CONFIG_HOME", dir.path().join("config")),
+        ("XDG_DATA_HOME", dir.path().join("data")),
+        ("XDG_STATE_HOME", dir.path().join("state")),
+        ("XDG_CACHE_HOME", dir.path().join("cache")),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    let environment =
+        trust::trusted_linux_xdg_environment_from(|name| values.get(name).cloned()).unwrap();
+    for (name, path) in values {
+        assert_eq!(environment.get(name).map(String::as_str), path.to_str());
+    }
+
+    let invalid =
+        std::collections::BTreeMap::from([("XDG_CONFIG_HOME", PathBuf::from("relative/config"))]);
+    assert!(trust::trusted_linux_xdg_environment_from(|name| invalid.get(name).cloned()).is_err());
+}
+
 #[test]
 fn database_admission_v1_extensions_remain_bounded_and_actionable() {
     let r = request(OpsAction::Inspect, json!({}));

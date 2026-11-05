@@ -234,8 +234,11 @@ impl Trust {
             env.insert("TMPDIR".into(), "/tmp".into());
         }
         #[cfg(target_os = "linux")]
-        if let Some(runtime_dir) = trusted_linux_runtime_dir() {
-            env.insert("XDG_RUNTIME_DIR".into(), runtime_dir);
+        {
+            if let Some(runtime_dir) = trusted_linux_runtime_dir() {
+                env.insert("XDG_RUNTIME_DIR".into(), runtime_dir);
+            }
+            env.extend(trusted_linux_xdg_environment()?);
         }
         Ok(Launch {
             executable,
@@ -272,6 +275,37 @@ pub(super) fn trusted_linux_runtime_dir_from(configured: Option<PathBuf>) -> Opt
         return None;
     }
     path_string(&path).ok()
+}
+
+#[cfg(target_os = "linux")]
+fn trusted_linux_xdg_environment() -> Result<BTreeMap<String, String>, Error> {
+    trusted_linux_xdg_environment_from(|name| std::env::var_os(name).map(PathBuf::from))
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn trusted_linux_xdg_environment_from(
+    configured: impl Fn(&str) -> Option<PathBuf>,
+) -> Result<BTreeMap<String, String>, Error> {
+    let mut environment = BTreeMap::new();
+    for name in [
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+    ] {
+        let Some(path) = configured(name) else {
+            continue;
+        };
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+        {
+            return Err(Error::Unavailable);
+        }
+        environment.insert(name.to_owned(), path_string(&path)?);
+    }
+    Ok(environment)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
