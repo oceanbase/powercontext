@@ -2,7 +2,7 @@ name: ARC runner image smoke
 
 on:
   push:
-    branches: [codex/powercontext-ci-runner-smoke]
+    branches: [codex/powercontext-ci-image-smoke]
     paths: [.github/workflows/runner-smoke.yml]
   workflow_dispatch:
 
