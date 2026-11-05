@@ -194,6 +194,25 @@ pub async fn local_diagnostics<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+pub async fn get_stats<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+    period: crate::transport::wire::StatsPeriod,
+) -> Result<crate::transport::ExactScopeStatistics, ApiFailure> {
+    manager(&window, &state)?.stats(generation, period).await
+}
+#[tauri::command]
+pub fn cancel_stats_reads<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<(), ApiFailure> {
+    manager(&window, &state)?
+        .cancel_stats_reads(generation)
+        .map_err(Into::into)
+}
+#[tauri::command]
 pub async fn remember_memory<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     state: tauri::State<'_, HostState>,

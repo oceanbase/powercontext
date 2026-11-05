@@ -107,3 +107,21 @@ def test_stale_generated_contract_cannot_create_fixture_qualification(desktop: P
     with pytest.raises(ValueError, match="fixture_generated_contract_drift"):
         qualification.build_profile(desktop, "a" * 40)
     assert not (desktop / ".artifacts/ci-compatibility.json").exists()
+
+
+def test_product_acceptance_rejects_a_fixture_only_native_probe() -> None:
+    specification = importlib.util.spec_from_file_location("desktop_real_server", ROOT / "desktop/tests/real_server.py")
+    assert specification is not None and specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    # A stale executable can ignore the new input flag and still complete using
+    # injected qualification. It must not be accepted as product-path evidence.
+    old_probe = {"result": "passed", "performance": {"samples": []}}
+    with pytest.raises(module.HarnessFailure, match="product_probe_qualification"):
+        module.probe_measurement(json.dumps(old_probe), "qualified-product")
+    product_probe = {
+        **old_probe,
+        "qualificationSource": "bundled product records",
+        "qualificationId": "qualified-product",
+    }
+    assert module.probe_measurement(json.dumps(product_probe), "qualified-product") == {"samples": []}
