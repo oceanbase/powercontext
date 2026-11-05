@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from pydantic_ai.models import Model
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.profiles.anthropic import AnthropicModelProfile
 
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
 from powercontext.builtin.artifacts.memory.canonical import normalize_query
@@ -329,7 +330,7 @@ def test_inherited_rerank_receipt_omits_sampling_the_anthropic_adapter_drops(tmp
             else TestModel(
                 custom_output_text='{"selected_ranks":[1]}',
                 settings={"temperature": 0.4},
-                profile={"anthropic_disallows_sampling_settings": True},
+                profile=AnthropicModelProfile(anthropic_disallows_sampling_settings=True),
             )
         ),
     )

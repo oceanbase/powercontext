@@ -308,7 +308,7 @@ def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name
     # not enough because other packages can pull in ``httpx2`` too.
     import anthropic._base_client as _anthropic_client
 
-    _http = getattr(_anthropic_client, "httpx", None) or _anthropic_client.httpx2
+    _http = vars(_anthropic_client).get("httpx") or vars(_anthropic_client)["httpx2"]
     requests: list[dict[str, object]] = []
 
     def respond(request: _http.Request) -> _http.Response:
