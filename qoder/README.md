@@ -209,12 +209,16 @@ python -m pytest tests -q          # 22 passed
 
 ## 8. 材料索引
 
+**项目网站（Qoder Sites，任何人都可访问）：<https://syncrecall-zrr0ailg6io.qoder.zone>**
+
 | 材料 | 位置 |
 | --- | --- |
+| 项目网站（线上） | <https://syncrecall-zrr0ailg6io.qoder.zone> |
+| 项目网站（源码，发布用） | [`site/`](site/) |
 | 运行说明 | 本文 |
 | 验证样例 | [`docs/验证样例.md`](docs/验证样例.md) |
 | 技术使用记录（seekdb / PowerContext 的分工与实测） | [`docs/技术使用记录.md`](docs/技术使用记录.md) |
 | 一页技术说明 | [`docs/一页技术说明.md`](docs/一页技术说明.md) |
 | Qoder 开发记录（含账号 UID） | [`docs/Qoder开发记录.md`](docs/Qoder开发记录.md) |
 | 逐条命令与输出 | [`logs/`](logs/) |
-| 项目网站（Qoder Sites） | [`site/`](site/) |
+| 界面与站点截图 | [`docs/screenshots/`](docs/screenshots/) |

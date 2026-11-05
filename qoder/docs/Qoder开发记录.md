@@ -70,38 +70,36 @@ $ python -c "from syncrecall.service import extract_keywords; print(extract_keyw
 ['Raft', '日志复制', '日志复', '志复制']      # 「麻烦」已被过滤
 ```
 
-### 3.3 还需要补的截图
+### 3.4 用 Qoder Sites 发布项目网站（已完成）
 
-`qoder/docs/screenshots/` 目前只有第 3 轮的调试截图。建议再截两张（同一任务里追加对话即可）：
+| 项 | 值 |
+| --- | --- |
+| 在线地址 | **<https://syncrecall-zrr0ailg6io.qoder.zone>** |
+| 可见范围 | 任何人都可访问（无痕窗口已验证，HTTP 200） |
+| 内容核对 | 页面标题、`SyncRecall`、`seekdb`、`PowerContext`、团队仓库链接、演演示截图均已加载 |
+| 截图存档 | [`docs/screenshots/实录-05-QoderSites.png`](screenshots/实录-05-QoderSites.png)（无痕窗口） |
+
+发布路径：Qoder CN 侧栏 **站点 → 添加站点**，在工作区 `powercontext-clone` 下由 Agent
+基于 `qoder/site/index.html` 生成并确认发布。
+
+### 3.5 还需要补的截图
+
+`qoder/docs/screenshots/` 现在有调试（3.1）与站点发布（3.4）两张。建议再补两张，
+在同一任务里追加对话即可：
 
 | 截图 | 在这轮对话里发 | 对应环节 |
 | --- | --- | --- |
 | `实录-01-需求拆解.png` | 「解释 `qoder/src/syncrecall/search.py` 里那条混合检索 SQL 每一层在做什么，为什么必须在库内融合」 | 需求拆解 |
 | `实录-02-编码.png` | 「在 `qoder/src/syncrecall/service.py` 的 `extract_keywords` 里加入停顿词『麻烦』，并补一条对应的单元测试」 | 编码 |
 
-### 3.4 用 Qoder 生成项目网站并发布到 Qoder Sites
-
-1. 在 Qoder 里打开 `qoder/site/` 作为上下文（侧栏有 **站点** 入口）；
-2. 提示词：
-
-```
-用 qoder/site 目录里的内容发布一个单页项目网站：项目简介、解决的问题、核心功能、
-演示截图（ui-recall.png、ui-recall-after-memory.png、ui-home.png）、
-代码仓库链接 https://github.com/yv698761-lgtm/powercontext/tree/2026-competition-ecosystem/qoder
-以及体验入口。可见范围设为「任何人都可访问」。
-```
-
-3. 发布后把线上地址回填到 `qoder/README.md` 第 8 节与 `submission/QODER-SUBMIT.md`；
-4. 用无痕窗口打开一次确认可访问，并截图存档。
-
 ## 4. Qoder 在本项目里的作用（设计层面）
 
 | 环节 | Qoder 的角色 |
 | --- | --- |
 | 需求拆解 | 把「复习找不到上学期的笔记」拆成：混合检索 + 记忆偏好 + 复习排期 |
-| 编码 | 仓库内所有业务代码位于 `qoder/`，可直接在 Qoder 中打开继续迭代 |
+| 编码 | 仓库内所有业务代码位于 `qoder/`，可直接在 Qoder 中打开继续迭代；已在 Qoder 中完成改动与测试（3.1） |
 | 调试 | 见 `qoder/logs/` 中每一步的真实命令与输出（索引报错、`ORDER BY ... APPROXIMATE` 限制等） |
-| 发布 | Qoder Sites 发布项目网站 |
+| 发布 | **Qoder Sites 已发布**：<https://syncrecall-zrr0ailg6io.qoder.zone>（3.4） |
 
 ## 5. 可核对清单
 
@@ -110,6 +108,6 @@ $ python -c "from syncrecall.service import extract_keywords; print(extract_keyw
 - [x] PowerContext 实际承担记忆（见 `qoder/logs/` 的 memory 写入/读取记录）
 - [x] Qoder 客户端与账号信息（第 1 节）
 - [x] Qoder 中的真实改动与调试（第 3.1 / 3.2 节，截图 `实录-03-调试.png`）
-- [ ] Qoder 需求拆解截图（**待补**，第 3.3 节）
-- [ ] Qoder 编码截图（**待补**，第 3.3 节）
-- [ ] Qoder Sites 在线地址（**待补**，第 3.4 节）
+- [x] **Qoder Sites 在线地址**：<https://syncrecall-zrr0ailg6io.qoder.zone>（第 3.4 节）
+- [ ] Qoder 需求拆解截图（建议补，第 3.5 节）
+- [ ] Qoder 编码截图（建议补，第 3.5 节）
