@@ -29,6 +29,7 @@ from typing import Any, ClassVar, cast
 import httpx
 import republic
 from bub import Settings, config, ensure_config, hookimpl
+from bub.envelope import field_of
 from bub.hooks.interception import LLMCallRequest, LLMCallResult, ToolCall, ToolCallResult
 from bub.turn import TurnState
 from pydantic import Field, HttpUrl, SecretStr, field_validator
@@ -145,7 +146,9 @@ class PowerContextPlugin:
 
     @hookimpl
     def load_state(self, message: Any, session_id: str) -> TurnState:
-        del message, session_id
+        # Bub's prompt builder frames the content with channel metadata and the time, which would outweigh the user's
+        # words in lexical recall, so recall reads the inbound content before that framing.
+        content = field_of(message, "content")
         workspace_key = workspace_binding_key(getattr(self._framework, "workspace", None))
         binding_keys = [workspace_key] if workspace_key is not None else []
         return {
@@ -165,6 +168,8 @@ class PowerContextPlugin:
                 "captured_position": 0,
                 "flushed_position": 0,
                 "prompt_captured": False,
+                "recall_session_id": session_id,
+                "recall_text": content.strip() if isinstance(content, str) else None,
             }
         }
 
@@ -175,8 +180,8 @@ class PowerContextPlugin:
 
     @hookimpl
     async def before_llm_call(self, request: LLMCallRequest, state: TurnState) -> LLMCallRequest | None:
-        query = _latest_user_text(request.messages)
-        if not query:
+        prompt = _latest_user_text(request.messages)
+        if not prompt:
             return None
 
         scope_id = await self._scope_id(state)
@@ -184,16 +189,23 @@ class PowerContextPlugin:
             return None
 
         capture_state = state[STATE_KEY]
-        if self.settings.capture_events and query and not capture_state["prompt_captured"]:
+        if self.settings.capture_events and not capture_state["prompt_captured"]:
             capture_state["prompt_captured"] = True
             await self._capture_event(
                 event="user_prompt",
                 run_id=request.run_id,
-                payload={"text": query},
+                payload={"text": prompt},
                 state=state,
             )
 
         if any(_contains_context_marker(message) for message in request.messages):
+            return None
+
+        query = prompt
+        # Subagents run with a copy of this state under their own session and recall with their own prompt.
+        if capture_state["recall_session_id"] == state.get("session_id") and capture_state["recall_text"] is not None:
+            query = capture_state["recall_text"]
+        if not query:
             return None
 
         prepared_content = await self._prepare_context(query, scope_id, state)
