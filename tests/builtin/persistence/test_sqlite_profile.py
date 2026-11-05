@@ -92,6 +92,7 @@ def test_failed_sqlite_open_drains_its_worker_before_reporting_the_error(tmp_pat
                 opened = SQLiteProfile.open_readonly(config) if read_only else SQLiteProfile.open(config, tables=())
                 async with opened:
                     pytest.fail("Unavailable storage must not be opened")
+            assert stopping, "failed open did not expose a worker shutdown waiter"
             assert all(future.done() for future in stopping), "open returned before its worker finished stopping"
         finally:
             release.set()
