@@ -146,9 +146,9 @@ an equivalent table and keyboard-scrollable region. A statistics error does not
 disable independent Memory actions. See the [developer contract](../docs/en/development/desktop-statistics.md)
 and [qualification evidence](VALIDATION.md#current-scope-statistics-qualification).
 
-For Server source `afa13bcb`, select `sqlite-identity-stats-afa13bcb-v1` to qualify identity,
+For Server source `7d89a97a`, select `sqlite-identity-stats-7d89a97a-v1` to qualify identity,
 Memory and statistics together against the same pinned wheel. See the
-[combined evidence](VALIDATION.md#server-afa13bcb-identity-and-statistics-qualification).
+[combined evidence](VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification).
 
 ## Native discovery results
 
@@ -224,7 +224,7 @@ Installed boundary checks exercise an 8192-byte Unicode note, reject over-budget
 
 After upgrading from an earlier preview, open Connections and select your saved connection. Profiles matching the bundled API contract, or separately qualified for this authenticated client, appear under “Available for this Desktop build”; compare their tested Server builds with your deployment before selecting one, saving, checking and explicitly using the connection again. New connections start with no compatibility selection.
 
-Historical profiles remain disabled unless separate current-client evidence qualifies their recorded operations for the selected authentication mode. `sqlite-atomic-112db11e-v1` and `sqlite-atomic-3cefa45a-v1` remain available in Bearer mode under that evidence, preserving saved selections and Principal revalidation; anonymous use still requires an upgrade. A saved incompatible selection remains visible until explicitly replaced; it is never silently upgraded. For Server source `afa13bcb`, choose `sqlite-identity-stats-afa13bcb-v1`, whose recorded source, wheel and contract must match the actual deployment, then check and explicitly activate the connection. Other source-specific records retain their identities and evidence. The separate `ci-fixtures` qualification is only for disposable tests. See the [validation guide](VALIDATION.md#server-afa13bcb-identity-and-statistics-qualification) for the qualified operation set and platform limits.
+Historical profiles remain disabled unless separate current-client evidence qualifies their recorded operations for the selected authentication mode. `sqlite-atomic-112db11e-v1` and `sqlite-atomic-3cefa45a-v1` remain available in Bearer mode under that evidence, preserving saved selections and Principal revalidation; anonymous use still requires an upgrade. A saved incompatible selection remains visible until explicitly replaced; it is never silently upgraded. For Server source `7d89a97a`, choose `sqlite-identity-stats-7d89a97a-v1`, whose recorded source, wheel and contract must match the actual deployment, then check and explicitly activate the connection. Other source-specific records retain their identities and evidence. The separate `ci-fixtures` qualification is only for disposable tests. See the [validation guide](VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification) for the qualified operation set and platform limits.
 
 ## Build on macOS
 

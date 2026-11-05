@@ -170,8 +170,8 @@ Desktop 在每次诊断前检查固定路径和摘要，然后只允许 `service
 
 ## 当前范围的存量与用量
 
-Server 源码为 `afa13bcb` 时，选择 `sqlite-identity-stats-afa13bcb-v1`，在同一固定 wheel 上
-同时验证身份、Memory 和统计。详见[联合证据](VALIDATION.md#server-afa13bcb-identity-and-statistics-qualification)。
+Server 源码为 `7d89a97a` 时，选择 `sqlite-identity-stats-7d89a97a-v1`，在同一固定 wheel 上
+同时验证身份、Memory 和统计。详见[联合证据](VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification)。
 
 在“观察 → 当前 Scope 库存与用量”中显式启用已验证兼容的连接、选择精确范围和“今天／最近 7 天／最近
 30 天”后，点击“加载统计”。页面展示 Server 时间、范围覆盖、存量快照、已记录
@@ -196,7 +196,7 @@ Windows GitHub Actions 会构建未签名安装包，安装到临时中文路径
 
 从早期预览版升级后，请打开「连接」并选中已保存的连接。与当前 API 契约匹配，或具有当前已认证客户端独立验证证据的配置显示在「此 Desktop 构建可用」中；先核对已测试的 Server 构建与实际部署，再明确选择、保存、检查并使用该连接。新连接默认不选择兼容配置。
 
-历史配置仅在独立的当前客户端证据覆盖所选认证模式时可用。`sqlite-atomic-112db11e-v1` 和 `sqlite-atomic-3cefa45a-v1` 在 Bearer 模式下保留原操作集、已保存选择和 Principal 复核；匿名使用仍须升级。其他契约不匹配的历史配置不可选择。已保存的不匹配配置仍会显示，须明确替换，不会静默升级。对于 Server 源码 `afa13bcb`，请选择 `sqlite-identity-stats-afa13bcb-v1`；记录中的源码、wheel 和契约必须与实际部署一致，然后检查并显式激活连接。其他源码对应的记录保留其身份和证据。独立的 `ci-fixtures` 资格仅用于临时测试。已验证操作及平台限制见[验证说明](VALIDATION.md#server-afa13bcb-identity-and-statistics-qualification)。
+历史配置仅在独立的当前客户端证据覆盖所选认证模式时可用。`sqlite-atomic-112db11e-v1` 和 `sqlite-atomic-3cefa45a-v1` 在 Bearer 模式下保留原操作集、已保存选择和 Principal 复核；匿名使用仍须升级。其他契约不匹配的历史配置不可选择。已保存的不匹配配置仍会显示，须明确替换，不会静默升级。对于 Server 源码 `7d89a97a`，请选择 `sqlite-identity-stats-7d89a97a-v1`；记录中的源码、wheel 和契约必须与实际部署一致，然后检查并显式激活连接。其他源码对应的记录保留其身份和证据。独立的 `ci-fixtures` 资格仅用于临时测试。已验证操作及平台限制见[验证说明](VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification)。
 
 ## 在 macOS 上构建
 

@@ -1,5 +1,74 @@
 # Desktop validation
 
+## Server 7d89a97a identity Runtime and statistics qualification
+
+`sqlite-identity-stats-7d89a97a-v1` qualifies thirteen Desktop operations against
+SQLite Server source `7d89a97a3d417326c44b5dd79810d9e9d68f0d4f`, including identity,
+Memory, statistics and the existing HTTP operations used by Runtime observations.
+The source includes master `20f64d72` and its managed observability contracts.
+
+- Normalized OpenAPI SHA-256 is `9aabe2565d9cbd36075be03a83b7370e07e38e9f25232e20dd47812aba65e508`.
+- The wheel is `powercontext-1.5.1.dev0+g7d89a97a-py3-none-any.whl`.
+- Wheel SHA-256 is `bdd26c664afdf966269d2eafb403a7ba05c740837577e2ac954e01878b843d7a`.
+
+All 738 packaged runtime files match the exact Git archive after CRLF normalization.
+The wheel uses an explicit archive-build version. Historical qualification records
+retain their original source, contract, wheel and operation identities.
+
+On 2026-11-05, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path and enforced Provider modes through
+the ordinary product manager on this wheel. The probe exercises explicit readiness,
+Runtime liveness/capabilities/readiness, exact Scope selection, Memory save/search/read,
+all statistics periods, unknown usage, uncertain committed writes without replay,
+identity changes, revocation and pagination. The scoped Provider scenario preserves
+native identity, Memory and statistics when real Server discovery returns 403.
+
+The product run uses debug probe SHA-256
+`df500eb0df2447f8dccccd9d809f314e2253fa39fb6e2418153b39ae666c725c`.
+It records Desktop parent `7d89a97a` with its qualification record added in the working
+tree. Reports and exact wheel identity are retained under ignored
+`.artifacts/nov5-followup-current/` and `.artifacts/nov5-followup-product.log`.
+Usage seeding supplies synthetic fixture input. Installed UI and platform acceptance
+require their corresponding execution evidence.
+
+```sh
+python desktop/tests/real_server.py --product-qualification sqlite-identity-stats-7d89a97a-v1
+```
+
+Separate `authenticatedClients` evidence covers the original eleven operations of
+`sqlite-atomic-112db11e-v1` and `sqlite-atomic-3cefa45a-v1` under this client contract.
+Both pass static Bearer, HTTPS CA/base path and Provider modes through the explicit
+rebuilt-source fixture path, including Runtime observations supported by those Servers.
+Every runtime file is compared to the record's exact Git source before execution.
+The original wheel artifacts were not rerun. Anonymous legacy access requires upgrade.
+
+The model usage recorder suite passes 32 tests on Python 3.11.15 and 32 on Python
+3.14.7. Its real SQLite slice-expiry scenario also passes ten consecutive runs on
+Python 3.14.7. The test retains first-attempt expiry, retry, single recorded request
+and restored-connection assertions, with enough write and flush budget for the retry.
+The CI workflow and migration runner match master `20f64d72`, including three SeekDB
+shards with independent 180-second cases and the selected OceanBase 300-second cases.
+Local execution of backend services and the complete Linux acceptance matrix remains
+separate from these unit and protocol checks.
+
+The merged native suite passes 114 tests plus the spawned-process proxy recheck.
+All 195 frontend tests, 104 focused Python contract/identity/model-usage tests, Clippy,
+IPC/API/JS generation checks, frontend lint/type checking/build and integration bundle
+checks pass. DSH passes 448 tests with one platform skip, OpenCode passes 110 and Cindy
+passes 20. CI-selection/runner checks pass 143 tests with twelve Linux-only skips.
+The disposable real-Server fixture also passes all four modes.
+
+Windows checks encounter 88 platform diagnostics and twelve diagnostics from the
+baseline's `deploy/observability/stats-proxy.py` symlink checked out as a text placeholder.
+Linux-target type checking passes with that placeholder excluded while the actual
+`src/powercontext/observability/resources/stats-proxy.py` source is included. This local
+command does not establish the complete required Linux CI result.
+
+当前源码的同一固定 wheel 已通过四种连接模式的身份、Memory、统计及 Runtime 观察联合验证。
+两个旧版保留原始十一项操作，当前已认证客户端证据分别使用源码逐文件核对后的重建测试资格。
+真实 SQLite 的首次超时重试测试在 Python 3.14 连续十次通过，保留单次记录和连接恢复断言。
+CI 分片和时限采用当前基线配置，完整后端与平台结果以对应远端运行记录为准。
+
 ## Server afa13bcb identity and statistics qualification
 
 `sqlite-identity-stats-afa13bcb-v1` separately qualifies all thirteen current Desktop

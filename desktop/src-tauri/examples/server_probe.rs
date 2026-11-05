@@ -261,7 +261,9 @@ async fn run() {
         .unwrap();
     let runtime_capabilities = capabilities.fact.value.unwrap();
     assert!(!runtime_capabilities.memory_extraction);
-    assert!(runtime_capabilities.extraction.is_some());
+    if !legacy {
+        assert!(runtime_capabilities.extraction.is_some());
+    }
     let readiness = manager.probe_runtime_readiness(generation).await.unwrap();
     assert!(readiness.fact.value.is_some());
     let generation = manager

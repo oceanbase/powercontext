@@ -648,7 +648,7 @@ async fn review_observation_denial_preserves_qualified_memory_and_deployment_fen
 
 #[tokio::test]
 async fn review_current_product_cannot_downgrade_to_principal_when_identity_feature_is_missing() {
-    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-afa13bcb-v1")).await;
+    let fixture = Fixture::with_profile(true, Some("sqlite-identity-stats-7d89a97a-v1")).await;
     fixture.state.lock().unwrap().discovery.1["feature_contracts"]
         .as_object_mut()
         .unwrap()
