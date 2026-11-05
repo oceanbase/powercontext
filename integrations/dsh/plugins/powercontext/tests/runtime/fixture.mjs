@@ -174,10 +174,9 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
       })
       return
     }
-    const skillMatch = JSON.stringify(body.messages).match(/LOAD_PC_SKILL:(powercontext-(?:memory|handoff|review))/)
     const getScope = JSON.stringify(body.messages).includes('RUN_PC_GET_SCOPE')
     const secretWrite = JSON.stringify(body.messages).match(/RUN_PC_SECRET:([a-z_]+)/)?.[1]
-    const needsTool = (skillMatch || getScope || secretWrite || JSON.stringify(body.messages).includes('RUN_PC_SEARCH'))
+    const needsTool = (getScope || secretWrite || JSON.stringify(body.messages).includes('RUN_PC_SEARCH'))
       && !body.messages.some(message => message.role === 'tool')
     const content = JSON.stringify(body.messages).includes(CANARY) ? CANARY : 'Task completed.'
     const requestedScopeId = scopeIdForModel
@@ -189,9 +188,7 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
     if (needsTool) {
       res.end(chunk({ role: 'assistant', tool_calls: [{
         index: 0, id: 'fixture-search', type: 'function',
-        function: skillMatch
-          ? { name: 'skill', arguments: JSON.stringify({ name: skillMatch[1] }) }
-          : secretWrite
+        function: secretWrite
           ? { name: `mcp__powercontext__${secretWrite}`, arguments: JSON.stringify(secretArguments(secretWrite, requestedScopeId)) }
           : getScope
           ? { name: 'mcp__powercontext__get_scope', arguments: JSON.stringify({ scope_id: requestedScopeId }) }
@@ -329,7 +326,8 @@ export async function environment({ realModel, fullCatalog = false } = {}) {
     // Copy the distributable files, not TypeScript source or development peers.
     const installed = join(dshHome, 'profiles/sdk/node_modules/powercontext-dsh')
     mkdirSync(installed, { recursive: true })
-    for (const entry of ['lib', 'package.json', 'cordis.patch.yml']) cpSync(join(options.plugin ?? pluginRoot, entry), join(installed, entry), { recursive: true })
+    for (const entry of ['lib', 'package.json', 'cordis.patch.yml', 'skills']) cpSync(join(options.plugin ?? pluginRoot, entry), join(installed, entry), { recursive: true })
+    cpSync(join(installed, 'skills'), join(dshHome, 'skills'), { recursive: true })
     const patch = join(dshHome, 'test.patch.json')
     const commandAddress = join(dshHome, 'command-address.txt')
     const commandObserver = join(dshHome, 'command-observer.mjs')
@@ -359,7 +357,7 @@ export function apply(ctx) {
         name: pathToFileURL(contextObserver).href,
         config: { traceFile: contextTraceFile },
       }] }] : [],
-      { id: 'skill-filesystem', config: { includeDefaultRoots: false, watch: false } },
+      { id: 'skill-filesystem', config: { watch: false } },
       { id: 'session-persistence-jsonl', config: { root: join(dshHome, 'sessions'), compression: 'none' } },
       { id: 'llm-deepseek', config: { baseURL: model.url + '/v1', apiKeyEnv: 'DEEPSEEK_API_KEY', thinking: 'disabled' } },
       { insert: [{ id: 'powercontext-dsh', name: pathToFileURL(join(installed, 'lib/index.js')).href, config: {
@@ -369,7 +367,8 @@ export function apply(ctx) {
     // Keep the runtime isolated from the developer's shared client endpoint; the patch owns this fixture's URL.
     const processEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
       !key.startsWith('POWERCONTEXT_DSH_') && key !== 'POWERCONTEXT_CLIENT_SERVER_URL'))
-    const env = { ...processEnv, DSH_HOME: dshHome, DSH_PROFILE: 'sdk', DEEPSEEK_API_KEY: 'runtime-fixture',
+    const env = { ...processEnv, DSH_HOME: dshHome, DSH_AGENTS_HOME: join(dshHome, 'agents'),
+      DSH_PROFILE: 'sdk', DEEPSEEK_API_KEY: 'runtime-fixture',
       DEEPSEEK_BASE_URL: model.url + '/v1', DSH_TELEMETRY_DISABLED: '1', ...options.env }
     const instance = new DeepSeekHarness({
       dshBin: process.env.DSH_TEST_BIN ?? dshBin, dshHome, patches: [patch], cwd: workspace, processCwd: workspace,

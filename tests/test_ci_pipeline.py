@@ -116,7 +116,7 @@ def test_migration_runner_requires_cleanup_within_selected_process_deadline(tmp_
             "seekdb",
             "--output",
             str(output),
-            "--process-timeout-seconds",
+            "--test-timeout",
             str(seconds),
             "--tests",
             "test_budget.py",
