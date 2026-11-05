@@ -1,3 +1,8 @@
+---
+title: RFC 0046：可观测性基础
+description: 可观测性设计提案，为运行日志、Prometheus 指标和 OpenTelemetry Trace 约定统一操作名称与请求关联方式。
+---
+
 - Proposal Name: `observability_foundations`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#46](https://github.com/oceanbase/powercontext/pull/46)

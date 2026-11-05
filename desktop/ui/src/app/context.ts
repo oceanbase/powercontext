@@ -30,13 +30,29 @@ export function operationSupported(
 export function connectionPrincipal(report: CheckReport | undefined) {
   return report?.connectionIdentity
     ? report.connectionIdentity.value?.principal
-    : report?.identity.value?.principal;
+    : report?.compatibilityVerified
+      ? report.identity.value?.principal
+      : undefined;
+}
+
+export function connectionAccessMode(report: CheckReport | undefined) {
+  if (report?.connectionIdentity) {
+    return {
+      value: report.connectionIdentity.value?.access_mode ?? null,
+      error: report.connectionIdentity.error,
+    };
+  }
+  if (!report?.compatibilityVerified) return undefined;
+  return {
+    value: report.identity.value?.mode ?? null,
+    error: report.identity.error,
+  };
 }
 
 export function identityVerified(report: CheckReport | undefined): boolean {
   return report?.connectionIdentity
     ? !!report.connectionIdentity.value
-    : !!report?.identity.value;
+    : !!report?.compatibilityVerified && !!report.identity.value;
 }
 
 // Presentation only: operation authorization remains at the native boundary.

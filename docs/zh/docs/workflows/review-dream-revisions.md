@@ -1,6 +1,6 @@
 ---
 title: 审核 Dream 修订
-description: 使用现有 v1 Dream 接口提出、检查和审核 Prompt 配置与标签变更。
+description: 使用 Dream 契约 2 提议并审核 Prompt、标签和 Atomic Memory 变更，并协调升级 Client。
 ---
 
 # 审核 Dream 修订

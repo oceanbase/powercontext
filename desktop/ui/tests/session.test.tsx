@@ -73,6 +73,31 @@ for (const language of ["zh", "en"] as const) {
     expect(desktopApi.previewSessionDiagnostics).not.toHaveBeenCalled();
   });
 
+  test(`statistics requests and actions have localized names in coverage and summary (${language})`, async () => {
+    const summary = recordedSessionSummary();
+    summary.coverage.httpOperations = ["get_stats"];
+    summary.coverage.userOperations = ["get_stats"];
+    summary.operations = summary.operations.map((operation) => ({
+      ...operation,
+      operation: "get_stats",
+    }));
+    vi.mocked(desktopApi.sessionSummary).mockResolvedValue(summary);
+    render(<SessionView language={language} />);
+    const t = sessionMessages[language];
+    for (const name of [t.http, t.actions]) {
+      const table = await screen.findByRole("table", { name });
+      expect(
+        within(table).getByRole("rowheader", {
+          name: `${t.operations.get_stats} get_stats`,
+        }),
+      ).toBeTruthy();
+    }
+    await userEvent.setup().click(screen.getByText(t.operationCoverage));
+    expect(
+      screen.getAllByText(t.operations.get_stats, { selector: "li" }),
+    ).toHaveLength(2);
+  });
+
   test(`HTTP and native action outcomes, units, latency and incomplete coverage remain distinct (${language})`, async () => {
     vi.mocked(desktopApi.sessionSummary).mockResolvedValue(
       recordedSessionSummary(),

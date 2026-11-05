@@ -382,3 +382,22 @@ async fn bundled_qualification_allows_explicit_scope_browsing() {
     server.release.notify_one();
     assert!(manager.scopes(active.generation, "", None).await.is_ok());
 }
+
+#[test]
+fn bundled_product_qualification_covers_every_desktop_operation() {
+    // Read only checked-in product records: CI fixture injection must not satisfy this gate.
+    let profiles: Vec<powercontext_desktop::connections::session::CompatibilityProfile> =
+        serde_json::from_str(include_str!("../src/connections/compatibility.json")).unwrap();
+    let contract: serde_json::Value =
+        serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
+    let required = contract["operations"].as_object().unwrap();
+    assert!(
+        profiles.iter().any(|profile| {
+            Some(profile.contract_sha256.as_str()) == contract["contractSha256"].as_str()
+                && required
+                    .keys()
+                    .all(|operation| profile.operations.contains(operation))
+        }),
+        "the bundled contract needs a product qualification covering all Desktop operations, including statistics"
+    );
+}

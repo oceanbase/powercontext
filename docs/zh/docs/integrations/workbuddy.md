@@ -1,7 +1,7 @@
 ---
-status: community
 title: WorkBuddy
-description: 安装 PowerContext WorkBuddy hooks 并控制其本地行为。
+description: 通过 Hook、MCP 与 Skill 将 WorkBuddy 接入 PowerContext，检查提示词采集、召回和 Handoff 工具。
+status: community
 ---
 
 # WorkBuddy

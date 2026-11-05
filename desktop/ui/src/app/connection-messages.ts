@@ -66,6 +66,8 @@ export const connectionMessages = {
       "Server 未提供发现接口；仅可使用明确选择的旧版兼容配置已验证的操作。",
     discovery_denied:
       "Server 拒绝访问发现接口。请核对凭据与访问权限，然后重新检查连接。",
+    discovery_denied_qualified:
+      "Server 发现观察被拒绝；已独立验证的操作仍按各自权限执行。",
     discovery_unavailable:
       "Server 发现暂时不可用。请检查服务和网络，然后重新检查连接；兼容性确认前业务操作不可用。",
     discovery_invalid:
@@ -220,6 +222,8 @@ export const connectionMessages = {
       "The Server has no discovery endpoint; only operations verified by an explicitly selected legacy profile can be used.",
     discovery_denied:
       "Server discovery access was denied. Check credentials and access permissions, then check this connection again.",
+    discovery_denied_qualified:
+      "Server discovery observation was denied; independently qualified operations retain their own authorization.",
     discovery_unavailable:
       "Server discovery is temporarily unavailable. Check the service and network, then check this connection again; business operations remain unavailable until compatibility is verified.",
     discovery_invalid:
@@ -353,6 +357,13 @@ export function discoveryMessage(
 ): string {
   const text = connectionMessages[language];
   const reason = result.reason;
+  if (
+    result.status === "denied" &&
+    Object.values(result.operations).some(
+      (operation) => operation.status === "qualified",
+    )
+  )
+    return text.discovery_denied_qualified;
   const detail =
     reason === "product_mismatch" ||
     reason === "schema_version" ||

@@ -53,6 +53,10 @@ export const operations = {
     "method": "POST",
     "path": "/v1/memory/search"
   },
+  "get_stats": {
+    "method": "POST",
+    "path": "/v1/stats"
+  },
   "get_artifact_revision": {
     "method": "GET",
     "path": "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}"

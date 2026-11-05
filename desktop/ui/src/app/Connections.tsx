@@ -34,7 +34,11 @@ import { messages, type Language } from "./messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { useConfirmation } from "./useConfirmation";
 import connectionsIcon from "../assets/connections.svg";
-import { connectionPrincipal, identityVerified } from "./context";
+import {
+  connectionAccessMode,
+  connectionPrincipal,
+  identityVerified,
+} from "./context";
 
 type Props = {
   state: DesktopState | null;
@@ -576,11 +580,7 @@ export function Connections({
               </div>
               <div>
                 <dt>{t.access}</dt>
-                <dd>
-                  {report?.anonymousAccess
-                    ? "disabled"
-                    : fact(report?.identity, (v) => v.mode)}
-                </dd>
+                <dd>{fact(connectionAccessMode(report), (mode) => mode)}</dd>
               </div>
               <div>
                 <dt>{t.compatibility}</dt>
@@ -642,14 +642,14 @@ export function Connections({
                 {probing ? t.wait : t.probeReadiness}
               </button>
               <button
-                disabled={dirty || !!busy || probing}
+                disabled={dirty || !!busy}
                 onClick={(event) => void check(false, event.currentTarget)}
               >
                 {busy === "check" ? t.wait : t.check}
               </button>
               <button
                 className="primary"
-                disabled={dirty || !!busy || probing}
+                disabled={dirty || !!busy}
                 onClick={(event) => void check(true, event.currentTarget)}
               >
                 {busy === "activate" ? t.activating : t.activate}

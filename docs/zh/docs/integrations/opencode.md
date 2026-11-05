@@ -1,7 +1,7 @@
 ---
-status: community
 title: OpenCode
-description: 安装 PowerContext OpenCode 插件并控制其本地行为。
+description: 安装 PowerContext OpenCode 插件，配置自动召回、提示词采集和 Server 认证。
+status: community
 ---
 
 # OpenCode
@@ -34,7 +34,8 @@ opencode
 
 每个正常用户回合，插件通过 `POST /v1/context/prepare` 获取一个有界上下文，同时通过
 `POST /v1/sources/content` 独立采集符合条件的提示词。召回内容会标记为不可信历史，并在模型分发前临时
-注入，不会写入 OpenCode 会话记录。
+注入，不会写入 OpenCode 会话记录。OpenCode 的模型流量经过 gateway 时，请关闭提示词时召回，由 gateway 准备上下文，
+见[把提示词时上下文交给 gateway](#把提示词时上下文交给-gateway)。
 
 具名 `pc_*` 工具提供精选的 Memory、Handoff、Experience、Skill 和只读 Candidate 操作。持久化变更前
 OpenCode 会要求确认；Candidate 的批准和拒绝仍由用户通过 CLI 显式执行。
@@ -57,6 +58,30 @@ Server 默认 Scope 的顺序解析。解析结果会固定到 Session，resume 
 环回地址默认允许明文 HTTP；非环回地址使用 HTTPS，或显式设置 `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true`，
 HTTPS 证书校验仍然启用。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
 不应采集当前提示词时，设置 `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false`。
+`POWERCONTEXT_OPENCODE_PROMPT_RECALL` 默认为 `true`；设为 `false` 后，插件不再为每个提示词准备和注入上下文。
+
+## 把提示词时上下文交给 gateway
+
+OpenCode 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on`
+后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，
+因此同时带有插件上下文的一轮会失败。启动 OpenCode 前，关闭插件的提示词时召回和提示词采集：
+
+```bash
+export POWERCONTEXT_OPENCODE_PROMPT_RECALL=false
+export POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false
+opencode
+```
+
+关闭召回后，插件不发送准备请求，也不向用户消息添加上下文。`POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS` 为 `true`
+时它仍会采集提示词；两项都关闭时，插件不再为提示词发送任何请求。Session Scope、`pc_*` 工具和 TUI 照常工作。
+OpenCode 直接调用模型时，gateway 不承载这些流量，请保留默认值。
+
+关闭召回后，提示词时上下文只来自 gateway。gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的 Scope 中准备和采集，
+而不是插件为 Session 或 workspace 解析的 Scope。请把它设为同一个 Scope。
+
+OpenCode 总是发送流式请求，而 gateway 只在 Responses 路由上完成流式的一轮。指向 gateway `/gateway/v1` 的 OpenCode
+provider 请使用 `@ai-sdk/openai`。在 Chat Completions 路由（`@ai-sdk/openai-compatible`）上，Core 会扣留流式响应，
+这一轮会失败。
 
 ## 验证安装
 

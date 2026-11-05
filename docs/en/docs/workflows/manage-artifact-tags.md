@@ -1,6 +1,6 @@
 ---
 title: Organize with tags
-description: Label logical Artifacts and Memory entries, then find them with exact tag filters.
+description: Attach Scope-local tags to logical Artifacts and find current content through exact tag filters.
 ---
 
 # Organize with tags

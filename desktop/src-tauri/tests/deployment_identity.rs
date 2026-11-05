@@ -519,7 +519,9 @@ async fn ordinary_actions_never_probe_readiness_and_explicit_failure_does_not_re
 async fn generic_503_and_legacy_discovery_do_not_establish_anonymous_identity() {
     let fixture = Fixture::new(false).await;
     fixture.state.lock().unwrap().discovery = (404, json!({}));
-    let generation = fixture.activate().await;
+    let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+    let generation = state.generation;
+    assert!(!state.active.as_ref().unwrap().report.compatibility_verified);
     assert!(
         !fixture
             .manager
@@ -580,6 +582,118 @@ async fn changed_access_mode_or_unavailable_identity_invalidates_the_context_wit
 }
 
 #[tokio::test]
+async fn review_observation_denial_preserves_qualified_memory_and_deployment_fencing() {
+    let fixture = Fixture::new(true).await;
+    fixture.state.lock().unwrap().discovery = (403, json!({}));
+    let generation = fixture.select().await;
+    let saved = fixture
+        .manager
+        .remember(generation, "authorized scope note")
+        .await
+        .unwrap();
+    assert_eq!(saved.record.status, WriteStatus::Succeeded);
+    assert_eq!(saved.record.context.server_id.as_deref(), Some("server-a"));
+    assert!(
+        fixture
+            .manager
+            .search_memory(generation, "authorized")
+            .await
+            .is_ok()
+    );
+    fixture.state.lock().unwrap().identity_response = Some((
+        200,
+        json!({
+            "server_id":"server-b", "authentication":"authenticated", "access_mode":"enforced",
+            "principal":{"type":"service","id":"same-principal"}
+        }),
+    ));
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "private")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+}
+
+#[tokio::test]
+async fn review_current_product_cannot_downgrade_to_principal_when_identity_feature_is_missing() {
+    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-afa13bcb-v1")).await;
+    fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("connection.identity");
+    let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+    assert!(!state.active.as_ref().unwrap().report.compatibility_verified);
+    assert_eq!(
+        fixture
+            .manager
+            .scopes(state.generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path.starts_with("/v1/scopes"))
+    );
+}
+
+#[tokio::test]
+async fn review_switching_connection_supersedes_a_delayed_readiness_probe() {
+    let fixture = Fixture::new(true).await;
+    fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/health/ready".into());
+    let (manager, id) = (fixture.manager.clone(), fixture.id.clone());
+    let probe = tokio::spawn(async move { manager.probe_readiness(&id, 1).await });
+    fixture.entered().await;
+    let endpoint = fixture.manager.state().unwrap().profiles[0]
+        .endpoint
+        .clone();
+    let other = fixture.manager.save_profile(serde_json::from_value(json!({
+        "id":null,"revision":null,"name":"Other","endpoint":endpoint,"authentication":"bearer",
+        "caPem":null,"compatibility":common::PROFILE_ID,"keepCredential":false,
+        "credential":{"secret":"synthetic-token","storage":"session_only"}
+    })).unwrap()).unwrap().profiles.into_iter().find(|p|p.name=="Other").unwrap().id;
+    let state = timeout(Duration::from_secs(5), fixture.manager.check(&other, true))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.active.unwrap().connection_id, other);
+    fixture.release.notify_one();
+    assert_eq!(
+        timeout(Duration::from_secs(5), probe)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    assert!(
+        fixture
+            .manager
+            .state()
+            .unwrap()
+            .reports
+            .iter()
+            .all(|report| report.readiness_checked_at.is_none())
+    );
+}
+
+#[tokio::test]
 async fn a_late_readiness_probe_cannot_repopulate_an_invalidated_report() {
     let fixture = Fixture::new(false).await;
     fixture.select().await;
@@ -602,7 +716,7 @@ async fn a_late_readiness_probe_cannot_repopulate_an_invalidated_report() {
 #[tokio::test]
 async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
     for status in [404, 401, 403, 503] {
-        let fixture = Fixture::new(false).await;
+        let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
         let generation = fixture.activate().await;
         fixture.state.lock().unwrap().discovery = (status, json!({}));
         assert!(fixture.manager.scopes(generation, "", None).await.is_err());
@@ -612,7 +726,7 @@ async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
 
 #[tokio::test]
 async fn a_legacy_session_requires_explicit_recheck_when_discovery_appears() {
-    let fixture = Fixture::new(true).await;
+    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
     fixture.state.lock().unwrap().discovery = (404, json!({}));
     let generation = fixture.activate().await;
     assert!(fixture.manager.scopes(generation, "", None).await.is_ok());
@@ -805,14 +919,15 @@ async fn failed_recheck_drops_the_previous_verified_report() {
 }
 
 #[tokio::test]
-async fn post_write_discovery_503_disconnects_with_an_unknown_original_receipt() {
+async fn post_write_identity_503_disconnects_with_an_unknown_original_receipt() {
     let fixture = Fixture::new(true).await;
     let generation = fixture.select().await;
     fixture.state.lock().unwrap().pause = Some("/v1/memory/remember".into());
     let manager = fixture.manager.clone();
     let write = tokio::spawn(async move { manager.remember(generation, "preserve me").await });
     fixture.entered().await;
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     fixture.release.notify_one();
     let outcome = timeout(Duration::from_secs(5), write)
         .await
@@ -843,7 +958,7 @@ async fn post_write_discovery_503_disconnects_with_an_unknown_original_receipt()
 }
 
 #[tokio::test]
-async fn retry_discovery_failure_preserves_the_original_unknown_receipt_without_dispatch() {
+async fn retry_identity_failure_preserves_the_original_unknown_receipt_without_dispatch() {
     let fixture = Fixture::new(true).await;
     let generation = fixture.select().await;
     fixture.state.lock().unwrap().lose_write_response = true;
@@ -854,7 +969,8 @@ async fn retry_discovery_failure_preserves_the_original_unknown_receipt_without_
         .unwrap();
     assert_eq!(original.record.status, WriteStatus::Unknown);
     assert!(fixture.manager.state().unwrap().active.is_some());
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     let error = fixture
         .manager
         .remember(generation, "edited retry input")
@@ -891,7 +1007,8 @@ async fn concurrent_read_disconnect_keeps_the_pending_write_until_its_unknown_re
             .await
     });
     fixture.entered().await;
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     let error = fixture
         .manager
         .search_memory(generation, "query")
@@ -950,7 +1067,8 @@ async fn rejected_write_after_read_disconnection_retains_its_failed_original_rec
             .await
     });
     fixture.entered().await;
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     assert!(
         fixture
             .manager

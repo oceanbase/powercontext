@@ -75,6 +75,21 @@ pub struct CheckReport {
     #[ts(optional)]
     pub discovery: Option<DiscoveryResult>,
 }
+impl CheckReport {
+    fn server_id(&self) -> Option<&str> {
+        self.connection_identity
+            .as_ref()
+            .and_then(|fact| fact.value.as_ref())
+            .map(|identity| identity.server_id.as_str())
+            .or_else(|| {
+                self.discovery
+                    .as_ref()?
+                    .server
+                    .as_ref()
+                    .map(|server| server.server_id.as_str())
+            })
+    }
+}
 #[derive(Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CompatibilityProfile {
@@ -159,6 +174,22 @@ enum NativeIdentity {
     Principal(AccessMeResponse),
     Connection(ConnectionIdentity),
 }
+impl NativeIdentity {
+    async fn verify(&self, api: &ServerApi) -> Result<(), ApiFailure> {
+        let unchanged = match self {
+            Self::Principal(original) => api.principal().await.map(|current| current == *original),
+            Self::Connection(original) => api
+                .connection_identity()
+                .await
+                .map(|current| current == *original),
+        }?;
+        if unchanged {
+            Ok(())
+        } else {
+            Err(SafeError::StaleContext.into())
+        }
+    }
+}
 struct ReadSnapshot {
     api: Arc<ServerApi>,
     server_id: Option<String>,
@@ -183,8 +214,10 @@ pub struct ConnectionManager {
     scope_reads: watch::Sender<u32>,
     compatibility: Vec<CompatibilityProfile>,
     probes: tokio::sync::Semaphore,
+    readiness_probes: tokio::sync::Semaphore,
     writes: tokio::sync::Semaphore,
     memory_reads: watch::Sender<u32>,
+    stats_reads: watch::Sender<u32>,
 }
 impl ConnectionManager {
     pub fn new(profiles: ProfileRepository) -> Self {
@@ -226,8 +259,10 @@ impl ConnectionManager {
             scope_reads: watch::channel(0).0,
             compatibility,
             probes: tokio::sync::Semaphore::new(1),
+            readiness_probes: tokio::sync::Semaphore::new(1),
             writes: tokio::sync::Semaphore::new(1),
             memory_reads: watch::channel(0).0,
+            stats_reads: watch::channel(0).0,
         }
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Inner>, SafeError> {
@@ -371,25 +406,45 @@ impl ConnectionManager {
                         .is_err_and(|e| e.code == SafeError::InvalidResponse)
             });
             let discovery = DiscoveryResult::assess(discovery, compatible);
-            let supported_operations = discovery.supported_operations();
-            let connection_identity = if supported_operations
-                .iter()
-                .any(|op| op == "get_connection_identity")
-            {
-                let result = api.connection_identity().await.and_then(|value| {
-                    if discovery
-                        .server
-                        .as_ref()
-                        .is_some_and(|server| server.server_id == value.server_id)
-                        && (value.authentication != ConnectionAuthentication::Disabled
-                            || profile.authentication
-                                == super::profiles::Authentication::UnauthenticatedLoopback)
-                    {
-                        Ok(value)
-                    } else {
-                        Err(SafeError::StaleContext.into())
-                    }
-                });
+            let mut supported_operations = discovery.supported_operations();
+            let requires_identity = compatible.is_some_and(|profile| {
+                profile
+                    .operations
+                    .iter()
+                    .any(|op| op == "get_connection_identity")
+            });
+            let connection_identity = if requires_identity {
+                let result = if supported_operations
+                    .iter()
+                    .any(|op| op == "get_connection_identity")
+                {
+                    api.connection_identity().await.and_then(|value| {
+                        let deployment_matches = discovery
+                            .server
+                            .as_ref()
+                            .map_or(discovery.status == DiscoveryStatus::Denied, |server| {
+                                server.server_id == value.server_id
+                            });
+                        if deployment_matches
+                            && (value.authentication != ConnectionAuthentication::Disabled
+                                || profile.authentication
+                                    == super::profiles::Authentication::UnauthenticatedLoopback)
+                        {
+                            Ok(value)
+                        } else {
+                            Err(SafeError::StaleContext.into())
+                        }
+                    })
+                } else {
+                    supported_operations.clear();
+                    Err(SafeError::CompatibilityUnverified.into())
+                };
+                if result
+                    .as_ref()
+                    .is_err_and(|error| error.code == SafeError::StaleContext)
+                {
+                    return Err(SafeError::StaleContext.into());
+                }
                 Some(Fact::from(result))
             } else if identity
                 .as_ref()
@@ -407,16 +462,32 @@ impl ConnectionManager {
                 .as_ref()
                 .and_then(|fact| fact.value.as_ref())
                 .is_some_and(|value| value.authentication == ConnectionAuthentication::Disabled);
+            if requires_identity
+                && connection_identity
+                    .as_ref()
+                    .and_then(|fact| fact.value.as_ref())
+                    .is_none()
+            {
+                supported_operations.clear();
+            }
             if !supported_operations.is_empty() {
-                // Do not activate a Principal observed across a deployment replacement.
-                Self::deployment_unchanged(
-                    &api,
-                    discovery
-                        .server
-                        .as_ref()
-                        .map(|server| server.server_id.as_str()),
-                )
-                .await?;
+                if let Some(value) = connection_identity
+                    .as_ref()
+                    .and_then(|fact| fact.value.as_ref())
+                {
+                    NativeIdentity::Connection(value.clone())
+                        .verify(&api)
+                        .await?;
+                } else {
+                    Self::deployment_unchanged(
+                        &api,
+                        discovery
+                            .server
+                            .as_ref()
+                            .map(|server| server.server_id.as_str()),
+                    )
+                    .await?;
+                }
             }
             Ok(CheckReport {
                 anonymous_access,
@@ -467,8 +538,11 @@ impl ConnectionManager {
         id: &str,
         revision: u32,
     ) -> Result<DesktopState, ApiFailure> {
-        let _permit = self.probes.try_acquire().map_err(|_| SafeError::Busy)?;
-        let (api, generation, server_id, mut cancelled) = {
+        let _permit = self
+            .readiness_probes
+            .try_acquire()
+            .map_err(|_| SafeError::Busy)?;
+        let (api, generation, server_id, identity, mut cancelled) = {
             let inner = self.lock()?;
             let report = inner.reports.get(id).ok_or(SafeError::NotConnected)?;
             if report.revision != revision {
@@ -480,18 +554,27 @@ impl ConnectionManager {
                     .api(id)?
                     .with_observations(self.observations.clone()),
                 inner.generation,
+                report.server_id().map(str::to_owned),
                 report
-                    .discovery
+                    .connection_identity
                     .as_ref()
-                    .and_then(|value| value.server.as_ref())
-                    .map(|server| server.server_id.clone()),
+                    .and_then(|fact| fact.value.clone())
+                    .map(NativeIdentity::Connection),
                 self.changed.subscribe(),
             )
         };
         let result = Self::cancellable(&mut cancelled, async {
-            Self::deployment_unchanged(&api, server_id.as_deref()).await?;
+            if let Some(identity) = &identity {
+                identity.verify(&api).await?;
+            } else {
+                Self::deployment_unchanged(&api, server_id.as_deref()).await?;
+            }
             let result = api.readiness().await;
-            Self::deployment_unchanged(&api, server_id.as_deref()).await?;
+            if let Some(identity) = &identity {
+                identity.verify(&api).await?;
+            } else {
+                Self::deployment_unchanged(&api, server_id.as_deref()).await?;
+            }
             Ok(result)
         })
         .await?;
@@ -547,13 +630,7 @@ impl ConnectionManager {
         };
         Ok(ReadSnapshot {
             api: active.api.clone(),
-            server_id: active
-                .view
-                .report
-                .discovery
-                .as_ref()
-                .and_then(|discovery| discovery.server.as_ref())
-                .map(|server| server.server_id.clone()),
+            server_id: active.view.report.server_id().map(str::to_owned),
             identity,
             cancelled: self.changed.subscribe(),
         })
@@ -589,23 +666,11 @@ impl ConnectionManager {
         server_id: Option<&str>,
         generation: u32,
     ) -> Result<(), ApiFailure> {
-        let current = match original {
-            NativeIdentity::Principal(original) => {
-                api.principal().await.map(|value| value == *original)
+        let result = match original.verify(api).await {
+            Ok(()) if matches!(original, NativeIdentity::Principal(_)) => {
+                Self::deployment_unchanged(api, server_id).await
             }
-            NativeIdentity::Connection(original) => api
-                .connection_identity()
-                .await
-                .map(|value| value == *original),
-        };
-        let unchanged = current.as_ref().is_ok_and(|value| *value);
-        let result = if unchanged {
-            Self::deployment_unchanged(api, server_id).await
-        } else {
-            match current {
-                Err(error) => Err(error),
-                Ok(_) => Err(SafeError::StaleContext.into()),
-            }
+            result => result,
         };
         if result.is_ok() {
             return result;
@@ -782,6 +847,54 @@ impl ConnectionManager {
     }
     pub fn cancel_memory_reads(&self, generation: u32) -> Result<(), SafeError> {
         self.begin_memory_read(generation).map(|_| ())
+    }
+    fn begin_stats_read(&self, generation: u32) -> Result<watch::Receiver<u32>, SafeError> {
+        let inner = self.lock()?;
+        if inner.generation != generation {
+            return Err(SafeError::StaleContext);
+        }
+        let next = self
+            .stats_reads
+            .borrow()
+            .checked_add(1)
+            .ok_or(SafeError::Storage)?;
+        self.stats_reads.send_replace(next);
+        Ok(self.stats_reads.subscribe())
+    }
+    pub fn cancel_stats_reads(&self, generation: u32) -> Result<(), SafeError> {
+        self.begin_stats_read(generation).map(|_| ())
+    }
+    pub async fn stats(
+        &self,
+        generation: u32,
+        period: crate::transport::wire::StatsPeriod,
+    ) -> Result<crate::transport::ExactScopeStatistics, ApiFailure> {
+        self.observations
+            .user_operation(ObservedOperation::GetStats, async {
+                let (
+                    ReadSnapshot {
+                        api,
+                        server_id,
+                        identity,
+                        mut cancelled,
+                    },
+                    context,
+                ) = self.memory_snapshot(generation, "get_stats")?;
+                let mut query_cancelled = self.begin_stats_read(generation)?;
+                Self::cancellable(
+                    &mut cancelled,
+                    Self::cancellable(&mut query_cancelled, async {
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.stats(&context.scope_id, period).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
+                    }),
+                )
+                .await
+            })
+            .await
     }
     pub async fn search_memory(
         &self,

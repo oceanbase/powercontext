@@ -1,6 +1,6 @@
 ---
 title: Review Dream revisions
-description: Propose and review Prompt configuration and Tag changes using the existing v1 Dream API.
+description: Use Dream contract 2 to propose and review changes to Prompts, tags, and Atomic Memory with coordinated Client upgrades.
 ---
 
 # Review Dream revisions

@@ -1,3 +1,8 @@
+---
+title: RFC 1299：本地 Server 可用性与服务安装
+description: 本地 Server 的设计提案，划分前台运行、当前用户服务安装、插件故障提示与 doctor 诊断的职责。
+---
+
 - Proposal Name: local_server_availability_and_service_installation
 - Start Date: 2026-08-21
 - RFC PR: [oceanbase/powercontext#1299](https://github.com/oceanbase/powercontext/pull/1299)

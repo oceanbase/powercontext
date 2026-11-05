@@ -27,6 +27,7 @@ import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
 import { Connections } from "../src/app/Connections";
+import { TopBar } from "../src/app/TopBar";
 import { desktopApi } from "../src/shared/ipc";
 import type {
   DesktopState,
@@ -171,6 +172,99 @@ test.each(["en", "zh"] as const)(
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+test.each(["en", "zh"] as const)(
+  "identity menu and connection card agree when legacy identity fails (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const current = discoveryState({
+      status: "supported",
+      server: null,
+      error: null,
+      reason: null,
+      operations: {},
+    });
+    const report = current.reports[0];
+    report.connectionIdentity = {
+      value: {
+        server_id: "qualified-server",
+        authentication: "authenticated",
+        access_mode: "enforced",
+        principal: { type: "service", id: "scoped-user" },
+      },
+      error: null,
+    };
+    report.identity = {
+      value: null,
+      error: { code: "runtime_not_ready", requestId: null, dispatched: true },
+    };
+    current.active = {
+      connectionId: profile.id,
+      generation: current.generation,
+      scope: null,
+      report,
+    };
+    render(
+      <>
+        <TopBar
+          state={current}
+          language={language}
+          onManageConnections={vi.fn()}
+          onOpenScopes={vi.fn()}
+          onDisconnect={vi.fn()}
+        />
+        <Connections
+          state={current}
+          language={language}
+          initialProfileId={profile.id}
+          onState={vi.fn()}
+          onDirty={vi.fn()}
+        />
+      </>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: /service: scoped-user/ }),
+    );
+    expect(
+      within(screen.getByRole("region")).getByText(/enforced/),
+    ).toBeTruthy();
+    expect(screen.getByText("enforced", { selector: "dd" })).toBeTruthy();
+  },
+);
+
+test("a delayed readiness diagnostic permits activating a different connection", async () => {
+  const user = userEvent.setup();
+  const current = discoveryState({
+    status: "supported",
+    server: null,
+    error: null,
+    reason: null,
+    operations: {},
+  });
+  current.profiles.push({ ...profile, id: "working", name: "Working Server" });
+  let finish!: (state: DesktopState) => void;
+  vi.mocked(desktopApi.probeReadiness).mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  vi.mocked(desktopApi.check).mockResolvedValue(current);
+  render(
+    <Connections
+      state={current}
+      language="en"
+      initialProfileId={profile.id}
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Probe readiness" }));
+  await user.click(screen.getByRole("button", { name: /Working Server/ }));
+  const activate = screen.getByRole("button", { name: "Use this connection" });
+  expect((activate as HTMLButtonElement).disabled).toBe(false);
+  await user.click(activate);
+  expect(desktopApi.check).toHaveBeenCalledWith("working", true);
+  await act(async () => finish(current));
 });
 const discoveryCases: Array<{
   language: "en" | "zh";

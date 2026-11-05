@@ -227,7 +227,7 @@ async fn handshake_success_does_not_create_qualification() {
 }
 
 #[tokio::test]
-async fn only_a_missing_handshake_allows_explicit_qualified_legacy_operations() {
+async fn qualification_distinguishes_missing_discovery_from_denied_observation() {
     let result = check(404, json!({}), true).await;
     assert_eq!(result.status, DiscoveryStatus::Missing);
     assert_eq!(
@@ -242,7 +242,6 @@ async fn only_a_missing_handshake_allows_explicit_qualified_legacy_operations() 
     for (code, status) in [
         (0, DiscoveryStatus::Unavailable),
         (401, DiscoveryStatus::Denied),
-        (403, DiscoveryStatus::Denied),
         (503, DiscoveryStatus::Unavailable),
     ] {
         let result = check(code, json!({"error":{"code":"runtime_not_ready"}}), true).await;
@@ -250,6 +249,16 @@ async fn only_a_missing_handshake_allows_explicit_qualified_legacy_operations() 
         assert!(result.error.is_some());
         assert!(result.supported_operations().is_empty());
     }
+    let result = check(403, json!({}), true).await;
+    assert_eq!(result.status, DiscoveryStatus::Denied);
+    assert_eq!(
+        result.operations["get_connection_identity"].status,
+        CompatibilityStatus::Qualified
+    );
+    assert_eq!(
+        result.operations["remember_memory"].status,
+        CompatibilityStatus::Qualified
+    );
 }
 
 #[tokio::test]

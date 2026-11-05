@@ -156,6 +156,16 @@ impl DiscoveryResult {
                 (status, None, Some(error), Some(reason))
             }
         };
+        let qualified_denial = status == DiscoveryStatus::Denied
+            && error
+                .as_ref()
+                .is_some_and(|error| error.code == SafeError::Forbidden)
+            && qualification.is_some_and(|profile| {
+                profile
+                    .operations
+                    .iter()
+                    .any(|op| op == "get_connection_identity")
+            });
         let operations = requirements
             .operation_features
             .iter()
@@ -191,7 +201,9 @@ impl DiscoveryResult {
                         CompatibilityStatus::Unsupported,
                         CompatibilityReason::DiscoveryMissing,
                     )
-                } else if status == DiscoveryStatus::Missing && known.is_some() {
+                } else if (status == DiscoveryStatus::Missing || qualified_denial)
+                    && known.is_some()
+                {
                     (
                         CompatibilityStatus::Qualified,
                         CompatibilityReason::QualifiedProfile,

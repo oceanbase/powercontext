@@ -1,7 +1,7 @@
 ---
-status: community
 title: LangGraph
 description: 把 LangGraph 图连接到运行中的 PowerContext Server，获得持久 Memory 与有界召回。
+status: community
 ---
 
 # LangGraph

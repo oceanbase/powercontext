@@ -18,5 +18,5 @@ import { defineDocs } from 'fumadocs-mdx/macro';
 import { loader } from 'fumadocs-core/source';
 import { i18n } from './i18n';
 
-const posts = defineDocs({ dir: 'content/blog', docs: { postprocess: { includeProcessedMarkdown: true } } });
+export const posts = defineDocs({ dir: 'content/blog', docs: { postprocess: { includeProcessedMarkdown: true } } });
 export const blogSource = loader({ baseUrl: '/blog', i18n, source: posts.toFumadocsSource() });
