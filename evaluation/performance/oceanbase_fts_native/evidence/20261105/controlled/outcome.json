@@ -1,9 +1,0 @@
-{
-  "status": "completed_with_failures",
-  "exit_code": 4,
-  "errors": 3,
-  "experiment_errors": 0,
-  "invalid": 0,
-  "skipped": 12,
-  "different_comparisons": 0
-}

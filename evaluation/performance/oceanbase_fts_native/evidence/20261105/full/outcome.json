@@ -1,8 +1,0 @@
-{
-  "status": "stopped_or_failed",
-  "exit_code": 1,
-  "errors": 0,
-  "invalid": 0,
-  "skipped": 0,
-  "different_comparisons": 0
-}

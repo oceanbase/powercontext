@@ -1,3 +1,0 @@
-{"database": "pc_fts_bench_20261105_3db1a3614aa84d95_v4601", "steps": [{"operation": "rollback", "status": "ok"}, {"operation": "invalidate", "status": "ok"}, {"operation": "close", "status": "ok"}], "session_timeout_us": 10000000}
-{"database": "pc_fts_bench_20261105_3db1a3614aa84d95_v501", "steps": [{"operation": "rollback", "status": "ok"}, {"operation": "invalidate", "status": "ok"}, {"operation": "close", "status": "ok"}], "session_timeout_us": 10000000}
-{"database": "pc_fts_bench_20261105_3db1a3614aa84d95_v501", "steps": [{"operation": "rollback", "status": "ok"}, {"operation": "invalidate", "status": "ok"}, {"operation": "close", "status": "ok"}], "session_timeout_us": 10000000}

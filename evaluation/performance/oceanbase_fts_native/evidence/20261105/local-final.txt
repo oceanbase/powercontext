@@ -1,2 +1,0 @@
-..............................................ss.ss..ssss.ss             [100%]
-50 passed, 10 skipped, 2 deselected in 11.41s

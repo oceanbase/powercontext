@@ -105,6 +105,8 @@ python scripts/benchmark_oceanbase_fts_native.py \
 
 ## 输出
 
+以下文件生成到 `--output` 指定的目录，不随源码提交。建议使用仓库外的输出目录保存原始日志。
+
 - `experiment.json`、`metadata-*.json`：源码、语料、版本、查询超时及 schema。
 - `runs.jsonl`：每次实际方法调用、原始分数、SQL 结构观察、oracle 和失败/跳过状态。
 - `comparisons.jsonl`、`summary.json`：结果对照与分阶段、预热/正式分开的成功延迟。

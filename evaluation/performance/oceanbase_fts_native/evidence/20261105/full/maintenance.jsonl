@@ -1,4 +1,0 @@
-{"phase": "semantic", "version": "v4601", "dataset": "semantic", "size": 147, "operation": "ANALYZE", "status": "ok", "duration_ms": 45.69987207651138}
-{"phase": "benchmark", "version": "v4601", "dataset": "corpus", "size": 100, "operation": "ANALYZE", "status": "ok", "duration_ms": 34.62431579828262}
-{"phase": "benchmark", "version": "v4601", "dataset": "corpus", "size": 1000, "operation": "ANALYZE", "status": "ok", "duration_ms": 28.958037495613098}
-{"phase": "benchmark", "version": "v4601", "dataset": "corpus", "size": 10000, "operation": "ANALYZE", "status": "ok", "duration_ms": 57.43793398141861}
