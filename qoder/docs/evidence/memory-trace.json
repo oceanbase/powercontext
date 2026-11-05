@@ -1,12 +1,12 @@
 {
   "question": "Raft 怎么保证不丢已提交的日志",
-  "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
+  "scope_id": "scp_290zn0y7n0n01v20taqqfgtbe7",
   "memory_events": [
     {
       "signal": "读取检索偏好",
       "system": "PowerContext",
       "api": "POST /v1/memory/search",
-      "scope_id": "scp_0avgxkzztp2jak7szrqm8p1ch4",
+      "scope_id": "scp_290zn0y7n0n01v20taqqfgtbe7",
       "result": {
         "courses": [
           "分布式系统"
@@ -46,16 +46,16 @@
         "dist-paxos-phases",
         "dist-raft-election"
       ],
-      "elapsed_ms": 45
+      "elapsed_ms": 40
     },
     {
       "signal": "写回会话交接",
       "system": "PowerContext",
       "api": "POST /v1/memory/remember",
       "kind": "session",
-      "artifact_id": "art_cbb944271d11479eaa1021a474684e6e",
+      "artifact_id": "art_99564f1cbb4b4adab3488b767aec7cd3",
       "changed": true,
-      "text": "11-04 15:08 检索「Raft 怎么保证不丢已提交的日志」，最相关的是《Raft 日志复制与提交规则》（分布式系统），共 6 条命中。"
+      "text": "11-05 13:34 检索「Raft 怎么保证不丢已提交的日志」，最相关的是《Raft 日志复制与提交规则》（分布式系统），共 6 条命中。"
     }
   ],
   "hits": [

@@ -5,14 +5,14 @@ exit: 0
 ===========================================================================================
 |ID|OPERATOR                                             |NAME      |EST.ROWS|EST.TIME(us)|
 -------------------------------------------------------------------------------------------
-|0 |TOP-N SORT                                           |          |6       |403         |
-|1 |└─SUBPLAN SCAN                                       |ranked    |21      |396         |
-|2 |  └─WINDOW FUNCTION                                  |          |21      |396         |
-|3 |    └─SORT                                           |          |21      |360         |
-|4 |      └─WINDOW FUNCTION                              |          |21      |337         |
-|5 |        └─SORT                                       |          |21      |303         |
-|6 |          └─SUBPLAN SCAN                             |candidates|21      |281         |
-|7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |21      |281         |
+|0 |TOP-N SORT                                           |          |6       |960         |
+|1 |└─SUBPLAN SCAN                                       |ranked    |21      |953         |
+|2 |  └─WINDOW FUNCTION                                  |          |21      |952         |
+|3 |    └─SORT                                           |          |21      |917         |
+|4 |      └─WINDOW FUNCTION                              |          |21      |894         |
+|5 |        └─SORT                                       |          |21      |859         |
+|6 |          └─SUBPLAN SCAN                             |candidates|21      |837         |
+|7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |21      |837         |
 ===========================================================================================
 Outputs & filters:
 -------------------------------------

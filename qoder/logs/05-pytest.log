@@ -2,6 +2,6 @@ $ D:\develop\python\python.exe -m pytest tests -q
 (cwd: D:\code\oceanbase\powercontext-clone\qoder)
 exit: 0
 
-....................                                                     [100%]
-20 passed in 2.39s
+......................                                                   [100%]
+22 passed in 2.46s
 

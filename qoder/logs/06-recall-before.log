@@ -5,7 +5,7 @@ exit: 0
 question : Raft 怎么保证不丢已提交的日志
 keywords : ['Raft', '不丢已提交', '不丢已', '丢已提', '已提交', '日志']
 embedder : hash-ngram
-elapsed  : 125 ms
+elapsed  : 173 ms
 profile  : {'courses': ['分布式系统'], 'source_types': ['note', 'paper'], 'keyword_weight': 0.7, 'vector_weight': 0.3, 'top_k': 6, 'tag': ''} from powercontext
 hits:
   0.01639  fts=0.833175  vec=0.227678  dist-raft-replication    Raft 日志复制与提交规则
@@ -17,7 +17,7 @@ hits:
 memory events:
   - PowerContext 读取检索偏好 None
   - seekdb 混合检索 ['dist-raft-replication', 'dist-raft-论文对比', 'dist-2pc', 'db-论文2pc', 'dist-paxos-phases', 'paper-in-search-of-an-understandable-consensus']
-  - PowerContext 写回会话交接 art_17288f051dbb4eb0965e54fb8d1754ba
+  - PowerContext 写回会话交接 art_40801593a34c4af1a85343527ff639ef
 
 SQL:
 SELECT note_id, title, course, topic, source_type, tags,

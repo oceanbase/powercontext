@@ -4,7 +4,7 @@ exit: 0
 
 wrote: ['before-after.json', 'event-log.json', 'explain-plan.txt', 'hybrid-sql.txt', 'memory-trace.json', 'seekdb-version.txt']
 plan operators:
-   |1 |└─SUBPLAN SCAN                                       |ranked    |9       |174         |
-   |6 |          └─SUBPLAN SCAN                             |candidates|9       |125         |
-   |7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |9       |125         |
+   |1 |└─SUBPLAN SCAN                                       |ranked    |9       |417         |
+   |6 |          └─SUBPLAN SCAN                             |candidates|9       |368         |
+   |7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |9       |368         |
 

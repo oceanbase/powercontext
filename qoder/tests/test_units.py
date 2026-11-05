@@ -23,6 +23,20 @@ def test_extract_keywords_keeps_latin_terms_and_drops_scaffolding():
     assert all(len(keyword.strip()) >= 2 for keyword in keywords)
 
 
+def test_extract_keywords_drops_qingwen():
+    keywords = extract_keywords("请问 Raft 日志复制怎么保证")
+    assert "请问" not in keywords
+    assert "Raft" in keywords
+
+
+def test_extract_keywords_drops_mafan():
+    """「麻烦」是后加入的停顿词，这条断言钉住它确实被过滤。"""
+    keywords = extract_keywords("麻烦 Raft 日志复制怎么保证")
+    assert "麻烦" not in keywords
+    assert "Raft" in keywords
+    assert any("日志" in keyword for keyword in keywords)
+
+
 def test_extract_keywords_keeps_technical_tokens():
     keywords = extract_keywords("为什么 InnoDB 可重复读下 update 后还能看到别人的修改")
     assert "InnoDB" in keywords

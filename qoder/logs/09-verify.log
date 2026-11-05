@@ -15,7 +15,7 @@ embedding   : hash-ngram
 ==============================================================================
 {"notes": 21, "cards": 60, "papers": 4, "embedder": "hash-ngram"}
 
-本次使用独立的 Scope（用户）: verify-adaa04
+本次使用独立的 Scope（用户）: verify-ef7d8e
 
 ==============================================================================
 2. 第一次检索：PowerContext 里还没有偏好
@@ -48,19 +48,19 @@ embedding   : hash-ngram
       命中: dist-raft-replication, dist-raft-论文对比, dist-2pc, db-论文2pc, dist-paxos-phases, paper-in-search-of-an-understandable-consensus
       过滤: {'courses': ['分布式系统'], 'source_types': ['note', 'paper'], 'tag': ''} 权重: [0.7, 0.3]
   - PowerContext  写回会话交接  POST /v1/memory/remember
-      artifact: art_39c1961a27734e3790a6feaa00c02d5e
+      artifact: art_4eead9d8eedb41859d1f617ca637b869
 
 ==============================================================================
 5. seekdb 里这条混合检索的执行计划
 ==============================================================================
-  |0 |TOP-N SORT                                           |          |6       |203         |
-  |1 |└─SUBPLAN SCAN                                       |ranked    |11      |196         |
-  |2 |  └─WINDOW FUNCTION                                  |          |11      |196         |
-  |3 |    └─SORT                                           |          |11      |179         |
-  |4 |      └─WINDOW FUNCTION                              |          |11      |167         |
-  |5 |        └─SORT                                       |          |11      |151         |
-  |6 |          └─SUBPLAN SCAN                             |candidates|11      |140         |
-  |7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |11      |140         |
+  |0 |TOP-N SORT                                           |          |6       |478         |
+  |1 |└─SUBPLAN SCAN                                       |ranked    |11      |471         |
+  |2 |  └─WINDOW FUNCTION                                  |          |11      |471         |
+  |3 |    └─SORT                                           |          |11      |454         |
+  |4 |      └─WINDOW FUNCTION                              |          |11      |443         |
+  |5 |        └─SORT                                       |          |11      |426         |
+  |6 |          └─SUBPLAN SCAN                             |candidates|11      |416         |
+  |7 |            └─VECTOR INDEX ADAPTIVE SCAN (PRE-FILTER)|note      |11      |416         |
 
 ==============================================================================
 结论
