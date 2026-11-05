@@ -1,0 +1,73 @@
+{
+  "operation": "Independent read-only verification after all test processes exited",
+  "passed": true,
+  "database_count": 29,
+  "results": [
+    {
+      "version": "v4356",
+      "checked_databases": [
+        "pc_atomic_migrate_c18093a0ceed41f4b41513f27ea7db01",
+        "pc_atomic_migrate_f2b4af3074844ffca851e5aa68d816ea",
+        "pc_fts_bench_20261105_3794481fb78d_v4356_accept"
+      ],
+      "checked_session_ids": [],
+      "remaining_databases": [],
+      "remaining_sessions": [],
+      "passed": true
+    },
+    {
+      "version": "v4601",
+      "checked_databases": [
+        "pc_atomic_migrate_31cbb93d28b04f06ba85763b445e57d6",
+        "pc_atomic_migrate_3bc3782e4e0e491090df07b432589950",
+        "pc_atomic_migrate_4970529e2d314a5493a460d1891b361e",
+        "pc_atomic_migrate_5d32a8b9adef4b2c92740d270c5ef3b1",
+        "pc_atomic_migrate_6a80b2d779a74abd8d0977a0c92d00f7",
+        "pc_atomic_migrate_80fded18de7d4fba94ae940af1632af4",
+        "pc_atomic_migrate_9321a753c1fb489aba2cd8d0a09158a6",
+        "pc_atomic_migrate_96f4b261f4de4ab5b27dfc7ac2bdfa33",
+        "pc_atomic_migrate_b6c29faa2aba40a6a637f0b62b4dc936",
+        "pc_atomic_migrate_d75cc595ff7e43919ea6cb85289e2f34",
+        "pc_fts_bench_20261105_01998669bac4_v4601_accept",
+        "pc_fts_bench_20261105_3db1a3614aa84d95_v4601",
+        "pc_fts_bench_20261105_4b46cf488b01_v4601_accept",
+        "pc_fts_bench_20261105_6a18fd0cf229_v4601_accept",
+        "pc_fts_bench_20261105_94c29e8bd483_v4601_accept",
+        "pc_fts_bench_20261105_a8ecca988df34645_v4601",
+        "pc_fts_bench_20261105_f0581fd986c6449f_v4601",
+        "pc_fts_probe_d9c7d6c1c35b40f7"
+      ],
+      "checked_session_ids": [
+        3221564873,
+        3221611328,
+        3221659319,
+        3221670002
+      ],
+      "remaining_databases": [],
+      "remaining_sessions": [],
+      "passed": true
+    },
+    {
+      "version": "v501",
+      "checked_databases": [
+        "pc_atomic_migrate_6d37f20aa19543679f7a4ab664cd511b",
+        "pc_atomic_migrate_71f76ec85ace4403bb4f0d9a6b0fdd5d",
+        "pc_atomic_migrate_74b0ec73a3e34e9a868420cda8da19e8",
+        "pc_atomic_migrate_e419ad5af4174a9ebe8720c75fd8cc3e",
+        "pc_atomic_migrate_fe2dbe8138ae4b78b1988aa1cdf72664",
+        "pc_fts_bench_20261105_1553cc4411f947d7_v501",
+        "pc_fts_bench_20261105_3db1a3614aa84d95_v501",
+        "pc_fts_bench_20261105_957da7425522_v501_accept"
+      ],
+      "checked_session_ids": [
+        3221497308,
+        3221717642,
+        3221728959,
+        3221732107
+      ],
+      "remaining_databases": [],
+      "remaining_sessions": [],
+      "passed": true
+    }
+  ]
+}

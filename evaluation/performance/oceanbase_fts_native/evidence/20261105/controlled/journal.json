@@ -1,0 +1,24 @@
+{
+  "run_id": "3db1a3614aa84d95",
+  "date": "20261105",
+  "target_fingerprint": "55a6149e80b367f48ce2ac44bfc4332021c3f5b3a22afcb99deb00af018705e4",
+  "databases": {
+    "v4601": {
+      "database": "pc_fts_bench_20261105_3db1a3614aa84d95_v4601",
+      "status": "dropped",
+      "session_ids": [
+        3221659319,
+        3221670002
+      ]
+    },
+    "v501": {
+      "database": "pc_fts_bench_20261105_3db1a3614aa84d95_v501",
+      "status": "dropped",
+      "session_ids": [
+        3221717642,
+        3221728959,
+        3221732107
+      ]
+    }
+  }
+}

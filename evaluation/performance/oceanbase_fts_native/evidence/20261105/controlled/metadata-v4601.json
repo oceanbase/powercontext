@@ -1,0 +1,10 @@
+{
+  "version": "5.7.25-OceanBase_CE-v4.6.0.1",
+  "session_timeout_us": 10000000,
+  "create_table": [
+    [
+      "pc_atomic_memory_current",
+      "CREATE TABLE `pc_atomic_memory_current` (\n  `scope_id` varchar(256) COLLATE utf8mb4_bin NOT NULL,\n  `artifact_id` varchar(128) COLLATE utf8mb4_bin NOT NULL,\n  `revision` bigint(20) NOT NULL,\n  `state_version` bigint(20) NOT NULL,\n  `content_hash` varchar(64) COLLATE utf8mb4_bin NOT NULL,\n  `projection_format` varchar(64) COLLATE utf8mb4_bin NOT NULL,\n  `kind` mediumtext COLLATE utf8mb4_bin NOT NULL,\n  `text` mediumtext COLLATE utf8mb4_bin NOT NULL,\n  `description` varchar(200) COLLATE utf8mb4_bin DEFAULT NULL,\n  `searchable_text` mediumtext COLLATE utf8mb4_bin NOT NULL,\n  `tag_keys` mediumtext COLLATE utf8mb4_bin NOT NULL,\n  `embedding` blob DEFAULT NULL,\n  `profile_fingerprint` varchar(64) COLLATE utf8mb4_bin DEFAULT NULL,\n  `embedding_input_hash` varchar(64) COLLATE utf8mb4_bin DEFAULT NULL,\n  PRIMARY KEY (`scope_id`, `artifact_id`),\n  FULLTEXT KEY `ix_pc_atomic_memory_current_fts` (`searchable_text`) WITH PARSER space PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) FTS_INDEX_TYPE = MATCH BLOCK_SIZE 16384,\n  CONSTRAINT `ck_pc_atomic_memory_current_revision` CHECK ((`revision` > 0)),\n  CONSTRAINT `ck_pc_atomic_memory_current_state_version` CHECK ((`state_version` >= 0)),\n  CONSTRAINT `ck_pc_atomic_memory_current_embedding_metadata` CHECK ((((`embedding` is null) and (`profile_fingerprint` is null) and (`embedding_input_hash` is null)) or ((`embedding` is not null) and (`profile_fingerprint` is not null) and (`embedding_input_hash` is not null))))\n) ORGANIZATION INDEX DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'zstd_1.3.8' REPLICA_NUM = 1 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0"
+    ]
+  ]
+}
