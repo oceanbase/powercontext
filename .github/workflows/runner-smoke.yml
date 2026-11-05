@@ -54,7 +54,6 @@ jobs:
         run: |
           evidence="$RUNNER_TEMP/arc-smoke/docker.txt"
           docker info --format 'Docker server {{.ServerVersion}} ({{.OSType}}/{{.Architecture}})' | tee "$evidence"
-          docker compose version | tee -a "$evidence"
           docker run --detach --rm --pull=always --name "$SMOKE_CONTAINER" \
             --publish 127.0.0.1::8080/tcp docker.io/library/busybox:1.37.0 \
             sh -eu -c 'mkdir -p /tmp/www; echo arc-smoke-ok >/tmp/www/index.html; exec httpd -f -p 8080 -h /tmp/www' \
@@ -73,11 +72,14 @@ jobs:
           exit 1
 
       - name: Set up Python
+        id: setup_python
+        if: ${{ !cancelled() }}
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
 
       - name: Run a Python standard library check
+        if: ${{ !cancelled() && steps.setup_python.outcome == 'success' }}
         run: |
           python - <<'PY' | tee "$RUNNER_TEMP/arc-smoke/python.txt"
           import sqlite3
@@ -89,6 +91,10 @@ jobs:
           connection.close()
           print(f"Python {sys.version.split()[0]}; SQLite {sqlite3.sqlite_version}; query passed")
           PY
+
+      - name: Check Docker Compose
+        if: ${{ !cancelled() }}
+        run: docker compose version | tee "$RUNNER_TEMP/arc-smoke/compose.txt"
 
       - name: Clean up smoke container
         if: always()
