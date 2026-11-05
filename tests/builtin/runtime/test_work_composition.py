@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -486,8 +487,7 @@ def test_distributed_worker_authorizes_every_claimed_scope(monkeypatch) -> None:
         spec = {"principal": {"type": "service", "id": "background"}}
         async with _open_work_background(config, contexts, worker_security=spec) as background:
             assert background.worker is not None
-            authorizer = constructed["worker"]["authorizer"]
-            assert authorizer is not None
+            authorizer = cast("Callable[[object], Awaitable[None]]", constructed["worker"]["authorizer"])
             await authorizer(SimpleNamespace(scope_id="project"))
             assert authorized == ["project"]
 

@@ -1463,6 +1463,8 @@ class _ServerApp(FastAPI):
                     skip_paths=middleware.kwargs.get("skip_paths", ()),
                 )
         return stack
+
+
 def create_app(
     *,
     application: ServerApplication | None = None,
