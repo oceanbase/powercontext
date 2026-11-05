@@ -287,6 +287,29 @@ python run.py state mark --spec ARR-001 --spec ARR-005 --state done
 python run.py ready                         # 全部 done 才返回 0
 ```
 
+### 6.1 一条命令复现整条链（推荐给评审）
+
+```bat
+rem 需要：seekdb 已启动、seekdb 检出干净（脚本会 apply 后还原）
+D:\code\oceanbase\powercontext\minimax\verify.cmd --worktree D:\code\seekdb
+```
+
+输出是一张表，逐项对照作品声明的结果（实测 7/7）：
+
+```
+STEP                                   RESULT  DETAIL
+spec store loaded                      PASS    9 specs, 20 sources (expect 9/20)
+guard --stage baseline                 PASS    baseline reproduced … acceptance cases still red (5)
+guard --stage after                    PASS    acceptance 0/5 pass, compatibility 2/2 pass
+apply reviewed patch                   PASS    2 files changed, 6 insertions(+)
+grammar probe on the worktree          PASS    element-access node: T_OP_ARRAY_INDEX
+guard --stage after (patched grammar)  PASS    acceptance 1/5 pass, compatibility 2/2 pass
+worktree restored                      PASS    git checkout -- .
+```
+
+表里的 PASS 表示"与声明一致"，**不是**"测试全绿"：服务层 4 个验收项要有打补丁的 seekdb 构建才会转绿。
+日志见 `logs/22-verify-all.log`。
+
 ---
 
 ## 7. 数据模型（seekdb 中的表）
