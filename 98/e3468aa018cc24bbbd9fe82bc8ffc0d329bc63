@@ -1,0 +1,27 @@
+tests/test_atomic_memory_migration_shards.py
+  s_acf461081857b1::t_fe9fcebb1e40f4 127-128,131,142-151,153-158,160-162,164-177
+  s_acf461081857b1::t_843e735caf3a13 152,159,163
+  s_acf461081857b1::t_8dc09b88107deb 178-179
+scripts/run_atomic_memory_clean_migration.py
+  s_acf461081857b1::t_89392ad189da6c 45,51,62,84,113-114,120-121,162
+  s_acf461081857b1::t_843e735caf3a13 110-112
+  s_acf461081857b1::t_72b44d9f372218 109
+.github/workflows/e2e-harness.yml
+  s_acf461081857b1::t_89392ad189da6c 346-347,433-434,437,441-442,445,448,452,457,461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "98e3468aa018cc24bbbd9fe82bc8ffc0d329bc63",
+  "prompts": {},
+  "sessions": {
+    "s_acf461081857b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9be-165d-7212-9566-657833d76862",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
