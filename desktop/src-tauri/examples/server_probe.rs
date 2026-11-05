@@ -187,6 +187,18 @@ async fn main() {
             .any(|report| report.connection_id == profile)
     );
     let generation = manager.check(&profile, true).await.unwrap().generation;
+    // Check the real Runtime endpoints before selecting a Scope. No generation model is configured.
+    let live = manager.observe_runtime_liveness(generation).await.unwrap();
+    assert_eq!(live.fact.value.unwrap().status, "ok");
+    let capabilities = manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    let runtime_capabilities = capabilities.fact.value.unwrap();
+    assert!(!runtime_capabilities.memory_extraction);
+    assert!(runtime_capabilities.extraction.is_some());
+    let readiness = manager.probe_runtime_readiness(generation).await.unwrap();
+    assert!(readiness.fact.value.is_some());
     let generation = manager
         .select_scope(generation, &fixture.scope_id)
         .await
