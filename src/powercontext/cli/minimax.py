@@ -32,6 +32,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from powercontext.cli.authorization import normalize_authorization, setup_authorization_value
+from powercontext.cli.guidance import SKILL_DIRECTORY, GuidanceError, skill_resources
 from powercontext.cli.installation import SetupError, publish
 from powercontext.client.transport_policy import load_client_settings, normalize_client_url, resolve_client_transport
 from powercontext.paths import powercontext_data_dir
@@ -158,13 +159,10 @@ def require_minimax_package(package: Path) -> dict[str, str]:
     if config.get("schemaVersion") != 1:
         raise SetupError("Unsupported MiniMax MCP configuration schema")
     _mcp_entry(config, required=True)
-    guidance = _object(package / "skills/powercontext-project-context/.powercontext-guidance.json")
-    if guidance.get("schema_version") != 1 or not isinstance(guidance.get("resources"), list):
-        raise SetupError("MiniMax Skill resource inventory is missing")
-    for resource in guidance["resources"]:
-        path = package / "skills/powercontext-project-context" / _relative(resource)
-        if not path.is_file():
-            raise SetupError("MiniMax Skill reference is missing")
+    try:
+        skill_resources(package / SKILL_DIRECTORY)
+    except GuidanceError as error:
+        raise SetupError(str(error)) from error
     return _files(package)
 
 

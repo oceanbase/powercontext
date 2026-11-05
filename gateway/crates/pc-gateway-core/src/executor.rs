@@ -28,9 +28,11 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::lifecycle::Execution;
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
 use crate::{GateClient, GateError};
+use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
@@ -127,9 +129,23 @@ where
 
     pub async fn run<R: WireRenderer>(
         &self,
+        control: RequestControl,
         call: ManagedCall,
         renderer: &R,
         evidence: &dyn EvidenceSink,
+    ) -> ManagedOutcome {
+        let mut execution = control.start();
+        let outcome = self.execute(call, renderer, evidence, &mut execution).await;
+        execution.finish(&outcome);
+        outcome
+    }
+
+    async fn execute<R: WireRenderer>(
+        &self,
+        call: ManagedCall,
+        renderer: &R,
+        evidence: &dyn EvidenceSink,
+        execution: &mut Execution,
     ) -> ManagedOutcome {
         let mut call = call;
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
@@ -188,7 +204,8 @@ where
                             prepared_contexts: Vec::new(),
                         };
                         degraded_call.request.stream = call.request.stream;
-                        self.degraded_send(&degraded_call, renderer, evidence).await
+                        self.degraded_send(&degraded_call, renderer, evidence, execution)
+                            .await
                     }
                     (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
                 };
@@ -233,12 +250,15 @@ where
                     stream: call.request.stream,
                 };
                 let sent_binding = current.binding.clone();
+                execution.model_send(ModelSendState::PossiblySent);
                 match self.transport.send(send).await {
                     SendOutcome::Delivered(raw) => {
+                        execution.model_send(ModelSendState::ResponseReceived);
                         break (raw, sent_binding);
                     }
                     SendOutcome::Indeterminate(_) => return ManagedOutcome::SendIndeterminate,
                     SendOutcome::NotSent(reason) => {
+                        execution.model_send(ModelSendState::DefinitelyNotSent);
                         evidence.record_not_sent(attempt, &reason.to_string());
                         if attempt >= self.max_attempts.get() {
                             return ManagedOutcome::NotSent { attempts: attempt };
@@ -555,6 +575,7 @@ where
         call: &ManagedCall,
         renderer: &R,
         evidence: &dyn EvidenceSink,
+        execution: &mut Execution,
     ) -> ManagedOutcome {
         evidence.record_not_sent(0, "degraded_passthrough");
         let payload = match renderer.render(&call.request, None) {
@@ -572,14 +593,19 @@ where
             headers: call.headers.clone(),
             stream: call.request.stream,
         };
+        execution.model_send(ModelSendState::PossiblySent);
         match self.transport.send(send).await {
-            SendOutcome::Delivered(raw) => ManagedOutcome::Degraded {
-                status: raw.status,
-                content_type: raw.content_type,
-                body: raw.body,
-            },
+            SendOutcome::Delivered(raw) => {
+                execution.model_send(ModelSendState::ResponseReceived);
+                ManagedOutcome::Degraded {
+                    status: raw.status,
+                    content_type: raw.content_type,
+                    body: raw.body,
+                }
+            }
             SendOutcome::Indeterminate(_) => ManagedOutcome::SendIndeterminate,
             SendOutcome::NotSent(reason) => {
+                execution.model_send(ModelSendState::DefinitelyNotSent);
                 evidence.record_not_sent(1, &reason.to_string());
                 ManagedOutcome::NotSent { attempts: 1 }
             }

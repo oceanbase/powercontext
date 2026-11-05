@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tomllib
 from email.message import Message
@@ -2225,6 +2226,10 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
     (plugin / "package.json").write_text('{"name": "powercontext-dsh"}', encoding="utf-8")
     (plugin / "lib").mkdir()
     (plugin / "lib" / "index.js").write_text("export const name = 'powercontext-dsh'\n", encoding="utf-8")
+    shutil.copytree(
+        Path(__file__).parents[1] / "integrations/dsh/plugins/powercontext/skills",
+        plugin / "skills",
+    )
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     run_dsh = Mock(return_value="id: powercontext-dsh\n")
@@ -2244,6 +2249,7 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
         "authorization_state": "not_configured",
         "profile": "web",
         "profile_dir": str(tmp_path / "dsh-home/profiles/web"),
+        "skill_path": str(tmp_path / "dsh-home/skills/powercontext-project-context"),
     }
     assert run_dsh.call_args_list[0].args == (
         "plugin",

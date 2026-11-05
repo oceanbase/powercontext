@@ -239,7 +239,7 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
 ) -> None:
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda _: independent_atomic_memory_model("Use PowerContext as the composition root."),
+        lambda _, **_kwargs: independent_atomic_memory_model("Use PowerContext as the composition root."),
     )
     app = create_server_app(
         settings=ServerSettings(

@@ -15,8 +15,6 @@
 """Exercise the Codex full-profile operations through the public MCP transport."""
 
 import asyncio
-import json
-import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -184,14 +182,8 @@ class NoOpGenerator:
         return None
 
 
-def test_packaged_codex_preference_example_preserves_kind_through_mcp() -> None:
-    guidance = (
-        Path(__file__).resolve().parents[2]
-        / "integrations/codex/plugins/powercontext/skills/powercontext-project-context/references/scope-memory.md"
-    ).read_text(encoding="utf-8")
-    examples = [json.loads(block) for block in re.findall(r"```json\s*\n(.*?)\n```", guidance, re.DOTALL)]
-    preference = next(example for example in examples if example.get("kind") == "preference")
-    assert "uv" in preference["text"]
+def test_remember_memory_preserves_preference_kind_through_mcp() -> None:
+    preference = {"kind": "preference", "text": "The user prefers uv for Python."}
 
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
@@ -199,7 +191,7 @@ def test_packaged_codex_preference_example_preserves_kind_through_mcp() -> None:
             async with Client(create_mcp_server(app)) as client:
                 scope = await client.call_tool(
                     "create_scope",
-                    {"title": "Codex preference", "summary": "Guidance example", "idempotency_key": "codex-preference"},
+                    {"title": "Preference", "summary": "Explicit preference", "idempotency_key": "mcp-preference"},
                 )
                 scope_id = scope.structured_content["scope_id"]
                 saved = await client.call_tool("remember_memory", {**preference, "scope_id": scope_id})

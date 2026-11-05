@@ -261,6 +261,58 @@ def test_incomplete_source_leaves_prior_installation_usable(native, missing):
     assert {path: path.read_bytes() for path in installed(native).rglob("*") if path.is_file()} == before
 
 
+def test_legacy_skill_inventory_upgrades_to_standard_skill_without_adopting_user_files(native):
+    source = native[0] / "legacy"
+    shutil.copytree(PACKAGE, source)
+    skill = source / "skills/powercontext-project-context"
+    inventory = skill / ".powercontext-guidance.json"
+    inventory.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "resources": [path.relative_to(skill).as_posix() for path in skill.rglob("*") if path.is_file()],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result = setup(native, source=source)
+    assert result.exit_code == 0, result.output
+    relative = inventory.relative_to(source)
+    assert (installed(native) / relative).is_file()
+    note = installed(native) / "skills/powercontext-project-context/personal.md"
+    note.write_bytes(b"Keep my notes\r\n")
+
+    result = setup(native)
+    assert result.exit_code == 0, result.output
+    assert not (installed(native) / relative).exists()
+    assert note.read_bytes() == b"Keep my notes\r\n"
+    record = next((native[0] / "pc/installations/minimax").glob("*.json"))
+    files = json.loads(record.read_bytes())["files"]
+    assert relative.as_posix() not in files
+    assert note.relative_to(installed(native)).as_posix() not in files
+
+
+@pytest.mark.parametrize("reference", ["references/missing.md", "../../outside.md"])
+def test_standard_skill_rejects_missing_or_escaping_links_before_publication(native, reference):
+    assert setup(native).exit_code == 0
+    source = native[0] / "invalid-skill"
+    shutil.copytree(PACKAGE, source)
+    (source / "outside.md").write_text("Not a Skill resource", encoding="utf-8")
+    skill = source / "skills/powercontext-project-context/SKILL.md"
+    skill.write_text(
+        skill.read_text(encoding="utf-8").replace(
+            "<!-- POWERCONTEXT-GUIDANCE:END -->",
+            f"[Additional reference]({reference})\n<!-- POWERCONTEXT-GUIDANCE:END -->",
+        ),
+        encoding="utf-8",
+    )
+    before = {path: path.read_bytes() for path in native[0].rglob("*") if path.is_file()}
+    result = setup(native, source=source)
+    assert result.exit_code == 1
+    assert {path: path.read_bytes() for path in native[0].rglob("*") if path.is_file()} == before
+
+
 def test_failed_package_publication_restores_previous_package_and_record(native, monkeypatch):
     assert setup(native).exit_code == 0
     source = native[0] / "upgrade"

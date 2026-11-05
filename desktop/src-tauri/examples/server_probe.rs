@@ -22,13 +22,19 @@ use powercontext_desktop::{
     },
     credentials::{NativeVault, Secret},
     error::SafeError,
-    transport::{DiscoveryDocument, Endpoint, ServerApi, wire::ArtifactReference},
+    transport::{
+        DiscoveryDocument, Endpoint, ServerApi,
+        wire::{ArtifactReference, StatsPeriod},
+    },
 };
 use serde::Deserialize;
 #[derive(Deserialize)]
 struct Fixture {
     compatibility_profile: CompatibilityProfile,
+    #[serde(default)]
+    product_qualification: bool,
     response_loss_path: Option<String>,
+    statistics_usage_path: Option<String>,
     identity_change_path: Option<String>,
     endpoint: String,
     scope_id: String,
@@ -119,6 +125,14 @@ async fn main() {
         fixture.scope_id
     );
     let keyword = format!("desktop{}", uuid::Uuid::new_v4().simple());
+    // No model is configured: a fresh Scope must expose real empty inventory
+    // and the Server's zero-filled usage, through the reviewed stats contract.
+    let empty_stats = api
+        .stats(&fixture.scope_id, StatsPeriod::Today)
+        .await
+        .unwrap();
+    assert_eq!(empty_stats.inventory.memory.entries.total, 0);
+    assert_eq!(empty_stats.usage.totals.generation.requests, 0);
     let text = format!("{keyword} 中文记录 café\nSecond line.");
     let saved = api.remember(&fixture.scope_id, &text).await.unwrap();
     assert_eq!(saved.records.len(), 1);
@@ -137,14 +151,22 @@ async fn main() {
     assert_eq!(exact.text, text);
     // Exercise the same native context owner used by product IPC, not only bare HTTP adapters.
     let temporary = tempfile::tempdir().unwrap();
-    let manager = ConnectionManager::with_compatibility(
-        ProfileRepository::open(
-            temporary.path().join("profiles.json"),
-            std::sync::Arc::new(NativeVault),
+    let repository = ProfileRepository::open(
+        temporary.path().join("profiles.json"),
+        std::sync::Arc::new(NativeVault),
+    )
+    .unwrap();
+    if fixture.product_qualification && cfg!(feature = "ci-fixtures") {
+        panic!("product qualification must not inject CI records");
+    }
+    let manager = if fixture.product_qualification {
+        ConnectionManager::new(repository)
+    } else {
+        ConnectionManager::with_compatibility(
+            repository,
+            vec![fixture.compatibility_profile.clone()],
         )
-        .unwrap(),
-        vec![fixture.compatibility_profile.clone()],
-    );
+    };
     let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&args[1]).unwrap()).unwrap();
     let compatibility = &fixture.compatibility_profile.id;
     let credential = raw["token"]
@@ -165,12 +187,54 @@ async fn main() {
             .any(|report| report.connection_id == profile)
     );
     let generation = manager.check(&profile, true).await.unwrap().generation;
+    // Check the real Runtime endpoints before selecting a Scope. No generation model is configured.
+    let live = manager.observe_runtime_liveness(generation).await.unwrap();
+    assert_eq!(live.fact.value.unwrap().status, "ok");
+    let capabilities = manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    let runtime_capabilities = capabilities.fact.value.unwrap();
+    assert!(!runtime_capabilities.memory_extraction);
+    assert!(runtime_capabilities.extraction.is_some());
+    let readiness = manager.probe_runtime_readiness(generation).await.unwrap();
+    assert!(readiness.fact.value.is_some());
     let generation = manager
         .select_scope(generation, &fixture.scope_id)
         .await
         .unwrap()
         .generation;
     let keyword = format!("context{}", uuid::Uuid::new_v4().simple());
+    for period in [
+        StatsPeriod::Today,
+        StatsPeriod::Variant7d,
+        StatsPeriod::Variant30d,
+    ] {
+        let stats = manager.stats(generation, period).await.unwrap();
+        assert_eq!(stats.scope_ids, [fixture.scope_id.clone()]);
+        assert_eq!(stats.inventory.memory.entries.total, 1);
+        assert_eq!(stats.usage.period.preset, period);
+        assert_eq!(stats.usage.totals.generation.requests, 0);
+        assert_eq!(stats.usage.totals.generation.input_tokens, Some(0));
+        assert_eq!(stats.usage.totals.embedding.requests, 0);
+        assert_eq!(stats.recall.totals.preparations, 0);
+        assert_eq!(
+            stats.usage.daily.len(),
+            match period {
+                StatsPeriod::Today => 1,
+                StatsPeriod::Variant7d => 7,
+                StatsPeriod::Variant30d => 30,
+            }
+        );
+    }
+    if let Some(path) = &fixture.statistics_usage_path {
+        std::fs::write(path, b"seed-partial-usage").unwrap();
+        let partial = manager.stats(generation, StatsPeriod::Today).await.unwrap();
+        assert_eq!(partial.usage.totals.generation.requests, 2);
+        assert_eq!(partial.usage.totals.generation.input_tokens, None);
+        assert_eq!(partial.usage.totals.generation.output_tokens, Some(9));
+        assert_eq!(partial.usage.daily.last().unwrap().generation.requests, 2);
+    }
     let submitted = format!("  {keyword} 中文 café\nSecond line.  ");
     let expected = format!("{keyword} 中文 café\nSecond line.");
     let saved = manager.remember(generation, &submitted).await.unwrap();
@@ -312,7 +376,8 @@ async fn main() {
         "{}",
         serde_json::json!({
             "result":"passed",
-            "qualification":"candidate native real-Server evidence; product profile is separate",
+            "qualificationSource": if fixture.product_qualification { "bundled product records" } else { "disposable fixture" },
+            "qualificationId":fixture.compatibility_profile.id,
             "contractSha256":fixture.compatibility_profile.contract_sha256,
             "performance": {
                 "scope":"Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
@@ -362,6 +427,10 @@ async fn verify_revocation(
     )
     .unwrap();
     let principal = reader.principal().await.unwrap();
+    reader
+        .stats(&fixture.scope_id, StatsPeriod::Today)
+        .await
+        .unwrap();
     assert_eq!(
         reader
             .atomic_entry(&fixture.scope_id, artifact)
@@ -383,6 +452,15 @@ async fn verify_revocation(
         .error_for_status()
         .unwrap();
     assert_eq!(reader.principal().await.unwrap(), principal);
+    assert_eq!(
+        reader
+            .stats(&fixture.scope_id, StatsPeriod::Today)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::Forbidden
+    );
     assert_eq!(
         reader
             .atomic_entry(&fixture.scope_id, artifact)
