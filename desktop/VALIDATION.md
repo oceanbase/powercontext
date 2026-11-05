@@ -177,13 +177,60 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence, including the eleven-operation `sqlite-atomic-56683483-v1` qualification and the twelve-operation `sqlite-stats-63e9665c-v1` statistics qualification. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence, including the eleven-operation `sqlite-atomic-56683483-v1` qualification and the twelve-operation `sqlite-stats-63e9665c-v1` statistics qualification. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification. The [57d79337 statistics qualification](#server-57d79337-statistics-product-qualification) covers all twelve Desktop operations for its fixed source and wheel under the current contract digest.
 
 The real Server harness covers SQLite with anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced access. It exercises save/search/exact reads, identity changes, binding revocation, ambiguous writes without replay and Scope pagination. Installed UI checks cover repeated launches preserving the existing editor, late committed-save responses preserving a new Scope draft, explicit connection/Scope selection, clipboard copies, connection isolation, draft cancellation, byte limits and independent Server survival after Desktop exit. Historical record `sqlite-atomic-f3a90b2f-v1` remains preserved with its original identities and is disabled for this contract.
 
 Selecting a compatibility profile does not attest the remote binary identity. Existing `sqlite-1.1.1-v1` / `sqlite-63f918b7-v1` / `sqlite-ab43e3a7-v1` / `sqlite-f1089f4e-v1` / `sqlite-6e237568-v1` / `sqlite-legacy-58f7f4f6-v1` selections require explicitly choosing an available matching profile and rechecking the connection. Desktop reads memories only through Atomic Memory references, so Servers that answer only with Memory entry citations are not qualified. CLI diagnostics separately verify the registered executable path and digest, then validate the diagnostic response schema. The observed version is optional report information; a registration does not require a version.
 
 ### Current-Scope statistics qualification
+
+#### Server 57d79337 statistics product qualification
+
+`sqlite-stats-57d79337-v1` qualifies all twelve Desktop operations, including
+`get_stats` and discovery, against Server source
+`57d7933796ffa6fe4fe5bbf487cc6170bad2766b` and normalized OpenAPI digest
+`d8cf5d802888351929a19191bfde32a36db1c06e2293d3ad12df6721f0bef85e`.
+Wheel: `powercontext-1.5.1.dev100+g57d793379-py3-none-any.whl`.
+Wheel SHA-256: `129c6dd4c27a4237ca4df21e26efc1b9ab7f37f65a3361b10630e87721285daf`.
+All 703 packaged runtime files in `powercontext/` and
+`powercontext_service_bootstrap/` match the committed Server source byte for byte.
+The sorted newline-terminated `wheel/path sha256` manifest hashes to
+`0140c031d133ea655fb98db3aef7f7a9e8a314f7e296de9c52bc1bdea154adab`.
+
+On 2026-11-05, macOS 26.2 ARM64 with Python 3.12.7 and Rust 1.95.0 passed
+all four built-wheel SQLite modes: anonymous loopback, static Bearer loopback,
+explicit-CA HTTPS with a base path, and enforced authentication Provider.
+The native `server_probe` was built without `ci-fixtures` and used ordinary
+`ConnectionManager::new` product-profile selection, checking, activation and
+exact-Scope selection. Its debug binary SHA-256 is
+`122037fea0529156585d42c70cff5e64b362b4173975b4b9abd01f4ca99297bd`.
+The Desktop report identifies the same source commit and a dirty working tree
+because the new catalog record had been added before building the probe; the
+Server sources, build configuration and contract still matched the fixed commit.
+
+The probe exercises Runtime observations, UTC today/7d/30d statistics, persisted
+inventory, zero and partial token reports, independent Memory operations,
+identity/revocation, Scope pagination and unknown writes without replay.
+Partial usage is seeded Runtime-recorder input, not a live model-provider call.
+The harness verifies the selected product-record receipt and the wheel,
+contract and operation identities. All 15 focused native session/statistics
+cases also passed, including full Desktop-operation qualification coverage.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py --product-qualification sqlite-stats-57d79337-v1
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml --test session --test statistics
+```
+
+The local harness report is `desktop/.artifacts/real-server.json`. All historical
+records retain their exact identities and operation sets. These checks establish
+the built-wheel/native SQLite path; installed packages, existing-database
+upgrades, external deployments and release acceptance require separate evidence.
+
+新记录以固定源码和实际 wheel 验证十二项操作，包含统计接口，使用普通产品资格选择链。
+四种 SQLite 连接模式均通过；历史记录及其身份保持不变。部分 token 数据来自测试输入，
+不代表真实模型调用，也不代替安装包、已有数据库升级或发布验收。
 
 #### Server 63e9665c statistics product qualification
 
