@@ -45,7 +45,9 @@ of a returned marketplace name, registration may already have completed; this do
 
 Open a new Codex session after setup. Before sending the first message, use `/hooks` to inspect PowerContext's hooks
 and, when prompted, grant trust. `SessionStart` resolves the Session Scope and optionally loads startup context;
-`UserPromptSubmit` prepares relevant context and independently captures the user input as a Source. The plugin also
+`UserPromptSubmit` prepares relevant context and independently captures the user input as a Source. When Codex's model
+traffic goes through the gateway, turn prompt-time recall off so the gateway prepares context; see
+[Leave prompt-time context to the gateway](#leave-prompt-time-context-to-the-gateway). The plugin also
 uses `PreToolUse` for MCP Scope binding. Loading the plugin or discovering MCP tools does not prove that these hooks ran.
 
 If trust was skipped or denied, inspect the PowerContext entries in `/hooks` and follow the host's available controls
@@ -227,6 +229,31 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 
 This adds inference latency to each prompt and is not the normal interactive setting.
 
+## Leave prompt-time context to the gateway
+
+When Codex sends its model requests through the PowerContext gateway, the gateway prepares and injects context for
+each turn and, with `PC_GATEWAY_SEDIMENT=on`, captures the turn. Core checks every request the gateway forwards and
+rejects a prepared-context block that the gateway did not inject, so a turn that also carries the plugin's block fails.
+Turn the plugin's prompt-time recall and prompt capture off before starting Codex:
+
+```bash
+export POWERCONTEXT_CODEX_PROMPT_RECALL=false
+export POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false
+codex
+```
+
+With recall off, `UserPromptSubmit` sends no preparation request and adds no context. It still captures prompts while
+`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` is `true`; with both off, it sends no request. The Session binding, bootstrap
+context, MCP tools, and diagnostics keep their own settings. Keep the default where Codex calls its model directly or
+signs in with a subscription account, because the gateway does not carry that traffic.
+
+With recall off, prompt-time context comes only from the gateway, with two differences:
+
+- The gateway prepares and captures in the Scope set by `PC_GATEWAY_DEFAULT_SCOPE`, not in the Scope this plugin
+  resolves for the Session or workspace. Set it to the same Scope.
+- The gateway does not send the bootstrap receipt, so Memory already injected by
+  [Session bootstrap context](#opt-in-to-session-bootstrap-context) can appear again in the gateway's context.
+
 ## Connect to an authenticated local Server
 
 Local Server authentication is disabled by default and can be enabled independently of Dashboard.
@@ -358,6 +385,7 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT` | `false` | Inject the curated bootstrap profile on supported `SessionStart` events |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` | `4096` | Bootstrap package limit; valid values are 512 through 8192 bytes |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` | unset | JSON identity of one exact committed Handoff, for example `{"artifact_id":"...","revision":3}` |
+| `POWERCONTEXT_CODEX_PROMPT_RECALL` | `true` | Prepare and inject context for each prompt; set `false` when the gateway carries Codex's model traffic |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |

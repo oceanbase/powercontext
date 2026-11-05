@@ -40,7 +40,8 @@ powercontext doctor codex
 ### 首次会话 Hook 信任
 
 配置完成后开启新的 Codex 会话。发送第一条消息前，通过 `/hooks` 检查 PowerContext Hook，并在收到提示时授予信任。
-`SessionStart` 解析会话 Scope，并按配置加载启动上下文；`UserPromptSubmit` 准备相关上下文，并独立地将用户输入采集为 Source。
+`SessionStart` 解析会话 Scope，并按配置加载启动上下文；`UserPromptSubmit` 准备相关上下文，并独立地将用户输入采集为 Source。Codex 的模型流量经过 gateway 时，
+请关闭提示词时召回，由 gateway 准备上下文，见[把提示词时上下文交给 gateway](#把提示词时上下文交给-gateway)。
 插件还使用 `PreToolUse` 绑定 MCP 操作的 Scope。插件已加载或 MCP 工具可发现，都不能证明这些 Hook 已执行。
 
 如果跳过或拒绝信任，进入 `/hooks` 检查 PowerContext 条目，按当前宿主提供的操作启用或信任它们。
@@ -195,6 +196,29 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 
 这会给每个提示词增加推理延迟，不适合作为日常交互配置。
 
+## 把提示词时上下文交给 gateway
+
+Codex 的模型请求经过 PowerContext gateway 时，gateway 为每一轮准备并注入上下文；设置 `PC_GATEWAY_SEDIMENT=on`
+后，gateway 也会采集这一轮。Core 检查 gateway 转发的每个请求，拒绝不是 gateway 注入的 prepared-context 块，
+因此同时带有插件上下文块的一轮会失败。启动 Codex 前，关闭插件的提示词时召回和提示词采集：
+
+```bash
+export POWERCONTEXT_CODEX_PROMPT_RECALL=false
+export POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false
+codex
+```
+
+关闭召回后，`UserPromptSubmit` 不发送准备请求，也不添加上下文。`POWERCONTEXT_CODEX_CAPTURE_PROMPTS` 为 `true`
+时它仍会采集提示词；两项都关闭时，它不发送任何请求。Session binding、启动上下文、MCP 工具和诊断仍由各自的设置控制。
+Codex 直接调用模型或使用订阅账号登录时，gateway 不承载这些流量，请保留默认值。
+
+关闭召回后，提示词时上下文只来自 gateway，有两点不同：
+
+- gateway 在 `PC_GATEWAY_DEFAULT_SCOPE` 指定的 Scope 中准备和采集，而不是插件为 Session 或 workspace 解析的 Scope。
+  请把它设为同一个 Scope。
+- gateway 不发送启动上下文的 receipt，因此[启动上下文](#选择启用-session-启动上下文)已经注入的 Memory
+  可能再次出现在 gateway 的上下文中。
+
 ## 连接启用鉴权的本地 Server
 
 本地 Server 默认关闭认证，需要时可独立开启。首次本地配置向导默认不启用 Dashboard；选择启用 Dashboard 不要求配置 token。
@@ -318,6 +342,7 @@ MCP 显示 connected 也不等于 Source 已采集。
 | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT` | `false` | 在支持的 `SessionStart` 事件中注入精选启动 profile |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` | `4096` | 启动上下文总预算；有效范围为 512 到 8192 bytes |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` | 未设置 | 一个 exact committed Handoff 的 JSON 身份，例如 `{"artifact_id":"...","revision":3}` |
+| `POWERCONTEXT_CODEX_PROMPT_RECALL` | `true` | 为每个提示词准备并注入上下文；gateway 承载 Codex 的模型流量时设为 `false` |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Hook 单次请求超时 |
