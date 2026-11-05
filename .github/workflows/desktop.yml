@@ -90,7 +90,7 @@ jobs:
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Set up Python fixture tooling
         timeout-minutes: 5
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.10.12"
           # Use the release source directly; a stalled mirror download can exhaust the job budget.
@@ -331,7 +331,7 @@ jobs:
             cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
           '
       - name: Set up Python fixture tooling
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.10.12"
           enable-cache: true
@@ -394,7 +394,7 @@ jobs:
           git fetch --no-tags https://github.com/oceanbase/powercontext.git refs/tags/powercontext-v1.0.0:refs/tags/powercontext-v1.0.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') { throw 'Unexpected Server version baseline tag' }
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.10.12"
           enable-cache: true
