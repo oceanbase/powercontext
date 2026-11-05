@@ -30,7 +30,7 @@ import httpx
 from powercontext.client import PowerContextClient
 from powercontext.source_management.config import RuntimeConfig, configuration_digest, secret
 from powercontext.source_management.context import PluginContext
-from powercontext.source_management.durable import InstanceOwner, RuntimeOwner
+from powercontext.source_management.durable import InstanceOwner, RuntimeOwner, require_process_identity
 from powercontext.source_management.loading import load_runtime_plugin
 from powercontext.source_management.models import (
     PROTOCOL_VERSION,
@@ -46,6 +46,7 @@ TERMINAL = {"complete", "failed", "stopped", "cleanup-failed"}
 
 class SourceRuntime:
     def __init__(self, config: RuntimeConfig) -> None:
+        require_process_identity()
         self.config = config
         if configuration_digest(config.plugin, config.config, config.secrets) != config.configuration_digest:
             raise ManagementError(

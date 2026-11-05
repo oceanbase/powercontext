@@ -1,3 +1,8 @@
+---
+title: "RFC 1304: Experience and Skill review page"
+description: A proposal for a scoped Review Inbox to inspect evidence, revise Candidates, approve exact versions, and publish approved managed Skills.
+---
+
 - Proposal Name: `experience_skill_review_page`
 - Start Date: 2026-08-20
 - RFC PR: [oceanbase/powercontext#1304](https://github.com/oceanbase/powercontext/pull/1304)

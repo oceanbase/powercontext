@@ -6,7 +6,15 @@ See [中文说明](README.zh.md), [security boundary](SECURITY.md), and [validat
 
 ## Observation
 
-The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Runtime state and inventory data remain explicitly unavailable until integrated. This session reads native session observations; opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
+The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Inventory & usage hosts the qualified Statistics view; This session reads native session observations. Opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
+
+**Observation → Runtime state** shows the selected Server's liveness and available capabilities, with separate UTC
+snapshots and process-level Memory extraction history. Refresh does not probe models. **Probe readiness** is a separate,
+explicit action for a qualified connection with current observation access; it may contact configured dependencies.
+Local Ops inspection and registered CLI diagnostics describe this computer and work independently of the remote Server.
+Installation, recovery and service changes belong in **Local Server settings**. Local states are shown only when the
+native service manager or helper reports them; an unreachable HTTP endpoint does not establish that a service is stopped
+or starting.
 
 The native host collects a bounded, in-memory window of HTTP requests and Memory/Scope user operations independently of page navigation. Trusted typed IPC provides an allowlisted summary, reset and safe JSON preview. The window retains at most 512 terminal records; it preserves cancellation and unknown-write outcomes and contains no content or target identities. See the [session observation contract](../docs/en/development/desktop-session-observations.md) for measurement units, coverage, reset and failure isolation. This session shows separate request/action counts, outcomes and millisecond latency, UTC snapshot/retention coverage, manual refresh and confirmed reset. **Preview safe diagnostic summary** opens the exact native text; copying is a separate explicit action with feedback and selectable text for manual recovery. Leaving the view or changing context closes its preview and discards late UI responses.
 
@@ -17,7 +25,7 @@ with independent retention/loss coverage, and contribute no HTTP or Memory/Scope
 
 ## Shared feedback and current context
 
-Every page uses the same loading, empty, unavailable and error presentation. Loading local state is distinct from being disconnected; a local-state failure offers **Reload local state**, without probing Server readiness. Empty search results mean no matches for that query, not an empty Scope inventory. Unimplemented Observation views remain unavailable.
+Every page uses the same loading, empty, unavailable and error presentation. Loading local state is distinct from being disconnected; a local-state failure offers **Reload local state**, without probing Server readiness. Empty search results mean no matches for that query, not an empty Scope inventory.
 
 Errors explain the affected operation and recovery. Read failures offer an explicit retry; exact reads retain the original Artifact revision. An expired Scope cursor restarts from the first page. Credential, permission and compatibility failures explain the required configuration or authorization change. Save failures keep the draft; unknown writes retain their original target and require the existing confirmation before another submission. Writes are never replayed automatically. Local diagnostic failures offer a retry of the same selected local check and do not indicate remote unavailability.
 
@@ -110,6 +118,20 @@ Search uses FTS in the selected Scope and returns at most 10 matches. This is no
 
 A successful save that returns no memory record is reported as an operation success without inventing a reference. A timeout or interrupted dispatched write is **unknown**, not a safe invitation to retry: inspect the original Server/Scope before deciding whether to submit again. Identical text alone cannot identify that operation. Desktop does not automatically replay writes or keep an offline queue. Switching context hides old results while retaining minimal original-operation metadata for this session. See [validation guide](VALIDATION.md) for tested behavior and qualification gaps.
 
+## Current-Scope inventory and usage
+
+In **Observation → Current-Scope inventory & usage**, explicitly activate a qualified connection, select an exact Scope,
+choose **Today**, **Last 7 days** or **Last 30 days**, then press **Load statistics**.
+The view displays the Server timestamp, Scope coverage, inventory snapshot,
+recorded UTC model usage and recall token estimates. Missing token counts remain
+**Unknown**; estimates are not billing savings or quality scores. Every chart has
+an equivalent table and keyboard-scrollable region. A statistics error does not
+disable independent Memory actions. See the [developer contract](../docs/en/development/desktop-statistics.md)
+and [qualification evidence](VALIDATION.md#current-scope-statistics-qualification).
+
+Statistics requires an explicitly selected record that matches the bundled contract
+and qualifies `get_stats`; a protocol-only qualification does not enable statistics.
+
 ## Native discovery results
 
 Connection checks call the public `get_server_info` operation through the existing native transport. `CheckReport.discovery` reports `supported`, `missing`, `denied`, `unavailable`, `invalid`, or `incompatible`, the observed Server metadata, safe errors, and per-operation `qualified`/`unsupported`/`unverified` results with reasons. Compatible discovery minor versions accept additional optional fields in the response and its nested version/feature objects.
@@ -184,7 +206,7 @@ Installed boundary checks exercise an 8192-byte Unicode note, reject over-budget
 
 After upgrading from an earlier preview, open Connections and select your saved connection. Profiles matching the bundled API contract appear under “Available for this Desktop build”; compare their tested Server builds with your deployment before selecting one, saving, checking and explicitly using the connection again. New connections start with no compatibility selection.
 
-Historical profiles appear as disabled records when their contract differs from this build. A saved incompatible or unavailable selection remains visible with an explanation until explicitly replaced. The `sqlite-atomic-56683483-v1` record matches this build's contract and qualifies eleven SQLite protocol operations against the exact Server source and wheel recorded in the validation guide. Select it only after comparing that tested build with your deployment. Existing records retain their original Server source, contract, wheel and operation identities, including the historical `sqlite-atomic-f3a90b2f-v1` qualification. The `ci-fixtures` build is for disposable acceptance tests and does not qualify a production deployment. Qualification evidence and remaining requirements are documented in the [validation guide](VALIDATION.md#compatibility-scope).
+Historical records whose digest differs from this build remain disabled. A saved incompatible or unavailable selection stays visible until explicitly replaced; it is never silently upgraded. Explicitly select a matching qualification record whose recorded Server source, wheel and operation set match the intended deployment, then check and activate the connection and select an exact Scope. Statistics additionally requires a record that qualifies `get_stats`; selecting an older protocol-only record does not extend its operation set. All historical records retain their original source, digest, wheel and operation identities, including `sqlite-atomic-56683483-v1` and `sqlite-stats-63e9665c-v1`. The `ci-fixtures` build is only for disposable acceptance. Source identities and remaining platform requirements are in the [validation guide](VALIDATION.md#compatibility-scope).
 
 ## Build on macOS
 

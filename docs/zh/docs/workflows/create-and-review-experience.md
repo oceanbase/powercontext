@@ -1,6 +1,6 @@
 ---
 title: 创建并审核 Experience
-description: 根据精确证据生成 Experience Candidate，完成审核，并验证 approved Revision。
+description: 根据精确证据生成 Experience 候选，完成审核，并核对批准后的版本。
 ---
 
 # 创建并审核 Experience

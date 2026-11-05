@@ -1,3 +1,8 @@
+---
+title: "RFC 1783: Handoff session rollover"
+description: A proposal for evidence-backed rollover Handoffs that continue the same Scope in a fresh session without carrying the full transcript.
+---
+
 - Proposal Name: `handoff_session_rollover`
 - Start Date: 2026-09-29
 - Status: Draft

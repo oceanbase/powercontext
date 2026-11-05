@@ -1,3 +1,8 @@
+---
+title: "Candidate migration replay prototype"
+description: "Replay the s1300 to s1400 Candidate migration on SQLite, seekDB, or OceanBase and compare the captured schemas with registered checkpoints."
+---
+
 # Candidate migration replay prototype
 
 The development command replays the frozen `s1300` → `s1400` Candidate conversion on real SQLite, embedded seekDB, or OceanBase. It generates full-database schema inventories and ordered changes from database reflection, then compares the result with the existing registration. It does not edit migration resources, change checksums, or install a new registration format.

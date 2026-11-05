@@ -1,3 +1,8 @@
+---
+title: "RFC 1299: Local Server availability and service installation"
+description: A proposal separating foreground Server execution, per-user service installation, plugin failure reporting, and doctor diagnostics.
+---
+
 - Proposal Name: local_server_availability_and_service_installation
 - Start Date: 2026-08-21
 - RFC PR: [oceanbase/powercontext#1299](https://github.com/oceanbase/powercontext/pull/1299)

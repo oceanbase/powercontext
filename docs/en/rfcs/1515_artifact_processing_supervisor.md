@@ -1,3 +1,8 @@
+---
+title: "RFC 1515: Artifact Processing Supervisor"
+description: A proposal for shared Artifact scheduling in global or dedicated mode, with per-family Worker budgets, durable intent, and fenced execution.
+---
+
 - Proposal Name: `artifact_processing_supervisor`
 - Start Date: 2026-09-08
 - Status: Proposed

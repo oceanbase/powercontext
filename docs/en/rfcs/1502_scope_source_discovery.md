@@ -1,3 +1,8 @@
+---
+title: "RFC 1502: Scope and Source discovery"
+description: A proposal for field-selected Scope discovery, exact filters and pagination, plus listing public Sources within one Scope.
+---
+
 + Proposal Name: `scope_source_discovery`
 + Start Date: 2026-09-08
 + RFC PR: [oceanbase/powercontext#1502](https://github.com/oceanbase/powercontext/pull/1502)

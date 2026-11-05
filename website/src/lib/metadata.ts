@@ -15,7 +15,62 @@
  */
 
 import type { Metadata } from 'next';
-import { siteUrl } from './urls';
+import type { Language } from './i18n';
+import { absoluteSiteUrl, siteUrl, withBasePath } from './urls';
+
+export const siteDescriptions = {
+  en: 'PowerContext keeps project decisions, evidence, and task progress available when people or agents resume work in a new session.',
+  zh: 'PowerContext 保存项目决定、依据和任务进展，供人和 Agent 在新会话中接着工作。',
+};
+
+export function canonicalPath(path: string) {
+  if (path === '/' || path.replace(/\/$/, '') === '/en') return '/';
+  return `${path.replace(/\/$/, '')}/`;
+}
+
+type PageMetadataOptions = {
+  path: string;
+  lang?: Language;
+  title?: string;
+  description?: string;
+  translations?: Partial<Record<Language, string>>;
+  image?: { url: string; alt?: string };
+  markdown?: string;
+  article?: { publishedTime: string; modifiedTime: string; authors: string[] };
+};
+
+export function pageMetadata({
+  path, lang = 'en', title, description = siteDescriptions[lang], translations, image, article, markdown,
+}: PageMetadataOptions): Metadata {
+  const url = absoluteSiteUrl(canonicalPath(path));
+  const images = image
+    ? [{ ...image, url: absoluteSiteUrl(image.url) }]
+    : [{ url: absoluteSiteUrl('/og.png'), width: 1200, height: 630, alt: 'PowerContext' }];
+  const alternateLanguages = translations && Object.fromEntries(
+    Object.entries(translations).map(([locale, route]) => [locale, absoluteSiteUrl(canonicalPath(route))]),
+  );
+  if (alternateLanguages?.en) alternateLanguages['x-default'] = alternateLanguages.en;
+
+  return {
+    ...(title ? { title } : {}),
+    description,
+    alternates: {
+      canonical: url,
+      ...(alternateLanguages ? { languages: alternateLanguages } : {}),
+      ...(markdown ? { types: { 'text/markdown': absoluteSiteUrl(markdown) } } : {}),
+    },
+    openGraph: {
+      type: article ? 'article' : 'website',
+      title: title ? `${title} · PowerContext` : 'PowerContext',
+      description, url, siteName: 'PowerContext', images,
+      locale: lang === 'zh' ? 'zh_CN' : 'en_US',
+      alternateLocale: Object.keys(translations ?? {}).filter((locale) => locale !== lang)
+        .map((locale) => locale === 'zh' ? 'zh_CN' : 'en_US'),
+      ...article,
+    },
+    twitter: { card: 'summary_large_image', title: title ?? 'PowerContext', description, images },
+  };
+}
 
 export const siteMetadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -23,5 +78,6 @@ export const siteMetadata: Metadata = {
     default: 'PowerContext',
     template: '%s · PowerContext',
   },
-  description: 'Continue work in a new session without restating decisions, constraints, and progress.',
+  description: siteDescriptions.en,
+  icons: { icon: withBasePath('/icon.svg') },
 };

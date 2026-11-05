@@ -1,3 +1,8 @@
+---
+title: RFC 0020：基于 Runtime 的 Memory 远程访问
+description: 基于 Runtime 提供 Source 采集和 Memory 远程操作的提案，说明 FastAPI Server、OpenAPI、Python Client 与 MCP 的分工。
+---
+
 - Proposal Name: `runtime_backed_memory_remote_access`
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#20](https://github.com/oceanbase/powercontext/pull/20)
