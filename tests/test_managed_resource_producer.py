@@ -175,6 +175,7 @@ def test_internal_file_alias_is_materialized_and_consumed_with_pinned_catalog(
         catalog.select_current()
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="case-distinct materialization requires a Linux filesystem")
 def test_linux_interpreter_keeps_case_distinct_runtime_paths(tmp_path: Path) -> None:
     source = tmp_path / "python.tar.gz"
     with tarfile.open(source, "w:gz") as archive:
