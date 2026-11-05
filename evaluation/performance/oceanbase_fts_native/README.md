@@ -113,5 +113,3 @@ python scripts/benchmark_oceanbase_fts_native.py \
 - `population.jsonl`、`maintenance.jsonl`、`query-timeout-checks.jsonl`：装载规模、投影数据指纹、维护操作及查询超时恢复/核验。
 - `recovery.jsonl`、`drain.jsonl`、`cleanup.jsonl`、`journal.json`：错误后的恢复、残留与限定清理。
 - `outcome.json`：完成状态、退出码、方法调用失败、实验级错误及不同结果计数。
-
-本轮测量结果整理在 [RESULTS.md](RESULTS.md)。
