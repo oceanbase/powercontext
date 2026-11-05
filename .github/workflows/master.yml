@@ -751,10 +751,9 @@ jobs:
           tests/test_system_cli.py::test_codex_batch_runners_reject_unsafe_executable_path
           tests/test_system_cli.py::test_codex_native_executable_preserves_arguments
 
-      - name: Verify managed guidance and exact rollback bytes on Windows
+      - name: Verify installation failures preserve user content on Windows
         run: >-
           uv run --locked --no-sync pytest -q
-          tests/test_guidance_generation.py
           tests/test_guidance_installation.py
           tests/test_opencode_installation.py
           tests/test_cli_zcode.py::test_zcode_upgrade_rejects_missing_packaged_reference_and_preserves_installation

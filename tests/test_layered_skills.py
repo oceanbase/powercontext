@@ -15,35 +15,21 @@
 from __future__ import annotations
 
 import json
+import posixpath
+import re
 import shutil
 import subprocess
-import sys
+import tarfile
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-
-from integration_guidance_skills import FILE_HOSTS, file_skill  # noqa: E402
 
 
-@pytest.mark.parametrize("host", FILE_HOSTS)
-def test_shipped_skill_entry_can_load_its_referenced_workflows(host: str) -> None:
-    skill = file_skill(ROOT / FILE_HOSTS[host])
-    assert skill["name"] == "powercontext-project-context"
-    for resource, content in skill["resources"].items():
-        assert content.strip(), f"{host}: installed resource {resource} is empty"
-
-
-def test_missing_skill_resource_identifies_entry_and_exact_link(tmp_path: Path) -> None:
-    (tmp_path / "SKILL.md").write_text("[Memory](references/memory.md)", encoding="utf-8")
-    with pytest.raises(ValueError, match=r"SKILL.md links to missing.*references/memory.md"):
-        file_skill(tmp_path)
-
-
-@pytest.mark.parametrize("host", ["opencode", "openclaw"])
-def test_npm_archive_contains_every_reachable_skill_resource(host: str) -> None:
+@pytest.mark.parametrize("host", ["opencode", "openclaw", "pi", "dsh"])
+def test_published_skill_can_read_its_references(host: str, tmp_path: Path) -> None:
     npm, node = shutil.which("npm"), shutil.which("node")
     if not npm or not node:
         pytest.skip("Node/npm are required for package archive validation")
@@ -52,10 +38,11 @@ def test_npm_archive_contains_every_reachable_skill_resource(host: str) -> None:
         cli = cli.parent / "node_modules/npm/bin/npm-cli.js"
     if not cli.is_file():
         pytest.skip("npm CLI entrypoint is not available")
-    directory = ROOT / FILE_HOSTS[host]
-    package = directory.parent.parent
+    package = (
+        ROOT / "integrations" / host / "plugins" / ("memory-powercontext" if host == "openclaw" else "powercontext")
+    )
     completed = subprocess.run(
-        [node, str(cli), "pack", "--dry-run", "--json", "--ignore-scripts"],
+        [node, str(cli), "pack", "--json", "--ignore-scripts", "--pack-destination", str(tmp_path)],
         cwd=package,
         capture_output=True,
         text=True,
@@ -63,7 +50,22 @@ def test_npm_archive_contains_every_reachable_skill_resource(host: str) -> None:
         check=True,
         timeout=60,
     )
-    paths = {file["path"] for file in json.loads(completed.stdout)[0]["files"]}
-    for resource in file_skill(directory)["resources"]:
-        expected = (directory.relative_to(package) / resource).as_posix()
-        assert expected in paths, f"{host} package omits Skill resource {expected}"
+    archive_path = tmp_path / json.loads(completed.stdout)[0]["filename"]
+    with tarfile.open(archive_path) as archive:
+        pending = ["package/skills/powercontext-project-context/SKILL.md"]
+        read = set()
+        while pending:
+            resource = pending.pop()
+            if resource in read:
+                continue
+            stream = archive.extractfile(resource)
+            assert stream is not None, f"{host}: missing Skill resource {resource}"
+            content = stream.read().decode("utf-8")
+            assert content.strip(), f"{host}: empty Skill resource {resource}"
+            read.add(resource)
+            for link in re.findall(r"\[[^\]]*\]\(([^)]+)\)", content):
+                target = urlsplit(link)
+                if not target.scheme and not target.netloc and target.path:
+                    pending.append(
+                        posixpath.normpath(posixpath.join(posixpath.dirname(resource), unquote(target.path)))
+                    )

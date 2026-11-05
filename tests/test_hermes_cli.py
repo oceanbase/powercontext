@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -26,7 +27,7 @@ from powercontext.cli.app import create_cli
 from powercontext.cli.system import doctor_app, setup_app
 
 
-def _write_plugin(root: Path) -> Path:
+def _write_plugin(root: Path, *, guidance: bool = True) -> Path:
     plugins_root = root / "integrations" / "hermes" / "plugins"
     plugin = plugins_root / "powercontext"
     command_plugin = plugins_root / "powercontext-command"
@@ -39,6 +40,10 @@ def _write_plugin(root: Path) -> Path:
         "name: powercontext-command\nkind: standalone\n",
         encoding="utf-8",
     )
+    if guidance:
+        shutil.copytree(
+            Path(__file__).parents[1] / "integrations/hermes/plugins/powercontext/skills", plugin / "skills"
+        )
     return plugin
 
 
@@ -95,6 +100,7 @@ def test_setup_hermes_copies_provider_from_a_local_checkout(
         "hermes_home": str(hermes_home),
         "data_dir": str(tmp_path / "data"),
         "command_plugin_path": str(hermes_home / "plugins" / "powercontext-command"),
+        "skill_path": str(hermes_home / "skills/powercontext-project-context"),
     }
     assert (hermes_home / "plugins" / "powercontext" / "plugin.yaml").is_file()
     assert (hermes_home / "plugins" / "powercontext-command" / "plugin.yaml").is_file()
@@ -102,11 +108,84 @@ def test_setup_hermes_copies_provider_from_a_local_checkout(
     assert (unrelated_plugin / "keep.txt").read_text(encoding="utf-8") == "keep\n"
 
 
+def test_setup_hermes_preserves_customizations_when_moving_skill_to_native_directory(
+    tmp_path: Path, monkeypatch, installed_agent_checks, hermes_activation
+) -> None:
+    checkout = tmp_path / "source"
+    package = _write_plugin(checkout)
+    home = tmp_path / "hermes"
+    installed = _write_installed_plugins(home)
+    shutil.copytree(package / "skills", installed / "skills")
+    relative = Path("skills/powercontext-project-context")
+    previous = installed / relative
+    instructions = b"\r\nKeep my plugin-local instructions.\r\n"
+    (previous / "SKILL.md").write_bytes((previous / "SKILL.md").read_bytes() + instructions)
+    (previous / "personal.txt").write_bytes(b"Keep my notes\r\n")
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(hermes_cli, "which", lambda _name: "/usr/bin/hermes")
+    monkeypatch.setattr(hermes_cli.subprocess, "run", _successful_hermes_run)
+    arguments = ["setup", "hermes", "--source", str(checkout), "--json"]
+
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+    assert result.exit_code == 0, result.output
+    skill = home / relative
+    assert (skill / "SKILL.md").read_bytes().endswith(instructions)
+    assert (skill / "personal.txt").read_bytes() == b"Keep my notes\r\n"
+
+    instructions = b"\r\nUse my current native Skill instructions.\r\n"
+    (skill / "SKILL.md").write_bytes((package / relative / "SKILL.md").read_bytes() + instructions)
+    (skill / "personal.txt").write_bytes(b"Updated native notes\r\n")
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+    assert result.exit_code == 0, result.output
+    assert (skill / "SKILL.md").read_bytes().endswith(instructions)
+    assert (skill / "personal.txt").read_bytes() == b"Updated native notes\r\n"
+
+
+@pytest.mark.parametrize("resource", ["references/examples.json", "agents/openai.yaml"])
+def test_setup_hermes_rejects_collision_with_legacy_user_resource(
+    resource: str, tmp_path: Path, monkeypatch, installed_agent_checks, hermes_activation
+) -> None:
+    checkout = tmp_path / "source"
+    package = _write_plugin(checkout)
+    home = tmp_path / "hermes"
+    installed = _write_installed_plugins(home)
+    relative = Path("skills/powercontext-project-context")
+    previous = installed / relative
+    # Actual packaged Skill from 745ebf2e, before native discovery and these resources.
+    shutil.copytree(Path(__file__).parent / "fixtures/integration-guidance/hermes-legacy", previous)
+    user_file = previous / resource
+    user_file.parent.mkdir(parents=True, exist_ok=True)
+    user_file.write_bytes(b"Keep my personal resource\r\n")
+    before = {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()}
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(hermes_cli, "which", lambda _name: "/usr/bin/hermes")
+    monkeypatch.setattr(hermes_cli.subprocess, "run", _successful_hermes_run)
+    arguments = ["setup", "hermes", "--source", str(checkout)]
+
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+
+    assert result.exit_code == 1, result.output
+    assert "unrecognized existing Skill resource" in result.output
+    assert {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()} == before
+    user_file.rename(previous / "personal.txt")
+    incoming = package / relative / resource
+    user_file.write_bytes(incoming.read_bytes())
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+    assert result.exit_code == 0, result.output
+    assert (home / relative / "personal.txt").read_bytes() == b"Keep my personal resource\r\n"
+    incoming.write_bytes(b'{"updated": true}\n')
+    result = CliRunner().invoke(create_cli([setup_app]), arguments)
+    assert result.exit_code == 0, result.output
+    assert (home / relative / resource).read_bytes() == incoming.read_bytes()
+
+
 def test_setup_hermes_refuses_package_omitting_installed_guidance(
     tmp_path: Path, monkeypatch, installed_agent_checks, hermes_activation
 ) -> None:
     checkout = tmp_path / "powercontext"
-    _write_plugin(checkout)
+    _write_plugin(checkout, guidance=False)
     home = tmp_path / "hermes"
     installed = _write_installed_plugins(home)
     guidance = installed / "skills/powercontext-project-context/SKILL.md"
