@@ -27,6 +27,8 @@ use std::sync::Mutex;
 pub(crate) const MAX_RECEIPTS: usize = 32;
 /// 会话数上限：超出后淘汰最早写入的会话。
 const MAX_CONVERSATIONS: usize = 1024;
+/// 每个会话记住的已被合并替换的回执 ID 数，用于识别并发检查留下的过时合并。
+const MAX_SUPERSEDED: usize = 4 * MAX_RECEIPTS;
 /// 回执在网关保留的时长，与 Core 的有效期一致。
 pub(crate) const RECEIPT_TTL_MS: u64 = 60 * 60 * 1000;
 
@@ -40,6 +42,7 @@ struct Conversation {
     scope_id: String,
     conversation_id: String,
     receipts: VecDeque<Receipt>,
+    superseded: VecDeque<u64>,
 }
 
 #[derive(Default)]
@@ -66,6 +69,8 @@ impl ReceiptStore {
     }
 
     /// 用 before_send 返回的合并回执替换这次转交的本会话回执。快照之后新加入的回执和父会话的回执不受影响。
+    /// 如果这些回执都已被另一次并发检查的合并替换，这张合并回执的证明都已在那张里，丢弃它，免得冗余回执挤掉快照
+    /// 之后加入的回执。
     pub(crate) fn consolidate(
         &self,
         scope_id: &str,
@@ -98,11 +103,28 @@ impl ReceiptStore {
                 scope_id: scope_id.into(),
                 conversation_id: conversation_id.into(),
                 receipts: VecDeque::new(),
+                superseded: VecDeque::new(),
             },
         };
-        conversation
-            .receipts
-            .retain(|r| r.expires_ms > now_ms && !replaced.contains(&r.id));
+        let stale = !replaced.is_empty()
+            && replaced
+                .iter()
+                .all(|id| conversation.superseded.contains(id));
+        if stale {
+            conversations.push_back(conversation);
+            return;
+        }
+        let superseded = &mut conversation.superseded;
+        conversation.receipts.retain(|r| {
+            let consumed = replaced.contains(&r.id);
+            if consumed {
+                if superseded.len() >= MAX_SUPERSEDED {
+                    superseded.pop_front();
+                }
+                superseded.push_back(r.id);
+            }
+            r.expires_ms > now_ms && !consumed
+        });
         if conversation.receipts.len() >= MAX_RECEIPTS {
             conversation.receipts.pop_front();
         }
@@ -215,6 +237,25 @@ mod tests {
             ["merged", "c3", "p1"]
         );
         assert_eq!(store.for_request("s", "parent", None, 3).receipts, ["p1"]);
+    }
+
+    #[test]
+    fn concurrent_consolidations_of_one_snapshot_keep_later_receipts() {
+        let store = ReceiptStore::default();
+        store.add("s", "c", "r".into(), 0);
+        let snapshots: Vec<_> = (0..=MAX_RECEIPTS)
+            .map(|_| store.for_request("s", "c", None, 1))
+            .collect();
+        store.consolidate("s", "c", &snapshots[0].own, "merged0".into(), 2);
+        // The first request's release finishes before the other checks' consolidations arrive.
+        store.add("s", "c", "x".into(), 3);
+        for (i, presented) in snapshots.iter().enumerate().skip(1) {
+            store.consolidate("s", "c", &presented.own, format!("merged{i}"), 4);
+        }
+        assert_eq!(
+            store.for_request("s", "c", None, 5).receipts,
+            ["x", "merged0"]
+        );
     }
 
     #[test]
