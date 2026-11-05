@@ -32,11 +32,20 @@ DEFAULT_TESTS = [
 ]
 
 
+class ConfigurationError(RuntimeError):
+    """A required setting is missing; the message carries the command that fixes it."""
+
+
 def repo_root() -> Path:
     value = os.environ.get("SEEKDB_REPO") or os.environ.get("MINIMAX_SEEKDB_REPO", "")
     if not value:
-        raise RuntimeError(
-            "SEEKDB_REPO is not set; point it at the seekdb checkout the specs cite"
+        raise ConfigurationError(
+            "SEEKDB_REPO is not set: the context has to read the seekdb sources the specs\n"
+            "cite. Point it at a checkout, for example\n"
+            "  cmd:        set SEEKDB_REPO=D:\\code\\seekdb\n"
+            "  PowerShell: $env:SEEKDB_REPO=\"D:\\code\\seekdb\"\n"
+            "  bash:       export SEEKDB_REPO=/path/to/seekdb\n"
+            "'agent --step apply --worktree <checkout>' sets it automatically."
         )
     return Path(value).resolve()
 

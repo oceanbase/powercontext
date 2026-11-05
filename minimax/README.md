@@ -136,6 +136,23 @@ docker exec minimax-context-seekdb mysql -h127.0.0.1 -P2881 -uroot -pminimax_roo
 
 ### 5.1 命令行（`run.py`）
 
+> **cmd.exe 用户注意**：`cd D:\code\...` 不会切换盘符，随后 `python run.py` 会报
+> `can't open file 'C:\Users\...\run.py'`。用 `cd /d D:\code\oceanbase\powercontext\minimax`，
+> 或者直接用本目录的两个启动器（从任意目录都能跑，自动切到本目录）：
+>
+> ```bat
+> rem cmd
+> D:\code\oceanbase\powercontext\minimax\run.cmd state history
+> D:\code\oceanbase\powercontext\minimax\run.cmd agent --step apply --patch agent\code\author-fix.patch --worktree D:\code\seekdb
+> ```
+>
+> ```powershell
+> # PowerShell（脚本被策略拦时加 -ExecutionPolicy Bypass）
+> powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\oceanbase\powercontext\minimax\run.ps1 state history
+> ```
+>
+> 两个启动器都支持 `set PYTHON=...` / `$env:PYTHON="..."` 指定解释器。
+
 ```bash
 python run.py specs                        # 列出规格库
 python run.py context                      # 打印开发上下文（--json / --compact / --out）
@@ -144,6 +161,7 @@ python run.py guard --stage baseline       # 修改前：与基准观测一致�
 python run.py guard --stage after          # 修改后：验收项全绿，兼容项恒绿
 python run.py agent --step prepare         # 组装上下文 + 调 MiniMax + 保存任务状态
 python run.py agent --step apply --worktree <seekdb 检出>   # 读取状态、再导入、应用补丁
+python run.py agent --step apply --patch agent/code/author-fix.patch --worktree <检出>
 python run.py state show                   # 最新任务状态（来自 seekdb）
 python run.py state history                # 状态版本历史
 python run.py state import                 # 重启后再导入

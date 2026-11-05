@@ -28,6 +28,7 @@ if str(MINIMAX_ROOT) not in sys.path:
 
 from context import build_context, config, operations, powercontext  # noqa: E402
 from context.db import DatabaseUnavailable  # noqa: E402
+from context.build_context import ConfigurationError  # noqa: E402
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -178,6 +179,9 @@ def main(argv: list[str] | None = None) -> int:
                               os.environ.get("MINIMAX_SCENARIO_PASSWORD", "minimax_test_dev"))
     try:
         return args.handler(args)
+    except ConfigurationError as exc:
+        print(f"[config] {exc}", file=sys.stderr)
+        return 1
     except DatabaseUnavailable as exc:
         # A stopped container is an ordinary operational state, not a bug in the run:
         # print the recovery steps instead of a traceback.

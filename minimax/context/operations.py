@@ -245,6 +245,9 @@ def latest_proposal(stage: str | None) -> tuple[str, str]:
 
 def apply_proposal(worktree: Path, stage: str | None,
                    patch_file: Path | None = None) -> dict[str, Any]:
+    # The checkout being patched is exactly the source tree the specs cite, so there is
+    # no reason to make the operator export SEEKDB_REPO for an apply run.
+    os.environ.setdefault("SEEKDB_REPO", str(worktree.resolve()))
     state, summary = powercontext.import_state(TASK_ID, build_context.build)
     if patch_file is not None:
         if not patch_file.is_file():
