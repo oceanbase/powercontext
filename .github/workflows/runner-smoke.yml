@@ -1,0 +1,108 @@
+name: ARC runner smoke
+
+on:
+  push:
+    branches: [codex/powercontext-ci-runner-smoke]
+    paths: [.github/workflows/runner-smoke.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  smoke:
+    name: Smoke (${{ matrix.runner }})
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.ref == 'refs/heads/codex/powercontext-ci-runner-smoke' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [powercontext-ci-standard, powercontext-ci-light]
+    env:
+      EXPECTED_LABEL: ${{ matrix.runner }}
+      SMOKE_CONTAINER: arc-smoke-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.runner }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check runner identity and service account isolation
+        run: |
+          evidence="$RUNNER_TEMP/arc-smoke"
+          mkdir -p "$evidence"
+          printf 'Requested: %s\nRunner: %s (%s/%s, %s)\n' \
+            "$EXPECTED_LABEL" "$RUNNER_NAME" "$RUNNER_OS" "$RUNNER_ARCH" "$RUNNER_ENVIRONMENT" \
+            | tee "$evidence/runner.txt"
+          test "$RUNNER_ENVIRONMENT" = self-hosted
+          test "$RUNNER_OS" = Linux
+          if [ -e /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
+            echo "Kubernetes service account token is mounted" | tee -a "$evidence/runner.txt"
+            exit 1
+          fi
+          echo "Kubernetes service account token mount is absent" | tee -a "$evidence/runner.txt"
+
+      - name: Check Docker and reach a container through localhost
+        timeout-minutes: 4
+        run: |
+          evidence="$RUNNER_TEMP/arc-smoke/docker.txt"
+          docker info --format 'Docker server {{.ServerVersion}} ({{.OSType}}/{{.Architecture}})' | tee "$evidence"
+          docker compose version | tee -a "$evidence"
+          docker run --detach --rm --pull=always --name "$SMOKE_CONTAINER" \
+            --publish 127.0.0.1::8080/tcp docker.io/library/busybox:1.37.0 \
+            sh -eu -c 'mkdir -p /tmp/www; echo arc-smoke-ok >/tmp/www/index.html; exec httpd -f -p 8080 -h /tmp/www' \
+            >/dev/null
+          endpoint="$(docker port "$SMOKE_CONTAINER" 8080/tcp)"
+          [[ "$endpoint" =~ ^127\.0\.0\.1:[0-9]+$ ]]
+          for attempt in {1..15}; do
+            body="$(curl --noproxy '*' --fail --silent --connect-timeout 2 --max-time 3 "http://$endpoint/" || true)"
+            if [ "$body" = arc-smoke-ok ]; then
+              echo "Published endpoint $endpoint returned the expected response" | tee -a "$evidence"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Published endpoint $endpoint did not return the expected response" | tee -a "$evidence"
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Run a Python standard library check
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/arc-smoke/python.txt"
+          import sqlite3
+          import sys
+
+          assert sys.version_info[:2] == (3, 12), sys.version
+          connection = sqlite3.connect(":memory:")
+          assert connection.execute("SELECT 42").fetchone() == (42,)
+          connection.close()
+          print(f"Python {sys.version.split()[0]}; SQLite {sqlite3.sqlite_version}; query passed")
+          PY
+
+      - name: Clean up smoke container
+        if: always()
+        timeout-minutes: 1
+        run: |
+          if docker container inspect "$SMOKE_CONTAINER" >/dev/null 2>&1; then
+            docker container rm --force "$SMOKE_CONTAINER" >/dev/null
+          fi
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: arc-smoke-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arc-smoke/
+          if-no-files-found: warn
+          retention-days: 3
