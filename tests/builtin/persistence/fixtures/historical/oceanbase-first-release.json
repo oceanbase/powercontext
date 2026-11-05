@@ -1,0 +1,225 @@
+{
+  "release": "0.0.1",
+  "provenance": "Unmodified v0.0.1 tag, native OceanBase 4.6.3.1, inherited GBK heap tables, HTTP manual remember of four synthetic facts.",
+  "tables": {
+    "pc_artifact_candidate_heads": {
+      "ddl": "CREATE TABLE `pc_artifact_candidate_heads` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `candidate_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `version` int(11) NOT NULL,\n  `status` varchar(16) COLLATE gbk_bin NOT NULL,\n  `result_family` varchar(128) COLLATE gbk_bin DEFAULT NULL,\n  `result_artifact_id` varchar(128) COLLATE gbk_bin DEFAULT NULL,\n  `result_revision` int(11) DEFAULT NULL,\n  `decision_reason` mediumtext COLLATE gbk_bin DEFAULT NULL,\n  PRIMARY KEY (`scope_id`, `candidate_id`),\n  CONSTRAINT `pc_artifact_candidate_heads_OBFK_1793349768363639` FOREIGN KEY (`scope_id`, `result_family`, `result_artifact_id`, `result_revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  CONSTRAINT `pc_artifact_candidate_heads_OBFK_1793349768175529` FOREIGN KEY (`scope_id`, `candidate_id`, `version`) REFERENCES `pc_artifact_candidate_versions`(`scope_id`, `candidate_id`, `version`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  CONSTRAINT `ck_pc_artifact_candidate_heads_status` CHECK ((`status` in ('pending','approved','rejected'))),\n  CONSTRAINT `ck_pc_artifact_candidate_heads_terminal_result` CHECK ((((`status` = 'approved') and (`result_family` is not null) and (`result_artifact_id` is not null) and (`result_revision` > 0) and (`decision_reason` is null)) or ((`status` = 'rejected') and (`result_family` is null) and (`result_artifact_id` is null) and (`result_revision` is null) and (`decision_reason` is not null)) or ((`status` = 'pending') and (`result_family` is null) and (`result_artifact_id` is null) and (`result_revision` is null) and (`decision_reason` is null))))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_artifact_candidate_versions": {
+      "ddl": "CREATE TABLE `pc_artifact_candidate_versions` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `candidate_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `version` int(11) NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `proposal` mediumblob NOT NULL,\n  `source_refs` mediumblob NOT NULL,\n  `artifact_refs` mediumblob NOT NULL,\n  `target_family` varchar(128) COLLATE gbk_bin DEFAULT NULL,\n  `target_artifact_id` varchar(128) COLLATE gbk_bin DEFAULT NULL,\n  `target_revision` int(11) DEFAULT NULL,\n  `reason` mediumtext COLLATE gbk_bin DEFAULT NULL,\n  PRIMARY KEY (`scope_id`, `candidate_id`, `version`),\n  CONSTRAINT `pc_artifact_candidate_versions_OBFK_1793349761603491` FOREIGN KEY (`scope_id`, `target_family`, `target_artifact_id`, `target_revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  CONSTRAINT `ck_pc_artifact_candidate_versions_version_positive` CHECK ((`version` > 0)),\n  CONSTRAINT `ck_pc_artifact_candidate_versions_target_complete` CHECK ((((`target_family` is null) and (`target_artifact_id` is null) and (`target_revision` is null)) or ((`target_family` is not null) and (`target_artifact_id` is not null) and (`target_revision` > 0))))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_artifact_heads": {
+      "ddl": "CREATE TABLE `pc_artifact_heads` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `artifact_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `revision` int(11) NOT NULL,\n  `searchable_text` mediumtext COLLATE gbk_bin DEFAULT NULL,\n  PRIMARY KEY (`scope_id`, `family`, `artifact_id`),\n  CONSTRAINT `pc_artifact_heads_OBFK_1793349751736627` FOREIGN KEY (`scope_id`, `family`, `artifact_id`, `revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  FULLTEXT KEY `ix_pc_artifact_heads_fts` (`searchable_text`) WITH PARSER space PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) FTS_INDEX_TYPE = PHRASE_MATCH BLOCK_SIZE 16384,\n  CONSTRAINT `ck_pc_artifact_heads_revision_positive` CHECK ((`revision` > 0))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": [
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          4,
+          null
+        ]
+      ]
+    },
+    "pc_artifact_lineage_artifacts": {
+      "ddl": "CREATE TABLE `pc_artifact_lineage_artifacts` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `artifact_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `revision` int(11) NOT NULL,\n  `ordinal` int(11) NOT NULL,\n  `upstream_family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `upstream_artifact_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `upstream_revision` int(11) NOT NULL,\n  PRIMARY KEY (`scope_id`, `family`, `artifact_id`, `revision`, `ordinal`),\n  CONSTRAINT `pc_artifact_lineage_artifacts_OBFK_1793349758727436` FOREIGN KEY (`scope_id`, `upstream_family`, `upstream_artifact_id`, `upstream_revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  CONSTRAINT `pc_artifact_lineage_artifacts_OBFK_1793349758659138` FOREIGN KEY (`scope_id`, `family`, `artifact_id`, `revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE CASCADE \n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_artifact_lineage_sources": {
+      "ddl": "CREATE TABLE `pc_artifact_lineage_sources` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `artifact_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `revision` int(11) NOT NULL,\n  `ordinal` int(11) NOT NULL,\n  `source_type` varchar(128) COLLATE gbk_bin NOT NULL,\n  `source_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  PRIMARY KEY (`scope_id`, `family`, `artifact_id`, `revision`, `ordinal`),\n  CONSTRAINT `pc_artifact_lineage_sources_OBFK_1793349755223359` FOREIGN KEY (`scope_id`, `source_type`, `source_id`) REFERENCES `pc_sources`(`scope_id`, `source_type`, `source_id`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  CONSTRAINT `pc_artifact_lineage_sources_OBFK_1793349754905378` FOREIGN KEY (`scope_id`, `family`, `artifact_id`, `revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE CASCADE \n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_artifacts": {
+      "ddl": "CREATE TABLE `pc_artifacts` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `artifact_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `revision` int(11) NOT NULL,\n  `content` mediumblob NOT NULL,\n  PRIMARY KEY (`scope_id`, `family`, `artifact_id`, `revision`)\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": [
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          1,
+          {
+            "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f6164643666386339356631383461396462373634643136633966626136313166222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6165346433303765333134623431633439666432656431643339326534303162222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6164643666386339356631383461396462373634643136633966626136313166222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6165346433303765333134623431633439666432656431643339326534303162222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+          }
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          2,
+          {
+            "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f6164643666386339356631383461396462373634643136633966626136313166222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6165346433303765333134623431633439666432656431643339326534303162222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6265393831373038663465663461373639343064623764663433373764386163222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6336313537663265313263313438656262353437653434303932366238346436222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6265393831373038663465663461373639343064623764663433373764386163222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6336313537663265313263313438656262353437653434303932366238346436222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+          }
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          3,
+          {
+            "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f6164643666386339356631383461396462373634643136633966626136313166222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6165346433303765333134623431633439666432656431643339326534303162222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6265393831373038663465663461373639343064623764663433373764386163222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6336313537663265313263313438656262353437653434303932366238346436222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6437386665306134666563343438323238623964336662643039376339613335222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6561613663383538373163653466396239646366656366346566336235323231222c22656e7472795f636f6e74656e745f68617368223a2235313837633638623036643134373339363831643763303566333863396430386437383833313464376433653262383262326538663035613164313237636362222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6437386665306134666563343438323238623964336662643039376339613335222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6561613663383538373163653466396239646366656366346566336235323231222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+          }
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          4,
+          {
+            "hex": "7b226d616e6966657374223a7b22656e7472696573223a5b7b22656e7472795f6964223a226d656d5f656e745f6164643666386339356631383461396462373634643136633966626136313166222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6165346433303765333134623431633439666432656431643339326534303162222c22656e7472795f636f6e74656e745f68617368223a2264646635313339353566363536303335393134616236383237306635363431666161303966323961666166643730316564356539663061353434323565366561222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6265393831373038663465663461373639343064623764663433373764386163222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6336313537663265313263313438656262353437653434303932366238346436222c22656e7472795f636f6e74656e745f68617368223a2261396662663435616633303032663135366336663565353534323366376538393165383830356432303933326162626362393637393135333363613230656564222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6437386665306134666563343438323238623964336662643039376339613335222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6561613663383538373163653466396239646366656366346566336235323231222c22656e7472795f636f6e74656e745f68617368223a2235313837633638623036643134373339363831643763303566333863396430386437383833313464376433653262383262326538663035613164313237636362222c227374617465223a22616374697665227d2c7b22656e7472795f6964223a226d656d5f656e745f6535613833393264393964363437613539386638353161303063616562626436222c22656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6638343039316138646465353463363038636665303665623039373433663761222c22656e7472795f636f6e74656e745f68617368223a2232666630356137633137313362626166633734383464343466323964323161653233656164363866616133663561613135623836383032636661343161336439222c227374617465223a22616374697665227d5d2c22666f726d6174223a22666c61742d7631227d2c226368616e676573223a5b7b226f70223a22616464222c22656e7472795f6964223a226d656d5f656e745f6535613833393264393964363437613539386638353161303063616562626436222c2266726f6d5f656e7472795f76657273696f6e5f6964223a6e756c6c2c22746f5f656e7472795f76657273696f6e5f6964223a226d656d5f7665725f6638343039316138646465353463363038636665303665623039373433663761222c22726561736f6e223a6e756c6c7d5d2c22736368656d61223a22706f776572636f6e746578742e6d656d6f72792e7631227d"
+          }
+        ]
+      ]
+    },
+    "pc_external_skill_registrations": {
+      "ddl": "CREATE TABLE `pc_external_skill_registrations` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `external_skill_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `provider` varchar(128) COLLATE gbk_bin NOT NULL,\n  `agent_kind` varchar(128) COLLATE gbk_bin NOT NULL,\n  `host_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `installation_scope` varchar(16) COLLATE gbk_bin NOT NULL,\n  `locator` varchar(2000) COLLATE gbk_bin NOT NULL,\n  `locator_hash` varchar(64) COLLATE gbk_bin NOT NULL,\n  `fingerprint` varchar(64) COLLATE gbk_bin NOT NULL,\n  `name` varchar(128) COLLATE gbk_bin NOT NULL,\n  `description` varchar(2000) COLLATE gbk_bin NOT NULL,\n  PRIMARY KEY (`scope_id`, `external_skill_id`),\n  UNIQUE KEY `uq_pc_external_skill_registrations_binding` (`scope_id`, `provider`, `host_id`, `installation_scope`, `locator_hash`) BLOCK_SIZE 16384 LOCAL,\n  CONSTRAINT `ck_pc_external_skill_registrations_scope` CHECK ((`installation_scope` in ('user','project','plugin')))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_memory_entry_heads": {
+      "ddl": "CREATE TABLE `pc_memory_entry_heads` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `memory_artifact_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `head_revision` int(11) NOT NULL,\n  `entry_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `entry_version_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `entry_content_hash` varchar(64) COLLATE gbk_bin NOT NULL,\n  `searchable_text` mediumtext COLLATE gbk_bin NOT NULL,\n  PRIMARY KEY (`scope_id`, `memory_artifact_id`, `entry_id`),\n  CONSTRAINT `pc_memory_entry_heads_OBFK_1793349772559458` FOREIGN KEY (`scope_id`, `memory_artifact_id`, `entry_id`, `entry_version_id`) REFERENCES `pc_memory_entry_versions`(`scope_id`, `memory_artifact_id`, `entry_id`, `entry_version_id`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  CONSTRAINT `pc_memory_entry_heads_OBFK_1793349772448344` FOREIGN KEY (`scope_id`, `family`, `memory_artifact_id`, `head_revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  FULLTEXT KEY `ix_pc_memory_entry_heads_fts` (`searchable_text`) WITH PARSER space PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) FTS_INDEX_TYPE = PHRASE_MATCH BLOCK_SIZE 16384,\n  CONSTRAINT `ck_pc_memory_entry_heads_revision_positive` CHECK ((`head_revision` > 0))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": [
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          4,
+          "mem_ent_add6f8c95f184a9db764d16c9fba611f",
+          "mem_ver_ae4d307e314b41c49fd2ed1d392e401b",
+          "ddf513955f656035914ab68270f5641faa09f29afafd701ed5e9f0a54425e6ea",
+          "upgrade100alpha user name is chen chen"
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          4,
+          "mem_ent_be981708f4ef4a76940db7df4377d8ac",
+          "mem_ver_c6157f2e12c148ebb547e440926b84d6",
+          "a9fbf45af3002f156c6f5e55423f7e891e8805d20932abbcb96791533ca20eed",
+          "upgrade100bravo pet cat is named tangyuan"
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          4,
+          "mem_ent_d78fe0a4fec448228b9d3fbd097c9a35",
+          "mem_ver_eaa6c85871ce4f9b9dcfecf4ef3b5221",
+          "5187c68b06d14739681d7c05f38c9d08d788314d7d3e2b82b2e8f05a1d127ccb",
+          "upgrade100charlie favorite dish is west lake vinegar fish"
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          4,
+          "mem_ent_e5a8392d99d647a598f851a00caebbd6",
+          "mem_ver_f84091a8dde54c608cfe06eb09743f7a",
+          "2ff05a7c1713bbafc7484d44f29d21ae23ead68faa3f5aa15b86802cfa41a3d9",
+          "upgrade100delta occupation is database engineer"
+        ]
+      ]
+    },
+    "pc_memory_entry_versions": {
+      "ddl": "CREATE TABLE `pc_memory_entry_versions` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `family` varchar(128) COLLATE gbk_bin NOT NULL,\n  `memory_artifact_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `entry_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `entry_version_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `version` int(11) NOT NULL,\n  `previous_version_id` varchar(128) COLLATE gbk_bin DEFAULT NULL,\n  `kind` varchar(128) COLLATE gbk_bin NOT NULL,\n  `text` mediumtext COLLATE gbk_bin NOT NULL,\n  `source_refs` mediumblob NOT NULL,\n  `artifact_refs` mediumblob NOT NULL,\n  `entry_content_hash` varchar(64) COLLATE gbk_bin NOT NULL,\n  `created_in_revision` int(11) NOT NULL,\n  PRIMARY KEY (`scope_id`, `memory_artifact_id`, `entry_version_id`),\n  CONSTRAINT `pc_memory_entry_versions_OBFK_1793349765043651` FOREIGN KEY (`scope_id`, `family`, `memory_artifact_id`, `created_in_revision`) REFERENCES `pc_artifacts`(`scope_id`, `family`, `artifact_id`, `revision`) ON UPDATE RESTRICT ON DELETE RESTRICT ,\n  UNIQUE KEY `uq_pc_memory_entry_versions_logical_version` (`scope_id`, `memory_artifact_id`, `entry_id`, `version`) BLOCK_SIZE 16384 LOCAL,\n  UNIQUE KEY `uq_pc_memory_entry_versions_identity` (`scope_id`, `memory_artifact_id`, `entry_id`, `entry_version_id`) BLOCK_SIZE 16384 LOCAL,\n  CONSTRAINT `ck_pc_memory_entry_versions_version_positive` CHECK ((`version` > 0)),\n  CONSTRAINT `ck_pc_memory_entry_versions_revision_positive` CHECK ((`created_in_revision` > 0))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": [
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          "mem_ent_add6f8c95f184a9db764d16c9fba611f",
+          "mem_ver_ae4d307e314b41c49fd2ed1d392e401b",
+          1,
+          null,
+          "fact",
+          "Upgrade100Alpha user name is Chen Chen.",
+          {
+            "hex": "5b5d"
+          },
+          {
+            "hex": "5b5d"
+          },
+          "ddf513955f656035914ab68270f5641faa09f29afafd701ed5e9f0a54425e6ea",
+          1
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          "mem_ent_be981708f4ef4a76940db7df4377d8ac",
+          "mem_ver_c6157f2e12c148ebb547e440926b84d6",
+          1,
+          null,
+          "fact",
+          "Upgrade100Bravo pet cat is named Tangyuan.",
+          {
+            "hex": "5b5d"
+          },
+          {
+            "hex": "5b5d"
+          },
+          "a9fbf45af3002f156c6f5e55423f7e891e8805d20932abbcb96791533ca20eed",
+          2
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          "mem_ent_d78fe0a4fec448228b9d3fbd097c9a35",
+          "mem_ver_eaa6c85871ce4f9b9dcfecf4ef3b5221",
+          1,
+          null,
+          "fact",
+          "Upgrade100Charlie favorite dish is West Lake vinegar fish.",
+          {
+            "hex": "5b5d"
+          },
+          {
+            "hex": "5b5d"
+          },
+          "5187c68b06d14739681d7c05f38c9d08d788314d7d3e2b82b2e8f05a1d127ccb",
+          3
+        ],
+        [
+          "historical-upgrade",
+          "memory",
+          "memory",
+          "mem_ent_e5a8392d99d647a598f851a00caebbd6",
+          "mem_ver_f84091a8dde54c608cfe06eb09743f7a",
+          1,
+          null,
+          "fact",
+          "Upgrade100Delta occupation is database engineer.",
+          {
+            "hex": "5b5d"
+          },
+          {
+            "hex": "5b5d"
+          },
+          "2ff05a7c1713bbafc7484d44f29d21ae23ead68faa3f5aa15b86802cfa41a3d9",
+          4
+        ]
+      ]
+    },
+    "pc_model_usage_daily": {
+      "ddl": "CREATE TABLE `pc_model_usage_daily` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `usage_date` date NOT NULL,\n  `purpose` varchar(64) COLLATE gbk_bin NOT NULL,\n  `operation` varchar(16) COLLATE gbk_bin NOT NULL,\n  `requests` bigint(20) NOT NULL,\n  `input_tokens` bigint(20) NOT NULL,\n  `output_tokens` bigint(20) NOT NULL,\n  `input_complete` tinyint(1) NOT NULL,\n  `output_complete` tinyint(1) NOT NULL,\n  PRIMARY KEY (`scope_id`, `usage_date`, `purpose`, `operation`),\n  CONSTRAINT `ck_pc_model_usage_daily_operation` CHECK ((`operation` in ('generation','embedding'))),\n  CONSTRAINT `ck_pc_model_usage_daily_requests_nonnegative` CHECK ((`requests` >= 0)),\n  CONSTRAINT `ck_pc_model_usage_daily_input_nonnegative` CHECK ((`input_tokens` >= 0)),\n  CONSTRAINT `ck_pc_model_usage_daily_output_nonnegative` CHECK ((`output_tokens` >= 0))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_recall_token_daily": {
+      "ddl": "CREATE TABLE `pc_recall_token_daily` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `usage_date` date NOT NULL,\n  `estimator_id` varchar(128) COLLATE gbk_bin NOT NULL,\n  `estimator_version` varchar(64) COLLATE gbk_bin NOT NULL,\n  `preparations` bigint(20) NOT NULL,\n  `ready_preparations` bigint(20) NOT NULL,\n  `comparable_preparations` bigint(20) NOT NULL,\n  `baseline_tokens` bigint(20) NOT NULL,\n  `recalled_tokens` bigint(20) NOT NULL,\n  PRIMARY KEY (`scope_id`, `usage_date`, `estimator_id`, `estimator_version`),\n  CONSTRAINT `ck_pc_recall_token_daily_preparations_nonnegative` CHECK ((`preparations` >= 0)),\n  CONSTRAINT `ck_pc_recall_token_daily_ready_nonnegative` CHECK ((`ready_preparations` >= 0)),\n  CONSTRAINT `ck_pc_recall_token_daily_comparable_nonnegative` CHECK ((`comparable_preparations` >= 0)),\n  CONSTRAINT `ck_pc_recall_token_daily_comparable_ready` CHECK ((`comparable_preparations` <= `ready_preparations`)),\n  CONSTRAINT `ck_pc_recall_token_daily_ready_total` CHECK ((`ready_preparations` <= `preparations`)),\n  CONSTRAINT `ck_pc_recall_token_daily_baseline_nonnegative` CHECK ((`baseline_tokens` >= 0)),\n  CONSTRAINT `ck_pc_recall_token_daily_recalled_nonnegative` CHECK ((`recalled_tokens` >= 0))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_source_cursors": {
+      "ddl": "CREATE TABLE `pc_source_cursors` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `binding_name` varchar(128) COLLATE gbk_bin NOT NULL,\n  `cursor` mediumblob NOT NULL,\n  `generation` bigint(20) NOT NULL,\n  PRIMARY KEY (`scope_id`, `binding_name`),\n  CONSTRAINT `ck_pc_source_cursors_generation_nonnegative` CHECK ((`generation` >= 0))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_source_journal_heads": {
+      "ddl": "CREATE TABLE `pc_source_journal_heads` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `position` bigint(20) NOT NULL,\n  PRIMARY KEY (`scope_id`),\n  CONSTRAINT `ck_pc_source_journal_heads_position_nonnegative` CHECK ((`position` >= 0))\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    },
+    "pc_sources": {
+      "ddl": "CREATE TABLE `pc_sources` (\n  `scope_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `source_type` varchar(128) COLLATE gbk_bin NOT NULL,\n  `source_id` varchar(256) COLLATE gbk_bin NOT NULL,\n  `payload` mediumblob NOT NULL,\n  `journal_position` bigint(20) NOT NULL,\n  PRIMARY KEY (`scope_id`, `source_type`, `source_id`),\n  UNIQUE KEY `uq_pc_sources_scope_journal_position` (`scope_id`, `journal_position`) BLOCK_SIZE 16384 LOCAL\n) ORGANIZATION HEAP DEFAULT CHARSET = gbk COLLATE = gbk_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'lz4_1.0' REPLICA_NUM = 3 BLOCK_SIZE = 16384 USE_BLOOM_FILTER = FALSE ENABLE_MACRO_BLOCK_BLOOM_FILTER = FALSE TABLET_SIZE = 134217728 PCTFREE = 0",
+      "rows": []
+    }
+  }
+}

@@ -1,3 +1,8 @@
+---
+title: "RFC 0028: Bounded context preparation"
+description: A proposal for preparing Memory-backed Agent context with exact citations, explicit omissions, and a total UTF-8 output budget.
+---
+
 - Proposal Name: `runtime_context_pack`
 - Start Date: 2026-07-27
 - RFC PR: [oceanbase/powercontext#28](https://github.com/oceanbase/powercontext/pull/28)

@@ -1,6 +1,6 @@
 ---
 title: Use Topic Memory
-description: Search topic summaries produced from long-running Sources and read exact revisions on demand.
+description: Generate or write Topic Memory, retrieve topic summaries, and read exact revisions when detailed evidence is needed.
 ---
 
 # Use Topic Memory

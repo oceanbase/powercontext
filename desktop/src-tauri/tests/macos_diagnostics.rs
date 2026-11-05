@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-#![cfg(target_os = "macos")]
+// These integration tests exercise the shared Unix process-group implementation.
+#![cfg(any(target_os = "macos", target_os = "linux"))]
 
 use powercontext_desktop::{
     diagnostics::{DiagnosticKind, LocalDiagnostics},
@@ -169,10 +170,10 @@ if [ "$1" = "--version" ]; then
     echo 1.4.0
 elif [ -f '{first}' ]; then
     echo $$ > '{pid}'
-    sleep 300 &
+    /bin/sleep 300 &
     wait
 else
-    touch '{first}'
+    : > '{first}'
     printf '%s\n' '{{"support":"supported","registration":"not_installed","definition":"unknown","manager_ownership":"unknown","manager":"unknown","server_liveness":"unknown"}}'
 fi
 "##, first = first.display(), pid = pid_file.display())).unwrap();
@@ -190,14 +191,16 @@ fi
     let local = Arc::new(LocalDiagnostics::new(registration));
     let worker = local.clone();
     let first_check = tokio::spawn(async move { worker.run(DiagnosticKind::Service).await });
+    tokio::time::timeout(Duration::from_secs(10), first_check)
+        .await
+        .expect("first check did not complete")
+        .expect("first check task panicked")
+        .expect("first check failed");
+    assert!(
+        first.exists(),
+        "first check did not create its startup marker"
+    );
     let ready = tokio::time::Instant::now() + Duration::from_secs(10);
-    while !first.exists() {
-        assert!(
-            tokio::time::Instant::now() < ready,
-            "first check did not start"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
     let worker = local.clone();
     let second_check = tokio::spawn(async move {
         loop {
@@ -211,11 +214,6 @@ fi
             }
         }
     });
-    tokio::time::timeout(Duration::from_secs(10), first_check)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
     let pid = loop {
         if let Ok(text) = std::fs::read_to_string(&pid_file)
             && let Ok(pid) = text.trim().parse::<i32>()

@@ -1,3 +1,8 @@
+---
+title: "RFC 1229: Workloads and long-horizon Memory evaluation"
+description: A proposal for a shared workload catalog, replay format, and Memory evaluator that separates grounded recall from task-native rewards.
+---
+
 - Proposal Name: `unified_workloads_and_long_horizon_memory_evaluation`
 - Start Date: 2026-08-13
 - RFC PR: [oceanbase/powercontext#1229](https://github.com/oceanbase/powercontext/pull/1229)

@@ -1,7 +1,7 @@
 ---
-status: official
 title: Codex
-description: Install the PowerContext Codex plugin and control its local behavior.
+description: Connect Codex to PowerContext for automatic context recall, prompt capture, and explicit Memory and Handoff operations.
+status: official
 ---
 
 # Codex

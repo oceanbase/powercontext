@@ -210,6 +210,7 @@ def test_budget_failure_reports_safe_accounting_fields() -> None:
     pipeline = SimpleNamespace(
         estimator=character_token_estimator(),
         extraction_instructions="extract",
+        input_renderer=None,
     )
     value = SimpleNamespace(
         evidence=(object(), object(), object()),

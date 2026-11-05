@@ -17,14 +17,11 @@
 import type { Metadata } from 'next';
 import { HomePage } from '@/components/home-page';
 import { defaultLanguage } from '@/lib/i18n';
-import { absoluteSiteUrl } from '@/lib/urls';
+import { pageMetadata } from '@/lib/metadata';
 
-export const metadata: Metadata = {
-  alternates: {
-    canonical: absoluteSiteUrl('/'),
-    languages: { en: absoluteSiteUrl('/'), zh: absoluteSiteUrl('/zh/'), 'x-default': absoluteSiteUrl('/') },
-  },
-};
+export const metadata: Metadata = pageMetadata({
+  path: '/', translations: { en: '/', zh: '/zh/' },
+});
 
 export default function EnglishHomePage() {
   return <HomePage lang={defaultLanguage} />;

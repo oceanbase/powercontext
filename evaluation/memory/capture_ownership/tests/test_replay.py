@@ -56,7 +56,19 @@ def test_suspended_response_cannot_bypass_the_per_extraction_request_budget(mani
     ]
 
 
-def test_failed_candidate_keeps_known_usage_without_leaking_it_into_the_next_failure(manifest, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "usage_details",
+    [
+        pytest.param({}, id="basic-usage"),
+        pytest.param(
+            {"cache_read_tokens": 17, "cache_write_tokens": 3, "details": {"reasoning_tokens": 2}},
+            id="extended-usage",
+        ),
+    ],
+)
+def test_failed_candidate_keeps_known_usage_without_leaking_it_into_the_next_failure(
+    manifest, tmp_path, monkeypatch, usage_details
+):
     pytest.importorskip("powercontext.server.factory")
     from pydantic_ai.messages import ModelResponse, TextPart
     from pydantic_ai.models.function import FunctionModel
@@ -85,7 +97,7 @@ def test_failed_candidate_keeps_known_usage_without_leaking_it_into_the_next_fai
         )
         return ModelResponse(
             parts=[TextPart(json.dumps({"candidates": candidates}))],
-            usage=RequestUsage(input_tokens=100 + calls, output_tokens=5 + 2 * calls),
+            usage=RequestUsage(input_tokens=100 + calls, output_tokens=5 + 2 * calls, **usage_details),
         )
 
     async def model(*_args):

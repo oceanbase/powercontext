@@ -1,5 +1,6 @@
 ---
-title: Complete the Topic Memory generic Artifact APIs
+title: "RFC 1614: Complete Topic Memory Artifact APIs"
+description: A proposal for Topic Memory creation, replacement, tags, and cross-Scope publication with atomic content and search-index updates.
 ---
 
 # Complete the Topic Memory generic Artifact APIs

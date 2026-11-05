@@ -32,6 +32,7 @@ from sqlalchemy import select
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryGenerationError, TopicMemoryProbeOutput
 from powercontext.builtin.inference import GenerationResult, character_token_estimator
+from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository
@@ -365,7 +366,8 @@ def test_cancelled_reservation_is_not_refunded_and_retry_can_recover_tail():
 
 @pytest.mark.parametrize("provider_name", ["openai", "anthropic"])
 @pytest.mark.parametrize("with_headers", [False, True])
-def test_topic_provider_disables_sdk_transport_retries(provider_name, with_headers, monkeypatch):
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+def test_topic_provider_disables_sdk_transport_retries(provider_name, with_headers, mode, monkeypatch):
     async def scenario():
         calls = []
 
@@ -384,6 +386,7 @@ def test_topic_provider_disables_sdk_transport_retries(provider_name, with_heade
                 workload="generation",
                 resources=resources,
                 disable_retries=True,
+                protection=InferenceProtectionConfig(mode=mode),
             )(provider_name)
             await resources.enter_async_context(provider)
             client = provider.client

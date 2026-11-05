@@ -471,7 +471,10 @@ jobs:
   code-seekdb:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    timeout-minutes: 30
+    # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
+    # before migrations (25m). Preserve each step's deadline and leave time
+    # for environment setup and diagnostic uploads.
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -703,6 +706,16 @@ jobs:
 
       - name: Verify spawned worker logging on Windows
         run: uv run --locked --no-sync pytest -q tests/e2e/test_worker_logging.py
+
+      - name: Verify offline ownership migration on Windows
+        run: >-
+          uv run --locked --no-sync pytest -q
+          tests/e2e/test_access_ownership_migration.py::test_offline_cli_checks_future_background_principal_before_enforcement
+          tests/e2e/test_access_ownership_migration.py::test_offline_background_plan_uses_configured_static_preset_without_grants
+          tests/e2e/test_access_ownership_migration.py::test_migration_audit_preserves_request_context
+          tests/e2e/test_ownership_maintenance_dispatch.py
+          tests/e2e/test_owner_recovery_http.py::test_offline_migration_preserves_external_owner_evidence
+          tests/e2e/test_candidate_ownership_migration.py
 
       - name: Verify bootstrap receipt persistence and failure recovery on Windows
         run: >-
@@ -1123,6 +1136,16 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
+  gateway-validation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').gateway) }}
+    uses: ./.github/workflows/gateway.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
   desktop-validation:
     needs: [quality, tests]
     if: >-
@@ -1240,6 +1263,7 @@ jobs:
       - website-link-validation-windows
       - check-website
       - harness-validation
+      - gateway-validation
       - desktop-validation
       - managed-resource-candidates
       - helm

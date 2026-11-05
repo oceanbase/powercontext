@@ -56,6 +56,7 @@ from urllib.parse import parse_qsl, quote, quote_plus, unquote, urlsplit
 
 from powercontext_eval_swebench_pro import docker_pressure
 from powercontext_eval_swebench_pro.artifacts import ArtifactStore
+from powercontext_eval_swebench_pro.egress import PYTHON_INSTALL_MIRROR, AllowlistProxy, EgressPolicy
 from powercontext_eval_swebench_pro.codex import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_REASONING_EFFORT,
@@ -107,6 +108,7 @@ _OCEANBASE_QUERY_OVERRIDES = frozenset(
     }
 )
 _SHA = re.compile(r"[0-9a-f]{40}")
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _INVALID_DOCKER_COPY_SYMLINK = re.compile(r'invalid symlink "[^"\r\n]+" -> "[^"\r\n]+"')
 _DOCKER_NETWORK_CONTROL_LOCK = threading.Lock()
 _DOCKER_NETWORK_CREATE_ATTEMPTS = 3
@@ -127,6 +129,10 @@ _CONTAINER_TOKENSFLOW_WRAPPER_DIR = "/tools/tokensflow-wrapper"
 _CONTAINER_UV = "/tools/uv-dir/uv"
 _CONTAINER_RECORDER = "/evaluation/record_codex_jsonl.py"
 _CONTAINER_UV_PYTHON_INSTALL_DIR = "/runtime/uv-python"
+# Task images ship an interpreter below PowerContext's requires-python, so uv installs a managed one. Left unpinned it
+# picks the newest release (3.15 with uv 0.13.6), for which uv.lock has no wheels of some dependencies (tiktoken,
+# PyYAML), and the images cannot build them. 3.13 is covered by every locked wheel.
+_CONTAINER_UV_PYTHON = "3.13"
 _DEFAULT_RECORDER_SCRIPT = Path(__file__).with_name("record_codex_jsonl.py")
 _TIMED_OUT_CONTAINER_REMOVAL_SETTLE_SECONDS = 90.0
 _TIMED_OUT_CONTAINER_REMOVAL_POLL_SECONDS = 0.25
@@ -656,6 +662,8 @@ class SutConfig:
     tokensflow_binary: Path | None = None
     tokensflow_egress_network: str | None = None
     proxy: ProxyRelayConfig | None = None
+    # Built-in allowlisted egress; mutually exclusive with a deployment's own proxy upstream.
+    egress: EgressPolicy | None = None
     docker_network_pool: str = DEFAULT_DOCKER_NETWORK_POOL
     extra_no_proxy_hosts: tuple[str, ...] = ()
     model: str = DEFAULT_CODEX_MODEL
@@ -698,6 +706,11 @@ class SutConfig:
                 or _SAFE_DOCKER_NETWORK.fullmatch(self.tokensflow_egress_network) is None
             ):
                 raise TokensFlowInfrastructureError("TokensFlow egress network is unsafe")
+        if self.proxy is not None and self.egress is not None:
+            raise UnsafeSutConfiguration("Use either a proxy upstream or the egress allowlist")
+        if self.egress is not None and self.tokensflow_enabled:
+            # TokensFlow attaches its own unrestricted egress network to the agent container.
+            raise UnsafeSutConfiguration("TokensFlow egress bypasses the egress allowlist")
         _validated_docker_network_pool(self.docker_network_pool)
         _validated_no_proxy_hosts(self.extra_no_proxy_hosts)
         try:
@@ -949,13 +962,22 @@ class DockerSut:
         docker: Any,
         *,
         relay_factory: Callable[[], ProxyRelay] = SocatProxyRelay,
+        egress_factory: Callable[[frozenset[int]], AllowlistProxy] = lambda ports: AllowlistProxy(ports=ports),
         clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self._docker = _DockerPressureRunner(docker)
         self._relay_factory = relay_factory
+        self._egress_factory = egress_factory
+        # One allowlist proxy per live run network; pairs on different networks run concurrently.
+        self._egress_proxies: dict[str, AllowlistProxy] = {}
+        self._egress_lock = threading.Lock()
         self._clock = clock
         self._sleeper = sleeper
+
+    def _egress_proxy(self, network: str) -> AllowlistProxy | None:
+        with self._egress_lock:
+            return self._egress_proxies.get(network)
 
     def network_gateway(self, network: str, cwd: Path) -> str:
         if (
@@ -1081,6 +1103,7 @@ class DockerSut:
     def _run_network(self, config: SutConfig, cwd: Path) -> Iterator[tuple[str, str | None]]:
         network = f"powercontext-eval-{config.run_id}"
         relay = self._relay_factory() if config.proxy is not None else None
+        egress = self._egress_factory(config.egress.ports) if config.egress is not None else None
         network_created = False
         preserve_for_diagnosis = False
         try:
@@ -1097,6 +1120,10 @@ class DockerSut:
                     gateway = self.network_gateway(network, cwd)
                     assert config.proxy is not None
                     relay_url = relay.start(gateway, config.proxy)
+                if egress is not None:
+                    relay_url = egress.start(self.network_gateway(network, cwd))
+                    with self._egress_lock:
+                        self._egress_proxies[network] = egress
             yield network, relay_url
         except BaseException:
             preserve_for_diagnosis = network_created
@@ -1106,6 +1133,10 @@ class DockerSut:
                 try:
                     if relay is not None:
                         relay.stop()
+                    if egress is not None:
+                        with self._egress_lock:
+                            self._egress_proxies.pop(network, None)
+                        egress.stop()
                 finally:
                     remove_network = network_created and (
                         not preserve_for_diagnosis
@@ -1127,7 +1158,7 @@ class DockerSut:
                 "docker",
                 "network",
                 "create",
-                *(("--internal",) if config.proxy is not None else ()),
+                *(("--internal",) if config.proxy is not None or config.egress is not None else ()),
                 "--subnet",
                 subnet,
                 "--gateway",
@@ -1237,7 +1268,15 @@ class DockerSut:
                 self._stage_tokensflow_binary(config, paths)
                 tokensflow_binary_staged = True
             self._initialize_workspace(config, arm, paths)
+            trim_future_history(self._docker, paths.workspace)
+            egress = self._egress_proxy(network)
+            if egress is not None and config.egress is not None:
+                egress.allow(f"{arm.value}:prewarm", config.egress.prewarm)
             self._prewarm(config, arm, paths, network, relay_url)
+            if egress is not None and config.egress is not None:
+                # From here on only the model endpoint is reachable: a package index or source host can serve
+                # a newer release of the task's own project, including the reference fix.
+                egress.allow(f"{arm.value}:agent", config.egress.agent)
             self._start_container(
                 config,
                 arm,
@@ -1298,6 +1337,7 @@ class DockerSut:
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+                    "UV_PYTHON": _CONTAINER_UV_PYTHON,
                     "UV_OFFLINE": "1",
                 },
                 secrets=credential_variants,
@@ -1321,6 +1361,12 @@ class DockerSut:
                 if tokensflow_drain_failed:
                     self._write_tokensflow_recovery_marker(paths, "tokensflow_drain_failed")
                     raise TokensFlowInfrastructureError("TokensFlow drain failed") from None
+            if egress is not None:
+                prefix = f"{arm.value}:"
+                store.write_json(
+                    "egress/decisions.json",
+                    [item for item in egress.decisions() if str(item["phase"]).startswith(prefix)],
+                )
             tokensflow_provenance: Path | None = None
             if tokensflow is not None:
                 tokensflow_provenance = store.write_json("tokensflow/provenance.json", tokensflow.as_dict())
@@ -1413,6 +1459,9 @@ class DockerSut:
                 self._write_tokensflow_recovery_marker(paths, "infrastructure_failure_retained")
             raise
         finally:
+            closing = self._egress_proxy(network)
+            if closing is not None:
+                closing.allow(f"{arm.value}:closed", frozenset())
             if not handed_off:
                 preserve_for_diagnosis = preserve_after_drain_failure or preserve_after_infrastructure_failure
                 try:
@@ -2419,6 +2468,9 @@ class DockerSut:
             **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
             "UV_CACHE_DIR": "/runtime/uv-cache",
             "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+            "UV_PYTHON": _CONTAINER_UV_PYTHON,
+            # Older uv versions download managed Python from GitHub, which the prewarm allowlist does not include.
+            **({"UV_PYTHON_INSTALL_MIRROR": PYTHON_INSTALL_MIRROR} if config.egress is not None else {}),
         }
         command = (
             "docker",
@@ -2596,6 +2648,9 @@ class DockerSut:
             network,
             "--mount",
             f"type=bind,src={paths.workspace},dst=/workspace",
+            # Hide the image's original repository while preserving absolute /app paths used by task dependencies.
+            "--mount",
+            f"type=bind,src={paths.workspace},dst=/app",
             "--mount",
             f"type=bind,src={paths.runtime},dst=/runtime",
             "--mount",
@@ -2622,6 +2677,7 @@ class DockerSut:
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
+                    "UV_PYTHON": _CONTAINER_UV_PYTHON,
                     "UV_OFFLINE": "1",
                     **tokensflow_container_environment,
                     "PATH": executable_path,
@@ -3102,6 +3158,57 @@ def _tool_directory_mount(
     if require_executable and not os.access(resolved, os.X_OK):
         raise UnsafeSutConfiguration("Tool binary is not executable")
     return f"type=bind,src={resolved.parent},dst={destination},readonly"
+
+
+def trim_future_history(runner: Any, workspace: Path) -> None:
+    """Keep only HEAD and its ancestors so the agent cannot read the reference fix from git.
+
+    Task images ship the upstream history, including the fix commit, on branches, remotes, and tags. The working
+    tree and index are left untouched, so the final ``git diff HEAD`` is unchanged. Shared object stores and
+    linked worktrees are rejected before changing references; retained future commits also fail closed.
+    """
+
+    def git(*argv: str, check: bool = True, input_bytes: bytes | None = None) -> str:
+        return runner.run(
+            ("git", *argv), cwd=workspace, timeout=600, check=check, input_bytes=input_bytes
+        ).stdout.strip()
+
+    git_directory = workspace / ".git"
+    if not git_directory.is_dir() or git_directory.is_symlink() or (git_directory / "commondir").exists():
+        raise UnsafeSutConfiguration("Workspace requires a private git directory")
+    if any(
+        path.exists() and path.read_bytes().strip()
+        for path in (git_directory / "objects/info/alternates", git_directory / "objects/info/http-alternates")
+    ):
+        raise UnsafeSutConfiguration("Workspace git alternate object stores are unsupported")
+    worktrees = git("worktree", "list", "--porcelain").splitlines()
+    if sum(line.startswith("worktree ") for line in worktrees) != 1:
+        raise UnsafeSutConfiguration("Workspace git linked worktrees are unsupported")
+
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    if _OBJECT_ID.fullmatch(head) is None:
+        raise UnsafeSutConfiguration("Workspace HEAD is not a commit")
+    branch = git("symbolic-ref", "--quiet", "HEAD", check=False)
+    refs = git("for-each-ref", "--format=%(refname)").splitlines()
+    git("update-ref", "--no-deref", "HEAD", head)
+    if refs:
+        git("update-ref", "--no-deref", "--stdin", input_bytes="".join(f"delete {ref}\n" for ref in refs).encode())
+    for pseudo_ref in ("ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        git("update-ref", "-d", pseudo_ref, check=False)
+    if branch.startswith("refs/heads/"):
+        git("update-ref", branch, head)
+        git("symbolic-ref", "HEAD", branch)
+    git("reflog", "expire", "--expire=now", "--all")
+    git("gc", "--quiet", "--prune=now")
+    if git("rev-list", "--all", "--not", "HEAD"):
+        raise UnsafeSutConfiguration("Workspace git history still reaches commits after HEAD")
+    ancestors = set(git("rev-list", "HEAD").splitlines())
+    # GC can retain unreachable objects in kept or promisor packs. Inspect the object store itself, while
+    # allowing blobs and trees needed by staged changes in the unchanged index.
+    for line in git("cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)").splitlines():
+        object_id, object_type = line.split()
+        if object_type == "commit" and object_id not in ancestors:
+            raise UnsafeSutConfiguration("Workspace git object store retains commits outside HEAD ancestry")
 
 
 def _reject_retained_secrets(data: bytes, variants: tuple[str, ...]) -> None:

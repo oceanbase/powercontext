@@ -1,5 +1,6 @@
 ---
-title: Topic Memory blocked processing recovery
+title: "RFC 2018: Topic Memory blocked-processing recovery"
+description: A proposal for inspecting blocked Topic Memory processing and authorizing bounded retries with durable block evidence and retry receipts.
 ---
 
 - Proposal Name: `topic_memory_blocked_processing_recovery`

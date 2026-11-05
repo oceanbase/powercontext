@@ -1,5 +1,6 @@
 ---
-title: Topic Memory 阻塞处理的诊断与恢复
+title: RFC 2018：Topic Memory 阻塞处理恢复
+description: Topic Memory 恢复的设计提案，支持阻塞诊断和经授权的有限重试，保留阻塞证据与重试受理回执。
 ---
 
 - Proposal Name: `topic_memory_blocked_processing_recovery`

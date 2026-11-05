@@ -1,3 +1,8 @@
+---
+title: "运行和使用 PowerContext Server"
+description: "启动 PowerContext Server、设置认证，并通过 HTTP、Python Client、CLI 或 MCP 接入。"
+---
+
 # 运行和使用 PowerContext Server
 
 可直接运行的 Server 持有一个 `BuiltinRuntime`，并通过 HTTP 暴露它。同一个进程可以将一组经过筛选的 Memory
