@@ -73,6 +73,8 @@ Header and model settings are JSON objects. Values in `*_HEADERS` are treated as
 
 A base URL can include a gateway path prefix. The service's interface path, such as `/chat/completions`, `/responses`, or `/embeddings`, is appended automatically and cannot be replaced with an arbitrary path. When configuring a custom URL or static headers, use an explicit OpenAI- or Anthropic-compatible model prefix.
 
+For an Anthropic-compatible gateway that requires separate gateway and upstream credentials, configure its `Authorization` header and supply the upstream key through `ANTHROPIC_API_KEY` or an explicit `X-Api-Key` header. PowerContext sends both headers to the gateway; an explicit `X-Api-Key` takes precedence over the environment key. The gateway must remove its own `Authorization` before forwarding to Anthropic, which expects one credential per request. For a gateway that requires only `Authorization`, leave `ANTHROPIC_API_KEY` and `X-Api-Key` unset. See [Anthropic's gateway authentication guidance](https://platform.claude.com/docs/en/api/migration-2026-10-21#a-client-holds-one-credential).
+
 When `RERANK_MODEL` is unset, LLM reranking uses the generation model and URL. Reranker headers and model settings can extend or override the generation configuration. Header overrides apply only to reranking and leave the selected model and URL unchanged. If you set a separate reranker URL, also specify a reranker model. The reranker uses the generation timeout and request limit unless you override them.
 
 When using the default URL and headers, supply credentials through the environment variables supported by the selected service. See below for reusing subscription credentials.

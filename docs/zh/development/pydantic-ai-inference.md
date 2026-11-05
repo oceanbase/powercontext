@@ -73,6 +73,8 @@ export POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS='{"max_tokens":256}'
 
 服务地址可以包含网关路径前缀，后面会自动追加 `/chat/completions`、`/responses` 或 `/embeddings` 等接口路径，不支持任意改写这些路径。自定义地址或静态请求头时，模型名称必须带有明确的 OpenAI 或 Anthropic 兼容接口前缀。
 
+Anthropic 兼容网关需要分别认证网关和上游时，配置网关的 `Authorization` 请求头，并通过 `ANTHROPIC_API_KEY` 或显式 `X-Api-Key` 请求头提供上游密钥。PowerContext 会将两个请求头都发给网关；显式 `X-Api-Key` 优先于环境变量中的密钥。网关转发给 Anthropic 前必须移除自己的 `Authorization`，因为官方 API 每次请求只接受一份凭据。网关仅要求 `Authorization` 时，不要设置 `ANTHROPIC_API_KEY` 和 `X-Api-Key`。详见 [Anthropic 的网关认证说明](https://platform.claude.com/docs/en/api/migration-2026-10-21#a-client-holds-one-credential)。
+
 未设置 `RERANK_MODEL` 时，LLM 重排复用生成模型及其服务地址。重排的请求头和模型参数可以扩展或覆盖生成配置；请求头覆盖仅影响重排，不会改变所用模型和地址。单独设置重排地址时，也必须指定重排模型。未设置重排超时和请求次数上限时，它们沿用生成任务的配置。
 
 使用默认地址和请求头时，通过所选模型服务支持的环境变量提供凭据。已有订阅凭据的复用方式见下文。

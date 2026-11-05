@@ -2177,6 +2177,8 @@ def _protected_provider_factory(
             header_api_key = _pop_header(resolved, "x-api-key")
             api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
             has_authorization = any(name.casefold() == "authorization" for name in resolved)
+            if api_key and has_authorization:
+                resolved["X-Api-Key"] = api_key
             if api_key and not has_authorization and (base_url is not None or header_api_key is not None):
                 client.auth = partial(_anthropic_api_key_header, api_key=api_key)
             sdk = AsyncAnthropic(
@@ -2236,13 +2238,14 @@ def _unbounded_provider_factory(
             header_api_key = _pop_header(default_headers, "x-api-key")
             api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
             has_authorization = any(name.casefold() == "authorization" for name in default_headers)
+            if api_key and has_authorization:
+                default_headers["X-Api-Key"] = api_key
             http_client = httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None
             if api_key and not has_authorization and (base_url is not None or header_api_key is not None):
                 http_client = http_client or httpx2.AsyncClient()
                 http_client.auth = partial(_anthropic_api_key_header, api_key=api_key)
             client = AsyncAnthropic(
                 base_url=None if base_url is None else str(base_url),
-                # A configured Authorization header is the credential; gateways may reject any X-Api-Key.
                 api_key=api_key or (None if has_authorization else "api-key-not-set"),
                 default_headers=default_headers,
                 http_client=http_client,
