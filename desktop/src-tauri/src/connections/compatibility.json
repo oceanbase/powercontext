@@ -903,6 +903,68 @@
     "evidence": "desktop/VALIDATION.md#server-63e9665c-statistics-product-qualification"
   },
   {
+    "id": "sqlite-atomic-56683483-v1",
+    "serverCommit": "566834839821d026db1c116425ee9a9b5c0f4fe5",
+    "contractSha256": "d8cf5d802888351929a19191bfde32a36db1c06e2293d3ad12df6721f0bef85e",
+    "artifactSha256": "5fa1f723796bac4c6570be91729fd6d9f3fe5fe7e6f2e87fef2b9bb526ac8c16",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-56683483-protocol-qualification"
+  },
+  {
+    "id": "sqlite-stats-57d79337-v1",
+    "serverCommit": "57d7933796ffa6fe4fe5bbf487cc6170bad2766b",
+    "contractSha256": "d8cf5d802888351929a19191bfde32a36db1c06e2293d3ad12df6721f0bef85e",
+    "artifactSha256": "129c6dd4c27a4237ca4df21e26efc1b9ab7f37f65a3361b10630e87721285daf",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "get_stats",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-57d79337-statistics-product-qualification"
+  },
+  {
+    "id": "sqlite-stats-57d79337-merged-v1",
+    "serverCommit": "57d7933796ffa6fe4fe5bbf487cc6170bad2766b",
+    "contractSha256": "3ff44a9c7cb016f488343b9041f3182eeb621e48248b79bec1a1f5daea3a5a5e",
+    "artifactSha256": "129c6dd4c27a4237ca4df21e26efc1b9ab7f37f65a3361b10630e87721285daf",
+    "operations": [
+      "get_access_principal",
+      "get_artifact_revision",
+      "get_capabilities",
+      "get_default_scope",
+      "get_liveness",
+      "get_readiness",
+      "get_scope",
+      "get_server_info",
+      "get_stats",
+      "list_scopes",
+      "remember_memory",
+      "search_memory"
+    ],
+    "evidence": "desktop/VALIDATION.md#server-57d79337-statistics-product-qualification"
+  },
+  {
     "id": "sqlite-observability-9f279e4e-v1",
     "serverCommit": "9f279e4ee8b83894ac86dea49e9c1daeffc1c563",
     "contractSha256": "44194cfe8ab1516f87831d6f1290c74b2bb9fae84dfee42705e86adbc3cf98cd",
