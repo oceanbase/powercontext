@@ -258,7 +258,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5053,7 +5053,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "family",
@@ -5123,7 +5123,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "family",
@@ -5199,7 +5199,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5269,7 +5269,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5339,7 +5339,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     }
                 ],
                 "requestBody": {

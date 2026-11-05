@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 
 import powercontext.http as http_models
@@ -950,6 +951,31 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
         for operation_id in actual_operations.values()
     )
     assert not any("search-results" in path for path in paths)
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags"),
+        ("put", "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags"),
+        ("post", "/v1/scopes/{scope_id}/artifact-tags/query"),
+        ("get", "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/state"),
+        ("get", "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags"),
+        ("put", "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags"),
+    ],
+)
+def test_tag_and_state_scope_contract_rejects_blank_ids(method: str, path: str) -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schema = next(
+        parameter["schema"]
+        for parameter in contract["paths"][path][method]["parameters"]
+        if parameter["in"] == "path" and parameter["name"] == "scope_id"
+    )
+    validator = Draft202012Validator(schema)
+    for scope_id in ("s", " scope-a ", "s" * 256):
+        assert validator.is_valid(scope_id)
+    for scope_id in ("", " ", "　", "s" * 257):
+        assert not validator.is_valid(scope_id), repr(scope_id)
 
 
 def test_scope_pagination_declares_cursor_failures() -> None:
