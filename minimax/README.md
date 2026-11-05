@@ -231,11 +231,13 @@ API 出错时程序不会自己写补丁：它记录失败原因并以非零码�
 服务层验收就会从红转绿：
 
 ```bash
-# 1) 取源码并应用补丁（agent/code/minimax-change.diff 是 MiniMax 产出的那 6 行文法改动；
-#    注意它只是解析层的第一步，缺 T_OP_ARRAY_INDEX 的节点定义与解析路径，先补齐再编译）
-git clone https://github.com/oceanbase/seekdb && cd seekdb
-cd /path/to/powercontext/minimax && cd -
-git apply /path/to/powercontext/minimax/agent/code/minimax-change.diff
+# 一键：应用补丁 → 构建 → 起实例 → 建库 → 验收（脚本在 scripts/verify_on_linux.sh）
+git clone https://github.com/oceanbase/seekdb && cd seekdb && git checkout 108fe22
+MINIMAX_WORKTREE=$PWD bash /path/to/minimax/scripts/verify_on_linux.sh
+
+# 手工分步：
+# 1) 应用解析层改动（agent/code/author-fix.patch：枚举 + 文法产生式，git apply 干净）
+git apply /path/to/minimax/agent/code/author-fix.patch
 
 # 2) 构建（首次 init 会拉依赖，耗时较长）
 ./build.py init
@@ -250,7 +252,7 @@ git apply /path/to/powercontext/minimax/agent/code/minimax-change.diff
 cd /path/to/powercontext/minimax
 python scripts/init_local_instance.py --port 2882
 
-# 5) 对这套构建跑验收：期望 acceptance 5/5、compatibility 2/2
+# 5) 对这套构建跑验收：完整实现后应为 acceptance 5/5、compatibility 2/2
 SEEKDB_REPO=/path/to/seekdb MINIMAX_DB_PORT=2882 python run.py guard --stage after
 
 # 6) 跑仓库自带回归（mysqltest 会自己管理实例，端口另选）
