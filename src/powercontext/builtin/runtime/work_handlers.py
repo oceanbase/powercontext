@@ -40,6 +40,7 @@ from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.cursors import StoredSourceCursor
 from powercontext.builtin.persistence.database import database_now, is_transaction_contention
 from powercontext.builtin.persistence.errors import GenerationConflictError
+from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.persistence.rate_limit import RateLimitRepository
 from powercontext.builtin.persistence.tables import PROFILE_POLICIES_TABLE
 from powercontext.builtin.persistence.work import (
@@ -49,6 +50,7 @@ from powercontext.builtin.persistence.work import (
     WorkSpec,
 )
 from powercontext.builtin.records import BaseValueConflictError
+from powercontext.builtin.runtime.atomic_memory_processing import MemoryWindowReducedError
 from powercontext.builtin.runtime.cron import CronSchedule
 from powercontext.builtin.runtime.durable_scheduler import DiscoveryPage
 from powercontext.builtin.runtime.models import ExperienceIncubationResult, MemoryFlushResult
@@ -318,11 +320,18 @@ class MemoryWorkHandler:
         # Pin preparation to the persisted window: re-reading the live high watermark
         # would absorb Sources that arrived after this Work record was written, so the
         # claim would publish rows outside the window it reports.
-        prepared = await self._contexts.prepare_memory(
-            claim.scope_id,
-            self._window_limit,
-            window=(payload.after, payload.through),
-        )
+        try:
+            prepared = await self._contexts.prepare_memory(
+                claim.scope_id,
+                self._window_limit,
+                window=(payload.after, payload.through),
+            )
+        except MemoryWindowReducedError as reduced:
+            # The processor halved the window and persisted the hint. Retrying this
+            # claim would repeat the same oversized model call, so retire it through
+            # the fenced completion; discovery re-enqueues the smaller window from
+            # the unchanged cursor.
+            return PreparedWork(result=WorkResult(code="window_reduced", payload=reduced.result_payload()))
         if isinstance(prepared, MemoryFlushResult):
             # The trigger selected no window; there is nothing to publish and
             # nothing the ledger fence could discard.
@@ -581,6 +590,7 @@ async def memory_work_spec(
         limit=limit,
         max_attempts=max_attempts,
         payload_version=payload_version,
+        honor_window_hint=True,
     )
 
 
@@ -651,10 +661,20 @@ async def _discover_spec(
     limit: int,
     max_attempts: int,
     payload_version: int,
+    honor_window_hint: bool = False,
 ) -> WorkSpec | None:
     scope = validate_scope_id(scope_id)
     async with contexts.database.transaction() as connection:
         state_row, high_watermark = await _window_state(contexts, connection, scope, cursor_name)
+        if honor_window_hint:
+            # A generation timeout persisted a smaller window for this cursor; using it
+            # here is what lets the retired claim turn into a window that fits.
+            _, limit = await MemorySourceWindowRepository().signal(
+                connection,
+                scope,
+                0 if state_row is None else state_row.cursor.sequence,
+                limit,
+            )
     payload = _window_payload(state_row, high_watermark, cursor_name, limit)
     return (
         None

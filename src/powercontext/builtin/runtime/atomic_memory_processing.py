@@ -24,6 +24,7 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import TYPE_CHECKING, Literal, NoReturn, cast
 
+from pydantic import JsonValue
 from sqlalchemy import func, literal, select, true, tuple_, update
 from sqlalchemy.exc import OperationalError
 
@@ -128,6 +129,24 @@ class AtomicMemoryProcessingConfig:
             comparison_batch_size=runtime.atomic_memory_comparison_batch_size,
             input_tokens_limit=runtime.atomic_memory_input_tokens_limit,
         )
+
+
+class MemoryWindowReducedError(Exception):
+    """A pinned ledger window was halved instead of being retried as-is.
+
+    Raised after the recovery hint is persisted so the Work Ledger can retire the
+    oversized claim through its fenced completion and let discovery enqueue the
+    smaller window against the unchanged cursor generation.
+    """
+
+    def __init__(self, *, after: int, through: int, limit: int) -> None:
+        self.after = after
+        self.through = through
+        self.limit = limit
+        super().__init__(f"memory window {after}:{through} reduced to limit {limit}")
+
+    def result_payload(self) -> dict[str, JsonValue]:
+        return {"after": self.after, "through": self.through, "window_limit": self.limit}
 
 
 class PreparedMemoryWindow:
@@ -422,6 +441,7 @@ class AtomicMemorySourceWindowProcessor:
         """
         application = self.application
         trigger = SourceWindowTrigger()
+        pinned = window is not None
         async with application.database.transaction() as connection:
             if processing is not None:
                 await processing.start(connection)
@@ -468,12 +488,15 @@ class AtomicMemorySourceWindowProcessor:
                 workset, consulted_artifacts = await self._prepare(scope_id, eligible, pipeline, context)
             prepared, decision, observation = await self._inspect_decisions(scope_id, workset, context)
         except (InferenceTimeoutError, InvalidInferenceOutputError) as error:
-            reducible = (isinstance(error, InferenceTimeoutError) and error.operation == "generate") or (
-                isinstance(error, InvalidInferenceOutputError) and error.operation == "atomic-memory-input-budget"
+            await self._handle_reducible_failure(
+                error,
+                pinned=pinned,
+                processing=processing,
+                scope_id=scope_id,
+                cursor=cursor,
+                action=action,
+                high_watermark=high_watermark,
             )
-            if reducible and action.through - action.after > 1:
-                await self._reduce_window(scope_id, context, processing, cursor, state, action, high_watermark)
-            raise
         return PreparedMemoryWindow(
             self,
             scope_id=scope_id,
@@ -491,22 +514,67 @@ class AtomicMemorySourceWindowProcessor:
             high_watermark=high_watermark,
         )
 
-    async def _reduce_window(self, scope_id, context, processing, cursor, state, action, high_watermark):
+    async def _handle_reducible_failure(
+        self,
+        error: InferenceTimeoutError | InvalidInferenceOutputError,
+        *,
+        pinned: bool,
+        processing,
+        scope_id,
+        cursor,
+        action,
+        high_watermark,
+    ) -> NoReturn:
+        """Shrink the next window, then end this attempt the way the caller requires.
+
+        A local supervisor keeps the original timeout and retries later against the
+        persisted hint. A pinned ledger claim cannot shrink in place, so it retires
+        through ``MemoryWindowReducedError`` and lets discovery re-plan the window.
+        """
+
+        if not (self._reducible(error) and action.through - action.after > 1):
+            raise error
+        limit = max(1, (action.through - action.after) // 2)
+        try:
+            await self._reduce_window(processing, scope_id, cursor, action, high_watermark)
+        except AtomicMemoryConflictError:
+            # A concurrent window advanced this cursor first. The local supervisor
+            # retries against the new cursor; a stale claim still retires below.
+            if not pinned:
+                raise
+        if pinned:
+            raise MemoryWindowReducedError(after=action.after, through=action.through, limit=limit) from error
+        raise error
+
+    @staticmethod
+    def _reducible(error: InferenceTimeoutError | InvalidInferenceOutputError) -> bool:
+        return (isinstance(error, InferenceTimeoutError) and error.operation == "generate") or (
+            isinstance(error, InvalidInferenceOutputError) and error.operation == "atomic-memory-input-budget"
+        )
+
+    async def _reduce_window(self, processing, scope_id, cursor, action, high_watermark) -> None:
+        """Persist a smaller next window without invalidating the cursor generation.
+
+        The hint is written while holding the cursor row so a concurrent window
+        commit cannot interleave, but the cursor itself is not rewritten: saving it
+        would bump its generation and turn the retrying Work payload into a
+        non-retryable ``cursor_changed`` failure, so the hint would never apply.
+        """
+
+        limit = max(1, (action.through - action.after) // 2)
         async with self.application.database.transaction() as connection:
             if processing is not None:
                 await processing.guard(connection)
-            await self.cursors.save(
-                connection,
-                scope_id,
-                SOURCE_WINDOW_TRIGGER_NAME,
-                state,
-                expected_generation=None if cursor is None else cursor.generation,
-            )
+            current = await self.cursors.load(connection, scope_id, SOURCE_WINDOW_TRIGGER_NAME, for_update=True)
+            generation = None if current is None else current.generation
+            if generation != (None if cursor is None else cursor.generation):
+                # Another window already advanced this cursor; its reduction wins.
+                raise AtomicMemoryConflictError("The Source cursor moved before window reduction")  # noqa: TRY003
             await self.windows.reduce(
                 connection,
                 scope_id,
                 source_through=high_watermark,
-                window_limit=max(1, (action.through - action.after) // 2),
+                window_limit=limit,
             )
 
     async def _inspect_decisions(self, scope_id, workset, context):

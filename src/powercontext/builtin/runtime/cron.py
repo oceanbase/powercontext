@@ -16,10 +16,15 @@
 
 from __future__ import annotations
 
+from calendar import monthrange
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
+
+# Feb 29 on a fixed weekday recurs at most every 40 years, and 400 years is a full
+# Gregorian cycle, so this horizon reaches every occurrence a valid expression has.
+_SEARCH_HORIZON_YEARS = 400
 
 _MONTH_NAMES = {
     name: index
@@ -62,10 +67,7 @@ class CronSchedule:
         # A repeated fall-back hour maps a later wall time to an earlier instant, so
         # the earliest future occurrence can belong to the previous local date.
         first_date = utc.astimezone(self.timezone).date() - timedelta(days=1)
-        for offset in range(366 * 8 + 1):
-            candidate_date = first_date + timedelta(days=offset)
-            if not self._matches_date(candidate_date):
-                continue
+        for candidate_date in self._candidate_dates(first_date):
             # Order the day's occurrences by real instant, not by wall clock: on a
             # transition day 01:00 fold=1 (06:00Z) precedes 01:16 fold=0 (05:16Z).
             occurrences = sorted(
@@ -82,10 +84,22 @@ class CronSchedule:
             for candidate in occurrences:
                 if candidate.astimezone(UTC) > utc:
                     return candidate.astimezone(UTC).replace(tzinfo=None)
-        raise ValueError("cron expression has no occurrence in the next eight years")  # noqa: TRY003
+        raise ValueError("cron expression has no occurrence in the next four hundred years")  # noqa: TRY003
 
-    def _matches_date(self, value: date) -> bool:
-        return value.month in self.months and value.day in self.days and value.weekday() in self.weekdays
+    def _candidate_dates(self, first_date: date) -> Iterator[date]:
+        """Yield matching dates across a full Gregorian cycle, in ascending order.
+
+        Scanning by month keeps the leap-day case (``0 2 29 2 mon``, next hit in
+        2044) inside the horizon instead of failing after an arbitrary cutoff.
+        """
+
+        for year in range(first_date.year, first_date.year + _SEARCH_HORIZON_YEARS):
+            for month in sorted(self.months):
+                last_day = monthrange(year, month)[1]
+                for day in sorted(candidate_day for candidate_day in self.days if candidate_day <= last_day):
+                    candidate = date(year, month, day)
+                    if candidate >= first_date and candidate.weekday() in self.weekdays:
+                        yield candidate
 
 
 def _parse_field(

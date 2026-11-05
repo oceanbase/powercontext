@@ -16,6 +16,8 @@
 
 from datetime import datetime
 
+import pytest
+
 from powercontext.builtin.runtime.cron import CronSchedule
 
 
@@ -94,3 +96,18 @@ def test_next_after_ordinary_days_are_unchanged() -> None:
     # 2026-06-15: 09:30 EDT = 13:30 UTC.
     assert schedule.next_after(datetime(2026, 6, 15, 12, 0)) == datetime(2026, 6, 15, 13, 30)  # noqa: DTZ001 - naive on purpose
     assert schedule.next_after(datetime(2026, 6, 15, 13, 30)) == datetime(2026, 6, 16, 13, 30)  # noqa: DTZ001 - naive on purpose
+
+
+def test_next_after_finds_leap_day_matches_beyond_eight_years() -> None:
+    """29 February on a fixed weekday recurs decades later, not never."""
+
+    schedule = CronSchedule.parse("0 2 29 2 mon", "UTC")
+    assert schedule.next_after(datetime(2026, 11, 4)) == datetime(2044, 2, 29, 2, 0)  # noqa: DTZ001 - naive on purpose
+
+
+def test_next_after_rejects_dates_that_never_exist() -> None:
+    """30 February has no occurrence in a Gregorian cycle and must still raise."""
+
+    schedule = CronSchedule.parse("0 0 30 2 *", "UTC")
+    with pytest.raises(ValueError, match="four hundred years"):
+        schedule.next_after(datetime(2026, 11, 4))  # noqa: DTZ001 - naive on purpose

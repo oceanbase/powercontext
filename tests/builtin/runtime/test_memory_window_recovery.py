@@ -27,9 +27,11 @@ from powercontext.builtin.inference import GenerationResult, InferenceTimeoutErr
 from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.runtime.atomic_memory_processing import MemoryWindowReducedError
 from powercontext.builtin.runtime.composition import _initialize_atomic_memory_authority
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.runtime.work_handlers import memory_work_spec
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.logging import JsonFormatter
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
@@ -415,5 +417,28 @@ def test_failed_commit_retains_reduction_until_consumption_succeeds():
             # The failed final commit must roll back clearing the reduction too.
             assert (await context.triggers.flush(limit=100)).current_cursor == 2
             assert (await context.triggers.flush(limit=100)).current_cursor == 3
+
+    asyncio.run(scenario())
+
+
+def test_pinned_window_timeout_reduces_without_bumping_the_cursor_generation():
+    """A ledger claim keeps the generation it is pinned to while the hint shrinks it."""
+
+    async def scenario():
+        pipeline = Pipeline()
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            contexts = await _ready_contexts(profile, candidate_pipeline=atomic_memory_pipeline(pipeline))
+            scope = await create_scope(contexts, 4)
+            with pytest.raises(MemoryWindowReducedError) as raised:
+                await contexts.prepare_memory(scope, 100, window=(0, 4))
+            assert (raised.value.after, raised.value.through, raised.value.limit) == (0, 4, 2)
+
+            async with profile.database.transaction() as connection:
+                row = await contexts.repositories.cursors.load(connection, scope, "powercontext.source-window")
+            assert row is None, "reduction must not create or rewrite the cursor row"
+
+            spec = await memory_work_spec(contexts, scope, limit=100, max_attempts=3, payload_version=1)
+            assert spec is not None
+            assert (spec.payload["after"], spec.payload["through"]) == (0, 2)
 
     asyncio.run(scenario())

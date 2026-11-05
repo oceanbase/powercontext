@@ -279,7 +279,10 @@ def create_server_app(  # noqa: C901
                 resolved,
                 active_access_control,
                 legacy_static_principal=static_principal if legacy_static_admin else None,
-                enabled=config.runtime.artifact_processing_role != "api" and bool(processing_capabilities(config)),
+                # A distributed deployment advertises no process-local capabilities,
+                # but its Workers still claim ledger work, so they need the spec.
+                enabled=config.runtime.artifact_processing_role != "api"
+                and (bool(processing_capabilities(config)) or config.deployment.mode == "distributed"),
                 injected=configured_access_control is not None,
             )
             runtime = await resources.enter_async_context(

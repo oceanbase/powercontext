@@ -933,7 +933,13 @@ async def open_builtin_runtime(
         )
         contexts.profiles.operation_context = runtime._operation
         runtime.work_background = await resources.enter_async_context(
-            _open_work_background(config, contexts, tracing=tracing, observer=work_observer)
+            _open_work_background(
+                config,
+                contexts,
+                tracing=tracing,
+                observer=work_observer,
+                worker_security=worker_security,
+            )
         )
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
@@ -1395,6 +1401,33 @@ def _build_version() -> str:
         return "unknown"
 
 
+async def _work_authorizer(
+    stack: AsyncExitStack,
+    security: dict[str, Any] | None,
+    contexts: RelationalContexts,
+) -> Callable[[Any], Any] | None:
+    """Authorize every claimed Scope with the configured background principal.
+
+    The Work Ledger replaces the process-local supervisor in a distributed
+    deployment, so this check is the only place a Worker can refuse a Scope its
+    background principal may not contribute to.
+    """
+
+    if security is None:
+        return None
+    from powercontext.server.processing_security import open_worker_security
+
+    opened = await stack.enter_async_context(open_worker_security(security, contexts.database))
+    if opened is None:  # pragma: no cover - the caller passed a specification
+        return None
+    worker_security = opened
+
+    async def authorize(claim: Any) -> None:
+        await worker_security.authorize_scope(claim.scope_id)
+
+    return authorize
+
+
 @asynccontextmanager
 async def _open_work_background(
     config: BuiltinConfig,
@@ -1402,6 +1435,7 @@ async def _open_work_background(
     *,
     tracing: RuntimeTracing | None = None,
     observer: WorkObserver | None = None,
+    worker_security: dict[str, Any] | None = None,
 ) -> AsyncIterator[WorkBackground]:
     """Start the durable Work Ledger components this role is responsible for.
 
@@ -1473,6 +1507,7 @@ async def _open_work_background(
                 worker_id=f"{membership.instance_id}:worker",
                 handlers=_work_handlers(config, contexts),
                 config=config.worker,
+                authorizer=await _work_authorizer(stack, worker_security, contexts) if runs_worker else None,
                 observer=observer,
                 tracing=tracing,
             )

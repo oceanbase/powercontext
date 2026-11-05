@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from time import monotonic
 from types import SimpleNamespace
@@ -416,5 +417,82 @@ def test_rate_limit_maintenance_stops_when_requested(tmp_path) -> None:
             after_stop = len(purges)
             await asyncio.sleep(0.15)
             assert len(purges) == after_stop
+
+    asyncio.run(scenario())
+
+
+def test_distributed_worker_authorizes_every_claimed_scope(monkeypatch) -> None:
+    """A ledger Worker must check the background principal before preparing work."""
+
+    async def scenario() -> None:
+        authorized: list[str] = []
+
+        class _Security:
+            async def authorize_scope(self, scope_id: str) -> None:
+                authorized.append(scope_id)
+
+        @asynccontextmanager
+        async def _open_security(spec, database):
+            assert spec == {"principal": {"type": "service", "id": "background"}}
+            yield _Security()
+
+        monkeypatch.setattr("powercontext.server.processing_security.open_worker_security", _open_security)
+
+        constructed: dict[str, dict[str, object]] = {}
+
+        class _SpyComponent:
+            def __init__(self, *args, **kwargs) -> None:
+                constructed[self._role] = kwargs
+                self._stopped = asyncio.Event()
+
+            _role = ""
+            instance_id = "instance-1"
+
+            async def start(self) -> None:
+                pass
+
+            async def run(self) -> None:
+                await self._stopped.wait()
+
+            async def stop(self) -> None:
+                self._stopped.set()
+
+        class _SpyMembership(_SpyComponent):
+            _role = "membership"
+
+        class _SpyScheduler(_SpyComponent):
+            _role = "scheduler"
+
+        class _SpyWorker(_SpyComponent):
+            _role = "worker"
+
+        monkeypatch.setattr("powercontext.builtin.runtime.membership.RuntimeMembership", _SpyMembership)
+        monkeypatch.setattr("powercontext.builtin.runtime.durable_scheduler.DurableScheduler", _SpyScheduler)
+        monkeypatch.setattr("powercontext.builtin.runtime.worker.DurableWorker", _SpyWorker)
+        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_discoverers", lambda config, contexts: ())
+        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_handlers", lambda config, contexts: ())
+
+        config = cast(
+            "BuiltinConfig",
+            SimpleNamespace(
+                deployment=DeploymentConfig(mode="distributed", role="worker"),
+                runtime=RuntimeConfig(memory_schedule_seconds=30),
+                coordination=CoordinationConfig(),
+                worker=WorkerConfig(),
+                operations=OperationsConfig(),
+            ),
+        )
+        contexts = cast("RelationalContexts", SimpleNamespace(database=None))
+        spec = {"principal": {"type": "service", "id": "background"}}
+        async with _open_work_background(config, contexts, worker_security=spec) as background:
+            assert background.worker is not None
+            authorizer = constructed["worker"]["authorizer"]
+            assert authorizer is not None
+            await authorizer(SimpleNamespace(scope_id="project"))
+            assert authorized == ["project"]
+
+        async with _open_work_background(config, contexts) as background:
+            assert background.worker is not None
+            assert constructed["worker"]["authorizer"] is None
 
     asyncio.run(scenario())

@@ -19,9 +19,11 @@ import asyncio
 import pytest
 
 from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
+from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.work import StaleWorkClaimError, WorkRepository
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+from powercontext.builtin.runtime.atomic_memory_processing import MemoryWindowReducedError
 from powercontext.builtin.runtime.models import MemoryFlushResult
 from powercontext.builtin.runtime.work_handlers import (
     MEMORY_WORK_KIND,
@@ -253,5 +255,41 @@ def test_prepare_memory_refuses_a_window_the_cursor_already_left(tmp_path) -> No
                 )
             with pytest.raises(AtomicMemoryConflictError):
                 await contexts.prepare_memory("project", 100, window=(0, 1))
+
+    asyncio.run(scenario())
+
+
+def test_memory_timeout_retires_the_claim_and_keeps_the_cursor_generation(tmp_path, monkeypatch) -> None:
+    """A shrunk window retires the claim instead of poisoning the cursor generation."""
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            context = await contexts.get("project")
+            for index in range(4):
+                await context.sources.capture(ContentCapture(source_id=f"source-{index}", content=f"Fact {index}"))
+            spec = await memory_work_spec(contexts, "project", limit=10, max_attempts=3, payload_version=1)
+            assert spec is not None
+            assert (spec.payload["after"], spec.payload["through"]) == (0, 4)
+            claim = await _claim(contexts, spec)
+
+            async def reduced_prepare_memory(scope_id: str, limit: int, **_: object) -> object:
+                async with contexts.database.transaction() as connection:
+                    await MemorySourceWindowRepository().reduce(connection, scope_id, source_through=4, window_limit=2)
+                raise MemoryWindowReducedError(after=0, through=4, limit=2)
+
+            monkeypatch.setattr(contexts, "prepare_memory", reduced_prepare_memory)
+            prepared = await MemoryWorkHandler(contexts, window_limit=10).prepare(claim)
+            assert prepared.commit is None
+            assert prepared.result is not None
+            assert prepared.result.code == "window_reduced"
+            assert prepared.result.payload == {"after": 0, "through": 4, "window_limit": 2}
+
+            async with contexts.database.transaction() as connection:
+                row = await contexts.repositories.cursors.load(connection, "project", SOURCE_WINDOW_TRIGGER_NAME)
+            assert row is None or row.generation == spec.payload["cursor_generation"]
+
+            followup = await memory_work_spec(contexts, "project", limit=10, max_attempts=3, payload_version=1)
+            assert followup is not None
+            assert (followup.payload["after"], followup.payload["through"]) == (0, 2)
 
     asyncio.run(scenario())
