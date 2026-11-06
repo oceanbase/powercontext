@@ -26,7 +26,7 @@ from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
-from fastapi.routing import APIRoute
+from prometheus_client.exposition import choose_encoder
 from sqlalchemy import select
 from starlette.middleware import Middleware
 
@@ -107,7 +107,7 @@ from powercontext.server.identity import ServerIdentityRepository
 from powercontext.server.info import server_info
 from powercontext.server.logging import worker_logging
 from powercontext.server.mcp import mount_mcp
-from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
+from powercontext.server.metrics import HttpMetricsMiddleware, ServerMetrics, http_operations
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.request_id import HttpRequestIdMiddleware
@@ -147,7 +147,8 @@ class _MetricsEndpoint:
             )
         runtime = request.app.state.application
         self._metrics.refresh_runtime(runtime)
-        return Response(self._metrics.render(), media_type=CONTENT_TYPE_LATEST)
+        encoder, content_type = choose_encoder(request.headers.get("accept", ""))
+        return Response(encoder(self._metrics.registry), media_type=content_type)
 
 
 def create_server_app(  # noqa: C901
@@ -204,7 +205,14 @@ def create_server_app(  # noqa: C901
         inference=resolved.inference,
         external_skills=resolved.external_skills,
     )
-    metrics = ServerMetrics(role=resolved.runtime.artifact_processing_role) if resolved.metrics.enabled else None
+    metrics = (
+        ServerMetrics(
+            role=resolved.runtime.artifact_processing_role,
+            exemplars_enabled=resolved.tracing.enabled and tracing is not None,
+        )
+        if resolved.metrics.enabled
+        else None
+    )
     resolved_tracing = (
         ServerTracing.context_only(role=resolved.runtime.artifact_processing_role) if tracing is None else tracing
     )
@@ -230,9 +238,16 @@ def create_server_app(  # noqa: C901
             None if resolved.cursor_signing_secret is None else resolved.cursor_signing_secret.get_secret_value()
         )
         cursor_secret = resolve_cursor_secret(config.database, configured_cursor_secret)
+        configured_target = resolved_tracing.provider.resource.attributes.get("powercontext.service.target")
+        worker_target = configured_target if isinstance(configured_target, str) else None
         async with AsyncExitStack() as resources:
             logging_bootstrap = resources.enter_context(
-                worker_logging(resolved.logging, role=resolved.runtime.artifact_processing_role)
+                worker_logging(
+                    resolved.logging,
+                    role=resolved.runtime.artifact_processing_role,
+                    target=worker_target,
+                    owner_role=resolved.runtime.artifact_processing_role,
+                )
             )
             active_access_control = configured_access_control
             if active_access_control is None and resolved.access.mode == "enforced":
@@ -288,10 +303,16 @@ def create_server_app(  # noqa: C901
                     tracing=resolved_tracing,
                     model_usage_observer=None if metrics is None else metrics.observe_model_usage,
                     worker_model_usage_observer=None if metrics is None else metrics.observe_worker_model_usage,
+                    provider_observer=None if metrics is None else metrics.observe_provider,
+                    worker_provider_observer=None if metrics is None else metrics.observe_worker_provider,
                     processing_observer=None if metrics is None else metrics.observe_processing,
                     worker_security=worker_security,
                     worker_initializer=logging_bootstrap,
-                    worker_entrypoint_wrapper=WorkerTracing(resolved.tracing).wrap,
+                    worker_entrypoint_wrapper=WorkerTracing(
+                        resolved.tracing,
+                        target=worker_target,
+                        owner_role=resolved.runtime.artifact_processing_role,
+                    ).wrap,
                     scheduled_profile_runner=_scheduled_profile_runner(
                         resolved,
                         active_access_control,
@@ -457,7 +478,7 @@ def create_server_app(  # noqa: C901
             _MetricsEndpoint(metrics),
             include_in_schema=False,
         )
-        operations = _http_operations(app)
+        operations = http_operations(app.routes)
         app.add_middleware(
             HttpMetricsMiddleware,
             metrics=metrics,
@@ -468,11 +489,12 @@ def create_server_app(  # noqa: C901
         app.add_middleware(
             HttpAccessLogMiddleware,
             skip_paths=("/health/live", "/health/ready", "/metrics", resolved.mcp.path),
+            operations=http_operations(app.routes),
         )
     app.add_middleware(
         HttpTracingMiddleware,
         tracing=resolved_tracing,
-        operations=_http_operations(app),
+        operations=http_operations(app.routes),
         skip_paths=("/health/live", "/health/ready", "/metrics", resolved.mcp.path),
     )
     if resolved.mcp.enabled:
@@ -779,15 +801,6 @@ def _log_insecure_remote_http_warning() -> None:
         "use it only on a protected private test network",
         extra={"event": "server.remote_skills.insecure_http_enabled", "unit": "server"},
     )
-
-
-def _http_operations(app: FastAPI) -> dict[tuple[str, str], str]:
-    return {
-        (method, route.path): route.operation_id
-        for route in app.routes
-        if isinstance(route, APIRoute) and route.operation_id is not None
-        for method in route.methods or ()
-    }
 
 
 async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:

@@ -27,6 +27,11 @@ from opentelemetry import propagate
 from opentelemetry.trace import SpanKind
 
 from powercontext._logging import error_category, log_safely
+from powercontext.builtin.inference.observability import (
+    ProviderObservation,
+    bind_provider_observer,
+    current_provider_observer,
+)
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlockedError,
     ArtifactProcessingWorkAssignment,
@@ -35,6 +40,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     processing_error_code,
 )
 from powercontext.builtin.runtime.worker_observability import WorkerObservability, worker_observability
+from powercontext.server.provider_metrics import record_provider_span
 from powercontext.server.settings import TracingConfig
 from powercontext.server.tracing import configure_server_tracing
 
@@ -42,6 +48,8 @@ from powercontext.server.tracing import configure_server_tracing
 @dataclass(frozen=True)
 class WorkerTracing:
     config: TracingConfig
+    target: str | None = None
+    owner_role: str | None = None
 
     def wrap(self, entrypoint: WorkerEntrypoint) -> WorkerEntrypoint:
         if not self.config.enabled:
@@ -50,7 +58,7 @@ class WorkerTracing:
         propagate.inject(carrier)
         # Only execution context crosses this boundary, never arbitrary baggage.
         carrier = {key: value for key, value in carrier.items() if key in {"traceparent", "tracestate"}}
-        return _TracedWorker(entrypoint, self.config, carrier)
+        return _TracedWorker(entrypoint, self.config, carrier, self.target, self.owner_role)
 
 
 @dataclass(frozen=True)
@@ -58,11 +66,17 @@ class _TracedWorker:
     entrypoint: WorkerEntrypoint
     config: TracingConfig
     carrier: dict[str, str]
+    target: str | None = None
+    owner_role: str | None = None
 
-    def __call__(self, assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion | None:
-        tracing = span = token = None
+    def __call__(  # noqa: C901 - bootstrap owns tracing and provider-context cleanup.
+        self, assignment: ArtifactProcessingWorkAssignment
+    ) -> ArtifactProcessingWorkerCompletion | None:
+        tracing = span = token = provider_binding = None
         try:
-            tracing = configure_server_tracing(self.config, role="worker")
+            tracing = configure_server_tracing(
+                self.config, role="worker", target=self.target, owner_role=self.owner_role
+            )
             span = tracing.start_span(
                 "artifact_processing.worker.execute",
                 kind=SpanKind.INTERNAL,
@@ -71,9 +85,19 @@ class _TracedWorker:
                     "powercontext.operation.name": "process_artifact_scope",
                     "powercontext.operation.unit": "background",
                     "powercontext.artifact_processing.family": assignment.artifact_family,
+                    "powercontext.scope.id": assignment.scope_id,
                 },
             )
             token = worker_observability.set(WorkerObservability(tracing, tracing.instrumentation))
+            observer = current_provider_observer()
+            if observer is not None:
+
+                def observe_provider(observation: ProviderObservation) -> None:
+                    observer(observation)
+                    record_provider_span(observation)
+
+                provider_binding = bind_provider_observer(observe_provider)
+                provider_binding.__enter__()
         except Exception:
             # An unavailable exporter/adapter must not prevent the domain invocation.
             log_safely(
@@ -103,6 +127,8 @@ class _TracedWorker:
         else:
             return completion
         finally:
+            if provider_binding is not None:
+                provider_binding.__exit__(None, None, None)
             if token is not None:
                 worker_observability.reset(token)
             if span is not None:

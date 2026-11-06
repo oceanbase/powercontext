@@ -385,16 +385,13 @@ def test_setup_opencode_keeps_previous_install_when_tui_config_is_invalid(
 
 
 def test_opencode_skill_refresh_replaces_only_an_owned_installation(tmp_path: Path, monkeypatch) -> None:
-    from powercontext.cli.guidance import END, RESOURCE_MANIFEST, START
+    from powercontext.cli.guidance import END, START
 
     first, second = _write_plugin(tmp_path / "first"), _write_plugin(tmp_path / "second")
     for package, value in ((first, "first"), (second, "second")):
         skill = package / "skills/powercontext-project-context"
         (skill / "SKILL.md").write_text(f"{START}\n{value}\n{END}\n", encoding="utf-8")
         (skill / "references/memory.md").unlink()
-        (skill / RESOURCE_MANIFEST).write_text(
-            json.dumps({"schema_version": 1, "resources": ["SKILL.md"]}), encoding="utf-8"
-        )
     config = tmp_path / "config"
     configure_opencode(monkeypatch, config)
     install_plugin("opencode", source=str(first))

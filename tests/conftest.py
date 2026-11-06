@@ -27,6 +27,13 @@ _DATABASE_MIGRATION_ENV = Path(__file__).parent / "fixtures" / "database_migrati
 
 
 @pytest.fixture
+def otlp_exporter():
+    """Run exporter-dependent configuration cases in the tracing-otlp CI job."""
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http._log_exporter")
+
+
+@pytest.fixture
 def short_tmp_path() -> Iterator[Path]:
     """Leave room for nested checkout caches and backup names on Windows."""
     # pytest's user/session/test-name directories can exhaust MAX_PATH before

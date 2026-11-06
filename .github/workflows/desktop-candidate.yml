@@ -1,0 +1,211 @@
+name: Desktop candidate assembly
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Desktop version (X.Y.Z); derives desktop-vX.Y.Z'
+        required: true
+        type: string
+      server_version:
+        description: 'Exact canonical Python Server package version to build'
+        required: true
+        type: string
+      source_sha:
+        description: 'Full Desktop commit SHA; must match the selected master revision'
+        required: true
+        type: string
+      server_source_sha:
+        description: 'Full Server source commit SHA; may be an earlier qualified revision'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+run-name: Desktop candidate ${{ inputs.version || 'validation' }} · ${{ inputs.source_sha || github.sha }}
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+      - run: uv sync --locked --no-dev --group resource-build --python 3.12
+      - name: Verify candidate handoff
+        run: |
+          uv run --no-sync ruff check scripts/desktop_candidate.py tests/test_desktop_candidate.py
+          uv run --no-sync ruff format --check scripts/desktop_candidate.py tests/test_desktop_candidate.py
+          uv run --no-sync ty check scripts/desktop_candidate.py tests/test_desktop_candidate.py
+          uv run --no-sync pytest -q tests/test_desktop_candidate.py
+
+  native:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'oceanbase/powercontext' && github.ref == 'refs/heads/master'
+    needs: contract
+    name: Build candidate for ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - target: windows-x86_64
+            runner: windows-2025
+            triple: x86_64-pc-windows-msvc
+          - target: macos-arm64
+            runner: macos-15
+            triple: aarch64-apple-darwin
+          - target: macos-x86_64
+            runner: macos-15-intel
+            triple: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      DESKTOP_VERSION: ${{ inputs.version }}
+      SERVER_VERSION: ${{ inputs.server_version }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      SERVER_SOURCE_SHA: ${{ inputs.server_source_sha }}
+      RESOURCE_TARGET: ${{ matrix.target }}
+      RUST_TARGET: ${{ matrix.triple }}
+      # Producer provenance hashes the checked-out scripts as bytes on Windows too.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+          enable-cache: true
+      - name: Verify exact source and version before building
+        run: |
+          uv sync --locked --no-dev --group resource-build --python 3.12 --no-build-package cryptography --no-build-package jieba
+          uv run --no-sync python scripts/desktop_candidate.py identity \
+            --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA"
+      - name: Select pinned compiler for Intel resource production
+        if: matrix.target == 'macos-x86_64'
+        run: echo 'DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer' >> "$GITHUB_ENV"
+      - name: Produce and smoke-test the pinned 09-C resources
+        run: |
+          uv run --no-sync python scripts/prepare_managed_resources.py \
+            --target "$RESOURCE_TARGET" --source-ref "$SERVER_SOURCE_SHA" --server-version "$SERVER_VERSION" \
+            --output build/resource-inputs --download-cache build/resource-downloads
+          inputs_sha="$(uv run --no-sync python -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("build/resource-inputs/inputs.json").read_bytes()).hexdigest())')"
+          uv run --no-sync python scripts/produce_managed_resources.py \
+            --inputs build/resource-inputs --inputs-sha256 "$inputs_sha" \
+            --server-url "https://candidate.invalid/$RESOURCE_TARGET/server.tar.gz" --output build/resources
+          # The Ops child writes a separate diagnostic line before the final smoke receipt.
+          set -o pipefail
+          uv run --no-sync python scripts/ci_managed_resource_smoke.py \
+            --candidate build/resources --serve --evidence-dir build/resource-evidence | tail -n 1 > build/resource-smoke.json
+      - name: Prepare exact catalog and provision pins for the Desktop build
+        run: |
+          uv run --no-sync python scripts/desktop_candidate.py prepare --resources build/resources \
+            --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA"
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          working_directory: desktop
+      - name: Install pinned Rust target
+        run: rustup toolchain install "1.95.0-$RUST_TARGET" --profile minimal
+      - name: Build the unsigned product configuration
+        working-directory: desktop
+        run: |
+          pnpm install --frozen-lockfile
+          # Fresh target directory, default product features and no signing secrets or updater artifacts.
+          test ! -e src-tauri/target
+          pnpm tauri build --target "$RUST_TARGET" --ci --no-sign \
+            --config src-tauri/tauri.ops.conf.json --config .artifacts/candidate.conf.json -- --locked
+      - name: Collect the normal package and exact producer outputs
+        run: |
+          uv run --no-sync python scripts/desktop_candidate.py stage \
+            --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA" \
+            --target "$RESOURCE_TARGET" --bundles "desktop/src-tauri/target/$RUST_TARGET/release/bundle" \
+            --inputs build/resource-inputs --resources build/resources --smoke build/resource-smoke.json \
+            --output "build/legs/$RESOURCE_TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-candidate-leg-${{ matrix.target }}
+          path: build/legs/${{ matrix.target }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Retain native smoke failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-candidate-diagnostics-${{ matrix.target }}
+          path: build/resource-evidence/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  assemble:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DESKTOP_VERSION: ${{ inputs.version }}
+      SERVER_VERSION: ${{ inputs.server_version }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      SERVER_SOURCE_SHA: ${{ inputs.server_source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: desktop-candidate-leg-windows-x86_64
+          path: build/desktop-candidate/windows-x86_64
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: desktop-candidate-leg-macos-arm64
+          path: build/desktop-candidate/macos-arm64
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: desktop-candidate-leg-macos-x86_64
+          path: build/desktop-candidate/macos-x86_64
+      - name: Validate required targets and freeze manifest
+        run: |
+          set -o pipefail
+          uv sync --locked --no-dev --group resource-build --python 3.12
+          uv run --no-sync python scripts/desktop_candidate.py assemble \
+            --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA" \
+            --root build/desktop-candidate | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        id: upload-candidate
+        with:
+          name: desktop-candidate-${{ inputs.version }}-${{ inputs.source_sha }}
+          path: build/desktop-candidate/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        id: upload-manifest
+        with:
+          name: desktop-candidate-manifest-${{ inputs.version }}-${{ inputs.source_sha }}
+          path: build/desktop-candidate/desktop-release-candidate.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Record exact Actions artifact identities
+        env:
+          CANDIDATE_ARTIFACT_ID: ${{ steps.upload-candidate.outputs.artifact-id }}
+          MANIFEST_ARTIFACT_ID: ${{ steps.upload-manifest.outputs.artifact-id }}
+        run: |
+          {
+            echo "candidate_run_id=$GITHUB_RUN_ID"
+            echo "candidate_full_artifact_id=$CANDIDATE_ARTIFACT_ID"
+            echo "candidate_manifest_artifact_id=$MANIFEST_ARTIFACT_ID"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -31,7 +31,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
-from powercontext._logging import log_safely
+from powercontext._logging import log_context, log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactLineage, ArtifactRef, StableHandle
 from powercontext.artifacts.search import (
     ArtifactSearchExecutionContext,
@@ -965,6 +965,21 @@ class RemoteIngestionApplication:
             return await self._require_service().commit_connector_checkpoint(request)
 
 
+async def _processing_statistics(runtime: BuiltinRuntime, result: Statistics) -> Statistics:
+    from powercontext.builtin.runtime.processing_observation import observe_processing
+
+    processing = await observe_processing(
+        runtime.primary_database, result.scope_ids, runtime.artifact_processing_supervisor
+    )
+    return result.model_copy(
+        update={
+            "by_scope": tuple(
+                row.model_copy(update={"processing": processing[row.scope_id]}) for row in result.by_scope
+            )
+        }
+    )
+
+
 class ScopedStatisticsApplication:
     """Read product statistics and record model usage for one scope."""
 
@@ -972,9 +987,12 @@ class ScopedStatisticsApplication:
         self._runtime = runtime
         self.scope_id = validate_scope_id(scope_id)
 
-    async def overview(self, *, period: StatisticsPeriod = StatisticsPeriod.THIRTY_DAYS) -> Statistics:
+    async def overview(
+        self, *, period: StatisticsPeriod = StatisticsPeriod.THIRTY_DAYS, include_processing: bool = False
+    ) -> Statistics:
         async with self._runtime._scope_operation(self.scope_id):
-            return await self._runtime._statistics(self.scope_id).overview(period, self._runtime._clock())
+            result = await self._runtime._statistics(self.scope_id).overview(period, self._runtime._clock())
+            return await _processing_statistics(self._runtime, result) if include_processing else result
 
     async def record_model_usage(
         self,
@@ -1037,6 +1055,7 @@ class StatisticsApplication:
         selection: ScopeSelection,
         *,
         period: StatisticsPeriod = StatisticsPeriod.THIRTY_DAYS,
+        include_processing: bool = False,
     ) -> Statistics:
         if self._runtime.scopes is None:
             raise _RuntimeStateError("statistics")
@@ -1048,11 +1067,8 @@ class StatisticsApplication:
                 period,
                 captured_at,
             )
-        return aggregate_statistics(
-            selection,
-            snapshots,
-            captured_at,
-        )
+            result = aggregate_statistics(selection, snapshots, captured_at)
+            return await _processing_statistics(self._runtime, result) if include_processing else result
 
 
 _PREPARE_ATOMIC_CONTEXT: ContextVar[ArtifactSearchExecutionContext | None] = ContextVar(
@@ -4312,7 +4328,7 @@ class BuiltinRuntime:
         async with self._operation():
             if self.atomic_memory is None:
                 raise _RuntimeStateError("atomic-memory")
-            with self._scope_cache.lease(scope):
+            with self._scope_cache.lease(scope), log_context({"scope": scope}):
                 statistics = self._statistics(scope)
                 if flush_usage:
                     await statistics.flush_model_usage()

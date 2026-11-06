@@ -74,6 +74,7 @@ from powercontext.server.identity import open_server_identity_repository
 from powercontext.server.inference_notice import write_inference_capability_notice
 from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
 from powercontext.server.metrics import ServerMetrics
+from powercontext.server.observability_notice import write_observability_notice
 from powercontext.server.ownership import (
     apply_ownership_migration,
     ownership_report,
@@ -840,6 +841,9 @@ def run(
         bool,
         typer.Option("--no-env-file", help="Do not discover or load an environment file."),
     ] = False,
+    observability: Annotated[
+        bool, typer.Option(help="Load the installed local observability profile without changing business settings.")
+    ] = False,
     role: Annotated[
         Literal["all", "api", "background"] | None,
         typer.Option(help="Run all components, only APIs, or only background processing."),
@@ -867,10 +871,18 @@ def run(
                 uds=uds,
                 env_file=selected_env_file,
                 process_environment_overrides=True,
+                observability=observability,
             ) as settings,
         ):
             if selected_env_file is not None:
                 typer.echo(f"Loaded environment file: {selected_env_file}")
+            write_observability_notice(
+                enabled=observability,
+                server_env=None if selected_env_file is None else str(selected_env_file),
+                host=settings.http.host,
+                port=settings.http.port,
+                role=settings.runtime.artifact_processing_role,
+            )
             _run_configured_server(settings)
     except ServerConfigurationError as error:
         if isinstance(error.cause, ValidationError):
@@ -1001,7 +1013,11 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
         installed.append(signum)
     try:
         async with AsyncExitStack() as resources:
-            logging_bootstrap = resources.enter_context(worker_logging(settings.logging, role="background"))
+            configured_target = tracing.provider.resource.attributes.get("powercontext.service.target")
+            worker_target = configured_target if isinstance(configured_target, str) else None
+            logging_bootstrap = resources.enter_context(
+                worker_logging(settings.logging, role="background", target=worker_target, owner_role="background")
+            )
             principal = (
                 PrincipalRef(type="service", id="server-token", description="PowerContext static bearer")
                 if settings.auth.token is not None
@@ -1025,9 +1041,13 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
                     worker_security=worker_security,
                     model_usage_observer=None if metrics is None else metrics.observe_model_usage,
                     worker_model_usage_observer=None if metrics is None else metrics.observe_worker_model_usage,
+                    provider_observer=None if metrics is None else metrics.observe_provider,
+                    worker_provider_observer=None if metrics is None else metrics.observe_worker_provider,
                     processing_observer=None if metrics is None else metrics.observe_processing,
                     worker_initializer=logging_bootstrap,
-                    worker_entrypoint_wrapper=WorkerTracing(settings.tracing).wrap,
+                    worker_entrypoint_wrapper=WorkerTracing(
+                        settings.tracing, target=worker_target, owner_role="background"
+                    ).wrap,
                 )
             )
             if metrics is None or stopped.is_set():

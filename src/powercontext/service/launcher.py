@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TextIO
 from urllib.parse import urlsplit
 
+from powercontext.env_file import environment_context
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.server.settings import ServerLoggingConfig
 from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
@@ -56,6 +57,7 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--env-file", type=Path)
+    parser.add_argument("--observability-home", type=Path)
     parser.add_argument("--env-file-device", type=int)
     parser.add_argument("--env-file-inode", type=int)
     parser.add_argument("--env-file-size", type=int)
@@ -73,7 +75,19 @@ def main(arguments: list[str] | None = None) -> int:
             if options.env_file is not None:
                 identity = _environment_identity(options)
                 environment = load_protected_environment_file(options.env_file, expected=identity).values
-            with server_settings_context(environment=environment, data_dir=options.data_dir) as settings:
+            observability_environment = (
+                {"POWERCONTEXT_OBSERVABILITY_HOME": str(options.observability_home)}
+                if options.observability_home is not None
+                else {}
+            )
+            with (
+                environment_context(observability_environment, override=True),
+                server_settings_context(
+                    environment=environment,
+                    data_dir=options.data_dir,
+                    observability=options.observability_home is not None,
+                ) as settings,
+            ):
                 if settings.http.uds is not None:
                     raise ServerConfigurationError(  # noqa: TRY301
                         ValueError(

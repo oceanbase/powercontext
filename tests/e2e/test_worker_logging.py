@@ -37,6 +37,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 from prometheus_client import CollectorRegistry
 
+from powercontext.builtin.authz.errors import AccessDeniedError
 from powercontext.builtin.code.telemetry import stage
 from powercontext.builtin.inference import (
     InferenceConfigurationError,
@@ -379,6 +380,8 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         raise CancelledError(_PRIVATE)
     if assignment.scope_id == "unexpected":
         raise RuntimeError(_PRIVATE)
+    if assignment.scope_id == "denied":
+        raise AccessDeniedError()
     if assignment.scope_id == "blocked":
         raise ArtifactProcessingBlockedError(
             ArtifactProcessingBlock("frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),))
@@ -398,6 +401,7 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         ("cancellation-subclass", "cancelled", "cancelled"),
         ("cancellation-name-collision", "internal", "failure"),
         ("unexpected", "internal", "failure"),
+        ("denied", "authorization", "failure"),
     ],
 )
 def test_supervisor_traces_preserve_spawned_worker_failure_semantics(

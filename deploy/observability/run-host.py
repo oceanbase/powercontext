@@ -1,0 +1,92 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Run an isolated host demo with OTLP export and bounded offline audit logs."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import logging.handlers
+import os
+import signal
+import subprocess
+import sys
+from contextlib import suppress
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--container", action="store_true")
+    parser.add_argument("--log-name", choices=("container", "background"), default="container")
+    args = parser.parse_args()
+    local = Path("/data") if args.container else Path(__file__).resolve().parent / ".local"
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("POWERCONTEXT_", "OTEL_", "OPENAI_", "ANTHROPIC_"))
+    }
+    if args.container:
+        environment = dict(os.environ)
+    else:
+        from powercontext.env_file import read_environment_file
+
+        environment.update(read_environment_file(local / "server.env"))
+    if not args.container:
+        environment.update({
+            "POWERCONTEXT_SERVER_DATABASE_KIND": "sqlite",
+            "POWERCONTEXT_SERVER_DATABASE_URL": f"sqlite+aiosqlite:///{local / 'host.db'}",
+            "POWERCONTEXT_SERVER_HTTP_HOST": "0.0.0.0",  # noqa: S104 - authenticated Docker-to-host demo.
+            "POWERCONTEXT_SERVER_HTTP_PORT": "18080",
+        })
+    handler = logging.handlers.RotatingFileHandler(
+        Path(f"/logs/{args.log_name}.jsonl") if args.container else local / "logs" / "host.jsonl",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=3,
+    )
+    process = subprocess.Popen(  # noqa: S603 - fixed Server entrypoint, no shell.
+        [str(Path(sys.executable).parent / "powercontext"), "server", "run", "--no-env-file"],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    def stop(_number: int, _frame: object) -> None:
+        process.terminate()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    if process.stdout is None:
+        return 1
+    try:
+        for line in process.stdout:
+            # Keep process output for offline audit; the Server exports allowlisted fields through OTLP.
+            with suppress(Exception):
+                handler.emit(logging.LogRecord("server", logging.INFO, "", 0, line.rstrip(), (), None))
+        return process.wait()
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        handler.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

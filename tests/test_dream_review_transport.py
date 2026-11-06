@@ -700,3 +700,29 @@ def test_tag_dream_reference_roundtrips_through_public_contract():
         "candidate_id": "candidate",
         "version": 1,
     }
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "/v1/scopes/%20/dream", {"operation": "refine_experience", "idempotency_key": "blank-scope"}),
+        ("GET", "/v1/scopes/%20/dream/run-1", None),
+        ("GET", "/v1/scopes/%20/dream", None),
+    ],
+)
+def test_dream_routes_reject_blank_scope_as_contract_violation(tmp_path, method, path, body):
+    from powercontext.builtin.runtime import BuiltinConfig
+    from powercontext.builtin.runtime.composition import open_builtin_runtime
+
+    async def scenario():
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/dream.db"))
+        async with open_builtin_runtime(config) as runtime:
+            app = create_app(application=cast(ServerApplication, runtime))
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://testserver"
+            ) as client:
+                response = await client.request(method, path, json=body)
+        assert response.status_code == 422, response.text
+        assert response.json()["error"]["code"] == "invalid_request"
+
+    asyncio.run(scenario())

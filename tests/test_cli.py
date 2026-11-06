@@ -1341,6 +1341,7 @@ def test_stats_command_builds_request_and_prints_summary(
     assert received[0].model_dump(mode="json") == {
         "selection": {"mode": "exact", "scope_ids": ["project"]},
         "period": "today",
+        "include_processing": False,
     }
     assert "Sources: 0 total, 0 memory processed, 0 memory pending" in result.output
     assert "Generation: 0 requests, 0 input tokens, 0 output tokens" in result.output

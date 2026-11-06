@@ -28,6 +28,10 @@ uv --version
 
 ## Start Phoenix
 
+If you run the [reference observability stack](reference-observability-stack.md), `powercontext observability up`
+starts Phoenix automatically and prints its URL; `check --exercise` verifies the new request's trace. The manual
+commands below start an independent Phoenix instance; skip them when using the managed stack.
+
 The simplest command uses a temporary container:
 
 ```bash

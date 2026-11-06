@@ -52,6 +52,9 @@ def install(
         Path | None,
         typer.Option(help="Load persistent Server and provider settings from this protected environment file."),
     ] = None,
+    observability: Annotated[
+        bool, typer.Option(help="Persist the installed observability profile for service restarts.")
+    ] = False,
     start_on_login: Annotated[
         bool | None,
         typer.Option(
@@ -73,10 +76,15 @@ def install(
         raise typer.Exit(code=2)
     expanded_env_file = env_file.expanduser() if env_file is not None else None
     try:
-        with server_settings_context(env_file=expanded_env_file) as settings:
+        with server_settings_context(env_file=expanded_env_file, observability=observability) as settings:
             generation_model = settings.inference.generation_model
             embedding_model = settings.inference.embedding_model
-        status = _controller().install(env_file=expanded_env_file, start_on_login=start_on_login)
+        controller = _controller()
+        status = (
+            controller.install(env_file=expanded_env_file, start_on_login=start_on_login, observability=True)
+            if observability
+            else controller.install(env_file=expanded_env_file, start_on_login=start_on_login)
+        )
     except (OSError, ServerConfigurationError, ServiceError) as error:
         typer.echo(f"PowerContext personal service installation failed: {error}", err=True)
         if isinstance(error, ServiceError) and error.status is not None:

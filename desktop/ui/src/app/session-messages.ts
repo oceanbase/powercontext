@@ -154,6 +154,7 @@ export const sessionMessages = {
       remember_memory: "保存记忆",
       search_memory: "搜索记忆",
       get_artifact_revision: "读取精确版本",
+      get_stats: "读取当前 Scope 统计",
     },
   },
   en: {
@@ -300,6 +301,7 @@ export const sessionMessages = {
       remember_memory: "Save Memory",
       search_memory: "Search Memory",
       get_artifact_revision: "Read exact revision",
+      get_stats: "Read current-Scope statistics",
     },
   },
 } as const;
