@@ -2463,3 +2463,46 @@ All 736 packaged runtime files match the recorded Git source bytes. Evidence is 
 under ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
 This record covers local SQLite protocol behavior. It does not establish installed UI,
 native credential persistence, Windows execution, external production acceptance or release readiness.
+
+## Server 63feca70 identity and statistics product qualification
+
+`sqlite-identity-stats-63feca70-v1` qualifies all thirteen Desktop operations against
+Server source `63feca7086d57e4fe92623fd0c9966b9e09961fe`, including the nonblank Scope
+constraint on Tag and Atomic Memory state routes.
+
+- Normalized OpenAPI SHA-256: `e54d69cdcbeef19a816e92670901aacda9c7e44df289c88c18ad5ae364a6efeb`.
+- Wheel: `powercontext-1.5.1.dev0+g63feca70-py3-none-any.whl`.
+- Wheel SHA-256: `bc3b5970dffa9b525a80c4d1b7f82a06174c909e77aee4f1dfe0b7e047015a37`.
+
+All 739 packaged runtime files match the exact source archive after CRLF normalization.
+The archive build uses an explicit version. The 58 historical records retain their
+original Server source, contract, wheel and operation identities.
+
+On 2026-11-07, WSL 2 Linux x86_64, Python 3.11.17 and Rust 1.95.0 passed anonymous
+loopback, static Bearer, HTTPS with an explicit CA/base path, and enforced Provider
+modes through the ordinary product manager. The unchanged native probe exercised
+identity, Runtime observations, exact Scope selection, Memory save/search/read,
+statistics, uncertain committed writes without replay, Principal changes, revocation
+and pagination. The product run selected the bundled record without `ci-fixtures`.
+
+The debug probe SHA-256 is `7aa2b9e19ea34814ca003efa18761f859727705805140b7352c9142c27f6dc2a`.
+It was built in a standalone wrapper pointing to the actual product protocol modules,
+example and generated contract; all 298 dependencies match the product Cargo lock.
+Reports and exact artifact identities are retained under ignored
+`desktop/.artifacts/pr2502-followup/`. These checks qualify the observed SQLite
+protocol, not installed WebView, native credential storage, Windows/macOS or release acceptance.
+
+Separate `authenticatedClients` entries retain the original eleven operations of
+`sqlite-atomic-112db11e-v1` and `sqlite-atomic-3cefa45a-v1` under this client contract.
+Both pass static Bearer, HTTPS CA/base path and enforced Provider modes using
+`--rebuilt-qualification`; the harness verifies every runtime file against the exact
+Git source. Their rebuilt wheel SHA-256 values are respectively
+`567d0cd4a4c7488d6ba76325f0652593a9fddf8782eb0008e75b2b88a76c5c87` and
+`9831d1e045b21267d3cd6d6c04fada5f54f2180013c0de9aaf477fa6861a8f6b`.
+The original wheel artifacts were not rerun. Anonymous legacy access remains unavailable.
+
+The nine native session tests and two authenticated-compatibility regressions pass,
+including the bundled-record Principal fence and rejected unauthenticated mode.
+All 195 UI tests, generated-contract checks, lint, TypeScript checking and the
+frontend production build pass. The native fixtures and UI tests do not establish
+installed-platform acceptance.
