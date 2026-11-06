@@ -123,3 +123,12 @@ LangChain 中间件自动为其 Scope 解析、上下文召回和可选的完整
 在适配层的调用范围内，SDK span 携带 `gen_ai.provider.name=powercontext`。召回采用 `gen_ai.operation.name=retrieval` 和逻辑来源 `gen_ai.data_source.id=powercontext`；辅助调用采用 `powercontext.resolve_scope_binding`、`powercontext.capture_content_source` 等有界的自定义操作名，不伪装为模型推理或模型选择的工具调用。这些属性不记录查询、Scope 标识、正文、结果、Token 数或凭据。范围之外的独立 SDK 调用保持原有运维语义。
 
 Provider/exporter 的初始化及服务端遥测仍由应用和部署方负责。语义可见性不会自动配置上报地址，也不保证任意后端都会导出。成功、错误、取消和召回失败时放行模型的行为保持不变。
+
+### 可选的召回输入、输出采集
+
+使用 `PowerContextMiddleware(trace_content=True)`，可以在 `PowerContextMiddleware recall` 观测中记录本次查询
+和实际返回的上下文。它与把完整对话写入 PowerContext 存储的 `auto_capture` 不同。默认值为 `False`，因为
+查询和召回文本可能包含用户私有内容。类库负责观测节点和父子关系，应用只需配置已有的 exporter。
+输入、输出使用 OpenInference 的 `input.value`、`output.value` JSON 字符串；每项原文最多 16 KiB UTF-8，
+并明确标记是否截断。空结果也记录实际返回的 null 或空输出及真实上下文状态，请求失败不伪造输出。这个节点不是模型推理或模型选择的工具调用。
+服务端操作 span 仍然不记录内容，开启此选项也无法补回历史 span 的输入、输出。

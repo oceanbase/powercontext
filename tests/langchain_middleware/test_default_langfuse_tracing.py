@@ -17,6 +17,7 @@
 import asyncio
 import importlib.util
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -52,6 +53,34 @@ class LocalModel(BaseChatModel):
 
 
 class DefaultLangfuseTracingTests(unittest.TestCase):
+    def test_content_is_bounded_and_task_local(self):
+        from powercontext.client.tracing import recall_content_observation
+
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider(shutdown_on_exit=False)
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        try:
+            with patch.object(trace, "get_tracer", side_effect=provider.get_tracer):
+                with recall_content_observation("private default query", enabled=False) as output:
+                    output("private default output", "ready")
+                self.assertEqual(len(exporter.get_finished_spans()), 0)
+                with recall_content_observation("查询" * 10000, enabled=True) as output:
+                    output("召回" * 10000, "ready")
+                span = exporter.get_finished_spans()[0]
+                for field in ("input", "output"):
+                    value = json.loads(span.attributes[f"{field}.value"])
+                    self.assertLessEqual(len(value.encode("utf-8")), 16384)
+                    self.assertTrue(span.attributes[f"powercontext.content.{field}.truncated"])
+                with (
+                    self.assertRaises(asyncio.CancelledError),
+                    recall_content_observation("cancelled", enabled=True),
+                ):
+                    raise asyncio.CancelledError()
+                self.assertFalse(trace.get_current_span().get_span_context().is_valid)
+                self.assertNotIn("output.value", exporter.get_finished_spans()[-1].attributes)
+        finally:
+            provider.shutdown()
+
     def test_plain_middleware_exports_complete_tree_with_default_langfuse(self):
         if importlib.util.find_spec("powercontext_langchain") is None:
             self.skipTest("Install the matching PowerContext core and LangChain adapter")
@@ -131,11 +160,28 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
                                 config={"callbacks": [CallbackHandler(public_key=key)]},
                                 context=PowerContextScope(),
                             )
+                        content_agent = create_agent(
+                            model=LocalModel(),
+                            tools=[],
+                            middleware=[PowerContextMiddleware(trace_content=True)],
+                            context_schema=PowerContextScope,
+                        )
+                        with client.start_as_current_observation(name="content-enabled-request", as_type="agent"):
+                            await content_agent.ainvoke(
+                                {"messages": [{"role": "user", "content": "VISIBLE_QUERY_SENTINEL"}]},
+                                config={"callbacks": [CallbackHandler(public_key=key)]},
+                                context=PowerContextScope(),
+                            )
                         client.flush()
 
             try:
                 asyncio.run(invoke())
                 spans = exporter.get_finished_spans()
+                content_span = next(span for span in spans if span.name == "PowerContextMiddleware recall")
+                self.assertEqual(json.loads(content_span.attributes["input.value"]), "VISIBLE_QUERY_SENTINEL")
+                self.assertIsNone(json.loads(content_span.attributes["output.value"]))
+                self.assertIn("powercontext.context.status", content_span.attributes)
+                self.assertFalse(content_span.attributes["powercontext.content.input.truncated"])
                 root = next(span for span in spans if span.name == "langchain-powercontext-request")
                 request_spans = [span for span in spans if span.context.trace_id == root.context.trace_id]
                 by_id = {span.context.span_id: span for span in request_spans}

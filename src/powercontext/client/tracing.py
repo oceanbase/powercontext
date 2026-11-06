@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import json
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 
@@ -109,3 +110,53 @@ class ClientSpan:
 
 
 __all__ = ["ClientSpan", "genai_client_context"]
+
+
+@contextmanager
+def recall_content_observation(query: str, *, enabled: bool) -> Iterator[Callable[[str | None, str], None]]:
+    """Opt-in, bounded adapter I/O; operational server spans remain content-free.
+
+    The embedding application owns the exporter and access to recorded content.
+    Empty output is recorded explicitly and is distinct from missing telemetry.
+    """
+    span = None
+
+    def record(key: str, value: str | None) -> None:
+        if span is None:
+            return
+        with suppress(Exception):
+            encoded = b"" if value is None else value.encode("utf-8")
+            bounded = None if value is None else encoded[:16384].decode("utf-8", errors="ignore")
+            span.set_attribute(f"{key}.value", json.dumps(bounded, ensure_ascii=False))
+            span.set_attribute(f"{key}.mime_type", "application/json")
+            span.set_attribute(f"powercontext.content.{key}.truncated", len(encoded) > 16384)
+
+    def output(content: str | None, status: str) -> None:
+        record("output", content)
+        if span is not None:
+            with suppress(Exception):
+                span.set_attribute("powercontext.context.status", status)
+
+    token = None
+    if enabled:
+        with suppress(Exception):
+            span = trace.get_tracer("powercontext.langchain").start_span(
+                "PowerContextMiddleware recall",
+                attributes={"gen_ai.provider.name": "powercontext", "gen_ai.operation.name": "retrieval"},
+            )
+            token = otel_context.attach(set_span_in_context(span))
+            record("input", query)
+    try:
+        yield output
+    except BaseException:
+        if span is not None:
+            with suppress(Exception):
+                span.set_status(Status(StatusCode.ERROR))
+        raise
+    finally:
+        if token is not None:
+            with suppress(Exception):
+                otel_context.detach(token)
+        if span is not None:
+            with suppress(Exception):
+                span.end()

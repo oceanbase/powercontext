@@ -28,7 +28,7 @@ from pydantic import TypeAdapter, ValidationError
 from typing_extensions import override
 
 from powercontext.client import ClientError, ServerResponseError
-from powercontext.client.tracing import genai_client_context
+from powercontext.client.tracing import genai_client_context, recall_content_observation
 from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContext, PreparedContextStatus
 
 from .client import open_client, resolve_config, resolve_server_scope
@@ -59,9 +59,10 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
     response.
     """
 
-    def __init__(self, *, auto_capture: bool = False) -> None:
+    def __init__(self, *, auto_capture: bool = False, trace_content: bool = False) -> None:
         super().__init__()
         self.auto_capture = auto_capture
+        self.trace_content = trace_content
         self._configuration_error_logged = False
         self._sync_in_async_logged = False
 
@@ -134,7 +135,10 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
     async def _prepare(self, query: str, scope: PowerContextScope | None) -> str | None:
         try:
             config = resolve_config(scope)
-            with genai_client_context():
+            with (
+                recall_content_observation(query[:_MAX_QUERY_CHARS], enabled=self.trace_content) as record_output,
+                genai_client_context(),
+            ):
                 async with open_client(config) as client:
                     scope_id = await resolve_server_scope(client, config)
                     request = PrepareContextRequest(
@@ -144,6 +148,8 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
                         **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
                     )
                     prepared = await client.prepare_context(request)
+                    if isinstance(prepared, PreparedContext):
+                        record_output(prepared.content, str(prepared.status))
         except ValidationError:
             _LOGGER.debug("PowerContext LangChain recall skipped: request validation failed.")
             return None
