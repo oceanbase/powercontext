@@ -2074,3 +2074,32 @@ Evidence is retained under ignored `desktop/.artifacts/real-server.json` and
 `desktop/.artifacts/server-wheel/`. This qualification covers local SQLite protocol
 behavior, not installed UI, native credential persistence, Windows, external
 production acceptance, or release readiness.
+
+## Server 960b299f protocol qualification
+
+`sqlite-rerank-target-960b299f-v1` qualifies the twelve declared Desktop protocol
+operations against Server runtime sources at
+`960b299f3bbc46ff09ba4d0ecc8cba657e6acddd`. The Core target-resolution
+response now includes the supported `jev-rerank` protocol; no Desktop operation
+or Gateway access is added.
+
+OpenAPI SHA-256: `560ddcadcc97ecfc57ceae3c69f1fb65dd94cd1605a49710c803a389896e0cc7`.
+Wheel: `powercontext-1.5.1.dev142+g960b299f3-py3-none-any.whl`.
+Wheel SHA-256: `d4a65e676f9c0e99f0c17433894ab045a58c9cac436380184d343cc0310ca97b`.
+
+On 2026-11-06, macOS 27.0.1 arm64, Python 3.14.5 and Rust 1.97.1 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback,
+Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced access.
+The native `server_probe` was built against the generated contract. The fixture
+exercised save/search/exact reads, Scope selection, lost write responses without
+replay, identity changes, revocation, and Server survival after client exit.
+After adding this record, the probe was rebuilt and all four modes passed again
+with `--product-qualification sqlite-rerank-target-960b299f-v1`, using the
+bundled product record through the normal native ConnectionManager.
+
+All 738 packaged runtime files match the pinned Git source bytes. The initial
+fixture run reported a clean working tree; the product-profile run reported the
+new, uncommitted qualification record. Evidence is retained under ignored
+`desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+This qualifies local SQLite protocol behavior, not installed UI, native credential
+persistence, Windows, external production acceptance, or release readiness.
