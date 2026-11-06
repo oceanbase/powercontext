@@ -890,6 +890,10 @@ fn linux_runtime_environment_is_preserved_only_for_a_private_owned_directory() {
         trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).as_deref(),
         dir.path().to_str()
     );
+    assert_eq!(
+        trust::trusted_linux_runtime_dir_from(Some(PathBuf::new())),
+        trust::trusted_linux_runtime_dir_from(None)
+    );
 
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
     assert!(trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).is_none());
@@ -916,6 +920,20 @@ fn linux_xdg_home_environment_preserves_a_non_default_layout() {
     let invalid =
         std::collections::BTreeMap::from([("XDG_CONFIG_HOME", PathBuf::from("relative/config"))]);
     assert!(trust::trusted_linux_xdg_environment_from(|name| invalid.get(name).cloned()).is_err());
+
+    let empty = [
+        ("XDG_CONFIG_HOME", PathBuf::new()),
+        ("XDG_DATA_HOME", PathBuf::new()),
+        ("XDG_STATE_HOME", PathBuf::new()),
+        ("XDG_CACHE_HOME", PathBuf::new()),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    assert!(
+        trust::trusted_linux_xdg_environment_from(|name| empty.get(name).cloned())
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

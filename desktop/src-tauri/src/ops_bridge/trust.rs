@@ -258,7 +258,9 @@ pub(super) fn trusted_linux_runtime_dir_from(configured: Option<PathBuf>) -> Opt
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     let uid = unsafe { libc::geteuid() };
-    let path = configured.or_else(|| Some(PathBuf::from(format!("/run/user/{uid}"))))?;
+    let path = configured
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| Some(PathBuf::from(format!("/run/user/{uid}"))))?;
     if !path.is_absolute()
         || path
             .components()
@@ -293,7 +295,7 @@ pub(super) fn trusted_linux_xdg_environment_from(
         "XDG_STATE_HOME",
         "XDG_CACHE_HOME",
     ] {
-        let Some(path) = configured(name) else {
+        let Some(path) = configured(name).filter(|path| !path.as_os_str().is_empty()) else {
             continue;
         };
         if !path.is_absolute()

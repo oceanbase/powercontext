@@ -211,24 +211,41 @@ jobs:
           set -euo pipefail
           capture_macos_state() {
             state_log="$1"
+            platform="$(uname -s)"
             {
               printf 'captured_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
               echo '## macOS'
-              sw_vers || true
               uname -a || true
-              echo '## Xcode'
-              xcodebuild -version || true
+              if [ "$platform" = "Darwin" ]; then
+                sw_vers || true
+                echo '## Xcode'
+                xcodebuild -version || true
+              else
+                echo 'macOS diagnostics unavailable on a non-macOS runner'
+              fi
               echo '## toolchain'
               node --version || true
               pnpm --version || true
               rustc --version || true
               cargo --version || true
               echo '## attached disk images'
-              hdiutil info || true
+              if [ "$platform" = "Darwin" ]; then
+                hdiutil info || true
+              else
+                echo 'hdiutil unavailable on a non-macOS runner'
+              fi
               echo '## disks'
-              diskutil list || true
+              if [ "$platform" = "Darwin" ]; then
+                diskutil list || true
+              else
+                echo 'diskutil unavailable on a non-macOS runner'
+              fi
               echo '## mounts'
-              mount || true
+              if [ "$platform" = "Darwin" ]; then
+                mount || true
+              else
+                echo 'mount diagnostics unavailable on a non-macOS runner'
+              fi
               echo '## bundle files'
               find src-tauri/target/release/bundle -maxdepth 4 -print || true
             } >"$state_log" 2>&1

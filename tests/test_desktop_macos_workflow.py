@@ -119,3 +119,8 @@ esac
     assert len(diagnostics) == state_logs
     assert all("## attached disk images" in path.read_text(encoding="utf-8", errors="replace") for path in diagnostics)
     assert all("## toolchain" in path.read_text(encoding="utf-8", errors="replace") for path in diagnostics)
+    if os.uname().sysname != "Darwin":
+        assert all(
+            "unavailable on a non-macOS runner" in path.read_text(encoding="utf-8", errors="replace")
+            for path in diagnostics
+        )
