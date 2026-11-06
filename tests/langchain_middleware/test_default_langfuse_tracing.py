@@ -54,7 +54,7 @@ class LocalModel(BaseChatModel):
 
 class DefaultLangfuseTracingTests(unittest.TestCase):
     def test_content_is_bounded_and_task_local(self):
-        from powercontext.client.tracing import recall_content_observation
+        from powercontext_langchain.tracing import recall_content_observation
 
         exporter = InMemorySpanExporter()
         provider = TracerProvider(shutdown_on_exit=False)

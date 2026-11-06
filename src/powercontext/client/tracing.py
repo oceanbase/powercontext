@@ -16,10 +16,7 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager, suppress
-from contextvars import ContextVar
+from contextlib import suppress
 
 from opentelemetry import context as otel_context
 from opentelemetry import propagate, trace
@@ -27,21 +24,6 @@ from opentelemetry.context import Context, Token
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, set_span_in_context
 
 _INSTRUMENTATION_NAME = "powercontext.client"
-_GENAI_CLIENT = ContextVar("powercontext_genai_client", default=False)
-
-
-@contextmanager
-def genai_client_context() -> Iterator[None]:
-    """Mark adapter-owned calls as GenAI context-service dependencies.
-
-    This scopes semantic attributes only; it never configures providers,
-    exporters or consumer-specific filters, and does not record content.
-    """
-    token = _GENAI_CLIENT.set(True)
-    try:
-        yield
-    finally:
-        _GENAI_CLIENT.reset(token)
 
 
 class ClientSpan:
@@ -58,7 +40,7 @@ class ClientSpan:
                 "powercontext.operation.name": operation,
                 "powercontext.operation.unit": "dependency",
             }
-            if _GENAI_CLIENT.get():
+            if otel_context.get_value("powercontext.genai_client") is True:
                 attributes["gen_ai.provider.name"] = "powercontext"
                 attributes["gen_ai.operation.name"] = (
                     "retrieval" if operation == "prepare_context" else f"powercontext.{operation}"
@@ -109,54 +91,4 @@ class ClientSpan:
                 self.span.end()
 
 
-__all__ = ["ClientSpan", "genai_client_context"]
-
-
-@contextmanager
-def recall_content_observation(query: str, *, enabled: bool) -> Iterator[Callable[[str | None, str], None]]:
-    """Opt-in, bounded adapter I/O; operational server spans remain content-free.
-
-    The embedding application owns the exporter and access to recorded content.
-    Empty output is recorded explicitly and is distinct from missing telemetry.
-    """
-    span = None
-
-    def record(key: str, value: str | None) -> None:
-        if span is None:
-            return
-        with suppress(Exception):
-            encoded = b"" if value is None else value.encode("utf-8")
-            bounded = None if value is None else encoded[:16384].decode("utf-8", errors="ignore")
-            span.set_attribute(f"{key}.value", json.dumps(bounded, ensure_ascii=False))
-            span.set_attribute(f"{key}.mime_type", "application/json")
-            span.set_attribute(f"powercontext.content.{key}.truncated", len(encoded) > 16384)
-
-    def output(content: str | None, status: str) -> None:
-        record("output", content)
-        if span is not None:
-            with suppress(Exception):
-                span.set_attribute("powercontext.context.status", status)
-
-    token = None
-    if enabled:
-        with suppress(Exception):
-            span = trace.get_tracer("powercontext.langchain").start_span(
-                "PowerContextMiddleware recall",
-                attributes={"gen_ai.provider.name": "powercontext", "gen_ai.operation.name": "retrieval"},
-            )
-            token = otel_context.attach(set_span_in_context(span))
-            record("input", query)
-    try:
-        yield output
-    except BaseException:
-        if span is not None:
-            with suppress(Exception):
-                span.set_status(Status(StatusCode.ERROR))
-        raise
-    finally:
-        if token is not None:
-            with suppress(Exception):
-                otel_context.detach(token)
-        if span is not None:
-            with suppress(Exception):
-                span.end()
+__all__ = ["ClientSpan"]

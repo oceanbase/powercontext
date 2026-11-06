@@ -132,3 +132,9 @@ Provider/exporter 的初始化及服务端遥测仍由应用和部署方负责�
 输入、输出使用 OpenInference 的 `input.value`、`output.value` JSON 字符串；每项原文最多 16 KiB UTF-8，
 并明确标记是否截断。空结果也记录实际返回的 null 或空输出及真实上下文状态，请求失败不伪造输出。这个节点不是模型推理或模型选择的工具调用。
 服务端操作 span 仍然不记录内容，开启此选项也无法补回历史 span 的输入、输出。
+
+追踪辅助逻辑由 adapter 自己持有，仅安装已发布的 PowerContext 1.5.0 client 也能导入和使用中间件，
+包括可选的召回输入、输出采集。在独立工具环境中安装 Server 不会更新应用环境里的 core client。
+SDK 依赖节点的 GenAI 属性增强需要 core 支持本次新增的本地 OTel 上下文标记 `powercontext.genai_client`。
+1.5.0 core 会忽略该标记，保留原有操作 span 和采集器过滤行为；要获得完整的默认过滤器链路修复，
+需要安装配套的 core 与 adapter。该标记不是网络 baggage，不包含凭据，也不配置 provider 或 exporter。

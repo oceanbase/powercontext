@@ -141,3 +141,11 @@ Input and output use OpenInference `input.value` / `output.value` JSON strings, 
 content with explicit truncation flags. Empty results record the returned null or empty output and the actual context status.
 Request failures do not fabricate an output. This observation is not a model inference or model-selected tool call.
 Server operational spans remain content-free, and historical spans cannot be backfilled from this setting.
+
+The adapter owns its tracing helpers and imports with the released PowerContext 1.5.0 client alone;
+installing a Server in a separate tool environment does not update the application's core client.
+Adapter-owned optional recall I/O works with that core. SDK dependency-span enrichment requires a core
+implementing the local `powercontext.genai_client` OTel context marker (included with this change).
+A 1.5.0 core ignores the marker and retains its existing operational spans and consumer filtering behavior;
+install matching core/adapter artifacts to obtain the complete default-filter tracing fix.
+The marker is local execution context, not network baggage, credentials, or a provider/exporter configuration.

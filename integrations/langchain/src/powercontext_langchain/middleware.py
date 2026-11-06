@@ -28,11 +28,11 @@ from pydantic import TypeAdapter, ValidationError
 from typing_extensions import override
 
 from powercontext.client import ClientError, ServerResponseError
-from powercontext.client.tracing import genai_client_context, recall_content_observation
 from powercontext.http import CaptureContentSourceRequest, PrepareContextRequest, PreparedContext, PreparedContextStatus
 
 from .client import open_client, resolve_config, resolve_server_scope
 from .scope import PowerContextScope
+from .tracing import genai_client_context, recall_content_observation
 
 _LOGGER = logging.getLogger("powercontext.langchain")
 
