@@ -60,6 +60,9 @@ def automatic_review(case, value, supports, output):
 def score_output(case, value, supports, output, review=None):
     review = review or automatic_review(case, value, supports, output)
     result = score(case, value, supports, output.model_dump(mode="json"), review)
+    # v10's historical execution flags do not describe a v18 run; only its bound scores are inherited.
+    result.pop("formal_acceptance")
+    result.pop("formal_blockers")
     texts = [c.text for c in output.candidates]
     grams = [{t[i : i + 2] for i in range(max(1, len(t) - 1))} for t in texts]
     result.update(
@@ -72,7 +75,13 @@ def score_output(case, value, supports, output, review=None):
         candidate_hashes=[digest(c.model_dump(mode="json")) for c in output.candidates],
         retained_atom_ids=[a["id"] for a in ground_truth(case) if digest(a["id"]) in result["retained_atom_hashes"]],
         review_hash=digest(review),
-        score_kind="human_bound_review" if review["reviewer_kind"] == "human" else "exact_or_assistant_diagnostic",
+        score_kind=(
+            "deterministic_exact_ground_truth"
+            if review == automatic_review(case, value, supports, output)
+            else "human_bound_review"
+            if review["reviewer_kind"] == "human"
+            else "assistant_diagnostic"
+        ),
     )
     # Literal occurrence alone is descriptive; it does not establish an entailed/supported claim.
     result["raw_literal_occurrences"] = sum(

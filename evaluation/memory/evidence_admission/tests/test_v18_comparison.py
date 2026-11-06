@@ -125,6 +125,8 @@ def test_exact_full_fact_is_proven_but_paraphrase_remains_unresolved():
         )
         result, _ = score_output(case, values[0], supports, AtomicMemoryExtractionOutput(candidates=(exact,)))
         assert result["retained_atoms"] == 1 and result["unresolved_candidates"] == 0
+        assert result["score_kind"] == "deterministic_exact_ground_truth"
+        assert "formal_blockers" not in result
         paraphrase = exact.model_copy(
             update={"text": "An unreviewed paraphrase, not an automatically established fact."}
         )
