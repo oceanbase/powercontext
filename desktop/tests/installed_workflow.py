@@ -30,6 +30,7 @@ from installed_fixture import (
     saved_reference,
     search_reference,
 )
+from installed_statistics import exercise_statistics
 from real_server import HarnessFailure
 
 ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
@@ -129,8 +130,11 @@ class InstalledPage:
 
     def activate(self, name: str) -> None:
         self.button("使用此连接")
-        self.element(
-            f"//ul[@class='profile-list']/li[.//span[@class='profile-name'][normalize-space(.)='{name}']]//span[contains(@class,'badge')]"
+        self.wait(
+            """return [...document.querySelectorAll('.profile-list li')].some(item =>
+          item.querySelector('.profile-name')?.textContent.trim() === arguments[0] &&
+          [...item.querySelectorAll('.badge')].some(badge => badge.textContent.trim() === '当前连接'));""",
+            [name],
         )
         self.element("//div[@role='dialog' and @aria-label='选择精确范围']")
 
@@ -206,9 +210,13 @@ class InstalledPage:
 
 def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
     page = InstalledPage(client, prefix)
-    with isolated_server() as (server, scope_id, wheel_digest):
+    with (
+        tempfile.TemporaryDirectory(prefix="desktop-statistics-ui-") as directory,
+        isolated_server(statistics_usage_control=Path(directory) / "seed-usage") as (server, scope_id, wheel_digest),
+    ):
         page.connect("Desktop CI synthetic", str(server.base_url).rstrip("/"))
         page.select_scope(scope_id)
+        statistics = exercise_statistics(page, server, scope_id, Path(directory) / "seed-usage")
         exercise_note_budget(page, server, scope_id)
         page.type("记忆内容", NOTE, "textarea")
         before_submit = server.post(
@@ -237,6 +245,7 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
         exercise_unknown_write(page)
         return {
             "serverWheelSha256": wheel_digest,
+            "statistics": statistics,
             "mode": "anonymous loopback SQLite, no model",
             "explicitConnectionAndScope": True,
             "saveSearchExactRead": True,

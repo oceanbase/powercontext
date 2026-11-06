@@ -36,6 +36,7 @@ const contractUrl = new URL("../openapi/powercontext.yaml", root);
 const raw = await readFile(contractUrl, "utf8");
 const contract = YAML.parse(raw);
 const wanted = [
+  "get_connection_identity",
   "get_server_info",
   "get_liveness",
   "get_readiness",
@@ -47,6 +48,7 @@ const wanted = [
   "remember_memory",
   "search_memory",
   "get_artifact_revision",
+  "get_stats",
 ];
 const operations = {};
 const operationFeatures = {};

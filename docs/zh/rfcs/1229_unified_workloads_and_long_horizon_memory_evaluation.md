@@ -1,3 +1,8 @@
+---
+title: RFC 1229：统一任务与长程 Memory 评测
+description: 统一评测任务的设计提案，复用任务目录、回放格式和 Memory 评分，区分有证据的记忆召回与任务原生奖励。
+---
+
 - Proposal Name: `unified_workloads_and_long_horizon_memory_evaluation`
 - Start Date: 2026-08-13
 - RFC PR: [oceanbase/powercontext#1229](https://github.com/oceanbase/powercontext/pull/1229)

@@ -73,8 +73,18 @@ async fn fixture() -> Fixture {
                 }
                 let text = String::from_utf8(request).unwrap();
                 let path = text.split_whitespace().nth(1).unwrap();
+                let discovery = common::discovery_document("fixture").to_string();
                 let (status, body) = if path.contains("/server-info") {
-                    (404, r#"{}"#)
+                    (200, discovery.as_str())
+                } else if path.contains("/connection/identity") {
+                    if changed.load(Ordering::Relaxed) {
+                        (401, r#"{}"#)
+                    } else {
+                        (
+                            200,
+                            r#"{"server_id":"fixture","authentication":"disabled","access_mode":"disabled","principal":null}"#,
+                        )
+                    }
                 } else if path.contains("/access/me") {
                     if changed.load(Ordering::Relaxed) {
                         (401, r#"{}"#)
@@ -371,4 +381,23 @@ async fn bundled_qualification_allows_explicit_scope_browsing() {
     assert!(active.report.compatibility_verified);
     server.release.notify_one();
     assert!(manager.scopes(active.generation, "", None).await.is_ok());
+}
+
+#[test]
+fn bundled_product_qualification_covers_every_desktop_operation() {
+    // Read only checked-in product records: CI fixture injection must not satisfy this gate.
+    let profiles: Vec<powercontext_desktop::connections::session::CompatibilityProfile> =
+        serde_json::from_str(include_str!("../src/connections/compatibility.json")).unwrap();
+    let contract: serde_json::Value =
+        serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
+    let required = contract["operations"].as_object().unwrap();
+    assert!(
+        profiles.iter().any(|profile| {
+            Some(profile.contract_sha256.as_str()) == contract["contractSha256"].as_str()
+                && required
+                    .keys()
+                    .all(|operation| profile.operations.contains(operation))
+        }),
+        "the bundled contract needs a product qualification covering all Desktop operations, including statistics"
+    );
 }

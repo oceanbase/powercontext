@@ -1,3 +1,8 @@
+---
+title: "RFC 1396: Handoff access control"
+description: A proposal for Server-side authorization of Handoff transfer, resource access, revocation, listing, and audit across Artifact families.
+---
+
 > Implementation note ([#2060](https://github.com/oceanbase/powercontext/pull/2060)): The owner-pending read gates below let unrelated incomplete records block authorized access and amplify Dashboard queries. Establish ownership during creation, approval, and publication; authorize reads using current grants or recorded ownership, without extending Artifact grants to Scope collections.
 
 - Proposal Name: `handoff_access_control`

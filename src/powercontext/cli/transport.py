@@ -50,6 +50,12 @@ class SetupTransport:
     host: str
     server_url: str
     allow_insecure_http: bool
+    endpoint_explicit: bool = False
+
+
+def _setup_endpoint_environment_names(host: str) -> tuple[str, ...]:
+    prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
+    return (prefix + "BASE_URL", prefix + "SERVER_URL", prefix + "ENDPOINT", "POWERCONTEXT_CLIENT_SERVER_URL")
 
 
 def is_remote_http(server_url: str) -> bool:
@@ -66,12 +72,18 @@ def prepare_setup_transport(
     allow_insecure_http: bool | None = None,
     json_output: bool = False,
     dsh_target: DshTarget | None = None,
+    native_endpoint: str | None = None,
 ) -> SetupTransport:
     """Resolve and confirm the endpoint before any installation side effects."""
 
     from powercontext.cli.system import SetupError
 
     try:
+        endpoint_explicit = server_url is not None or any(
+            values.get(name)
+            for values in (setup_environment(), os.environ)
+            for name in _setup_endpoint_environment_names(host)
+        )
         native = {}
         if host == "dsh":
             from powercontext.cli.dsh_transport import read_dsh_settings
@@ -82,7 +94,9 @@ def prepare_setup_transport(
                 executable=dsh_target.command if dsh_target else None,
             )
         prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
-        server_url = resolve_setup_endpoint(host, server_url=server_url, native_endpoint=native.get("baseUrl"))
+        server_url = resolve_setup_endpoint(
+            host, server_url=server_url, native_endpoint=native_endpoint if host == "minimax" else native.get("baseUrl")
+        )
         allow_insecure_http = _setup_consent(host, server_url, allow_insecure_http, native)
         endpoint, allowed = resolve_client_transport(
             host, server_url=server_url, allow_insecure_http=allow_insecure_http
@@ -139,7 +153,7 @@ def prepare_setup_transport(
             validate_dsh_setup_transport(native, endpoint, allowed)
         except ValueError as error:
             raise SetupError(str(error)) from error
-    return SetupTransport(host, endpoint, allowed)
+    return SetupTransport(host, endpoint, allowed, endpoint_explicit=endpoint_explicit)
 
 
 def _setup_consent(host: str, endpoint: str, requested: bool | None, native: dict[str, Any]) -> bool | None:
@@ -176,8 +190,7 @@ def setup_environment() -> dict[str, str]:
 def _explicit_setup_endpoint(host: str, server_url: str) -> str:
     """Honor a chosen URL only when inherited runtime overrides cannot undo it."""
     endpoint = normalize_client_url(server_url).removesuffix("/mcp").rstrip("/")
-    prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
-    keys = (prefix + "BASE_URL", prefix + "SERVER_URL", prefix + "ENDPOINT", "POWERCONTEXT_CLIENT_SERVER_URL")
+    keys = _setup_endpoint_environment_names(host)
     if host == "claude-code":
         keys += ("CLAUDE_PLUGIN_OPTION_SERVER_URL",)
     for key in keys:
@@ -191,6 +204,8 @@ def _explicit_setup_endpoint(host: str, server_url: str) -> str:
 
 def _saved_setup_endpoints(host: str, native_endpoint: str | None) -> list[tuple[str, str]]:
     """Read saved endpoint fallbacks, using the supplied native URL for DSH."""
+    if host == "minimax":
+        return [("native MiniMax settings", native_endpoint)] if native_endpoint else []
     saved = load_client_settings(host).get("server_url")
     native = native_endpoint if host == "dsh" else existing_native_endpoint(host)
     return [
@@ -214,8 +229,7 @@ def resolve_setup_endpoint(
     """
     if server_url is not None:
         return _explicit_setup_endpoint(host, server_url)
-    prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
-    keys = (prefix + "BASE_URL", prefix + "SERVER_URL", prefix + "ENDPOINT", "POWERCONTEXT_CLIENT_SERVER_URL")
+    keys = _setup_endpoint_environment_names(host)
     loaded = setup_environment()
     candidates = [
         (name, normalize_client_url(values[name]).removesuffix("/mcp").rstrip("/"))

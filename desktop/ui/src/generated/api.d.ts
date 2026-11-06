@@ -2295,6 +2295,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connection/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe the current connection identity without readiness probes
+         * @description Returns the actual deployment, access mode and request authentication identity. Does not invoke model, authentication-provider or access-provider readiness probes, require server.observe, or grant resource permissions. Anonymous identity is explicit only when authentication and access enforcement are disabled. Authentication errors and unavailable enforced access remain errors, never anonymous fallback.
+         */
+        get: operations["get_connection_identity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/access/me": {
         parameters: {
             query?: never;
@@ -2701,6 +2721,46 @@ export interface paths {
          * @description Served by the optional standalone Source manager. Instances initiate every exchange; this is not a Server or public MCP endpoint. The operation path chooses owner/connect/poll/reply/sync/execution/results/stopped-targets/close and the applicable fields. Source observations continue to go directly to the PC Server.
          */
         post: operations["source_instance_exchange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/access/ownership/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inventory ownership data missing after switching Access enforcement on
+         * @description Inspect the Scopes that were written while Access was disabled: missing Artifact owners, pending Review Candidates without an owner attestation, and, when named, the background Principal's per-Scope write authority. Produces no change. In enforced mode completes as a deployment administrator; in disabled mode completes without authentication because the Server cannot yet protect anything. A background Principal check requires an available Access store; otherwise it reports 503 relationship_management_unavailable. Use the offline ownership command to check the proposed background Principal before enforcement is enabled.
+         */
+        post: operations["plan_access_ownership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/access/ownership/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Backfill missing Artifact owners and Candidate owner attestations
+         * @description Grant the missing ownership data to the explicitly named Principal; the Server never derives it. Existing Artifact owners and Candidate attestations are preserved and reported as conflicts when they disagree with the named Principal. Identities with recorded ownership recovery evidence are reported as conflicts and must retain their original attribution. Every item is one idempotent write, so interrupted or repeated runs refill only still-missing items. Set dry_run first to preview the exact items. Requires a deployment administrator; while Access is disabled the Server has no ownership store and reports 503 ownership_migration_unavailable.
+         */
+        post: operations["apply_access_ownership"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3674,12 +3734,89 @@ export interface components {
             totals: components["schemas"]["RecallTokenValue"];
             daily: components["schemas"]["RecallTokenDay"][];
         };
+        /** @enum {string} */
+        ProcessingState: "idle" | "dirty" | "pending" | "acknowledged" | "queued" | "running" | "retry_wait" | "blocked";
+        /** @enum {string} */
+        ProcessingReason: "unobserved" | "waiting_schedule" | "waiting_dispatch" | "waiting_capacity" | "executing" | "retry_backoff" | "policy_block" | "idle";
+        /** @description Durable invocation counters plus an optional local scheduler sample. Acknowledgement is not artifact creation. Missing local coverage does not imply stopped work. */
+        ProcessingObservation: {
+            binding: string;
+            family?: string | null;
+            state: components["schemas"]["ProcessingState"];
+            /** Format: date-time */
+            observed_at: string;
+            /** @default false */
+            scheduler_observed: boolean;
+            /** @default unobserved */
+            reason: components["schemas"]["ProcessingReason"];
+            /** @default 0 */
+            requested_generation: number;
+            /** @default 0 */
+            handled_generation: number;
+            /** @default 0 */
+            dirty_generation: number;
+            /** @default 0 */
+            clean_generation: number;
+            /**
+             * Format: date-time
+             * @description Local lower bound, not the durable age of all pending work.
+             */
+            pending_since?: string | null;
+            running_seconds?: number | null;
+            /** @description Estimated seconds until a scheduler check, not a promised execution deadline. */
+            next_check_seconds?: number | null;
+            worker_id?: string | null;
+            attempt_generation?: number | null;
+            retry_failures?: number | null;
+            block_code?: string | null;
+            /** @description Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message. */
+            last_error_code?: string | null;
+            /** @description Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation. */
+            last_error_stage?: string | null;
+            /**
+             * Format: date-time
+             * @description UTC time the local supervisor observed this failure, not the child event time or a durable history.
+             */
+            last_error_at?: string | null;
+            /** @description Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label. */
+            last_error_worker_id?: string | null;
+            /** @description Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation. */
+            last_error_trace_id?: string | null;
+        };
+        /** @description Retained receipt metadata grouped by integration and current state; package content and receipt identities are excluded. */
+        BootstrapDeliveryReading: {
+            integration: string;
+            state: components["schemas"]["BootstrapReceiptState"];
+            receipts: number;
+            /** @description Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption. */
+            content_bytes: number;
+            /**
+             * Format: date-time
+             * @description Latest preparation time in this group, not the delivery completion time.
+             */
+            last_prepared_at: string;
+        };
+        /** @description Current states of retained receipts prepared within the selected UTC period. Injected is host-reported and does not prove model adoption or billing savings. Missing records do not prove no host use. */
+        BootstrapDeliveryStatistics: {
+            period: components["schemas"]["ResolvedUsagePeriod"];
+            /** @default 30 */
+            retention_days: number;
+            /** @enum {string} */
+            actual_adoption: "unobserved";
+            by_integration: components["schemas"]["BootstrapDeliveryReading"][];
+        };
         ScopeStats: {
             scope_id: string;
             inventory: components["schemas"]["InventoryStatistics"];
             usage: components["schemas"]["UsageStatistics"];
             recall: components["schemas"]["RecallTokenStatistics"];
             recurrence: components["schemas"]["RecurrenceStatistics"];
+            /**
+             * @description Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.
+             * @default []
+             */
+            processing: components["schemas"]["ProcessingObservation"][];
+            bootstrap_delivery?: components["schemas"]["BootstrapDeliveryStatistics"];
         };
         ScopedStats: {
             selection: components["schemas"]["ScopeSelection"];
@@ -3695,6 +3832,11 @@ export interface components {
             selection: components["schemas"]["ScopeSelection"];
             /** @default 30d */
             period: components["schemas"]["StatsPeriod"];
+            /**
+             * @description Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history.
+             * @default false
+             */
+            include_processing: boolean;
         };
         /**
          * @description Use declared for inspected conversation or repository facts, even when the user calls progress verified. verified requires nonempty exact PowerContext citations returned by an earlier operation.
@@ -5730,6 +5872,14 @@ export interface components {
             actions: components["schemas"]["AccessAction"][];
             grantable_roles: components["schemas"]["AccessRole"][];
         };
+        /** @enum {string} */
+        ConnectionAuthentication: "disabled" | "authenticated";
+        ConnectionIdentity: {
+            server_id: string;
+            authentication: components["schemas"]["ConnectionAuthentication"];
+            access_mode: components["schemas"]["AccessControlMode"];
+            principal: components["schemas"]["AccessPrincipal"] | null;
+        };
         AccessMeResponse: {
             principal: components["schemas"]["AccessPrincipal"];
             mode: components["schemas"]["AccessControlMode"];
@@ -6146,6 +6296,53 @@ export interface components {
              * @enum {string}
              */
             view: "discovery" | "control";
+        };
+        PlanAccessOwnershipRequest: {
+            /** @description Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments. */
+            scope_ids?: string[];
+            /** @description Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each selected Scope is checked for scope.contribute and write permission on an existing Profile, including after all ownership gaps have been filled. An available Access store is required. */
+            background_principal?: components["schemas"]["AccessPrincipal"] | null;
+        };
+        /** @enum {string} */
+        OwnershipGapKind: "artifact_owner" | "candidate_attestation";
+        OwnershipGapItem: {
+            kind: components["schemas"]["OwnershipGapKind"];
+            scope_id: string;
+            family: string;
+            artifact_id?: string | null;
+            entry_id?: string | null;
+            candidate_id?: string | null;
+            version?: number | null;
+            conflict_code?: string | null;
+        };
+        AccessOwnershipScopePlan: {
+            scope_id: string;
+            artifact_gaps: components["schemas"]["OwnershipGapItem"][];
+            candidate_gaps: components["schemas"]["OwnershipGapItem"][];
+        };
+        BackgroundPermissionGap: {
+            scope_id: string;
+            principal_id: string;
+            /** @enum {boolean} */
+            allowed: false;
+            reason_code: string | null;
+        };
+        AccessOwnershipPlan: {
+            mode: components["schemas"]["AccessControlMode"];
+            scopes: components["schemas"]["AccessOwnershipScopePlan"][];
+            background: components["schemas"]["BackgroundPermissionGap"][];
+        };
+        ApplyAccessOwnershipRequest: {
+            owner: components["schemas"]["AccessPrincipal"];
+            /** @description Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments. */
+            scope_ids?: string[];
+            /** @default false */
+            dry_run: boolean;
+        };
+        AccessOwnershipApplyResult: {
+            dry_run: boolean;
+            applied: components["schemas"]["OwnershipGapItem"][];
+            conflicts: components["schemas"]["OwnershipGapItem"][];
         };
     };
     responses: {
@@ -10311,6 +10508,29 @@ export interface operations {
             503: components["responses"]["Unavailable"];
         };
     };
+    get_connection_identity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current request identity; not an operation authorization or binary attestation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionIdentity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
     get_access_principal: {
         parameters: {
             query?: never;
@@ -10987,6 +11207,62 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    plan_access_ownership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanAccessOwnershipRequest"];
+            };
+        };
+        responses: {
+            /** @description The missing-attribution inventory for the requested Scopes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessOwnershipPlan"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["InvalidRequest"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    apply_access_ownership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyAccessOwnershipRequest"];
+            };
+        };
+        responses: {
+            /** @description The applied, or, in dry-run, previewed ownership backfill. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessOwnershipApplyResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["InvalidRequest"];
             503: components["responses"]["Unavailable"];
         };

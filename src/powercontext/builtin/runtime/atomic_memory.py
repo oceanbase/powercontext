@@ -80,6 +80,10 @@ from powercontext.builtin.inference import (
 )
 from powercontext.builtin.persistence.artifacts import ArtifactRepository, with_artifact_content
 from powercontext.builtin.persistence.atomic_memory import AtomicMemoryStateRepository
+from powercontext.builtin.persistence.atomic_memory_evidence import (
+    AtomicMemoryEvidenceAnnotation,
+    AtomicMemoryEvidenceRepository,
+)
 from powercontext.builtin.persistence.atomic_memory_index import (
     ATOMIC_MEMORY_RRF_CONSTANT,
     AtomicMemoryIndex,
@@ -327,6 +331,7 @@ class AtomicMemoryApplication:
         self.publisher = AtomicMemoryProjectionPublisher(
             index,
             embedding_model=embedding_model,
+            sources=artifacts.source_repository,
         )
         self.service = AtomicMemoryService(
             artifacts=artifacts,
@@ -375,6 +380,23 @@ class ScopedAtomicMemory:
         async with self._read(context) as connection:
             return await self.application.service.get(
                 connection, self.scope_id, artifact_id, context, revision=revision
+            )
+
+    async def evidence(self, artifact_id: str, *, revision: int, context=None) -> AtomicMemoryEvidenceAnnotation:
+        """Inspect neutral evidence facts for one authorized exact body revision.
+
+        A missing historical snapshot remains unknown; current registration
+        cannot attest a revision that did not accept a declaration.
+        """
+        application = self.application
+        async with self._read(context) as connection:
+            record = await application.service.get(connection, self.scope_id, artifact_id, context, revision=revision)
+            return await AtomicMemoryEvidenceRepository().verify(
+                connection,
+                self.scope_id,
+                record.ref,
+                record.artifact.lineage.sources,
+                sources=application.artifacts.source_repository,
             )
 
     async def get_many(self, artifact_ids: Sequence[str], *, context=None) -> tuple[AtomicMemoryRecord, ...]:

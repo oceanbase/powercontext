@@ -1,6 +1,6 @@
 ---
 title: Agent Plugin
-description: 在兼容 Agent 中加载可复用的 PowerContext skills 和 MCP configuration。
+description: 在兼容 Agent 中加载可复用的 PowerContext Skill 与 MCP 配置，并检查可用工具。
 ---
 
 # Agent Plugin

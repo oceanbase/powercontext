@@ -1,5 +1,6 @@
 ---
-title: Unified Artifact Search and Capability Contracts
+title: "RFC 1858: Unified Artifact search"
+description: A proposal for scoped, relevance-ordered Artifact search with family-declared modes, filters, ranking controls, and capability boundaries.
 ---
 
 - Proposal Name: `artifact_search`

@@ -17,10 +17,21 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Literal
+from types import UnionType
+from typing import Any, Literal, Union, get_args, get_origin
 
 import rfc8785
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    AliasPath,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from powercontext.errors import (
     InvalidSourceDefinitionError,
@@ -161,9 +172,28 @@ class SourceObservation(Source):
 
 
 def manifest_for_definition(definition: SourceDefinition[Any, Any, Any], /) -> SourceDefinitionManifest:
-    """Build the immutable declaration transported by a remote worker."""
+    """Build a declaration matching the canonical remote payload representation."""
 
-    source_schema = _json_object(definition.source_class.model_json_schema())
+    return _manifest_for_definition(definition, transport=True)
+
+
+def _manifest_for_definition(
+    definition: SourceDefinition[Any, Any, Any],
+    /,
+    *,
+    transport: bool,
+) -> SourceDefinitionManifest:
+    if transport and _validation_schema_matches_payload(definition.source_class):
+        source_schema = _json_object(definition.source_class.model_json_schema())
+    elif transport:
+        source_schema = _json_object(
+            definition.source_class.model_json_schema(
+                mode="serialization",
+                by_alias=bool(definition.source_class.model_config.get("serialize_by_alias")),
+            )
+        )
+    else:
+        source_schema = _json_object(definition.source_class.model_json_schema(mode="serialization"))
     projections = tuple(
         SourceProjectionManifest(
             key=SourceProjectionKey(name=projection.name, version=projection.version),
@@ -213,6 +243,101 @@ def project_source_for_transport(
         payload=payload,
         projections=projections,
     )
+
+
+def _validation_schema_matches_payload(
+    source_class: type[BaseModel],
+    seen: set[type[BaseModel]] | None = None,
+) -> bool:
+    """Return whether validation-mode keys accept the serialized payload."""
+
+    visited = set() if seen is None else seen
+    if source_class in visited:
+        return True
+    visited.add(source_class)
+    serialize_by_alias = bool(source_class.model_config.get("serialize_by_alias"))
+    # Preserve existing permissive manifests; optional renamed keys only fail when extras are forbidden.
+    forbid_extra = source_class.model_config.get("extra") == "forbid"
+    for name, field in source_class.model_fields.items():
+        if field.exclude:
+            continue
+        if field.is_required() or forbid_extra:
+            serialization_key = (field.serialization_alias or field.alias or name) if serialize_by_alias else name
+            if _validation_schema_key(name, field) != serialization_key:
+                return False
+        # A null default means this field can reach the payload as null, so a renamed
+        # shape below it need not appear and cannot justify replacing a manifest a
+        # deployment already accepted. Populating one instead requires the nested
+        # model to serialize by alias, which keeps the validation keys authoritative,
+        # or a new Definition version.
+        if field.default is None and not forbid_extra:
+            continue
+        if not _validation_schema_matches_annotation(field.annotation, visited):
+            return False
+    return True
+
+
+def _validation_schema_matches_annotation(annotation: Any, seen: set[type[BaseModel]]) -> bool:
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return _validation_schema_matches_payload(annotation, seen)
+    arguments = get_args(annotation)
+    if get_origin(annotation) in (Union, UnionType):
+        return _union_validation_covers_payloads(arguments, seen)
+    return all(_validation_schema_matches_annotation(argument, seen) for argument in arguments)
+
+
+def _union_validation_covers_payloads(arguments: tuple[Any, ...], seen: set[type[BaseModel]]) -> bool:
+    # Every possible output needs coverage, not merely one compatible branch.
+    for branch in arguments:
+        if _validation_schema_matches_annotation(branch, set(seen)):
+            continue
+        if not isinstance(branch, type) or not issubclass(branch, BaseModel):
+            return False
+        serialized = branch.model_json_schema(
+            mode="serialization", by_alias=bool(branch.model_config.get("serialize_by_alias"))
+        )
+        if not any(
+            isinstance(candidate, type)
+            and issubclass(candidate, BaseModel)
+            and _same_flat_schema(serialized, candidate.model_json_schema())
+            for candidate in arguments
+        ):
+            return False
+    return True
+
+
+def _same_flat_schema(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Prove flat model equivalence without interpreting references or nested schemas."""
+    supported = {"title", "type", "properties", "required", "additionalProperties"}
+    if left.keys() - supported or right.keys() - supported:
+        return False
+    left_properties = left.get("properties", {})
+    right_properties = right.get("properties", {})
+    if left_properties.keys() != right_properties.keys():
+        return False
+    for name, schema in left_properties.items():
+        other = right_properties[name]
+        # Only primitive properties: no refs, unions, containers or nested schemas.
+        if schema.get("type") not in {"string", "integer", "number", "boolean", "null"}:
+            return False
+        if {key: value for key, value in schema.items() if key != "title"} != {
+            key: value for key, value in other.items() if key != "title"
+        }:
+            return False
+    return all(left.get(key) == right.get(key) for key in supported - {"title", "properties"})
+
+
+def _validation_schema_key(name: str, field: Any) -> str | None:
+    alias = field.validation_alias
+    if isinstance(alias, str):
+        return alias
+    if isinstance(alias, AliasChoices):
+        return next((choice for choice in alias.choices if isinstance(choice, str)), None)
+    if isinstance(alias, AliasPath):
+        return name  # Pydantic keeps the field name for path-based validation.
+    if alias is not None:
+        return None
+    return field.alias if field.alias is not None else name
 
 
 def _source_definition_fingerprint(

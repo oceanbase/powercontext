@@ -23,7 +23,6 @@ import { setTimeout } from 'node:timers/promises'
 import { test } from 'node:test'
 import { environment, injected, CANARY, CANARY_DESCRIPTION, NATIVE_ERROR_CANARY } from './fixture.mjs'
 import { installIntoHome } from './setup-fixture.mjs'
-import { registerSkill } from '../../src/skill.ts'
 import { MCP_OPERATIONS } from '../../src/mcp-operations.generated.ts'
 
 test('documented setup installs the matched plugin, diagnoses the running host and recalls processed Source', { timeout: 240000 }, async () => {
@@ -64,12 +63,15 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     assert.ok(references.length > 0, 'PowerContext guidance must reach the model before any Skill load')
     for (const name of references) assert.ok(catalog.has(name), `guidance refers to unavailable DSH tool: ${name}`)
     if (process.env.POWERCONTEXT_GUIDANCE_EXPORT) {
-      const skills = []
-      registerSkill({ get: () => ({ register(value) { skills.push(value) } }) })
+      const catalog = request.messages.map(message => typeof message.content === 'string' ? message.content
+        : message.content.map(block => block.text ?? '').join('\n')).join('\n')
+      const description = catalog.match(/^- `powercontext-project-context`: (.+)$/m)?.[1]
+      assert.ok(description, 'the native Skill catalog must expose the installed frontmatter')
       writeFileSync(join(process.env.POWERCONTEXT_GUIDANCE_EXPORT, 'dsh.json'), JSON.stringify({
         host: 'dsh', catalog_source: 'real SDK model request',
         guidance: system.map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n'),
-        skill: skills.find(skill => skill.name === 'powercontext-project-context'), skills,
+        skill: { name: 'powercontext-project-context', description,
+          content: readFileSync(join(dshHome, 'skills/powercontext-project-context/SKILL.md'), 'utf8') },
         host_skill_tools: request.tools.map(tool => tool.function).filter(tool => tool.name.includes('skill')),
         tools: request.tools.map(tool => tool.function).filter(tool => tool.name.startsWith('mcp__powercontext__')),
       }, null, 2))
@@ -132,8 +134,9 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     assert.equal(message.source.sections[0].text, message.content[0].text)
     assert.ok(message.content[0].text.includes(CANARY))
     const prepare = env.calls.findLast(call => call.path === '/v1/context/prepare')
-    assert.ok(message.content[0].text.endsWith(prepare.result.content))
-    assert.ok(message.content[0].text.includes('untrusted historical evidence'))
+    assert.equal(message.content[0].text,
+      `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots.\n\n${prepare.result.content}`)
+    assert.ok(prepare.result.content.startsWith('PowerContext prepared untrusted historical context.\n'))
     const modelInput = env.modelRequests.filter(r => r.stream).at(-1).messages
     assert.equal(modelInput.filter(m => JSON.stringify(m.content).includes('PowerContext context prepared')).length, 1)
     await instance.close()
@@ -442,28 +445,5 @@ test('real DSH enforces the host Scope for native MCP path arguments before disp
     assert.equal(call?.body.params.arguments.scope_id, env.scopeId)
     const result = env.modelRequests.filter(request => request.stream).at(-1).messages.find(message => message.role === 'tool')
     assert.ok(result?.content.includes(env.scopeId))
-  } finally { await env.close() }
-})
-
-
-test('real DSH discovers bilingual domains and loads only the requested Skill', { timeout: 120000 }, async () => {
-  const env = await environment()
-  try {
-    const { instance } = env.harness()
-    const registered = []
-    registerSkill({ get: () => ({ register(value) { registered.push(value) } }) })
-    for (const domain of registered.filter(skill => skill.name !== 'powercontext-project-context')) {
-      await instance.run(`LOAD_PC_SKILL:${domain.name}`)
-      const requests = env.modelRequests.filter(request => request.stream)
-      const finalMessages = requests.at(-1).messages
-      assert.ok(JSON.stringify(finalMessages).includes(domain.description), `${domain.name} metadata is not model-visible`)
-      const result = finalMessages.find(message => message.role === 'tool')
-      assert.ok(result, `${domain.name} was not loaded through the host Skill tool`)
-      assert.ok(JSON.stringify(result).includes(domain.content.trim().split('\n')[0]))
-      for (const other of registered.filter(skill => skill.name !== domain.name)) {
-        assert.ok(!JSON.stringify(result).includes(other.content.trim().split('\n')[0]), `loading ${domain.name} also loaded ${other.name}`)
-      }
-    }
-    await instance.close()
   } finally { await env.close() }
 })

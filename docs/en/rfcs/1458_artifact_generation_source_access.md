@@ -1,3 +1,8 @@
+---
+title: "RFC 1458: Source access for Artifact generation"
+description: A proposal for Source-owned evidence resolution that validates stored identities and distinguishes explicit references from journal consumption.
+---
+
 - Proposal Name: `artifact_generation_source_access`
 - Start Date: 2026-09-04
 - RFC PR: [oceanbase/powercontext#1458](https://github.com/oceanbase/powercontext/pull/1458)

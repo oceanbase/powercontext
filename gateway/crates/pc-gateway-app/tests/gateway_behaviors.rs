@@ -99,6 +99,7 @@ struct Gateway {
     peers: Arc<Peers>,
     client: reqwest::Client,
     base: String,
+    log: std::path::PathBuf,
 }
 
 impl Drop for Gateway {
@@ -106,7 +107,18 @@ impl Drop for Gateway {
         let _ = self.child.kill();
         let _ = self.child.wait();
         self.server.abort();
+        let _ = std::fs::remove_file(&self.log);
     }
+}
+
+/// Outcome of one gateway startup attempt.
+enum Startup {
+    Ready,
+    /// The child exited after failing to bind the port chosen for it.
+    PortInUse,
+    /// The child exited for any other reason; startup must not be retried.
+    Exited(std::process::ExitStatus, String),
+    TimedOut,
 }
 
 impl Gateway {
@@ -120,70 +132,124 @@ impl Gateway {
         let peer_base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/context/check", post(check))
+            // 启动发现必须拿到完整 v1 能力：缺失即暂停模型路由（`input_capacity_unconfirmed`），
+            // 这些行为用例验证的是载荷与流式语义，因此声明与 Core v1 解析上限等价的能力。
             .route(
                 "/v1/capabilities",
-                axum::routing::get(|| async { Json(json!({})) }),
+                axum::routing::get(|| async {
+                    Json(json!({"context_protection": {
+                        "check_versions": ["powercontext.context-check.v1"],
+                        "payload_versions": ["powercontext.model-json-payload.v1"],
+                        "reuse_versions": [], "reuse_families": [], "enforcing": true,
+                        "limits": {"payload_bytes": 1_048_576, "binding_bytes": 8192,
+                            "prepared_contexts": 16, "dependencies": 256,
+                            "send_seconds": 60, "correlate_seconds": 300}
+                    }}))
+                }),
             )
             .route("/v1/chat/completions", post(upstream))
             .route("/v1/responses", post(upstream))
             .with_state(peers.clone());
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = reserved.local_addr().unwrap();
-        drop(reserved);
-        let child = Command::new(env!("CARGO_BIN_EXE_pc-gateway"))
-            .env_clear()
-            .env("PC_GATEWAY_LISTEN", address.to_string())
-            .env("PC_GATEWAY_CORE_BASE", &peer_base)
-            .env(
-                "PC_GATEWAY_UPSTREAM_URL_CHAT",
-                format!("{peer_base}/v1/chat/completions"),
-            )
-            .env(
-                "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
-                format!("{peer_base}/v1/responses"),
-            )
-            .env("PC_GATEWAY_UPSTREAM_API_KEY", "provider-test-key")
-            .env("PC_GATEWAY_API_KEY", "gateway-test-key")
-            .env("PC_GATEWAY_INJECTION", "off")
-            .env("PC_GATEWAY_SEDIMENT", "off")
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(10))
+            .build()
             .unwrap();
-        let mut gateway = Self {
+        // 网关自行绑定监听端口，因此这里先探测一个空闲端口再交给子进程；探测与绑定之间存在
+        // 被其他套接字（含本进程的出站连接）抢占的窗口，抢占后子进程会以 AddrInUse 退出，
+        // 此时换端口重试而不是判定行为失败。其他启动退出不是端口竞争，立即带诊断失败。
+        let mut attempts = 0;
+        let (child, address, log) = loop {
+            attempts += 1;
+            assert!(
+                attempts <= 5,
+                "gateway could not bind a free port in 5 attempts"
+            );
+            let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = reserved.local_addr().unwrap();
+            drop(reserved);
+            let log = std::env::temp_dir().join(format!(
+                "pc-gateway-behavior-{}-{}.log",
+                std::process::id(),
+                address.port()
+            ));
+            let log_file = std::fs::File::create(&log).unwrap();
+            let mut child = Command::new(env!("CARGO_BIN_EXE_pc-gateway"))
+                .env_clear()
+                .env("PC_GATEWAY_LISTEN", address.to_string())
+                .env("PC_GATEWAY_CORE_BASE", &peer_base)
+                .env(
+                    "PC_GATEWAY_UPSTREAM_URL_CHAT",
+                    format!("{peer_base}/v1/chat/completions"),
+                )
+                .env(
+                    "PC_GATEWAY_UPSTREAM_URL_RESPONSES",
+                    format!("{peer_base}/v1/responses"),
+                )
+                .env("PC_GATEWAY_UPSTREAM_API_KEY", "provider-test-key")
+                .env("PC_GATEWAY_API_KEY", "gateway-test-key")
+                .env("PC_GATEWAY_INJECTION", "off")
+                .env("PC_GATEWAY_SEDIMENT", "off")
+                // 网关的诊断走 stdout/stderr，重定向到每次尝试独占的日志文件，
+                // 失败时连同退出状态一起报告。
+                .stdout(Stdio::from(log_file.try_clone().unwrap()))
+                .stderr(Stdio::from(log_file))
+                .spawn()
+                .unwrap();
+            let outcome = tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    if let Some(status) = child.try_wait().unwrap() {
+                        let output = std::fs::read_to_string(&log).unwrap_or_default();
+                        return if output.contains("Address already in use") {
+                            Startup::PortInUse
+                        } else {
+                            Startup::Exited(status, output)
+                        };
+                    }
+                    // 单次探测有独立上限：端口被其他套接字占用时连接可能成功却无人应答，
+                    // 不能让一次探测耗尽整个启动窗口而掩盖子进程的退出。
+                    let probe = tokio::time::timeout(
+                        Duration::from_millis(250),
+                        client.get(format!("http://{address}/healthz")).send(),
+                    )
+                    .await;
+                    if let Ok(Ok(response)) = probe {
+                        if response.status().is_success() {
+                            return Startup::Ready;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .unwrap_or(Startup::TimedOut);
+            match outcome {
+                Startup::Ready => break (child, address, log),
+                Startup::PortInUse => {
+                    let _ = std::fs::remove_file(&log);
+                }
+                Startup::Exited(status, output) => {
+                    let _ = std::fs::remove_file(&log);
+                    panic!("gateway exited during startup with {status} ({address}):\n{output}");
+                }
+                Startup::TimedOut => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let output = std::fs::read_to_string(&log).unwrap_or_default();
+                    let _ = std::fs::remove_file(&log);
+                    panic!("gateway startup timed out on {address}:\n{output}");
+                }
+            }
+        };
+        Self {
             child,
             server,
             peers,
-            client: reqwest::Client::builder()
-                .no_proxy()
-                .timeout(Duration::from_secs(10))
-                .build()
-                .unwrap(),
+            client,
             base: format!("http://{address}/gateway/v1"),
-        };
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                assert!(
-                    gateway.child.try_wait().unwrap().is_none(),
-                    "gateway exited during startup"
-                );
-                if let Ok(response) = gateway
-                    .client
-                    .get(format!("http://{address}/healthz"))
-                    .send()
-                    .await
-                {
-                    if response.status().is_success() {
-                        break;
-                    }
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("gateway startup timed out");
-        gateway
+            log,
+        }
     }
 
     async fn post(&self, route: &str, request: &Value) -> reqwest::Response {

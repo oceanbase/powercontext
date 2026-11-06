@@ -203,6 +203,7 @@ def test_builtin_spawned_worker_exports_model_and_execution_spans_to_otlp(
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint + "/v1/traces")
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "0.2")
         monkeypatch.setenv("OPENAI_API_KEY", "local-fixture-key")
+        monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "powercontext.service.api_target=fixture-server:8000")
         provider = TracerProvider(resource=service_resource("all"), shutdown_on_exit=False)
         provider.add_span_processor(
             SimpleSpanProcessor(OTLPSpanExporter(endpoint=endpoint + "/v1/traces", timeout=0.2))
@@ -254,15 +255,65 @@ def test_builtin_spawned_worker_exports_model_and_execution_spans_to_otlp(
                 assert executions, "Actual built-in child must export execution spans over OTLP/HTTP"
                 execution, identity = executions[0]
                 assert identity["powercontext.service.role"] == "worker"
+                assert identity["powercontext.service.target"] == "fixture-server:8000"
+                assert identity["powercontext.service.owner_role"] == "all"
                 parents = [span for span, _ in spans if span.span_id == execution.parent_span_id]
                 assert parents and parents[0].trace_id == execution.trace_id
                 child_spans = [span for span, role in spans if role.get("powercontext.service.role") == "worker"]
                 model_spans = [span for span in child_spans if span.name.startswith("chat ")]
                 assert model_spans
-                assert all(not span.events and not span.status.message for span in model_spans)
+                assert all(not span.status.message for span in model_spans)
+                for model in model_spans:
+                    for event in model.events:
+                        assert event.name in {
+                            "provider.http.completed",
+                            "provider.operation.completed",
+                            "provider.business.completed",
+                        }
+                        attributes = {item.key: item.value for item in event.attributes}
+                        required = {
+                            "powercontext.provider.name",
+                            "powercontext.provider.capability",
+                            "powercontext.provider.outcome",
+                            "powercontext.provider.duration_ms",
+                        }
+                        assert required <= attributes.keys()
+                        assert attributes.keys() <= required | {
+                            "http.response.status_code",
+                            "powercontext.provider.error_code",
+                        }
+                        assert attributes["powercontext.provider.name"].string_value == "openai"
+                        assert attributes["powercontext.provider.capability"].string_value == "generation"
+                        assert attributes["powercontext.provider.outcome"].string_value in {
+                            "success",
+                            "failure",
+                            "timeout",
+                            "cancelled",
+                        }
+                        assert attributes["powercontext.provider.duration_ms"].double_value >= 0
+                        if "http.response.status_code" in attributes:
+                            assert 200 <= attributes["http.response.status_code"].int_value <= 599
+                        if "powercontext.provider.error_code" in attributes:
+                            assert 0 <= attributes["powercontext.provider.error_code"].int_value <= 2**31 - 1
                 outcomes = {attribute.key: attribute.value.string_value for attribute in execution.attributes}
+                assert outcomes["powercontext.scope.id"] == scope
+                assert all(
+                    any(
+                        attribute.key == "powercontext.scope.id" and attribute.value.string_value == scope
+                        for attribute in model.attributes
+                    )
+                    for model in model_spans
+                )
                 if timeout:
                     assert outcomes["powercontext.operation.outcome"] == "failure"
+                    stats = client.post(
+                        "/v1/stats",
+                        json={"selection": {"mode": "exact", "scope_ids": [scope]}, "include_processing": True},
+                    )
+                    assert stats.status_code == 200
+                    failed = next(row for row in stats.json()["by_scope"][0]["processing"] if row["family"] == family)
+                    assert failed["last_error_worker_id"]
+                    assert failed["last_error_trace_id"] == execution.trace_id.hex()
                     assert outcomes["powercontext.error.category"] == "timeout"
                 else:
                     assert outcomes["powercontext.operation.outcome"] == "success", [

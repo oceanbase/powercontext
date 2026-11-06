@@ -209,6 +209,10 @@ def setup_agents(
         typer.Option(help="DSH profile or Kimi MCP profile: minimal, recommended, full; omission preserves it."),
     ] = None,
     dsh_command: Annotated[Path | None, typer.Option(help="DSH launcher path.")] = None,
+    minimax_data_dir: Annotated[
+        Path | None, typer.Option(help="MiniMax data root; plugins/powercontext is added.")
+    ] = None,
+    minimax_command: Annotated[Path | None, typer.Option(help="MiniMax mcode launcher path.")] = None,
     env_file: Annotated[Path | None, typer.Option(help="Setup environment file; defaults to .env.")] = None,
 ) -> None:
     """Install, configure, activate and diagnose the selected agent integrations."""
@@ -231,6 +235,8 @@ def setup_agents(
         "boundary_flush": boundary_flush,
         "workspace_scope": workspace_scope or None,
         "profile": profile,
+        "minimax_data_dir": minimax_data_dir,
+        "minimax_command": minimax_command,
     }
     validate_native_options(selected, **options, dsh_command=dsh_command)
 
@@ -270,6 +276,10 @@ def doctor(
         DshProfile | None, typer.Option(help="DSH profile; defaults to the saved profile or web.")
     ] = None,
     dsh_command: Annotated[Path | None, typer.Option(help="DSH launcher path.")] = None,
+    minimax_data_dir: Annotated[
+        Path | None, typer.Option(help="MiniMax data root; defaults to the selected installation.")
+    ] = None,
+    minimax_command: Annotated[Path | None, typer.Option(help="MiniMax mcode launcher path.")] = None,
     runtime: Annotated[bool, typer.Option(help="Inspect Kimi Hook history.")] = False,
     mcp: Annotated[bool, typer.Option(help="Discover Kimi Server MCP tools without executing operations.")] = False,
     cwd: Annotated[Path | None, typer.Option(help="Kimi workspace for Scope resolution and runtime history.")] = None,
@@ -309,6 +319,8 @@ def doctor(
         "runtime_data_dir": runtime_data_dir,
         "prepare": True if prepare else None,
         "dsh_command": dsh_command,
+        "minimax_data_dir": minimax_data_dir,
+        "minimax_command": minimax_command,
     }
     selected = select_hosts(agents, json_output=json_output) if agents else ()
     validate_native_options(selected, **options)

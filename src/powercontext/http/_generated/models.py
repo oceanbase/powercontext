@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import date as date_aliased
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum, StrEnum
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -999,6 +999,90 @@ class RecallTokenDay(BaseModel):
     baseline_tokens: Annotated[StrictInt, Field(ge=0)]
     recalled_tokens: Annotated[StrictInt, Field(ge=0)]
     token_reduction: StrictInt
+
+
+class ProcessingState(StrEnum):
+    IDLE = "idle"
+    DIRTY = "dirty"
+    PENDING = "pending"
+    ACKNOWLEDGED = "acknowledged"
+    QUEUED = "queued"
+    RUNNING = "running"
+    RETRY_WAIT = "retry_wait"
+    BLOCKED = "blocked"
+
+
+class ProcessingReason(StrEnum):
+    UNOBSERVED = "unobserved"
+    WAITING_SCHEDULE = "waiting_schedule"
+    WAITING_DISPATCH = "waiting_dispatch"
+    WAITING_CAPACITY = "waiting_capacity"
+    EXECUTING = "executing"
+    RETRY_BACKOFF = "retry_backoff"
+    POLICY_BLOCK = "policy_block"
+    IDLE = "idle"
+
+
+class ProcessingObservation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: StrictStr
+    family: StrictStr | None = None
+    state: ProcessingState
+    observed_at: AwareDatetime
+    scheduler_observed: StrictBool = False
+    reason: ProcessingReason = ProcessingReason.UNOBSERVED
+    requested_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    handled_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    dirty_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    clean_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    pending_since: Annotated[
+        AwareDatetime | None, Field(description="Local lower bound, not the durable age of all pending work.")
+    ] = None
+    running_seconds: Annotated[StrictFloat | None, Field(ge=0.0)] = None
+    next_check_seconds: Annotated[
+        StrictFloat | None,
+        Field(description="Estimated seconds until a scheduler check, not a promised execution deadline.", ge=0.0),
+    ] = None
+    worker_id: StrictStr | None = None
+    attempt_generation: Annotated[StrictInt | None, Field(ge=0)] = None
+    retry_failures: Annotated[StrictInt | None, Field(ge=0)] = None
+    block_code: StrictStr | None = None
+    last_error_code: Annotated[
+        StrictStr | None,
+        Field(
+            description="Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message."
+        ),
+    ] = None
+    last_error_stage: Annotated[
+        StrictStr | None,
+        Field(
+            description="Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation."
+        ),
+    ] = None
+    last_error_at: Annotated[
+        AwareDatetime | None,
+        Field(
+            description="UTC time the local supervisor observed this failure, not the child event time or a durable history."
+        ),
+    ] = None
+    last_error_worker_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label."
+        ),
+    ] = None
+    last_error_trace_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation."
+        ),
+    ] = None
+
+
+class ActualAdoption(StrEnum):
+    UNOBSERVED = "unobserved"
 
 
 class WorkClaimBasis(StrEnum):
@@ -3622,6 +3706,21 @@ class ShareUnit(StrEnum):
     MEMORY_ENTRY = "memory_entry"
 
 
+class ConnectionAuthentication(StrEnum):
+    DISABLED = "disabled"
+    AUTHENTICATED = "authenticated"
+
+
+class ConnectionIdentity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    server_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    authentication: ConnectionAuthentication
+    access_mode: AccessControlMode
+    principal: Annotated[AccessPrincipal | None, Field(...)]
+
+
 class AccessAction(StrEnum):
     SERVER_OBSERVE = "server.observe"
     SERVER_ADMIN = "server.admin"
@@ -4280,6 +4379,104 @@ class SourceInstancesQuery(BaseModel):
     view: View1 = View1.DISCOVERY
 
 
+class ScopeId1(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class PlanAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    background_principal: Annotated[
+        AccessPrincipal | None,
+        Field(
+            description="Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each selected Scope is checked for scope.contribute and write permission on an existing Profile, including after all ownership gaps have been filled. An available Access store is required."
+        ),
+    ] = None
+
+
+class OwnershipGapKind(StrEnum):
+    ARTIFACT_OWNER = "artifact_owner"
+    CANDIDATE_ATTESTATION = "candidate_attestation"
+
+
+class OwnershipGapItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: OwnershipGapKind
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    artifact_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    entry_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    candidate_id: Annotated[StrictStr | None, Field(max_length=128)] = None
+    version: Annotated[StrictInt | None, Field(ge=1)] = None
+    conflict_code: Annotated[StrictStr | None, Field(max_length=64)] = None
+
+
+class AccessOwnershipScopePlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    artifact_gaps: list[OwnershipGapItem]
+    candidate_gaps: list[OwnershipGapItem]
+
+
+class Allowed(Enum):
+    BOOLEAN_FALSE = False
+
+
+class BackgroundPermissionGap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    principal_id: Annotated[StrictStr, Field(max_length=255, min_length=1)]
+    allowed: Allowed
+    reason_code: Annotated[StrictStr | None, Field(max_length=64)]
+
+
+class AccessOwnershipPlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AccessControlMode
+    scopes: list[AccessOwnershipScopePlan]
+    background: list[BackgroundPermissionGap]
+
+
+class ApplyAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    owner: AccessPrincipal
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    dry_run: StrictBool = False
+
+
+class AccessOwnershipApplyResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dry_run: StrictBool
+    applied: list[OwnershipGapItem]
+    conflicts: list[OwnershipGapItem]
+
+
 class RecallManifestRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4801,6 +4998,35 @@ class RecallTokenStatistics(BaseModel):
     daily: Annotated[list[RecallTokenDay], Field(max_length=30)]
 
 
+class BootstrapDeliveryReading(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integration: StrictStr
+    state: BootstrapReceiptState
+    receipts: Annotated[StrictInt, Field(ge=0)]
+    content_bytes: Annotated[
+        StrictInt,
+        Field(
+            description="Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption.",
+            ge=0,
+        ),
+    ]
+    last_prepared_at: Annotated[
+        AwareDatetime, Field(description="Latest preparation time in this group, not the delivery completion time.")
+    ]
+
+
+class BootstrapDeliveryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: ResolvedUsagePeriod
+    retention_days: StrictInt
+    actual_adoption: ActualAdoption
+    by_integration: list[BootstrapDeliveryReading]
+
+
 class ScopeStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4810,6 +5036,14 @@ class ScopeStats(BaseModel):
     usage: UsageStatistics
     recall: RecallTokenStatistics
     recurrence: RecurrenceStatistics
+    processing: Annotated[
+        list[ProcessingObservation],
+        Field(
+            description="Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.",
+            validate_default=True,
+        ),
+    ] = []
+    bootstrap_delivery: BootstrapDeliveryStatistics | None = None
 
 
 class ScopedStats(BaseModel):
@@ -4831,6 +5065,12 @@ class GetStatsRequest(BaseModel):
     )
     selection: ScopeSelection
     period: StatsPeriod = StatsPeriod.FIELD_30D
+    include_processing: Annotated[
+        StrictBool,
+        Field(
+            description="Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history."
+        ),
+    ] = False
 
 
 class WorkSourceReceipt(BaseModel):

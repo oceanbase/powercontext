@@ -32,7 +32,7 @@ from tests.e2e.source_collect_helpers import (
     set_enabled,
     stop_services,
 )
-from tests.source_helpers import ROOT, create_scope, running_server
+from tests.source_helpers import ROOT, create_scope, requires_linux, running_server
 
 EXAMPLE = ROOT / "examples/source_plugins/ticket_chat"
 
@@ -77,6 +77,7 @@ async def received(client, scope, target, count, *, namespace):
             await asyncio.sleep(0.1)
 
 
+@requires_linux
 def test_managed_instances_isolate_scopes_and_release_resources(tmp_path):
     asyncio.run(_managed_instances(tmp_path))
 
@@ -197,6 +198,7 @@ async def apply(ctx, config):
             await stop_services(directory, state)
 
 
+@requires_linux
 def test_scope_shrink_preserves_progress_and_offline_discovery(tmp_path):
     asyncio.run(_scope_shrink_and_discovery(tmp_path))
 
@@ -285,8 +287,14 @@ async def _scope_shrink_and_discovery(directory):
             await set_enabled(admin, "scope-review", True)
             restored = await received(admin, scopes[1], targets[scopes[1]], 3, namespace="scope-review")
             assert restored["target_id"] == targets[scopes[1]]
-            receipts = [json.loads(line) for line in (plugin / "receipts.jsonl").read_text().splitlines()]
-            assert any(r["scope_id"] == scopes[1] and r["source"] in restored["source_refs"] for r in receipts)
+            # The server reports the submission before the collector completes the batch and appends its receipt.
+            receipts_path = plugin / "receipts.jsonl"
+            async with asyncio.timeout(40):
+                while True:
+                    receipts = map(json.loads, receipts_path.read_text(encoding="utf-8").splitlines())
+                    if any(r["scope_id"] == scopes[1] and r["source"] in restored["source_refs"] for r in receipts):
+                        break
+                    await asyncio.sleep(0.1)
 
             async with Client(url + "/mcp", auth=TOKENS["deployer"]) as host:
                 query = {"scope_id": scopes[0], "instance_id": "scope-review"}
@@ -321,6 +329,7 @@ async def _scope_shrink_and_discovery(directory):
             await stop_services(directory, state)
 
 
+@requires_linux
 def test_tickets_refreshes_targets_when_a_later_scope_is_disabled(tmp_path):
     asyncio.run(_tickets_target_refresh(tmp_path))
 

@@ -18,8 +18,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { PowerContextClient } from '../../src/client.ts'
 import * as plugin from '../../src/index.ts'
-import { GUIDANCE } from '../../src/skill.ts'
-import { PROJECT_CONTEXT_SKILL } from '../../src/skill-body.ts'
+import { GUIDANCE } from '../../src/guidance.ts'
 import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
 vi.mock('../../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
@@ -48,8 +47,8 @@ type PcHandler = (invocation: {
 }) => Promise<{ kind: string; text: string }>
 
 type CommandDefinition = { name: string; handler: PcHandler }
-type SkillRegistration = { name: string; content: string }
 type PromptSection = { name: string; text: string }
+type SkillRegistration = { name: string; description: string; source: string; content: string }
 
 type Registrations = {
   tools: Record<string, unknown>[]
@@ -103,16 +102,6 @@ class CommandsService extends RegistrationService<CommandDefinition> {
   }
 }
 
-class SkillsService extends RegistrationService<SkillRegistration> {
-  constructor(ctx: Context, registrations: SkillRegistration[]) {
-    super(ctx, 'skills', registrations)
-  }
-
-  register(skill: SkillRegistration): () => void {
-    return this.registerOwned(skill, 'skills.register()')
-  }
-}
-
 class SystemPromptService extends RegistrationService<PromptSection> {
   constructor(ctx: Context, registrations: PromptSection[]) {
     super(ctx, 'systemPrompt', registrations)
@@ -120,6 +109,16 @@ class SystemPromptService extends RegistrationService<PromptSection> {
 
   section(section: PromptSection): () => void {
     return this.registerOwned(section, 'systemPrompt.section()')
+  }
+}
+
+class SkillsService extends RegistrationService<SkillRegistration> {
+  constructor(ctx: Context, registrations: SkillRegistration[]) {
+    super(ctx, 'skills', registrations)
+  }
+
+  register(skill: SkillRegistration): () => void {
+    return this.registerOwned(skill, 'skills.register()')
   }
 }
 
@@ -284,10 +283,6 @@ describe('plugin HTTP call-through without a model', () => {
     expect(captured.kind).toBe('json')
   })
 
-  it('declares every DSH service required by apply', () => {
-    expect(plugin.inject).toEqual(REQUIRED_SERVICES)
-  })
-
   it('waits for every dependency before mounting all plugin surfaces', async () => {
     await withHarness(server.baseUrl, async (harness) => {
       await Promise.resolve()
@@ -305,11 +300,12 @@ describe('plugin HTTP call-through without a model', () => {
       await harness.provide(REQUIRED_SERVICES.at(-1)!)
       await harness.fiber
       expect(harness.registrations.tools).toEqual([])
-      expect(harness.registrations.commands.map(item => item.name)).toEqual(['pc'])
-      expect(harness.registrations.skills).toEqual(expect.arrayContaining([expect.objectContaining({
+      expect(harness.registrations.skills).toEqual([expect.objectContaining({
         name: 'powercontext-project-context',
-        content: PROJECT_CONTEXT_SKILL,
-      })]))
+        source: 'runtime',
+        content: expect.stringContaining('# PowerContext routing'),
+      })])
+      expect(harness.registrations.commands.map(item => item.name)).toEqual(['pc'])
       expect(harness.registrations.sections).toEqual([expect.objectContaining({
         name: 'tool:powercontext',
         text: GUIDANCE,

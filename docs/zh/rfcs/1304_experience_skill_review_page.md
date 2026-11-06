@@ -1,3 +1,8 @@
+---
+title: RFC 1304：Experience 与 Skill 审核页面
+description: 审核页面的设计提案，让审核者按 Scope 检查证据、修改候选、批准精确版本，并单独发布已批准的托管 Skill。
+---
+
 - Proposal Name: `experience_skill_review_page`
 - Start Date: 2026-08-20
 - RFC PR: [oceanbase/powercontext#1304](https://github.com/oceanbase/powercontext/pull/1304)

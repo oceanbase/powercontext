@@ -150,6 +150,18 @@ def resolve_server_environment_file(
     return Path(os.path.abspath(candidate)) if candidate.is_file() else None
 
 
+def _with_observability(loaded: Mapping[str, str], *, enabled: bool) -> Mapping[str, str]:
+    if not enabled:
+        return loaded
+    from powercontext.observability.deployment import ObservabilityError
+    from powercontext.observability.profile import profile_environment
+
+    try:
+        return profile_environment(loaded)
+    except (ObservabilityError, OSError, ValueError) as error:
+        raise ServerConfigurationError(error) from error
+
+
 @contextmanager
 def server_settings_context(
     *,
@@ -160,6 +172,7 @@ def server_settings_context(
     environment: Mapping[str, str] | None = None,
     data_dir: Path | None = None,
     process_environment_overrides: bool = False,
+    observability: bool = False,
 ) -> Iterator[ServerSettings]:
     """Load one reproducible Server configuration for the lifetime of a process operation.
 
@@ -179,10 +192,11 @@ def server_settings_context(
         )
     except (EnvironmentFileError, OSError) as error:
         raise ServerConfigurationError(error) from error
+    loaded = _with_observability(loaded, enabled=observability)
     server_environment = {name for name in os.environ if _is_server_environment_name(name)}
     settings_class: type[ServerSettings] = ServerSettings
     settings_context = nullcontext()
-    if env_file is not None:
+    if env_file is not None or observability:
         if process_environment_overrides:
             runtime_environment = {
                 name: value for name, value in loaded.items() if not _is_server_environment_name(name)
@@ -204,7 +218,7 @@ def server_settings_context(
         loaded_context = nullcontext()
     data_dir_context = (
         environment_context({POWERCONTEXT_HOME_ENV: str(data_dir.expanduser().resolve())}, override=True)
-        if env_file is not None and data_dir is not None
+        if (env_file is not None or observability) and data_dir is not None
         else nullcontext()
     )
     with settings_context, loaded_context, data_dir_context:

@@ -1,7 +1,7 @@
 ---
-slug: building-durable-project-context
 title: 构建持久的项目上下文：MiniMax Code 如何与 PowerContext 协作
 description: 从截图、代码和日志出发，了解 MiniMax Code 如何组织可核对的证据，借助 seekdb 检索线索，并通过 PowerContext 保存项目记忆与工作交接。
+slug: building-durable-project-context
 cover: assets/blog/building-durable-project-context/cover.png
 cover_alt: MiniMax Code 将代码、截图和日志关联到 PowerContext 项目档案，保存证据、决策与未完成的工作。
 date: 2026-10-22

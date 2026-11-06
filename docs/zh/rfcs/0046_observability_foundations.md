@@ -1,3 +1,8 @@
+---
+title: RFC 0046：可观测性基础
+description: 可观测性设计提案，为运行日志、Prometheus 指标和 OpenTelemetry Trace 约定统一操作名称与请求关联方式。
+---
+
 - Proposal Name: `observability_foundations`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#46](https://github.com/oceanbase/powercontext/pull/46)
@@ -284,9 +289,12 @@ OpenTelemetry SDK choice 耦合。本提案从 Python logging、Prometheus metri
 这种方案覆盖 local diagnostic 和 aggregate behavior，但不能跨 MCP、Client 和 remote Server boundary 传播
 execution context。Tracing 保持可选，但属于共同设计。
 
-## 使用 raw path 和 scope identifier
+## 将 raw path 或 identity 作为指标标签
 
-这些值容易采集，但不稳定、可能敏感且通常无界。本提案使用 declared operation identity 和 bounded outcome。
+原始路径继续排除。Scope 运维诊断允许在结构化日志字段 `scope` 和 span 属性 `powercontext.scope.id` /
+`powercontext.scope.ids` 中保留所属 Scope ID，但不允许 Source/Memory 内容、查询、凭据和任意路径。
+Scope ID 不进入指标标签或日志流索引标签；Scope 活动通过结构化事件查询，库存通过已有授权统计接口查询。
+共享进程和依赖观测保留全局归属。
 
 # Prior art
 

@@ -213,6 +213,10 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 `PC_GATEWAY_INJECTION_RESPONSES=off` 只关闭 Responses 入口的注入。独立运行的网关（`PC_GATEWAY_CORE_BASE`）只有
 设置 `PC_GATEWAY_INJECTION=on` 时才注入。准备结果为空或准备失败时，请求照常发送，不注入内容。
 
+设置 `PC_GATEWAY_INJECTION_CODE=on` 后，准备的上下文同时包含 Scope 代码索引中的代码证据；该选项默认关闭，并要求 Scope
+已配置代码仓库。重放的内容因被引用的来源变化（例如 Agent 修改了被引用的文件）而不再通过检查时，网关丢弃该会话的重放，
+为该请求重新准备一次，而不是把 withhold 返回给客户端。
+
 ### 网关固定指令
 
 `PC_GATEWAY_STEERING_FILE` 指定一个文件，其中是一段简短的固定指令，网关把它加入 Responses 入口
@@ -224,6 +228,53 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 `developer_instructions` 的位置。没有这样的消息时，网关在客户端第一条 developer 消息之后插入一条新的 developer 消息；
 请求中没有 developer 消息时，插在第一条用户消息之前。每个请求中的文本都相同，因此它始终是缓存前缀的一部分。Core 把它
 作为最终请求的一部分，像其他请求文本一样检查。它与上下文注入、沉淀和重放相互独立。
+
+### Gateway 字节容量
+
+Rust Gateway 在启动时通过 `/v1/capabilities` 查询一次 `context_protection`。
+模型入口要求 OpenAPI 定义的完整 `ContextProtectionCapabilities` DTO：
+`check_versions`、`payload_versions`、`reuse_versions`、`reuse_families`、`enforcing`，以及
+包含 `payload_bytes`、`binding_bytes`、`prepared_contexts`、`dependencies`、`send_seconds` 和
+`correlate_seconds` 的 `limits`。即使存在输入容量，任何必需字段缺失或类型错误也会暂停准入。
+check/payload 版本必须包含 v1，且 `limits.payload_bytes` 必须是正整数。
+查询失败、版本不兼容、DTO 不完整或容量无效时，两个模型入口返回 HTTP 503 暂停服务；
+`/healthz` 和已配置的 Core/MCP 转发仍可访问。恢复 Core 契约后，重启 Gateway 以重新发现容量。
+每次模型发送和响应释放仍须分别通过 Core 检查。若 Core 在 Gateway 重启前收紧限制，
+这次检查可以拒绝调用；增大 Core 限制不会在重启前放大 Gateway 启动时确认的额度。
+启动诊断通过固定消息区分传输失败、查询被拒、响应畸形/不完整、版本不兼容和容量无效，
+不输出 Core 错误值。
+
+`PC_GATEWAY_MAX_BODY_BYTES` 默认 16 MiB（1 MiB = 1,048,576 字节）。模型输入的有效上限是该配置、
+Core 声明的输入容量和当前完整正文解析器 1 MiB 硬上限的最小值。
+部署上限为零时，模型输入禁用，返回 HTTP 503 和 `input_capacity_disabled`，不表示 Core 能力查询失败。
+Content-Length 预检和 chunked 正文实际读取都受限。执行器还会在 prepared context 注入/重放、
+Responses steering 和协议渲染后，检查最终 UTF-8 JSON 正文字节数。
+入口正文超限返回 HTTP 413；最终正文超限返回 HTTP 403 和 `request_payload_too_large`，不会发送模型。
+放大配置不能绕过解析器硬上限。
+
+固定长度和 chunked/SSE provider 响应的默认缓冲上限均为 1 MiB。
+传输器显式设置的缓冲上限可以进一步收紧该值。输入 `payload_bytes` **不声明**输出额度。
+Core 的响应配置、内容检查以及 JSON/RPC 包装仍有各自的限制，因此低于 1 MiB 的正文也可能被拒绝。
+UDS 客户端的 8 MiB RPC 响应解析上限属于另一个传输方向，不是模型正文容量。
+
+响应缓冲超限时丢弃响应，返回 HTTP 409 和 `response_buffer_limit_exceeded`。
+不会释放 provider 正文，也不会自动重发。执行观察保留 `PossiblySent` 与 `Withheld` 终态：
+provider 可能已经计费。这不代表收到了完整响应，也不承诺零费用。
+该观察仅在进程内可见；本阶段尚未导出含尝试次数、执行终态与发送状态的可读取调用记录。
+G5-A 的“可能已计费进入调用证据”仍待接入 [#2506](https://github.com/oceanbase/powercontext/pull/2506)，
+并通过导出记录的回归测试后才能验收。
+更小的完整响应仍须通过 `before_release` 才能释放。
+
+透明 Core/MCP 转发继续使用部署正文上限，不消耗模型输入额度。
+`PC_GATEWAY_MAX_CONCURRENT`（默认 64）分别限制模型调用与 fallback 调用，
+活跃的 fallback SSE 连接不会耗尽模型并发许可。两类合计最多可持有配置值两倍的许可，
+不含豁免的健康探测；该设置不是进程全局并发上限。每个许可随响应 body 持有，直到 body drop；
+`/healthz` 豁免两类并发限制。已知 Content-Length 的 fallback 超限请求在转发前返回 413。
+未知长度超限会产生 body error：前缀可能已经到达 Core，转发失败时代理返回 502。
+这不是成功截断，Gateway 不会通过完整缓冲 MCP 流来强制统一错误状态码。
+
+这些是逐正文和分类并发限制，不是驻留字节测量，也不构成进程 RSS 上限。
+全局驻留字节记账与输出容量发现属于 [#2464 的 G5-B 后续工作](https://github.com/oceanbase/powercontext/issues/2464)。
 
 ## 使用 Docker 运行
 
@@ -288,6 +339,46 @@ Cookie，最长八小时；HTTPS 下设置 Secure。反向代理应正确传递�
 
 共享静态 token 不会强制人工审核，也不会阻止 Agent 批准自己的 Candidate。需要分离提交和审批时，应使用不同的已认证
 Principal，并仅向审核者授予审核权限。参见[分离 Agent 提交与审核](../workflows/review-candidates.md#分离-agent-提交与审核)。
+
+### 迁移认证开启前写入的数据
+
+`ACCESS_MODE=disabled` 期间接受的数据没有 Artifact owner，也没有 Candidate owner attestation。切换到 `enforced`
+之后，这些数据仍可读取，但修改会返回 `403`，审批其待审 Candidate 会返回 `503 artifact_owner_pending`；在认证模式下
+新建的数据不受影响。Server 不会推断归属，需要管理员显式迁移缺失的授权信息：
+
+1. 先备份数据库。下面的离线命令在 Server 停止时执行，切换前后都可以运行。
+2. 用 `powercontext server access-ownership-migrate --action plan` 盘点受影响的数据。`ACCESS_MODE=disabled`
+   期间同样可以运行。添加 `--background-principal service:后台身份ID`，填写切换后准备使用的
+   `ACCESS_BACKGROUND_PRINCIPAL_ID`，即可检查每个指定 Scope 的 `scope.contribute` 和已有 Profile 写权限。
+   owner 缺口补齐后仍会执行这些检查。已配置单 Token 的部署会计入后台的静态 Scope 权限预设，预检不会创建授权。
+   已有 Profile 仍须单独通过 Artifact 写权限检查。HTTP 预检在授权存储可用时接受 `background_principal`；否则返回
+   `503 relationship_management_unavailable`。开启认证前请使用离线命令执行后台权限预检。
+3. 用显式指定的归属 Principal 回补。单用户静态 token 部署就是 `server-token` 服务 Principal：
+
+   ```bash
+   powercontext server access-ownership-migrate \
+     --action apply --owner service:server-token --maintenance-confirmed
+   ```
+
+   `apply` 要求先用 `--maintenance-confirmed` 确认所有 Server 进程已停止。大型部署可以重复传 `--scope-id`
+   分批迁移。每一项都是一次幂等写入，中断或重复执行只会补齐仍缺失的条目；已有的 owner 和 Candidate
+   attestation 会被保留，冲突时明确报告，不会被覆盖。不同身份需要拥有不同 Scope 时，用另一个 `--owner`
+   再次执行；多用户部署由此保持明确的身份边界。
+
+   盘点包含已合并和已退休的 Artifact 身份，以及已提交 Handoff 和各发布副本的实际身份，以保留恢复操作所需的权限。
+   如果持久化恢复记录已经确定归属，
+   离线 `apply`、HTTP `apply` 及 HTTP 预览会报告 `owner-recovery-pending` 或 `owner-recovery-delivered_relation_missing`，
+   并保留原始记录及其归属。待投递的归属信息应按[归属恢复流程](../workflows/scopes-and-access.md)继续处理。
+   Candidate 恢复预检覆盖迁移接受的家族，包括 Prompt Candidate，不受独立 Artifact owner 家族范围限制。
+   使用外部 Access 存储时，如果审计写入失败，迁移会保留可重放的归属投递任务。即使 owner 关系已存在，
+   重复同一 HTTP `apply` 也会先完成原始审计，再报告成功。预览不会重放待处理任务。
+
+   如果没有停机窗口，也可以对运行中的 Server 走 HTTP：`POST /v1/access/ownership/apply`（先用
+   `dry_run: true` 预览）。认证模式下两个 HTTP 操作都要求 `server.admin`；`ACCESS_MODE=disabled` 时 `apply` 返回
+   `503 ownership_migration_unavailable`。
+4. 验证：修改一个此前不可变的 Artifact，审批一个此前被阻塞的 Candidate，并确认 `plan` 不再报告归属缺口。
+   预检时传入后台 Principal，确认 `background` 为空。没有相应 Artifact 写权限或 Candidate 审批权限的身份
+   仍会收到 `403`。
 
 ## 检查部署
 

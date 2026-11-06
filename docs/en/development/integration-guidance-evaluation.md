@@ -1,179 +1,152 @@
 ---
-title: Agent guidance evaluation record
-description: Measured routing, execution evidence, and remaining model limitations for tracking issue 1450 D.
+title: Agent guidance evaluation guide and record
+description: Run routing and Skill evaluations, interpret their evidence, and inspect recorded measurements.
 ---
 
-# Agent guidance evaluation record
+# Agent guidance evaluation guide and record
 
-The complementary [skill-up regression suite](https://github.com/oceanbase/powercontext/blob/master/evaluation/skills/skill-up/README.md) pins the packaged Claude Code
-Skill and checks tool selection and authorization boundaries with rule-based assertions, controlled MCP replies, and
-a with/without-Skill comparison. It covers Claude Code + MCP only, with hooks disabled and permissions bypassed;
-it does not qualify real host approval, bounded recall, automatic Capture/Flush, persistence or memory quality.
-Retain real model transcripts and input snapshots with any measured coverage claim. Keep those results separate from
-the multi-surface qualification observations recorded here and from task-outcome benchmarks.
+This guide is for contributors validating PowerContext guidance. The [routing design](integration-guidance.md) defines expected Agent behavior; [layered Skills](layered-skills.md) describes the shared resources and host discovery.
 
-The implementation and reproducible commands are described in [Agent tool routing](integration-guidance.md).
-The baseline is upstream `fe4002d37663213294ebffe4c080b6676b1c8014`. Measurements were made on Windows on
-2026-09-09 with `step-3.7-flash` through the configured StepFun endpoint, temperature 0, a 6,000-token output budget,
-and no forced tool selection. Fixtures use fictional Aurora facts and an isolated `fixture-scope`.
+## Evaluation scope
 
-## Current qualification on master `847203dc`
+Resource consistency, native host execution, and model behavior are separate checks. Resource checks compare packaged files and references. Native tests exercise discovery and registered tools. Model evaluation measures operation selection, arguments, and final answers against controlled replies. Each result applies to the host, model, Skill, and contract recorded with it.
 
-The 2026-09-15 evaluation uses `step-3.7-flash`, temperature 0, automatic tool selection, and fictional Aurora facts.
-DSH contributes 12 observations from `qualification` (10,000 output tokens); the other eight surfaces contribute
-96 observations from `qualification-final` (16,000 tokens). This is a composite of those two batches, not one run.
+The [Claude Code skill-up suite](https://github.com/oceanbase/powercontext/blob/master/evaluation/skills/skill-up/README.md) and [ZCode suite](https://github.com/oceanbase/powercontext/blob/master/evaluation/zcode_guidance/README.md) maintain their own setup, pins, and paired with/without-Skill runs. Their READMEs describe their execution and permission fixtures. Keep those results separate from native approval, persistence, memory-quality, and task-outcome measurements.
 
-| Surface | Valid sequence and carrier | After explicit reporting review |
+## Prepare the environment
+
+Use the repository's locked Python development environment and install the dependencies for the host packages being tested. Build OpenClaw before exercising its entry point. Its pinned SDK needs Node 24.15 or newer; `POWERCONTEXT_GUIDANCE_NODE` can select that interpreter for adapter evaluation.
+
+Live evaluation reads `LLM_MODEL`, `OPENAI_LLM_BASE_URL`, and `LLM_API_KEY` from the specified environment file. Keep credentials and private transcripts outside version control.
+
+## Check packaged resources
+
+```sh
+make integration-guidance-check
+uv run --locked pytest tests/test_layered_skills.py tests/test_guidance_installation.py
+```
+
+These checks cover shared-copy drift, local references, packaged resources, and installation. They do not call a model or establish that every external host discovers or executes the Skill.
+
+## Export native catalogs
+
+Set `POWERCONTEXT_GUIDANCE_EXPORT` to an existing directory. The following commands export the model-visible guidance, tools, and Skill metadata from their respective host tests:
+
+```sh
+mkdir -p /tmp/pc-guidance
+export POWERCONTEXT_GUIDANCE_EXPORT=/tmp/pc-guidance
+uv run --locked pytest tests/test_mcp.py
+pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
+pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
+pnpm --dir integrations/opencode/plugins/powercontext test
+pnpm --dir integrations/pi/plugins/powercontext test
+pnpm --dir integrations/openclaw/plugins/memory-powercontext test
+```
+
+DSH exports compiled schemas and system context from an actual SDK model request. Its package registration test alone does not export that catalog. Pi uses its SDK Skill loader, and OpenClaw's package test invokes native `skills list --json` with an isolated profile. MCP initialization is checked through a FastMCP client.
+
+Hermes exports native `skills_list` and `skill_view` metadata from an isolated home. Use the source revision pinned by its CI job, Hermes v2026.8.18 (CLI 0.20.4), and retain the export environment variable:
+
+```sh
+git clone https://github.com/NousResearch/hermes-agent.git /tmp/pc-hermes
+git -C /tmp/pc-hermes checkout e624e9fde561e1add9388384012b295fde669ade
+POWERCONTEXT_HERMES_SOURCE=/tmp/pc-hermes uv run --locked pytest tests/e2e/test_hermes_skills.py
+```
+
+DSH and Hermes discovery names and descriptions come from the native catalogs. The evaluator supplies packaged reference bodies without replacing that metadata. Hermes provider unit tests do not export a native catalog.
+
+## Run model evaluation
+
+```sh
+uv run --locked python scripts/evaluate_integration_guidance.py \
+  --catalog /tmp/pc-guidance/dsh.json --env-file .env \
+  --output /tmp/pc-guidance/results.json --skill-modes loaded unloaded unavailable
+```
+
+Repeat `--catalog` for other hosts. Cases cover ordinary work, sufficient context, search, inventory, saving, previews, Handoff, Review, empty retrieval, failed writes, and a missing save tool in English and Chinese. Legitimate Scope resolution is treated as a prerequisite to the data operation. Tool choice is left to the model.
+
+For multi-turn Handoff, add `--cases handoff handoff_request`. The evaluator checks the sequence through preparation and the complete returned carrier. Ordinary and explicitly temporary transfers must not commit a durable milestone.
+
+To measure reference reads, add `--layered-skills --skill-modes unloaded unavailable`. The optional reader exposes actual packaged text and records requested resources. `skill_search` and `skill_handoff` require the relevant Memory or Handoff reference before the data operation; the entry alone, another domain, or a later read does not pass. Ordinary requests need no Skill read. Unavailable mode provides no reader and checks whether the remaining tool guidance is sufficient.
+
+## Interpret execution evidence
+
+The model evaluator returns controlled replies and performs no real Server writes or generation. Native adapter evaluation runs registered Pi and OpenCode tools and the built OpenClaw entry against controlled HTTP replies, recording translated arguments and wrapped results. Fixture approval does not establish a real interactive approval channel. DSH uses controlled MCP replies here; its SDK export and runtime acceptance are separate checks. MCP catalogs do not establish each product's native Skill discovery.
+
+Handoff validation requires a complete transferable carrier with its Scope, exact evidence, receipts, and required nullable fields. Optional null metadata may be omitted.
+
+Model errors, empty output, truncation, endpoint failures, invalid arguments, and incomplete carriers remain failures. A correct first tool choice alone does not establish a completed workflow or an accurate final answer.
+
+## Review result reporting
+
+`routing_passed` and `arguments_passed` cover operation selection and arguments. Each observation starts with `reporting_passed: null` and `acceptance_passed: false`. Review the recorded calls, controlled replies, and final answer for false success, invented evidence, and unfinished work.
+
+Create a JSON object keyed by each observation's `review_key`. Each value needs a boolean `passed` and a specific nonempty `reason`. Apply the review without another model call:
+
+```sh
+uv run --locked python scripts/evaluate_integration_guidance.py \
+  --review-report /tmp/pc-guidance/results.json \
+  --reporting-review /tmp/pc-guidance/reporting-review.json \
+  --output /tmp/pc-guidance/reviewed-results.json
+```
+
+The key hashes the exact observation, so changed calls or answers invalidate an earlier review. Live evaluation exits nonzero until reviewed; the review command exits zero only when all observations pass routing, arguments, and reporting. Retain failures, unreviewed observations, catalogs, and transcripts with the run.
+
+## Historical measurements
+
+These records apply to their recorded revisions and contracts. They do not qualify the current checkout. The September model evaluations used `step-3.7-flash`, temperature 0, automatic tool selection, fictional Aurora facts, and an isolated `fixture-scope` with controlled replies.
+
+| Date | Revision and evidence | Measurement conditions |
 | --- | --- | --- |
-| DSH | 12/12 | 12/12 |
-| Pi | 12/12 | 12/12 |
-| OpenCode | 12/12 | 12/12 |
-| OpenClaw | 12/12 | 11/12 |
-| Hermes | 12/12 | 12/12 |
-| Codex MCP catalog | 12/12 | 12/12 |
-| Claude Code MCP catalog | 11/12 | 11/12 |
-| WorkBuddy MCP catalog | 12/12 | 12/12 |
-| Portable Agent Plugin with MCP | 11/12 | 11/12 |
-| Total | 106/108 | 105/108 |
+| 2026-09-15 | master `847203dc`; [all 276 observations](https://github.com/knqiufan/powercontext/blob/codex/align-powercontext-tool-routing/e2e/integration-guidance/results/step37-native-20260915.jsonl) | Final comparison combines DSH's `qualification` batch (10,000 output tokens) with eight surfaces from `qualification-final` (16,000 tokens). Codex reviewed result reporting against the exact transcripts. |
+| 2026-09-10 | [all Handoff batches](https://github.com/knqiufan/powercontext/blob/bcfdc9fc726021fce3b20a46f3788096794a2b60/e2e/integration-guidance/results/step37-handoff-20260910.jsonl) | Two cases, two languages, and three Skill states per surface. Results combine the last observation for each condition from several batches. |
+| 2026-09-09 | Baseline `fe4002d37663213294ebffe4c080b6676b1c8014`; [routing evidence](https://github.com/oceanbase/powercontext/blob/master/e2e/integration-guidance/results/step37-20260909.jsonl) | Windows, configured StepFun endpoint, 6,000 output tokens. The initial matrix covers 11 English/Chinese scenarios with the Skill loaded and unloaded. |
 
-The [raw evidence](https://github.com/knqiufan/powercontext/blob/codex/align-powercontext-tool-routing/e2e/integration-guidance/results/step37-native-20260915.jsonl)
-retains all 276 observations across five batches, including intermediate failures, catalogs, actual native HTTP
-payloads, controlled replies, final answers, and transcript-bound review reasons. Reporting review was performed by
-Codex, not a human reviewer or an automatic truthfulness classifier. Two final Handoff failures mark inspected facts
-`verified` with empty evidence; diagnostics identify `handoff.state[0].basis/evidence`. Another structurally valid
-OpenClaw answer changes “no code changes” into “no code changes required”; reporting review rejects that stronger claim.
+### Measured model behavior
 
-The separate DSH/Codex reporting sample has 17/24 valid selections and 16/24 after review. All 12 failed-write cases
-report that nothing was saved. Seven missing-tool cases attempt an unavailable operation or fail to produce a terminal
-answer. One more answer correctly reports no save but suggests Source capture as an alternative; review rejects it.
-These failures remain unqualified. Passing deterministic tests does not turn them into model acceptance passes.
+The columns measure different behaviors. September 9 scores cover the first selected operation only; September 10 scores require complete Handoff sequences; September 15 adds transcript-bound reporting review. A dash means the surface was not part of that comparison.
 
-Native Handoff measurements execute registered DSH, Pi, OpenCode, and built OpenClaw adapters with controlled transport
-and fixture approval. They verify actual argument selection, host Scope injection, generated Source identity, and
-response wrappers. Hermes and MCP catalog cases still use direct controlled replies. No real persistence or generation
-runs here, and no claim is made about every native host's permission channel or automatic Skill discovery.
+| Surface | Sep 9: routing | Sep 10: complete Handoff | Sep 15: sequence and carrier | Sep 15: after reporting review |
+| --- | --- | --- | --- | --- |
+| DSH baseline | 36/44 | - | - | - |
+| DSH implementation | 41/44 | 5/12 | 12/12 | 12/12 |
+| Pi | 42/44 | 5/12 | 12/12 | 12/12 |
+| OpenCode | 41/44 | 3/12 | 12/12 | 12/12 |
+| OpenClaw | 34/44 | - | 12/12 | 11/12 |
+| Hermes | 41/44 | 10/12 | 12/12 | 12/12 |
+| Codex MCP catalog | 38/44 | 12/12 | 12/12 | 12/12 |
+| Claude Code MCP catalog | 39/44 | 11/12 | 11/12 | 11/12 |
+| WorkBuddy MCP catalog | 38/44 | 8/12 | 12/12 | 12/12 |
+| Portable Agent Plugin with MCP | 35/44 | 10/12 | 11/12 | 11/12 |
+| Total | - | 64/96 | 106/108 | 105/108 |
 
-Carrier validation follows the HTTP contract: optional null metadata may be omitted, but required nullable `base`,
-exact evidence, and generation receipts must survive. Some answers include the complete carrier inside a response
-wrapper. The score establishes carrier presence and reporting accuracy, not strict bare-carrier output formatting.
-Memory calls now also validate required catalog arguments. Acceptance additionally requires an explicit review bound
-to the exact transcript hash; unreviewed observations stay incomplete and the evaluation command exits nonzero.
+In the September 15 comparison, two Handoff failures claimed verified facts without evidence. Reporting review also rejected an OpenClaw answer that strengthened "no code changes" into "no code changes required". A separate DSH/Codex reporting sample passed 17/24 selections and 16/24 after review: all 12 failed-write cases reported no save, seven missing-tool cases failed, and one answer suggested unauthorized Source capture. These failures remain in the evidence.
 
-All four native adapter regressions run in their package CI jobs. Local validation passed 28 evaluator regressions,
-102 focused evaluator/API/manifest tests, 85 MCP/Hermes tests, and 3 JavaScript operation contract tests. Package suites
-passed DSH 256, Pi 93, OpenCode 53, and OpenClaw 73 tests; the real DSH SDK runtime suite passed 5 tests. Generated API
-and JavaScript checks, package type checks/builds, applicable pre-commit hooks, and Linux-platform Python type checking
-passed. OpenClaw uses Node 24.15.0. Older measurements below retain their original, narrower qualification rules.
+### Multi-turn Handoff qualification
 
-## Measured model behavior
+The September 10 sample remains unqualified. Failures included invalid provenance, malformed or unfinished Drafts, and incomplete or changed carriers. Its historical carrier check also rejected omitted nullable fields. No commit occurred in the final 96 observations, but early failures truncated sequences and cannot establish what a successful continuation would do.
 
-The [recorded calls, arguments, controlled results, and replies](https://github.com/oceanbase/powercontext/blob/master/e2e/integration-guidance/results/step37-20260909.jsonl)
-retain failures. These measurements are **not an all-pass certification**, and a prompt is not an authorization mechanism.
-The initial matrix uses 11 English/Chinese scenarios with the Skill loaded and unloaded, 44 observations per host.
-Handoff scores in this matrix measure the first selected operation only; they do not establish successful arguments,
-execution results, finalization, or the absence of a later commit.
+The final DSH batch used the actual compiled SDK model request; intermediate DSH catalogs came from registration specifications. All model calls in this evaluation received controlled replies. Native adapter checks establish argument and response handling, not real persistence, generation, or interactive approval.
 
-| Surface | Accepted routing / observations |
-| --- | --- |
-| DSH baseline | 36 / 44 |
-| DSH implementation | 41 / 44 |
-| Pi | 42 / 44 |
-| OpenCode | 41 / 44 |
-| OpenClaw | 34 / 44 |
-| Codex MCP catalog and Skill | 38 / 44 |
-| Claude Code MCP catalog and Skill | 39 / 44 |
-| WorkBuddy MCP catalog and Skill | 38 / 44 |
-| Hermes | 41 / 44 |
-| Portable Agent Plugin Skill with MCP | 35 / 44 |
+In the September 9 DSH sample, the ten ordinary and data-workflow categories passed 40/40; three missing-save-tool observations attempted the unavailable tool. The initial routing classifier also rejected some valid low-level Source capture choices. The published scores retain the original observations.
 
-The DSH baseline's unloaded Skill cases included unnecessary preview retrieval and premature Handoff preparation.
-The implementation's ordinary work, sufficient context, search, inventory, save, preview, Handoff, Review, empty search,
-and failed-save cases all passed in that sample (40/40). Its three failures attempted a save tool removed from the
-evaluation catalog. No calls were executed by this catalog evaluator.
+### Execution and regression evidence
 
-The matrix's Handoff classifier initially accepted only the high-level MCP work-transfer operation. Some recorded
-failures instead selected valid low-level Source capture; the evaluator accepts both paths. Original observations
-are retained rather than retrospectively presented as a stronger measured success rate.
-
-Boundary qualification covers sufficient context, inventory, Handoff, preview, and empty search in all three Skill
-states. It recorded WorkBuddy 30/30, Agent Plugin 29/30, and OpenClaw 27/30. Separate Skill-unavailable runs recorded
-125/132 accepted selections across DSH, Pi, OpenCode, Hermes, Codex, and Claude Code. Residual cases include unnecessary
-preview retrieval, premature Hermes preparation, and missing-tool calls. An OpenClaw catalog regenerated through its
-actual availability-aware prompt builder recorded 1/2 on missing-save-tool scenarios. OpenClaw has no packaged Skill;
-its Skill-state labels are repeated catalog conditions, not evidence of Skill loading.
-
-Result reporting was inspected separately. Successful explicit writes produced acknowledgements only after the
-controlled success; failed writes and empty searches produced corresponding explanations. Some empty searches continued
-with broader queries or list, which remains visible as a failed bounded scenario. A provider timeout and an empty reply
-are retained as failures, not excluded to improve the score. Additional description constraints address supplied facts,
-temporary handoffs, and exact Handoff evidence; broad model compliance remains subject to qualification.
-
-The description-boundary sample recorded **48/48 first-turn selections** for Handoff and preview requests across
-OpenClaw, Hermes, OpenCode, and the Agent Plugin, in English/Chinese and all three Skill states. It did not continue
-Handoff calls through tool results or inspect subsequent writes. This score is **not multi-turn Handoff acceptance**
-and does not qualify exact evidence, finalization, or temporary-versus-durable behavior. Original observations remain
-available, including failures and missing-tool stress results.
-
-## Multi-turn Handoff qualification
-
-The evaluator validates each model call against the exported catalog and generated HTTP request model, returns
-contract-valid controlled results, and continues through capture, activation/preparation, and finalization, or the
-high-level current-work operation. It rejects unavailable tools, foreign Scopes, invalid arguments, invented evidence,
-altered Drafts, parallel dependent writes, and any commit in a temporary or ordinary transfer request. A pass also
-requires a terminal answer containing the complete unchanged prepared carrier. Result wording and the truth of the
-supplied facts still require inspection; these are controlled-result measurements, not native-host execution.
-
-The `handoff` and `handoff_request` cases cover explicitly temporary transfers and ordinary handoff imperatives.
-The fixture uses the HTTP response field `source`, while evidence wraps it as `{kind: "source", source_ref: source}`.
-The high-level input uses WorkClaims with `text`, `basis`, and `evidence`; inspected facts without exact existing
-PowerContext references use `declared` and an empty evidence list. Skill discovery names remain unchanged.
-
-The 2026-09-10 Step 3.7 Flash qualification uses two cases, two languages, and three Skill states per surface.
-The historical observation for each condition totals **64/96**, composed from the recorded batches below; it is not
-a single simultaneous run or an all-host acceptance result.
-
-| Surface | Complete sequences / observations | Evidence batch |
+| Recorded execution | Observed behavior | Limit |
 | --- | --- | --- |
-| Codex MCP catalog | 12/12 | `contract-sequence` |
-| Claude Code MCP catalog | 11/12 | `contract-sequence` |
-| WorkBuddy MCP catalog | 8/12 | `contract-sequence` |
-| Portable Agent Plugin with MCP | 10/12 | `contract-sequence` |
-| Hermes | 10/12 | `structured-native-parameters` |
-| DSH | 5/12 | `real-dsh-model-request` |
-| OpenCode | 3/12 | `structured-native-parameters` |
-| Pi | 5/12 | `structured-native-parameters` |
+| DSH SDK/host `0.1.2-rc.1` | System guidance and 19 native PowerContext tools reached the model before Skill loading; tests covered recall, injection, restart recovery, direct errors, and Scope isolation. | Applies to that host revision. |
+| Live Step 3.7 through DSH | The model selected `pc_remember`; the host rejected it because interactive approval was unavailable. The model reported no save, Server inspection found no write, and a later explicit search returned seeded Memory with its exact citation. | Tool choice was not forced; this is a rejected-write and search observation. |
+| Codex CLI `0.153.4`, configured `gpt-6-astra` | Actual Memory save, subsequent search, and no false success with an unavailable MCP endpoint. | Applies to the recorded desktop-bundled CLI and model. |
 
-The [raw JSONL evidence](https://github.com/knqiufan/powercontext/blob/bcfdc9fc726021fce3b20a46f3788096794a2b60/e2e/integration-guidance/results/step37-handoff-20260910.jsonl) retains all batches,
-including the initial WorkClaim probe and intermediate failures. Each batch includes its exported catalogs and model
-configuration. DSH's final batch uses the actual compiled SDK model request; intermediate DSH catalogs were exported
-from registration specifications and do not establish that runtime contract. Model calls still receive controlled
-results in this evaluation, including in the final DSH batch.
+### Qualification boundary
 
-Remaining failures include invalid provenance, malformed or unfinished Drafts, and incomplete or changed carriers.
-That historical exact-carrier check also rejected omitted nullable fields. No commit call occurred in these latest 96 observations,
-but early failures truncate those sequences and cannot establish the behavior of a later successful continuation.
-These model scenarios remain unqualified; deterministic schema and runtime regression checks do not convert them
-into passes.
+Additional September routing samples retain these narrower results:
 
-## Execution and regression evidence
+| Sample | Result | Limit |
+| --- | --- | --- |
+| Boundary cases across three Skill states | WorkBuddy 30/30; Agent Plugin 29/30; OpenClaw 27/30 | Sufficient context, inventory, Handoff, preview, and empty search. |
+| Skill unavailable across DSH, Pi, OpenCode, Hermes, Codex, and Claude Code | 125/132 | Residual failures included unnecessary retrieval, premature preparation, and missing-tool calls. |
+| OpenClaw availability-aware catalog | 1/2 | Missing-save-tool scenarios. |
+| Handoff and preview description boundaries | 48/48 | First-turn selection across OpenClaw, Hermes, OpenCode, and Agent Plugin; no tool-result continuation or later-write check. |
 
-- Actual DSH 0.1.2-rc.1 SDK/host requests contained the system guidance and all 19 native PowerContext tools before a
-  Skill load. The real host suite passed recall, injection, restart recovery, direct errors, and Scope isolation.
-- A live Step 3.7 run through the real DSH host selected `pc_remember`. The pinned SDK has no interactive approval
-  channel, so the host rejected the write. The model reported **not saved** and identified the unavailable approval
-  channel. Server inspection confirmed no Memory write. A subsequent explicit search returned the seeded Memory and
-  its exact citation. No forced fixture tool choice was used.
-- The existing real Codex acceptance passed actual Memory save, subsequent search, and no false success when the MCP
-  endpoint was unavailable. It used desktop-bundled Codex CLI 0.153.4 with the configured `gpt-6-astra` model, UTF-8
-  subprocess output, and loopback proxy bypass. The fixture bounds graceful server shutdown.
-- DSH package/HTTP tests, Pi package tests including the real CLI, OpenCode and OpenClaw package tests, MCP initialization,
-  Hermes provider tests, API contract checks, and capability-manifest checks protect executable behavior and tool identity.
-  OpenClaw validation uses Node 24.15.0, supported by its pinned SDK.
-
-## Qualification boundary
-
-Registered catalogs and controlled Skill text do not establish automatic Skill discovery or full execution in every
-external host. MCP-backed catalog measurements share the same Server tools; they are not three independent native CLI
-execution runs. Missing-tool stress intentionally tests catalog filtering and can elicit model hallucinations even with
-explicit guidance. Those results remain unqualified; the runtime must reject absent tools and preserve approval checks.
-Do not mark those model scenarios passed or infer publication, installation, commitment, or execution from generated text.
+OpenClaw had no packaged Skill in the September 9 measurements; its Skill-state labels repeated catalog conditions. MCP-backed catalogs share Server tools and do not establish independent native CLI execution or Skill discovery. First-operation scores do not qualify finalization or temporary-versus-durable behavior. Runtime permission checks remain necessary; generated text cannot establish approval, publication, installation, or execution.

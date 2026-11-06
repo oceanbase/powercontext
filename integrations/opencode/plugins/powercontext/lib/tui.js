@@ -1519,6 +1519,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_connection_identity: {
+		method: "GET",
+		path: "/v1/connection/identity",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_access_principal: {
 		method: "GET",
 		path: "/v1/access/me",
@@ -1767,6 +1778,28 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "none",
 		pathParameters: ["instance_id", "operation"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	plan_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/plan",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	apply_access_ownership: {
+		method: "POST",
+		path: "/v1/access/ownership/apply",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -2379,6 +2412,7 @@ const DEFAULTS = {
 	allowInsecureHttp: false,
 	scopeId: void 0,
 	authorization: void 0,
+	promptRecall: true,
 	capturePrompts: true,
 	requestTimeoutMs: 3e3,
 	httpBudgetMs: 6e3,
@@ -2435,6 +2469,7 @@ function resolveConfig(env = process.env) {
 		allowInsecureHttp: transport.allowInsecureHttp,
 		scopeId: envString(env, "POWERCONTEXT_OPENCODE_SCOPE_ID"),
 		authorization: envString(env, "POWERCONTEXT_OPENCODE_AUTHORIZATION"),
+		promptRecall: envBoolean(env, "POWERCONTEXT_OPENCODE_PROMPT_RECALL") ?? DEFAULTS.promptRecall,
 		capturePrompts: envBoolean(env, "POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS") ?? DEFAULTS.capturePrompts,
 		requestTimeoutMs,
 		httpBudgetMs,

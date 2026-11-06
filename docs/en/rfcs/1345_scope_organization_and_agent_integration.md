@@ -1,3 +1,8 @@
+---
+title: "RFC 1345: Scope organization and Agent integration"
+description: Design rules for Scope ownership, organization parents, authorized context references, and stable Scope binding in Agent integrations.
+---
+
 - Proposal Name: `scope_organization_and_agent_integration`
 - Start Date: 2026-08-21
 - Related Discussion: [oceanbase/powercontext#1238](https://github.com/oceanbase/powercontext/pull/1238),

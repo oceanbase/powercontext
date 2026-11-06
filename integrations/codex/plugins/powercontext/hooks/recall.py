@@ -133,7 +133,9 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             payload = cast(dict[str, Any], json.loads(stdin.buffer.read().decode("utf-8")))
         else:
             payload = cast(dict[str, Any], json.load(stdin))
-        if not _is_user_prompt_submit(payload.get("hook_event_name")):
+        if not _is_user_prompt_submit(payload.get("hook_event_name")) or not (
+            settings.prompt_recall or settings.capture_prompts
+        ):
             return 0
         emitted_diagnostics: set[str] = set()
         diagnostic_events: list[dict[str, object]] = []
@@ -155,14 +157,19 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         authorization = settings.authorization.get_secret_value() if settings.authorization is not None else None
         safe_prompt = scrub_secrets(prompt, authorization)
         query = _bounded_recall_query(safe_prompt)
-        context = _recall_context(
-            query,
-            scope_id,
-            settings=settings,
-            deadline=http_deadline,
-            bootstrap_receipt_id=bootstrap_receipt_id,
-            emitted_diagnostics=emitted_diagnostics,
-            diagnostic_events=diagnostic_events,
+        # Behind the gateway, Core rejects any prepared-context block that the gateway did not inject itself.
+        context = (
+            _recall_context(
+                query,
+                scope_id,
+                settings=settings,
+                deadline=http_deadline,
+                bootstrap_receipt_id=bootstrap_receipt_id,
+                emitted_diagnostics=emitted_diagnostics,
+                diagnostic_events=diagnostic_events,
+            )
+            if settings.prompt_recall
+            else None
         )
         if safe_prompt != prompt:
             with suppress(Exception):

@@ -1,3 +1,8 @@
+---
+title: RFC 1783：通过 Handoff 切换会话
+description: 会话切换的设计提案，以带证据的 Handoff 保存工作检查点，让新会话继续同一 Scope 的工作，无需继承完整对话。
+---
+
 - Proposal Name: `handoff_session_rollover`
 - Start Date: 2026-09-29
 - Status: Draft

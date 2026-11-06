@@ -25,8 +25,16 @@ describe('resolveConfig', () => {
   it('uses bounded fail-open defaults', () => {
     const config = resolveConfig({})
     expect(config.baseUrl).toBe('http://127.0.0.1:8000')
+    expect(config.promptRecall).toBe(true)
     expect(config.capturePrompts).toBe(true)
     expect(config.maxBytes).toBe(8000)
+  })
+
+  it('turns prompt recall off independently of prompt capture', () => {
+    const config = resolveConfig({ POWERCONTEXT_OPENCODE_PROMPT_RECALL: 'false' })
+    expect(config.promptRecall).toBe(false)
+    expect(config.capturePrompts).toBe(true)
+    expect(() => resolveConfig({ POWERCONTEXT_OPENCODE_PROMPT_RECALL: 'sometimes' })).toThrow(/must be a boolean/)
   })
 
   it('rejects cleartext non-loopback servers', () => {

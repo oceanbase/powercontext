@@ -19,7 +19,7 @@ pub mod connections;
 pub mod credentials;
 #[cfg(windows)]
 mod diagnostic_process;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[path = "diagnostic_process_macos.rs"]
 mod diagnostic_process;
 pub mod diagnostics;
@@ -56,10 +56,17 @@ pub fn run() {
             commands::search_memory,
             commands::atomic_memory_entry,
             commands::cancel_memory_reads,
+            commands::observe_runtime_liveness,
+            commands::observe_runtime_capabilities,
+            commands::probe_runtime_readiness,
+            commands::cancel_runtime_reads,
+            commands::get_stats,
+            commands::cancel_stats_reads,
             commands::desktop_state,
             commands::save_profile,
             commands::remove_profile,
             commands::check_connection,
+            commands::probe_readiness,
             commands::disconnect,
             commands::invalidate_profile,
             commands::list_scopes,

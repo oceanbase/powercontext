@@ -49,9 +49,11 @@ pub enum ObservedOperation {
     GetReadiness,
     GetCapabilities,
     GetAccessPrincipal,
+    GetConnectionIdentity,
     ListScopes,
     GetScope,
     GetDefaultScope,
+    GetStats,
     RememberMemory,
     SearchMemory,
     GetArtifactRevision,
@@ -64,9 +66,11 @@ impl ObservedOperation {
             Self::GetReadiness => "get_readiness",
             Self::GetCapabilities => "get_capabilities",
             Self::GetAccessPrincipal => "get_access_principal",
+            Self::GetConnectionIdentity => "get_connection_identity",
             Self::ListScopes => "list_scopes",
             Self::GetScope => "get_scope",
             Self::GetDefaultScope => "get_default_scope",
+            Self::GetStats => "get_stats",
             Self::RememberMemory => "remember_memory",
             Self::SearchMemory => "search_memory",
             Self::GetArtifactRevision => "get_artifact_revision",
@@ -230,7 +234,7 @@ impl SessionObservations {
                 let _ = self
                     .0
                     .dropped
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                         Some(n.saturating_add(1))
                     });
             }
@@ -305,9 +309,11 @@ impl SessionObservations {
                     ObservedOperation::GetReadiness,
                     ObservedOperation::GetCapabilities,
                     ObservedOperation::GetAccessPrincipal,
+                    ObservedOperation::GetConnectionIdentity,
                     ObservedOperation::ListScopes,
                     ObservedOperation::GetScope,
                     ObservedOperation::GetDefaultScope,
+                    ObservedOperation::GetStats,
                     ObservedOperation::RememberMemory,
                     ObservedOperation::SearchMemory,
                     ObservedOperation::GetArtifactRevision,
@@ -316,6 +322,7 @@ impl SessionObservations {
                     ObservedOperation::ListScopes,
                     ObservedOperation::GetScope,
                     ObservedOperation::GetDefaultScope,
+                    ObservedOperation::GetStats,
                     ObservedOperation::RememberMemory,
                     ObservedOperation::SearchMemory,
                     ObservedOperation::GetArtifactRevision,

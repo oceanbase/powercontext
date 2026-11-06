@@ -112,11 +112,24 @@ def core_and_recordings():
 
         def do_GET(self):
             if self.path == "/v1/capabilities":
+                # The gateway pauses model routes unless startup discovery returns the complete v1
+                # capability document, including the input capacity limits; this scripted Core
+                # advertises the same ceiling as Core's complete-body parser.
                 body = {
                     "context_protection": {
                         "enforcing": True,
                         "check_versions": ["powercontext.context-check.v1"],
                         "payload_versions": ["powercontext.model-json-payload.v1"],
+                        "reuse_versions": [],
+                        "reuse_families": [],
+                        "limits": {
+                            "payload_bytes": 1_048_576,
+                            "binding_bytes": 8192,
+                            "prepared_contexts": 16,
+                            "dependencies": 256,
+                            "send_seconds": 60,
+                            "correlate_seconds": 300,
+                        },
                     }
                 }
             else:

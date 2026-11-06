@@ -75,6 +75,52 @@ pub struct AtomicMemoryDetail {
     pub source_refs: Vec<SourceTypeReference>,
 }
 
+/// Desktop accepts one exact Scope, never an all-Scopes or subtree selection.
+/// Use the concrete generated selection so this IPC boundary cannot widen it.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactScopeStatistics {
+    pub selection: ExactScopeSelection,
+    pub scope_ids: Vec<String>,
+    pub as_of: String,
+    pub inventory: InventoryStatistics,
+    pub usage: UsageStatistics,
+    pub recall: ExactRecallTokenStatistics,
+    pub by_scope: Vec<ExactScopeStatisticsItem>,
+}
+
+// The public contract permits a null estimator at both aggregation levels.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactRecallTokenStatistics {
+    pub period: ResolvedUsagePeriod,
+    pub estimator: Option<TokenEstimatorProfile>,
+    pub totals: RecallTokenValue,
+    pub daily: Vec<RecallTokenDay>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactScopeStatisticsItem {
+    pub scope_id: String,
+    pub inventory: InventoryStatistics,
+    pub usage: UsageStatistics,
+    pub recall: ExactRecallTokenStatistics,
+    pub recurrence: RecurrenceStatistics,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing: Option<Vec<ProcessingObservation>>,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bootstrap_delivery: Option<BootstrapDeliveryStatistics>,
+}
+
+#[derive(Serialize)]
+struct ExactStatsRequest {
+    selection: ExactScopeSelection,
+    period: StatsPeriod,
+}
+
 pub struct ServerApi {
     transport: Transport,
     endpoint: Endpoint,
@@ -337,6 +383,33 @@ impl ServerApi {
         }
         Ok(result)
     }
+    pub async fn connection_identity(&self) -> Result<ConnectionIdentity, ApiFailure> {
+        let result: ConnectionIdentity = self
+            .execute(
+                ObservedOperation::GetConnectionIdentity,
+                None,
+                &[],
+                None,
+                false,
+            )
+            .await?;
+        let valid = match result.authentication {
+            ConnectionAuthentication::Disabled => {
+                result.access_mode == AccessControlMode::Disabled && result.principal.is_none()
+            }
+            ConnectionAuthentication::Authenticated => {
+                result.principal.as_ref().is_some_and(|principal| {
+                    !principal.id.is_empty()
+                        && principal.id.chars().count() <= 255
+                        && matches!(principal.r#type, Type::User | Type::Service)
+                })
+            }
+        };
+        if result.server_id.is_empty() || result.server_id.chars().count() > 128 || !valid {
+            return Err(SafeError::InvalidResponse.into());
+        }
+        Ok(result)
+    }
     pub async fn capabilities(&self) -> Result<Capabilities, ApiFailure> {
         self.execute(ObservedOperation::GetCapabilities, None, &[], None, false)
             .await
@@ -388,6 +461,36 @@ impl ServerApi {
     pub async fn default_scope(&self) -> Result<ScopeDescriptor, ApiFailure> {
         self.execute(ObservedOperation::GetDefaultScope, None, &[], None, false)
             .await
+    }
+    pub async fn stats(
+        &self,
+        scope: &str,
+        period: StatsPeriod,
+    ) -> Result<ExactScopeStatistics, ApiFailure> {
+        validate_scope(scope)?;
+        let selection =
+            ExactScopeSelection::new(ExactScopeSelectionMode::Exact, vec![scope.into()]);
+        let request = ExactStatsRequest {
+            selection: selection.clone(),
+            period,
+        };
+        let body = serde_json::to_value(request).map_err(|_| SafeError::InvalidInput)?;
+        let result: ExactScopeStatistics = self
+            .execute(ObservedOperation::GetStats, None, &[], Some(body), false)
+            .await?;
+        if result.selection != selection
+            || result.scope_ids != [scope]
+            || result.by_scope.len() != 1
+            || result.by_scope[0].scope_id != scope
+            || result.usage.period.preset != period
+            || result.recall.period != result.usage.period
+            || result.usage.daily.len() > 30
+            || result.recall.daily.len() > 30
+            || result.usage.by_purpose.len() > 16
+        {
+            return Err(SafeError::InvalidResponse.into());
+        }
+        Ok(result)
     }
     pub async fn remember(
         &self,

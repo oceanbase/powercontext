@@ -107,6 +107,39 @@ async def _scope(client):
     return result.json()["scope_id"]
 
 
+def test_connection_identity_and_owned_memory_survive_denied_server_observation(tmp_path: Path, monkeypatch) -> None:
+    async def scenario() -> None:
+        async with _server(tmp_path) as (app, client, _access):
+
+            async def forbidden_probe():
+                pytest.fail("Ordinary connection and Memory operations must not probe readiness")
+
+            app.state.readiness_probe = forbidden_probe
+            monkeypatch.setattr(app.state.authentication_provider, "readiness", forbidden_probe)
+            monkeypatch.setattr(_access, "readiness", forbidden_probe)
+            scope_id = await _scope(client)
+            await _grant(client, scope_id, "alice", "scope.contributor")
+            client.headers["Authorization"] = "Bearer alice"
+            denied = await client.get("/v1/capabilities")
+            assert denied.status_code == 403
+            identity = await client.get("/v1/connection/identity")
+            assert identity.status_code == 200, identity.text
+            assert identity.json()["principal"] == {"type": "user", "id": "alice", "description": None}
+            assert identity.json()["authentication"] == "authenticated"
+            assert identity.json()["access_mode"] == "enforced"
+            saved = await client.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "note", "text": "Owned memory"}
+            )
+            assert saved.status_code == 200, saved.text
+            reference = saved.json()["records"][0]["artifact"]
+            read = await client.get(
+                f"/v1/scopes/{scope_id}/artifacts/atomic-memory/{reference['artifact_id']}/revisions/{reference['revision']}"
+            )
+            assert read.status_code == 200, read.text
+
+    asyncio.run(scenario())
+
+
 def test_remember_memory_survives_concurrent_write_after_authorization(tmp_path: Path, monkeypatch) -> None:
     async def scenario() -> None:
         async with _server(tmp_path) as (_, client, access):
@@ -2148,5 +2181,65 @@ def test_atomic_scope_search_and_list_keep_exact_artifact_shares_separate(tmp_pa
             denied = await client.get("/dashboard/notes", headers=reader, params=query)
             assert denied.status_code == 403, denied.text
             assert "Alpha scope fact." not in denied.text
+
+    asyncio.run(scenario())
+
+
+def test_static_preset_preserves_revoked_legacy_long_scope_receipts(tmp_path):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+    from powercontext.server.authz import AccessBinding, AccessBindingState, AccessControlService, AccessRole
+    from powercontext.server.authz.repository import RelationalAccessRepository
+
+    async def scenario():
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'legacy-preset.db'}"))
+        async with open_builtin_contexts(config) as contexts:
+            scope_id = "s" * 256
+            await contexts.get(scope_id)
+            actor = PrincipalRef(type="service", id="server-token")
+            repository = RelationalAccessRepository(contexts.database)
+            access = AccessControlService(
+                BuiltinAuthorizationProvider(repository),
+                relationships=repository,
+                audit=repository,
+                static_scope_principal=actor,
+            )
+            resource = ResourceRef.scope(scope_id)
+            for role in (
+                AccessRole.SCOPE_VIEWER,
+                AccessRole.SCOPE_CONTRIBUTOR,
+                AccessRole.SCOPE_REVIEWER,
+                AccessRole.SCOPE_DELEGATOR,
+            ):
+                binding = await repository.create_binding(
+                    AccessBinding(
+                        binding_id=str(uuid4()),
+                        subject=actor,
+                        resource=resource,
+                        role=role,
+                        granted_by=actor,
+                        reason="static bearer preset",
+                        created_at=datetime.now(UTC),
+                        expires_at=None,
+                        state=AccessBindingState.ACTIVE,
+                        version=1,
+                        policy_revision="pending",
+                        idempotency_key=f"static-preset:{access.deployment_id}:{actor.id}:{scope_id}:{role.value}",
+                    )
+                )
+                if role is AccessRole.SCOPE_CONTRIBUTOR:
+                    await repository.revoke_binding(
+                        binding.binding_id,
+                        expected_version=1,
+                        idempotency_key="revoke-legacy",
+                        revoked_at=datetime.now(UTC),
+                        revoked_by=actor,
+                    )
+            assert not await access.static_scope_bootstrap_would_grant(actor, AccessAction.SCOPE_CONTRIBUTE, resource)
+            await access.bootstrap_static_scope(actor, scope_id, context=AUDIT)
+            assert not (await access.check(actor, AccessAction.SCOPE_CONTRIBUTE, resource, context=AUDIT)).allowed
+            assert (await access.check(actor, AccessAction.SCOPE_READ, resource, context=AUDIT)).allowed
 
     asyncio.run(scenario())

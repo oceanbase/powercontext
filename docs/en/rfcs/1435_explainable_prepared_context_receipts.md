@@ -1,5 +1,6 @@
 ---
-title: "RFC 1435: Explainable PreparedContext Receipts"
+title: "RFC 1435: PreparedContext receipts"
+description: A proposal for optional recall receipts describing selected and omitted items, retrieval paths, and byte budgets without storing query or body text.
 ---
 
 - Proposal Name: `explainable_prepared_context_receipts`
