@@ -29,7 +29,7 @@ While researching Terminal-Bench, we started looking at [Harbor](https://harborf
 
 *Figure 1: Submitted code is then run and checked. Predefined tests apply the same acceptance criteria across runs.*
 
-A database WAL recovery task, for example, includes database files, a runtime environment, and verification scripts. We chose to reuse these native tasks and extend evaluation through Harbor's task model to avoid rebuilding that machinery. That leaves us to connect PowerContext to the workflow and collect evidence that helps explain the effect of enabling the context system.
+A database WAL recovery task, for example, includes database files, a runtime environment, and verification scripts. We chose to reuse these native tasks and extend evaluation through Harbor's task model to avoid rebuilding that machinery. We integrate PowerContext into this workflow and collect evidence to compare agent behavior with and without it.
 
 ## Choosing where to extend Harbor
 
@@ -57,7 +57,7 @@ For example, an initial session explicitly states that the search-result cache d
 
 *Figure 3: The new session prepares context through the same Scope. The task's verifier then checks whether the answer distinguishes the current and previous values.*
 
-We also adapted MemoryCode to cover more scenarios involving ongoing coding collaboration. Its mentoring exchanges contain coding conventions, rule updates, and unrelated content. Each exchange becomes a separate session. The final session writes code following the earlier conventions, and the output is evaluated with upstream object extraction and rule checks. Unlike the protocol in the original paper, our final session does not receive the original conversations. The results should therefore be interpreted as an evaluation of context use across sessions. After each preliminary stage, the task resets the workspace to reduce the opportunity for an agent to recover requirements from notes left there. [MemoryCode task design](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/README.md#memorycode-workloads)
+We also adapted MemoryCode to cover more scenarios involving ongoing coding collaboration. Its mentoring exchanges contain coding conventions, rule updates, and unrelated content. Each exchange becomes a separate session. The final session writes code following the earlier conventions, and the output is evaluated with upstream object extraction and rule checks. Unlike the protocol in the original paper, our final session does not receive the original conversations. These tasks therefore test whether an agent can use context from earlier sessions to follow the established conventions. After the preliminary stage, the task resets the workspace to reduce the opportunity for an agent to recover requirements from notes left there. [MemoryCode task design](https://github.com/oceanbase/powercontext/blob/20f64d72b13594ad834fcd342f5927d0d0102abb/e2e/bub/README.md#memorycode-workloads)
 
 These tasks also support OFF/ON comparisons of agent behavior with and without PowerContext. The OFF arm runs the native agent without PowerContext integration. The ON arm enables the host's PowerContext integration, captures information from the initial sessions, and prepares relevant context for continuation. Both arms use the same task, host, and model configuration, and run in separate containers.
 
@@ -77,6 +77,6 @@ PowerContext's specialized evaluations of memory quality, performance, and other
 
 We initially wanted to test whether a context system could help an agent continue longer coding work. As the tasks and integration methods grew, Harbor's execution mechanisms gave these experiments a common foundation. We extended its existing interfaces with context evaluation and execution support while retaining the ability to run native tasks.
 
-This harness makes experiments easier to organize, but each result still has to be interpreted in its task conditions. We therefore record task scores and context behavior separately, along with runtime configuration and evidence, so we can examine how a success or failure occurred. Specialized evaluations that need different execution and scoring methods currently retain independent flows.
+This harness makes experiments easier to organize, but each result still has to be interpreted in light of the task conditions. We therefore record task scores and context behavior separately, along with runtime configuration and evidence, so we can examine how a success or failure occurred.
 
 Thanks to [Fengzdadi](https://github.com/Fengzdadi), [knqiufan](https://github.com/knqiufan), [Russell Lin](https://github.com/russell001209-ai), [ThunGuo](https://github.com/thunguo), and everyone who contributed to the design, implementation, and validation of the E2E harness.
