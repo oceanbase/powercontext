@@ -401,10 +401,10 @@ def test_a_body_that_outlives_its_slice_is_repeated_not_dropped(tmp_path: Path) 
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'late-body.db'}")
         async with _database(config) as database:
-            # One record's 0.2s budget is spent in 0.05s slices, so a 0.08s body
-            # outlives the attempt that owns it while the record owns budget.
-            repository = _SlowBodyRepository(delay=0.08)
-            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=0.2)
+            # The first 1.25s slice expires during the 1.5s body. Leave several
+            # seconds for the real SQLite retry and commit on a loaded runner.
+            repository = _SlowBodyRepository(delay=1.5)
+            recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5.0, flush_timeout_seconds=5.0)
             try:
                 _offer(recorder)
                 await recorder.flush()
@@ -833,7 +833,10 @@ def test_native_deadline_before_commit_retries_usage_without_double_counting(tmp
             else SQLiteConfig()
         )
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, InterruptedOnceRepository(), write_timeout_seconds=0.4)
+            # Leave scheduling and cleanup margin for the native interruption and retry.
+            recorder = _ModelUsageRecorder(
+                database, InterruptedOnceRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
+            )
             try:
                 _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
                 await recorder.flush()

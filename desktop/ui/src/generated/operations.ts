@@ -15,7 +15,7 @@
  */
 
 // Generated from openapi/powercontext.yaml. Do not edit.
-export const contractSha256 = "e0b4ef55b1fda0f4eb84416a033714fdcdf7b3458de873108d744ebb334d8e23";
+export const contractSha256 = "e54d69cdcbeef19a816e92670901aacda9c7e44df289c88c18ad5ae364a6efeb";
 export const operations = {
   "get_liveness": {
     "method": "GET",
@@ -60,6 +60,10 @@ export const operations = {
   "get_artifact_revision": {
     "method": "GET",
     "path": "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}"
+  },
+  "get_connection_identity": {
+    "method": "GET",
+    "path": "/v1/connection/identity"
   },
   "get_access_principal": {
     "method": "GET",
