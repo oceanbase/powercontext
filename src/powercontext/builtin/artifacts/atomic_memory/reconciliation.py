@@ -198,6 +198,22 @@ class AtomicMemoryWindowWorkset:
             self.origins[read.ref.artifact_id] = item.key
         return item.key
 
+    def release(self, keys: Iterable[str], *, keep: str | None = None) -> None:
+        """Drop compared page-local bodies while retaining their read dependencies."""
+
+        for key in dict.fromkeys(keys):
+            resolved = self.resolve(key)
+            if keep is not None and resolved == self.resolve(keep):
+                continue
+            item = self.items.get(resolved)
+            if item is None or item.changed:
+                continue
+            del self.items[resolved]
+            for read in item.origins:
+                identity = read.ref.artifact_id
+                if self.origins.get(identity) == resolved:
+                    del self.origins[identity]
+
     def related(self, proposal_key: str, keys: Iterable[str]) -> tuple[AtomicMemoryWorkingItem, ...]:
         current = self.resolve(proposal_key)
         selected = tuple(dict.fromkeys(self.resolve(key) for key in keys))
