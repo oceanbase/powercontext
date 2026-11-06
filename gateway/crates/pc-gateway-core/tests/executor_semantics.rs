@@ -22,7 +22,7 @@ use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
 use pc_gateway_protocol::{
     CanonicalMessage, CanonicalRequest, OutputLimits, RenderedPayload, Role, WireRenderer,
 };
-use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
+use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
     CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, PrepareContextRequest, PrepareContextResult, PreparedContext,
@@ -81,6 +81,8 @@ struct FakeGate {
     prepared_seen: Mutex<Vec<Vec<PreparedContextLocation>>>,
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
+    /// 每次 prepare 是否请求了代码证据。
+    prepare_include_code: Mutex<Vec<bool>>,
     captured: Mutex<Vec<(String, String)>>,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
@@ -132,6 +134,10 @@ impl GateClient for FakeGate {
         request: PrepareContextRequest,
     ) -> impl Future<Output = Result<PrepareContextResult, GateError>> + Send {
         self.prepare_queries.lock().unwrap().push(request.query);
+        self.prepare_include_code
+            .lock()
+            .unwrap()
+            .push(request.include_code);
         let queued = self.prepare_queue.lock().unwrap().pop_front();
         let hold = self.prepare_holds.lock().unwrap().pop_front().flatten();
         let step =
@@ -260,6 +266,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         headers: vec![("authorization".into(), "Bearer secret".into())],
         degrade_policy: degrade,
         inject_context: false,
+        include_code: false,
         conversation_id: None,
         sediment: false,
         prepared_contexts: Vec::new(),
@@ -357,6 +364,7 @@ fn harness(
         prepare_queue: Mutex::new(VecDeque::new()),
         prepare_holds: Mutex::new(VecDeque::new()),
         prepare_queries: Mutex::new(Vec::new()),
+        prepare_include_code: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
         capture_error: Mutex::new(None),
     });
@@ -2865,4 +2873,248 @@ async fn a_hosted_tool_response_is_terminal_but_a_client_tool_call_is_not() {
             "arguments": "{\"query\":\"loader\",\"type\":\"search\"}"}])
     );
     assert_eq!(transcript["assistant"], "found it");
+}
+
+// ---------- #2405：复用证明的依赖变化后重新准备一次 ----------
+
+fn refresh_required() -> Result<ContextCheckResult, GateError> {
+    Ok(result(
+        CheckPhase::BeforeSend,
+        CheckDecision::Withhold,
+        &["context-refresh-required"],
+    ))
+}
+
+#[tokio::test]
+async fn a_stale_reuse_proof_drops_the_replay_and_prepares_once_more() {
+    let allow_send = || Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]));
+    let allow_release = || Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[]));
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            // 第一步：准备 snapshot-1 并发送。
+            allow_send(),
+            allow_release(),
+            // 第二步：重放的 snapshot-1 已失效 → 重新准备 snapshot-2 → 放行。
+            refresh_required(),
+            allow_send(),
+            allow_release(),
+            // 第三步：重放 snapshot-2。
+            allow_send(),
+            allow_release(),
+        ],
+        (0..3).map(|_| raw_response()).collect(),
+        2,
+    );
+    for snapshot in ["memory-snapshot-1", "memory-snapshot-2"] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(snapshot)));
+    }
+    let r = RendererRef(renderer.clone());
+    for step in 0..3 {
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                tool_loop_call("fix the bug", step, false),
+                &r,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::ResponseReceived
+        );
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+        );
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(
+        transport.sends.lock().unwrap().len(),
+        3,
+        "the stale value is never sent"
+    );
+    let checked: Vec<_> = sends(&gate).into_iter().map(|(body, _)| body).collect();
+    assert_eq!(checked.len(), 4);
+    assert!(checked[0].contains("memory-snapshot-1"));
+    assert!(checked[1].contains("memory-snapshot-1"));
+    assert!(checked[2].contains("memory-snapshot-2") && !checked[2].contains("memory-snapshot-1"));
+    assert!(checked[3].contains("memory-snapshot-2"));
+}
+
+#[tokio::test]
+async fn a_request_refreshes_at_most_once() {
+    let (executor, renderer, transport, gate) =
+        harness(vec![refresh_required(), refresh_required()], vec![], 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let outcome = executor
+        .run(
+            request_control(),
+            tool_loop_call("fix the bug", 0, false),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::Withheld { ref reason_codes } if reason_codes == &["context-refresh-required"]),
+        "{outcome:?}"
+    );
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(sends(&gate).len(), 2);
+    assert!(transport.sends.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn refresh_required_without_an_injection_is_withheld_directly() {
+    let (executor, renderer, _transport, gate) = harness(vec![refresh_required()], vec![], 2);
+    let mut c = tool_loop_call("fix the bug", 0, false);
+    c.inject_context = false;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Withheld { .. }));
+    assert!(gate.prepare_queries.lock().unwrap().is_empty());
+    assert_eq!(sends(&gate).len(), 1);
+}
+
+#[tokio::test]
+async fn code_evidence_is_requested_only_when_enabled() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    let r = RendererRef(renderer.clone());
+    for include_code in [false, true] {
+        let mut c = call(DegradePolicy::Pause);
+        c.inject_context = true;
+        c.include_code = include_code;
+        executor
+            .run(request_control(), c, &r, &NoopEvidenceSink)
+            .await;
+    }
+    assert_eq!(
+        *gate.prepare_include_code.lock().unwrap(),
+        vec![false, true]
+    );
+}
+
+#[tokio::test]
+async fn refreshed_context_cannot_exceed_the_rendered_input_limit() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            refresh_required(),
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let executor = executor.with_input_limit(1024);
+    for snapshot in ["small snapshot".to_string(), "私密\n\"".repeat(1000)] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(&snapshot)));
+    }
+    let control = request_control();
+    let observation = control.observation();
+    let outcome = executor
+        .run(
+            control,
+            tool_loop_call("fix the bug", 0, false),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Blocked { reason_codes }
+        if reason_codes == ["request_payload_too_large"]));
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(gate.seen.lock().unwrap().len(), 1);
+    assert!(transport.sends.lock().unwrap().is_empty());
+    assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+    assert_eq!(
+        observation.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::Blocked)
+    );
+}
+
+#[tokio::test]
+async fn rendered_capacity_includes_prepared_context_and_replay() {
+    let (executor, renderer, transport, gate) = harness(vec![], vec![], 2);
+    let executor = executor.with_input_limit(256);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(&"私密\n\"".repeat(100))));
+    for _ in 0..2 {
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                ManagedCall {
+                    inject_context: true,
+                    conversation_id: Some("capacity-test".into()),
+                    ..call(DegradePolicy::Pause)
+                },
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Blocked { reason_codes }
+            if reason_codes == ["request_payload_too_large"]));
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+    }
+    assert!(transport.sends.lock().unwrap().is_empty());
+    assert!(gate.seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn response_capacity_withholds_without_retry_and_preserves_possible_billing() {
+    for degrade in [
+        DegradePolicy::Pause,
+        DegradePolicy::PassthroughWithoutMemory,
+    ] {
+        let check = if degrade == DegradePolicy::Pause {
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))
+        } else {
+            Err(GateError::GateUnavailable("offline".into()))
+        };
+        let (executor, renderer, transport, _) = harness(
+            vec![check],
+            vec![SendOutcome::Indeterminate(
+                SendIndeterminateReason::BufferLimitExceeded,
+            )],
+            3,
+        );
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                call(degrade),
+                &RendererRef(renderer),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Withheld { reason_codes }
+            if reason_codes == ["response_buffer_limit_exceeded"]));
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::PossiblySent
+        );
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::Withheld)
+        );
+        assert_eq!(transport.sends.lock().unwrap().len(), 1, "no paid resend");
+    }
 }

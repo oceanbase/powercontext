@@ -15,6 +15,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { PowerContextClient } from './client.ts'
 import { registerCommands } from './commands.ts'
 import { resolveConfig, type PluginConfig } from './config.ts'
@@ -26,11 +28,12 @@ import { loadPeer } from './peers.ts'
 import { runRecallPreStep, type PromptMessage } from './recall.ts'
 import { resolveScopeId } from './scope.ts'
 import { registerGuidance } from './guidance.ts'
+import { requireService } from './dsh-service.ts'
 import { RuntimeStatus } from './status.ts'
 
 export const name = PLUGIN_NAME
 
-export const inject = ['tools', 'agents', 'commands', 'systemPrompt']
+export const inject = ['tools', 'agents', 'commands', 'skills', 'systemPrompt']
 
 export interface Config extends PluginConfig {}
 
@@ -55,7 +58,7 @@ export const Config = {
 type CreateUserMessage = (input: {
   content: Array<{ type: 'text'; text: string }>
   source: {
-    kind: 'plugin'; plugin: string; form: 'snapshot'
+    kind: `plugin:${string}`; form: 'snapshot'
     sections: Array<{ name: string; text: string }>
   }
 }) => unknown
@@ -138,14 +141,14 @@ function registerRecall(
       wrapContent: (text) => createUserMessage({
         content: [{ type: 'text', text }],
         source: {
-          kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
+          kind: `plugin:${PLUGIN_NAME}`, form: 'snapshot',
           sections: [{ name: 'PowerContext', text }],
         },
       }),
       wrapScope: (text) => createUserMessage({
         content: [{ type: 'text', text }],
         source: {
-          kind: 'plugin', plugin: PLUGIN_NAME, form: 'snapshot',
+          kind: `plugin:${PLUGIN_NAME}`, form: 'snapshot',
           sections: [{ name: 'PowerContext Scope routing', text }],
         },
       }),
@@ -155,11 +158,26 @@ function registerRecall(
   }) as never)
 }
 
+function registerSkill(ctx: Context): void {
+  const skills = requireService<{ register(skill: Record<string, unknown>): unknown }>(ctx, 'skills')
+  const skillRoot = new URL('../skills/powercontext-project-context/', import.meta.url)
+  const content = readFileSync(new URL('SKILL.md', skillRoot), 'utf8')
+  skills.register({
+    name: 'powercontext-project-context',
+    description: 'PowerContext memory search/save, inventory, work handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.',
+    source: 'runtime',
+    whenToUse: 'Use when continuing work across sessions, recalling prior decisions, preparing a handoff, or maintaining durable memory.',
+    resourceBase: { kind: 'directory', path: fileURLToPath(skillRoot) },
+    content,
+  })
+}
+
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const llmMod = await loadPeer<{ createUserMessage: CreateUserMessage }>('@deepseek-ai/dsh-llm')
   const runtime = createRuntime(ctx, config)
   const sessionScope = createSessionScopeResolver(runtime)
   registerMcpPolicy(ctx, sessionScope.forTool)
+  registerSkill(ctx)
   registerGuidance(ctx)
   registerRecall(ctx, runtime, llmMod.createUserMessage, sessionScope.forPreStep)
   registerCommands(ctx, runtime)

@@ -107,6 +107,18 @@ pub async fn check_connection<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+pub async fn probe_readiness<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    id: String,
+    revision: u32,
+) -> Result<DesktopState, ApiFailure> {
+    manager(&window, &state)?
+        .probe_readiness(&id, revision)
+        .await
+}
+
+#[tauri::command]
 pub fn disconnect<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
     state: tauri::State<'_, HostState>,

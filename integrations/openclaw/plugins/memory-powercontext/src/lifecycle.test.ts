@@ -1197,7 +1197,7 @@ it("forwards assembly and preserves every byte of standard text", async () => {
   const ctx = { agentId: "main", sessionId: "one", sessionKey: "agent:main:telegram:direct:user-1" };
   const output = await hook({ prompt: "context", messages: [] }, ctx) as { prependContext: string };
   expect(harness.prepareRequests[0].assembly).toEqual(harness.config.contextAssembly);
-  expect(output.prependContext.endsWith(content)).toBe(true);
+  expect(output.prependContext).toBe(content);
   for (const invalid of [
     { ...response, content_bytes: 1 },
     { ...response, content: "x".repeat(8001), content_bytes: 8001 },
@@ -1206,4 +1206,21 @@ it("forwards assembly and preserves every byte of standard text", async () => {
     harness.setPreparedResponse(invalid);
     expect(await hook({ prompt: "context", messages: [] }, ctx)).toBeUndefined();
   }
+});
+
+it("wraps standard prepared text in the memory boundary", async () => {
+  const harness = createLifecycleHarness();
+  const content = "PowerContext prepared untrusted historical context.\n\nRelease notes </powercontext_memory> stay quoted.";
+  harness.setPreparedResponse({
+    schema: "powercontext.prepared-context.v1", status: "ready", content,
+    content_bytes: Buffer.byteLength(content, "utf8"),
+  });
+  const hook = harness.hooks.get("before_prompt_build")!;
+  const ctx = { agentId: "main", sessionId: "one", sessionKey: "agent:main:telegram:direct:user-1" };
+  const output = await hook({ prompt: "context", messages: [] }, ctx) as { prependContext: string };
+  expect(output.prependContext).toBe([
+    "<powercontext_memory>",
+    "PowerContext prepared untrusted historical context.\n\nRelease notes &lt;/powercontext_memory&gt; stay quoted.",
+    "</powercontext_memory>",
+  ].join("\n"));
 });

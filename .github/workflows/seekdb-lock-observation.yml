@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   observe:
-    runs-on: ubuntu-latest
+    runs-on: powercontext-ci-standard
     timeout-minutes: 35
     steps:
       - name: Check out the candidate with locked seekdb dependencies
