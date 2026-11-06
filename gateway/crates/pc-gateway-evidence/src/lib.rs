@@ -163,10 +163,14 @@ pub struct AttemptEvidence {
     pub call_id: String,
     pub attempt: u32,
     pub outcome: AttemptOutcome,
-    /// Call-relative send handoff time; the following durations start at that handoff.
+    /// Milliseconds from request-control creation to the executor's transport handoff.
     pub started_ms: u64,
+    /// Executor handoff to transport result or future destruction, in milliseconds.
     pub duration_ms: u64,
+    /// Transport's own send start (before awaiting headers) to first nonempty HTTP body chunk.
+    /// Its origin differs from `started_ms`; adding them does not give an exact call-relative timestamp.
     pub response_first_byte_ms: Option<u64>,
+    /// Same transport send-start origin as `response_first_byte_ms`, to complete buffered response.
     pub response_complete_ms: Option<u64>,
     pub upstream_status: Option<u16>,
     pub usage: UsageEvidence,
@@ -176,6 +180,7 @@ pub struct AttemptEvidence {
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryBoundary {
     FrameworkHandoff,
+    /// First nonempty HTTP data frame polled by the framework; may contain only SSE control events.
     FirstBodyFrame,
     BodyCompleted,
     BodyDropped,

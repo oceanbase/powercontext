@@ -106,9 +106,15 @@ transport 交付完整响应后，解码或释放失败不会丢掉 usage。直�
 | `release_authorized_ms` | 创建请求控制至通过校验且未过期的释放批准，位于可选 capture 之后 |
 | 交付 `elapsed_ms` | 创建请求控制至所标记的框架观测 |
 
+执行器交接与 transport 自身的发送起点不同，两者的精确偏移没有记录。
+`started_ms + response_first_byte_ms` 或 `started_ms + response_complete_ms` 不能得到精确的调用相对时间戳。
+
 `delivery` 在获准/降级响应体放入 HTTP 响应时报告 `framework_handoff`，框架首次轮询取出非空 data frame
 时报告 `first_body_frame`，包装的 body 报告完成时为 `body_completed`，观察到完成之前被丢弃时为 `body_dropped`。
-strict 模式的释放批准先于框架交接与内容 frame 观测。降级响应没有释放批准时间。
+strict 模式的释放批准先于框架交接与首个 data frame 观测。降级响应没有释放批准时间。
+对于 SSE，首个 data frame 可能仅包含 `response.created` 等控制事件，没有模型内容。
+因此 `first_body_frame` 不表示首次模型内容交付；当前没有测量该边界。
+G8 消费方若依赖首次模型内容交付指标，必须将其视为未知，不能用 `first_body_frame` 替代。
 这些边界都不证明 socket 写入、客户端收到、呈现或采用。当前宿主无法观察实际 socket 写出。
 非流式 Responses JSON 的首字节及重放的 SSE 输出不是 provider TTFT。
 
@@ -117,6 +123,9 @@ strict 模式的释放批准先于框架交接与内容 frame 观测。降级响
 原来从 stdout 采集人类可读 tracing 的部署，需要改为采集 stderr，并单独解析 stdout 证据。
 无需数据库迁移、新 HTTP 端点、Python operational 字段或 OpenAPI 重新生成。
 该 JSON schema 独立于 Server 的 Python 日志白名单与现有 exporter。
+Gateway 客户端可见的 HTTP 503 `gate_paused` 响应中，Core 不可用错误的 `detail` 归一化为
+`gate_unavailable`，Core 响应畸形错误的 `detail` 归一化为 `malformed_gate_response`，不再暴露原始诊断文本。
+客户端不应依赖原来的自由文本 detail，应使用状态码和 `decision` 处理结果。
 自定义嵌入 sink 的同步回调必须有界、不阻塞且不执行 I/O；将阻塞 writer 接入 `JsonEvidenceSink`，
 每个宿主保留一个 sink。自定义 writer 应返回 I/O 错误，不应 panic。
 Rust 集成改为读取 `CallEvidence.usage` 中逐字段的数量与完整性，不再读取演示记录原来的扁平 token/completeness 字段。

@@ -112,10 +112,16 @@ All durations are monotonic milliseconds, truncated to integers. Null means unav
 | `release_authorized_ms` | Request-control creation to validated, unexpired release after optional capture |
 | Delivery `elapsed_ms` | Request-control creation to the named framework observation |
 
+The executor handoff and the transport's own send start are separate origins. Their exact offset is not recorded;
+`started_ms + response_first_byte_ms` or `started_ms + response_complete_ms` is not an exact call-relative timestamp.
+
 A `delivery` record reports `framework_handoff` when the released/degraded body is placed in the HTTP response,
 `first_body_frame` when the framework first polls a nonempty data frame, `body_completed` when the wrapped body
 reports completion, or `body_dropped` if dropped before observed completion. Strict release authorization precedes
-framework handoff and content-frame observation. A degraded response has no release authorization timestamp.
+framework handoff and first-data-frame observation. A degraded response has no release authorization timestamp.
+For SSE, the first data frame may contain a control event such as `response.created` without model content.
+`first_body_frame` therefore does not measure first model-content delivery. That boundary is currently unmeasured;
+G8 consumers requiring it must treat it as unknown and must not substitute `first_body_frame`.
 No boundary proves a socket write, client receipt, rendering or adoption. The current host cannot observe actual
 socket writes. Non-streaming Responses JSON's first byte and replayed SSE output are not provider TTFT.
 
@@ -124,6 +130,9 @@ socket writes. Non-streaming Responses JSON's first byte and replayed SSE output
 Collectors that previously consumed human tracing from stdout must move that input to stderr and parse evidence
 stdout separately. No database migration, new HTTP endpoint, Python operational field or OpenAPI regeneration is
 required. The JSON schema is separate from the Server's allowlisted Python log fields and existing exporters.
+The Gateway's client-visible HTTP 503 `gate_paused` body normalizes `detail` for Core-unavailable errors to
+`gate_unavailable`, and for malformed Core-response errors to `malformed_gate_response`, instead of exposing raw
+diagnostic text. Clients must not depend on the former free-form detail; use the status and `decision` for handling.
 Custom embedding sinks must keep synchronous callbacks bounded, nonblocking and free of I/O; route blocking writers
 through `JsonEvidenceSink` and keep one sink per host. Custom writers must return I/O errors without panicking.
 Rust integrations consume the nested per-field `CallEvidence.usage` instead of the demo record's former flat token/completeness fields. There is no production record-store migration. They must replace `RawResponse.ttft_ms` with the explicit first-byte/completion fields and handle

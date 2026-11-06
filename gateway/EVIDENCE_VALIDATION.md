@@ -63,16 +63,25 @@ Local Core/provider HTTP fixtures and fake-Gate executor tests are distinct from
 hosted model provider, external telemetry backend, or native agent host. Those external environments were not
 executed. The spawned-process test establishes the Rust Gateway's production assembly and local HTTP behavior,
 not a third-party agent's cancellation, socket-write visibility or task adoption. No paid model calls were made.
+The first nonempty body frame can contain only SSE control events. First model-content delivery is unmeasured;
+this evidence does not establish the literal first-content boundary in #2463 behavior 4. G8 must treat that metric
+as unknown rather than substituting `first_body_frame`.
 
 本地 Core/provider HTTP fixture、FakeGate 执行器测试不等同于真实 PowerContext Core、真实模型供应商、外部观测后端
 或原生 agent 宿主；这些外部环境未执行。真实子进程测试证明 Rust Gateway 生产装配及本地 HTTP 行为，
 不证明第三方 agent 的取消能力、实际 socket 写出或任务采用，没有调用付费模型。
+首个非空 body frame 可能仅包含 SSE 控制事件；首次模型内容交付没有测量，不能据此宣称已验收
+#2463 行为 4 中字面上的首次内容边界。G8 必须将该指标视为未知，不能使用 `first_body_frame` 替代。
 
-No public HTTP contract, Python operational fields, database records or dependency lockfiles changed.
+No OpenAPI contract, Python operational fields, database records or dependency lockfiles changed.
+The Gateway's client-visible HTTP 503 `gate_paused.detail` is normalized for Core-unavailable and malformed-response
+errors; the bilingual deployment contract documents these fixed values and the client migration behavior.
 OpenAPI generation/contract regeneration and Python logging formatter tests are therefore not applicable.
 The bilingual [output contract](../docs/en/docs/operate/gateway-evidence.md) /
 [输出契约](../docs/zh/docs/operate/gateway-evidence.md) defines retention, unknown usage, interruption facts,
 framework boundaries and deployment/Rust migration behavior. No deployment or GitHub issue closure was performed.
 
-未修改公开 HTTP 契约、Python operational 字段、数据库记录或依赖锁文件，无需重新生成 OpenAPI 或验证 Python formatter。
+未修改 OpenAPI 契约、Python operational 字段、数据库记录或依赖锁文件，无需重新生成 OpenAPI 或验证 Python formatter。
+Gateway 客户端可见的 HTTP 503 `gate_paused.detail` 对 Core 不可用及响应畸形错误进行了归一化，
+双语部署契约记录了固定值与客户端迁移行为。
 双语契约定义保留、未知 usage、中断事实、框架边界及部署/Rust 迁移行为；未执行部署或关闭 GitHub Issue。
