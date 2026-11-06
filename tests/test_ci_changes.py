@@ -138,7 +138,7 @@ def test_shared_or_unclassified_changes_run_every_suite(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "src/powercontext/server/authz/owner_recovery.py",
+        "src/powercontext/builtin/authz/owner_recovery.py",
         "src/powercontext/builtin/persistence/mysql.py",
         "uv.lock",
         "pyproject.toml",
@@ -160,7 +160,7 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "managed_resources",
     } <= {suite for suite, enabled in selected.items() if enabled}
     assert not selected["release_schema"]
-    assert selected["seekdb_lock"] is (path != "src/powercontext/server/authz/owner_recovery.py")
+    assert selected["seekdb_lock"] is (path != "src/powercontext/builtin/authz/owner_recovery.py")
 
 
 def git(repository: Path, *arguments: str) -> str:

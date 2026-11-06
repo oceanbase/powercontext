@@ -48,8 +48,8 @@ from powercontext.cli.config_wizard_seekdb import (
     start_seekdb_install,
 )
 from powercontext.cli.config_wizard_ui import WizardUI, choose_language
-from powercontext.cli.env_file import EnvironmentFileError, parse_environment
 from powercontext.client.settings import normalize_server_url
+from powercontext.env_file import EnvironmentFileError, parse_environment
 from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
 
 SERVER = "POWERCONTEXT_SERVER_"

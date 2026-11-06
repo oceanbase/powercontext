@@ -30,11 +30,11 @@ import httpx
 import pytest
 import yaml
 
+from powercontext.builtin.authz import AccessAction, AccessAuditContext, AccessDeniedError, PrincipalRef, ResourceRef
+from powercontext.builtin.authz.composition import open_builtin_access_control
+from powercontext.builtin.authz.owner_recovery import OwnerRecovery
+from powercontext.builtin.authz.profiles import register_custom_artifact_access_family
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.server.authz import AccessAction, AccessAuditContext, AccessDeniedError, PrincipalRef, ResourceRef
-from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.authz.owner_recovery import OwnerRecovery
-from powercontext.server.authz.profiles import register_custom_artifact_access_family
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples/artifact_plugins/incident_report"
 SUMMARY_EXAMPLE = EXAMPLE.parent / "ticket_summary"

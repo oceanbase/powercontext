@@ -376,7 +376,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
             "embedding_dimension": configured_settings.inference.embedding_dimension,
             "database": configured_settings.database.kind,
             "database_isolated": isinstance(configured_settings.database, SQLiteConfig),
-            "experience_incubation": "APScheduler with the configured real generation model",
+            "experience_incubation": "artifact processing supervisor with the configured real generation model",
             "experience_schedule_seconds": CONFIGURED_EXPERIENCE_SCHEDULE_SECONDS,
         })
     recorder.write_report()
@@ -393,10 +393,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
             validation_command="python test_config.py" if configured_settings is None else "python3 test_config.py",
         )
         if configured_settings is None:
-            server = _start_server(
-                recorder.directory / "runtime.db",
-                recorder.directory / "scheduler.db",
-            )
+            server = _start_server(recorder.directory / "runtime.db")
         else:
             external_skill = _prepare_external_skill(recorder.directory / "work" / "external-skills")
             configured_server_settings = _configured_server_settings(
@@ -404,10 +401,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
                 recorder.directory,
                 external_skill.parent,
             )
-            server = _start_configured_server(
-                configured_server_settings,
-                recorder.directory / "configured-scheduler.db",
-            )
+            server = _start_configured_server(configured_server_settings)
         recorder.environment["server_url"] = server.base_url
         recorder.write_report()
         if configured_settings is None:
@@ -447,10 +441,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
             )
             server.stop()
             server = None
-            server = _start_configured_server(
-                _without_scheduled_processing(configured_server_settings),
-                recorder.directory / "configured-scheduler.db",
-            )
+            server = _start_configured_server(_without_scheduled_processing(configured_server_settings))
             asyncio.run(
                 _verify_configured_restart(
                     database=configured_settings.database,
@@ -912,7 +903,7 @@ async def _run_configured_journey(
             )
 
         with recorder.scenario(
-            "configured LLM and APScheduler incubate one gated Experience Candidate",
+            "configured LLM and automatic processing incubate one gated Experience Candidate",
             "api/experience-source.json",
             "api/experience-candidate.json",
             "api/experience-approved.json",
@@ -2031,7 +2022,7 @@ def _prepare_repositories(
     return repositories
 
 
-def _start_server(database: Path, scheduler: Path) -> RunningServer:
+def _start_server(database: Path) -> RunningServer:
     with ExitStack() as resources:
         endpoint = resources.enter_context(_task_outcome_provider())
         app = create_server_app(
@@ -2044,7 +2035,6 @@ def _start_server(database: Path, scheduler: Path) -> RunningServer:
                 ),
                 mcp=McpConfig(enabled=False),
             ),
-            scheduler_path=scheduler,
         )
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         resources.callback(listener.close)
@@ -2069,8 +2059,8 @@ def _start_server(database: Path, scheduler: Path) -> RunningServer:
         )
 
 
-def _start_configured_server(settings: ServerSettings, scheduler_path: Path) -> RunningServer:
-    app = create_server_app(settings=settings, scheduler_path=scheduler_path)
+def _start_configured_server(settings: ServerSettings) -> RunningServer:
+    app = create_server_app(settings=settings)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", 0))

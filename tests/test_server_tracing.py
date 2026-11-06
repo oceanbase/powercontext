@@ -535,7 +535,6 @@ def test_readiness_ignores_tracing_setup_failure(monkeypatch, tmp_path) -> None:
             metrics=MetricsConfig(enabled=False),
             logging=ServerLoggingConfig(access=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
         tracing=tracing,
     )
 

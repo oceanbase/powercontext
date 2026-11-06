@@ -27,11 +27,11 @@ from httpcore._backends.anyio import AnyIOBackend, AnyIOStream
 from pydantic import SecretStr
 
 from examples.context_protection.external_executor import ExecutionRefused, TrustedTarget, execute_checked_json
+from powercontext.builtin.authz.composition import open_builtin_access_control
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.builtin.runtime import context_check as context_check_runtime
 from powercontext.client import PowerContextClient
 from powercontext.http import ModelJsonPayload, PrepareContextRequest, PreparedContextLocation, PreparedContextWithReuse
-from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_access_control_regressions import _scope, _server
@@ -85,7 +85,6 @@ def test_external_executor_preserves_approved_bytes_and_withholds_blocked_conten
         app = create_server_app(
             settings=settings,
             authentication_provider=_Authentication(),
-            scheduler_path=tmp_path / "scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),

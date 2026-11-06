@@ -326,7 +326,6 @@ def test_real_kimi_memory_capture_recall_and_fail_open(tmp_path: Path, monkeypat
                 generation_headers={"Authorization": SecretStr("Bearer synthetic-generation")},
             ),
         ),
-        scheduler_path=tmp_path / "scheduler",
     )
     with (
         serving(app, startup_diagnostic=tmp_path / "server-startup.json") as (server, endpoint, server_thread),

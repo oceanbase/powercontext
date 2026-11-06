@@ -62,14 +62,11 @@ def test_http_code_prepare_preserves_approved_experience_when_memory_is_empty(tm
             settings=ServerSettings(
                 database=database, mcp=McpConfig(enabled=False), metrics=MetricsConfig(enabled=False)
             ),
-            scheduler_path=tmp_path / "bootstrap-scheduler.db",
         )
         # Initialize Server-owned storage before seeding it through the SDK.
         async with bootstrap.router.lifespan_context(bootstrap):
             pass
-        async with open_builtin_runtime(
-            BuiltinConfig(database=database), scheduler_path=tmp_path / "runtime-scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(BuiltinConfig(database=database)) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Budget history", summary="Mixed context evidence", idempotency_key="code-history")
@@ -108,7 +105,6 @@ def test_http_code_prepare_preserves_approved_experience_when_memory_is_empty(tm
             settings=ServerSettings(
                 database=database, code=code, mcp=McpConfig(enabled=False), metrics=MetricsConfig(enabled=False)
             ),
-            scheduler_path=tmp_path / "http-scheduler.db",
         )
         async with (
             app.router.lifespan_context(app),

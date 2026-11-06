@@ -56,9 +56,7 @@ async def evaluate(
     runtime_config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{data_dir / 'runtime.db'}"))
     async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
         backend = SystemOneDecisionModel(config, client, laya_budget=budget)
-        async with open_builtin_runtime(
-            runtime_config, decision_model=backend, scheduler_path=data_dir / "scheduler.db"
-        ) as runtime:
+        async with open_builtin_runtime(runtime_config, decision_model=backend) as runtime:
             decision_model = runtime.decision_model
             if decision_model is None:
                 raise RuntimeError("The Runtime did not expose the injected decision model")  # noqa: TRY003

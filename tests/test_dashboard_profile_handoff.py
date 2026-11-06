@@ -178,7 +178,6 @@ def test_rollback_is_offered_when_access_control_is_disabled(tmp_path: Path) -> 
             dashboard=DashboardConfig(enabled=True),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
         scope = create_scope(client, "Open rollback")["scope_id"]
@@ -208,7 +207,6 @@ def test_existing_database_without_revision_metadata_columns_keeps_working(tmp_p
     def open_app():
         return create_server_app(
             settings=settings,
-            scheduler_path=tmp_path / "scheduler.db",
         )
 
     # Use the registered release layout, then migrate before normal admission.

@@ -37,17 +37,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationOutput,
 )
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.inference import (
-    EmbeddingResult,
-    GenerationResult,
-    InferenceTimeoutError,
-    InferenceUnavailableError,
-    character_token_estimator,
-)
-from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
-from powercontext.server.authz import (
+from powercontext.builtin.authz import (
     AccessAction,
     AccessAuditContext,
     AccessBinding,
@@ -61,8 +51,18 @@ from powercontext.server.authz import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.casbin import CasbinAuthorizationProvider
-from powercontext.server.authz.repository import RelationalAccessRepository
+from powercontext.builtin.authz.casbin import CasbinAuthorizationProvider
+from powercontext.builtin.authz.repository import RelationalAccessRepository
+from powercontext.builtin.inference import (
+    EmbeddingResult,
+    GenerationResult,
+    InferenceTimeoutError,
+    InferenceUnavailableError,
+    character_token_estimator,
+)
+from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_contexts
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend
 from tests.e2e.dream_support import memory_source_text
 

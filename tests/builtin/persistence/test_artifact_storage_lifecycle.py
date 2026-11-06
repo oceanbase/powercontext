@@ -217,7 +217,7 @@ def test_native_space_online_recovery_and_fixed_upgrade(backend, tmp_path):  # n
             mcp=McpConfig(enabled=False),
             metrics=MetricsConfig(enabled=False),
         )
-        app = create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")
+        app = create_server_app(settings=settings)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(

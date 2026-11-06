@@ -56,7 +56,7 @@ def test_native_code_seed_can_be_served(migration_backend, monkeypatch):
         repositories={scope_id: CodeRepositoryConfig(root=repository)},
     )
     CodeService(code).index(scope_id)
-    server = _start_configured_server(settings.model_copy(update={"code": code}), root / "server-scheduler.db")
+    server = _start_configured_server(settings.model_copy(update={"code": code}))
 
     async def scenario():
         async with PowerContextClient(server.base_url) as client:

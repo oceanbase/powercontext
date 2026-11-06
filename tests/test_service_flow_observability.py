@@ -26,6 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
+from powercontext.builtin.authz.errors import AccessDeniedError
 from powercontext.builtin.inference import InferenceTimeoutError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.artifact_processing import (
@@ -38,7 +39,6 @@ from powercontext.builtin.runtime.artifact_processing import (
 )
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingBlock
 from powercontext.builtin.runtime.processing_observation import observe_processing
-from powercontext.server.authz.errors import AccessDeniedError
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter, _HumanContextFilter
 from powercontext.server.settings import McpConfig, ServerSettings

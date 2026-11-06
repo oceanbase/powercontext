@@ -21,6 +21,7 @@ import httpx
 import pytest
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.authz import PrincipalRef
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
@@ -30,7 +31,6 @@ from powercontext.builtin.tags import ArtifactTagTarget, TagFilter
 from powercontext.client import PowerContextClient
 from powercontext.http import QueryArtifactTagsRequest, ReplaceArtifactTagsRequest
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
-from powercontext.server.authz import PrincipalRef
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, ServerSettings
 

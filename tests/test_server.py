@@ -32,6 +32,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 import powercontext.builtin.runtime.composition as runtime_composition
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.authz import AccessControlService
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.inference.pydantic_ai import PydanticAIConfigurationError
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -50,7 +51,6 @@ from powercontext.http import (
     ReadinessStatus,
 )
 from powercontext.server.app import create_app
-from powercontext.server.authz import AccessControlService
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
@@ -543,6 +543,18 @@ def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, mo
     with TestClient(app):
         assert (data_dir / "powercontext.db").is_file()
         assert not (data_dir / "scheduler.db").exists()
+
+
+def test_server_app_ignores_deprecated_scheduler_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "powercontext-data"))
+    sidecar = tmp_path / "scheduler.db"
+
+    with pytest.warns(DeprecationWarning, match="scheduler_path is ignored"):
+        app = create_server_app(settings=ServerSettings(mcp=McpConfig(enabled=False)), scheduler_path=sidecar)
+    with TestClient(app):
+        pass
+
+    assert not sidecar.exists()
 
 
 def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:

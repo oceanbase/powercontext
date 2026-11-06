@@ -64,7 +64,6 @@ def test_prompt_configuration_previews_defaults_without_inference(
             runtime=RuntimeConfig(memory_extraction_profile=profile),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
 
     async def scenario() -> None:
@@ -108,7 +107,6 @@ def test_prompt_publication_is_rejected_without_target_state(tmp_path: Path, acc
             access=AccessControlConfig.model_validate({"mode": access_mode}),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
     )
 
     async def scenario() -> None:

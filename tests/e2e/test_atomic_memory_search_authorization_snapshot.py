@@ -32,6 +32,16 @@ from sqlalchemy.engine import make_url
 
 from powercontext.artifacts import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.authz import (
+    AccessAuditContext,
+    AccessDeniedError,
+    AccessRole,
+    CreateBinding,
+    PrincipalRef,
+    ResourceRef,
+)
+from powercontext.builtin.authz.composition import open_builtin_access_control, open_casbin_access_control
+from powercontext.builtin.authz.service import AccessControlService
 from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -53,16 +63,6 @@ from powercontext.server.authentication import (
     AuthenticationResult,
     ProviderReadiness,
 )
-from powercontext.server.authz import (
-    AccessAuditContext,
-    AccessDeniedError,
-    AccessRole,
-    CreateBinding,
-    PrincipalRef,
-    ResourceRef,
-)
-from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
-from powercontext.server.authz.service import AccessControlService
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.server_storage import prepare_server_database
@@ -149,7 +149,6 @@ async def _server(database: DatabaseConfig, provider: str, tmp_path: Path, embed
     async with open_access(database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT_ID) as access:
         app = create_server_app(
             settings=settings,
-            scheduler_path=tmp_path / "scheduler.db",
             access_control=access,
             authentication_provider=_Authentication(),
             embedding_model=embedding,

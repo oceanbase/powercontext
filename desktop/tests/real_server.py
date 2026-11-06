@@ -60,12 +60,12 @@ def probe_measurement(output: str, product_profile_id: str | None = None) -> dic
 
 
 def fixture_provider(config, admin):
+    from powercontext.builtin.authz import PrincipalRef
     from powercontext.server.authentication import (
         AuthenticationRejectedError,
         AuthenticationResult,
         ProviderReadiness,
     )
-    from powercontext.server.authz import PrincipalRef
 
     class FixtureProvider:
         async def authenticate(self, request):
@@ -281,9 +281,9 @@ def serve(config_path: Path) -> None:
         if not config.get("provider"):
             await server.serve()
             return
+        from powercontext.builtin.authz import PrincipalRef
+        from powercontext.builtin.authz.composition import open_builtin_access_control
         from powercontext.builtin.persistence.migrations.server_readiness import prepare_server_storage
-        from powercontext.server.authz import PrincipalRef
-        from powercontext.server.authz.composition import open_builtin_access_control
         from powercontext.server.settings import AccessControlConfig
 
         admin = PrincipalRef(type="service", id="desktop-fixture-admin")

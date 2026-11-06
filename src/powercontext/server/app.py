@@ -143,6 +143,56 @@ from powercontext.builtin.artifacts.topic_memory.processing import (
     TopicMemoryRetryResult as RuntimeTopicMemoryRetryResult,
 )
 from powercontext.builtin.artifacts.topic_memory.processing import TopicMemoryWorkBlock as RuntimeTopicMemoryWorkBlock
+from powercontext.builtin.authz import (
+    AccessAction,
+    AccessAuditContext,
+    AccessAuditEvent,
+    AccessBinding,
+    AccessBindingNotFoundError,
+    AccessBindingState,
+    AccessConflictError,
+    AccessControlError,
+    AccessControlService,
+    AccessDecision,
+    AccessDeniedError,
+    AccessIdentityRequiredError,
+    AccessInvalidRequestError,
+    AccessResourceType,
+    AccessRole,
+    AccessSubjectRef,
+    AccessUnavailableError,
+    AuditSearchRequest,
+    AuthorizedResourceFilter,
+    BindingSearchRequest,
+    CreateBinding,
+    GroupRef,
+    MemoryEntrySelector,
+    PrincipalRef,
+    ReplaceBinding,
+    ResourceRef,
+    access_control_for_mode,
+    bounded_idempotency_key,
+)
+from powercontext.builtin.authz.dream import principal_identity
+from powercontext.builtin.authz.models import (
+    ROLE_ACTIONS,
+    ROLE_CARDINALITIES,
+    ROLE_RESOURCE_TYPES,
+    ROLE_SUBJECT_TYPES,
+    HandoffReceiptIdentity,
+)
+from powercontext.builtin.authz.owner_recovery import (
+    flush_owner_writes,
+    owner_recovery_available,
+    owner_recovery_session,
+    owner_write_access,
+)
+from powercontext.builtin.authz.profiles import (
+    ARTIFACT_FAMILY_PROFILES,
+    artifact_family_profile,
+    register_custom_artifact_access_family,
+)
+from powercontext.builtin.authz.service import _require_allowed
 from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate as RuntimeTagCandidate
 from powercontext.builtin.code.application import CodeApplication
 from powercontext.builtin.code.errors import CodeError
@@ -856,55 +906,6 @@ from powercontext.server.artifact_read_observation import observe_artifact_read
 from powercontext.server.atomic_memory import add_atomic_memory_routes
 from powercontext.server.atomic_memory import record_response as atomic_record_response
 from powercontext.server.authentication import AuthenticationProvider
-from powercontext.server.authz import (
-    AccessAction,
-    AccessAuditContext,
-    AccessAuditEvent,
-    AccessBinding,
-    AccessBindingNotFoundError,
-    AccessBindingState,
-    AccessConflictError,
-    AccessControlError,
-    AccessControlService,
-    AccessDecision,
-    AccessDeniedError,
-    AccessIdentityRequiredError,
-    AccessInvalidRequestError,
-    AccessResourceType,
-    AccessRole,
-    AccessSubjectRef,
-    AccessUnavailableError,
-    AuditSearchRequest,
-    AuthorizedResourceFilter,
-    BindingSearchRequest,
-    CreateBinding,
-    GroupRef,
-    MemoryEntrySelector,
-    PrincipalRef,
-    ReplaceBinding,
-    ResourceRef,
-    access_control_for_mode,
-    bounded_idempotency_key,
-)
-from powercontext.server.authz.models import (
-    ROLE_ACTIONS,
-    ROLE_CARDINALITIES,
-    ROLE_RESOURCE_TYPES,
-    ROLE_SUBJECT_TYPES,
-    HandoffReceiptIdentity,
-)
-from powercontext.server.authz.owner_recovery import (
-    flush_owner_writes,
-    owner_recovery_available,
-    owner_recovery_session,
-    owner_write_access,
-)
-from powercontext.server.authz.profiles import (
-    ARTIFACT_FAMILY_PROFILES,
-    artifact_family_profile,
-    register_custom_artifact_access_family,
-)
-from powercontext.server.authz.service import _require_allowed
 from powercontext.server.context import (
     bind_request_id,
     current_authentication,
@@ -913,7 +914,7 @@ from powercontext.server.context import (
     is_internal_bridge,
     reset_request_id,
 )
-from powercontext.server.dream_access import DreamAccess, principal_identity
+from powercontext.server.dream_access import DreamAccess
 from powercontext.server.dream_compatibility import (
     LEGACY_DREAM_OPERATIONS,
     negotiate_dream_contract,

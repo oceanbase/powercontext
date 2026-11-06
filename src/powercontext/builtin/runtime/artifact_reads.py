@@ -25,6 +25,7 @@ from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.artifacts.search import (
     ArtifactSearchExecutionContext,
 )
+from powercontext.builtin.authz import AccessAction, BuiltinAuthorizationProvider, ResourceRef
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
 from powercontext.builtin.persistence.custom_artifacts import StoredArtifactContent, custom_artifact_repository
@@ -33,7 +34,6 @@ from powercontext.builtin.persistence.tables import ARTIFACT_FAMILY_SCHEMAS_TABL
 from powercontext.builtin.records import BaseArtifactFamily, BaseValueNotFoundError, InvalidBaseAccessRequestError
 from powercontext.builtin.runtime.artifact_search import ArtifactSearchService
 from powercontext.builtin.runtime.custom_artifact_search import CustomArtifactSearcher
-from powercontext.server.authz import AccessAction, BuiltinAuthorizationProvider, ResourceRef
 
 
 class _StoredJsonContent(RootModel[dict[str, JsonValue]]):
