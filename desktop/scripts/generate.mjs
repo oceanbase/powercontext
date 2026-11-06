@@ -36,6 +36,7 @@ const contractUrl = new URL("../openapi/powercontext.yaml", root);
 const raw = await readFile(contractUrl, "utf8");
 const contract = YAML.parse(raw);
 const wanted = [
+  "get_connection_identity",
   "get_server_info",
   "get_liveness",
   "get_readiness",
@@ -47,6 +48,7 @@ const wanted = [
   "remember_memory",
   "search_memory",
   "get_artifact_revision",
+  "get_stats",
 ];
 const operations = {};
 const operationFeatures = {};
@@ -103,6 +105,24 @@ function snakeCase(name) {
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/([A-Z])([A-Z][a-z])/g, "$1_$2")
     .toLowerCase();
+}
+function normalizeNullableReceiptRefs(value) {
+  const normalized = structuredClone(value);
+  for (const [schemaName, propertyName] of [
+    ["PreparedContextRerankConfig", "prompt"],
+    ["PreparedContextPromptIdentity", "artifact_address"],
+  ]) {
+    const property =
+      normalized.components.schemas[schemaName].properties[propertyName];
+    if (property.$ref && property.nullable === true) {
+      const { $ref, ...rest } = property;
+      normalized.components.schemas[schemaName].properties[propertyName] = {
+        allOf: [{ $ref }],
+        ...rest,
+      };
+    }
+  }
+  return normalized;
 }
 function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
@@ -259,7 +279,9 @@ const outputs = {
     "// rustfmt uses this generated layout verbatim.\n" +
     rustModels +
     rustDeclarations,
-  "ui/src/generated/api.d.ts": header + astToString(await openapiTS(contract)),
+  "ui/src/generated/api.d.ts":
+    header +
+    astToString(await openapiTS(normalizeNullableReceiptRefs(contract))),
   "ui/src/generated/operations.ts":
     header +
     "export const contractSha256 = " +

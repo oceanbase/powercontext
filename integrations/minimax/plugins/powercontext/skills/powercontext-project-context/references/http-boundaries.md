@@ -1,4 +1,3 @@
-
 <!-- POWERCONTEXT-GUIDANCE:START -->
 # HTTP and MCP boundaries
 

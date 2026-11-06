@@ -1,6 +1,6 @@
 ---
-title: "RFC 1455: Desktop Control Center"
-description: "A Tauri desktop client with explicit API, identity, installation, and delivery boundaries."
+title: "RFC 1455: Desktop control center"
+description: "A proposal for a Tauri desktop client that manages connections, Scopes, context, and reviews through public Server contracts."
 ---
 
 - Proposal Name: `desktop_control_center`

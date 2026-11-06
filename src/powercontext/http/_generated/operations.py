@@ -14,10 +14,13 @@ from powercontext.http._generated.models import (
     AccessCheckRequest,
     AccessCheckResponse,
     AccessMeResponse,
+    AccessOwnershipApplyResult,
+    AccessOwnershipPlan,
     AccessResourcePage,
     AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
+    ApplyAccessOwnershipRequest,
     ApproveCandidateRequest,
     ArtifactCreated,
     ArtifactHandleBinding,
@@ -48,6 +51,7 @@ from powercontext.http._generated.models import (
     CaptureContentSourceResponse,
     CaptureWorkingNoteRequest,
     ChangeArtifactPluginStateRequest,
+    CheckContextRequest,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CodeQueryRequest,
@@ -55,7 +59,9 @@ from powercontext.http._generated.models import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionIdentity,
     ConnectorCheckpointState,
+    ContextCheckResult,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
@@ -129,7 +135,9 @@ from powercontext.http._generated.models import (
     MemoryCapacity,
     MemoryMutationResponse,
     MergeAtomicMemoryRequest,
+    PlanAccessOwnershipRequest,
     PrepareContextRequest,
+    PrepareContextResult,
     PreparedContext,
     PreparedHandoff,
     PreparedWorkHandoff,
@@ -234,8 +242,9 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.4.1"
+API_VERSION = "1.5.0"
 FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
+    "connection.identity": {"version": {"major": 1, "minor": 0}, "operations": ["get_connection_identity"]},
     "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
     "scope.selection": {
         "version": {"major": 1, "minor": 0},
@@ -1314,14 +1323,14 @@ QUERY_CODE = Operation[CodeQueryRequest, CodeQueryResponse](
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
+PREPARE_CONTEXT = Operation[PrepareContextRequest, PrepareContextResult](
     method="POST",
     path="/v1/context/prepare",
     operation_id="prepare_context",
     request_type=PrepareContextRequest,
     request_location="body",
     path_parameters=(),
-    response_type=PreparedContext,
+    response_type=PrepareContextResult,
     success_status=200,
     summary="Prepare bounded context for an Agent turn",
     tags=("context",),
@@ -1333,6 +1342,33 @@ PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](
         },
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+CHECK_CONTEXT = Operation[CheckContextRequest, ContextCheckResult](
+    method="POST",
+    path="/v1/context/check",
+    operation_id="check_context",
+    request_type=CheckContextRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=ContextCheckResult,
+    success_status=200,
+    summary="Check a final model request or complete raw response",
+    tags=("context",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "A phase-specific allow, block, or withhold decision; HTTP success alone is not approval.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        413: {"description": "The complete payload exceeds the configured admission limit."},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
@@ -3648,6 +3684,27 @@ GENERATE_PROMPT_DEMONSTRATIONS = Operation[GeneratePromptDemonstrationsRequest, 
     access=AccessRequirement(action="scope.admin", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
+GET_CONNECTION_IDENTITY = Operation[None, ConnectionIdentity](
+    method="GET",
+    path="/v1/connection/identity",
+    operation_id="get_connection_identity",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=ConnectionIdentity,
+    success_status=200,
+    summary="Observe the current connection identity without readiness probes",
+    tags=("access",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Current request identity; not an operation authorization or binary attestation."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="access.self", resource="server", scope_id_field=None, resolver="static"),
+)
+
 GET_ACCESS_PRINCIPAL = Operation[None, AccessMeResponse](
     method="GET",
     path="/v1/access/me",
@@ -4205,4 +4262,48 @@ SOURCE_INSTANCE_EXCHANGE = Operation[SourceInstanceExchangeRequest, SourceInstan
     access=AccessRequirement(
         action=None, resource=None, scope_id_field=None, resolver="source_instance_channel_access"
     ),
+)
+
+PLAN_ACCESS_OWNERSHIP = Operation[PlanAccessOwnershipRequest, AccessOwnershipPlan](
+    method="POST",
+    path="/v1/access/ownership/plan",
+    operation_id="plan_access_ownership",
+    request_type=PlanAccessOwnershipRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=AccessOwnershipPlan,
+    success_status=200,
+    summary="Inventory ownership data missing after switching Access enforcement on",
+    tags=("access",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The missing-attribution inventory for the requested Scopes."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="access.self", resource="server", scope_id_field=None, resolver="static"),
+)
+
+APPLY_ACCESS_OWNERSHIP = Operation[ApplyAccessOwnershipRequest, AccessOwnershipApplyResult](
+    method="POST",
+    path="/v1/access/ownership/apply",
+    operation_id="apply_access_ownership",
+    request_type=ApplyAccessOwnershipRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=AccessOwnershipApplyResult,
+    success_status=200,
+    summary="Backfill missing Artifact owners and Candidate owner attestations",
+    tags=("access",),
+    scope_mode="none",
+    responses={
+        200: {"description": "The applied, or, in dry-run, previewed ownership backfill."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="access.self", resource="server", scope_id_field=None, resolver="static"),
 )

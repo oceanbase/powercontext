@@ -55,7 +55,9 @@ def _bundle() -> ReportBundle:
             metrics=MetricSet(
                 patch_bytes=100,
                 input_tokens=1_963_194,
+                cached_input_tokens=1_800_000,
                 output_tokens=20_000,
+                reasoning_output_tokens=5_000,
                 elapsed_seconds=120.0,
             ),
         ),
@@ -68,7 +70,9 @@ def _bundle() -> ReportBundle:
             metrics=MetricSet(
                 patch_bytes=90,
                 input_tokens=1_122_180,
+                cached_input_tokens=1_000_000,
                 output_tokens=18_000,
+                reasoning_output_tokens=4_000,
                 elapsed_seconds=100.0,
             ),
         ),
@@ -117,6 +121,12 @@ def test_loads_validated_report_and_derives_exact_comparisons(tmp_path: Path) ->
     assert response.comparison.input_tokens is not None
     assert response.comparison.input_tokens.delta == -841_014
     assert response.comparison.input_tokens.percent == pytest.approx(-42.839, abs=0.001)
+    assert (response.off.cached_input_tokens, response.on.cached_input_tokens) == (1_800_000, 1_000_000)
+    assert (response.off.reasoning_output_tokens, response.on.reasoning_output_tokens) == (5_000, 4_000)
+    assert response.comparison.cached_input_tokens is not None
+    assert response.comparison.cached_input_tokens.delta == -800_000
+    assert response.comparison.reasoning_output_tokens is not None
+    assert response.comparison.reasoning_output_tokens.delta == -1_000
     assert response.evidence.off == response.evidence.off.model_copy(update={"scope_id": "eval:run-123:off"})
     assert response.evidence.on.mcp_requests == 2
     assert response.evidence.off.database_kind is None

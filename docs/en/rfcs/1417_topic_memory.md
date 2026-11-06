@@ -1,3 +1,8 @@
+---
+title: "RFC 1417: Topic Memory"
+description: A proposal for incremental Topic Memory generation from Source journals, bounded background processing, and summary-first retrieval.
+---
+
 - RFC ID: 1417
 - Proposal Name: `topic_memory`
 - Start Date: 2026-09-01

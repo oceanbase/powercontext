@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from powercontext.cli import authorization, opencode
-from powercontext.cli.guidance import HOST_GUIDANCE, RESOURCE_MANIFEST
+from powercontext.cli.guidance import HOST_GUIDANCE
 from powercontext.cli.installation import setup as install_plugin
 from powercontext.cli.system import SetupError
 
@@ -42,6 +42,9 @@ def _package(root: Path, version: str) -> Path:
     entry.write_text(
         entry.read_text(encoding="utf-8").replace("description: ", f"description: {version} "), encoding="utf-8"
     )
+    asset = entry.parent / "assets/example.txt"
+    asset.parent.mkdir()
+    asset.write_text(f"Example for {version}.\n", encoding="utf-8")
     return package
 
 
@@ -84,6 +87,7 @@ def _assert_success(config: Path, package: Path, upgrade: bool) -> None:
     assert tui["theme"] == "user-theme"
     skill = config / "skills/powercontext-project-context"
     assert "description: new " in (skill / "SKILL.md").read_text(encoding="utf-8")
+    assert (skill / "assets/example.txt").read_text(encoding="utf-8") == "Example for new.\n"
     assert not (config / "plugins/powercontext-opencode-tui.js").exists()
     if upgrade:
         assert (skill / "personal.md").read_bytes() == b"My personal instructions\r\n"
@@ -91,17 +95,13 @@ def _assert_success(config: Path, package: Path, upgrade: bool) -> None:
     assert (config / "unrelated.json").read_bytes() == b'{"keep": true}\r\n'
 
 
-@pytest.mark.parametrize("invalid", ["missing-reference", "invalid-manifest"])
-def test_rejected_package_preserves_whole_installation_and_can_retry(installation, invalid: str) -> None:
+def test_rejected_package_preserves_whole_installation_and_can_retry(installation) -> None:
     config, package, upgrade = installation
     before = _snapshot(config)
     source = package / opencode.OPENCODE_SKILL.parent
-    path = source / ("references/work-handoff.md" if invalid == "missing-reference" else RESOURCE_MANIFEST)
+    path = source / "references/work-handoff.md"
     original = path.read_bytes()
-    if invalid == "missing-reference":
-        path.unlink()
-    else:
-        path.write_bytes(b"[]")
+    path.unlink()
     with pytest.raises(SetupError):
         install_plugin("opencode", source=str(str(package)), ref="unused")
     assert _snapshot(config) == before

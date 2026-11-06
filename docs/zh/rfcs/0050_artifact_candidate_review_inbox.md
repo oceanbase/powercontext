@@ -1,3 +1,8 @@
+---
+title: RFC 0050：Artifact 候选与审核收件箱
+description: 候选审核的设计提案，按 Artifact 家族定义审核规则，隔离待审内容，并在批准后形成 Experience 或 Skill 版本。
+---
+
 - Proposal Name: `artifact_candidate_review_inbox`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#50](https://github.com/oceanbase/powercontext/pull/50)

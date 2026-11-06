@@ -25,7 +25,7 @@ from typing import Any
 import yaml
 
 from catalog import TOOLS
-from plugin.powercontext_dify.policy import HIDDEN_PARAMETERS, MEMORY_KINDS
+from plugin.powercontext_dify.policy import HIDDEN_PARAMETERS
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -39,7 +39,11 @@ PARAMETERS = {
     "artifact_id": ("原子记忆 ID", "Exact Atomic Memory artifact_id returned by search or inventory."),
     "state_version": ("当前状态版本", "Current state_version from search, list or pc_memory_state, including zero."),
     "if_match": ("当前内容 ETag", "Real content ETag returned by pc_memory_get for this exact current revision."),
-    "kind": ("记忆类型", "One of the six supported curated Memory kinds."),
+    "kind": (
+        "记忆类型",
+        "Open application-defined Memory kind: nonblank and at most 128 characters. "
+        "Use preference for an explicit preference; preserve a kind supplied by the user.",
+    ),
     "text": ("记忆正文", "Curated Memory text: nonblank after NFC/trim and at most 8192 UTF-8 bytes."),
     "description": (
         "记忆简介",
@@ -105,6 +109,13 @@ def json_schema(value):
     if not isinstance(value, dict):
         return value
     result = {key: json_schema(item) for key, item in value.items() if key != "nullable"}
+    for bound in ("minimum", "maximum"):
+        exclusive_key = f"exclusive{bound[0].upper()}{bound[1:]}"
+        exclusive = result.get(exclusive_key)
+        if isinstance(exclusive, bool):
+            result.pop(exclusive_key)
+            if exclusive:
+                result[exclusive_key] = result[bound]
     if "$ref" in result and len(result) > 1:
         reference = result.pop("$ref")
         result = {"allOf": [{"$ref": reference}], **result}
@@ -206,7 +217,7 @@ def build():
         "change_atomic_memory_lifecycle",
     }
     tool_requests, tool_responses = memory_tool_schemas(schemas)
-    operations = {}
+    operations: dict[str, dict[str, Any]] = {}
     used = set()
 
     def visit(value):
@@ -243,6 +254,10 @@ def build():
                 for status, response in operation["responses"].items()
                 if str(status).startswith("2") and "application/json" in response.get("content", {})
             }
+            if operation["operationId"] == "prepare_context":
+                # This tool never requests include_reuse. Keep its workflow fields and
+                # response validation tied to the ordinary, non-executor result.
+                responses = {status: {"$ref": "#/components/schemas/PreparedContext"} for status in responses}
             operations[operation["operationId"]] = {
                 "method": method.upper(),
                 "path": path,
@@ -283,8 +298,6 @@ def build():
             params.pop(hidden, None)
         if name == "pc_search":
             params["limit"].update(default=8, maximum=8)
-        if "kind" in params:
-            params["kind"]["enum"] = list(MEMORY_KINDS)
         if name == "pc_review_list":
             params["family"] = {"type": "string", "enum": ["experience", "skill"], "nullable": True}
         if name in {"pc_experience_generate", "pc_skill_generate"}:

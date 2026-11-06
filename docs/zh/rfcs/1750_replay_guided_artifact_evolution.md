@@ -1,3 +1,8 @@
+---
+title: RFC 1750：回放驱动的制品演进
+description: 制品演进的研究提案，通过忠实回放、有界比较和现有 Dream 审核机制评估 Experience 与 Skill 的改进。
+---
+
 - 提案名称：`replay_guided_artifact_evolution`
 - 开始日期：2026-09-27
 - 跟踪 Issue：[#1635](https://github.com/oceanbase/powercontext/issues/1635)

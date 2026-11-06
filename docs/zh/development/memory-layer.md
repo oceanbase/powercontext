@@ -1,3 +1,8 @@
+---
+title: "使用 Builtin Memory layer"
+description: "为 Builtin Runtime 配置 SQLite 或 OceanBase，写入、更新和检索 Atomic Memory Artifact。"
+---
+
 # 使用 Builtin Memory layer
 
 Builtin Memory 把每条可长期保留的事实、偏好或决策保存为一个独立的 `atomic-memory` Artifact。每条记忆都有自己的

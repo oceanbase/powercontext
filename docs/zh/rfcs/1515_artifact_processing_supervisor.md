@@ -1,3 +1,8 @@
+---
+title: RFC 1515：Artifact 后台处理调度
+description: Artifact 后台调度的设计提案，定义全局与独立模式、各家族 Worker 预算、持久执行意图与执行权校验。
+---
+
 - Proposal Name: `artifact_processing_supervisor`
 - Start Date: 2026-09-08
 - Status: Proposed

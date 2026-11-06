@@ -1264,16 +1264,24 @@ async def remove_legacy_collections(
 
 
 async def residual_issues(  # noqa: C901 - One flat list of independent residual checks.
-    connection: AsyncConnection, tables: set[str], *, thorough: bool, collections_removed: bool = True
+    connection: AsyncConnection,
+    tables: set[str],
+    *,
+    thorough: bool,
+    collections_removed: bool = True,
+    require_evidence: bool = True,
 ) -> list[str]:
     """Report public legacy objects; ``thorough`` also scans business payloads for typed legacy references.
 
     Before removal (``collections_removed=False``) the archived collections,
     their own lineage and the emptied legacy citation columns may still be
-    public; every other reference must be gone.
+    public; every other reference must be gone. ``require_evidence`` is false
+    only while a frozen pre-evidence migration is still converting history.
     """
 
-    issues = await atomic_memory_readiness_issues(connection, tables, collections_removed=collections_removed)
+    issues = await atomic_memory_readiness_issues(
+        connection, tables, collections_removed=collections_removed, require_evidence=require_evidence
+    )
     if not thorough:
         return issues
 

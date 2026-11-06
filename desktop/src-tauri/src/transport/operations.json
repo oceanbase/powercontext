@@ -1,5 +1,5 @@
 {
-  "contractSha256": "37936d7897ec2d981dcc195d3b7b7a9f99c572d866c0193b37df43617077c155",
+  "contractSha256": "9aabe2565d9cbd36075be03a83b7370e07e38e9f25232e20dd47812aba65e508",
   "operations": {
     "get_liveness": {
       "method": "GET",
@@ -37,9 +37,17 @@
       "method": "POST",
       "path": "/v1/memory/search"
     },
+    "get_stats": {
+      "method": "POST",
+      "path": "/v1/stats"
+    },
     "get_artifact_revision": {
       "method": "GET",
       "path": "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}"
+    },
+    "get_connection_identity": {
+      "method": "GET",
+      "path": "/v1/connection/identity"
     },
     "get_access_principal": {
       "method": "GET",
@@ -49,6 +57,10 @@
   "discovery": {
     "apiMajor": 1,
     "features": {
+      "connection.identity": {
+        "major": 1,
+        "minor": 0
+      },
       "access.principal": {
         "major": 1,
         "minor": 0
@@ -82,7 +94,11 @@
       "search_memory": [
         "memory.explicit"
       ],
+      "get_stats": [],
       "get_artifact_revision": [],
+      "get_connection_identity": [
+        "connection.identity"
+      ],
       "get_access_principal": [
         "access.principal"
       ]

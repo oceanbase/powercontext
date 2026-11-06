@@ -55,7 +55,9 @@ const metricRows: Array<{
 }> = [
   { key: "patch_bytes", label: "补丁大小（字节）", kind: "integer" },
   { key: "input_tokens", label: "输入 Token", kind: "integer" },
+  { key: "cached_input_tokens", label: "其中缓存命中", kind: "integer" },
   { key: "output_tokens", label: "输出 Token", kind: "integer" },
+  { key: "reasoning_output_tokens", label: "其中推理", kind: "integer" },
   { key: "elapsed_seconds", label: "执行时间", kind: "seconds" },
 ];
 
@@ -221,7 +223,9 @@ function ArmCard({ arm }: { arm: ArmResponse }) {
         <div><dt>处理有效性</dt><dd>{arm.treatment_valid ? "VALID" : "INVALID"}</dd></div>
         <div><dt>补丁大小</dt><dd>{patchSize}</dd></div>
         <div><dt>输入 Token</dt><dd>{number(arm.input_tokens)}</dd></div>
+        <div><dt>其中缓存命中</dt><dd>{number(arm.cached_input_tokens)}</dd></div>
         <div><dt>输出 Token</dt><dd>{number(arm.output_tokens)}</dd></div>
+        <div><dt>其中推理</dt><dd>{number(arm.reasoning_output_tokens)}</dd></div>
         <div><dt>执行时间</dt><dd>{number(arm.elapsed_seconds, "seconds")}</dd></div>
       </dl>
     </section>

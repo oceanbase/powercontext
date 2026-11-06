@@ -23,6 +23,7 @@ import logging
 import multiprocessing
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerFailure,
     WorkerInitializerPreparation,
 )
+from powercontext.server.authz.errors import AccessDeniedError
 from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter, WorkerLogging, worker_logging
@@ -378,6 +380,8 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         raise CancelledError(_PRIVATE)
     if assignment.scope_id == "unexpected":
         raise RuntimeError(_PRIVATE)
+    if assignment.scope_id == "denied":
+        raise AccessDeniedError()
     if assignment.scope_id == "blocked":
         raise ArtifactProcessingBlockedError(
             ArtifactProcessingBlock("frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),))
@@ -397,6 +401,7 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         ("cancellation-subclass", "cancelled", "cancelled"),
         ("cancellation-name-collision", "internal", "failure"),
         ("unexpected", "internal", "failure"),
+        ("denied", "authorization", "failure"),
     ],
 )
 def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
@@ -755,10 +760,18 @@ def test_unconfigured_sdk_worker_does_not_enable_global_logging(capfd) -> None:
 def test_server_composition_initializes_logging_in_the_real_family_worker(
     capfd, tmp_path, monkeypatch, file_logging
 ) -> None:
+    completed = threading.Event()
+
+    def observe_completion(record: logging.LogRecord) -> bool:
+        if getattr(record, "event", None) in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}:
+            completed.set()
+        return True
+
     parent_logger = logging.getLogger("powercontext")
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
     handler.addFilter(OperationalContextFilter(role="all"))
+    handler.addFilter(observe_completion)
     monkeypatch.setattr(parent_logger, "handlers", [handler])
     monkeypatch.setattr(parent_logger, "level", logging.INFO)
     monkeypatch.setattr(parent_logger, "propagate", False)
@@ -771,23 +784,16 @@ def test_server_composition_initializes_logging_in_the_real_family_worker(
             mcp=McpConfig(enabled=False),
         )
     )
-    records: list[dict[str, Any]] = []
     with TestClient(app) as client:
         scope_id = client.get("/v1/scopes/default").json()["scope_id"]
         response = client.post(
             "/v1/sources/content", json={"scope_id": scope_id, "source_id": "logging-source", "content": _PRIVATE}
         )
         assert response.status_code == 202
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            records.extend(_json_records(capfd.readouterr().out))
-            if any(
-                record.get("event") in {"artifact_processing.worker.acknowledged", "artifact_processing.failed"}
-                for record in records
-            ):
-                break
-            time.sleep(0.05)
-    records.extend(_json_records(capfd.readouterr().out))
+        # Do not reset/truncate fd capture while spawned processes still write
+        # through inherited descriptors. Observe completion without consuming it.
+        assert completed.wait(timeout=60), "The real family worker must report completion"
+    records = _json_records(capfd.readouterr().out)
     worker_records = (
         _json_records((tmp_path / "logs" / "all.log").read_text(encoding="utf-8")) if file_logging else records
     )

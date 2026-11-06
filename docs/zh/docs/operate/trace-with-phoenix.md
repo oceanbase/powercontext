@@ -1,6 +1,6 @@
 ---
 title: 用 Phoenix 查看 trace
-description: 把 PowerContext 的 transport、application 和推理 span 导出到本地 Phoenix 容器。
+description: 将 PowerContext 的传输、应用与模型调用 Trace 导出到本地 Phoenix 容器。
 ---
 
 # 用 Phoenix 查看 trace
@@ -26,6 +26,10 @@ uv --version
 ```
 
 ## 启动 Phoenix
+
+如果使用[参考监控环境](reference-observability-stack.md)，`powercontext observability up` 会自动启动 Phoenix
+并打印地址；`check --exercise` 会校验此次请求的 trace。下面的手工命令用于启动独立的 Phoenix 实例，使用托管
+环境时无需执行。
 
 ```bash
 docker run -d --name powercontext-phoenix -p 6006:6006 arizephoenix/phoenix:20.1.0

@@ -1,3 +1,8 @@
+---
+title: RFC 0080：Memory 检索重排序
+description: Memory 检索重排序的设计提案，在有界候选池上使用可选模型排序，并保留结果的精确身份与版本。
+---
+
 - Proposal Name: `memory_search_reranking`
 - Start Date: 2026-08-06
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md)、

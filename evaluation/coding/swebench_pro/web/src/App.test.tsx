@@ -123,6 +123,21 @@ describe("App batch report navigation", () => {
     expect(screen.queryByRole("link", { name: "单任务详情" })).not.toBeInTheDocument();
   });
 
+  it("shows each arm's token breakdown on the task detail reached from the task list", async () => {
+    window.history.replaceState({}, "", "/report/batch-one/tasks");
+    render(<App api={apiStub()} />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /^查看 / }));
+
+    expect(await screen.findByRole("heading", { name: "单任务详情" })).toBeVisible();
+    const off = screen.getByLabelText("OFF Token");
+    const on = screen.getByLabelText("ON Token");
+    expect(off).toHaveTextContent("其中缓存命中80");
+    expect(off).toHaveTextContent("其中推理4");
+    expect(on).toHaveTextContent("其中缓存命中96");
+    expect(on).toHaveTextContent("其中推理6");
+  });
+
   it("never invents a task detail when no concrete task was selected", async () => {
     window.history.replaceState({}, "", "/report/batch-one/tasks");
     render(<App api={apiStub()} />);

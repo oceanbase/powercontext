@@ -34,9 +34,16 @@ logger = logging.getLogger("powercontext.server.access")
 class HttpAccessLogMiddleware:
     """Log one completion record for each external HTTP request."""
 
-    def __init__(self, app: ASGIApp, *, skip_paths: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        skip_paths: tuple[str, ...] = (),
+        operations: dict[tuple[str, str], str] | None = None,
+    ) -> None:
         self.app = app
         self.skip_paths = skip_paths
+        self.operations = operations or {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or is_internal_bridge() or scope["path"].startswith(self.skip_paths):
@@ -54,7 +61,7 @@ class HttpAccessLogMiddleware:
             if message["type"] == "http.response.body" and not message.get("more_body", False):
                 _log_transport_completion(
                     transport="http",
-                    operation=_http_operation(scope),
+                    operation=_http_operation(scope, self.operations),
                     outcome="success" if status_code < 400 else "failure",
                     started_at=started_at,
                     status_code=status_code,
@@ -66,7 +73,7 @@ class HttpAccessLogMiddleware:
         except asyncio.CancelledError:
             _log_transport_completion(
                 transport="http",
-                operation=_http_operation(scope),
+                operation=_http_operation(scope, self.operations),
                 outcome="cancelled",
                 started_at=started_at,
                 request_id=_scope_request_id(scope),
@@ -114,10 +121,13 @@ class McpAccessLogMiddleware(Middleware):
         return result
 
 
-def _http_operation(scope: Scope) -> str:
+def _http_operation(scope: Scope, operations: dict[tuple[str, str], str]) -> str:
     route = scope.get("route")
     operation_id = getattr(route, "operation_id", None)
-    return operation_id if isinstance(operation_id, str) else "unmatched"
+    # Authentication can reject before routing; use the same declared map as metrics and tracing.
+    return (
+        operation_id if isinstance(operation_id, str) else operations.get((scope["method"], scope["path"]), "unmatched")
+    )
 
 
 def _mcp_operation(context: MiddlewareContext[Any]) -> str:

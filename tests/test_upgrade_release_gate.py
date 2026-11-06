@@ -911,14 +911,18 @@ def test_upgrade_command_owner_finishes_cleanup_after_gate_cancellation(tmp_path
     sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     with (report / "owner.log").open("w") as log:
         owner = subprocess.Popen([sys.executable, str(owner_script)], stdout=log, stderr=subprocess.STDOUT)
-        pids = []
+        processes = []
         try:
             deadline = time.monotonic() + 15
             while not (report / "engine.pid").exists():
                 assert owner.poll() is None, (report / "owner.log").read_text()
                 assert time.monotonic() < deadline, "Controlled processes did not become ready"
                 time.sleep(0.02)
-            pids = [int((report / f"{role}.pid").read_text()) for role in ("root", "server", "engine")]
+            for role in ("root", "server", "engine"):
+                pid = int((report / f"{role}.pid").read_text())
+                identity = _process_identity(pid)
+                assert identity is not None, f"{role} exited before cancellation"
+                processes.append((pid, identity))
             work = Path((report / "workspace").read_text())
             owner.send_signal(signal.SIGTERM if cancellation == "parent-term" else signal.SIGINT)
             if cancellation == "repeat-interrupt":
@@ -929,12 +933,12 @@ def test_upgrade_command_owner_finishes_cleanup_after_gate_cancellation(tmp_path
             if cancellation == "parent-term":
                 # The dead gate cannot await its owner; PDEATHSIG initiates cleanup.
                 deadline = time.monotonic() + 10
-                while any(_process_exists(pid) for pid in pids):
+                while any(_process_exists(pid, identity) for pid, identity in processes):
                     assert time.monotonic() < deadline, "Detached descendants survived gate termination"
                     time.sleep(0.02)
             else:
                 # The second interrupt must not delete the workspace early.
-                assert not any(_process_exists(pid) for pid in pids)
+                assert not any(_process_exists(pid, identity) for pid, identity in processes)
                 assert not work.exists()
             assert sentinel.poll() is None
         finally:
@@ -944,16 +948,26 @@ def test_upgrade_command_owner_finishes_cleanup_after_gate_cancellation(tmp_path
                 owner.wait(timeout=5)
             sentinel.terminate()
             sentinel.wait(timeout=5)
-            if cancellation == "parent-term" and pids and not any(_process_exists(pid) for pid in pids):
+            if (
+                cancellation == "parent-term"
+                and processes
+                and not any(_process_exists(pid, identity) for pid, identity in processes)
+            ):
                 shutil.rmtree(Path((report / "workspace").read_text()), ignore_errors=True)
 
 
-def _process_exists(pid):
+def _process_identity(pid: int) -> str | None:
+    # PID reuse during the parallel suite must not look like a surviving descendant.
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except FileNotFoundError:
+        return None
+    fields = stat[stat.rfind(")") + 2 :].split()
+    return fields[19] if len(fields) > 19 else None
+
+
+def _process_exists(pid: int, identity: str) -> bool:
+    return _process_identity(pid) == identity
 
 
 @pytest.fixture

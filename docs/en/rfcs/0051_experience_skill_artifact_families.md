@@ -1,3 +1,8 @@
+---
+title: "RFC 0051: Experience and Skill artifact families"
+description: A proposal defining evidence-backed Experience, managed Skill packages, external Skill ownership, and their review and revision boundaries.
+---
+
 - Proposal Name: `experience_skill_artifact_families`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#51](https://github.com/oceanbase/powercontext/pull/51)

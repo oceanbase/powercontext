@@ -147,7 +147,8 @@ test('context and capture use the explicit Scope and shared runtime token', asyn
   const f = await fixture(t, {}, { use_token: true })
   const { output, stderr } = await f.invoke(undefined, { POWERCONTEXT_KIMI_TOKEN: 'synthetic-token' })
   assert.match(output.message, /scope-test/)
-  assert.match(output.message, /Historical context: use uv/)
+  // The Server's prepared content carries its own trust policy, so nothing goes between the binding and the content.
+  assert.ok(output.message.endsWith('}\n\nHistorical context: use uv.'), output.message)
   assert.equal(stderr, '')
   assert.equal(f.captures[0].content, prompt)
   assert.equal(f.captures[0].scope_id, 'scope-test')
