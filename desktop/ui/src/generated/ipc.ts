@@ -123,13 +123,13 @@ export type OpsSessionObservation = { action: OpsAction,
  */
 operationId: string, attempt: number | null, phase: OpsServicePhase | null, attemptPhase: OpsAttemptPhase | null, outcome: OpsOutcome, errorCode: OpsErrorCode | null, bridgeError: OpsBridgeError | null, observedAtMs: number, };
 export type OpsSessionSummary = { capacity: number, evicted: number, droppedSinceStart: number, recent: Array<OpsSessionObservation>, };
-export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
+export type AccessAction = "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "gateway.invoke" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
 export type AccessControlMode = "disabled" | "enforced";
 export type AccessMeResponse = { principal: AccessPrincipal, mode: AccessControlMode, resource_kinds: Array<AccessResourceType>, provider_capabilities: AccessProviderCapabilities, artifact_families: Array<ArtifactFamilyAccessCapability>, };
 export type AccessPrincipal = { type: Type, id: string, description?: string | null, };
 export type AccessProviderCapabilities = { safe_resource_filtering: boolean, multi_requirement_check: boolean, relationship_management: boolean, group_subjects: boolean, multi_principal: boolean, max_direct_resource_keys: number, };
 export type AccessResourceType = "server" | "scope" | "artifact";
-export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+export type AccessRole = "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "gateway.user" | "server.observer" | "server.admin";
 export type ActualAdoption = "unobserved";
 export type AllScopeSelection = { mode: AllScopeSelectionMode, };
 export type AllScopeSelectionMode = "all";
