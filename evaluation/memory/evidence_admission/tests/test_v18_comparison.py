@@ -392,3 +392,32 @@ def test_unresolved_semantics_does_not_hide_proven_literal_absence(tmp_path, mon
         assert result["decision"] == "insufficient_evidence"
 
     asyncio.run(scenario())
+
+
+def test_cancellation_after_response_keeps_usage_and_remains_reportable(tmp_path, monkeypatch):
+    async def scenario():
+        await controlled_session(tmp_path, monkeypatch)
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        response["choices"][0]["message"]["content"] = '{"candidates":[]}'
+        actual_extract = workflow.extract
+
+        async def cancel_after_response(*args, **kwargs):
+            await actual_extract(*args, **kwargs)
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(workflow, "extract", cancel_after_response)
+        with pytest.raises(asyncio.CancelledError):
+            await workflow.run_next(
+                tmp_path, transport=httpx.MockTransport(lambda req: httpx.Response(200, json=response))
+            )
+        state = read_json(tmp_path / "state.json")
+        assert state["state"] == "cancelled"
+        assert Decimal(state["known_charge_cny"]) > 0
+        assert state["records"][0]["outcome"] == "cancelled"
+        result = report.summarize(tmp_path)
+        assert result["decision"] == "insufficient_evidence" and not result["execution_complete"]
+        assert result["unknown_usage_calls"] == 0
+        assert not result["rows"][-1]["proven_delivered_atom_hashes"]
+
+    asyncio.run(scenario())

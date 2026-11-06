@@ -90,6 +90,15 @@ def can_reserve(known_charge):
     return available >= reservation()
 
 
+def account_record(state, record):
+    """A received usage receipt stays billable even when cancellation/auditing stops consumption."""
+    known = charge(record.get("provider_usage"))
+    record["known_charge_cny"] = str(known) if known is not None else None
+    if known is not None:
+        state["known_charge_cny"] = str(Decimal(state["known_charge_cny"]) + known)
+    return known
+
+
 def load(directory, *, committed=True):
     manifest = read_json(directory / "preparation.json")
     if manifest["identity"] != identity() or not manifest["reliability_passed"]:
@@ -215,6 +224,8 @@ async def run_next(directory, *, execute_live=False, transport=None, api_key=Non
         except asyncio.CancelledError:
             state.update(state="cancelled", stop_reason="local_cancellation_no_resend")
             record["outcome"] = "cancelled"
+            account_record(state, record)
+            save("attempt", record)
             state["records"].append(record)
             dump(directory / "state.json", state)
             raise
@@ -227,11 +238,13 @@ async def run_next(directory, *, execute_live=False, transport=None, api_key=Non
         except Exception:  # noqa: BLE001 -- audit boundary persists a terminal state and removes sensitive errors
             # Do not expose provider values or continue after an evaluator/audit failure.
             state.update(state="audit_failed", stop_reason="evaluator_or_audit_failure")
+            record["outcome"] = "audit_failed"
+            account_record(state, record)
+            save("attempt", record)
             state["records"].append(record)
             dump(directory / "state.json", state)
             raise EvaluationError("v18_evaluator_or_audit_failure") from None
-        known = charge(record.get("provider_usage"))
-        record["known_charge_cny"] = str(known) if known is not None else None
+        known = account_record(state, record)
         if output is not None:
             supports = tuple(Support.model_validate(s) for s in row["sample"]["supports"])
             result, review = score_output(case, value, supports, output)
@@ -241,7 +254,6 @@ async def run_next(directory, *, execute_live=False, transport=None, api_key=Non
         if known is None:
             state.update(state="unknown_usage_stopped", stop_reason="unknown_usage_not_zero")
         else:
-            state["known_charge_cny"] = str(Decimal(state["known_charge_cny"]) + known)
             if record.get("response_model") not in contract()["allowed_response_models"]:
                 state.update(state="provider_changed", stop_reason="unrecognized_response_model")
             else:
