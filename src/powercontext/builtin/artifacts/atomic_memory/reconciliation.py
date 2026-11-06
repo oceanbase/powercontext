@@ -149,6 +149,17 @@ class AtomicMemoryReconciliationOutput(BaseModel):
     )
 
 
+class RedundantAtomicMemoryRevisionError(InvalidInferenceOutputError):
+    """A structurally valid revision that leaves its target's facts unchanged."""
+
+    def __init__(self, target_id: str) -> None:
+        super().__init__(
+            "atomic-memory-reconcile",
+            "unchanged target kind and text require noop; description or supporting evidence alone cannot revise",
+        )
+        self.target_id = target_id
+
+
 @dataclass(frozen=True)
 class AtomicMemoryWorkingItem:
     """An unpublished final candidate or one coordinated set of published identities."""
@@ -293,6 +304,31 @@ class AtomicMemoryWindowWorkset:
     def changes(self) -> tuple[AtomicMemoryWorkingItem, ...]:
         return tuple(item for item in self.items.values() if item.retain and item.changed)
 
+    def recover_redundant_revision(
+        self,
+        proposal_key: str,
+        related: tuple[AtomicMemoryWorkingItem, ...],
+        error: RedundantAtomicMemoryRevisionError,
+    ) -> str:
+        """Retain uncertain proposal facts after bounded correction fails, without rewriting the target."""
+        key = self.resolve(proposal_key)
+        proposal = self.items[key]
+        target = next(item for item in related if item.key == error.target_id)
+        if proposal.content.kind != target.content.kind or proposal.content.text != target.content.text:
+            # Equal final output does not establish that the proposal had no new facts. Keep its current content,
+            # identities and evidence for later batches and publication, even if that retains a translated duplicate.
+            return key
+        return self.apply(
+            key,
+            related,
+            AtomicMemoryReconciliationOutput(
+                action="noop",
+                compared_ids=tuple(item.key for item in related),
+                target_ids=(target.key,),
+                reason="Retain the identical target after redundant revision correction was exhausted.",
+            ),
+        )
+
 
 def validate_reconciliation_output(
     request: AtomicMemoryReconciliationInput, output: AtomicMemoryReconciliationOutput
@@ -348,8 +384,13 @@ def validate_reconciliation_decision(
             and output.content.text == target.text
             and proposal_refs <= _published(target)
         ):
-            _invalid(
-                "unchanged target kind and text require noop; description or supporting evidence alone cannot revise"
+            raise attach_diagnostics(
+                RedundantAtomicMemoryRevisionError(target.item_id),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.BUSINESS_VALIDATION,
+                    reason=ProcessingFailureReason.INVALID_OUTPUT,
+                    failure_location="atomic-memory-reconcile",
+                ),
             )
 
 

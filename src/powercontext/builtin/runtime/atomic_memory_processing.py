@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationOutput,
     AtomicMemoryWindowWorkset,
     AtomicMemoryWorkingItem,
+    RedundantAtomicMemoryRevisionError,
 )
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.protocols import (
@@ -455,7 +456,7 @@ class AtomicMemorySourceWindowProcessor:
                     await processing.complete(connection, remaining_work=action.through < high_watermark)
         return finalized
 
-    async def _prepare(self, scope_id, eligible, pipeline, context):
+    async def _prepare(self, scope_id, eligible, pipeline, context):  # noqa: C901 - keep recovery in the authorized window
         workset = AtomicMemoryWindowWorkset()
         artifacts: dict[tuple[str, str, int], ArtifactRef] = {}
         if pipeline is None:
@@ -550,8 +551,11 @@ class AtomicMemorySourceWindowProcessor:
                         }.values()
                     )
                     artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
-                result = await pipeline.reconciler.generate(value)
-                key = workset.apply(key, related, AtomicMemoryReconciliationOutput.model_validate(result.output))
+                try:
+                    result = await pipeline.reconciler.generate(value)
+                    key = workset.apply(key, related, AtomicMemoryReconciliationOutput.model_validate(result.output))
+                except RedundantAtomicMemoryRevisionError as error:
+                    key = workset.recover_redundant_revision(key, related, error)
                 del pending[:selected_count]
                 compared = True
         for item in workset.changes():

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
 from pydantic_ai.embeddings import TestEmbeddingModel
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, TextPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -174,9 +175,10 @@ _UPDATED_WORKFLOW = "Project Larch 采用规划、单个 worker 实施、多个 
 class _PublishedWorkflowProvider:
     """Repeat the published fact with a new description, or make an actual fact correction."""
 
-    def __init__(self, *, corrects: bool = False, changes_fact: bool = False) -> None:
+    def __init__(self, *, corrects: bool = False, changes_fact: bool = False, proposal_text: str | None = None) -> None:
         self.corrects = corrects
         self.changes_fact = changes_fact
+        self.proposal_text = proposal_text
         self.retry_feedback: list[str] = []
 
     async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
@@ -197,7 +199,8 @@ class _PublishedWorkflowProvider:
                 "candidates": [
                     {
                         "kind": "preference",
-                        "text": _UPDATED_WORKFLOW if self.changes_fact else _TRANSLATED_WORKFLOW,
+                        "text": self.proposal_text
+                        or (_UPDATED_WORKFLOW if self.changes_fact else _TRANSLATED_WORKFLOW),
                         "description": "Project Larch 开发流程",
                         "evidence_ids": [value["evidence"][0]["evidence_id"]],
                     }
@@ -205,13 +208,13 @@ class _PublishedWorkflowProvider:
             })
 
         # The real vector index must recall the published record before reconciliation.
-        (target,) = value["related"]
+        target = next(item for item in value["related"] if item["text"] == _PUBLISHED_WORKFLOW)
         assert target["text"] == _PUBLISHED_WORKFLOW
         assert len(target["original_refs"]) == 1
         corrected = bool(retries) and self.corrects
         return _json({
             "action": "noop" if corrected else "revise",
-            "compared_ids": [target["item_id"]],
+            "compared_ids": [item["item_id"] for item in value["related"]],
             "target_ids": [target["item_id"]],
             "content": None
             if corrected
@@ -293,19 +296,86 @@ def test_translation_noop_after_retry_preserves_published_record_and_advances_cu
     assert provider.retry_feedback
 
 
-def test_repeated_translation_revision_leaves_published_record_and_cursor_unchanged(monkeypatch, tmp_path):
-    provider = _PublishedWorkflowProvider()
-
-    error, cursor, original, current, history, _receipt = asyncio.run(
-        _flush_published_workflow(provider, monkeypatch, tmp_path)
+@pytest.mark.parametrize("max_requests", [1, 2])
+@pytest.mark.parametrize("proposal_text", [_PUBLISHED_WORKFLOW, _TRANSLATED_WORKFLOW, _UPDATED_WORKFLOW])
+def test_redundant_revision_recovery_preserves_facts_and_processes_later_sources(
+    monkeypatch, tmp_path, max_requests, proposal_text
+):
+    provider = _PublishedWorkflowProvider(proposal_text=proposal_text)
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(provider.respond))
+    monkeypatch.setattr(
+        "pydantic_ai.embeddings.infer_embedding_model", lambda _name, **_kwargs: TestEmbeddingModel(dimensions=3)
+    )
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'recovery.db'}"),
+        inference=InferenceConfig(
+            generation_model="provider:test-model",
+            generation_max_requests=max_requests,
+            embedding_model="test",
+            embedding_profile_id="workflow-fixture",
+            embedding_dimension=3,
+        ),
+        runtime=RuntimeConfig(atomic_memory_related_mode="vector"),
     )
 
-    assert isinstance(error, InvalidInferenceOutputError)
-    assert error.operation == "atomic-memory-reconcile"
-    assert cursor == 0
-    assert current == original
-    assert len(history.items) == 1
-    assert provider.retry_feedback
+    async def scenario():
+        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+            assert runtime.scopes is not None and runtime.atomic_memory is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Project Larch", summary="Development workflow", idempotency_key="larch")
+            )
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            original = (
+                await memory.create([
+                    AtomicMemoryContent(
+                        kind="preference", text=_PUBLISHED_WORKFLOW, description="Published development preference"
+                    )
+                ])
+            ).primary
+            receipt = await runtime.sources.for_scope(scope.scope_id).capture(
+                CaptureSource(source_id="workflow", content=proposal_text, metadata={})
+            )
+            await memory.flush()
+            assert (await memory.cursor()).sequence == receipt.sequence
+            assert await memory.get(original.ref.artifact_id) == original
+            entries = (await memory.list()).items
+            assert {entry.artifact.content.text for entry in entries} == {_PUBLISHED_WORKFLOW, proposal_text}
+            assert len(entries) == len({_PUBLISHED_WORKFLOW, proposal_text})
+            if proposal_text != _PUBLISHED_WORKFLOW:
+                retained = next(entry for entry in entries if entry.ref != original.ref)
+                assert retained.artifact.lineage.sources == (receipt.source_ref,)
+            assert len(provider.retry_feedback) == max_requests - 1
+            await memory.flush()
+            assert (await memory.list()).items == entries
+
+        # The consumed window and retained facts survive restart; later Sources must not hit the old rejection.
+        async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
+            assert runtime.atomic_memory is not None
+            memory = runtime.atomic_memory.for_scope(scope.scope_id)
+            assert (await memory.list()).items == entries
+            provider.proposal_text = "Project Birch uses weekly release meetings."
+            later = await runtime.sources.for_scope(scope.scope_id).capture(
+                CaptureSource(source_id="unrelated", content=provider.proposal_text, metadata={})
+            )
+            await memory.flush()
+            assert (await memory.cursor()).sequence == later.sequence
+            current = (await memory.list()).items
+            assert {entry.artifact.content.text for entry in current} == {
+                _PUBLISHED_WORKFLOW,
+                proposal_text,
+                provider.proposal_text,
+            }
+            retained = next(entry for entry in current if entry.artifact.content.text == provider.proposal_text)
+            assert retained.artifact.lineage.sources == (later.source_ref,)
+            assert await memory.get(original.ref.artifact_id) == original
+            history = await runtime.records.for_scope(scope.scope_id).list_artifact_revisions(
+                "atomic-memory", original.ref.artifact_id, limit=10, cursor=None
+            )
+            assert len(history.items) == 1
+            await memory.flush()
+            assert (await memory.list()).items == current
+
+    asyncio.run(scenario())
 
 
 def test_changed_workflow_revises_published_fact_and_preserves_history(monkeypatch, tmp_path):

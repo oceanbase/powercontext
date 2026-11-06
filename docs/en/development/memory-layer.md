@@ -73,10 +73,14 @@ facts stay in Chinese and English facts stay in English, including when they sha
 facts retain their natural-language framing and exact identifiers, names and values. An incoming translation alone
 does not revise an unchanged published fact. Automatic reconciliation rejects a `revise` whose final kind and text
 exactly match its target when `noop` can retain all published identities; a new description or additional support alone
-does not justify a revision. The model can correct the decision within its request budget. An uncorrected invalid
-decision prevents publication and cursor advancement. Different wording still requires the model to judge meaning;
-this check does not provide cross-language semantic search or restrict explicit record edits. Source content remains
-untrusted evidence, not output-policy configuration.
+does not justify a revision. The model can correct the decision within its request budget. If correction of this
+redundant revision is exhausted, an exactly matching proposal keeps the target through `noop`; otherwise the proposal's
+current content, published identities and evidence remain available for later comparisons and publication. This
+conservative recovery can retain a translated duplicate, but does not discard potentially new facts or block later
+Sources. It also applies when the request budget is one. Other invalid decisions still prevent publication and cursor
+advancement. Different wording still requires the model to judge meaning; this check does not provide cross-language
+semantic search or restrict explicit record edits. Source content remains untrusted evidence, not output-policy
+configuration.
 
 Every memory changes independently. `forget()` deactivates one memory and `merge()` replaces several memories with a
 new one. `forget()` takes the expected content revision and state version, and `merge()` takes the exact records read
