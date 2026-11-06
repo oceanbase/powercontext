@@ -16,7 +16,7 @@
 
 use powercontext_desktop::ipc::allowed_navigation;
 use tauri::{
-    ipc::{CallbackFn, InvokeBody},
+    ipc::{CallbackFn, InvokeBody, InvokeResponseBody},
     test::{INVOKE_KEY, get_ipc_response, mock_builder},
     webview::InvokeRequest,
 };
@@ -31,6 +31,43 @@ const LOCAL_ORIGIN: &str = if cfg!(any(windows, target_os = "android")) {
 fn test_context<R: tauri::Runtime>() -> tauri::Context<R> {
     // The macOS plist must be embedded once per test executable.
     tauri::generate_context!()
+}
+
+#[test]
+fn foundation_info_reports_the_runtime_candidate_version() {
+    use tauri::Manager;
+
+    let mut context = test_context();
+    context.package_info_mut().version = "1.2.3".parse().unwrap();
+    let app = mock_builder()
+        .invoke_handler(tauri::generate_handler![
+            powercontext_desktop::ipc::foundation_info
+        ])
+        .build(context)
+        .unwrap();
+    let window = app.get_webview_window("main").unwrap_or_else(|| {
+        tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap()
+    });
+    let response = get_ipc_response(
+        &window,
+        InvokeRequest {
+            cmd: "foundation_info".into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: LOCAL_ORIGIN.parse().unwrap(),
+            body: InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: INVOKE_KEY.into(),
+        },
+    )
+    .unwrap();
+    let InvokeResponseBody::Json(body) = response else {
+        panic!("foundation_info must return JSON");
+    };
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["version"], "1.2.3");
 }
 
 #[test]
@@ -91,6 +128,35 @@ fn permissions_reject_untrusted_window_origin_and_arbitrary_commands() {
             allowed,
             "{label} {origin} {command}: {result:?}"
         );
+    }
+}
+#[test]
+fn zoom_is_available_only_to_the_trusted_main_window() {
+    use tauri::Manager;
+    let app = mock_builder().build(test_context()).unwrap();
+    for (label, origin, allowed) in [
+        ("main", LOCAL_ORIGIN, true),
+        ("other", LOCAL_ORIGIN, false),
+        ("main", "https://evil.example", false),
+    ] {
+        let window = app.get_webview_window(label).unwrap_or_else(|| {
+            tauri::WebviewWindowBuilder::new(&app, label, Default::default())
+                .build()
+                .unwrap()
+        });
+        let result = get_ipc_response(
+            &window,
+            InvokeRequest {
+                cmd: "plugin:webview|set_webview_zoom".into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url: origin.parse().unwrap(),
+                body: InvokeBody::Json(serde_json::json!({"value":2.0})),
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.into(),
+            },
+        );
+        assert_eq!(result.is_ok(), allowed, "{label} {origin}: {result:?}");
     }
 }
 #[test]
@@ -242,7 +308,7 @@ fi
 }
 
 #[test]
-fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
+fn connection_commands_reject_untrusted_callers_before_accessing_the_connection() {
     use powercontext_desktop::{commands, error::SafeError};
     use tauri::Manager;
     let app = mock_builder()
@@ -253,12 +319,19 @@ fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
             commands::remember_memory,
             commands::search_memory,
             commands::atomic_memory_entry,
-            commands::cancel_memory_reads
+            commands::cancel_memory_reads,
+            commands::get_stats,
+            commands::observe_runtime_liveness,
+            commands::observe_runtime_capabilities,
+            commands::probe_runtime_readiness,
+            commands::cancel_runtime_reads,
+            commands::cancel_stats_reads
         ])
         .build(test_context())
         .unwrap();
     let args = serde_json::json!({
         "generation": 0,
+        "period": "today",
         "text": "synthetic permission test",
         "query": "synthetic",
         "artifact": {"family":"atomic-memory", "artifact_id":"test", "revision":1}
@@ -268,6 +341,12 @@ fn memory_commands_reject_untrusted_callers_before_accessing_the_connection() {
         "search_memory",
         "atomic_memory_entry",
         "cancel_memory_reads",
+        "get_stats",
+        "observe_runtime_liveness",
+        "observe_runtime_capabilities",
+        "probe_runtime_readiness",
+        "cancel_runtime_reads",
+        "cancel_stats_reads",
     ] {
         for (label, origin) in [
             ("main", LOCAL_ORIGIN),

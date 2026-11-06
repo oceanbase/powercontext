@@ -21,7 +21,7 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pc_gateway_core::{ManagedCall, ManagedOutcome};
+use pc_gateway_core::{ManagedCall, ManagedOutcome, RequestControl};
 use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputLimits, Role};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -117,6 +117,25 @@ async fn ingress_common(
     headers: HeaderMap,
     req: Request,
     format: Format,
+) -> Response {
+    let control = RequestControl::new(
+        tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+        req.extensions().get::<String>().cloned(),
+    );
+    let observation = control.observation();
+    let cancellation = control.cancellation();
+    let mut response = ingress_model(state, headers, req, format, control).await;
+    response.extensions_mut().insert(observation);
+    response.extensions_mut().insert(cancellation);
+    response
+}
+
+async fn ingress_model(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    req: Request,
+    format: Format,
+    control: RequestControl,
 ) -> Response {
     // 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
     if let Some(expected) = &state.api_key {
@@ -255,7 +274,7 @@ async fn ingress_common(
 
     let outcome = state
         .executor
-        .run(call, &renderer, state.evidence.as_ref())
+        .run(control, call, &renderer, state.evidence.as_ref())
         .await;
     if client_stream {
         return respond_responses_sse(outcome);
@@ -670,6 +689,295 @@ fn _unused(_: Option<Bytes>) {}
 mod tests {
     //! PR #2307 review P2：chat 工具元数据经入口 canonical 化的保真测试。
     use super::*;
+
+    async fn lifecycle_router() -> (axum::Router, tokio::task::JoinHandle<()>) {
+        use axum::routing::post;
+        use pc_gateway_core::{Executor, HttpGateClient};
+        use pc_gateway_types::{CheckPhase, ContextCheckRequest};
+        let mock = axum::Router::new()
+            .route(
+                "/v1/context/check",
+                post(|Json(request): Json<ContextCheckRequest>| async move {
+                    let phase = match request {
+                        ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
+                        ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
+                    };
+                    Json(serde_json::json!({
+                        "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
+                        "phase": phase,
+                        "decision": "allow",
+                        "reason_codes": [],
+                        "coverage": {"profile": "text-and-tools.v1", "complete": true},
+                        "policy_version": "test",
+                        "valid_until": "2999-01-01T00:00:00Z",
+                        "binding": "test-binding"
+                    }))
+                }),
+            )
+            .route(
+                "/v1/chat/completions",
+                post(|| async {
+                    (
+                        StatusCode::CREATED,
+                        Json(serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": "checked"}}]
+                        })),
+                    )
+                }),
+            )
+            .route(
+                "/v1/responses",
+                post(|| async {
+                    Json(serde_json::json!({
+                        "id": "resp-1", "object": "response", "status": "completed", "output": []
+                    }))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = Arc::new(AppState {
+            executor: Arc::new(Executor::new(
+                crate::link::CoreLink::Http(HttpGateClient::with_token(&base, None)),
+                pc_gateway_transport::ReqwestTransport::new(std::time::Duration::from_secs(120)),
+                std::num::NonZeroU32::new(2).unwrap(),
+            )),
+            evidence: Arc::new(pc_gateway_evidence::BufferedEvidenceSink::new()),
+            upstream_profile: "test".into(),
+            upstream_chat: format!("{base}/v1/chat/completions"),
+            upstream_responses: format!("{base}/v1/responses"),
+            upstream_chat_api_key: String::new(),
+            upstream_responses_api_key: String::new(),
+            api_key: Some("gateway-key".into()),
+            degrade: pc_gateway_core::DegradePolicy::Pause,
+            injection: Injection::Off,
+            inject_responses: false,
+            sediment: false,
+            steering: None,
+            default_scope: "test".into(),
+            max_body_bytes: 1024 * 1024,
+            degradation_allowed: false,
+        });
+        let router = crate::middleware::apply_chain(
+            crate::router(state, crate::proxy::ProxyState::from_env()),
+            vec![
+                crate::middleware::ResourceLimits::new(1024 * 1024, 2),
+                Arc::new(crate::middleware::RequestId),
+            ],
+        );
+        (router, server)
+    }
+
+    struct PendingBody {
+        receiver: tokio::sync::oneshot::Receiver<Bytes>,
+        done: bool,
+    }
+
+    impl http_body::Body for PendingBody {
+        type Data = Bytes;
+        type Error = std::convert::Infallible;
+
+        fn poll_frame(
+            mut self: std::pin::Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<http_body::Frame<Bytes>, Self::Error>>> {
+            use std::future::Future;
+            if self.done {
+                return std::task::Poll::Ready(None);
+            }
+            match std::pin::Pin::new(&mut self.receiver).poll(context) {
+                std::task::Poll::Pending => std::task::Poll::Pending,
+                std::task::Poll::Ready(Ok(bytes)) => {
+                    self.done = true;
+                    std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes))))
+                }
+                std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(None),
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn model_routes_create_control_before_reading_the_body_and_retain_it_after_execution() {
+        use pc_gateway_core::{
+            ExecutionObservation, ExecutionState, ExecutionTerminal, ModelSendState,
+            RequestCancellation,
+        };
+        use std::future::Future;
+        use tower::ServiceExt;
+        for (path, body, streaming) in [
+            (
+                "/gateway/v1/chat/completions",
+                serde_json::json!({"model": "test", "messages": [{"role": "user", "content": "hello"}]}),
+                false,
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false}),
+                false,
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false, "stream": true}),
+                true,
+            ),
+        ] {
+            let (router, server) = lifecycle_router().await;
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let started = tokio::time::Instant::now();
+            let request = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header(header::AUTHORIZATION, "Bearer gateway-key")
+                .header("x-powercontext-request-id", "route-request")
+                .body(axum::body::Body::new(PendingBody {
+                    receiver,
+                    done: false,
+                }))
+                .unwrap();
+            let mut response = Box::pin(router.oneshot(request));
+            assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
+                response.as_mut().poll(context)
+            ))
+            .await
+            .is_pending());
+            tokio::time::advance(std::time::Duration::from_secs(11)).await;
+            tokio::time::resume();
+            sender
+                .send(serde_json::to_vec(&body).unwrap().into())
+                .unwrap();
+            let response = response.await.unwrap();
+            let observation = response
+                .extensions()
+                .get::<ExecutionObservation>()
+                .unwrap()
+                .clone();
+            let cancellation = response
+                .extensions()
+                .get::<RequestCancellation>()
+                .unwrap()
+                .clone();
+            assert_eq!(
+                observation.deadline(),
+                started + std::time::Duration::from_secs(180)
+            );
+            assert_eq!(observation.request_id(), Some("route-request"));
+            assert_eq!(
+                observation.snapshot().model_send,
+                ModelSendState::ResponseReceived
+            );
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+            );
+            assert_eq!(
+                response.headers()["x-powercontext-request-id"],
+                "route-request"
+            );
+            assert_eq!(
+                response.status(),
+                if path.contains("chat") {
+                    StatusCode::CREATED
+                } else {
+                    StatusCode::OK
+                }
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                if streaming {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                }
+            );
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            if streaming {
+                let text = std::str::from_utf8(&bytes).unwrap();
+                assert!(text.contains("event: response.created"));
+                assert!(text.contains("event: response.completed"));
+            } else {
+                let content: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                if path.contains("chat") {
+                    assert_eq!(content["choices"][0]["message"]["content"], "checked");
+                } else {
+                    assert_eq!(content["id"], "resp-1");
+                }
+            }
+            let terminal = observation.snapshot();
+            cancellation.cancel();
+            drop(cancellation);
+            assert_eq!(observation.snapshot(), terminal);
+            server.abort();
+            tokio::time::pause();
+        }
+    }
+
+    #[tokio::test]
+    async fn retained_lifecycle_handles_survive_an_unconsumed_response_drop() {
+        use pc_gateway_core::{
+            ExecutionObservation, ExecutionState, ExecutionTerminal, ModelSendState,
+            RequestCancellation,
+        };
+        use tower::ServiceExt;
+
+        for (path, body) in [
+            (
+                "/gateway/v1/chat/completions",
+                serde_json::json!({"model": "test", "messages": [{"role": "user", "content": "hello"}]}),
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false}),
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false, "stream": true}),
+            ),
+        ] {
+            let (router, server) = lifecycle_router().await;
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(path)
+                        .header(header::AUTHORIZATION, "Bearer gateway-key")
+                        .header("x-powercontext-request-id", "dropped-response")
+                        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let observation = response
+                .extensions()
+                .get::<ExecutionObservation>()
+                .unwrap()
+                .clone();
+            let cancellation = response
+                .extensions()
+                .get::<RequestCancellation>()
+                .unwrap()
+                .clone();
+            let deadline = observation.deadline();
+            let snapshot = observation.snapshot();
+            assert_eq!(snapshot.model_send, ModelSendState::ResponseReceived);
+            assert_eq!(
+                snapshot.execution,
+                ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+            );
+
+            drop(response);
+
+            assert_eq!(observation.request_id(), Some("dropped-response"));
+            assert_eq!(observation.deadline(), deadline);
+            assert_eq!(observation.snapshot(), snapshot);
+            cancellation.cancel();
+            assert!(cancellation.is_cancelled());
+            drop(cancellation);
+            assert_eq!(observation.snapshot(), snapshot);
+            server.abort();
+        }
+    }
 
     #[test]
     fn chat_ingress_preserves_tool_fields_and_null_content() {

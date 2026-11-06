@@ -343,7 +343,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 145
+    # Test steps total 155m; reserve 25m for setup, diagnostics and artifact upload.
+    timeout-minutes: 180
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -429,33 +430,35 @@ jobs:
             tests/e2e/test_scope_search_migration.py
 
       - name: Test background listener lifecycle without skips
-        timeout-minutes: 5
+        # One full Server case (300s), collection (180s), and termination grace.
+        timeout-minutes: 10
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
-        timeout-minutes: 60
+        # Up to 16 cases per shard at 300s each, plus collection and termination grace.
+        timeout-minutes: 90
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/clean-migration"
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/clean-migration"
 
       - name: Test concurrent managed startup without skips
-        # Collection and three isolated cases retain their 180s process deadlines.
+        # Each shard runs one full Server case (300s), plus collection (180s).
         timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/startup-snapshot" --tests \
             tests/e2e/test_managed_startup_read_consistency.py
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
       - name: Test long-query retrieval and admission without skips
-        # Eight isolated cases include full Server setup and retain 180s deadlines.
+        # Up to three full Server cases per shard at 300s each, plus collection (180s).
         timeout-minutes: 30
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/long-query" --tests \
+            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/3" --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
             tests/e2e/test_atomic_memory_long_fts_query.py
 
@@ -542,8 +545,8 @@ jobs:
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ubuntu-latest
-    # OceanBase regressions can take 32 minutes before the separate replay scenarios.
-    timeout-minutes: ${{ matrix.database == 'oceanbase' && 60 || 40 }}
+    # Reserve 50m for OceanBase regressions, 15m for replay, and 10m for setup/evidence/cleanup.
+    timeout-minutes: ${{ matrix.database == 'oceanbase' && 75 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -562,7 +565,8 @@ jobs:
           version: ${{ env.UV_VERSION }}
 
       - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
-        timeout-minutes: 40
+        # The 22 tests alone took 39m; this step also starts the database and installs dependencies.
+        timeout-minutes: 50
         if: matrix.database == 'oceanbase'
         env:
           COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase

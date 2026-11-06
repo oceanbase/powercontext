@@ -51,6 +51,7 @@ _SCRIPTS = Path(__file__).resolve().parent
 _INTERPRETERS = _SCRIPTS / "managed_resource_interpreters.json"
 _BUILD_TOOLS = _SCRIPTS / "managed_resource_build_tools.json"
 _SOURCE_REPOSITORY = "https://github.com/oceanbase/powercontext"
+_WINDOWS_ACCESS_VIOLATION = 0xC0000005
 
 
 def json_bytes(value: object) -> bytes:
@@ -104,6 +105,38 @@ def target_spec(target: str, *, native: bool = True) -> dict[str, Any]:
     return spec
 
 
+def _download(url: str, partial: Path) -> None:
+    command = [
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
+        "--retry",
+        "2",
+        "--max-time",
+        "1800",
+        "--output",
+        str(partial),
+        url,
+    ]
+    env = environment()
+    for attempt in range(2):
+        try:
+            subprocess.run(command, check=True, env=env, timeout=1900)
+        except subprocess.CalledProcessError as error:
+            # curl's own retry cannot recover from a process crash on the Windows runner.
+            if attempt or error.returncode != _WINDOWS_ACCESS_VIOLATION:
+                raise
+            partial.unlink(missing_ok=True)
+        else:
+            return
+
+
 def acquire(item: dict[str, Any], destination: Path, cache: Path | None = None) -> None:
     """Download fixed HTTPS bytes; incomplete and corrupt files cannot be reused."""
     if destination.exists():
@@ -123,29 +156,7 @@ def acquire(item: dict[str, Any], destination: Path, cache: Path | None = None) 
     partial = destination.with_name(destination.name + ".partial")
     if partial.exists():
         raise ValueError("An incomplete input exists; inspect it before retrying")
-    subprocess.run(
-        [
-            "curl",
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--location",
-            "--proto",
-            "=https",
-            "--proto-redir",
-            "=https",
-            "--retry",
-            "2",
-            "--max-time",
-            "1800",
-            "--output",
-            str(partial),
-            item["url"],
-        ],
-        check=True,
-        env=environment(),
-        timeout=1900,
-    )
+    _download(item["url"], partial)
     if sha256(partial) != item["sha256"] or ("size" in item and partial.stat().st_size != item["size"]):
         raise ValueError("Downloaded input does not match its locked digest and size")
     partial.rename(destination)

@@ -26,7 +26,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import Connection as SyncConnection
 from sqlalchemy import event, func, insert, select
-from sqlalchemy.exc import IntegrityError, PendingRollbackError
+from sqlalchemy.exc import IntegrityError, OperationalError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from sqlalchemy.pool import QueuePool
 
@@ -62,6 +62,61 @@ def test_unsupported_sqlite_is_rejected_without_changing_storage(tmp_path, monke
 
     asyncio.run(scenario())
     assert (database.read_bytes() if database.exists() else None) == before
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_failed_sqlite_open_drains_its_worker_before_reporting_the_error(tmp_path, monkeypatch, read_only) -> None:
+    path = tmp_path / "unavailable.db"
+    if not read_only:
+        path.mkdir()
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{path}")
+    release = ThreadEvent()
+    stopping = []
+    original_stop = aiosqlite.Connection.stop
+
+    def delayed_stop(driver):
+        # Hold the real worker at shutdown so a failed open cannot win the race
+        # with its final event-loop callback.
+        driver._tx.put_nowait((None, lambda: release.wait(2)))
+        asyncio.get_running_loop().call_later(0.02, release.set)
+        future = original_stop(driver)
+        if future is not None:
+            stopping.append(future)
+        return future
+
+    monkeypatch.setattr(aiosqlite.Connection, "stop", delayed_stop)
+
+    async def scenario() -> None:
+        try:
+            with pytest.raises(OperationalError, match="unable to open database file"):
+                opened = SQLiteProfile.open_readonly(config) if read_only else SQLiteProfile.open(config, tables=())
+                async with opened:
+                    pytest.fail("Unavailable storage must not be opened")
+            assert stopping, "failed open did not expose a worker shutdown waiter"
+            assert all(future.done() for future in stopping), "open returned before its worker finished stopping"
+        finally:
+            release.set()
+            await asyncio.wait_for(asyncio.gather(*stopping), timeout=2)
+
+    asyncio.run(scenario())
+    assert path.is_dir() if not read_only else not path.exists()
+
+
+def test_sqlite_worker_start_failure_is_reported_without_waiting_for_shutdown(tmp_path, monkeypatch) -> None:
+    message = "SQLite worker unavailable"
+
+    def unavailable_thread(_thread) -> None:
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(aiosqlite.core.Thread, "start", unavailable_thread)
+
+    async def scenario() -> None:
+        with pytest.raises(RuntimeError, match=message):
+            async with SQLiteProfile.open(SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'worker.db'}"), tables=()):
+                pytest.fail("Unavailable worker must not open storage")
+
+    asyncio.run(scenario())
+    assert not (tmp_path / "worker.db").exists()
 
 
 def test_sqlite_stop_waiters_finish_when_another_waiter_is_cancelled(tmp_path) -> None:
