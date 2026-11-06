@@ -833,7 +833,10 @@ def test_native_deadline_before_commit_retries_usage_without_double_counting(tmp
             else SQLiteConfig()
         )
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, InterruptedOnceRepository(), write_timeout_seconds=0.4)
+            # Leave scheduling and cleanup margin for the native interruption and retry.
+            recorder = _ModelUsageRecorder(
+                database, InterruptedOnceRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
+            )
             try:
                 _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
                 await recorder.flush()

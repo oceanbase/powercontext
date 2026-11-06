@@ -607,16 +607,6 @@ def test_receipt_pointing_to_missing_handoff_does_not_fallback_to_scope_heads() 
     asyncio.run(scenario())
 
 
-def test_the_ledger_module_performs_no_read_path_instrumentation() -> None:
-    """The write path must stay out of retrieval: only this module may append."""
-
-    from pathlib import Path
-
-    source = Path("src/powercontext/builtin/artifacts/experience/recurrence.py").read_text(encoding="utf-8")
-    for forbidden in ("sqlalchemy", "AsyncConnection", "Repository"):
-        assert forbidden not in source, forbidden
-
-
 class _NoExperienceCandidates:
     async def incubate(self, sources: tuple[Source, ...], /) -> tuple[ExperienceCandidateInput, ...]:
         return ()

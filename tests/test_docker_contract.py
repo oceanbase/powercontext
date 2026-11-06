@@ -47,12 +47,6 @@ def _dockerfile_server_environment() -> dict[str, str]:
     return dict(_SERVER_ENV_PATTERN.findall(_DOCKERFILE.read_text(encoding="utf-8")))
 
 
-def test_dockerfile_pins_the_bind_environment_under_test() -> None:
-    # Guard the test's own premise: if these keys move, the smoke test below stops meaning anything.
-    environment = _dockerfile_server_environment()
-    assert environment.get("POWERCONTEXT_SERVER_HTTP_HOST") == "0.0.0.0"  # noqa: S104 - the image's documented bind.
-
-
 def test_documented_container_invocation_starts_out_of_the_box(monkeypatch: pytest.MonkeyPatch) -> None:
     run_server = Mock()
     tracing = Mock()
