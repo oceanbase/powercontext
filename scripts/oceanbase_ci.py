@@ -21,6 +21,7 @@ import json
 import math
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import IO
@@ -71,9 +72,22 @@ def capture(command: list[str], path: Path, deadline: float, *, probe_timeout: f
             return result.returncode
 
 
+def write_report(path: Path, report: dict[str, object]) -> None:
+    """Diagnostic storage failures must not replace the observed command result."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2) + "\n")
+    except OSError as error:
+        print(f"OceanBase CI diagnostic report unavailable: {type(error).__name__}", file=sys.stderr)
+
+
 def collect(container: str, output: Path, *, budget: float = 30) -> None:
     """Best-effort bounded snapshots; omit statement text, row keys and container env."""
-    output.mkdir(parents=True, exist_ok=True)
+    try:
+        output.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        print(f"OceanBase CI diagnostic directory unavailable: {type(error).__name__}", file=sys.stderr)
+        return
     started = time.monotonic()
     queries = {
         "sessions": "SELECT ID, USER, DB, COMMAND, TIME, STATE FROM information_schema.PROCESSLIST LIMIT 100",
@@ -87,20 +101,22 @@ def collect(container: str, output: Path, *, budget: float = 30) -> None:
         "disk": ["docker", "exec", container, "df", "-h", "/root/demo"],
         "state": ["docker", "inspect", "--format", "{{json .State}}", container],
     })
-    results = {
-        name: capture(command, output / f"{name}.txt", started + budget, probe_timeout=min(3, budget / len(commands)))
-        for name, command in commands.items()
-    }
-    (output / "snapshot.json").write_text(
-        json.dumps(
-            {
-                "captured_at_unix_seconds": time.time(),
-                "elapsed_seconds": time.monotonic() - started,
-                "exit_codes": results,
-            },
-            indent=2,
-        )
-        + "\n"
+    results = {}
+    for name, command in commands.items():
+        try:
+            results[name] = capture(
+                command, output / f"{name}.txt", started + budget, probe_timeout=min(3, budget / len(commands))
+            )
+        except OSError as error:
+            results[name] = 74  # EX_IOERR: the diagnostic output could not be written.
+            print(f"OceanBase CI diagnostic probe unavailable: {type(error).__name__}", file=sys.stderr)
+    write_report(
+        output / "snapshot.json",
+        {
+            "captured_at_unix_seconds": time.time(),
+            "elapsed_seconds": time.monotonic() - started,
+            "exit_codes": results,
+        },
     )
 
 
@@ -158,7 +174,6 @@ def run_command(
     command: list[str], *, container: str, output: Path, timeout: float, stdout: IO[str] | None = None
 ) -> int:
     """Keep GNU timeout's process deadline while collecting evidence before TERM."""
-    output.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     bounded = ["timeout", "--signal=TERM", "--kill-after=10s", f"{timeout:g}s", *command]
     cancelled_signal: int | None = None
@@ -186,17 +201,14 @@ def run_command(
                 signal.signal(number, handler)
     if cancelled_signal is not None:
         code = 128 + cancelled_signal
-    (output / "execution.json").write_text(
-        json.dumps(
-            {
-                "exit_code": code,
-                "cancelled_signal": cancelled_signal,
-                "deadline_seconds": timeout,
-                "elapsed_seconds": time.monotonic() - started,
-            },
-            indent=2,
-        )
-        + "\n"
+    write_report(
+        output / "execution.json",
+        {
+            "exit_code": code,
+            "cancelled_signal": cancelled_signal,
+            "deadline_seconds": timeout,
+            "elapsed_seconds": time.monotonic() - started,
+        },
     )
     return code
 

@@ -74,6 +74,44 @@ def test_unresponsive_startup_and_diagnostics_respect_overall_deadlines(docker_p
     assert set(snapshot["exit_codes"].values()) == {124}
 
 
+def test_one_unwritable_probe_does_not_discard_other_diagnostics(docker_probe):
+    (docker_probe / "sessions.txt").mkdir(parents=True)
+    collect("test", docker_probe)
+    snapshot = json.loads((docker_probe / "snapshot.json").read_text())
+    assert snapshot["exit_codes"]["sessions"] != 0
+    assert snapshot["exit_codes"]["transactions"] == 0
+    assert (docker_probe / "transactions.txt").read_text().strip() == "1"
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "delay", "blocked_path", "expected"),
+    [(0, 0, "directory", 0), (7, 0, "execution.json", 7), (0, 60, "before-timeout", 124)],
+)
+def test_diagnostic_storage_failure_preserves_the_command_result(
+    docker_probe, exit_code, delay, blocked_path, expected
+):
+    timeout = shutil.which("timeout") or shutil.which("gtimeout")
+    if timeout is None:
+        pytest.skip("GNU timeout is required by the Linux CI command supervisor")
+    (docker_probe.parent / "timeout").symlink_to(timeout)
+    if blocked_path == "directory":
+        docker_probe.write_text("A file prevents creating the diagnostic directory")
+    elif blocked_path == "execution.json":
+        (docker_probe / blocked_path).mkdir(parents=True)
+    else:
+        docker_probe.mkdir()
+        (docker_probe / blocked_path).write_text("A file prevents creating the snapshot directory")
+    assert (
+        run_command(
+            [sys.executable, "-c", f"import sys,time; time.sleep({delay}); sys.exit({exit_code})"],
+            container="test",
+            output=docker_probe,
+            timeout=4,
+        )
+        == expected
+    )
+
+
 @pytest.mark.parametrize(("exit_code", "delay", "expected"), [(0, 0, 0), (7, 0, 7), (0, 60, 124)])
 def test_command_preserves_failures_and_collects_before_timeout(docker_probe, monkeypatch, exit_code, delay, expected):
     timeout = shutil.which("timeout") or shutil.which("gtimeout")
