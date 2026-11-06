@@ -2043,3 +2043,34 @@ All 736 packaged runtime files match the recorded Git source bytes. Evidence is 
 under ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
 This record covers local SQLite protocol behavior. It does not establish installed UI,
 native credential persistence, Windows execution, external production acceptance or release readiness.
+
+## Server 961e1e5e protocol qualification
+
+`sqlite-gateway-target-961e1e5e-v1` qualifies the twelve declared Desktop protocol
+operations against Server runtime sources at
+`961e1e5efa4226ce96850c9235b168e1e8da04d3`. The Gateway target-resolution
+extension does not add a Desktop operation or grant the Desktop Gateway access.
+
+OpenAPI SHA-256: `9c40647c8029ba62b94c025f40b335cf0c8509a9250ecbd47d3786dd3078eaad`.
+Wheel: `powercontext-1.5.1.dev138+g961e1e5ef.d20261106-py3-none-any.whl`.
+Wheel SHA-256: `635ddfb13b9994a8332d99542f0c4e82508e72b7be6234f30fa1880eee298b75`.
+
+On 2026-11-06, macOS arm64, Python 3.14.5 and Rust 1.97.1 passed all four
+built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous loopback,
+Bearer, HTTPS with an explicit CA/base path, and injected-provider/enforced access.
+The native `server_probe` was built against the generated contract. The fixture
+exercised save/search/exact reads, Scope selection, lost write responses without
+replay, identity changes, revocation, and Server survival after client exit.
+After the new record was added, the probe was rebuilt and all four modes passed
+again with `--product-qualification sqlite-gateway-target-961e1e5e-v1`, exercising
+the bundled product record through the normal native ConnectionManager.
+
+All 736 packaged runtime files match the pinned Git source bytes. Both runs reported
+a dirty working tree: the separate Gateway implementation remained uncommitted, and
+the product-profile run also contained this new qualification record. Neither run
+claims an entirely clean checkout; the Server wheel and generated contract identities
+were checked independently.
+Evidence is retained under ignored `desktop/.artifacts/real-server.json` and
+`desktop/.artifacts/server-wheel/`. This qualification covers local SQLite protocol
+behavior, not installed UI, native credential persistence, Windows, external
+production acceptance, or release readiness.
