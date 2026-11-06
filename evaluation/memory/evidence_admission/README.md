@@ -7,7 +7,12 @@ It never publishes Atomic Memory, runs reconciliation, changes a production regi
 
 [中文说明](README.zh.md) · [Experiment protocol](PROTOCOL.md)
 
-The latest [v17 live diagnostic](V17_RESULTS.zh.md) executed two actual SDK/Pipeline requests after a committed freeze.
+[v18 admission comparison](V18_PROTOCOL.zh.md) fixes native generation instructions and output schema across complete
+projection, current window reduction and bounded fragments: 972 rows across three datasets, budgets and replays.
+Budget rejection, failed generation and unresolved semantics remain distinct. Ordinary quality failures are measured
+without retries; billing, cancellation, Scope and audit failures stop execution. Historical protocols are not pooled.
+
+The [v17 live diagnostic](V17_RESULTS.zh.md) executed two actual SDK/Pipeline requests after a committed freeze.
 Exact literals pass 4/4; the first Unicode response retains 2/3 literals and omits required CRLF, so the two remaining
 requests are unrun. The decision remains `insufficient_evidence`; this is a candidate-only diagnostic with assistant
 review, not the formal all-arm comparison. See [the opt-in contract](V17_PROTOCOL.zh.md).
