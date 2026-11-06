@@ -27,20 +27,20 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-
-pytest.importorskip("langfuse")
-from langchain.agents import create_agent
-from langfuse import Langfuse
-from langfuse.langchain import CallbackHandler
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from powercontext_langchain import PowerContextMiddleware, PowerContextScope
+
+langfuse = pytest.importorskip("langfuse")
+Langfuse = langfuse.Langfuse
+CallbackHandler = pytest.importorskip("langfuse.langchain").CallbackHandler
+OTLPSpanExporter = pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter").OTLPSpanExporter
 
 
 class LocalModel(BaseChatModel):
@@ -67,8 +67,11 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
                 with recall_content_observation("查询" * 10000, enabled=True) as output:
                     output("召回" * 10000, "ready")
                 span = exporter.get_finished_spans()[0]
+                assert span.attributes is not None
                 for field in ("input", "output"):
-                    value = json.loads(span.attributes[f"{field}.value"])
+                    raw_value = span.attributes[f"{field}.value"]
+                    assert isinstance(raw_value, str)
+                    value = json.loads(raw_value)
                     self.assertLessEqual(len(value.encode("utf-8")), 16384)
                     self.assertTrue(span.attributes[f"powercontext.content.{field}.truncated"])
                 with (
@@ -178,8 +181,13 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
                 asyncio.run(invoke())
                 spans = exporter.get_finished_spans()
                 content_span = next(span for span in spans if span.name == "PowerContextMiddleware recall")
-                self.assertEqual(json.loads(content_span.attributes["input.value"]), "VISIBLE_QUERY_SENTINEL")
-                self.assertIsNone(json.loads(content_span.attributes["output.value"]))
+                assert content_span.attributes is not None
+                raw_input = content_span.attributes["input.value"]
+                raw_output = content_span.attributes["output.value"]
+                assert isinstance(raw_input, str)
+                assert isinstance(raw_output, str)
+                self.assertEqual(json.loads(raw_input), "VISIBLE_QUERY_SENTINEL")
+                self.assertIsNone(json.loads(raw_output))
                 self.assertIn("powercontext.context.status", content_span.attributes)
                 self.assertFalse(content_span.attributes["powercontext.content.input.truncated"])
                 root = next(span for span in spans if span.name == "langchain-powercontext-request")
@@ -192,14 +200,20 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
                         self.assertIn(span.parent.span_id, by_id, span.name)
                 by_name = {span.name: span for span in request_spans}
                 client = by_name["PowerContextClient prepare_context"]
-                self.assertEqual(by_name["HTTP prepare_context"].parent.span_id, client.context.span_id)
+                http_parent = by_name["HTTP prepare_context"].parent
+                assert http_parent is not None
+                self.assertEqual(http_parent.span_id, client.context.span_id)
                 self.assertIn("memory.search", by_name)
                 self.assertIn("PowerContextClient capture_content_source", by_name)
                 self.assertIn("LocalModel", by_name)
+                assert client.attributes is not None
                 self.assertEqual(client.attributes["gen_ai.operation.name"], "retrieval")
                 self.assertEqual(client.attributes["gen_ai.provider.name"], "powercontext")
                 for span in request_spans:
-                    if span.instrumentation_scope.name == "powercontext.client":
+                    if (
+                        span.instrumentation_scope is not None
+                        and span.instrumentation_scope.name == "powercontext.client"
+                    ):
                         self.assertNotIn("PRIVATE_QUERY_SENTINEL", str(span.attributes))
                 from powercontext.client.tracing import ClientSpan
 
