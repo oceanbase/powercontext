@@ -1,0 +1,38 @@
+.github/workflows/e2e-harness.yml
+  s_b8cede7abf9387::t_64145a41791c4f 10-13,50-52,55-56,64-87,89,99,102-105,107,110,587,591,605-607,652-659,702,712,722,733-734,743-775
+  s_b8cede7abf9387::t_08b2c594052e0e 776
+tests/test_e2e_workflow_contract.py
+  s_b8cede7abf9387::t_64145a41791c4f 15-18,21,35-134
+docs/en/development/ci-scope.md
+  s_b8cede7abf9387::t_64145a41791c4f 66-84
+docs/zh/development/ci-scope.md
+  s_b8cede7abf9387::t_64145a41791c4f 66-84
+Makefile
+  s_b8cede7abf9387::t_64145a41791c4f 117-120,123-125
+tests/test_ci_changes.py
+  s_b8cede7abf9387::t_0e29c744b750a7 294-310
+  s_b8cede7abf9387::t_64145a41791c4f 65-83,185-186,291-293,311-325
+.github/ci-paths.toml
+  s_b8cede7abf9387::t_64145a41791c4f 77-80,82-83,148-159,174,221
+  s_b8cede7abf9387::t_0e29c744b750a7 84-85
+scripts/ci_changes.py
+  s_b8cede7abf9387::t_64145a41791c4f 43
+.github/workflows/master.yml
+  s_b8cede7abf9387::t_64145a41791c4f 1147-1149,1153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "101733202483d9a31768ec52c2e2d5651149bba2",
+  "prompts": {},
+  "sessions": {
+    "s_b8cede7abf9387": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1afd5-8b2b-7782-9cd6-215fb3eab895",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
