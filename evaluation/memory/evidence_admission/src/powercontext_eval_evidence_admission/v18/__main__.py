@@ -24,7 +24,7 @@ from pathlib import Path
 from ..manifests import EvaluationError, read_json
 from .core import committed_freeze, dump, identity, prepare
 from .report import export, summarize
-from .workflow import apply_review, initialize_live, preflight, replay_recorded, run_next
+from .workflow import apply_review, initialize_live, locked, preflight, replay_recorded, run_next
 
 
 def show(value):
@@ -46,11 +46,21 @@ async def execute(args):
     if args.command == "run":
         if not args.execute_live:
             raise EvaluationError("v18_explicit_execute_live_required")
-        while True:
-            result = await run_next(session, execute_live=True)
-            show(result)
-            if result["state"] != "ready":
-                return result
+        try:
+            while True:
+                result = await run_next(session, execute_live=True)
+                show(result)
+                if result["state"] != "ready":
+                    return result
+        except asyncio.CancelledError:
+            # Cancellation can arrive during Source reconstruction, before run_next enters
+            # its HTTP cancellation boundary. A ready session must not silently survive it.
+            with locked(session):
+                state = read_json(session / "state.json")
+                if state["state"] in {"ready", "prepared"}:
+                    state.update(state="cancelled", stop_reason="cancelled_before_next_request")
+                    dump(session / "state.json", state)
+            raise
     if args.command == "replay":
         return await replay_recorded(session, args.output)
     if args.command == "review":

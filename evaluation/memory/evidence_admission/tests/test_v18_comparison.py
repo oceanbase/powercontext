@@ -441,3 +441,21 @@ def test_invalid_negative_control_output_is_a_quality_failure_with_zero_required
         assert not result["quality_gate_passed"]
 
     asyncio.run(scenario())
+
+
+def test_cli_cancellation_before_source_read_closes_ready_session(tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from powercontext_eval_evidence_admission.v18 import __main__ as cli
+
+    core.dump(tmp_path / "state.json", {"state": "ready", "known_charge_cny": "0", "records": []})
+
+    async def cancel_before_source(*args, **kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(cli, "run_next", cancel_before_source)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(cli.execute(Namespace(command="run", session=tmp_path, execute_live=True)))
+    state = read_json(tmp_path / "state.json")
+    assert state["state"] == "cancelled" and state["records"] == []
+    assert state["known_charge_cny"] == "0"
