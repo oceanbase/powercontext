@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 
 from opentelemetry import context as otel_context
 from opentelemetry import propagate, trace
@@ -24,6 +26,21 @@ from opentelemetry.context import Context, Token
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, set_span_in_context
 
 _INSTRUMENTATION_NAME = "powercontext.client"
+_GENAI_CLIENT = ContextVar("powercontext_genai_client", default=False)
+
+
+@contextmanager
+def genai_client_context() -> Iterator[None]:
+    """Mark adapter-owned calls as GenAI context-service dependencies.
+
+    This scopes semantic attributes only; it never configures providers,
+    exporters or consumer-specific filters, and does not record content.
+    """
+    token = _GENAI_CLIENT.set(True)
+    try:
+        yield
+    finally:
+        _GENAI_CLIENT.reset(token)
 
 
 class ClientSpan:
@@ -36,13 +53,21 @@ class ClientSpan:
     def start(cls, operation: str) -> ClientSpan:
         span: Span | None = None
         try:
+            attributes = {
+                "powercontext.operation.name": operation,
+                "powercontext.operation.unit": "dependency",
+            }
+            if _GENAI_CLIENT.get():
+                attributes["gen_ai.provider.name"] = "powercontext"
+                attributes["gen_ai.operation.name"] = (
+                    "retrieval" if operation == "prepare_context" else f"powercontext.{operation}"
+                )
+                if operation == "prepare_context":
+                    attributes["gen_ai.data_source.id"] = "powercontext"
             span = trace.get_tracer(_INSTRUMENTATION_NAME).start_span(
                 f"PowerContextClient {operation}",
                 kind=SpanKind.CLIENT,
-                attributes={
-                    "powercontext.operation.name": operation,
-                    "powercontext.operation.unit": "dependency",
-                },
+                attributes=attributes,
             )
             token = otel_context.attach(set_span_in_context(span))
         except Exception:
@@ -83,4 +108,4 @@ class ClientSpan:
                 self.span.end()
 
 
-__all__ = ["ClientSpan"]
+__all__ = ["ClientSpan", "genai_client_context"]

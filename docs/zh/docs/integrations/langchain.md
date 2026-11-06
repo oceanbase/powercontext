@@ -114,3 +114,12 @@ agent state 或消息内容。
 
 召回和采集都是 best-effort。Server 不可用、响应无效或请求校验失败时，不会替换模型回答或中止 agent。HTTP 401 和 403
 只会以 error 级别记录一次，且日志不包含内容或 token；瞬时和意外故障记录在 debug 级别。
+
+
+### 由适配层负责的 GenAI 追踪
+
+LangChain 中间件自动为其 Scope 解析、上下文召回和可选的完整轮次采集调用添加 GenAI 上下文服务语义，复用应用已有的 OpenTelemetry provider 和父上下文。它不初始化 exporter、不配置日志，也不导入 Langfuse。业务代码保持普通的 middleware 配置，无需编写 span 白名单或使用 Langfuse 私有过滤 API。
+
+在适配层的调用范围内，SDK span 携带 `gen_ai.provider.name=powercontext`。召回采用 `gen_ai.operation.name=retrieval` 和逻辑来源 `gen_ai.data_source.id=powercontext`；辅助调用采用 `powercontext.resolve_scope_binding`、`powercontext.capture_content_source` 等有界的自定义操作名，不伪装为模型推理或模型选择的工具调用。这些属性不记录查询、Scope 标识、正文、结果、Token 数或凭据。范围之外的独立 SDK 调用保持原有运维语义。
+
+Provider/exporter 的初始化及服务端遥测仍由应用和部署方负责。语义可见性不会自动配置上报地址，也不保证任意后端都会导出。成功、错误、取消和召回失败时放行模型的行为保持不变。

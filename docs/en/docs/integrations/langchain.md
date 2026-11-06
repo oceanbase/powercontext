@@ -121,3 +121,12 @@ or the prompt. The token remains in Client configuration and never enters agent 
 Recall and capture are best-effort. Server unavailability, an invalid response, or request validation failure does not
 replace the model response or stop the agent. HTTP 401 and 403 are logged once at error level without content or token
 values; transient and unexpected failures are available at debug level.
+
+
+### Adapter-owned GenAI tracing
+
+The LangChain middleware marks its own scope-resolution, recall and optional completed-turn capture calls as GenAI context-service dependencies. It reuses the application-owned OpenTelemetry provider and current parent context. It does not create an exporter, configure logging or import Langfuse. Applications keep their normal middleware configuration; no span allowlist or private Langfuse export predicate is required for these client spans.
+
+Within that adapter-owned context, client spans carry `gen_ai.provider.name=powercontext`. Recall uses `gen_ai.operation.name=retrieval` and the logical `gen_ai.data_source.id=powercontext`. Supporting calls use bounded custom operation names such as `powercontext.resolve_scope_binding` and `powercontext.capture_content_source`; they are not labeled as LLM inference or model-selected tool calls. These attributes contain no query, scope identifier, source body, result, token count or credentials. Standalone SDK calls outside the scoped adapter retain their existing operational-only semantics.
+
+A configured provider/exporter and server-side telemetry are still application/deployment responsibilities. Semantic visibility does not configure a destination or guarantee export by an arbitrary backend. Success, errors, cancellation and fail-open recall behavior are unchanged.
