@@ -31,7 +31,7 @@ uv run --locked --no-dev --group resource-build python scripts/prepare_desktop_p
 Repeat `--allowed-origin` for redirects. Use a fresh output directory each time. The script verifies producer bindings, actual Server archive bytes, the complete Ops tree and executable, target identity, and the exact product qualification. It copies the helper, updates the catalog URL and qualification reference, pins the resulting catalog and Ops manifest, and atomically publishes the staging directory only after verification. Inputs remain unchanged. It emits:
 
 - `ops/`, `server/catalog.json`, and `ops-provision.json` for the application resource directory.
-- `tauri.product.conf.json`, with product identity `com.powercontext.desktop`, the selected Desktop version, and explicit resource mappings including dotfiles. Keep the staging directory at its original absolute location through the build.
+- `tauri.product.conf.json`, with product identity `com.powercontext.desktop`, the selected Desktop version, and a directory mapping that preserves the complete Ops tree, including dotfiles. Keep the staging directory at its original absolute location through the build.
 - `product-resources.json`, which records producer/resource bindings and the selected qualification. Signing and installed acceptance are explicitly `not_performed`; this is not a publication manifest.
 
 From `desktop/`, build without `ci-fixtures` or preview features:

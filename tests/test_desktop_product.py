@@ -15,6 +15,10 @@
 """Product staging with small synthetic resources; no platform qualification claims."""
 
 import json
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import prepare_desktop_product as product
@@ -23,6 +27,8 @@ from desktop_candidate import digest, json_bytes
 from prepare_managed_resources import inventory
 
 from tests.test_ops_resources import _archive, _spec
+
+_ROOT = Path(__file__).resolve().parents[1]
 
 
 def fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str, Path]:
@@ -100,6 +106,85 @@ def run(inputs: tuple[Path, str, Path], **changes: str) -> None:
     )
 
 
+def large_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str, Path]:
+    root, _, output = fixture(tmp_path, monkeypatch)
+    for group in range(100):
+        directory = root / "ops/packages" / f"group-{group:03d}"
+        directory.mkdir(parents=True)
+        for entry in range(151 if group < 54 else 152):
+            (directory / f"module-{entry:03d}.py").write_bytes(b"synthetic module\n")
+    hidden = root / "ops/.hidden-package"
+    hidden.mkdir()
+    (hidden / ".nested-marker").write_bytes(b"nested hidden resource")
+    files = inventory(root / "ops")
+    manifest_path = root / "ops/bundle.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    content = [f for f in files if f["path"] != "bundle.json"]
+    manifest["files_sha256"] = {f["path"]: f["sha256"] for f in content}
+    manifest["installed_bytes"] = sum(f["size"] for f in content)
+    manifest_path.write_bytes(json_bytes(manifest))
+    candidate_path = root / "candidate.json"
+    candidate = json.loads(candidate_path.read_bytes())
+    candidate["binding"]["ops_bundle_manifest_sha256"] = digest(manifest_path)
+    candidate_path.write_bytes(json_bytes(candidate))
+    return root, digest(candidate_path), output
+
+
+def test_product_config_stays_bounded_for_a_complete_helper_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inputs = large_fixture(tmp_path, monkeypatch)
+    run(inputs)
+    output = inputs[2]
+    config_bytes = (output / "tauri.product.conf.json").read_bytes()
+    config = json.loads(config_bytes)
+    assert len(inventory(output / "ops")) >= 15_146
+    assert len(config_bytes) < 4096
+    assert len(config["bundle"]["resources"]) == 3
+    assert (output / "ops/.runtime-marker").read_bytes() == b"included"
+    assert (output / "ops/.hidden-package/.nested-marker").read_bytes() == b"nested hidden resource"
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or os.environ.get("POWERCONTEXT_TEST_TAURI_PRODUCT_BUNDLE") != "1",
+    reason="requires an explicitly requested native macOS Tauri product build",
+)
+def test_tauri_cli_bundles_the_complete_helper_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    inputs = large_fixture(tmp_path, monkeypatch)
+    run(inputs)
+    output = inputs[2]
+    pnpm = shutil.which("pnpm")
+    assert pnpm is not None, "the pinned project Tauri CLI requires pnpm"
+    subprocess.run(
+        [
+            pnpm,
+            "exec",
+            "tauri",
+            "build",
+            "--debug",
+            "--bundles",
+            "app",
+            "--ci",
+            "--no-sign",
+            "--config",
+            str(output / "tauri.product.conf.json"),
+            # The workflow already checks generated sources and TypeScript;
+            # build the frontend here without repeating generator downloads.
+            "--config",
+            '{"build":{"beforeBuildCommand":"pnpm exec vite build"}}',
+            "--",
+            "--locked",
+        ],
+        cwd=_ROOT / "desktop",
+        check=True,
+        timeout=1200,
+    )
+    bundle = _ROOT / "desktop/src-tauri/target/debug/bundle/macos/PowerContext Desktop.app/Contents/Resources"
+    assert inventory(bundle / "ops") == inventory(output / "ops")
+    assert (bundle / "ops-provision.json").read_bytes() == (output / "ops-provision.json").read_bytes()
+    assert (bundle / "server/catalog.json").read_bytes() == (output / "server/catalog.json").read_bytes()
+
+
 def test_product_staging_preserves_ops_and_pins_the_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     inputs = fixture(tmp_path, monkeypatch)
     run(inputs)
@@ -113,8 +198,7 @@ def test_product_staging_preserves_ops_and_pins_the_download(tmp_path: Path, mon
     config = json.loads((output / "tauri.product.conf.json").read_bytes())
     assert config["version"] == "1.2.3"
     assert config["identifier"] == "com.powercontext.desktop"
-    assert config["bundle"]["resources"][str(output / "ops/entry.py")] == "ops/entry.py"
-    assert config["bundle"]["resources"][str(output / "ops/.runtime-marker")] == "ops/.runtime-marker"
+    assert config["bundle"]["resources"][str(output / "ops")] == "ops/"
     with pytest.raises(ValueError, match="output already exists"):
         run(inputs)
     assert inventory(output / "ops") == inventory(root / "ops")
