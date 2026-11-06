@@ -66,6 +66,8 @@ fn response() -> serde_json::Value {
             recall,
             inventory: InventoryStatistics::default(),
             recurrence: RecurrenceStatistics::default(),
+            processing: None,
+            bootstrap_delivery: None,
         }],
     })
     .unwrap()
@@ -170,11 +172,23 @@ async fn setup() -> Fixture {
                             "package_version":"synthetic",
                             "api_contract_version":{"major":1,"minor":4},
                             "feature_contracts":{
+                                "connection.identity":{
+                                    "version":{"major":1,"minor":0},
+                                    "operations":["get_connection_identity"]
+                                },
                                 "scope.selection":{
                                     "version":{"major":1,"minor":0},
                                     "operations":["get_scope","list_scopes","get_default_scope"]
                                 }
                             }
+                        }),
+                    )
+                } else if request.contains("/v1/connection/identity ") {
+                    (
+                        200,
+                        serde_json::json!({
+                            "server_id":if changed.load(Ordering::Relaxed) { "replacement-statistics-server" } else { "synthetic-statistics-server" },
+                            "authentication":"disabled","access_mode":"disabled","principal":null
                         }),
                     )
                 } else if request.contains("/v1/access/me ") {
@@ -278,6 +292,40 @@ async fn statistics_use_only_the_current_exact_scope_and_preserve_null_usage() {
             serde_json::json!({"selection":{"mode":"exact","scope_ids":["scope-a"]},"period":"today"})
         ]
     );
+}
+
+#[tokio::test]
+async fn statistics_accept_the_declared_optional_observation_fields() {
+    let fixture = setup().await;
+    {
+        let mut body = fixture.body.lock().unwrap();
+        let period = body["usage"]["period"].clone();
+        body["by_scope"][0]["processing"] = serde_json::json!([]);
+        body["by_scope"][0]["bootstrap_delivery"] = serde_json::json!({
+            "period": period,
+            "retention_days": 30,
+            "actual_adoption": "unobserved",
+            "by_integration": []
+        });
+    }
+    let generation = fixture.manager.state().unwrap().generation;
+    let result = fixture
+        .manager
+        .stats(generation, StatsPeriod::Today)
+        .await
+        .unwrap();
+    assert_eq!(result.scope_ids, ["scope-a"]);
+    assert_eq!(result.by_scope[0].processing, Some(vec![]));
+    assert_eq!(
+        result.by_scope[0]
+            .bootstrap_delivery
+            .as_ref()
+            .unwrap()
+            .actual_adoption,
+        ActualAdoption::Unobserved
+    );
+    assert!(result.recall.estimator.is_none());
+    assert!(result.by_scope[0].recall.estimator.is_none());
 }
 
 #[tokio::test]

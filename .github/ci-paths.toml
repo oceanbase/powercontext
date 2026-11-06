@@ -29,6 +29,10 @@ tests = [
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
   "scripts/check_atomic_memory_migration_shards.py",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
+  # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
+  ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
+  ".github/workflows/desktop-release.yml", "scripts/desktop_publication_manifest.py",
+  "scripts/publish_desktop_release.py",
   # These evaluator suites still live under the root tests/ directory.
   "evaluation/memory/locomo/**", "evaluation/memory/locomo_plus/**", "evaluation/memory/write_gate/**",
   "evaluation/performance/input_encoding/**",
@@ -94,6 +98,8 @@ observability = [
   "tests/e2e/*observability*", "tests/builtin/runtime/*worker*", "tests/builtin/runtime/*model_usage*",
 ]
 packaging = [
+  "website/public/install.sh", "website/public/install.ps1", ".github/workflows/installation.yml",
+  "tests/test_installation_contract.py", "tests/native/test_installation.py", "tests/native/test_install_sources.py",
   "scripts/build_ops_bundle.py",
   "tests/test_installation.py", "tests/test_upgrade_publication.py", "scripts/ci_role_smoke.py",
   "scripts/ci_installation_roles.py", "tests/test_ci_installation_roles.py", "release/**",
@@ -128,14 +134,14 @@ seekdb_lock = [
 ]
 skill_guidance = [
   "evaluation/skills/skill-up/**",
-  "integrations/claude-code/plugins/powercontext/skills/powercontext-project-context/**",
+  "integrations/agent-plugin/powercontext/skills/powercontext-project-context/**",
   ".github/workflows/skill-guidance.yml",
 ]
 
 # Packaged guidance and its generators are inputs to the native host tests.
 [shared.guidance]
 patterns = [
-  "scripts/integration_guidance*", "scripts/evaluate_integration_guidance.py", "scripts/guidance_templates/**",
+  "scripts/integration_guidance*", "scripts/evaluate_integration_guidance.py", "integrations/agent-plugin/**",
   "tests/test_integration_guidance*", "tests/test_guidance*", "tests/test_setup_rollback.py",
 ]
 suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"]
@@ -197,7 +203,7 @@ zcode = ["zcode-acceptance"]
 kimi = ["kimi-acceptance"]
 upgrade = ["seekdb-managed-startup", "upgrade-acceptance"]
 observability = ["worker-observability"]
-packaging = ["isolated-installations"]
+packaging = ["isolated-installations", "script-installation"]
 desktop = ["desktop-validation"]
 managed_resources = ["managed-resource-candidates"]
 candidate_replay = ["candidate-replay"]

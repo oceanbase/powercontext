@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import Text, and_, cast, func, literal, null, select, union_all
@@ -34,6 +34,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     ARTIFACTS_TABLE,
     CANDIDATE_HEADS_TABLE,
+    CONTEXT_BOOTSTRAP_RECEIPTS_TABLE,
     MODEL_USAGE_DAILY_TABLE,
     MYSQL_IDENTITY_COLLATION,
     RECALL_EFFORT_DAILY_TABLE,
@@ -47,6 +48,7 @@ from powercontext.builtin.statistics import (
     RecallEffortMeasurement,
     RecallTokenMeasurement,
 )
+from powercontext.builtin.statistics.models import BootstrapDeliveryReading
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +89,54 @@ class StoredRecallTokenUsage:
 
 class StatisticsRepository:
     """Read scoped product heads and maintain bounded usage aggregates."""
+
+    async def bootstrap_delivery_many(
+        self,
+        connection: AsyncConnection,
+        scope_ids: Sequence[str],
+        start_date: date,
+        end_date: date,
+    ) -> dict[str, tuple[BootstrapDeliveryReading, ...]]:
+        """Aggregate authorized receipt metadata without reading identities or package items."""
+        scopes = _validated_scopes(scope_ids)
+        table = CONTEXT_BOOTSTRAP_RECEIPTS_TABLE
+        result: dict[str, list[BootstrapDeliveryReading]] = {scope: [] for scope in scopes}
+        start = datetime.combine(start_date, time.min, UTC)
+        end = datetime.combine(end_date + timedelta(days=1), time.min, UTC)
+        for offset in range(0, len(scopes), SELECTION_BATCH_SIZE):
+            rows = (
+                await connection.execute(
+                    select(
+                        table.c.scope_id,
+                        table.c.integration,
+                        table.c.state,
+                        func.count().label("receipts"),
+                        func.sum(table.c.content_bytes).label("content_bytes"),
+                        func.max(table.c.created_at).label("last_prepared_at"),
+                    )
+                    .where(
+                        table.c.scope_id.in_(scopes[offset : offset + SELECTION_BATCH_SIZE]),
+                        table.c.created_at >= start,
+                        table.c.created_at < end,
+                    )
+                    .group_by(table.c.scope_id, table.c.integration, table.c.state)
+                    .order_by(table.c.scope_id, table.c.integration, table.c.state)
+                )
+            ).mappings()
+            for row in rows:
+                prepared_at = row["last_prepared_at"]
+                if prepared_at.tzinfo is None:
+                    prepared_at = prepared_at.replace(tzinfo=UTC)
+                result[row["scope_id"]].append(
+                    BootstrapDeliveryReading(
+                        integration=row["integration"],
+                        state=row["state"],
+                        receipts=row["receipts"],
+                        content_bytes=row["content_bytes"],
+                        last_prepared_at=prepared_at,
+                    )
+                )
+        return {scope: tuple(rows) for scope, rows in result.items()}
 
     async def inventory_many(
         self,

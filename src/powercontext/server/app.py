@@ -44,10 +44,10 @@ from scalar_fastapi import AgentScalarConfig, get_scalar_api_reference
 from starlette.middleware import Middleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.routing import Match
-from starlette.types import Lifespan, Scope
+from starlette.types import ASGIApp, Lifespan, Scope
 from typing_extensions import override
 
-from powercontext._logging import error_category, log_safely
+from powercontext._logging import error_category, log_context, log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactRef, StableHandle
 from powercontext.artifacts.search import (
     ArtifactSearchExecutionContext,
@@ -466,6 +466,8 @@ from powercontext.http import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionAuthentication,
+    ConnectionIdentity,
     ConnectorCheckpointState,
     ContextCheckResult,
     ContinueHandoffRequest,
@@ -758,6 +760,7 @@ from powercontext.http._generated.operations import (
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
+    GET_CONNECTION_IDENTITY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -852,6 +855,7 @@ from powercontext.http._generated.operations import (
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
 from powercontext.server import mapping
 from powercontext.server.artifact_plugins import ArtifactPluginManager
+from powercontext.server.artifact_read_observation import observe_artifact_read
 from powercontext.server.atomic_memory import add_atomic_memory_routes
 from powercontext.server.atomic_memory import record_response as atomic_record_response
 from powercontext.server.authentication import AuthenticationProvider
@@ -918,6 +922,7 @@ from powercontext.server.dream_compatibility import (
     negotiate_dream_contract,
     require_extended_dream,
 )
+from powercontext.server.metrics import HttpMetricsMiddleware, HttpResponseMetricsMiddleware, http_operations
 from powercontext.server.ownership import (
     ArtifactOwnershipGap,
     CandidateOwnershipGap,
@@ -925,6 +930,7 @@ from powercontext.server.ownership import (
     plan_ownership_migration,
 )
 from powercontext.server.request_id import REQUEST_ID_HEADER
+from powercontext.server.retrieval_observation import observe_retrieval
 from powercontext.server.tracing import request_id_from_span
 from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
 from powercontext.sources import SourceDefinitionManifest as RuntimeSourceDefinitionManifest
@@ -1360,7 +1366,9 @@ class _TopicMemoryApplication(Protocol):
 
 
 class _ScopedStatisticsApplication(Protocol):
-    async def overview(self, *, period: RuntimeStatisticsPeriod) -> RuntimeStatistics: ...
+    async def overview(
+        self, *, period: RuntimeStatisticsPeriod, include_processing: bool = False
+    ) -> RuntimeStatistics: ...
 
 
 class _StatisticsApplication(Protocol):
@@ -1371,6 +1379,7 @@ class _StatisticsApplication(Protocol):
         selection: DomainScopeSelection,
         *,
         period: RuntimeStatisticsPeriod,
+        include_processing: bool = False,
     ) -> RuntimeStatistics: ...
 
 
@@ -1410,6 +1419,22 @@ class _PreconditionRequiredError(RuntimeError):
     """Raised when an Artifact mutation omits If-Match."""
 
 
+class _ServerApp(FastAPI):
+    @override
+    def build_middleware_stack(self) -> ASGIApp:
+        stack = super().build_middleware_stack()
+        for middleware in self.user_middleware:
+            if middleware.cls is HttpMetricsMiddleware:
+                # ServerErrorMiddleware sends unhandled-error responses outside user middleware.
+                return HttpResponseMetricsMiddleware(
+                    stack,
+                    metrics=middleware.kwargs["metrics"],
+                    operations=http_operations(self.routes),
+                    skip_paths=middleware.kwargs.get("skip_paths", ()),
+                )
+        return stack
+
+
 def create_app(
     *,
     application: ServerApplication | None = None,
@@ -1428,7 +1453,7 @@ def create_app(
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
 
-    app = FastAPI(
+    app = _ServerApp(
         title=API_TITLE,
         version=API_VERSION,
         description=API_DESCRIPTION,
@@ -1570,6 +1595,7 @@ def create_app(
     _add_route(app, PUBLISH_ARTIFACT, publish_artifact)
     _add_route(app, GET_STATS, get_stats)
     _add_route(app, GET_ACCESS_PRINCIPAL, get_access_principal)
+    _add_route(app, GET_CONNECTION_IDENTITY, get_connection_identity)
     _add_route(app, CHECK_ACCESS, check_access)
     _add_route(app, LIST_ACCESS_RESOURCES, list_access_resources)
     _add_route(app, LIST_ACCESS_ROLES, list_access_roles)
@@ -1873,6 +1899,23 @@ async def get_server_info(request: Request) -> ServerInfo:
     if info is None:
         raise _RuntimeNotReadyError
     return info
+
+
+async def get_connection_identity(request: Request) -> ConnectionIdentity:
+    info = await get_server_info(request)
+    principal = current_principal()
+    if principal is None and (
+        request.app.state.access_mode != "disabled" or request.app.state.authentication_provider is not None
+    ):
+        raise AccessIdentityRequiredError
+    return ConnectionIdentity(
+        server_id=info.server_id,
+        authentication=ConnectionAuthentication.DISABLED
+        if principal is None
+        else ConnectionAuthentication.AUTHENTICATED,
+        access_mode=request.app.state.access_mode,
+        principal=None if principal is None else _access_principal_response(principal),
+    )
 
 
 async def get_access_principal(request: Request) -> AccessMeResponse:
@@ -2580,7 +2623,9 @@ async def get_stats(
 ) -> ScopedStats:
     response.headers["Cache-Control"] = "no-store"
     result = await application.statistics.overview(
-        _domain_scope_selection(request.selection), period=RuntimeStatisticsPeriod(request.period.value)
+        _domain_scope_selection(request.selection),
+        period=RuntimeStatisticsPeriod(request.period.value),
+        **({"include_processing": True} if request.include_processing else {}),
     )
     return mapping.statistics_response(result)
 
@@ -3951,7 +3996,7 @@ def _dream_principal(request: Request) -> str:
 
 
 async def create_dream_run(
-    scope_id: str,
+    scope_id: _ScopePathId,
     request: CreateDreamRunRequest,
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -3967,8 +4012,8 @@ async def create_dream_run(
 
 
 async def get_dream_run(
-    scope_id: str,
-    run_id: str,
+    scope_id: _ScopePathId,
+    run_id: Annotated[str, Path(min_length=1, max_length=64)],
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> DreamRun:
@@ -3995,7 +4040,7 @@ def _list_dreams_query(
 
 
 async def list_dream_runs(
-    scope_id: str,
+    scope_id: _ScopePathId,
     request: Annotated[ListDreamRunsRequest, Depends(_list_dreams_query)],
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
@@ -5837,46 +5882,157 @@ def _observe_application_operation(
     @wraps(endpoint)
     async def observed_endpoint(*args: Any, **kwargs: Any) -> _ResponseT | Response:
         started_at = perf_counter()
-        span = _start_application_span(app, operation)
-        try:
-            async with (
-                owner_recovery_session(app.state.owner_recovery),
-                _current_scope(app, operation, args, kwargs),
-            ):
-                result = await endpoint(*args, **kwargs)
-        except asyncio.CancelledError:
-            _observe_application(app, operation, "cancelled", started_at)
-            _log_operation(
-                logging.INFO,
-                "PowerContext application operation cancelled",
-                operation=operation.operation_id,
-                outcome="cancelled",
+        scope_ids = _application_scope_ids(operation, args, kwargs)
+        with log_context({"scope": scope_ids[0] if len(scope_ids) == 1 else None}):
+            span = _start_application_span(app, operation)
+            _set_scope_attributes(span, scope_ids)
+            try:
+                async with (
+                    owner_recovery_session(app.state.owner_recovery),
+                    _current_scope(app, operation, args, kwargs),
+                ):
+                    result = await endpoint(*args, **kwargs)
+            except asyncio.CancelledError:
+                observe_artifact_read(
+                    app.state.metrics, operation.operation_id, kwargs, started_at=started_at, outcome="cancelled"
+                )
+                observe_retrieval(
+                    app.state.metrics, operation.operation_id, kwargs, started_at=started_at, outcome="cancelled"
+                )
+                _observe_application(app, operation, "cancelled", started_at)
+                _log_operation(
+                    logging.INFO,
+                    "PowerContext application operation cancelled",
+                    operation=operation.operation_id,
+                    outcome="cancelled",
+                    started_at=started_at,
+                )
+                _log_scope_operations(operation, scope_ids, "cancelled", started_at)
+                _finish_span(span, "cancelled")
+                raise
+            except Exception as error:
+                response_status, error_code, _, _ = _map_error(error)
+                observe_artifact_read(
+                    app.state.metrics,
+                    operation.operation_id,
+                    kwargs,
+                    started_at=started_at,
+                    outcome="failure",
+                    error_code=error_code,
+                    status_code=response_status,
+                )
+                observe_retrieval(
+                    app.state.metrics,
+                    operation.operation_id,
+                    kwargs,
+                    started_at=started_at,
+                    outcome="failure",
+                    error_code=error_code,
+                    status_code=response_status,
+                )
+                _observe_application(app, operation, "failure", started_at)
+                diagnostic_error = _application_log_error(operation, response_status, error)
+                _log_operation(
+                    logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
+                    "PowerContext application operation failed",
+                    operation=operation.operation_id,
+                    outcome="failure",
+                    started_at=started_at,
+                    error=diagnostic_error,
+                    error_code=error_code,
+                    status_code=response_status,
+                )
+                _log_scope_operations(
+                    operation, scope_ids, "failure", started_at, error_code=error_code, status_code=response_status
+                )
+                _finish_span(
+                    span, "failure", error=diagnostic_error, error_code=error_code, status_code=response_status
+                )
+                raise
+            resolved = getattr(result, "scope_ids", None)
+            if isinstance(resolved, (list, tuple)) and all(isinstance(scope, str) for scope in resolved):
+                scope_ids = tuple(sorted(set(resolved)))
+                _set_scope_attributes(span, scope_ids)
+            observe_artifact_read(
+                app.state.metrics,
+                operation.operation_id,
+                kwargs,
                 started_at=started_at,
+                outcome="success",
+                result=result,
             )
-            _finish_span(span, "cancelled")
-            raise
-        except Exception as error:
-            _observe_application(app, operation, "failure", started_at)
-            response_status, error_code, _, _ = _map_error(error)
-            diagnostic_error = _application_log_error(operation, response_status, error)
-            _log_operation(
-                logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
-                "PowerContext application operation failed",
-                operation=operation.operation_id,
-                outcome="failure",
+            observe_retrieval(
+                app.state.metrics,
+                operation.operation_id,
+                kwargs,
                 started_at=started_at,
-                error=diagnostic_error,
-                error_code=error_code,
-                status_code=response_status,
+                outcome="success",
+                result=result,
             )
-            _finish_span(span, "failure", error=diagnostic_error, error_code=error_code, status_code=response_status)
-            raise
-        outcome = _application_outcome(result)
-        _observe_application(app, operation, outcome, started_at)
-        _finish_span(span, outcome)
-        return result
+            outcome = _application_outcome(result)
+            _observe_application(app, operation, outcome, started_at)
+            _log_scope_operations(operation, scope_ids, outcome, started_at)
+            _finish_span(span, outcome)
+            return result
 
     return observed_endpoint
+
+
+def _application_scope_ids(
+    operation: Operation[Any, Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[str, ...]:
+    """Reuse declared resource selectors after route authorization and request validation."""
+    if operation.access is None:
+        return ()
+    with suppress(Exception):
+        payload: dict[str, Any] = {}
+        for value in (*args, *kwargs.values()):
+            if isinstance(value, Request):
+                payload.update(value.path_params)
+            elif operation.request_type is not None and isinstance(value, operation.request_type):
+                payload.update(value.model_dump(mode="json"))
+        # Path parameters can also be standalone endpoint arguments.
+        payload.update({key: value for key, value in kwargs.items() if isinstance(value, str)})
+        checks = _resolve_access_requirements(operation.access, payload, deployment_id="observability")
+        return tuple(sorted({resource.scope_id for _, resource in checks if resource.scope_id is not None}))
+    return ()
+
+
+def _set_scope_attributes(span: Any | None, scope_ids: tuple[str, ...]) -> None:
+    if span is not None and scope_ids:
+        with suppress(Exception):
+            span.set_attributes({
+                "powercontext.scope.ids": scope_ids,
+                **({"powercontext.scope.id": scope_ids[0]} if len(scope_ids) == 1 else {}),
+            })
+
+
+def _log_scope_operations(
+    operation: Operation[Any, Any],
+    scope_ids: tuple[str, ...],
+    outcome: str,
+    started_at: float,
+    *,
+    error_code: str | None = None,
+    status_code: int | None = None,
+) -> None:
+    # Each row is one Scope's involvement, not another unique request. No identity metric labels.
+    for scope_id in scope_ids:
+        log_safely(
+            logger,
+            logging.INFO,
+            "PowerContext scoped application operation completed",
+            extra={
+                "event": "application.scope.completed",
+                "operation": operation.operation_id,
+                "unit": "application",
+                "scope": scope_id,
+                "outcome": outcome,
+                "duration_ms": max(perf_counter() - started_at, 0) * 1000,
+                **({"error_code": error_code} if error_code is not None else {}),
+                **({"status_code": status_code} if status_code is not None else {}),
+            },
+        )
 
 
 def _sensitive_operation_error(error: Exception) -> bool:

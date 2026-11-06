@@ -23,7 +23,7 @@ use powercontext_desktop::{
         profiles::{Authentication, CredentialState, ProfileInput, ProfileView},
         session::{
             ActiveView, CheckReport, CompatibilityProfile, DesktopState, Fact, MemoryContext,
-            WriteOutcome, WriteRecord, WriteStatus,
+            RuntimeCapabilities, RuntimeFact, WriteOutcome, WriteRecord, WriteStatus,
         },
     },
     credentials::{CredentialWriteReceipt, CredentialWriteRequest, StorageChoice},
@@ -118,6 +118,8 @@ fn main() {
         ProfileInput::decl(&config),
         CredentialState::decl(&config),
         Fact::<String>::decl(&config),
+        RuntimeFact::<String>::decl(&config),
+        RuntimeCapabilities::decl(&config),
         DiscoveryStatus::decl(&config),
         CompatibilityReason::decl(&config),
         CompatibilityStatus::decl(&config),

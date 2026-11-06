@@ -55,7 +55,7 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
 ) -> None:
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda _: independent_atomic_memory_model("Use the WorkBuddy service chain for project context."),
+        lambda _, **_kwargs: independent_atomic_memory_model("Use the WorkBuddy service chain for project context."),
     )
     app = create_server_app(
         settings=ServerSettings(

@@ -957,19 +957,27 @@ def test_embedding_adapter_maps_a_rejected_request_to_a_stable_reason_without_le
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("http_error", [False, True])
-def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_the_body(http_error: bool) -> None:
+@pytest.mark.parametrize("provider_error_kind", ["typed", "typed-http", "uncategorized-http"])
+def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_the_body(
+    provider_error_kind: str,
+) -> None:
     async def scenario() -> None:
-        provider_error = (
-            ModelHTTPError.for_category(
+        provider_error = {
+            # A typed error names the limit directly; the HTTP variants carry it in the response body, which is
+            # the only signal an OpenAI-compatible endpoint that does not set a context-limit code provides.
+            "typed": lambda: ModelContextWindowExceededError("result-model", "secret-provider-body"),
+            "typed-http": lambda: ModelHTTPError.for_category(
                 ModelContextWindowExceededError,
                 status_code=400,
                 model_name="result-model",
                 body={"error": {"message": "secret-provider-body"}},
-            )
-            if http_error
-            else ModelContextWindowExceededError("result-model", "secret-provider-body")
-        )
+            ),
+            "uncategorized-http": lambda: ModelHTTPError(
+                400,
+                "result-model",
+                {"error": {"message": "Input is too long for this model: secret-provider-body"}},
+            ),
+        }[provider_error_kind]()
         adapter = PydanticAIEmbeddingModel(
             embedder=Embedder(ResultEmbeddingModel((), error=provider_error)),
             profile=TEST_PROFILE,
@@ -1123,23 +1131,6 @@ def test_usage_limit_public_generate_path_reports_generation_stage() -> None:
         assert diagnostics.cause_exception_type == "UsageLimitExceeded"
 
     asyncio.run(scenario())
-
-
-def test_an_uncategorized_http_400_naming_a_context_limit_is_context_overflow() -> None:
-    """A provider that words its limit without a typed error still maps to the same reason."""
-
-    mapped = _map_error(
-        ModelHTTPError(400, "test-model", {"error": {"message": "Input is too long for this model"}}),
-        operation="generate",
-        timeout_seconds=1.0,
-    )
-
-    assert mapped is not None
-    diagnostics = classify_processing_error(mapped)
-
-    assert diagnostics is not None
-    assert diagnostics.reason is ProcessingFailureReason.CONTEXT_OVERFLOW
-    assert diagnostics.stage is ProcessingStage.GENERATION
 
 
 def test_a_413_without_context_evidence_is_not_context_overflow() -> None:

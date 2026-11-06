@@ -36,6 +36,9 @@ use tokio::{
 
 struct State {
     discovery: (u16, Value),
+    identity_response: Option<(u16, Value)>,
+    readiness_status: u16,
+    capabilities: (u16, Value),
     principal: Option<String>,
     pause: Option<String>,
     requests: Vec<String>,
@@ -60,6 +63,7 @@ impl Drop for Fixture {
 fn discovery(id: &str) -> Value {
     json!({"schema_version":{"major":1,"minor":0},"product":"powercontext","server_id":id,
         "package_version":"synthetic","api_contract_version":{"major":1,"minor":4},"feature_contracts":{
+        "connection.identity":{"version":{"major":1,"minor":0},"operations":["get_connection_identity"]},
         "access.principal":{"version":{"major":1,"minor":0},"operations":["get_access_principal"]},
         "scope.selection":{"version":{"major":1,"minor":0},"operations":["list_scopes","get_scope","get_default_scope"]},
         "memory.explicit":{"version":{"major":1,"minor":0},"operations":["remember_memory","search_memory"]}}})
@@ -78,10 +82,16 @@ fn record() -> Value {
 }
 impl Fixture {
     async fn new(authenticated: bool) -> Self {
+        Self::with_profile(authenticated, None).await
+    }
+    async fn with_profile(authenticated: bool, compatibility: Option<&str>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let state = Arc::new(Mutex::new(State {
             discovery: (200, discovery("server-a")),
+            identity_response: None,
+            readiness_status: 200,
+            capabilities: (403, json!({})),
             principal: authenticated.then(|| "same-principal".into()),
             pause: None,
             requests: vec![],
@@ -130,6 +140,12 @@ impl Fixture {
                         state.requests.push(path.clone());
                         let (status, value) = match path.as_str() {
                             "/v1/server-info" => state.discovery.clone(),
+                            "/v1/connection/identity" => state.identity_response.clone().unwrap_or_else(|| (200, json!({
+                                "server_id":state.discovery.1["server_id"].as_str().unwrap_or("server-a"),
+                                "authentication":if state.principal.is_some() {"authenticated"} else {"disabled"},
+                                "access_mode":if state.principal.is_some() {"enforced"} else {"disabled"},
+                                "principal":state.principal.as_ref().map(|id| json!({"type":"service","id":id}))
+                            }))),
                             "/v1/access/me" => match &state.principal {
                                 Some(id) => (
                                     200,
@@ -141,11 +157,11 @@ impl Fixture {
                                 None => (503, json!({"error":{"code":"runtime_not_ready"}})),
                             },
                             "/health/ready" => (
-                                200,
-                                json!({"status":"ready","checks":{
+                                state.readiness_status,
+                                json!({"status":if state.readiness_status == 200 {"ready"} else {"not_ready"},"checks":{
                                 "access_mode":if state.principal.is_some() {"enforced"} else {"disabled"}}}),
                             ),
-                            "/v1/capabilities" => (403, json!({})),
+                            "/v1/capabilities" => state.capabilities.clone(),
                             "/v1/scopes/default" | "/v1/scopes/scope-a" => (200, scope()),
                             path if path.starts_with("/v1/scopes?") => {
                                 (200, json!({"items":[scope()],"next_cursor":"old-cursor"}))
@@ -196,16 +212,19 @@ impl Fixture {
             }
         });
         let directory = tempfile::tempdir().unwrap();
-        let manager = Arc::new(common::connection_manager(
-            ProfileRepository::open(
-                directory.path().join("profiles.json"),
-                Arc::new(NativeVault),
-            )
-            .unwrap(),
-        ));
+        let repository = ProfileRepository::open(
+            directory.path().join("profiles.json"),
+            Arc::new(NativeVault),
+        )
+        .unwrap();
+        let manager = Arc::new(if compatibility.is_some() {
+            ConnectionManager::new(repository)
+        } else {
+            common::connection_manager(repository)
+        });
         let saved = manager.save_profile(serde_json::from_value(json!({"id":null,"revision":null,"name":"Synthetic",
             "endpoint":endpoint,"authentication":if authenticated {"bearer"} else {"unauthenticated_loopback"},
-            "caPem":null,"compatibility":common::PROFILE_ID,"keepCredential":false,
+            "caPem":null,"compatibility":compatibility.unwrap_or(common::PROFILE_ID),"keepCredential":false,
             "credential":if authenticated {json!({"secret":"synthetic-token","storage":"session_only"})} else {Value::Null}})).unwrap()).unwrap();
         Self {
             manager,
@@ -246,6 +265,81 @@ impl Fixture {
                 .reports
                 .iter()
                 .all(|report| report.connection_id != self.id)
+        );
+    }
+}
+
+#[tokio::test]
+async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal_fence() {
+    for compatibility in ["sqlite-atomic-112db11e-v1", "sqlite-atomic-3cefa45a-v1"] {
+        let fixture = Fixture::with_profile(true, Some(compatibility)).await;
+        fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+            .as_object_mut()
+            .unwrap()
+            .remove("connection.identity");
+        let generation = fixture.select().await;
+        let report = fixture.manager.state().unwrap().active.unwrap().report;
+        assert!(report.connection_identity.is_none());
+        assert!(!report.anonymous_access);
+        assert_eq!(report.supported_operations.len(), 11);
+        assert!(
+            !report
+                .supported_operations
+                .iter()
+                .any(|op| op == "get_connection_identity")
+        );
+        assert_eq!(
+            fixture
+                .manager
+                .remember(generation, "legacy authenticated note")
+                .await
+                .unwrap()
+                .record
+                .status,
+            WriteStatus::Succeeded
+        );
+        fixture.state.lock().unwrap().principal = Some("changed-principal".into());
+        assert_eq!(
+            fixture
+                .manager
+                .search_memory(generation, "private")
+                .await
+                .err()
+                .unwrap()
+                .code,
+            SafeError::StaleContext
+        );
+        fixture.assert_disconnected(generation);
+        assert!(
+            !fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
+        );
+    }
+}
+
+#[tokio::test]
+async fn authenticated_client_evidence_requires_bearer_mode_and_a_valid_principal() {
+    for bearer in [false, true] {
+        let fixture = Fixture::with_profile(bearer, Some("sqlite-atomic-112db11e-v1")).await;
+        fixture.state.lock().unwrap().principal = None;
+        let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+        let report = state.active.unwrap().report;
+        assert!(!report.compatibility_verified);
+        assert!(!report.anonymous_access);
+        assert_eq!(
+            fixture
+                .manager
+                .scopes(state.generation, "", None)
+                .await
+                .err()
+                .unwrap()
+                .code,
+            SafeError::CompatibilityUnverified
         );
     }
 }
@@ -355,9 +449,300 @@ async fn late_private_reads_are_rejected_when_the_deployment_changes_during_the_
 }
 
 #[tokio::test]
+async fn ordinary_actions_never_probe_readiness_and_explicit_failure_does_not_revoke_memory() {
+    for authenticated in [false, true] {
+        let fixture = Fixture::new(authenticated).await;
+        let generation = fixture.select().await;
+        fixture
+            .manager
+            .search_memory(generation, "query")
+            .await
+            .unwrap();
+        assert!(
+            !fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|path| path == "/health/ready")
+        );
+        let before = fixture.manager.state().unwrap();
+        let report = &before.active.as_ref().unwrap().report;
+        assert!(report.readiness.value.is_none());
+        assert!(report.readiness_checked_at.is_none());
+        assert_eq!(
+            report.capabilities.error.as_ref().unwrap().code,
+            SafeError::Forbidden
+        );
+        fixture.state.lock().unwrap().readiness_status = 503;
+        let after = fixture
+            .manager
+            .probe_readiness(&fixture.id, report.revision)
+            .await
+            .unwrap();
+        assert_eq!(after.generation, before.generation);
+        assert_eq!(
+            after
+                .active
+                .as_ref()
+                .unwrap()
+                .scope
+                .as_ref()
+                .unwrap()
+                .scope_id,
+            "scope-a"
+        );
+        assert!(after.reports[0].readiness_checked_at.is_some());
+        assert_eq!(
+            after.reports[0].readiness.value.as_ref().unwrap().status,
+            powercontext_desktop::transport::wire::ReadinessStatus::NotReady
+        );
+        fixture
+            .manager
+            .remember(generation, "independently authorized")
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .filter(|path| *path == "/health/ready")
+                .count(),
+            1
+        );
+    }
+}
+
+#[tokio::test]
+async fn generic_503_and_legacy_discovery_do_not_establish_anonymous_identity() {
+    let fixture = Fixture::new(false).await;
+    fixture.state.lock().unwrap().discovery = (404, json!({}));
+    let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+    let generation = state.generation;
+    assert!(!state.active.as_ref().unwrap().report.compatibility_verified);
+    assert!(
+        !fixture
+            .manager
+            .state()
+            .unwrap()
+            .active
+            .unwrap()
+            .report
+            .anonymous_access
+    );
+    assert!(fixture.manager.scopes(generation, "", None).await.is_err());
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready" || path.starts_with("/v1/scopes"))
+    );
+}
+
+#[tokio::test]
+async fn changed_access_mode_or_unavailable_identity_invalidates_the_context_without_probing() {
+    for response in [
+        (
+            200,
+            json!({"server_id":"server-a","authentication":"authenticated","access_mode":"disabled","principal":{"type":"service","id":"same-principal"}}),
+        ),
+        (503, json!({"error":{"code":"authentication_unavailable"}})),
+        (403, json!({"error":{"code":"forbidden"}})),
+        (
+            200,
+            json!({"server_id":"server-a","authentication":"disabled","access_mode":"enforced","principal":null}),
+        ),
+    ] {
+        let fixture = Fixture::new(true).await;
+        let generation = fixture.select().await;
+        fixture.state.lock().unwrap().identity_response = Some(response);
+        assert!(
+            fixture
+                .manager
+                .search_memory(generation, "query")
+                .await
+                .is_err()
+        );
+        fixture.assert_disconnected(generation);
+        assert!(
+            !fixture
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|path| path == "/health/ready")
+        );
+    }
+}
+
+#[tokio::test]
+async fn review_observation_denial_preserves_qualified_memory_and_deployment_fencing() {
+    let fixture = Fixture::new(true).await;
+    fixture.state.lock().unwrap().discovery = (403, json!({}));
+    let generation = fixture.select().await;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.requests.clear();
+        state.capabilities = (200, runtime_capabilities());
+    }
+    assert!(
+        fixture
+            .manager
+            .observe_runtime_capabilities(generation)
+            .await
+            .unwrap()
+            .fact
+            .value
+            .is_some()
+    );
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/v1/server-info")
+    );
+    let saved = fixture
+        .manager
+        .remember(generation, "authorized scope note")
+        .await
+        .unwrap();
+    assert_eq!(saved.record.status, WriteStatus::Succeeded);
+    assert_eq!(saved.record.context.server_id.as_deref(), Some("server-a"));
+    assert!(
+        fixture
+            .manager
+            .search_memory(generation, "authorized")
+            .await
+            .is_ok()
+    );
+    fixture.state.lock().unwrap().identity_response = Some((
+        200,
+        json!({
+            "server_id":"server-b", "authentication":"authenticated", "access_mode":"enforced",
+            "principal":{"type":"service","id":"same-principal"}
+        }),
+    ));
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "private")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    fixture.assert_disconnected(generation);
+}
+
+#[tokio::test]
+async fn review_current_product_cannot_downgrade_to_principal_when_identity_feature_is_missing() {
+    let fixture = Fixture::with_profile(true, Some("sqlite-identity-stats-7d89a97a-v1")).await;
+    fixture.state.lock().unwrap().discovery.1["feature_contracts"]
+        .as_object_mut()
+        .unwrap()
+        .remove("connection.identity");
+    let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+    assert!(!state.active.as_ref().unwrap().report.compatibility_verified);
+    assert_eq!(
+        fixture
+            .manager
+            .scopes(state.generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path.starts_with("/v1/scopes"))
+    );
+}
+
+#[tokio::test]
+async fn review_switching_connection_supersedes_a_delayed_readiness_probe() {
+    let fixture = Fixture::new(true).await;
+    fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/health/ready".into());
+    let (manager, id) = (fixture.manager.clone(), fixture.id.clone());
+    let probe = tokio::spawn(async move { manager.probe_readiness(&id, 1).await });
+    fixture.entered().await;
+    let endpoint = fixture.manager.state().unwrap().profiles[0]
+        .endpoint
+        .clone();
+    let other = fixture.manager.save_profile(serde_json::from_value(json!({
+        "id":null,"revision":null,"name":"Other","endpoint":endpoint,"authentication":"bearer",
+        "caPem":null,"compatibility":common::PROFILE_ID,"keepCredential":false,
+        "credential":{"secret":"synthetic-token","storage":"session_only"}
+    })).unwrap()).unwrap().profiles.into_iter().find(|p|p.name=="Other").unwrap().id;
+    let state = timeout(Duration::from_secs(5), fixture.manager.check(&other, true))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.active.unwrap().connection_id, other);
+    fixture.release.notify_one();
+    assert_eq!(
+        timeout(Duration::from_secs(5), probe)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap()
+            .code,
+        SafeError::StaleContext
+    );
+    assert!(
+        fixture
+            .manager
+            .state()
+            .unwrap()
+            .reports
+            .iter()
+            .all(|report| report.readiness_checked_at.is_none())
+    );
+}
+
+#[tokio::test]
+async fn a_late_readiness_probe_cannot_repopulate_an_invalidated_report() {
+    let fixture = Fixture::new(false).await;
+    fixture.select().await;
+    fixture.state.lock().unwrap().pause = Some("/health/ready".into());
+    let (manager, id) = (fixture.manager.clone(), fixture.id.clone());
+    let probe = tokio::spawn(async move { manager.probe_readiness(&id, 1).await });
+    fixture.entered().await;
+    fixture.manager.invalidate_profile(&fixture.id).unwrap();
+    fixture.release.notify_one();
+    assert!(
+        timeout(Duration::from_secs(5), probe)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    assert!(fixture.manager.state().unwrap().reports.is_empty());
+}
+
+#[tokio::test]
 async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
     for status in [404, 401, 403, 503] {
-        let fixture = Fixture::new(false).await;
+        let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
         let generation = fixture.activate().await;
         fixture.state.lock().unwrap().discovery = (status, json!({}));
         assert!(fixture.manager.scopes(generation, "", None).await.is_err());
@@ -367,7 +752,7 @@ async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
 
 #[tokio::test]
 async fn a_legacy_session_requires_explicit_recheck_when_discovery_appears() {
-    let fixture = Fixture::new(false).await;
+    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
     fixture.state.lock().unwrap().discovery = (404, json!({}));
     let generation = fixture.activate().await;
     assert!(fixture.manager.scopes(generation, "", None).await.is_ok());
@@ -560,14 +945,15 @@ async fn failed_recheck_drops_the_previous_verified_report() {
 }
 
 #[tokio::test]
-async fn post_write_discovery_503_disconnects_with_an_unknown_original_receipt() {
+async fn post_write_identity_503_disconnects_with_an_unknown_original_receipt() {
     let fixture = Fixture::new(true).await;
     let generation = fixture.select().await;
     fixture.state.lock().unwrap().pause = Some("/v1/memory/remember".into());
     let manager = fixture.manager.clone();
     let write = tokio::spawn(async move { manager.remember(generation, "preserve me").await });
     fixture.entered().await;
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     fixture.release.notify_one();
     let outcome = timeout(Duration::from_secs(5), write)
         .await
@@ -598,7 +984,7 @@ async fn post_write_discovery_503_disconnects_with_an_unknown_original_receipt()
 }
 
 #[tokio::test]
-async fn retry_discovery_failure_preserves_the_original_unknown_receipt_without_dispatch() {
+async fn retry_identity_failure_preserves_the_original_unknown_receipt_without_dispatch() {
     let fixture = Fixture::new(true).await;
     let generation = fixture.select().await;
     fixture.state.lock().unwrap().lose_write_response = true;
@@ -609,7 +995,8 @@ async fn retry_discovery_failure_preserves_the_original_unknown_receipt_without_
         .unwrap();
     assert_eq!(original.record.status, WriteStatus::Unknown);
     assert!(fixture.manager.state().unwrap().active.is_some());
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     let error = fixture
         .manager
         .remember(generation, "edited retry input")
@@ -646,7 +1033,8 @@ async fn concurrent_read_disconnect_keeps_the_pending_write_until_its_unknown_re
             .await
     });
     fixture.entered().await;
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     let error = fixture
         .manager
         .search_memory(generation, "query")
@@ -705,7 +1093,8 @@ async fn rejected_write_after_read_disconnection_retains_its_failed_original_rec
             .await
     });
     fixture.entered().await;
-    fixture.state.lock().unwrap().discovery = (503, json!({"error":{"code":"runtime_not_ready"}}));
+    fixture.state.lock().unwrap().identity_response =
+        Some((503, json!({"error":{"code":"runtime_not_ready"}})));
     assert!(
         fixture
             .manager
@@ -769,4 +1158,165 @@ async fn principal_revocation_while_reading_discards_private_results() {
         SafeError::StaleContext
     );
     fixture.assert_disconnected(generation);
+}
+
+fn runtime_capabilities() -> Value {
+    json!({
+        "source_types": ["private-type"],
+        "artifact_families": ["private-family"],
+        "memory_extraction": false,
+        "handoff_generation": false,
+        "search_modes": ["fts"],
+        "context_versions": [],
+        "extraction": {
+            "configuration": "unconfigured",
+            "background": {"location": "none", "state": "stopped"},
+            "observation": {
+                "status": "observed",
+                "since": "2026-10-01T00:00:00Z",
+                "last_failure": {"code": "private detail", "stage": "worker", "occurred_at": "2026-10-01T01:00:00Z"}
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn runtime_refresh_never_probes_and_observation_denial_preserves_memory_access() {
+    let fixture = Fixture::new(false).await;
+    let generation = fixture.select().await;
+    fixture.state.lock().unwrap().requests.clear();
+    let liveness = fixture
+        .manager
+        .observe_runtime_liveness(generation)
+        .await
+        .unwrap();
+    let report = fixture
+        .manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    assert!(liveness.fact.value.is_some());
+    assert_eq!(report.fact.error.unwrap().code, SafeError::Forbidden);
+    let denied = fixture
+        .manager
+        .probe_runtime_readiness(generation)
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(denied.code, SafeError::Forbidden);
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready")
+    );
+    assert_eq!(fixture.manager.state().unwrap().generation, generation);
+    assert_eq!(
+        fixture
+            .manager
+            .search_memory(generation, "fixture")
+            .await
+            .unwrap()
+            .hits
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn runtime_projects_only_its_fields_and_probes_only_on_explicit_action() {
+    let fixture = Fixture::new(true).await;
+    let generation = fixture.activate().await;
+    {
+        let mut state = fixture.state.lock().unwrap();
+        state.requests.clear();
+        state.capabilities = (200, runtime_capabilities());
+    }
+    let report = fixture
+        .manager
+        .observe_runtime_capabilities(generation)
+        .await
+        .unwrap();
+    let value = serde_json::to_value(report.fact.value.unwrap()).unwrap();
+    assert_eq!(
+        value["extraction"]["observation"]["last_failure"]["code"],
+        "unknown"
+    );
+    assert_eq!(value["search_modes"], json!(["fts"]));
+    for excluded in ["private-type", "private-family", "private detail"] {
+        assert!(!value.to_string().contains(excluded));
+    }
+    assert!(
+        !fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .any(|path| path == "/health/ready")
+    );
+    let readiness = fixture
+        .manager
+        .probe_runtime_readiness(generation)
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(readiness.fact.value).unwrap(), "ready");
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|path| *path == "/health/ready")
+            .count(),
+        1
+    );
+    assert_eq!(fixture.manager.state().unwrap().generation, generation);
+}
+
+#[tokio::test]
+async fn runtime_drops_late_results_on_replacement_disconnect_or_cancel() {
+    for transition in ["replacement", "disconnect", "cancel"] {
+        let fixture = Fixture::new(true).await;
+        let generation = fixture.activate().await;
+        {
+            let mut state = fixture.state.lock().unwrap();
+            state.capabilities = (200, runtime_capabilities());
+            state.pause = Some("/v1/capabilities".into());
+        }
+        let manager = fixture.manager.clone();
+        let task =
+            tokio::spawn(async move { manager.observe_runtime_capabilities(generation).await });
+        fixture.entered().await;
+        match transition {
+            "replacement" => {
+                fixture.replace();
+                fixture.release.notify_one();
+                let report = timeout(Duration::from_secs(2), task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(report.fact.error.unwrap().code, SafeError::StaleContext);
+                assert!(report.fact.value.is_none());
+            }
+            "disconnect" | "cancel" => {
+                if transition == "disconnect" {
+                    fixture.manager.disconnect().unwrap();
+                } else {
+                    fixture.manager.cancel_runtime_reads(generation).unwrap();
+                }
+                let result = timeout(Duration::from_secs(2), task)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(result.err().unwrap().code, SafeError::StaleContext);
+            }
+            _ => unreachable!(),
+        }
+    }
 }

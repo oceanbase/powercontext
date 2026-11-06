@@ -24,6 +24,10 @@ import type {
   ArtifactReference,
   MemorySearchResponse,
   DiagnosticKind,
+  RuntimeFact,
+  RuntimeCapabilities,
+  HealthResponse,
+  ReadinessStatus,
   DiagnosticReport,
   DesktopState,
   ProfileInput,
@@ -36,6 +40,20 @@ export async function getFoundationInfo(): Promise<FoundationInfo | null> {
 }
 
 export const desktopApi = {
+  observeRuntimeLiveness: (generation: number) =>
+    invoke<RuntimeFact<HealthResponse>>("observe_runtime_liveness", {
+      generation,
+    }),
+  observeRuntimeCapabilities: (generation: number) =>
+    invoke<RuntimeFact<RuntimeCapabilities>>("observe_runtime_capabilities", {
+      generation,
+    }),
+  probeRuntimeReadiness: (generation: number) =>
+    invoke<RuntimeFact<ReadinessStatus>>("probe_runtime_readiness", {
+      generation,
+    }),
+  cancelRuntime: (generation: number) =>
+    invoke<void>("cancel_runtime_reads", { generation }),
   stats: (generation: number, period: StatsPeriod) =>
     invoke<ExactScopeStatistics>("get_stats", { generation, period }),
   cancelStats: (generation: number) =>
@@ -61,6 +79,8 @@ export const desktopApi = {
     invoke<DesktopState>("remove_profile", { id, revision }),
   check: (id: string, activate: boolean) =>
     invoke<DesktopState>("check_connection", { id, activate }),
+  probeReadiness: (id: string, revision: number) =>
+    invoke<DesktopState>("probe_readiness", { id, revision }),
   disconnect: () => invoke<DesktopState>("disconnect"),
   invalidate: (id: string) =>
     invoke<DesktopState>("invalidate_profile", { id }),

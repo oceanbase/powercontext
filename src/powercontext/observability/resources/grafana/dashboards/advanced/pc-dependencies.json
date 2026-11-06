@@ -1,0 +1,962 @@
+{
+  "uid": "pc-dependencies",
+  "title": "PowerContext · 依赖与采集明细",
+  "schemaVersion": 40,
+  "version": 8,
+  "tags": [
+    "powercontext"
+  ],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 200,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**这里用于确认依赖和采集链路。** 先看当前异常和依赖状态；需要查具体请求时，回到[服务与采集](/d/pc-service)。缺少数据表示未观测，不表示健康。"
+      }
+    },
+    {
+      "id": 1,
+      "title": "外部依赖状态",
+      "type": "timeseries",
+      "description": "数据库、模型和后台角色是否正常。缺失表示未配置或未观测，不代表正常。",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "powercontext_server_dependency_state{role=~\"$role\",instance=~\"$instance\"} == 1",
+          "legendFormat": "{{instance}} · {{dependency}} · {{state}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-service?viewPanel=6&time=${__value.time}&time.window=600000&var-role=${__field.labels.role:percentencode}&var-instance=${__field.labels.instance:percentencode}&var-operation=${__field.labels.operation:percentencode}&var-family=${__field.labels.family:percentencode}&var-error_category=.*",
+              "targetBlank": false
+            }
+          ],
+          "noValue": "暂无数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing\\.topic-memory(.*)",
+            "renamePattern": "$1主题记忆处理$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing\\.memory(.*)",
+            "renamePattern": "$1记忆处理$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing\\.profile(.*)",
+            "renamePattern": "$1用户画像处理$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing\\.experience(.*)",
+            "renamePattern": "$1经验处理$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing\\.skill(.*)",
+            "renamePattern": "$1技能处理$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing\\.handoff(.*)",
+            "renamePattern": "$1交接处理$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing\\.prompt(.*)",
+            "renamePattern": "$1提示词处理$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)artifact_processing_supervisor(.*)",
+            "renamePattern": "$1后台处理调度器$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)inference\\.generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)inference\\.embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)authentication_provider(.*)",
+            "renamePattern": "$1鉴权服务$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)access_provider(.*)",
+            "renamePattern": "$1访问提供方$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)database(.*)",
+            "renamePattern": "$1数据库$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)runtime(.*)",
+            "renamePattern": "$1运行时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)not_ready(.*)",
+            "renamePattern": "$1未就绪$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)degraded(.*)",
+            "renamePattern": "$1降级$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)leader(.*)",
+            "renamePattern": "$1主调度$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)standby(.*)",
+            "renamePattern": "$1备用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)unavailable(.*)",
+            "renamePattern": "$1不可用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)misconfigured(.*)",
+            "renamePattern": "$1配置错误$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)disabled(.*)",
+            "renamePattern": "$1未启用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)ready(.*)",
+            "renamePattern": "$1正常$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)unknown(.*)",
+            "renamePattern": "$1未知$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*) · all( · .*|$)",
+            "renamePattern": "$1 · 组合$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "监控能否抓取服务指标",
+      "type": "timeseries",
+      "description": "Prometheus 是否成功抓取服务指标。失败时检查服务、目标地址、网络和凭据。",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(label_replace(label_replace(label_replace((up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}), \"role_display\", \"$1\", \"role\", \"(.*)\"), \"role_display\", \"组合\", \"role\", \"all\"), \"role_display\", \"API 服务\", \"role\", \"api\"), \"role_display\", \"后台进程\", \"role\", \"background|worker\")",
+          "legendFormat": "{{instance}} · {{role_display}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "暂无数据"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "title": "监控数据待发送量",
+      "type": "timeseries",
+      "description": "采集器内存中等待导出的数据量。采集器重启会丢失尚未导出的数据。",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "otelcol_exporter_queue_size",
+          "legendFormat": "{{instance}} · {{exporter}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "暂无数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)otlphttp/loki(.*)",
+            "renamePattern": "$1Loki 导出$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)otlphttp/tempo(.*)",
+            "renamePattern": "$1Tempo 导出$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)otlphttp/phoenix(.*)",
+            "renamePattern": "$1Phoenix 导出$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "监控数据发送失败次数",
+      "type": "timeseries",
+      "description": "监控组件导出失败次数。先看导出组件，再检查后端日志。",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate({__name__=~\"otelcol_exporter_send_failed_(spans|log_records)(_total)?\"}[$__rate_interval])",
+          "legendFormat": "{{instance}} · {{exporter}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: 次/秒",
+          "noValue": "暂无数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)otlphttp/loki(.*)",
+            "renamePattern": "$1Loki 导出$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)otlphttp/tempo(.*)",
+            "renamePattern": "$1Tempo 导出$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)otlphttp/phoenix(.*)",
+            "renamePattern": "$1Phoenix 导出$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "当前异常与排查入口",
+      "type": "table",
+      "description": "当前 pending / firing 告警。开始时间是规则开始满足条件的时间，不是原始错误时间。请求失败先看操作与状态码；后台停滞先看阻止原因；指南在本机打开。",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-alerts"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://prometheus:9090/api/v1/alerts",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "($rows := data.alerts[(state=\"firing\" or state=\"pending\") and (labels.job!=\"powercontext\" or $not($exists(labels.instance)) or ($contains($string(labels.role), /^${role:regex}$/) and $contains($string(labels.instance), /^${instance:regex}$/)))]; status!=\"success\" or $not($exists(data.alerts)) ? $error(\"Current alert data is unavailable\") : $count($rows) > 0 ? $map($rows, function($a) { $merge([$a, {\"impact_action\": ($a.labels.alertname=\"PowerContextProcessingStalled\" ? \"处理类型：\" & $a.labels.family & \"。先查规则阻止与最近失败；原因未确认前不要先调告警阈值。\" : $a.labels.alertname=\"PowerContextSustainedTransportErrors\" ? \"先看近 5 分钟的失败操作与 HTTP 状态码，再打开该组失败日志；区分认证拒绝、参数错误与服务端错误。\" : $a.annotations.summary & ($a.annotations.description ? \"\\n\" & $a.annotations.description : \"\")), \"diagnostic_url\": ($a.labels.alertname=\"PowerContextSustainedTransportErrors\" ? \"/d/pc-service?viewPanel=40&refresh=&from=now-15m&to=now\" : $a.labels.alertname=\"PowerContextProcessingStalled\" ? \"/d/pc-service?viewPanel=41&refresh=&from=\" & ($max([$millis()-2592000000, $min([$millis()-86400000, $number($a.value)*1000-300000])])) & \"&to=now\" : \"/d/pc-service?viewPanel=6&refresh=&from=\" & ($toMillis($a.activeAt)-900000) & \"&to=now&var-operation=.*&var-error_category=.*&var-status_code=.*&var-log_outcome=.*\") & \"&var-role=\" & ($a.labels.job=\"powercontext\" and $a.labels.role ? $encodeUrlComponent($a.labels.role) : \"$__all\") & \"&var-instance=\" & ($a.labels.job=\"powercontext\" and $a.labels.instance ? $encodeUrlComponent($a.labels.instance) : \"$__all\") & \"&var-family=\" & ($a.labels.family ? $encodeUrlComponent($a.labels.family) : \".*\"), \"guide_url\": \"/d/pc-service?viewPanel=42&refresh=&from=now-1h&to=now\" & \"&var-role=\" & ($a.labels.job=\"powercontext\" and $a.labels.role ? $encodeUrlComponent($a.labels.role) : \"$__all\") & \"&var-instance=\" & ($a.labels.job=\"powercontext\" and $a.labels.instance ? $encodeUrlComponent($a.labels.instance) : \"$__all\") & \"&var-family=\" & ($a.labels.family ? $encodeUrlComponent($a.labels.family) : \".*\")}]) }) : [{\"labels\":{\"alertname\":\"none\",\"severity\":\"info\"},\"state\":\"clear\",\"impact_action\":\"当前没有活动异常。继续查看服务能力、数据新鲜度和模块趋势；无告警不表示所有业务均已执行。\",\"annotations\":{\"summary\":\"所选范围没有活动异常\",\"description\":\"继续查看服务能力、数据新鲜度和模块趋势。无告警不表示所有业务均已执行。\"}}])",
+          "columns": [
+            {
+              "selector": "labels.alertname",
+              "text": "异常",
+              "type": "string"
+            },
+            {
+              "selector": "state",
+              "text": "状态",
+              "type": "string"
+            },
+            {
+              "selector": "labels.severity",
+              "text": "级别",
+              "type": "string"
+            },
+            {
+              "selector": "labels.instance",
+              "text": "实例",
+              "type": "string"
+            },
+            {
+              "selector": "labels.role",
+              "text": "角色",
+              "type": "string"
+            },
+            {
+              "selector": "labels.family",
+              "text": "处理类型",
+              "type": "string"
+            },
+            {
+              "selector": "labels.dependency",
+              "text": "依赖",
+              "type": "string"
+            },
+            {
+              "selector": "activeAt",
+              "text": "条件开始时间",
+              "type": "timestamp"
+            },
+            {
+              "selector": "impact_action",
+              "text": "建议检查",
+              "type": "string"
+            },
+            {
+              "selector": "guide_url",
+              "text": "处理指南",
+              "type": "string"
+            },
+            {
+              "selector": "diagnostic_url",
+              "text": "诊断入口",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "—"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "状态"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "firing": {
+                        "text": "已触发",
+                        "color": "red"
+                      },
+                      "pending": {
+                        "text": "待确认",
+                        "color": "orange"
+                      },
+                      "clear": {
+                        "text": "无活动异常",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "异常"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "处理指南"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "打开处理指南",
+                    "url": "${__value.raw:raw}",
+                    "targetBlank": false
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "异常"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PowerContextTargetDown": {
+                        "text": "观测目标不可达"
+                      },
+                      "PowerContextTargetsMissing": {
+                        "text": "未发现观测目标"
+                      },
+                      "PowerContextReadinessStale": {
+                        "text": "就绪观测过期"
+                      },
+                      "PowerContextReadinessMissing": {
+                        "text": "缺少就绪观测"
+                      },
+                      "PowerContextDependencyFailure": {
+                        "text": "依赖不可用"
+                      },
+                      "PowerContextSustainedErrors": {
+                        "text": "应用持续失败"
+                      },
+                      "PowerContextProcessingStalled": {
+                        "text": "后台处理停滞"
+                      },
+                      "PowerContextDiscoveryStale": {
+                        "text": "任务发现停滞"
+                      },
+                      "PowerContextCollectionFailure": {
+                        "text": "处理状态采集失败"
+                      },
+                      "TelemetryTargetDown": {
+                        "text": "采集组件不可达"
+                      },
+                      "TelemetryExportFailure": {
+                        "text": "遥测导出失败"
+                      },
+                      "PowerContextSustainedTransportErrors": {
+                        "text": "请求持续失败"
+                      },
+                      "none": {
+                        "text": "暂无活动异常",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "状态"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "实例"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "条件开始时间"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 155
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "处理指南"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": ".+",
+                      "result": {
+                        "text": "打开指南"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "诊断入口"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "打开该异常的诊断",
+                    "url": "${__value.raw}",
+                    "targetBlank": false
+                  }
+                ]
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": ".+",
+                      "result": {
+                        "text": "打开诊断"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "建议检查"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 350
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "md"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "异常": 0,
+              "状态": 1,
+              "实例": 2,
+              "条件开始时间": 3,
+              "建议检查": 4,
+              "诊断入口": 5,
+              "处理指南": 6,
+              "级别": 7,
+              "角色": 8,
+              "处理类型": 9,
+              "依赖": 10
+            },
+            "excludeByName": {
+              "角色": true,
+              "处理类型": true,
+              "依赖": true,
+              "级别": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "就绪状态新鲜度",
+      "type": "timeseries",
+      "description": "当前就绪结果是多少秒以前评估的，不是每个模型刚刚被探测的时间。",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - powercontext_server_readiness_evaluated_timestamp_seconds{role=~\"$role\",instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} · {{role}}",
+          "exemplar": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-service?viewPanel=6&time=${__value.time}&time.window=600000&var-role=${__field.labels.role:percentencode}&var-instance=${__field.labels.instance:percentencode}&var-operation=${__field.labels.operation:percentencode}&var-family=${__field.labels.family:percentencode}&var-error_category=.*",
+              "targetBlank": false
+            }
+          ],
+          "noValue": "暂无数据",
+          "unit": "suffix: 秒"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*) · all( · .*|$)",
+            "renamePattern": "$1 · 组合$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "role",
+        "label": "服务角色",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"powercontext\"}, role)",
+          "refId": "role"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "instance",
+        "label": "服务实例",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"powercontext\",role=~\"$role\"}, instance)",
+          "refId": "instance"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "scope_id",
+        "label": "业务空间",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 2
+      },
+      {
+        "name": "period",
+        "label": "用量周期（UTC）",
+        "type": "custom",
+        "query": "today,7d,30d",
+        "current": {
+          "text": "30d",
+          "value": "30d"
+        },
+        "options": [
+          {
+            "text": "today",
+            "value": "today",
+            "selected": false
+          },
+          {
+            "text": "7d",
+            "value": "7d",
+            "selected": false
+          },
+          {
+            "text": "30d",
+            "value": "30d",
+            "selected": true
+          }
+        ],
+        "hide": 2
+      }
+    ]
+  },
+  "description": "查看依赖和采集链路的明细。服务角色与服务实例只筛选 PowerContext 指标；遥测后端健康状态是整个部署共用的。业务库存从“业务进展”进入。",
+  "links": [
+    {
+      "title": "全服务总览",
+      "type": "link",
+      "url": "/d/pc-overview",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "业务进展",
+      "type": "link",
+      "url": "/d/pc-flow",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "后台处理",
+      "type": "link",
+      "url": "/d/pc-processing",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "模型调用",
+      "type": "link",
+      "url": "/d/pc-providers",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "服务与采集",
+      "type": "link",
+      "url": "/d/pc-service",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "timepicker": {
+    "refresh_intervals": [
+      "15s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  }
+}

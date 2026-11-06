@@ -126,9 +126,9 @@ def test_recalled_context_preserves_new_messages_boundary_across_turns(
     assert "boundary-one" not in text(second_new)
     # The multi-step tool turn stayed inside the same boundary: one prompt, one tool call/return pair.
     assert sum(isinstance(part, ToolCallPart) for message in second_new for part in message.parts) == 1
-    assert [part.tool_call_id for message in second_new for part in message.parts if isinstance(part, ToolCallPart)] == [
-        part.tool_call_id for message in second_new for part in message.parts if isinstance(part, ToolReturnPart)
-    ]
+    assert [
+        part.tool_call_id for message in second_new for part in message.parts if isinstance(part, ToolCallPart)
+    ] == [part.tool_call_id for message in second_new for part in message.parts if isinstance(part, ToolReturnPart)]
     assert [message.run_id for message in second_new] == [history_before_resume[-1].run_id] * len(second_new)
 
     # A history-only continuation has no new prompt, so nothing from the caller's turns may be reported as new.

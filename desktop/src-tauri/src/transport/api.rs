@@ -107,6 +107,12 @@ pub struct ExactScopeStatisticsItem {
     pub usage: UsageStatistics,
     pub recall: ExactRecallTokenStatistics,
     pub recurrence: RecurrenceStatistics,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing: Option<Vec<ProcessingObservation>>,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bootstrap_delivery: Option<BootstrapDeliveryStatistics>,
 }
 
 #[derive(Serialize)]
@@ -373,6 +379,33 @@ impl ServerApi {
                 crate::transport::wire::Type::User | crate::transport::wire::Type::Service
             )
         {
+            return Err(SafeError::InvalidResponse.into());
+        }
+        Ok(result)
+    }
+    pub async fn connection_identity(&self) -> Result<ConnectionIdentity, ApiFailure> {
+        let result: ConnectionIdentity = self
+            .execute(
+                ObservedOperation::GetConnectionIdentity,
+                None,
+                &[],
+                None,
+                false,
+            )
+            .await?;
+        let valid = match result.authentication {
+            ConnectionAuthentication::Disabled => {
+                result.access_mode == AccessControlMode::Disabled && result.principal.is_none()
+            }
+            ConnectionAuthentication::Authenticated => {
+                result.principal.as_ref().is_some_and(|principal| {
+                    !principal.id.is_empty()
+                        && principal.id.chars().count() <= 255
+                        && matches!(principal.r#type, Type::User | Type::Service)
+                })
+            }
+        };
+        if result.server_id.is_empty() || result.server_id.chars().count() > 128 || !valid {
             return Err(SafeError::InvalidResponse.into());
         }
         Ok(result)

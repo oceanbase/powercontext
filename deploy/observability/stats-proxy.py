@@ -1,0 +1,1 @@
+../../src/powercontext/observability/resources/stats-proxy.py

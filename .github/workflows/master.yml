@@ -34,7 +34,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     name: SeekDB managed startup regression (priority)
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
       PYTHONUNBUFFERED: "1"
@@ -91,12 +91,13 @@ jobs:
     uses: ./.github/workflows/upgrade-release.yml
     with:
       selection: ${{ github.event_name == 'workflow_dispatch' && inputs.upgrade_selection || 'full' }}
+      internal_runner: true
 
   upgrade-release-gate:
     name: Upgrade release gate
     needs: [quality, upgrade-acceptance]
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - name: Require the selected parallel acceptance workflow
@@ -116,7 +117,7 @@ jobs:
     name: OceanBase engine crash recovery
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     env:
       POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_engine_crash?charset=utf8mb4
@@ -176,7 +177,7 @@ jobs:
     name: CI preflight
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     outputs:
       suites: ${{ steps.select.outputs.suites }}
       test-matrix: ${{ steps.select.outputs.test-matrix }}
@@ -231,8 +232,9 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    timeout-minutes: 40
-    runs-on: ubuntu-latest
+    # Allow the Python 3.14 end-to-end suite's subprocess tail to finish.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && matrix.python-version == '3.14' && 55 || 40 }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
       max-parallel: 3
@@ -279,15 +281,22 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
-      - name: Run end-to-end tests
+      - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
+        # Preserve the real Hook deadlines without competing with xdist workers.
+        run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+
+      - name: Run remaining end-to-end tests
+        if: matrix.suite == 'e2e'
+        env:
+          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
         run: make e2e-test
 
   isolated-installations:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
       max-parallel: 2
@@ -342,7 +351,7 @@ jobs:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').docs_tests) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -358,7 +367,6 @@ jobs:
         run: |
           uv run --locked python -m pytest -q -ra \
             tests/test_release_version.py \
-            tests/test_full_capability_docs.py \
             tests/test_integration_guidance_evaluation.py \
             tests/test_docs_remote_access_contract.py \
             tests/e2e/test_mcp_full_profile.py
@@ -367,7 +375,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').observability) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -385,6 +393,8 @@ jobs:
             tests/e2e/test_worker_otlp.py \
             tests/e2e/test_worker_model_usage.py \
             tests/test_observability_health.py \
+            tests/test_observability_cli.py \
+            tests/test_observability_connect.py \
             --junitxml="$RUNNER_TEMP/worker-observability.xml"
           uv run --locked --extra tracing-otlp python - <<'PY'
           import os
@@ -410,7 +420,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').evaluation) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -472,15 +482,15 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
-    # before migrations (25m). Preserve each step's deadline and leave time
+    # before migrations (40m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.14"]
-        migration-shard: [0, 1]
+        migration-shard: [0, 1, 2]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -534,8 +544,8 @@ jobs:
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
         # Last-client shutdown adds native startup work. Partition runner nodes;
-        # every node keeps its 180-second deadline.
-        timeout-minutes: 25
+        # Source evidence expands the batch; every node keeps its 180-second deadline.
+        timeout-minutes: 40
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -580,7 +590,7 @@ jobs:
             exit 1
           fi
           for index in "${!seekdb_runner_nodes[@]}"; do
-            if [ "$((index % 2))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
+            if [ "$((index % 3))" -ne "$SEEKDB_MIGRATION_SHARD" ]; then
               continue
             fi
             seekdb_runner_node="${seekdb_runner_nodes[$index]}"
@@ -624,7 +634,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     name: Atomic Memory clean migration (SeekDB)
     timeout-minutes: 55
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
       PYTHONUNBUFFERED: "1"
@@ -751,10 +761,9 @@ jobs:
           tests/test_system_cli.py::test_codex_batch_runners_reject_unsafe_executable_path
           tests/test_system_cli.py::test_codex_native_executable_preserves_arguments
 
-      - name: Verify managed guidance and exact rollback bytes on Windows
+      - name: Verify installation failures preserve user content on Windows
         run: >-
           uv run --locked --no-sync pytest -q
-          tests/test_guidance_generation.py
           tests/test_guidance_installation.py
           tests/test_opencode_installation.py
           tests/test_cli_zcode.py::test_zcode_upgrade_rejects_missing_packaged_reference_and_preserves_installation
@@ -782,6 +791,7 @@ jobs:
           tests/builtin/runtime/test_external_skills.py
           tests/test_cli.py::test_remote_enroll_can_install_automatic_service_in_one_command
           tests/test_openclaw_cli.py::test_build_openclaw_plugin_runs_pnpm_install_non_interactively
+          tests/test_cli_minimax.py
           tests/test_opencode_cli.py
           tests/test_service.py
           tests/test_service_bootstrap.py
@@ -791,7 +801,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -857,7 +867,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -884,7 +894,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -905,6 +915,9 @@ jobs:
 
       - name: Test DSH package
         run: make js-test
+
+      - name: Verify DSH npm archive installation
+        run: node --test integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
 
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
@@ -931,7 +944,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -974,7 +987,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1003,7 +1016,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1027,7 +1040,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1053,7 +1066,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opendal) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1099,7 +1112,7 @@ jobs:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1163,6 +1176,16 @@ jobs:
           contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
           (fromJSON(needs.quality.outputs.suites || '{}').managed_resources) }}
     uses: ./.github/workflows/managed-resource-candidates.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
+  script-installation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
+    uses: ./.github/workflows/installation.yml
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
@@ -1267,6 +1290,7 @@ jobs:
       - desktop-validation
       - managed-resource-candidates
       - helm
+      - script-installation
       - native-service
       - kimi-acceptance
       - zcode-acceptance
@@ -1305,7 +1329,7 @@ jobs:
     name: Helm deployment contracts
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

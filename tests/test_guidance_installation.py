@@ -28,7 +28,7 @@ from powercontext.cli.system import SetupError
 
 
 @pytest.mark.parametrize("host", ["hermes", "workbuddy"])
-def test_incomplete_guidance_preserves_installation_and_retry_succeeds(
+def test_rejected_upgrade_preserves_user_content_and_retry_succeeds(
     host: str, tmp_path: Path, monkeypatch, hermes_activation
 ) -> None:
     repo = Path(__file__).parents[1]
@@ -51,8 +51,11 @@ def test_incomplete_guidance_preserves_installation_and_retry_succeeds(
         installed = home
         payload = Path("hooks/workbuddy_powercontext_hook.py")
     install_plugin(host, source=str(checkout), ref="unused")
-    note = installed / SKILL_DIRECTORY / "personal.md"
+    note = home / SKILL_DIRECTORY / "personal.md"
     note.write_bytes(b"Keep my notes\r\n")
+    skill = home / SKILL_DIRECTORY / "SKILL.md"
+    instructions = b"\r\nKeep my personal instructions.\r\n"
+    skill.write_bytes(skill.read_bytes() + instructions)
     before = {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()}
     resource = source / SKILL_DIRECTORY / "references/work-handoff.md"
     original = resource.read_bytes()
@@ -64,5 +67,7 @@ def test_incomplete_guidance_preserves_installation_and_retry_succeeds(
     assert {p.relative_to(home): p.read_bytes() for p in home.rglob("*") if p.is_file()} == before
     resource.write_bytes(original)
     install_plugin(host, source=str(checkout), ref="unused")
+    install_plugin(host, source=str(checkout), ref="unused")
     assert (installed / payload).read_bytes() == updated_payload
     assert note.read_bytes() == b"Keep my notes\r\n"
+    assert skill.read_bytes().endswith(instructions)

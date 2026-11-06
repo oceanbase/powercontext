@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { after, before, test } from 'node:test'
@@ -33,6 +33,7 @@ test('setup validates native include trees observed by a real DSH startup', { ti
     const fixture = setupFixture(home)
     const source = join(home, 'recording-powercontext')
     mkdirSync(join(source, 'lib'), { recursive: true })
+    cpSync(join(fixture.root, 'integrations/dsh/plugins/powercontext/skills'), join(source, 'skills'), { recursive: true })
     writeFileSync(join(source, 'package.json'), JSON.stringify({
       name: 'powercontext-dsh', version: '1.0.0', type: 'module', main: './lib/index.js',
       dsh: { bundle: { patch: './cordis.patch.yml' } },

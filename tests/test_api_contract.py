@@ -171,10 +171,6 @@ from powercontext.server.info import server_info
 from powercontext.server.settings import HandoffReportConfig, ServerSettings
 
 
-def test_http_public_exports_resolve() -> None:
-    assert [name for name in http_models.__all__ if not hasattr(http_models, name)] == []
-
-
 def test_http_star_import_resolves_every_public_export() -> None:
     result = subprocess.run(
         [sys.executable, "-c", "from powercontext.http import *"],

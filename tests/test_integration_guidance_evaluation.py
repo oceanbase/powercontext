@@ -68,7 +68,7 @@ class Model:
 
 @pytest.mark.parametrize("description", ["Native host discovery description", ""])
 def test_hermes_evaluation_uses_native_discovery_and_qualified_resource_reads(description: str) -> None:
-    name = "powercontext:powercontext-project-context"
+    name = "powercontext-project-context"
     catalog = with_skill_resources({
         "host": "hermes",
         "guidance": "",
@@ -92,13 +92,13 @@ def test_hermes_layered_evaluation_rejects_catalog_without_native_metadata() -> 
         with_skill_resources({"host": "hermes"})
 
 
-@pytest.mark.parametrize("host,case", [("codex", "skill_search"), ("dsh", "skill_search"), ("codex", "skill_handoff")])
+@pytest.mark.parametrize("host,case", [("codex", "skill_search"), ("codex", "skill_handoff")])
 @pytest.mark.parametrize("reading", ["none", "router", "wrong_domain", "requested_domain"])
 def test_requested_workflow_requires_its_domain_before_the_operation(host: str, case: str, reading: str) -> None:
     entry = "powercontext-project-context"
-    memory = "powercontext-memory" if host == "dsh" else f"{entry}/references/scope-memory.md"
+    memory = f"{entry}/references/scope-memory.md"
     handoff = f"{entry}/references/work-handoff.md"
-    review = "powercontext-review" if host == "dsh" else f"{entry}/references/review-publication.md"
+    review = f"{entry}/references/review-publication.md"
     expected = memory if case == "skill_search" else handoff
     resources = {entry: "Router", memory: "Memory workflow", handoff: "Handoff workflow", review: "Review workflow"}
     reads = {"none": [], "router": [entry], "wrong_domain": [entry, review], "requested_domain": [expected]}[reading]
@@ -155,7 +155,7 @@ def test_failed_skill_read_keeps_specific_diagnosis_and_attempt() -> None:
 
 
 def test_mixed_skill_read_and_operation_retains_the_rejected_operation() -> None:
-    response = call("read_skill_resource", {"resource": "powercontext-memory"})
+    response = call("read_skill_resource", {"resource": "powercontext-project-context/references/scope-memory.md"})
     response["tool_calls"] += call("mcp__powercontext__search_memory")["tool_calls"]
     catalog = {
         "host": "dsh",
