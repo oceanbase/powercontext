@@ -2496,3 +2496,33 @@ new, uncommitted qualification record. Evidence is retained under ignored
 `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
 This qualifies local SQLite protocol behavior, not installed UI, native credential
 persistence, Windows, external production acceptance, or release readiness.
+
+## Server b6920bbf Core target and identity qualification
+
+`sqlite-core-target-identity-b6920bbf-v1` qualifies the thirteen declared
+Desktop protocol operations against Server sources at
+`b6920bbf81a4bf9d95bf5b231a93db32db820618`. The combined contract
+includes Core target resolution and the current connection-identity operation;
+Desktop does not acquire Gateway invocation privileges.
+
+OpenAPI SHA-256: `be7bfe0bd08b3f37bf0a93a3ebec97bf84d755b0e93fdcc91dd8c9b26be5936f`.
+Wheel: `powercontext-1.5.1.dev156+gb6920bbf8-py3-none-any.whl`.
+Wheel SHA-256: `4ca0fa9d5e16d599696a846da437258345050f017eaf3e56c1d23ae075a7ec32`.
+
+On 2026-11-06, macOS 27.0.1 arm64, Python 3.14.5 and Rust 1.97.1 passed all
+four built-wheel SQLite modes in `desktop/tests/real_server.py`: anonymous
+loopback, Bearer, HTTPS with an explicit CA/base path, and injected-provider/
+enforced access. The native `server_probe` was built against the combined
+generated contract and exercised save/search/exact reads, connection identity,
+Scope selection, lost write responses without replay, identity changes,
+revocation, and Server survival after client exit. After adding the bundled
+record and rebuilding the probe, all four modes passed again with
+`--product-qualification sqlite-core-target-identity-b6920bbf-v1` through
+the normal native ConnectionManager.
+
+All 739 packaged runtime files match the pinned Git source bytes. The initial
+fixture run reported a clean working tree; the product-profile run included
+the uncommitted qualification record. Evidence is retained under ignored
+`desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
+This qualifies local SQLite protocol behavior, not installed UI, native
+credential persistence, Windows, external production acceptance, or release readiness.
