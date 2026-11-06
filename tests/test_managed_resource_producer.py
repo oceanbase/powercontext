@@ -214,8 +214,9 @@ def test_corrupt_cached_interpreter_is_rejected_without_network(tmp_path: Path) 
 
 
 @pytest.mark.parametrize("retry_succeeds", [True, False])
-def test_acquire_retries_windows_curl_crash_with_fresh_partial(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retry_succeeds: bool
+@pytest.mark.parametrize("returncode", [35, 0xC0000005])
+def test_acquire_retries_transport_failure_or_windows_curl_crash_with_fresh_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retry_succeeds: bool, returncode: int
 ) -> None:
     content = b"locked candidate bytes"
     item = {
@@ -231,7 +232,7 @@ def test_acquire_retries_windows_curl_crash_with_fresh_partial(
         with partial.open("xb") as stream:
             stream.write(content if succeeded else b"incomplete")
         if not succeeded:
-            raise subprocess.CalledProcessError(0xC0000005, command)
+            raise subprocess.CalledProcessError(returncode, command)
 
     monkeypatch.setattr(subprocess, "run", download)
     artifact = tmp_path / "wheel.whl"
@@ -241,9 +242,29 @@ def test_acquire_retries_windows_curl_crash_with_fresh_partial(
     else:
         with pytest.raises(subprocess.CalledProcessError) as error:
             acquire(item, artifact, tmp_path / "cache")
-        assert error.value.returncode == 0xC0000005
+        assert error.value.returncode == returncode
         assert not artifact.exists()
     assert next(results, None) is None
+
+
+def test_acquire_rejects_corrupt_bytes_after_tls_retry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    item = {"url": "https://candidate.invalid/wheel.whl", "sha256": hashlib.sha256(b"approved").hexdigest()}
+    attempts = 0
+
+    def download(command: list[str], **_options: Any) -> None:
+        nonlocal attempts
+        attempts += 1
+        partial = Path(command[command.index("--output") + 1])
+        partial.write_bytes(b"incomplete" if attempts == 1 else b"unexpected")
+        if attempts == 1:
+            raise subprocess.CalledProcessError(35, command)
+
+    monkeypatch.setattr(subprocess, "run", download)
+    artifact = tmp_path / "wheel.whl"
+    with pytest.raises(ValueError, match="locked digest"):
+        acquire(item, artifact)
+    assert attempts == 2
+    assert not artifact.exists()
 
 
 def test_windows_layout_requires_console_and_windowless_interpreters(tmp_path: Path) -> None:
