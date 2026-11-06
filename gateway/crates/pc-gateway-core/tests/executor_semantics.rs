@@ -22,7 +22,7 @@ use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
 use pc_gateway_protocol::{
     CanonicalMessage, CanonicalRequest, OutputLimits, RenderedPayload, Role, WireRenderer,
 };
-use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
+use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
     CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, PrepareContextRequest, PrepareContextResult, PreparedContext,
@@ -3007,4 +3007,114 @@ async fn code_evidence_is_requested_only_when_enabled() {
         *gate.prepare_include_code.lock().unwrap(),
         vec![false, true]
     );
+}
+
+#[tokio::test]
+async fn refreshed_context_cannot_exceed_the_rendered_input_limit() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            refresh_required(),
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let executor = executor.with_input_limit(1024);
+    for snapshot in ["small snapshot".to_string(), "私密\n\"".repeat(1000)] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(&snapshot)));
+    }
+    let control = request_control();
+    let observation = control.observation();
+    let outcome = executor
+        .run(
+            control,
+            tool_loop_call("fix the bug", 0, false),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Blocked { reason_codes }
+        if reason_codes == ["request_payload_too_large"]));
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(gate.seen.lock().unwrap().len(), 1);
+    assert!(transport.sends.lock().unwrap().is_empty());
+    assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+    assert_eq!(
+        observation.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::Blocked)
+    );
+}
+
+#[tokio::test]
+async fn rendered_capacity_includes_prepared_context_and_replay() {
+    let (executor, renderer, transport, gate) = harness(vec![], vec![], 2);
+    let executor = executor.with_input_limit(256);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(&"私密\n\"".repeat(100))));
+    for _ in 0..2 {
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                ManagedCall {
+                    inject_context: true,
+                    conversation_id: Some("capacity-test".into()),
+                    ..call(DegradePolicy::Pause)
+                },
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Blocked { reason_codes }
+            if reason_codes == ["request_payload_too_large"]));
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+    }
+    assert!(transport.sends.lock().unwrap().is_empty());
+    assert!(gate.seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn response_capacity_withholds_without_retry_and_preserves_possible_billing() {
+    for degrade in [
+        DegradePolicy::Pause,
+        DegradePolicy::PassthroughWithoutMemory,
+    ] {
+        let check = if degrade == DegradePolicy::Pause {
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))
+        } else {
+            Err(GateError::GateUnavailable("offline".into()))
+        };
+        let (executor, renderer, transport, _) = harness(
+            vec![check],
+            vec![SendOutcome::Indeterminate(
+                SendIndeterminateReason::BufferLimitExceeded,
+            )],
+            3,
+        );
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                call(degrade),
+                &RendererRef(renderer),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Withheld { reason_codes }
+            if reason_codes == ["response_buffer_limit_exceeded"]));
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::PossiblySent
+        );
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::Withheld)
+        );
+        assert_eq!(transport.sends.lock().unwrap().len(), 1, "no paid resend");
+    }
 }

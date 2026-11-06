@@ -67,7 +67,7 @@ pub struct AppState {
     pub steering: Option<String>,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
-    /// Request body byte limit (also enforced when consuming chunked bodies).
+    /// Confirmed model input intersection in bytes; zero pauses model routes.
     pub max_body_bytes: usize,
     /// 启动时查 capabilities 确定降级资格：enforcing=true 或查询失败 → 不允许。
     pub degradation_allowed: bool,
@@ -111,12 +111,32 @@ async fn main() {
         }
     };
 
+    // Reuse startup discovery. Fallback keeps its deployment limit; a missing
+    // model capacity cannot be treated as permission to send.
+    let capabilities = match resolve_core_capabilities(core_link.clone()).await {
+        Ok(caps) => Some(caps),
+        Err(reason) => {
+            // Only fixed local diagnostics: never log Core response/error values.
+            tracing::warn!("{reason}; model routes paused until restart");
+            None
+        }
+    };
+    let model_body_bytes = capabilities
+        .as_ref()
+        .and_then(|caps| caps.input_payload_limit())
+        .map(|limit| limit.min(max_body_bytes))
+        .unwrap_or(0);
+    let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
+
     let state = Arc::new(AppState {
-        executor: Arc::new(Executor::new(
-            core_link.clone(),
-            ReqwestTransport::new(Duration::from_secs(120)),
-            NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
-        )),
+        executor: Arc::new(
+            Executor::new(
+                core_link.clone(),
+                ReqwestTransport::new(Duration::from_secs(120)),
+                NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
+            )
+            .with_input_limit(model_body_bytes),
+        ),
         evidence: Arc::new(BufferedEvidenceSink::new()),
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
@@ -150,15 +170,15 @@ async fn main() {
         steering,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
-        max_body_bytes,
-        degradation_allowed: resolve_degradation(core_link.clone()).await,
+        max_body_bytes: model_body_bytes,
+        degradation_allowed,
     });
 
     let router = router(state, proxy_state);
 
     // 中间件链：按序注册，前者为外层。新增功能 = 实现 GatewayMiddleware + 此处一行。
     let chain: Vec<std::sync::Arc<dyn middleware::GatewayMiddleware>> = vec![
-        middleware::ResourceLimits::new(max_body_bytes, max_concurrent),
+        middleware::ResourceLimits::new(model_body_bytes, max_body_bytes, max_concurrent),
         std::sync::Arc::new(middleware::RequestId),
     ];
     for mw in &chain {
@@ -196,62 +216,32 @@ async fn shutdown_signal() {
     tracing::info!("shutting down (draining)");
 }
 
-/// P1-3：启动时确定降级资格。
-/// capabilities 返回 enforcing=true → 不允许（Core 说了算）。
-/// 查询失败 → 不允许（fail-closed）。
-async fn resolve_degradation(link: link::CoreLink) -> bool {
-    use pc_gateway_core::GateClient;
-    match tokio::time::timeout(std::time::Duration::from_secs(10), link.capabilities()).await {
-        Ok(Ok(caps)) => {
-            let cp = caps.get("context_protection");
-            // P2 review：验契约版本——Core 必须支持我们消费的 check/payload 契约。
-            let check_ok = cp
-                .and_then(|cp| cp.get("check_versions"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .any(|s| s.as_str() == Some("powercontext.context-check.v1"))
-                })
-                .unwrap_or(false);
-            let payload_ok = cp
-                .and_then(|cp| cp.get("payload_versions"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .any(|s| s.as_str() == Some("powercontext.model-json-payload.v1"))
-                })
-                .unwrap_or(false);
-            if !check_ok || !payload_ok {
-                tracing::error!(
-                    check_ok,
-                    payload_ok,
-                    "Core does not support the required context-check contract; \
-                     this gateway requires #2311+#2313. Startup will continue but \
-                     every /gateway/v1 request will fail until the contract is available."
-                );
-                return false; // 降级也不允许——没有 check 契约就没有安全保障
-            }
-            let enforcing = cp
-                .and_then(|cp| cp.get("enforcing"))
-                .and_then(|e| e.as_bool())
-                .unwrap_or(true); // 缺字段 → fail-closed
-            let allowed = !enforcing;
-            tracing::info!(
-                enforcing,
-                allowed,
-                "degradation eligibility from capabilities"
-            );
-            allowed
-        }
-        Ok(Err(e)) => {
-            tracing::warn!(error = %e, "capabilities error; degradation disabled (fail-closed)");
-            false
-        }
-        Err(_) => {
-            tracing::warn!("capabilities timeout (10s); degradation disabled (fail-closed)");
-            false
-        }
+/// A failed or incompatible startup discovery pauses model routes. Core still
+/// checks every send/release; restart the gateway to rediscover changed limits.
+async fn resolve_core_capabilities(
+    link: link::CoreLink,
+) -> Result<pc_gateway_types::ContextProtectionCapabilities, &'static str> {
+    use pc_gateway_core::{GateClient, GateError};
+    let caps = tokio::time::timeout(Duration::from_secs(10), link.capabilities())
+        .await
+        .map_err(|_| "Core capabilities query timed out")?
+        .map_err(|error| match error {
+            GateError::GateUnavailable(_) => "Core capabilities transport unavailable",
+            GateError::GateRejected(_) => "Core capabilities query rejected",
+            GateError::Malformed(_) => "Core capabilities response malformed",
+        })?;
+    let caps: pc_gateway_types::ContextProtectionCapabilities = serde_json::from_value(
+        caps.get("context_protection")
+            .ok_or("Core context_protection capability missing")?
+            .clone(),
+    )
+    .map_err(|_| "Core context_protection DTO incomplete or invalid")?;
+    if caps.limits.payload_bytes == 0 {
+        return Err("Core input capacity must be positive");
     }
+    caps.input_payload_limit()
+        .ok_or("Core check/payload versions incompatible")?;
+    Ok(caps)
 }
 
 async fn healthz() -> axum::Json<serde_json::Value> {
