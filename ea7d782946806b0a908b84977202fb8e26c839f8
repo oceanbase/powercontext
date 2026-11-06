@@ -1,0 +1,53 @@
+scripts/oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_8bc891278b0d79 21-22,166-167,173-174,177-186
+  s_98c1bb9fbaf7be::t_53313f09d1f16b 164,168-172,175,187-188,193
+  s_98c1bb9fbaf7be::t_502ce6c090cef6 70-71
+  s_98c1bb9fbaf7be::t_389e19f35fe654 33-42,44-50,94-104,131-139,143-151,157-159,189-192,194-200
+  s_98c1bb9fbaf7be::t_378849ee80b644 1-20,23-32,43,51-53,55-61,63-69,72-89,105-130,140-142,152-156,160-163,165,176,201-212,218-233
+  s_98c1bb9fbaf7be::t_96b881a0c31358 213-217
+  s_98c1bb9fbaf7be::t_41584f264fc755 54,62,90-93
+scripts/run_atomic_memory_clean_migration.py
+  s_98c1bb9fbaf7be::t_9504c90be75c9c 168,175,208
+  s_98c1bb9fbaf7be::t_389e19f35fe654 55-61,87-93
+  s_98c1bb9fbaf7be::t_d59ca690f9ecdf 21-23,26,30-31,51-54,62-82,84,86,94,98,121,146,160-163,200,206-207,209
+scripts/check_atomic_memory_migration_shards.py
+  s_98c1bb9fbaf7be::t_d59ca690f9ecdf 25-26,30,69,80,87,97,102
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_86ea939bda9960 97,99,106-107,166,172,175-176,186-187,201-202,212-213,223-224,249,252-254,256,260,262,279,282,294,296,314,316,323-324,330,338,342,346,349,353,358,362,368,371-373,375,378,380,382,389,392,406,446,480-481,483,485-486,508-510,517,524,542-559
+  s_98c1bb9fbaf7be::t_16c9ebdf1f23f3 117-120,133-134,139,152-155
+  s_98c1bb9fbaf7be::t_3a62a9e4c45e7d 560
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_502ce6c090cef6 168
+  s_98c1bb9fbaf7be::t_94a5ee2278c997 26
+  s_98c1bb9fbaf7be::t_e22d6060c36428 89-91,153-158
+  s_98c1bb9fbaf7be::t_7cbfaff215f62c 106-118
+  s_98c1bb9fbaf7be::t_ac01ab227639b4 1-21,24-25,27-88,92-96,131-152,159-167,169-183
+  s_98c1bb9fbaf7be::t_f8602430d176ca 22-23,97-105,119-130
+.github/actions/setup-upgrade-oceanbase/action.yml
+  s_98c1bb9fbaf7be::t_86ea939bda9960 11-12,19-39,48-55
+  s_98c1bb9fbaf7be::t_90253554eb5ad8 40-47
+tests/test_ci_changes.py
+  s_98c1bb9fbaf7be::t_6f94656cda8ecd 63
+  s_98c1bb9fbaf7be::t_e22d6060c36428 64-67
+.github/ci-paths.toml
+  s_98c1bb9fbaf7be::t_6f94656cda8ecd 90,121,127
+  s_98c1bb9fbaf7be::t_9504c90be75c9c 31,53,77
+.github/oceanbase-migration-durations.json
+  s_98c1bb9fbaf7be::t_2a7fdac6abe609 1-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ea7d782946806b0a908b84977202fb8e26c839f8",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
