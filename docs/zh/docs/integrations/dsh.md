@@ -1,7 +1,7 @@
 ---
-status: community
 title: DeepSeek Harness
-description: 安装 PowerContext DeepSeek Harness 插件并控制其本地行为。
+description: 安装 PowerContext DeepSeek Harness 插件，配置 Scope 内的召回和提示词采集，并核对原生工具。
+status: community
 ---
 
 # DeepSeek Harness
@@ -33,8 +33,10 @@ powercontext setup dsh --source ./powercontext-dsh-dev
 
 更新时执行 `git -C powercontext-dsh-dev pull --ff-only`，记录新的 commit，再重复两个安装命令。
 本地目录必须包含仓库提交的已构建文件 `lib/index.js`。
-`setup dsh --source oceanbase/powercontext --ref master` 会直接复用有效缓存 checkout，不会 fetch；
-重复运行不代表更新了移动分支。只有残缺 checkout 会被替换。
+`setup dsh --source oceanbase/powercontext --ref master` 每次安装都会创建新的 checkout，并 clone 指定 ref；
+重复运行会重新解析移动分支，不复用之前的 checkout。Server 也应从同一 ref 更新，并在重装插件后重启 DSH。
+使用 `--json` 时，从 `hosts.dsh.result.plugin_path` 获取插件路径，再执行
+`git -C <plugin_path> rev-parse HEAD` 记录插件 commit；Server checkout 的 commit 单独记录。
 
 在交互终端中运行 `powercontext setup dsh` 会询问安装到 `web` 还是 `desktop`。
 非交互模式或使用 `--json` 时，未指定 profile 默认安装到 `web`。显式指定目标不会询问：
@@ -82,6 +84,15 @@ setup 不求值无关的界面和模型表达式。启用的 include 文件必�
 
 Setup 不会启动 Server。安装完成后重启 DSH。
 面向模型的 PowerContext 能力通过 DSH 原生的 `@deepseek-ai/dsh-mcp-client` 注册。
+
+召回查询会排除当前 DSH 的 `runtime-context` 消息（包括上下文清空标记），以及旧版
+`@deepseek-ai/dsh-system-prompt` 插件 snapshot，避免宿主目录内容挤掉用户问题。
+
+运行 `powercontext setup dsh --json` 时，`hosts.dsh.setup: "complete"` 表示已完成安装和配置；
+注册结果位于 `hosts.dsh.checks.plugin.checks.registration: "present"`。同一报告还包含 Server 诊断，
+因此安装完成后整体 `ok` 仍可能为 `false`，退出码仍可能为 1。查看 `hosts.dsh.checks` 下的失败项，
+启动或修正所选 Server，再运行 `powercontext doctor dsh --json`。此命令会另行探测 Server；
+注册成功本身不证明运行中会话的连接正常。重启 DSH 后使用 `/pc doctor` 验证当前会话。
 
 ## 启动 Server 和宿主
 
@@ -312,7 +323,8 @@ Source 被接收不代表已经生成 Memory，后者需要 Server 成功处理�
 非空 PreparedContext 只追加一次，消息带有 `source.form=snapshot` 和名为 `PowerContext` 的 section。
 在 DSH 0.1.2-rc.1 Web 中，展开已完成轮次的“已思考”过程内容，再展开“上下文注入 — powercontext-dsh”。
 其他宿主版本也可能将它展示在上下文浏览器中。section 与发给模型、
-保存到会话日志的文字一致，包含不可信历史证据的提示，以及当前请求替换此前快照的说明。
+保存到会话日志的文字一致：先是插件关于当前请求替换此前快照的说明，然后是 Server 准备的上下文，
+其中 Server 的信任策略（trust policy）位于召回条目之前。
 重新打开会话历史时，这些元数据仍然保留。
 
 空结果和自动失败不会生成 snapshot，也不会向模型注入错误通知。展示使用宿主已有的 snapshot 能力，

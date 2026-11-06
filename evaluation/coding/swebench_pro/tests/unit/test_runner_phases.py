@@ -350,6 +350,7 @@ def _run_with_fakes(
     config_mutator: Callable[[RunConfig], None] | None = None,
     model: str | None = None,
     docker_network_pool: str | None = None,
+    codex_usage: dict[str, int] | None = None,
     extra_no_proxy_hosts: tuple[str, ...] | None = None,
     treatment_mode: TreatmentMode = TreatmentMode.OFF_ON,
 ) -> tuple[RunConfig, MinimalRunResult, dict[str, object]]:
@@ -461,7 +462,7 @@ def _run_with_fakes(
                 f'{{"sequence":1,"observed_at":"{observed_at}","event":{{"type":"agent_message","message":"done"}}}}\n',
             )
             events.append(arm)
-            return SimpleNamespace(codex=CodexOutcome("", None))
+            return SimpleNamespace(codex=CodexOutcome("", codex_usage))
 
         def run_arm(
             self,
@@ -520,6 +521,27 @@ def test_runner_propagates_batch_model_to_codex_pair_and_report(
     )
     assert (sut_config.model, sut_config.reasoning_effort) == ("gpt-5.6-luna", "medium")
     assert report.configuration["model"] == "gpt-5.6-luna"
+
+
+def test_report_keeps_cached_and_reasoning_token_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    usage = {
+        "input_tokens": 257_753,
+        "cached_input_tokens": 235_290,
+        "output_tokens": 3_078,
+        "reasoning_output_tokens": 1_002,
+    }
+    config, result, _observed = _run_with_fakes(tmp_path, monkeypatch, [], codex_usage=usage)
+
+    report = ReportBundle.model_validate_json(
+        (config.root / "runs" / result.run_id / "report.json").read_text(),
+        strict=True,
+    )
+    for arm in (report.off, report.on):
+        assert arm is not None
+        assert arm.metrics.input_tokens == 257_753
+        assert arm.metrics.cached_input_tokens == 235_290
+        assert arm.metrics.output_tokens == 3_078
+        assert arm.metrics.reasoning_output_tokens == 1_002
 
 
 @pytest.mark.parametrize(

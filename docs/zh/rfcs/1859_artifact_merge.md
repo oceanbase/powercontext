@@ -1,3 +1,8 @@
+---
+title: RFC 1859：共用 Artifact 合并与撤销
+description: Artifact 合并与撤销的设计提案，复用公共操作和关系记录，由各制品家族决定是否发起合并。
+---
+
 - Proposal Name: `artifact_merge`
 - Start Date: 2026-10-07
 - RFC PR: [oceanbase/powercontext#1859](https://github.com/oceanbase/powercontext/pull/1859)

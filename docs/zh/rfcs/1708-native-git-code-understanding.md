@@ -1,6 +1,6 @@
 ---
-title: 原生 Git 仓库代码理解
-description: 设计 PowerContext 内的原生符号索引、跨文件关系、增量更新、影响分析与源码交付能力。
+title: RFC 1708：原生 Git 代码理解
+description: 本地 Git 代码理解的设计记录，通过 Tree-sitter 建立符号与关系索引，支持检索和带出处的读取，不依赖模型推理。
 ---
 
 - Proposal Name: `native_git_code_understanding`

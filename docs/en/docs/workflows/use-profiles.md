@@ -1,6 +1,6 @@
 ---
 title: Generate and review Scope profiles
-description: Use ordinary scopes, subject Source writes, and existing Artifact/Candidate APIs.
+description: Generate Scope profiles from Source evidence, review proposed changes, edit current content, and restore prior revisions.
 ---
 
 # Generate and review Scope profiles

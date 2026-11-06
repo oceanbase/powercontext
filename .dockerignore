@@ -26,3 +26,6 @@ integrations/*
 !integrations/bub/**
 openapi
 tests
+
+# Generated reference-stack credentials and evidence stay outside build contexts.
+deploy/observability/.local

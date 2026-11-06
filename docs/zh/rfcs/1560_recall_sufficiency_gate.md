@@ -1,3 +1,8 @@
+---
+title: RFC 1560：召回充分性与有界扩展
+description: 召回充分性的设计提案，不调用模型，在调用方既有上下文预算内评估候选并有限扩大准入范围。
+---
+
 - Proposal Name: `recall_sufficiency_gate`
 - Start Date: 2026-09-10
 - Status: Proposed

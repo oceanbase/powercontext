@@ -183,7 +183,12 @@ class ServiceController:
         return target
 
     def install(
-        self, *, env_file: Path | None = None, start_on_login: bool = True, require_ready: bool = False
+        self,
+        *,
+        env_file: Path | None = None,
+        start_on_login: bool = True,
+        require_ready: bool = False,
+        observability: bool = False,
     ) -> ServiceStatus:
         if not start_on_login and sys.platform != "win32":
             raise ServiceError(  # noqa: TRY003
@@ -191,7 +196,7 @@ class ServiceController:
                 exit_code=2,
             )
         self._require_support()
-        definition = self.preview_definition(env_file, start_on_login=start_on_login)
+        definition = self.preview_definition(env_file, start_on_login=start_on_login, observability=observability)
         initial_probe = self._probe(definition.endpoint)
         if initial_probe.state is ProbeState.CONFLICT:
             raise ServiceError(  # noqa: TRY003
@@ -994,7 +999,9 @@ class ServiceController:
             self.maintenance_path.unlink(missing_ok=True)
         return self.status()
 
-    def preview_definition(self, env_file: Path | None = None, *, start_on_login: bool = True) -> ServiceDefinition:
+    def preview_definition(
+        self, env_file: Path | None = None, *, start_on_login: bool = True, observability: bool = False
+    ) -> ServiceDefinition:
         """Validate and describe the target definition without writing or starting it."""
         try:
             loaded_env = load_protected_environment_file(env_file) if env_file is not None else None
@@ -1019,8 +1026,15 @@ class ServiceController:
         try:
             with (
                 clean_home_context,
-                server_settings_context(environment=loaded_env.values if loaded_env is not None else None) as settings,
+                server_settings_context(
+                    environment=loaded_env.values if loaded_env is not None else None, observability=observability
+                ) as settings,
             ):
+                if settings.http.uds is not None:
+                    raise ServiceError(  # noqa: TRY003
+                        "personal services require a TCP Server listener; use 'powercontext server run' for UDS",
+                        exit_code=2,
+                    )
                 host = settings.http.host
                 if not is_loopback_host(host):
                     raise ServiceError(  # noqa: TRY003
@@ -1034,6 +1048,12 @@ class ServiceController:
             ) from error
 
         target = self._server_target(require_exists=True)
+        observability_home = None
+        if observability:
+            from powercontext.observability.deployment import state_directory
+
+            observability_home = str(state_directory())
+
         return ServiceDefinition(
             ownership=OWNERSHIP_MARKER,
             definition_version=DEFINITION_VERSION,
@@ -1044,6 +1064,7 @@ class ServiceController:
             env_file=loaded_env.identity if loaded_env is not None else None,
             start_on_login=start_on_login,
             isolated_runtime=target.isolated_runtime,
+            observability_home=observability_home,
         )
 
     def _run_uninstall_stage(self, stage: str, operation: Callable[[], None]) -> None:

@@ -108,6 +108,29 @@ def test_install_is_readonly_until_approval_and_repeated_install_does_not_restar
     assert adapter.events == before
 
 
+@pytest.mark.skipif(os.name == "nt", reason="UDS listeners are supported on Unix platforms")
+def test_repair_rejects_uds_with_supported_configuration_error_without_mutation(managed):
+    ops, adapter, installer = managed
+    install(ops)
+    content = installer.environment.read_bytes() + (
+        b"POWERCONTEXT_SERVER_HTTP_UDS=/run/private-desktop/core.sock\nPRIVATE_TOKEN=private-configuration-token\n"
+    )
+    write_protected_file(installer.environment, content)
+    events = list(adapter.events)
+    records = {path: path.read_bytes() for path in ops.store.directory.rglob("*") if path.is_file()}
+
+    result = ops.handle(_request("preflight", operation="repair", options={}))
+
+    assert result["outcome"] == "rejected"
+    assert result["error"] == {"code": "configuration_invalid"}
+    assert "plan" not in result
+    assert "private-desktop" not in str(result)
+    assert "private-configuration-token" not in str(result)
+    assert adapter.events == events
+    assert installer.environment.read_bytes() == content
+    assert {path: path.read_bytes() for path in ops.store.directory.rglob("*") if path.is_file()} == records
+
+
 def test_repair_missing_python_keeps_manual_stop_and_configuration_revision(managed):
     ops, adapter, installer = managed
     first = install(ops)

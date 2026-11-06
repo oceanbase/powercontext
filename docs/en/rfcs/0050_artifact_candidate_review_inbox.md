@@ -1,3 +1,8 @@
+---
+title: "RFC 0050: Artifact Candidates and Review Inbox"
+description: A proposal for family-owned review policies, pending Candidates, and approval before Experience or Skill content becomes an Artifact Revision.
+---
+
 - Proposal Name: `artifact_candidate_review_inbox`
 - Start Date: 2026-07-29
 - RFC PR: [oceanbase/powercontext#50](https://github.com/oceanbase/powercontext/pull/50)

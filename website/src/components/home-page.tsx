@@ -21,12 +21,17 @@ import { DocsDescription, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { AgentArtifactFlow } from '@/components/agent-artifact-flow';
 import { ContextFlow } from '@/components/context-flow';
+import { GitHubStarButton } from '@/components/github-star-button';
+import { HomeContributors } from '@/components/home-contributors';
 import { SiteFooter } from '@/components/site-footer';
 import { SpiralVisual } from '@/components/spiral-visual';
 import { getHomeContent } from '@/lib/home-content';
+import { githubRepository } from '@/lib/github-stars';
 import type { Language } from '@/lib/i18n';
 import { baseOptions } from '@/lib/site';
 import { repositoryUrl } from '@/lib/urls';
+import githubStars from '../../.generated/github-stars.json';
+import githubContributors from '../../.generated/github-contributors.json';
 
 function normalizeHref(href: string) {
   return `/${href.replace(/^\/+/, '').replace(/\/$/, '')}`;
@@ -34,6 +39,10 @@ function normalizeHref(href: string) {
 
 export async function HomePage({ lang }: { lang: Language }) {
   const home = await getHomeContent(lang);
+  const repository = githubRepository(repositoryUrl);
+  const contributors: Array<{ login: string; avatar: string }> = githubContributors.repository === repository
+    ? githubContributors.contributors : [];
+  const community = home.hero.community;
 
   return (
     <HomeLayout {...baseOptions(lang)}>
@@ -45,17 +54,40 @@ export async function HomePage({ lang }: { lang: Language }) {
               <DocsTitle>
                 {home.hero.title.map((line) => <span className="block" key={line}>{line}</span>)}
               </DocsTitle>
-              <DocsDescription className="mb-0">{home.hero.lead}</DocsDescription>
-              <div className="flex flex-wrap gap-3">
-                {home.hero.actions.map((action) => (
-                  <Link
-                    className={buttonVariants({ variant: action.kind === 'primary' ? 'primary' : 'outline' })}
-                    href={normalizeHref(action.href)}
-                    key={action.href}
-                  >
-                    {action.label} {action.kind === 'primary' ? <ArrowRight aria-hidden="true" className="size-4" /> : null}
-                  </Link>
-                ))}
+              <DocsDescription className="mb-0">
+                {home.hero.lead}{' '}
+                <Link className="whitespace-nowrap text-fd-primary hover:underline" href={normalizeHref(home.hero.learn_more.href)}>
+                  {home.hero.learn_more.label}
+                </Link>
+              </DocsDescription>
+              <div className="flex items-center gap-3">
+                <Link
+                  className={buttonVariants({ variant: 'primary', className: 'gap-1 whitespace-nowrap' })}
+                  href={normalizeHref(home.hero.action.href)}
+                >
+                  {home.hero.action.label} <ArrowRight aria-hidden="true" className="size-4" />
+                </Link>
+                <GitHubStarButton
+                  url={repositoryUrl}
+                  label={community.star_label}
+                  lang={lang}
+                  initialCount={githubStars.repository === repository ? githubStars.count : null}
+                />
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-3 text-xs text-fd-muted-foreground">
+                <div className="flex items-center gap-3">
+                  <HomeContributors
+                    contributors={contributors}
+                    url={`${repositoryUrl}/graphs/contributors`}
+                    label={community.contributors_label}
+                  />
+                  <a href={`${repositoryUrl}/blob/master/CONTRIBUTING.md`} target="_blank" rel="noopener noreferrer" className="hover:text-fd-foreground hover:underline">
+                    {community.contribute_label}
+                  </a>
+                </div>
+                <a href={`${repositoryUrl}/blob/master/LICENSE`} target="_blank" rel="noopener noreferrer" className="hover:text-fd-foreground hover:underline">
+                  {community.license_label}
+                </a>
               </div>
             </header>
             <div className="mx-auto hidden w-full max-w-lg lg:block">

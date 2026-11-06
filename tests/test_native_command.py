@@ -228,7 +228,10 @@ def observe(event):
         os._exit(7)
 child = '''import os, sys, time
 from pathlib import Path
-Path(sys.argv[1]).write_text(str(os.getpid()))
+ready = Path(sys.argv[1])
+temporary = ready.with_suffix('.tmp')
+temporary.write_text(str(os.getpid()))
+os.replace(temporary, ready)
 deadline = time.monotonic() + 30
 while not Path(sys.argv[2]).exists() and time.monotonic() < deadline:
     time.sleep(0.05)

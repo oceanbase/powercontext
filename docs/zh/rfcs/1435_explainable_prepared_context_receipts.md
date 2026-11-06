@@ -1,5 +1,6 @@
 ---
-title: "RFC 1435：可解释的 PreparedContext Receipt"
+title: "RFC 1435：可解释的 PreparedContext 回执"
+description: PreparedContext 回执的设计提案，解释召回选择、遗漏、检索路径和字节预算，不保存查询或选中正文。
 ---
 
 - Proposal Name: `explainable_prepared_context_receipts`

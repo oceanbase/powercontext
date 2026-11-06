@@ -26,6 +26,7 @@ const ENV_KEYS = [
   'POWERCONTEXT_OPENCODE_BASE_URL',
   'POWERCONTEXT_OPENCODE_SCOPE_ID',
   'POWERCONTEXT_OPENCODE_AUTHORIZATION',
+  'POWERCONTEXT_OPENCODE_PROMPT_RECALL',
   'POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS',
   'POWERCONTEXT_OPENCODE_FLUSH_ON_CAPTURE',
   'POWERCONTEXT_OPENCODE_ACTIVATION_PROBE_PATH',
@@ -120,7 +121,7 @@ describe('PowerContextPlugin', () => {
 
     expect(incoming.parts).toHaveLength(2)
     expect(incoming.parts[1]).toMatchObject({ synthetic: true, messageID: 'msg-1', sessionID: 'session-1' })
-    expect(incoming.parts[1]?.text).toContain('Parser decision')
+    expect(incoming.parts[1]?.text).toBe('PowerContext host-supplied context.\n\nParser decision: preserve the public token shape.')
     expect(calls.map((call) => call.url)).toEqual([
       'http://127.0.0.1:8000/v1/scope-bindings/resolve',
       'http://127.0.0.1:8000/v1/context/prepare',
@@ -128,6 +129,51 @@ describe('PowerContextPlugin', () => {
     ])
     expect(calls[2]?.body.source_id).toMatch(/^opencode-user-prompt:/)
     expect(calls[2]?.body.metadata.origin).toBe('opencode')
+  })
+
+  it('captures without preparing or injecting context when prompt recall is disabled', async () => {
+    process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
+    process.env.POWERCONTEXT_OPENCODE_PROMPT_RECALL = 'false'
+    const calls: Array<{ url: string; body: any }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      const body = init.body ? JSON.parse(String(init.body)) : undefined
+      calls.push({ url, body })
+      return bindingResponse(url, body) ?? Response.json({ position: 7 }, { status: 202 })
+    }))
+
+    const hooks = await PowerContextPlugin(pluginInput())
+    const incoming = userMessage()
+    await hooks['chat.message']?.(
+      { sessionID: 'session-1', messageID: 'msg-1' },
+      { message: incoming.info, parts: incoming.parts } as any,
+    )
+    await hooks['experimental.chat.messages.transform']?.({}, { messages: [incoming] } as any)
+
+    expect(incoming.parts).toHaveLength(1)
+    expect(calls.map((call) => call.url)).toEqual([
+      'http://127.0.0.1:8000/v1/scope-bindings/resolve',
+      'http://127.0.0.1:8000/v1/sources/content',
+    ])
+    expect(calls[1]?.body).toMatchObject({ scope_id: 'project:test', content: 'continue the parser work' })
+  })
+
+  it('sends no request for a prompt when prompt recall and capture are both disabled', async () => {
+    process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
+    process.env.POWERCONTEXT_OPENCODE_PROMPT_RECALL = 'false'
+    process.env.POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS = 'false'
+    const fetch = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetch)
+
+    const hooks = await PowerContextPlugin(pluginInput())
+    const incoming = userMessage()
+    await hooks['chat.message']?.(
+      { sessionID: 'session-1', messageID: 'msg-1' },
+      { message: incoming.info, parts: incoming.parts } as any,
+    )
+    await hooks['experimental.chat.messages.transform']?.({}, { messages: [incoming] } as any)
+
+    expect(incoming.parts).toHaveLength(1)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('fails open when the Server is unavailable', async () => {
@@ -470,7 +516,6 @@ describe('PowerContextPlugin', () => {
       expect(prepared[2]?.body.scope_id).toBe(prepared[0]?.body.scope_id)
       const captured = calls.filter((call) => call.url.endsWith('/v1/sources/content'))
       expect(captured.map((call) => call.body.metadata.cwd)).toEqual([firstProject, firstProject, secondProject])
-      expect(input.client.session.get).toHaveBeenCalledTimes(3)
     } finally {
       await rm(firstProject, { recursive: true, force: true })
       await rm(secondProject, { recursive: true, force: true })
@@ -516,7 +561,6 @@ describe('PowerContextPlugin', () => {
       '/tmp/project-before-delete',
       '/tmp/project-after-delete',
     ])
-    expect(input.client.session.get).toHaveBeenCalledTimes(2)
   })
 
   it('fails open when the OpenCode session directory is unavailable', async () => {

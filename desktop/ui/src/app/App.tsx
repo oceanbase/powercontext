@@ -17,7 +17,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { messages, type Language } from "./messages";
 import { getFoundationInfo, desktopApi } from "../shared/ipc";
-import type { FoundationInfo, DesktopState } from "../generated/ipc";
+import type {
+  FoundationInfo,
+  DesktopState,
+  WriteRecord,
+} from "../generated/ipc";
 import logo from "../../../src-tauri/icons/brand.png";
 import homeIcon from "../assets/overview.svg";
 import connectionsIcon from "../assets/connections.svg";
@@ -27,13 +31,20 @@ import observationIcon from "../assets/retrieval.svg";
 
 import { TopBar } from "./TopBar";
 import { Overview } from "./Overview";
-import { MemoryWorkspace } from "./MemoryWorkspace";
+import { Statistics } from "./Statistics";
+import {
+  MemoryWorkspace,
+  SubmittedDraftRecovery,
+  type SubmittedDraft,
+} from "./MemoryWorkspace";
 import { LocalServerSettings } from "./LocalServerSettings";
 import { Help } from "./Help";
 import { Diagnostics } from "./Diagnostics";
 import { Connections } from "./Connections";
 import { Scopes } from "./Scopes";
 import { Observation, type ObservationTab } from "./Observation";
+import { Runtime } from "./Runtime";
+import { SessionView } from "./SessionView";
 import { connectionMessages } from "./connection-messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { activeCheckReport } from "./context";
@@ -57,6 +68,32 @@ export function App() {
   const [stateLoading, setStateLoading] = useState(true);
   const stateRequest = useRef(0);
   const [dirty, setDirty] = useState(false);
+  const [submittedDrafts, setSubmittedDrafts] = useState<SubmittedDraft[]>([]);
+  const submissionSequence = useRef(0);
+  function beginSubmission(text: string, target: SubmittedDraft["target"]) {
+    const id = ++submissionSequence.current;
+    setSubmittedDrafts((current) => [
+      ...current,
+      { id, text, target, phase: "pending" },
+    ]);
+    return (record: WriteRecord | null) => {
+      // Update only a retained intent. Explicit discard removes its identity,
+      // so late receipts cannot revive it or clear a different submission.
+      setSubmittedDrafts((current) =>
+        current.flatMap((draft) => {
+          if (draft.id !== id) return [draft];
+          if (record?.status === "succeeded") return [];
+          return [
+            {
+              ...draft,
+              target: record?.context ?? draft.target,
+              phase: record?.status ?? "unconfirmed",
+            },
+          ];
+        }),
+      );
+    };
+  }
   const [connectionDraftReset, setConnectionDraftReset] = useState(0);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -86,8 +123,14 @@ export function App() {
     return true;
   }
   const { confirm, confirmation } = useConfirmation(language);
-  function confirmSwitch() {
-    return !dirty || confirm(connectionMessages[language].discard);
+  async function confirmSwitch() {
+    if (
+      (dirty || submittedDrafts.length > 0) &&
+      !(await confirm(connectionMessages[language].discard))
+    )
+      return false;
+    setSubmittedDrafts([]);
+    return true;
   }
   const activeProfile = desktop?.profiles.find(
     (p) => p.id === desktop.active?.connectionId,
@@ -327,19 +370,39 @@ export function App() {
             />
           )}
           {page === "memories" && (
-            <MemoryWorkspace
-              key={`memory-${desktop?.active?.generation ?? "none"}`}
-              state={desktop}
-              language={language}
-              onState={receiveState}
-              onDirty={setDirty}
-              onManageConnections={() => navigate("connections")}
-              onOpenScopes={openScopes}
-              onOpenLocalServer={() =>
-                navigate("settings", { section: "local-server" })
-              }
-              contextPending={contextPending}
-            />
+            <>
+              {submittedDrafts
+                .filter(
+                  (draft) =>
+                    draft.target.generation !== desktop?.active?.generation,
+                )
+                .map((draft) => (
+                  <SubmittedDraftRecovery
+                    key={draft.id}
+                    draft={draft}
+                    language={language}
+                    onDiscard={() =>
+                      setSubmittedDrafts((current) =>
+                        current.filter((item) => item.id !== draft.id),
+                      )
+                    }
+                  />
+                ))}
+              <MemoryWorkspace
+                key={`memory-${desktop?.active?.generation ?? "none"}`}
+                state={desktop}
+                language={language}
+                onState={receiveState}
+                onDirty={setDirty}
+                onSubmission={beginSubmission}
+                onManageConnections={() => navigate("connections")}
+                onOpenScopes={openScopes}
+                onOpenLocalServer={() =>
+                  navigate("settings", { section: "local-server" })
+                }
+                contextPending={contextPending}
+              />
+            </>
           )}
           {page === "connections" && (
             <Connections
@@ -359,6 +422,33 @@ export function App() {
               language={language}
               tab={observationTab}
               onTabChange={setObservationTab}
+              panels={{
+                runtime: (
+                  <Runtime
+                    language={language}
+                    active={desktop?.active ?? null}
+                    contextPending={contextPending}
+                    onManage={() =>
+                      navigate("settings", { section: "local-server" })
+                    }
+                  />
+                ),
+                inventory: (
+                  <Statistics
+                    key={`statistics-${desktop?.active?.generation ?? "none"}`}
+                    state={desktop}
+                    language={language}
+                    onState={receiveState}
+                    contextPending={contextPending}
+                  />
+                ),
+                session: (
+                  <SessionView
+                    key={`${desktop?.generation ?? "none"}-${contextPending}`}
+                    language={language}
+                  />
+                ),
+              }}
             />
           )}
           {page === "settings" && (

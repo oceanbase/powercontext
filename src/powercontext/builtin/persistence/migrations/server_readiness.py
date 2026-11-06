@@ -65,10 +65,19 @@ def check_server_layout(connection, *, allow_declared_spaces=False):
             objects = [row for row in inventory if row[1] == name or row[2] == name]
             if objects and digest(objects) not in bundle.retained_fingerprints[name]:
                 raise MigrationError("incompatible_schema", "A retained migration object has changed.")
-        bundle.verify(
-            bundle.head,
-            digest(sqlite_inventory(connection, exclude=frozenset({"pc_schema_revision", *bundle.retained_objects}))),
-        )
+        try:
+            bundle.verify(
+                bundle.head,
+                digest(
+                    sqlite_inventory(connection, exclude=frozenset({"pc_schema_revision", *bundle.retained_objects}))
+                ),
+            )
+        except MigrationError as error:
+            if error.code != "incompatible_schema":
+                raise
+            from .sqlite_compatibility import verify
+
+            verify(connection, bundle, bundle.head)
         if connection.exec_driver_sql("PRAGMA foreign_key_check").first():
             raise MigrationError("verification_failed", "A live foreign key is invalid.")
     else:

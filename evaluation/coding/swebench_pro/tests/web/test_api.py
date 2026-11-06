@@ -644,7 +644,9 @@ def test_structured_and_raw_reports_use_validated_artifacts(
         "passed": True,
         "treatment_valid": True,
         "input_tokens": 10,
+        "cached_input_tokens": None,
         "output_tokens": 5,
+        "reasoning_output_tokens": None,
         "elapsed_seconds": 1.5,
         "patch_bytes": 20,
     }
@@ -1200,7 +1202,12 @@ def _write_batch_artifacts(
             ),
             pass_to_pass=TestGroupReport(passed=1, total=1),
             log_excerpt=None if resolved else "required test failed",
-            metrics=MetricSet(input_tokens=tokens[0], output_tokens=tokens[1]),
+            metrics=MetricSet(
+                input_tokens=tokens[0],
+                cached_input_tokens=tokens[0] - 10,
+                output_tokens=tokens[1],
+                reasoning_output_tokens=tokens[1] // 2,
+            ),
         )
 
     bundle = ReportBundle(
@@ -2147,6 +2154,8 @@ def test_batch_task_report_filters_searches_sorts_and_drills_into_full_context(
     assert negative.json()["items"][0]["off"]["resolved"] is True
     assert negative.json()["items"][0]["on"]["resolved"] is False
     assert negative.json()["items"][0]["tokens"]["delta"] == 44
+    assert negative.json()["items"][0]["off"]["cached_input_tokens"] == 110
+    assert negative.json()["items"][0]["on"]["reasoning_output_tokens"] == 8
     assert searched.json()["items"][0]["repository"] == "org/repo-c"
     assert [item["instance_id"] for item in sorted_page.json()["items"]] == [
         catalog.instance_ids[1],
@@ -2172,6 +2181,8 @@ def test_batch_task_report_filters_searches_sorts_and_drills_into_full_context(
     assert detail.json()["off"]["resolved"] is True
     assert detail.json()["on"]["resolved"] is False
     assert detail.json()["on"]["fail_to_pass"]["failed"] == ["test_fix_b"]
+    assert detail.json()["off"]["cached_input_tokens"] == 110
+    assert detail.json()["on"]["reasoning_output_tokens"] == 8
     assert timeline.json()["total"] == 2
     assert timeline.json()["items"][0]["sequence"] == 2
     assert timeline.json()["items"][0]["output"]["injected_text"] == "PowerContext recalled exact context."

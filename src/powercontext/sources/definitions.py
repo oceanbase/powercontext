@@ -16,8 +16,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Generic, Protocol, TypeVar, cast
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
@@ -34,6 +36,7 @@ from powercontext.errors import (
     SourceProjectionNotFoundError,
 )
 from powercontext.sources.adapters import SourceAdapter
+from powercontext.sources.evidence import MemoryEvidenceDeclaration, log_evidence_neutralized
 from powercontext.sources.models import Source, SourceProjectionKey
 
 InputT = TypeVar("InputT")
@@ -42,6 +45,7 @@ ValueT_co = TypeVar("ValueT_co", covariant=True)
 
 _JSON_VALUE = TypeAdapter(JsonValue)
 _AnySourceAdapter = SourceAdapter[Any, Any, Any]
+_NEUTRAL_MEMORY_EVIDENCE = MemoryEvidenceDeclaration()
 
 
 class SourceProjection(Protocol[SourceT]):
@@ -60,6 +64,7 @@ class SourceDefinition(SourceAdapter[InputT, SourceT, ValueT_co], Protocol[Input
 
     version: str
     projections: tuple[SourceProjection[SourceT], ...]
+    memory_evidence: MemoryEvidenceDeclaration | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +74,7 @@ class AdapterSourceDefinition(Generic[InputT, SourceT, ValueT_co]):
     adapter: SourceAdapter[InputT, SourceT, ValueT_co]
     version: str = "1"
     projections: tuple[SourceProjection[SourceT], ...] = ()
+    memory_evidence: MemoryEvidenceDeclaration | None = None
 
     @property
     def input_class(self) -> type[InputT]:
@@ -93,14 +99,31 @@ _AnySourceDefinition = SourceDefinition[Any, Any, Any]
 
 
 class SourceDefinitionRegistry:
-    """Provide one immutable routing view for Source persistence and consumers."""
+    """Provide one immutable routing and trusted declaration view.
 
-    def __init__(self, definitions: Iterable[_AnySourceDefinition], /) -> None:
+    Native Definitions optionally supply ``memory_evidence``. Deployment-owned
+    ``remote_declarations`` keys are exact ``(name, version, fingerprint)``
+    manifest identities, never worker payload or projection values. Declarations
+    are validated and copied at construction; invalid or unavailable values are
+    neutral and never prevent registration of an otherwise valid Definition.
+    Only host code constructing this registry supplies ``remote_declarations``;
+    no configuration file entry exists, because the keys must match manifests
+    that the deployment itself registered.
+    """
+
+    def __init__(
+        self,
+        definitions: Iterable[_AnySourceDefinition],
+        /,
+        *,
+        remote_declarations: Mapping[tuple[str, str, str], MemoryEvidenceDeclaration] | None = None,
+    ) -> None:
         by_input: dict[type[object], _AnySourceDefinition] = {}
         by_source: dict[type[Source], _AnySourceDefinition] = {}
         by_name: dict[str, _AnySourceDefinition] = {}
         projections: dict[type[Source], Mapping[SourceProjectionKey, SourceProjection[Any]]] = {}
         registered: list[_AnySourceDefinition] = []
+        memory_evidence: dict[type[Source], MemoryEvidenceDeclaration] = {}
 
         for definition in definitions:
             input_class, source_class = _validate_definition(definition)
@@ -122,6 +145,11 @@ class SourceDefinitionRegistry:
             by_source[source_class] = definition
             by_name[definition.name] = definition
             projections[source_class] = projection_routes
+            try:
+                declaration = getattr(definition, "memory_evidence", None)
+            except Exception:  # Declaration providers may be unavailable; routing remains valid.
+                declaration = None
+            memory_evidence[source_class] = _snapshot_memory_evidence(declaration)
             registered.append(definition)
 
         self._definitions = tuple(registered)
@@ -129,6 +157,10 @@ class SourceDefinitionRegistry:
         self._by_source = by_source
         self._by_name = by_name
         self._projections = projections
+        self._memory_evidence = MappingProxyType(memory_evidence)
+        self._remote_declarations = MappingProxyType({
+            key: _snapshot_memory_evidence(value) for key, value in (remote_declarations or {}).items()
+        })
 
     @classmethod
     def from_adapters(cls, adapters: Iterable[_AnySourceAdapter], /) -> SourceDefinitionRegistry:
@@ -160,6 +192,23 @@ class SourceDefinitionRegistry:
                 f"Source declares {source.definition_version!r}, expected {definition.version!r}",
             )
         return definition
+
+    def memory_evidence_for_source(self, source: Source, /) -> MemoryEvidenceDeclaration:
+        """Read the frozen trusted declaration using the exact registered route."""
+
+        from powercontext.sources.observations import SourceObservation
+
+        if isinstance(source, SourceObservation):
+            return self.memory_evidence_for_manifest(
+                source.source_type, source.definition_version, source.definition_fingerprint
+            )
+        self.definition_for_source(source)
+        return self._memory_evidence[type(source)]
+
+    def memory_evidence_for_manifest(self, name: str, version: str, fingerprint: str, /) -> MemoryEvidenceDeclaration:
+        """Return only deployment-configured evidence for an exact manifest."""
+
+        return self._remote_declarations.get((name, version, fingerprint), _NEUTRAL_MEMORY_EVIDENCE)
 
     async def resolve(self, value: object, /) -> Source:
         input_class = type(value)
@@ -201,6 +250,19 @@ class SourceDefinitionRegistry:
             return _JSON_VALUE.validate_python(validated.model_dump(mode="json"))
         except (TypeError, ValueError) as error:
             raise InvalidSourceProjectionError(key.name, "result", "must match the declared output schema") from error
+
+
+def _snapshot_memory_evidence(value: object) -> MemoryEvidenceDeclaration:
+    if value is None:
+        return _NEUTRAL_MEMORY_EVIDENCE
+    try:
+        # Revalidate even constructed models, and never retain caller-owned data.
+        if isinstance(value, MemoryEvidenceDeclaration):
+            value = value.model_dump(mode="python")
+        return MemoryEvidenceDeclaration.model_validate(value)
+    except (TypeError, ValueError):
+        log_evidence_neutralized("invalid_declaration", unit="declaration", level=logging.WARNING)
+        return _NEUTRAL_MEMORY_EVIDENCE
 
 
 def _validate_definition(definition: object) -> tuple[type[object], type[Source]]:

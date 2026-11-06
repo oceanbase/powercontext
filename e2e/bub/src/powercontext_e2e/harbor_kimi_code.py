@@ -82,13 +82,13 @@ manifest.mcpServers = {{ powercontext: {{
   toolTimeoutMs: 10000,
 }} }}
 write(manifestPath, manifest)
-const skill = path.join(plugin, 'skills/powercontext-project-context/SKILL.md')
+const skill = path.join(plugin, 'skills/powercontext-project-context/references/host.md')
 const guidance = fs.readFileSync(skill, 'utf8')
 fs.writeFileSync(skill, guidance
   .replaceAll('__POWERCONTEXT_SCOPE_JSON__', () => JSON.stringify(scopeId))
   .replaceAll('__POWERCONTEXT_SCOPE_SCRIPT_JSON__', () => JSON.stringify(path.join(plugin, 'scripts/scope.mjs')))
   .replaceAll('__POWERCONTEXT_PROFILE_JSON__', () => JSON.stringify('minimal'))
-  .replaceAll('__POWERCONTEXT_WORKFLOWS__', ''))
+)
 const now = new Date().toISOString()
 write(path.join(home, 'plugins/installed.json'), {{ version: 1, plugins: [{{
   id: 'powercontext', root: plugin, source: 'local-path', enabled: true,

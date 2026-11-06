@@ -1,3 +1,8 @@
+---
+title: RFC 1510：Artifact Dreaming 复盘
+description: Artifact Dreaming 的设计提案，在后台使用精确证据提炼 Experience 或派生 Skill，将结果提交为待审核候选。
+---
+
 - Proposal Name: `artifact_dreaming`
 - Start Date: 2026-09-07
 - RFC PR: [#1510](https://github.com/oceanbase/powercontext/pull/1510)

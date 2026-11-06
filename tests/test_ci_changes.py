@@ -36,6 +36,12 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["docs/zh/docs/quickstart.md"], {"website", "docs_tests"}),
         (["docs/en/rfcs/0001_design.md", "README_CN.md"], {"website", "docs_tests"}),
         (["website/src/app/page.tsx"], {"website"}),
+        (["website/public/install.sh"], {"website", "packaging"}),
+        (["website/public/install.ps1"], {"website", "packaging"}),
+        ([".github/workflows/installation.yml"], {"packaging"}),
+        (["tests/test_installation_contract.py"], {"tests", "packaging"}),
+        (["tests/native/test_installation.py"], {"tests", "native", "packaging"}),
+        (["tests/native/test_install_sources.py"], {"tests", "native", "packaging"}),
         (["tests/e2e/test_blog_site.py"], {"website", "tests"}),
         (["AGENTS.md", "CONTRIBUTING.md"], set()),
         (["deploy/helm/powercontext/templates/deployments.yaml"], {"helm"}),
@@ -64,6 +70,11 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
         ([".github/workflows/desktop.yml"], {"desktop"}),
+        ([".github/workflows/desktop-candidate.yml"], {"tests"}),
+        ([".github/workflows/desktop-release.yml"], {"tests"}),
+        (["scripts/desktop_candidate.py"], {"tests"}),
+        (["scripts/desktop_publication_manifest.py"], {"tests"}),
+        (["scripts/publish_desktop_release.py"], {"tests"}),
         ([".github/workflows/managed-resource-candidates.yml"], {"managed_resources"}),
         (["scripts/produce_managed_resources.py"], {"managed_resources"}),
         (["scripts/build_intel_managed_wheel.py"], {"managed_resources"}),
@@ -89,6 +100,13 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["tests/test_ci_installation_roles.py"], {"tests", "packaging"}),
         (["scripts/capture_release_schema.py"], {"upgrade", "release_schema"}),
         (["scripts/probe_seekdb_migration_lock.py"], {"seekdb_lock"}),
+        (["tests/seekdb_support.py"], {"tests", "database", "seekdb_lock"}),
+        (["tests/test_seekdb_migration_probe.py"], {"tests", "database", "upgrade", "seekdb_lock"}),
+        (["tests/e2e/test_seekdb_restart_recovery.py"], {"tests", "database", "seekdb_lock"}),
+        (
+            ["tests/builtin/persistence/test_mysql_migration_runner.py"],
+            {"tests", "database", "upgrade", "candidate_replay", "seekdb_lock"},
+        ),
         (["tests/test_database_migration_cli.py"], {"tests", "database", "upgrade"}),
         ([".github/workflows/skill-guidance.yml"], {"skill_guidance"}),
         ([".licenserc.yaml"], set()),
@@ -98,8 +116,8 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
             {"website", "docs_tests", "tests", "opencode"},
         ),
         (
-            ["scripts/guidance_templates/base/SKILL.md.j2"],
-            {"tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi"},
+            ["integrations/agent-plugin/powercontext/skills/powercontext-project-context/SKILL.md"],
+            {"tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode", "kimi", "skill_guidance"},
         ),
     ],
 )
@@ -123,7 +141,15 @@ def test_shared_or_unclassified_changes_run_every_suite(path: str) -> None:
     assert all(select_suites(["docs/en/docs/quickstart.md", path], RULES).values())
 
 
-@pytest.mark.parametrize("path", ["src/powercontext/server/authz/owner_recovery.py", "uv.lock", "pyproject.toml"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/powercontext/server/authz/owner_recovery.py",
+        "src/powercontext/builtin/persistence/mysql.py",
+        "uv.lock",
+        "pyproject.toml",
+    ],
+)
 def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: str) -> None:
     selected = select_suites([path], RULES)
     assert {
@@ -140,7 +166,7 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "managed_resources",
     } <= {suite for suite, enabled in selected.items() if enabled}
     assert not selected["release_schema"]
-    assert not selected["seekdb_lock"]
+    assert selected["seekdb_lock"] is (path != "src/powercontext/server/authz/owner_recovery.py")
 
 
 def git(repository: Path, *arguments: str) -> str:
@@ -217,6 +243,8 @@ def test_changed_shared_input_requires_its_consumers_in_result_gate(repository, 
         ("evaluation/memory/locomo/dataset.py", {"tests", "evaluation"}),
         ("evaluation/memory/locomo_plus/metrics.py", {"tests", "evaluation"}),
         ("evaluation/memory/write_gate/runner.py", {"tests", "evaluation"}),
+        ("evaluation/performance/input_encoding/semantics.py", {"tests", "evaluation"}),
+        ("evaluation/performance/input_encoding/semantic_cases.json", {"tests", "evaluation"}),
         ("integrations/pi/plugins/powercontext/package.json", {"tests", "pi", "zcode"}),
         ("tests/e2e/test_cross_host_work_continuity.py", {"tests", "zcode"}),
         ("tests/e2e/cross_host_work_continuity/pi.py", {"tests", "zcode"}),

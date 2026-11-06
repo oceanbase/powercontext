@@ -1,3 +1,8 @@
+---
+title: RFC 0028：有界上下文准备
+description: 上下文准备的设计提案，说明如何从 Memory 选择带精确引用的内容，并核算 UTF-8 输出预算与遗漏项。
+---
+
 - Proposal Name: `runtime_context_pack`
 - Start Date: 2026-07-27
 - RFC PR: [oceanbase/powercontext#28](https://github.com/oceanbase/powercontext/pull/28)

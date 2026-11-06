@@ -1,6 +1,6 @@
 ---
-title: Native Git Code Understanding
-description: Design native symbol indexing, cross-file relationships, incremental updates, impact analysis, and source delivery inside PowerContext.
+title: "RFC 1708: Native Git code understanding"
+description: A design for local Git code indexing with Tree-sitter, symbol retrieval, relationship analysis, and cited reads without model inference.
 ---
 
 - Proposal Name: `native_git_code_understanding`

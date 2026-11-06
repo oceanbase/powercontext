@@ -18,8 +18,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { PowerContextClient } from '../../src/client.ts'
 import * as plugin from '../../src/index.ts'
-import { GUIDANCE } from '../../src/skill.ts'
-import { PROJECT_CONTEXT_SKILL } from '../../src/skill-body.ts'
+import { GUIDANCE } from '../../src/guidance.ts'
 import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
 vi.mock('../../src/mcp-transport.ts', () => ({ protectMcpEndpoint: async (_ctx: unknown, endpoint: string) => endpoint }))
@@ -38,7 +37,7 @@ vi.mock('../../src/peers.ts', () => ({
 
 let scopeId = ''
 const TEXT = 'Keep the DSH plugin on the public HTTP contract.'
-const REQUIRED_SERVICES = ['tools', 'agents', 'commands', 'skills', 'systemPrompt'] as const
+const REQUIRED_SERVICES = ['tools', 'agents', 'commands', 'systemPrompt'] as const
 
 type RequiredService = typeof REQUIRED_SERVICES[number]
 type PcHandler = (invocation: {
@@ -48,13 +47,11 @@ type PcHandler = (invocation: {
 }) => Promise<{ kind: string; text: string }>
 
 type CommandDefinition = { name: string; handler: PcHandler }
-type SkillRegistration = { name: string; content: string }
 type PromptSection = { name: string; text: string }
 
 type Registrations = {
   tools: Record<string, unknown>[]
   commands: CommandDefinition[]
-  skills: SkillRegistration[]
   sections: PromptSection[]
 }
 
@@ -103,16 +100,6 @@ class CommandsService extends RegistrationService<CommandDefinition> {
   }
 }
 
-class SkillsService extends RegistrationService<SkillRegistration> {
-  constructor(ctx: Context, registrations: SkillRegistration[]) {
-    super(ctx, 'skills', registrations)
-  }
-
-  register(skill: SkillRegistration): () => void {
-    return this.registerOwned(skill, 'skills.register()')
-  }
-}
-
 class SystemPromptService extends RegistrationService<PromptSection> {
   constructor(ctx: Context, registrations: PromptSection[]) {
     super(ctx, 'systemPrompt', registrations)
@@ -124,7 +111,7 @@ class SystemPromptService extends RegistrationService<PromptSection> {
 }
 
 function emptyRegistrations(): Registrations {
-  return { tools: [], commands: [], skills: [], sections: [] }
+  return { tools: [], commands: [], sections: [] }
 }
 
 class PluginHarness {
@@ -151,8 +138,6 @@ class PluginHarness {
       provider = this.ctx.plugin(AgentsService)
     } else if (name === 'commands') {
       provider = this.ctx.plugin(CommandsService, this.registrations.commands)
-    } else if (name === 'skills') {
-      provider = this.ctx.plugin(SkillsService, this.registrations.skills)
     } else {
       provider = this.ctx.plugin(SystemPromptService, this.registrations.sections)
     }
@@ -192,7 +177,6 @@ function registrationCounts(registrations: Registrations) {
   return {
     tools: registrations.tools.length,
     commands: registrations.commands.length,
-    skills: registrations.skills.length,
     sections: registrations.sections.length,
   }
 }
@@ -284,21 +268,17 @@ describe('plugin HTTP call-through without a model', () => {
     expect(captured.kind).toBe('json')
   })
 
-  it('declares every DSH service required by apply', () => {
-    expect(plugin.inject).toEqual(REQUIRED_SERVICES)
-  })
-
   it('waits for every dependency before mounting all plugin surfaces', async () => {
     await withHarness(server.baseUrl, async (harness) => {
       await Promise.resolve()
       expect(registrationCounts(harness.registrations)).toEqual({
-        tools: 0, commands: 0, skills: 0, sections: 0,
+        tools: 0, commands: 0, sections: 0,
       })
 
       for (const name of REQUIRED_SERVICES.slice(0, -1)) {
         await harness.provide(name)
         expect(registrationCounts(harness.registrations)).toEqual({
-          tools: 0, commands: 0, skills: 0, sections: 0,
+          tools: 0, commands: 0, sections: 0,
         })
       }
 
@@ -306,10 +286,6 @@ describe('plugin HTTP call-through without a model', () => {
       await harness.fiber
       expect(harness.registrations.tools).toEqual([])
       expect(harness.registrations.commands.map(item => item.name)).toEqual(['pc'])
-      expect(harness.registrations.skills).toEqual(expect.arrayContaining([expect.objectContaining({
-        name: 'powercontext-project-context',
-        content: PROJECT_CONTEXT_SKILL,
-      })]))
       expect(harness.registrations.sections).toEqual([expect.objectContaining({
         name: 'tool:powercontext',
         text: GUIDANCE,
@@ -349,7 +325,7 @@ describe('plugin HTTP call-through without a model', () => {
 
       await harness.remove('commands')
       expect(registrationCounts(harness.registrations)).toEqual({
-        tools: 0, commands: 0, skills: 0, sections: 0,
+        tools: 0, commands: 0, sections: 0,
       })
       expect(harness.fiber.getEffects()).toEqual([])
 

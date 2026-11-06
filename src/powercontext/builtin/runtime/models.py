@@ -54,6 +54,7 @@ from powercontext.builtin.review import (
     CandidateStatus,
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
+from powercontext.builtin.runtime.receipt import PreparedContextReceipt
 from powercontext.builtin.sources import ExternalSkillImportMode
 from powercontext.builtin.tags import TagFilter
 from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
@@ -208,6 +209,8 @@ class RuntimeCapabilities(BaseModel):
     handoff_generation: bool = False
     prompts: dict[str, PromptCapability] = Field(default_factory=dict)
     context_versions: tuple[PreparedContextSchema, ...] = (PREPARED_CONTEXT_SCHEMA,)
+    context_reuse_versions: tuple[str, ...] = ("powercontext.context-reuse.v1",)
+    context_reuse_families: tuple[str, ...] = ("atomic-memory",)
 
 
 class MemoryFlushResult(BaseModel):
@@ -331,15 +334,17 @@ class PrepareContextRequest(_PreparedContextModel):
     assembly: ContextAssembly | None = None
     bootstrap_receipt_id: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     include_code: bool = Field(default=False, strict=True)
-    #: Opt into ``reason`` on the response. Off by default: a preparation a Host injects has to keep
-    #: the four fields its validator knows, and a lost channel is not part of the injected content.
-    explain: bool = Field(default=False, strict=True)
+    include_reuse: bool = Field(default=False, strict=True)
+    include_receipt: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod
     def reject_null_assembly(cls, value: Any) -> Any:
-        if isinstance(value, Mapping) and "assembly" in value and value["assembly"] is None:
-            raise ValueError("assembly must be omitted or contain an object")  # noqa: TRY003
+        if isinstance(value, Mapping):
+            if "assembly" in value and value["assembly"] is None:
+                raise ValueError("assembly must be omitted or contain an object")  # noqa: TRY003
+            if value.get("include_receipt", False) is None:
+                return {**value, "include_receipt": False}
         return value
 
     @field_validator("query")
@@ -364,10 +369,7 @@ class PreparedContext(_PreparedContextModel):
     status: PreparedContextStatus
     content: str | None
     content_bytes: Annotated[int, Field(ge=0)]
-    #: Why a retrieval channel was lost, mirroring ``BootstrapContext.reason``. Filled only when the
-    #: request asked with ``explain``: a Host injects ``content`` and validates the four fields it
-    #: knows, so an unrequested reason would break every Host for a fact none of them reads.
-    reason: PreparedContextReason | None = None
+    receipt: PreparedContextReceipt | None = None
 
     @model_validator(mode="after")
     def validate_content(self) -> PreparedContext:
@@ -380,6 +382,48 @@ class PreparedContext(_PreparedContextModel):
         if len(self.content.encode("utf-8")) != self.content_bytes:
             raise ValueError("prepared context byte count does not match content")  # noqa: TRY003
         return self
+
+
+class ContextReuseConstraints(_PreparedContextModel):
+    """Conditions for preserving one prepared value, independent of provider KV settings."""
+
+    preserve: tuple[Literal["content", "citations", "trust", "order"], ...] = (
+        "content",
+        "citations",
+        "trust",
+        "order",
+    )
+    refresh_on: tuple[Literal["permission_change", "source_ineligible", "context_boundary"], ...] = (
+        "permission_change",
+        "source_ineligible",
+        "context_boundary",
+    )
+
+
+class ContextReuse(_PreparedContextModel):
+    """Short-lived authenticated private provenance for an exact prepared value."""
+
+    schema_version: Literal["powercontext.context-reuse.v1"] = Field(
+        default="powercontext.context-reuse.v1",
+        alias="schema",
+    )
+    constraints: ContextReuseConstraints = Field(default_factory=ContextReuseConstraints)
+    expires_at: datetime
+    binding: Annotated[str, Field(min_length=1, max_length=65536)]
+
+
+class PreparedContextWithReuse(_PreparedContextModel):
+    """Explicit opt-in envelope; the normal preparation shape remains unchanged."""
+
+    schema_version: Literal["powercontext.prepared-context-with-reuse.v1"] = Field(
+        default="powercontext.prepared-context-with-reuse.v1",
+        alias="schema",
+    )
+    context: PreparedContext
+    reuse: ContextReuse
+
+
+PrepareContextResult: TypeAlias = PreparedContext | PreparedContextWithReuse
 
 
 class BootstrapContextRequest(_PreparedContextModel):

@@ -137,7 +137,7 @@ fn has_exited(child: &Child) -> std::io::Result<bool> {
         )
     };
     if result == 0 {
-        return Ok(info.si_pid != 0);
+        return Ok(siginfo_pid(&info) != 0);
     }
     let error = std::io::Error::last_os_error();
     if error.kind() == std::io::ErrorKind::Interrupted {
@@ -146,21 +146,49 @@ fn has_exited(child: &Child) -> std::io::Result<bool> {
     Err(error)
 }
 
+fn siginfo_pid(info: &libc::siginfo_t) -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        unsafe { info.si_pid() }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        info.si_pid
+    }
+}
+
 pub(crate) fn run(
     executable: &Path,
     arguments: &[&str],
     timeout: Duration,
     cancelled: Arc<AtomicBool>,
 ) -> Result<Output, SafeError> {
-    let mut child = Command::new(executable)
+    let mut command = Command::new(executable);
+    command
         .args(arguments)
         .current_dir(std::env::temp_dir())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .map_err(|_| SafeError::NotFound)?;
+        .process_group(0);
+    #[cfg(target_os = "linux")]
+    let mut child = {
+        let mut spawn_attempts = 0;
+        loop {
+            match command.spawn() {
+                Ok(child) => break child,
+                Err(error)
+                    if error.raw_os_error() == Some(libc::ETXTBSY) && spawn_attempts < 20 =>
+                {
+                    spawn_attempts += 1;
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => return Err(SafeError::NotFound),
+            }
+        }
+    };
+    #[cfg(not(target_os = "linux"))]
+    let mut child = command.spawn().map_err(|_| SafeError::NotFound)?;
     let group = Group(child.id() as i32);
     let deadline = Instant::now() + timeout;
     let total = Arc::new(AtomicUsize::new(0));
@@ -257,7 +285,7 @@ mod tests {
             observed, 0,
             "child identity was released before cleanup: {error}"
         );
-        assert_eq!(info.si_pid, child.id() as i32);
+        assert_eq!(siginfo_pid(&info), child.id() as i32);
         assert_eq!(status.code(), Some(7));
     }
 
@@ -375,15 +403,23 @@ mod tests {
     fn timeout_and_live_cancellation_terminate_spawned_descendants() {
         for cancel in [false, true] {
             let directory = tempfile::tempdir().unwrap();
-            let pid_file = directory.path().join("child.pid");
-            let script = format!("sleep 30 & echo $! > '{}'; wait", pid_file.display());
+            let child_pid_file = directory.path().join("child.pid");
+            let grandchild_pid_file = directory.path().join("grandchild.pid");
+            let script = format!(
+                "sh -c 'sleep 30 & echo $! > \"{grandchild}\"; wait' & echo $! > '{child}'; while [ ! -s '{grandchild}' ]; do sleep 0.01; done; wait",
+                child = child_pid_file.display(),
+                grandchild = grandchild_pid_file.display(),
+            );
             let flag = Arc::new(AtomicBool::new(false));
             let cancellation = if cancel {
                 let flag = flag.clone();
-                let pid_file = pid_file.clone();
+                let child_pid_file = child_pid_file.clone();
+                let grandchild_pid_file = grandchild_pid_file.clone();
                 Some(std::thread::spawn(move || {
                     let deadline = Instant::now() + Duration::from_secs(2);
-                    while !pid_file.exists() && Instant::now() < deadline {
+                    while (!child_pid_file.exists() || !grandchild_pid_file.exists())
+                        && Instant::now() < deadline
+                    {
                         std::thread::sleep(Duration::from_millis(10));
                     }
                     flag.store(true, Ordering::Relaxed);
@@ -407,28 +443,57 @@ mod tests {
                     SafeError::Timeout
                 })
             );
-            let pid: i32 = std::fs::read_to_string(pid_file)
-                .unwrap()
-                .trim()
-                .parse()
-                .unwrap();
+            let pids: Vec<i32> = [child_pid_file, grandchild_pid_file]
+                .into_iter()
+                .map(|path| {
+                    std::fs::read_to_string(path)
+                        .unwrap()
+                        .trim()
+                        .parse()
+                        .unwrap()
+                })
+                .collect();
             let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                let status = Command::new("/bin/ps")
-                    .args(["-o", "stat=", "-p", &pid.to_string()])
-                    .output()
-                    .unwrap();
-                let state = String::from_utf8_lossy(&status.stdout);
-                if state.trim().is_empty() || state.trim().starts_with('Z') {
-                    break;
+            for pid in pids {
+                loop {
+                    let status = Command::new("/bin/ps")
+                        .args(["-o", "stat=", "-p", &pid.to_string()])
+                        .output()
+                        .unwrap();
+                    let state = String::from_utf8_lossy(&status.stdout);
+                    if state.trim().is_empty() || state.trim().starts_with('Z') {
+                        break;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "diagnostic descendant remains running"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
                 }
-                assert!(
-                    Instant::now() < deadline,
-                    "diagnostic descendant remains running"
-                );
-                std::thread::sleep(Duration::from_millis(10));
             }
         }
+    }
+
+    #[test]
+    fn cleanup_does_not_kill_an_unrelated_process_group() {
+        let mut unrelated = Command::new("/bin/sh")
+            .args(["-c", "sleep 30"])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let unrelated_pid = unrelated.id() as i32;
+        std::thread::sleep(Duration::from_millis(50));
+
+        let result = shell(
+            "sleep 30",
+            Duration::from_millis(100),
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert_eq!(result.err(), Some(SafeError::Timeout));
+        assert_eq!(unsafe { libc::kill(unrelated_pid, 0) }, 0);
+
+        drop(Group(unrelated_pid));
+        unrelated.wait().unwrap();
     }
 
     #[test]
