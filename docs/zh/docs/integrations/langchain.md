@@ -124,11 +124,48 @@ LangChain 中间件自动为其 Scope 解析、上下文召回和可选的完整
 
 Provider/exporter 的初始化及服务端遥测仍由应用和部署方负责。语义可见性不会自动配置上报地址，也不保证任意后端都会导出。成功、错误、取消和召回失败时放行模型的行为保持不变。
 
+### 异步回调的父上下文
+
+中间件沿用当前 OpenTelemetry 上下文。导出的父链闭合，并不能说明该上下文就是当前执行的 LangChain 节点。
+在 LangChain 1.4.4、`langchain-core` 1.7.6 与 Langfuse 5.0.2 的组合中，默认同步 `CallbackHandler` 会在执行器上下文中处理异步 Agent
+的回调。LangGraph 节点可以正常导出，但中间件仍看到外层应用 span，召回和采集因此与整个 LangGraph 子树并列。
+
+使用该组合的应用可以通过公开 API 配置自己持有的回调：
+
+```python
+from langfuse.langchain import CallbackHandler
+from opentelemetry import trace
+
+callback = CallbackHandler()
+callback.run_inline = True
+
+with trace.use_span(
+    trace.get_current_span(),
+    end_on_exit=False,
+    record_exception=False,
+    set_status_on_exception=False,
+):
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": "这个服务应当怎样部署？"}]},
+        config={"callbacks": [callback]},
+        context=PowerContextScope(),
+    )
+```
+
+该作用域应覆盖完整的 `await` 调用；使用流式接口时，应保持到流被消费完毕或关闭。内联回调让召回归属于 model
+节点、采集归属于 `after_agent` 节点；调用作用域则在成功、失败或取消后恢复调用方的当前 span。仅设置内联回调仍不够，
+因为 LangChain 可能在另一任务中执行受保护的结束回调。中间件不会修改应用的回调对象，也不初始化 provider 或依赖
+Langfuse；`auto_capture` 与 `trace_content` 仍由各自的配置控制。
+
+本地验证使用实际 PowerContext ASGI/SQLite runtime 与确定性模型，覆盖工具循环、并发运行和取消。该外部回调组合中，
+被取消模型的 generation span 仍可能缺失；调用方上下文恢复和 PowerContext 召回、采集行为，不能证明所有回调均已导出。
+
 ### 可选的召回输入、输出采集
 
 使用 `PowerContextMiddleware(trace_content=True)`，可以在 `PowerContextMiddleware recall` 观测中记录本次查询
 和实际返回的上下文。它与把完整对话写入 PowerContext 存储的 `auto_capture` 不同。默认值为 `False`，因为
-查询和召回文本可能包含用户私有内容。类库负责观测节点和父子关系，应用只需配置已有的 exporter。
+查询和召回文本可能包含用户私有内容。适配层负责创建此观测，父节点沿用当前 OpenTelemetry 上下文，
+包括上文说明的异步回调边界。应用负责配置 exporter，以及自己持有的回调。
 输入、输出使用 OpenInference 的 `input.value`、`output.value` JSON 字符串；每项原文最多 16 KiB UTF-8，
 并明确标记是否截断。空结果也记录实际返回的 null 或空输出及真实上下文状态，请求失败不伪造输出。这个节点不是模型推理或模型选择的工具调用。
 服务端操作 span 仍然不记录内容，开启此选项也无法补回历史 span 的输入、输出。

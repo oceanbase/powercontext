@@ -131,12 +131,52 @@ Within that adapter-owned context, client spans carry `gen_ai.provider.name=powe
 
 A configured provider/exporter and server-side telemetry are still application/deployment responsibilities. Semantic visibility does not configure a destination or guarantee export by an arbitrary backend. Success, errors, cancellation and fail-open recall behavior are unchanged.
 
+### Async callback parent context
+
+The middleware follows the current OpenTelemetry context. An exported parent tree alone does not establish that
+this context matches the active LangChain node. With LangChain 1.4.4, `langchain-core` 1.7.6 and Langfuse 5.0.2,
+the default synchronous `CallbackHandler` runs async-agent callbacks in executor contexts. Its LangGraph spans can be exported while the
+middleware still sees the outer application span; recall and capture then appear beside the LangGraph subtree.
+
+Applications using that combination can configure their own callback through public APIs:
+
+```python
+from langfuse.langchain import CallbackHandler
+from opentelemetry import trace
+
+callback = CallbackHandler()
+callback.run_inline = True
+
+with trace.use_span(
+    trace.get_current_span(),
+    end_on_exit=False,
+    record_exception=False,
+    set_status_on_exception=False,
+):
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": "How should we deploy this service?"}]},
+        config={"callbacks": [callback]},
+        context=PowerContextScope(),
+    )
+```
+
+Keep the scope around the complete awaited invocation. For streaming, keep it open until the stream is consumed
+or closed. Inline dispatch binds recall to the model node and capture to the `after_agent` node. The invocation
+scope restores the caller's current span on success, error or cancellation: inline dispatch alone is insufficient
+because LangChain can shield completion callbacks in a separate task. The middleware does not mutate application
+callbacks, initialize a provider or require Langfuse. Its `auto_capture` and `trace_content` settings remain independent.
+
+Local validation used an actual PowerContext ASGI/SQLite runtime and deterministic models, including tool rounds,
+concurrent runs and cancellation. A cancelled model's generation span may still be absent with that external callback
+combination; caller-context cleanup and PowerContext recall/capture behavior do not prove complete callback export.
+
 ### Optional recall input/output
 
 Use `PowerContextMiddleware(trace_content=True)` to record the latest recall query and the returned context on the
 `PowerContextMiddleware recall` observation. This is separate from `auto_capture`, which writes completed turns to
 PowerContext storage. The default is `False`: recall text may contain private user and memory content.
-The library owns the observation and parent propagation; applications only configure their existing exporter.
+The adapter owns this observation; its parent follows the current OpenTelemetry context, including the async
+callback considerations above. Applications configure their exporter and any application-owned callbacks.
 Input and output use OpenInference `input.value` / `output.value` JSON strings, each bounded to 16 KiB of UTF-8
 content with explicit truncation flags. Empty results record the returned null or empty output and the actual context status.
 Request failures do not fabricate an output. This observation is not a model inference or model-selected tool call.

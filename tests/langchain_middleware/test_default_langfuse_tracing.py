@@ -21,7 +21,7 @@ import json
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -31,6 +31,7 @@ from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -84,7 +85,44 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
         finally:
             provider.shutdown()
 
+    def _assert_invocation_execution(self, spans, root_name, *, has_content):
+        """Assert framework parents and actual call order, beyond parent closure."""
+        invocation_root = next(span for span in spans if span.name == root_name)
+        invocation = [span for span in spans if span.context.trace_id == invocation_root.context.trace_id]
+        indexed = {span.context.span_id: span for span in invocation}
+        model = next(span for span in invocation if span.name == "LocalModel")
+        prepare = next(span for span in invocation if span.name == "PowerContextClient prepare_context")
+        capture = next(span for span in invocation if span.name == "PowerContextClient capture_content_source")
+        assert model.parent is not None and prepare.parent is not None and capture.parent is not None
+        model_node = indexed[model.parent.span_id]
+        self.assertEqual(model_node.name, "model")
+        if has_content:
+            recall = indexed[prepare.parent.span_id]
+            self.assertEqual(recall.name, "PowerContextMiddleware recall")
+            assert recall.parent is not None
+            self.assertEqual(recall.parent.span_id, model_node.context.span_id)
+            self.assertGreaterEqual(recall.start_time, model_node.start_time)
+            self.assertLessEqual(recall.end_time, model.start_time)
+        else:
+            self.assertEqual(prepare.parent.span_id, model_node.context.span_id)
+        self.assertGreaterEqual(prepare.start_time, model_node.start_time)
+        self.assertLessEqual(prepare.end_time, model.start_time)
+        self.assertLessEqual(model.end_time, model_node.end_time)
+        capture_node = indexed[capture.parent.span_id]
+        self.assertEqual(capture_node.name, "PowerContextMiddleware.after_agent")
+        self.assertGreaterEqual(capture.start_time, capture_node.start_time)
+        self.assertGreaterEqual(capture.start_time, model.end_time)
+        self.assertLessEqual(capture.end_time, capture_node.end_time)
+
     def test_plain_middleware_exports_complete_tree_with_default_langfuse(self):
+        # Default-filter visibility and parent closure do not establish that
+        # async callbacks set the active LangGraph node in the caller's task.
+        self._assert_runtime_exports(public_callback_context=False)
+
+    def test_public_callback_scope_preserves_model_phase_parentage_and_order(self):
+        self._assert_runtime_exports(public_callback_context=True)
+
+    def _assert_runtime_exports(self, *, public_callback_context):
         if importlib.util.find_spec("powercontext_langchain") is None:
             self.skipTest("Install the matching PowerContext core and LangChain adapter")
         # An installed but incompatible/broken adapter must fail rather than skip.
@@ -149,6 +187,34 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
                 ):
                     with shared_http_client(http, trust_transport_security=True), redirect_stdout(io.StringIO()):
                         client = initialize()
+                        callback = CallbackHandler(public_key=key)
+                        if public_callback_context:
+                            # Application-owned public configuration, independent
+                            # from the unchanged SDK default export filter.
+                            callback.run_inline = True
+
+                        def invocation_context():
+                            if not public_callback_context:
+                                return nullcontext()
+                            return trace.use_span(
+                                trace.get_current_span(),
+                                end_on_exit=False,
+                                record_exception=False,
+                                set_status_on_exception=False,
+                            )
+
+                        async def invoke_agent(agent, query):
+                            caller = trace.get_current_span().get_span_context()
+                            with invocation_context():
+                                await agent.ainvoke(
+                                    {"messages": [{"role": "user", "content": query}]},
+                                    config={"callbacks": [callback]},
+                                    context=PowerContextScope(),
+                                )
+                            if public_callback_context:
+                                self.assertEqual(trace.get_current_span().get_span_context(), caller)
+                                self.assertIsNone(otel_context.get_value("powercontext.genai_client"))
+
                         agent = create_agent(
                             model=LocalModel(),
                             tools=[],
@@ -158,77 +224,74 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
                         with client.start_as_current_observation(
                             name="langchain-powercontext-request", as_type="agent"
                         ):
-                            await agent.ainvoke(
-                                {"messages": [{"role": "user", "content": "PRIVATE_QUERY_SENTINEL"}]},
-                                config={"callbacks": [CallbackHandler(public_key=key)]},
-                                context=PowerContextScope(),
-                            )
+                            await invoke_agent(agent, "PRIVATE_QUERY_SENTINEL")
                         content_agent = create_agent(
                             model=LocalModel(),
                             tools=[],
-                            middleware=[PowerContextMiddleware(trace_content=True)],
+                            middleware=[PowerContextMiddleware(auto_capture=True, trace_content=True)],
                             context_schema=PowerContextScope,
                         )
                         with client.start_as_current_observation(name="content-enabled-request", as_type="agent"):
-                            await content_agent.ainvoke(
-                                {"messages": [{"role": "user", "content": "VISIBLE_QUERY_SENTINEL"}]},
-                                config={"callbacks": [CallbackHandler(public_key=key)]},
-                                context=PowerContextScope(),
-                            )
+                            await invoke_agent(content_agent, "VISIBLE_QUERY_SENTINEL")
                         client.flush()
 
             try:
                 asyncio.run(invoke())
-                spans = exporter.get_finished_spans()
-                content_span = next(span for span in spans if span.name == "PowerContextMiddleware recall")
-                assert content_span.attributes is not None
-                raw_input = content_span.attributes["input.value"]
-                raw_output = content_span.attributes["output.value"]
-                assert isinstance(raw_input, str)
-                assert isinstance(raw_output, str)
-                self.assertEqual(json.loads(raw_input), "VISIBLE_QUERY_SENTINEL")
-                self.assertIsNone(json.loads(raw_output))
-                self.assertIn("powercontext.context.status", content_span.attributes)
-                self.assertFalse(content_span.attributes["powercontext.content.input.truncated"])
-                root = next(span for span in spans if span.name == "langchain-powercontext-request")
-                request_spans = [span for span in spans if span.context.trace_id == root.context.trace_id]
-                by_id = {span.context.span_id: span for span in request_spans}
-                self.assertIsNone(root.parent)
-                self.assertEqual([s.name for s in request_spans if s.parent is None], [root.name])
-                for span in request_spans:
-                    if span.parent:
-                        self.assertIn(span.parent.span_id, by_id, span.name)
-                by_name = {span.name: span for span in request_spans}
-                client = by_name["PowerContextClient prepare_context"]
-                http_parent = by_name["HTTP prepare_context"].parent
-                assert http_parent is not None
-                self.assertEqual(http_parent.span_id, client.context.span_id)
-                self.assertIn("memory.search", by_name)
-                self.assertIn("PowerContextClient capture_content_source", by_name)
-                self.assertIn("LocalModel", by_name)
-                assert client.attributes is not None
-                self.assertEqual(client.attributes["gen_ai.operation.name"], "retrieval")
-                self.assertEqual(client.attributes["gen_ai.provider.name"], "powercontext")
-                for span in request_spans:
-                    if (
-                        span.instrumentation_scope is not None
-                        and span.instrumentation_scope.name == "powercontext.client"
-                    ):
-                        self.assertNotIn("PRIVATE_QUERY_SENTINEL", str(span.attributes))
-                from powercontext.client.tracing import ClientSpan
-
-                standalone = ClientSpan.start("get_server_info")
-                standalone.finish("success")
-                ordinary_span = provider.get_tracer("ordinary.http").start_span("not-a-genai-span")
-                ordinary_span.end()
-                provider.force_flush()
-                self.assertNotIn("not-a-genai-span", [s.name for s in exporter.get_finished_spans()])
-                self.assertNotIn("PowerContextClient get_server_info", [s.name for s in exporter.get_finished_spans()])
+                self._assert_runtime_span_visibility(
+                    exporter, provider, public_callback_context=public_callback_context
+                )
             finally:
                 for client in clients:
                     client.shutdown()
                 provider.shutdown()
                 server_provider.shutdown()
+
+    def _assert_runtime_span_visibility(self, exporter, provider, *, public_callback_context):
+        spans = exporter.get_finished_spans()
+        content_span = next(span for span in spans if span.name == "PowerContextMiddleware recall")
+        assert content_span.attributes is not None
+        raw_input = content_span.attributes["input.value"]
+        raw_output = content_span.attributes["output.value"]
+        assert isinstance(raw_input, str)
+        assert isinstance(raw_output, str)
+        self.assertEqual(json.loads(raw_input), "VISIBLE_QUERY_SENTINEL")
+        self.assertIsNone(json.loads(raw_output))
+        self.assertIn("powercontext.context.status", content_span.attributes)
+        self.assertFalse(content_span.attributes["powercontext.content.input.truncated"])
+        root = next(span for span in spans if span.name == "langchain-powercontext-request")
+        request_spans = [span for span in spans if span.context.trace_id == root.context.trace_id]
+        by_id = {span.context.span_id: span for span in request_spans}
+        self.assertIsNone(root.parent)
+        self.assertEqual([s.name for s in request_spans if s.parent is None], [root.name])
+        for span in request_spans:
+            if span.parent:
+                self.assertIn(span.parent.span_id, by_id, span.name)
+        by_name = {span.name: span for span in request_spans}
+        client = by_name["PowerContextClient prepare_context"]
+        http_parent = by_name["HTTP prepare_context"].parent
+        assert http_parent is not None
+        self.assertEqual(http_parent.span_id, client.context.span_id)
+        self.assertIn("memory.search", by_name)
+        self.assertIn("PowerContextClient capture_content_source", by_name)
+        self.assertIn("LocalModel", by_name)
+        assert client.attributes is not None
+        self.assertEqual(client.attributes["gen_ai.operation.name"], "retrieval")
+        self.assertEqual(client.attributes["gen_ai.provider.name"], "powercontext")
+        for span in request_spans:
+            if span.instrumentation_scope is not None and span.instrumentation_scope.name == "powercontext.client":
+                self.assertNotIn("PRIVATE_QUERY_SENTINEL", str(span.attributes))
+        if public_callback_context:
+            self._assert_invocation_execution(spans, "langchain-powercontext-request", has_content=False)
+            self._assert_invocation_execution(spans, "content-enabled-request", has_content=True)
+        from powercontext.client.tracing import ClientSpan
+
+        standalone = ClientSpan.start("get_server_info")
+        standalone.finish("success")
+        ordinary_span = provider.get_tracer("ordinary.http").start_span("not-a-genai-span")
+        ordinary_span.end()
+        provider.force_flush()
+        self.assertNotIn("not-a-genai-span", [s.name for s in exporter.get_finished_spans()])
+        self.assertNotIn("PowerContextClient get_server_info", [s.name for s in exporter.get_finished_spans()])
 
 
 if __name__ == "__main__":
