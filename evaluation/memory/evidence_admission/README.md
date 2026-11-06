@@ -11,6 +11,8 @@ It never publishes Atomic Memory, runs reconciliation, changes a production regi
 projection, current window reduction and bounded fragments: 972 rows across three datasets, budgets and replays.
 Budget rejection, failed generation and unresolved semantics remain distinct. Ordinary quality failures are measured
 without retries; billing, cancellation, Scope and audit failures stop execution. Historical protocols are not pooled.
+[Actual results](V18_RESULTS.zh.md): offline preparation and preflight completed; four live attempts yielded three
+responses and one missing response/usage. Execution stopped with 467 calls unrun and `insufficient_evidence`.
 
 The [v17 live diagnostic](V17_RESULTS.zh.md) executed two actual SDK/Pipeline requests after a committed freeze.
 Exact literals pass 4/4; the first Unicode response retains 2/3 literals and omits required CRLF, so the two remaining

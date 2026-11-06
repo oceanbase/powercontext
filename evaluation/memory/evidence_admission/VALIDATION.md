@@ -1,5 +1,33 @@
 # Validation
 
+## v18 固定生成比较验证
+
+执行提交 `90a3337e` 的完整无模型回归为 531 passed、1968 warnings（Python 3.11.15）。
+新增 23 项专项在 Python 3.11.15、3.12.3、3.13.13、3.14.5 全部通过。
+`make check`（含全量 hooks、根包/集成类型与 50 项清单检查）、issue Ruff check/format、
+整个 evaluation 类型检查、根包与评估包 wheel/sdist 构建通过；八个 v18 文件与评估构建逐字节匹配。
+凭据见 [validation.json](results/v18-live/validation.json)，结果见 [V18_RESULTS.zh.md](V18_RESULTS.zh.md)。
+
+最终实际命令使用锁定环境：
+
+```bash
+uv run --locked --project evaluation pytest evaluation/memory/evidence_admission/tests -m "not live" -q
+uv run --locked --project evaluation ruff check evaluation/memory/evidence_admission
+uv run --locked --project evaluation ruff format --check evaluation/memory/evidence_admission
+make check
+uv run --locked --project evaluation ty check --project evaluation
+make build
+uv build --project evaluation
+```
+
+其他 Python 的完整 evaluation / 根包全量测试未为 v18 增量重跑；历史通过只覆盖其原有提交。
+开发期沙箱停滞、空启动环境、SDK 异常归一化断言失败，以及修改文件期间的两项冻结拒绝均单独保留，
+不计入最终通过。最后一次完整验证期间执行代码没有修改。
+
+471 个 SDK/Pipeline MockTransport 预检全部通过，不访问 provider。
+线上四次尝试中三次取得响应、一份缺失；三份可用响应回放一致，第四份不可用，不是全矩阵线上通过。
+默认测试不需要凭据或网络；实际 opt-in 命令、费用与取消流程见 [冻结协议](V18_PROTOCOL.zh.md)。
+
 Current engineering receipts are in [the readiness report](ENGINEERING_READINESS.zh.md) and its
 [machine summary](results/engineering-readiness/summary.json). Root tests, doctests, coverage and types pass on
 Python 3.11/3.12/3.13/3.14. The engineering baseline evaluation count is 1291; the complete v16 evaluation suite

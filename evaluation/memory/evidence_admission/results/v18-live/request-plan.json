@@ -1,0 +1,26 @@
+{
+  "rows": 972,
+  "arms": {
+    "complete-projection-v1": {
+      "rows": 324,
+      "planned_calls": 42,
+      "estimated_input_tokens": 67350
+    },
+    "window-reduction-v1": {
+      "rows": 324,
+      "planned_calls": 102,
+      "estimated_input_tokens": 177930
+    },
+    "bounded-fragments-v3": {
+      "rows": 324,
+      "planned_calls": 327,
+      "estimated_input_tokens": 1243953
+    }
+  },
+  "planned_calls": 471,
+  "estimated_input_tokens": 1489233,
+  "maximum_output_tokens": 964608,
+  "not_provider_usage": true,
+  "not_a_guarantee_all_calls_fit_approved_budget": true,
+  "per_request_full_context_reservation_cny": "2.113536"
+}

@@ -6,6 +6,8 @@
 [v18 准入比较](V18_PROTOCOL.zh.md)固定原生生成指令与 schema，只比较完整投影、当前窗口和有界片段。
 三集、三预算、三重放共 972 行；预算拒绝、输出失败与语义未决分别报告。
 普通质量失败保留后继续独立计划请求；费用、取消、Scope 或审计问题停止整轮。历史协议结果不混算。
+[v18 实际结果](V18_RESULTS.zh.md)：离线与预检完成，线上四次尝试中三次返回、一次无响应/usage，
+按规则停止，其余 467 次未运行；最终仍为 insufficient_evidence。
 
 [工程验证](ENGINEERING_READINESS.zh.md)提供四个 Python 版本的根包与完整 evaluation 测试、类型检查、
 完整 hooks 和构建凭据。工程通过不代表正式线上比较通过；当前总体决策仍为 `insufficient_evidence`。

@@ -1,0 +1,36 @@
+{
+  "reviews": [
+    {
+      "call_id": "067108184485bfc8a91219cfb5e5ded44d6ebaa23d3dcb947d981ac08fa4c634",
+      "review_hash": "51f038b9bd10d6291ec29849cc44d0dd3f47b5cb76222fbf3935099391c4cf2c",
+      "unresolved": 0,
+      "original_record_hash": "d683372b20ad9f9d69f623e45c2f19061911a353200ac8f7f22b7b5aba70aae3",
+      "derivative_hash": "e774be08cbabc5580bd8eaa147dd0feee6fbb29240efb5b78c60266bfc83d984",
+      "retained_atoms": 1,
+      "review_kind": "assistant_diagnostic_not_independent_human",
+      "mechanical_difference": "initial_definite_article_and_sentence_initial_capitalization_only"
+    },
+    {
+      "call_id": "b871e10177e56f60a7f53c8b1a997a1886e3e9a5193953359e30ba0b87b38c2d",
+      "review_hash": "51f038b9bd10d6291ec29849cc44d0dd3f47b5cb76222fbf3935099391c4cf2c",
+      "unresolved": 0,
+      "original_record_hash": "945d00f4f019742db0fc6fc883064d57a607c421f3eac327b1e14eeb86a21c87",
+      "derivative_hash": "833d780f399ee4c38b57edc9fcdde45baa77a8221f826f027f3daeb80f56b4e9",
+      "retained_atoms": 1,
+      "review_kind": "assistant_diagnostic_not_independent_human",
+      "mechanical_difference": "initial_definite_article_and_sentence_initial_capitalization_only"
+    },
+    {
+      "call_id": "dee12046c57c88816e1c8e5765553f1e35d82bb7b8b334960e2a3e93efdab911",
+      "review_hash": "8e187b0f1f7f8c45f71b00426f93bf75373677d6ae8333ef22b3af5a9865fa56",
+      "unresolved": 0,
+      "original_record_hash": "434cc999c45810772029c8de448abd3245915e769782e1d03be28ca6ed43c133",
+      "derivative_hash": "fe011b8ed6ea8c6bfbb8a1d27c8b84da47cae034be4ea10f25496bae845072e5",
+      "retained_atoms": 1,
+      "review_kind": "assistant_diagnostic_not_independent_human",
+      "mechanical_difference": "initial_definite_article_and_sentence_initial_capitalization_only"
+    }
+  ],
+  "independent_human_review": false,
+  "historical_originals_unchanged": true
+}
