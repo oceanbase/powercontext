@@ -605,6 +605,25 @@ def _checked_rule(error: BaseException) -> InvalidInferenceOutputError | None:
     return None
 
 
+def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
+    """Classify only when the provider's own response names a context limit."""
+
+    body = getattr(error, "body", None)
+    text = str(body if isinstance(body, (str, bytes)) else body or "").lower()
+    return any(
+        term in text
+        for term in (
+            "context length",
+            "context window",
+            "maximum context",
+            "too many tokens",
+            "prompt is too long",
+            "input is too long",
+            "token limit",
+        )
+    )
+
+
 def _map_error(  # noqa: C901 - bounded mapping across status codes and provider exception classes
     error: Exception,
     *,
@@ -656,9 +675,12 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
                 ),
             )
     if isinstance(error, (ModelHTTPError, ModelRequestRejectedError)):
+        # Typed errors are authoritative; an uncategorized HTTP error still carries the provider's own
+        # words, so the body-based check keeps classifying a limit Pydantic AI did not tag as one.
         reason = (
             ProcessingFailureReason.CONTEXT_OVERFLOW
             if isinstance(error, ModelContextWindowExceededError)
+            or (isinstance(error, ModelHTTPError) and _looks_like_context_overflow(error))
             else ProcessingFailureReason.CONFIGURATION
         )
         return attach_diagnostics(
@@ -714,6 +736,25 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
             ),
         )
     return None
+
+
+def _looks_like_context_overflow(error: ModelHTTPError) -> bool:
+    """Classify only when the provider's own response names a context limit."""
+
+    body = getattr(error, "body", None)
+    text = str(body if isinstance(body, (str, bytes)) else body or "").lower()
+    return any(
+        term in text
+        for term in (
+            "context length",
+            "context window",
+            "maximum context",
+            "too many tokens",
+            "prompt is too long",
+            "input is too long",
+            "token limit",
+        )
+    )
 
 
 __all__ = [

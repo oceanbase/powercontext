@@ -1125,6 +1125,23 @@ def test_usage_limit_public_generate_path_reports_generation_stage() -> None:
     asyncio.run(scenario())
 
 
+def test_an_uncategorized_http_400_naming_a_context_limit_is_context_overflow() -> None:
+    """A provider that words its limit without a typed error still maps to the same reason."""
+
+    mapped = _map_error(
+        ModelHTTPError(400, "test-model", {"error": {"message": "Input is too long for this model"}}),
+        operation="generate",
+        timeout_seconds=1.0,
+    )
+
+    assert mapped is not None
+    diagnostics = classify_processing_error(mapped)
+
+    assert diagnostics is not None
+    assert diagnostics.reason is ProcessingFailureReason.CONTEXT_OVERFLOW
+    assert diagnostics.stage is ProcessingStage.GENERATION
+
+
 def test_a_413_without_context_evidence_is_not_context_overflow() -> None:
     mapped = _map_error(
         ModelHTTPError(413, "test-model", {"error": "upload too large"}),

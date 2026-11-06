@@ -374,15 +374,15 @@ def _insert_context(messages: Sequence[Any], context_request: ModelRequest) -> l
     `new_messages()` slices history from the first message stamped with this run's `run_id`, so recalled context
     has to be inserted at that boundary. Prepending it to position 0 instead moves the boundary and makes the
     caller's earlier turns look new, which duplicates them when the result is appended to the conversation.
+
+    The prompt request being prepared is stamped with this run's `run_id` only after this hook returns, so a
+    history with no current-run message yet anchors to the trailing request instead. That covers both a fresh
+    prompt and a history-only continuation, where the trailing request still carries the previous run's id.
     """
-    boundary = len(messages)
     for index, message in enumerate(messages):
         if message.run_id == context_request.run_id:
-            boundary = index
-            break
-    if boundary == len(messages) and messages and isinstance(messages[-1], ModelRequest):
-        # The prompt request is stamped only after this hook returns, so anchor to it directly.
-        boundary = len(messages) - 1
+            return [*messages[:index], context_request, *messages[index:]]
+    boundary = len(messages) - 1 if messages and isinstance(messages[-1], ModelRequest) else len(messages)
     return [*messages[:boundary], context_request, *messages[boundary:]]
 
 
