@@ -24,7 +24,7 @@ from powercontext_pydantic_ai import PowerContext, PowerContextSettings
 from powercontext_pydantic_ai.capability import CONTEXT_MARKER
 from pydantic import SecretStr
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import ModelResponse, SystemPromptPart, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import ModelResponse, SystemPromptPart, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 
 from powercontext.client import ServerResponseError, TransportError
@@ -40,11 +40,13 @@ def test_context_is_replaced_once_per_run_when_reusing_old_history(
     model_contexts: list[list[str]] = []
 
     async def respond(messages, _info):
+        # Recalled context arrives as a system prompt of the current request; mid-conversation system
+        # prompts are re-rendered as `<system>`-tagged user text, so match either part type.
         model_contexts.append([
-            part.content
+            str(part_content)
             for message in messages
             for part in message.parts
-            if isinstance(part, SystemPromptPart) and CONTEXT_MARKER in part.content
+            if CONTEXT_MARKER in str(part_content := getattr(part, "content", ""))
         ])
         if isinstance(messages[-1].parts[-1], ToolReturnPart):
             return ModelResponse(parts=[TextPart("complete")])
@@ -65,6 +67,41 @@ def test_context_is_replaced_once_per_run_when_reusing_old_history(
     expected_contexts = ["context-one", "context-one", "context-two", "context-two", "context-three", "context-three"]
     assert all(len(contexts) == 1 for contexts in model_contexts)
     assert all(expected in contexts[0] for contexts, expected in zip(model_contexts, expected_contexts, strict=True))
+
+
+def test_recalled_context_preserves_new_messages_boundary_across_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    RecordingClient.reset()
+    RecordingClient.prepare_result = prepared_response("boundary-one")
+    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
+
+    async def respond(_messages, _info):
+        return ModelResponse(parts=[TextPart("ok")])
+
+    async def scenario() -> tuple[list[Any], list[Any]]:
+        agent = Agent(FunctionModel(respond), capabilities=[PowerContext(scope_id="project:boundary")])
+        first = await agent.run("first prompt")
+        RecordingClient.prepare_result = prepared_response("boundary-two")
+        second = await agent.run("second prompt", message_history=first.all_messages())
+        return first.new_messages(), second.new_messages()
+
+    first_new, second_new = asyncio.run(scenario())
+
+    def prompts(messages: list[Any]) -> list[str]:
+        return [
+            str(part.content)
+            for message in messages
+            for part in message.parts
+            if isinstance(part, (UserPromptPart, SystemPromptPart)) and isinstance(part.content, str)
+        ]
+
+    # Only this run's prompt and its recalled context belong to the second run's new messages.
+    assert prompts(second_new)[-1] == "second prompt"
+    assert "first prompt" not in "\n".join(prompts(second_new))
+    assert any("boundary-two" in text for text in prompts(second_new))
+    assert not any("boundary-one" in text for text in prompts(second_new))
+    assert "first prompt" in "\n".join(prompts(first_new))
 
 
 def test_empty_context_is_not_injected(monkeypatch: pytest.MonkeyPatch) -> None:

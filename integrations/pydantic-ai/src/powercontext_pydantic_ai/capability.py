@@ -129,18 +129,15 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             state.context_injected = True
             return request_context
 
-        request_context = replace(
-            request_context,
-            messages=_without_powercontext_context(request_context.messages),
-        )
+        messages = _without_powercontext_context(request_context.messages)
         # Request-only replacements no longer update the history used by later tool steps.
         ctx.messages[:] = _without_powercontext_context(ctx.messages)
         if not query:
-            return request_context
+            return replace(request_context, messages=list(messages))
 
         prepared_content = await self._prepare_context(query)
         if not prepared_content:
-            return request_context
+            return replace(request_context, messages=list(messages))
 
         state.context_injected = True
         context_request = ModelRequest(
@@ -148,8 +145,9 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             run_id=ctx.run_id,
             conversation_id=ctx.conversation_id,
         )
-        ctx.messages.insert(0, context_request)
-        return replace(request_context, messages=[context_request, *request_context.messages])
+        messages = _insert_context(messages, context_request)
+        ctx.messages[:] = messages
+        return replace(request_context, messages=list(messages))
 
     @override
     async def after_model_request(
@@ -368,6 +366,24 @@ def _content_text(content: Any) -> str:
                 values.append(item.content)
         return "\n".join(values).strip()
     return ""
+
+
+def _insert_context(messages: Sequence[Any], context_request: ModelRequest) -> list[Any]:
+    """Place recalled context ahead of the current run's first message, after the caller's earlier turns.
+
+    `new_messages()` slices history from the first message stamped with this run's `run_id`, so recalled context
+    has to be inserted at that boundary. Prepending it to position 0 instead moves the boundary and makes the
+    caller's earlier turns look new, which duplicates them when the result is appended to the conversation.
+    """
+    boundary = len(messages)
+    for index, message in enumerate(messages):
+        if message.run_id == context_request.run_id:
+            boundary = index
+            break
+    if boundary == len(messages) and messages and isinstance(messages[-1], ModelRequest):
+        # The prompt request is stamped only after this hook returns, so anchor to it directly.
+        boundary = len(messages) - 1
+    return [*messages[:boundary], context_request, *messages[boundary:]]
 
 
 def _has_current_run_context(messages: Sequence[Any], run_id: str | None) -> bool:
