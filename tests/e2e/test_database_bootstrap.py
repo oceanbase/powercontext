@@ -27,6 +27,7 @@ import asyncio
 import gzip
 import json
 import os
+import signal
 import subprocess
 import sys
 from collections.abc import AsyncIterator
@@ -93,6 +94,7 @@ def run_seekdb_scenario(directory: Path, filename: str, *, timeout: int = 90) ->
         target = directory / f"attempt-{attempt}"
         target.mkdir()
         output = ""
+        outcome = "process did not complete; returncode unavailable"
         failed = True
         stalled = False
         try:
@@ -105,28 +107,95 @@ def run_seekdb_scenario(directory: Path, filename: str, *, timeout: int = 90) ->
                 check=False,
             )
             output = result.stdout + result.stderr
+            outcome = f"returncode={result.returncode}"
+            if os.name == "posix" and result.returncode < 0:
+                try:
+                    terminated_by = signal.Signals(-result.returncode).name
+                except ValueError:
+                    terminated_by = str(-result.returncode)
+                outcome += f" signal={terminated_by}"
             failed = result.returncode != 0
         except subprocess.TimeoutExpired as error:
             # TimeoutExpired retains bytes even when subprocess.run uses text=True.
             output = (error.stdout or b"").decode(errors="replace") + (error.stderr or b"").decode(errors="replace")
+            outcome = f"deadline exceeded after {timeout}s; returncode unavailable"
             stalled = True
         finally:
-            _retain_scenario_diagnostics(scenario, target, attempt, output, failed or stalled)
+            _retain_scenario_diagnostics(scenario, target, attempt, f"{outcome}\n{output}", failed or stalled)
         if not failed and not stalled:
             return
-        reported.append(f"attempt {attempt}:\n{_bounded_output(output)}")
+        reported.append(f"attempt {attempt}: {outcome}\n{_bounded_output(output)}")
         if attempt == 2 or not stalled:
             break
     pytest.fail(f"{filename} failed after {len(reported)} attempt(s)\n" + "\n".join(reported))
 
 
-def test_seekdb_scenario_runner_does_not_retry_completed_assertion_failure(tmp_path: Path) -> None:
+def test_seekdb_scenario_runner_does_not_retry_completed_assertion_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     scenario = tmp_path / "assertion_after_diagnostic.py"
     scenario.write_text('print("Timeout (0: diagnostic dump", flush=True)\nraise AssertionError("contract failed")\n')
+    diagnostics = tmp_path / "diagnostics"
+    monkeypatch.setenv("POWERCONTEXT_TEST_BOOTSTRAP_DIAGNOSTICS", str(diagnostics))
 
-    with pytest.raises(pytest.fail.Exception, match="AssertionError: contract failed"):
+    with pytest.raises(pytest.fail.Exception, match="AssertionError: contract failed") as failed:
         run_seekdb_scenario(tmp_path, str(scenario))
+    assert "returncode=1" in str(failed.value)
+    retained = (diagnostics / scenario.stem / "attempt-1.log").read_text()
+    assert "returncode=1" in retained
+    assert "AssertionError: contract failed" in retained
     assert not (tmp_path / "attempt-2").exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="negative subprocess return codes identify POSIX signals")
+def test_seekdb_scenario_runner_retains_signal_exit_without_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scenario = tmp_path / "terminated.py"
+    scenario.write_text('import os, signal\nprint("x" * 7000, flush=True)\nos.kill(os.getpid(), signal.SIGTERM)\n')
+    diagnostics = tmp_path / "diagnostics"
+    monkeypatch.setenv("POWERCONTEXT_TEST_BOOTSTRAP_DIAGNOSTICS", str(diagnostics))
+
+    with pytest.raises(pytest.fail.Exception) as failed:
+        run_seekdb_scenario(tmp_path, str(scenario))
+    assert f"returncode={-signal.SIGTERM}" in str(failed.value)
+    assert "signal=SIGTERM" in str(failed.value)
+    retained = (diagnostics / scenario.stem / "attempt-1.log").read_text()
+    assert f"returncode={-signal.SIGTERM}" in retained
+    assert "signal=SIGTERM" in retained
+    assert "x" * 7000 in retained
+    assert not (tmp_path / "attempt-2").exists()
+
+
+@pytest.mark.parametrize("stalls_again", [False, True])
+def test_seekdb_scenario_runner_retries_only_once_after_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stalls_again: bool
+) -> None:
+    scenario = tmp_path / "stalled.py"
+    scenario.write_text(
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        'print("child started", flush=True)\n'
+        f'if {stalls_again!r} or Path(sys.argv[1]).name == "attempt-1":\n'
+        "    time.sleep(60)\n"
+    )
+    diagnostics = tmp_path / "diagnostics"
+    monkeypatch.setenv("POWERCONTEXT_TEST_BOOTSTRAP_DIAGNOSTICS", str(diagnostics))
+
+    if stalls_again:
+        with pytest.raises(pytest.fail.Exception, match="failed after 2 attempt\\(s\\)") as failed:
+            run_seekdb_scenario(tmp_path, str(scenario), timeout=1)
+        assert "deadline exceeded after 1s" in str(failed.value)
+    else:
+        run_seekdb_scenario(tmp_path, str(scenario), timeout=1)
+    first = (diagnostics / scenario.stem / "attempt-1.log").read_text()
+    assert "deadline exceeded after 1s" in first
+    assert "returncode unavailable" in first
+    assert "child started" in first
+    second = (diagnostics / scenario.stem / "attempt-2.log").read_text()
+    assert ("deadline exceeded after 1s" if stalls_again else "returncode=0") in second
+    assert "child started" in second
+    assert not (tmp_path / "attempt-3").exists()
 
 
 def _bounded_output(output: str) -> str:

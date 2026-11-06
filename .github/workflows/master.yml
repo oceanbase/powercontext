@@ -520,7 +520,7 @@ jobs:
           mkdir -p .powercontext/database-bootstrap-ci
           uv run --locked --extra seekdb --extra code python -m pytest \
             tests/e2e/test_database_bootstrap.py -k seekdb -vv -rs \
-            -o faulthandler_timeout=60 --durations=20 \
+            -o faulthandler_timeout=0 --durations=20 \
             --junitxml=.powercontext/database-bootstrap-ci/seekdb.xml \
             2>&1 | tee .powercontext/database-bootstrap-ci/pytest.log
           uv run --locked --extra seekdb --extra code python - <<'PYCODE'
@@ -568,7 +568,7 @@ jobs:
           df -h . /tmp
           if [ "$SEEKDB_MIGRATION_SHARD" -eq 0 ]; then
             uv run --locked --extra seekdb --extra code pytest -vv \
-              -o faulthandler_timeout=120 --durations=20 \
+              -o faulthandler_timeout=0 --durations=20 \
               tests/builtin/persistence/test_database_migration_backends.py \
               tests/builtin/persistence/test_database_backup_providers.py \
               tests/builtin/persistence/test_database_migration_connections.py \

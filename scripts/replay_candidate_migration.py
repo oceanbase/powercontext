@@ -255,7 +255,7 @@ def main() -> int:
         arguments.backend,
         "-vv",
         "-o",
-        "faulthandler_timeout=180",
+        f"faulthandler_timeout={0 if arguments.backend == 'seekdb' else 180}",
         f"--junitxml={report}",
     ])
     if result:

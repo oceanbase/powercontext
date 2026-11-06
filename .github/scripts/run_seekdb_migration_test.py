@@ -162,7 +162,9 @@ def main() -> int:
             "pytest",
             "-vv",
             "-o",
-            "faulthandler_timeout=120",
+            # The C watchdog can itself segfault while native/greenlet frames change.
+            # The parent keeps the hard deadline and captures SQL/native evidence.
+            "faulthandler_timeout=0",
             "--durations=20",
             "--log-cli-level=INFO",
             args.node,

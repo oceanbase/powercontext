@@ -79,6 +79,8 @@ async def diagnose(options: dict[str, object], current_phase: Callable[[], str])
     while True:
         await asyncio.sleep(30)
         print(f"pending phase: {current_phase()}", file=sys.stderr, flush=True)
+        # The C watchdog can race frame changes; this synchronous call holds the GIL.
+        faulthandler.dump_traceback()
         for task in asyncio.all_tasks():
             if task is asyncio.current_task():
                 continue
@@ -203,8 +205,4 @@ async def scenario(directory: Path) -> None:
 
 
 if __name__ == "__main__":
-    faulthandler.dump_traceback_later(45, repeat=True)
-    try:
-        asyncio.run(scenario(Path(sys.argv[1])))
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    asyncio.run(scenario(Path(sys.argv[1])))
