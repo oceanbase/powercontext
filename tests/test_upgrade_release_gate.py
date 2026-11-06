@@ -960,7 +960,9 @@ def _process_identity(pid: int) -> str | None:
     # PID reuse during the parallel suite must not look like a surviving descendant.
     try:
         stat = Path(f"/proc/{pid}/stat").read_text()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
+        # The task may exit between path resolution and read; the kernel then
+        # reports ESRCH rather than ENOENT. Other failures stay visible.
         return None
     fields = stat[stat.rfind(")") + 2 :].split()
     return fields[19] if len(fields) > 19 else None
@@ -968,6 +970,37 @@ def _process_identity(pid: int) -> str | None:
 
 def _process_exists(pid: int, identity: str) -> bool:
     return _process_identity(pid) == identity
+
+
+def test_vanished_descendant_is_absent_but_other_proc_read_errors_survive(monkeypatch):
+    read_text = Path.read_text
+
+    def exit_during_read(self, *args, **kwargs):
+        if str(self).startswith("/proc/"):
+            raise ProcessLookupError(3, "No such process")
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", exit_during_read)
+    assert _process_identity(os.getpid()) is None
+    assert _process_exists(os.getpid(), "start-time") is False
+
+    def denied(self, *args, **kwargs):
+        if str(self).startswith("/proc/"):
+            raise PermissionError(13, "Permission denied")
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", denied)
+    with pytest.raises(PermissionError):
+        _process_identity(os.getpid())
+
+    def exhausted(self, *args, **kwargs):
+        if str(self).startswith("/proc/"):
+            raise OSError(24, "Too many open files")
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", exhausted)
+    with pytest.raises(OSError, match="Too many open files"):
+        _process_identity(os.getpid())
 
 
 @pytest.fixture
