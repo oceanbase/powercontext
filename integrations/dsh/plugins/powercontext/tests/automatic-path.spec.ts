@@ -15,6 +15,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { existsSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
 import type { PluginConfig } from '../src/config.ts'
@@ -57,7 +58,14 @@ async function fixture(
   type ToolDecision = { kind: 'allow' } | { kind: 'deny'; reason: string } | { kind: 'ask'; reason?: string }
   type ToolHook = (payload: unknown, next: () => Promise<ToolDecision>) => Promise<ToolDecision>
   let toolHook: ToolHook | undefined
-  const registry = { register: () => () => {}, section: () => () => {} }
+  const registered: Array<Record<string, unknown>> = []
+  const registry = {
+    register: (definition: Record<string, unknown>) => {
+      registered.push(definition)
+      return () => {}
+    },
+    section: () => () => {},
+  }
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname
     requests.push({ path, body: JSON.parse(String(init.body ?? '{}')) })
@@ -96,7 +104,14 @@ async function fixture(
     signal: new AbortController().signal,
     agent: { session: { header: { id: 'test-session' } } },
   }, async () => ({ kind: 'allow' }))
-  return { run, search, requests, logger, diagnostics: () => logger.warn.mock.calls.map(([line]) => JSON.parse(line)) }
+  return {
+    run,
+    search,
+    requests,
+    logger,
+    registered,
+    diagnostics: () => logger.warn.mock.calls.map(([line]) => JSON.parse(line)),
+  }
 }
 
 function successfulRequest(path: string) {
@@ -127,6 +142,22 @@ afterEach(() => {
 })
 
 describe('registered automatic path', () => {
+  it('registers the packaged Skill with its installed resource directory', async () => {
+    const h = await fixture(successfulRequest)
+    const skill = h.registered.find(definition => definition.name === 'powercontext-project-context')
+    expect(skill).toMatchObject({
+      name: 'powercontext-project-context',
+      source: 'runtime',
+      whenToUse: expect.stringContaining('continuing work across sessions'),
+      resourceBase: { kind: 'directory' },
+    })
+    const resourceBase = skill?.resourceBase as { kind: string; path: string }
+    expect(resourceBase.kind).toBe('directory')
+    expect(existsSync(resourceBase.path)).toBe(true)
+    expect(existsSync(`${resourceBase.path}/references/host.md`)).toBe(true)
+    expect(existsSync(`${resourceBase.path}/references/scope-memory.md`)).toBe(true)
+  })
+
   it('reports missing binding targets with repair guidance and stops automatic Scope work', async () => {
     const h = await fixture(() => response({
       error: { code: 'scope_binding_target_missing', message: PRIVATE, details: { scope_id: PRIVATE } },

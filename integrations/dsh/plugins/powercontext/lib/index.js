@@ -16,12 +16,12 @@
 
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, request } from "node:http";
 import { request as request$1 } from "node:https";
-import { pathToFileURL } from "node:url";
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -4478,11 +4478,17 @@ function registerRecall(ctx, runtime, createUserMessage, resolveSessionScope) {
 }
 function registerSkill(ctx) {
 	const skills = requireService(ctx, "skills");
-	const content = readFileSync(new URL("../skills/powercontext-project-context/SKILL.md", import.meta.url), "utf8");
+	const skillRoot = new URL("../skills/powercontext-project-context/", import.meta.url);
+	const content = readFileSync(new URL("SKILL.md", skillRoot), "utf8");
 	skills.register({
 		name: "powercontext-project-context",
 		description: "PowerContext memory search/save, inventory, work handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.",
 		source: "runtime",
+		whenToUse: "Use when continuing work across sessions, recalling prior decisions, preparing a handoff, or maintaining durable memory.",
+		resourceBase: {
+			kind: "directory",
+			path: fileURLToPath(skillRoot)
+		},
 		content
 	});
 }

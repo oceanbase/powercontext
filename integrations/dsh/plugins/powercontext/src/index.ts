@@ -16,6 +16,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { PowerContextClient } from './client.ts'
 import { registerCommands } from './commands.ts'
 import { resolveConfig, type PluginConfig } from './config.ts'
@@ -159,11 +160,14 @@ function registerRecall(
 
 function registerSkill(ctx: Context): void {
   const skills = requireService<{ register(skill: Record<string, unknown>): unknown }>(ctx, 'skills')
-  const content = readFileSync(new URL('../skills/powercontext-project-context/SKILL.md', import.meta.url), 'utf8')
+  const skillRoot = new URL('../skills/powercontext-project-context/', import.meta.url)
+  const content = readFileSync(new URL('SKILL.md', skillRoot), 'utf8')
   skills.register({
     name: 'powercontext-project-context',
     description: 'PowerContext memory search/save, inventory, work handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.',
     source: 'runtime',
+    whenToUse: 'Use when continuing work across sessions, recalling prior decisions, preparing a handoff, or maintaining durable memory.',
+    resourceBase: { kind: 'directory', path: fileURLToPath(skillRoot) },
     content,
   })
 }
