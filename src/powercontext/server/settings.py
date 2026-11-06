@@ -33,11 +33,16 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
+    CoordinationConfig,
     DatabaseConfig,
+    DeploymentConfig,
     ExternalSkillsConfig,
     HandoffReportConfig,
     InferenceConfig,
+    OperationsConfig,
+    RateLimitConfig,
     RuntimeConfig,
+    WorkerConfig,
 )
 from powercontext.paths import default_database_path, default_seekdb_path, powercontext_data_dir, sqlite_url
 from powercontext.transport import is_loopback_host
@@ -272,6 +277,11 @@ class ServerSettings(BaseSettings):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+    deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
+    coordination: CoordinationConfig = Field(default_factory=CoordinationConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
 
     @classmethod
     @override
@@ -318,7 +328,13 @@ class ServerSettings(BaseSettings):
     @model_validator(mode="after")
     def configure_default_local_skill_targets(self) -> ServerSettings:
         if "external_skills" not in self.model_fields_set:
-            self.external_skills = _default_local_external_skills(self.workspace)
+            if self.deployment.mode == "distributed":
+                # A distributed deployment rejects host-local Skill targets, so
+                # injecting the workspace defaults here would make every
+                # distributed configuration invalid before it is read.
+                self.external_skills = ExternalSkillsConfig()
+            else:
+                self.external_skills = _default_local_external_skills(self.workspace)
         return self
 
     @field_validator("public_url")

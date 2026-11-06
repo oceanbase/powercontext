@@ -249,6 +249,55 @@ const OPERATIONS = {
 		successStatuses: [200, 304],
 		emptyStatuses: [304]
 	},
+	list_operations: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/operations",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [
+			"kind",
+			"status",
+			"limit",
+			"cursor"
+		],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_operation: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/operations/{operation_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id", "operation_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	cancel_operation: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/operations/{operation_id}/cancel",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "operation_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	retry_operation: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/operations/{operation_id}/retry",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "operation_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	create_subject_source: {
 		method: "POST",
 		path: "/v1/scopes/{scope_id}/subject-sources",

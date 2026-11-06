@@ -133,11 +133,18 @@ class OceanBaseProfile:
         config: OceanBaseConfig,
         *,
         tables: tuple[Table, ...],
+        create_schema: bool = True,
         _archive_recovery: bool = False,
     ) -> AsyncIterator[OceanBaseProfile]:
         """Create, initialize and exclusively own an official OceanBase engine."""
 
-        async with cls._connect(config, tables=tables, provision=True, _archive_recovery=_archive_recovery) as profile:
+        async with cls._connect(
+            config,
+            tables=tables,
+            provision=True,
+            create_schema=create_schema,
+            _archive_recovery=_archive_recovery,
+        ) as profile:
             yield profile
 
     @classmethod
@@ -161,6 +168,7 @@ class OceanBaseProfile:
         *,
         tables: tuple[Table, ...],
         provision: bool,
+        create_schema: bool = True,
         _archive_recovery: bool = False,
     ) -> AsyncIterator[OceanBaseProfile]:
         _register_official_dialect()
@@ -179,7 +187,9 @@ class OceanBaseProfile:
             else:
                 await require_existing_database(engine, name=name)
             async with _initialized_profile(
-                cls(database=database, tables=tables), _archive_recovery=_archive_recovery
+                cls(database=database, tables=tables),
+                create_schema=create_schema,
+                _archive_recovery=_archive_recovery,
             ) as profile:
                 yield profile
         finally:
@@ -192,6 +202,7 @@ class OceanBaseProfile:
         engine: AsyncEngine,
         *,
         tables: tuple[Table, ...],
+        create_schema: bool = True,
     ) -> AsyncIterator[OceanBaseProfile]:
         """Initialize an explicitly selected caller-owned database without replacing its engine."""
         _validate_oceanbase_url(engine.url)
@@ -200,7 +211,7 @@ class OceanBaseProfile:
                 "Attached OceanBase engines must select a database; use OceanBaseProfile.open for defaults"
             )
         database = AsyncDatabase.attach(engine)
-        async with _initialized_profile(cls(database=database, tables=tables)) as profile:
+        async with _initialized_profile(cls(database=database, tables=tables), create_schema=create_schema) as profile:
             yield profile
 
 
@@ -218,7 +229,10 @@ def _create_engine(config: OceanBaseConfig, url: URL) -> AsyncEngine:
 
 @asynccontextmanager
 async def _initialized_profile(
-    profile: OceanBaseProfile, *, _archive_recovery: bool = False
+    profile: OceanBaseProfile,
+    *,
+    create_schema: bool = True,
+    _archive_recovery: bool = False,
 ) -> AsyncIterator[OceanBaseProfile]:
     try:
         async with profile.database.transaction() as connection:
@@ -230,7 +244,8 @@ async def _initialized_profile(
             )
         async with profile.database.transaction() as connection:
             await _require_compatible_identity_collations(connection, profile.tables)
-            await create_tables(connection, profile.tables)
+            if create_schema:
+                await create_tables(connection, profile.tables)
         yield profile
     finally:
         await profile.database.close()

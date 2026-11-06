@@ -681,6 +681,11 @@ def _validate_builtin_runtime(values: Mapping[str, str]) -> None:
                         handoff_report=settings.handoff_report,
                         inference=settings.inference,
                         external_skills=settings.external_skills,
+                        deployment=settings.deployment,
+                        coordination=settings.coordination,
+                        worker=settings.worker,
+                        operations=settings.operations,
+                        rate_limit=settings.rate_limit,
                     )
                 )
             )

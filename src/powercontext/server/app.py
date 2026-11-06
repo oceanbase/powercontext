@@ -178,6 +178,11 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.skill_publications import SkillPublication
+from powercontext.builtin.persistence.work import (
+    StaleWorkClaimError,
+    WorkStateConflictError,
+    WorkStatus,
+)
 from powercontext.builtin.publication import (
     ArtifactPublicationApplication,
     ArtifactPublicationConflictError,
@@ -689,7 +694,10 @@ from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
     BackgroundPermissionGap,
+    DurableOperationPage,
     GetTopicMemoryProcessingBlockRequest,
+    ListOperationsRequest,
+    MutateOperationRequest,
     OwnershipGapItem,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
@@ -703,9 +711,9 @@ from powercontext.http._generated.models import (
     TopicMemoryProcessingStatusRequest,
 )
 from powercontext.http._generated.models import Allowed as TransportOwnershipAllowed
-from powercontext.http._generated.models import (
-    ArtifactFamily as TransportArtifactFamily,
-)
+from powercontext.http._generated.models import ArtifactFamily as TransportArtifactFamily
+from powercontext.http._generated.models import DurableOperation as TransportOperation
+from powercontext.http._generated.models import OperationStatus as TransportOperationStatus
 from powercontext.http._generated.models import OwnershipGapKind as TransportOwnershipGapKind
 from powercontext.http._generated.models import ScopeId1 as TransportScopeId
 from powercontext.http._generated.models import (
@@ -721,6 +729,7 @@ from powercontext.http._generated.operations import (
     APPLY_ACCESS_OWNERSHIP,
     APPROVE_CANDIDATE,
     BIND_ARTIFACT_HANDLE,
+    CANCEL_OPERATION,
     CAPTURE_CONTENT_SOURCE,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
@@ -767,6 +776,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
+    GET_OPERATION,
     GET_PROFILE_POLICY,
     GET_PROMPT_CONFIGURATION,
     GET_READINESS,
@@ -794,6 +804,7 @@ from powercontext.http._generated.operations import (
     LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_OPERATIONS,
     LIST_REMOTE_SKILL_TARGETS,
     LIST_SCOPES,
     LIST_SOURCES,
@@ -830,6 +841,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
+    RETRY_OPERATION,
     RETRY_TOPIC_MEMORY_PROCESSING,
     REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
@@ -1406,6 +1418,7 @@ class ServerApplication(Protocol):
     remote_skills: _RemoteSkillApplication
     statistics: _StatisticsApplication
     handoff_report: HandoffReportApplication | None
+    operations: Any | None
 
 
 class _RuntimeNotReadyError(RuntimeError):
@@ -1414,6 +1427,26 @@ class _RuntimeNotReadyError(RuntimeError):
 
 class _PreconditionRequiredError(RuntimeError):
     """Raised when an Artifact mutation omits If-Match."""
+
+
+def _mount_boundary_routes(
+    app: FastAPI,
+    *,
+    infrastructure_only: bool,
+    route_profile: Literal["full", "health"],
+) -> bool:
+    """Mount the health boundary and report whether the data plane stays unmounted.
+
+    ``infrastructure_only`` exposes liveness alone. ``route_profile="health"`` adds readiness for
+    distributed Scheduler/Worker roles; metrics are mounted by the caller and every business route
+    stays on the API replicas.
+    """
+
+    _add_route(app, GET_LIVENESS, get_liveness)
+    if infrastructure_only:
+        return True
+    _add_route(app, GET_READINESS, get_readiness)
+    return route_profile == "health"
 
 
 class _ServerApp(FastAPI):
@@ -1436,6 +1469,7 @@ def create_app(
     *,
     application: ServerApplication | None = None,
     infrastructure_only: bool = False,
+    route_profile: Literal["full", "health"] = "full",
     capability_provider: CapabilityProvider | None = None,
     readiness_probe: ReadinessProbe | None = None,
     lifespan: Lifespan[FastAPI] | None = None,
@@ -1448,13 +1482,18 @@ def create_app(
     authentication_provider: AuthenticationProvider | None = None,
     allow_insecure_remote_http: bool = False,
 ) -> FastAPI:
-    """Build the HTTP adapter around an optional Runtime application binding."""
+    """Build the HTTP adapter around an optional Runtime application binding.
+
+    ``route_profile="health"`` exposes only the health and metrics boundary
+    (RFC 1430) for distributed Scheduler/Worker roles; the data plane is
+    served by the API replicas.
+    """
 
     app = _ServerApp(
         title=API_TITLE,
         version=API_VERSION,
         description=API_DESCRIPTION,
-        openapi_url=None if infrastructure_only else "/openapi.json",
+        openapi_url=None if infrastructure_only or route_profile == "health" else "/openapi.json",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -1557,15 +1596,12 @@ def create_app(
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
 
-    if infrastructure_only:
-        _add_route(app, GET_LIVENESS, get_liveness)
+    if _mount_boundary_routes(app, infrastructure_only=infrastructure_only, route_profile=route_profile):
         return app
 
     _add_route(app, CREATE_DREAM_RUN, create_dream_run)
     _add_route(app, GET_DREAM_RUN, get_dream_run)
     _add_route(app, LIST_DREAM_RUNS, list_dream_runs)
-    _add_route(app, GET_LIVENESS, get_liveness)
-    _add_route(app, GET_READINESS, get_readiness)
     _add_route(app, GET_SERVER_INFO, get_server_info)
     _add_route(app, GET_CAPABILITIES, get_capabilities)
     _add_route(app, LIST_ARTIFACT_PLUGINS, list_artifact_plugins)
@@ -1646,6 +1682,10 @@ def create_app(
     _add_route(app, SUBMIT_SOURCE_OBSERVATION, submit_source_observation)
     _add_route(app, COMMIT_CONNECTOR_CHECKPOINT, commit_connector_checkpoint)
     _add_route(app, FLUSH_MEMORY, flush_memory)
+    _add_route(app, LIST_OPERATIONS, list_operations)
+    _add_route(app, GET_OPERATION, get_operation)
+    _add_route(app, CANCEL_OPERATION, cancel_operation)
+    _add_route(app, RETRY_OPERATION, retry_operation)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_BOOTSTRAP_CONTEXT, prepare_bootstrap_context)
@@ -3500,6 +3540,117 @@ async def flush_memory(
         context=_atomic_execution_context(http_request, FLUSH_MEMORY.operation_id),
     )
     return mapping.flush_response(result)
+
+
+def _require_operations(application: ServerApplication) -> Any:
+    operations = application.operations
+    if operations is None:
+        raise _RuntimeNotReadyError
+    return operations
+
+
+def _operation_response(operation: Any) -> TransportOperation:
+    """Project one stored work row onto the public operation surface.
+
+    ``payload``, ``logical_key`` and the lease internals stay private: a caller
+    sees the lifecycle it can act on, never the references the ledger keeps.
+    """
+
+    return TransportOperation(
+        operation_id=operation.work_id,
+        kind=operation.kind,
+        scope_id=operation.scope_id,
+        status=TransportOperationStatus(operation.status.value),
+        state_version=operation.state_version,
+        attempt_count=operation.attempt_count,
+        max_attempts=operation.max_attempts,
+        cancel_requested=operation.cancel_requested,
+        available_at=_aware_datetime(operation.available_at),
+        created_at=_aware_datetime(operation.created_at),
+        updated_at=_aware_datetime(operation.updated_at),
+        completed_at=None if operation.completed_at is None else _aware_datetime(operation.completed_at),
+        result_code=operation.result_code,
+        error_category=operation.error_category,
+        error_code=operation.error_code,
+    )
+
+
+async def _scoped_operation(manager: Any, scope_id: str, operation_id: str) -> Any:
+    """Load one operation, hiding anything that does not belong to this Scope.
+
+    The row carries its own Scope, so the path Scope is an ownership assertion.
+    A mismatch reads as not found for the same reason maintenance work does: a
+    caller must not be able to probe another Scope's identifiers.
+    """
+
+    operation = await manager.get(operation_id)
+    if operation.scope_id != scope_id:
+        raise RepositoryNotFoundError("operation", operation_id)
+    return operation
+
+
+def _list_operations_query(
+    http_request: Request,
+    kind: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    status: Annotated[str | None, Query(min_length=1, max_length=32)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
+) -> ListOperationsRequest:
+    allowed = {"kind", "status", "limit", "cursor"}
+    if set(http_request.query_params) - allowed:
+        raise InvalidBaseAccessRequestError("query", "contains unknown parameters")
+    if any(len(http_request.query_params.getlist(name)) > 1 for name in allowed):
+        raise InvalidBaseAccessRequestError("query", "parameters must be provided at most once")
+    if status is not None and status not in {item.value for item in WorkStatus}:
+        raise InvalidBaseAccessRequestError("status", "must be a known lifecycle state")
+    return ListOperationsRequest(kind=kind, status=status, limit=limit, cursor=cursor)
+
+
+async def list_operations(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: Annotated[ListOperationsRequest, Depends(_list_operations_query)],
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> DurableOperationPage:
+    manager = _require_operations(application)
+    page = await manager.list(
+        scope_id=scope_id,
+        kind=request.kind,
+        status=None if request.status is None else WorkStatus(request.status),
+        cursor=request.cursor,
+        limit=request.limit,
+    )
+    return DurableOperationPage(items=[_operation_response(item) for item in page.items], next_cursor=page.next_cursor)
+
+
+async def get_operation(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    operation_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TransportOperation:
+    manager = _require_operations(application)
+    return _operation_response(await _scoped_operation(manager, scope_id, operation_id))
+
+
+async def cancel_operation(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    operation_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: MutateOperationRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TransportOperation:
+    manager = _require_operations(application)
+    await _scoped_operation(manager, scope_id, operation_id)
+    return _operation_response(await manager.cancel(operation_id, expected_version=request.expected_version))
+
+
+async def retry_operation(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    operation_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: MutateOperationRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TransportOperation:
+    manager = _require_operations(application)
+    await _scoped_operation(manager, scope_id, operation_id)
+    return _operation_response(await manager.retry(operation_id, expected_version=request.expected_version))
 
 
 async def remember_memory(
@@ -6367,6 +6518,13 @@ def _map_governance_error(error: Exception) -> tuple[int, str, str, dict[str, An
         return status.HTTP_404_NOT_FOUND, "not_found", "The requested value was not found.", None
     if isinstance(error, StoredPayloadConflictError):
         return status.HTTP_409_CONFLICT, "generation_conflict", "The requested state is stale.", None
+    if isinstance(error, (WorkStateConflictError, StaleWorkClaimError)):
+        return (
+            status.HTTP_409_CONFLICT,
+            "operation_conflict",
+            "The operation changed since it was read.",
+            None,
+        )
     if isinstance(error, InvalidArtifactLifecycleError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_lifecycle", str(error), None
     return None

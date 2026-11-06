@@ -18,17 +18,23 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Callable, Collection
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from datetime import UTC, datetime
 from sqlite3 import SQLITE_INTERRUPT
 from typing import Any
 
 from aiosqlite import Connection as SQLiteConnection
 from aiosqlite import Cursor as SQLiteCursor
-from sqlalchemy.exc import OperationalError, PendingRollbackError
+from sqlalchemy import Table, insert
+from sqlalchemy.exc import IntegrityError, OperationalError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from powercontext.builtin.persistence.errors import DatabaseClosedError, PersistenceError
+from powercontext.builtin.persistence.errors import (
+    DatabaseClosedError,
+    InvalidStoredColumnError,
+    PersistenceError,
+)
 
 # Repositories that read a whole Scope selection in one statement chunk it to stay
 # below the lowest bind-parameter ceiling across the supported backends.
@@ -515,3 +521,56 @@ def is_transaction_contention(error: OperationalError) -> bool:
     if isinstance(sqlite_code, int) and sqlite_code & 0xFF in {5, 6}:
         return True
     return bool(original is not None and original.args and original.args[0] in {1205, 1213})
+
+
+async def database_now(connection: AsyncConnection, /) -> datetime:
+    """Return the database clock as normalized *naive* UTC.
+
+    Coordination decisions (Lease expiry, fence ordering, ``lease_expires_at``
+    comparisons) are made against columns the Work Ledger stores as naive UTC,
+    so this helper deliberately strips the offset.  ``dream.database_now``
+    returns an aware datetime for its own records and is not interchangeable
+    here: mixing the two produces "can't compare offset-naive and
+    offset-aware datetimes" inside the claim path.
+    """
+
+    statement = "SELECT UTC_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
+    value = (await connection.exec_driver_sql(statement)).scalar_one()
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if not isinstance(value, datetime):
+        raise InvalidStoredColumnError("CURRENT_TIMESTAMP", "a datetime")
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+async def insert_if_absent(
+    connection: AsyncConnection,
+    table: Table,
+    values: Mapping[str, Any],
+    /,
+) -> bool:
+    """Insert validated values without aborting the transaction on a unique-key race.
+
+    OceanBase's async dialect deliberately leaves ``do_begin`` empty.  A
+    zero-row locking update therefore may not establish a server transaction,
+    which makes a SAVEPOINT-based insert race unsafe.  The supported SQL
+    dialects provide a conflict-tolerant insert that starts the real
+    transaction and reports whether this caller created the row.
+    """
+
+    statement = insert(table).values(**values)
+    if connection.dialect.name == "mysql":
+        result = await connection.execute(statement.prefix_with("IGNORE"))
+        return result.rowcount == 1
+    if connection.dialect.name == "sqlite":
+        result = await connection.execute(statement.prefix_with("OR IGNORE"))
+        return result.rowcount == 1
+
+    try:
+        async with connection.begin_nested():
+            await connection.execute(statement)
+    except IntegrityError:
+        return False
+    return True

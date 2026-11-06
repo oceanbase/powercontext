@@ -2212,6 +2212,82 @@ class RetryTopicMemoryProcessingRequest(BaseModel):
     block_id: Annotated[StrictStr, Field(max_length=36, min_length=1)]
 
 
+class OperationStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    RETRY_WAIT = "retry_wait"
+    CANCELLING = "cancelling"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class DurableOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    kind: Annotated[
+        StrictStr,
+        Field(
+            description="Durable work family, for example powercontext.memory.source-window.",
+            max_length=128,
+            min_length=1,
+        ),
+    ]
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    status: OperationStatus
+    state_version: Annotated[
+        StrictInt, Field(description="Monotonic version to send as expected_version when cancelling or retrying.", ge=1)
+    ]
+    attempt_count: Annotated[StrictInt, Field(ge=0)]
+    max_attempts: Annotated[StrictInt, Field(ge=1)]
+    cancel_requested: Annotated[
+        StrictBool, Field(description="True once cancellation was requested and the operation has not stopped yet.")
+    ]
+    available_at: AwareDatetime
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    completed_at: Annotated[AwareDatetime | None, Field(description="Set once the operation reached a terminal state.")]
+    result_code: Annotated[
+        StrictStr | None, Field(description="Sanitized result classification for a succeeded operation.")
+    ]
+    error_category: Annotated[StrictStr | None, Field(...)]
+    error_code: Annotated[StrictStr | None, Field(...)]
+
+
+class ListOperationsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Annotated[StrictStr | None, Field(max_length=128, min_length=1)] = None
+    status: Annotated[
+        StrictStr | None,
+        Field(description="One lifecycle state; unknown values are rejected with 422.", max_length=32, min_length=1),
+    ] = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class DurableOperationPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[DurableOperation]
+    next_cursor: Annotated[
+        StrictStr | None, Field(description="Opaque cursor for the next page; null when this page is the last.")
+    ]
+
+
+class MutateOperationRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_version: Annotated[
+        StrictInt, Field(description="The state_version read before deciding to cancel or retry.", ge=1)
+    ]
+
+
 class TopicMemoryProcessingBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

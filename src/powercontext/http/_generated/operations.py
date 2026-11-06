@@ -74,6 +74,8 @@ from powercontext.http._generated.models import (
     DownloadRemoteSkillPackageRequest,
     DreamRun,
     DreamRunPage,
+    DurableOperation,
+    DurableOperationPage,
     EnableAllArtifactPluginsResponse,
     EnrollRemoteSkillTargetRequest,
     ExperienceArtifact,
@@ -127,6 +129,7 @@ from powercontext.http._generated.models import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
+    ListOperationsRequest,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
     ListScopesRequest,
@@ -134,6 +137,7 @@ from powercontext.http._generated.models import (
     MemoryCapacity,
     MemoryMutationResponse,
     MergeAtomicMemoryRequest,
+    MutateOperationRequest,
     PlanAccessOwnershipRequest,
     PrepareContextRequest,
     PrepareContextResult,
@@ -492,6 +496,122 @@ GET_ATOMIC_MEMORY_STATE = Operation[None, AtomicMemoryStateResponse](
         503: {"$ref": "#/components/responses/Unavailable"},
     },
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="atomic_memory_state_access"),
+)
+
+LIST_OPERATIONS = Operation[ListOperationsRequest, DurableOperationPage](
+    method="GET",
+    path="/v1/scopes/{scope_id}/operations",
+    operation_id="list_operations",
+    request_type=ListOperationsRequest,
+    request_location="query",
+    path_parameters=("scope_id",),
+    response_type=DurableOperationPage,
+    success_status=200,
+    summary="List durable operations in one Scope",
+    tags=("operations",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "One stable page of public durable operations.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_OPERATION = Operation[None, DurableOperation](
+    method="GET",
+    path="/v1/scopes/{scope_id}/operations/{operation_id}",
+    operation_id="get_operation",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "operation_id"),
+    response_type=DurableOperation,
+    success_status=200,
+    summary="Read one durable operation",
+    tags=("operations",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The current operation state.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+CANCEL_OPERATION = Operation[MutateOperationRequest, DurableOperation](
+    method="POST",
+    path="/v1/scopes/{scope_id}/operations/{operation_id}/cancel",
+    operation_id="cancel_operation",
+    request_type=MutateOperationRequest,
+    request_location="body",
+    path_parameters=("scope_id", "operation_id"),
+    response_type=DurableOperation,
+    success_status=200,
+    summary="Cancel one durable operation",
+    tags=("operations",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The operation after the cancellation request.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
+)
+
+RETRY_OPERATION = Operation[MutateOperationRequest, DurableOperation](
+    method="POST",
+    path="/v1/scopes/{scope_id}/operations/{operation_id}/retry",
+    operation_id="retry_operation",
+    request_type=MutateOperationRequest,
+    request_location="body",
+    path_parameters=("scope_id", "operation_id"),
+    response_type=DurableOperation,
+    success_status=200,
+    summary="Retry one failed durable operation",
+    tags=("operations",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The operation after the retry was accepted.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
 )
 
 CREATE_SUBJECT_SOURCE = Operation[CreateSubjectSourceRequest, CreateSubjectSourceResponse](

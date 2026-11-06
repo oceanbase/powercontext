@@ -63,6 +63,8 @@ from powercontext.service.model import (
     SupportState,
 )
 
+_TEST_MEMBER_TTL_SECONDS = 3
+
 pytestmark = [
     pytest.mark.native_service,
     pytest.mark.skipif(
@@ -99,6 +101,9 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
             assert adapter.loaded_registration().state is ManagerOwnershipState.OWNED
             assert adapter.manager_state() is ManagerState.INACTIVE
 
+        if isinstance(adapter, WindowsTaskSchedulerAdapter):
+            # schtasks /End cannot run the Server shutdown hook that releases the lease.
+            time.sleep(_TEST_MEMBER_TTL_SECONDS + 1)
         adapter.start(reload_definition=False)
         restarted = _wait_for_status(controller)
         assert restarted.ok, f"{restarted}\n\n{_failure_diagnostics(adapter, tmp_path)}"
@@ -401,7 +406,7 @@ def test_native_public_migration_switches_an_installed_130_service(
                 if failure in {"startup", "switch"}:
                     assert applied.exit_code == 1, applied.output
                     assert result["error"] == "service_start_failed"
-                    assert result["database_state"] == "ready" and result["revision"] == "v1_5_0_003"
+                    assert result["database_state"] == "ready" and result["revision"] == "v1_5_0_004"
                     assert adapter.manager_state() in {ManagerState.INACTIVE, ManagerState.FAILED}
                     phase = "switching" if failure == "switch" else "start_failed"
                     assert json.loads(controller.maintenance_path.read_text())["phase"] == phase
@@ -800,6 +805,9 @@ def _environment_file(tmp_path: Path) -> Path:
         "\n".join((
             f"POWERCONTEXT_HOME={data_dir}",
             f"POWERCONTEXT_SERVER_HTTP_PORT={_unused_loopback_port()}",
+            "POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false",
+            f"POWERCONTEXT_SERVER_COORDINATION_MEMBER_TTL_SECONDS={_TEST_MEMBER_TTL_SECONDS}",
+            "POWERCONTEXT_SERVER_COORDINATION_MEMBER_HEARTBEAT_SECONDS=1",
             "",
         )),
         encoding="utf-8",

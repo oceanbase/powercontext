@@ -4470,6 +4470,9 @@ class BuiltinRuntime:
         self.archive = archive_service
         self.handoff_report: HandoffReportApplication | None = None
         self.artifact_processing_supervisor: ArtifactProcessingSupervisors | None = None
+        # Composition assigns this after the ledger components start; it stays a
+        # plain attribute so the runtime does not depend on the composition module.
+        self.work_background: Any | None = None
         source_ids = scope_ids if source_scope_ids is None else source_scope_ids
         self.processor = None if source_ids is None else ScheduledSourceProcessor(self, source_ids)
         self.experience_processor = (
@@ -4478,6 +4481,12 @@ class BuiltinRuntime:
 
     async def __aenter__(self) -> BuiltinRuntime:
         return self
+
+    @property
+    def operations(self) -> Any | None:
+        """Return the durable Work Ledger operations composed for this process."""
+
+        return None if self.work_background is None else self.work_background.operations
 
     @property
     def primary_database(self) -> AsyncDatabase:

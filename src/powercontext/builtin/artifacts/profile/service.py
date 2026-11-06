@@ -21,6 +21,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, nullcontext
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
@@ -46,7 +47,7 @@ from powercontext.builtin.artifacts.profile.models import (
 )
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
-from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
 from powercontext.builtin.persistence.database import AsyncDatabase, is_transaction_contention
 from powercontext.builtin.persistence.errors import GenerationConflictError, RepositoryNotFoundError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
@@ -84,6 +85,30 @@ def _profile_prompt_refs():
 
     selection = current_prompt("profile.generate")
     return () if selection is None or selection.artifact is None else (selection.artifact,)
+
+
+@dataclass(frozen=True)
+class PreparedProfileFlush:
+    """One Profile window prepared outside its fenced commit transaction.
+
+    ``result`` carries a terminal outcome that requires no database write.
+    Otherwise the snapshot must be applied through ``RelationalProfileService.
+    commit_flush`` on a caller-provided connection, so the Profile, its cursor
+    and the caller's own coordination state commit or roll back together.
+    """
+
+    scope_id: str
+    after: int
+    high: int
+    evidence_count: int
+    result: ProfileFlushResult | None
+    policy: ProfilePolicy | None = None
+    cursor: StoredSourceCursor | None = None
+    current: Profile | None = None
+    evidence: tuple[Any, ...] = ()
+    prompt_refs: tuple[Any, ...] = ()
+    markdown: str | None = None
+    through: int = 0
 
 
 class RelationalProfileService:
@@ -181,6 +206,8 @@ class RelationalProfileService:
         processing: ScopeInvocation | None = None,
         authorize_commit: Callable[[AsyncConnection, Profile | None], Awaitable[None]] | None = None,
     ) -> ProfileFlushResult:
+        """Prepare one window, generate outside transactions, then commit fenced."""
+
         async with self.operation_context():
             if self._prompt_service is None:
                 return await self._flush(
@@ -201,16 +228,45 @@ class RelationalProfileService:
                     authorize_commit=authorize_commit,
                 )
 
-    async def _flush(  # noqa: C901
+    async def prepare_flush(
         self,
         scope_id: str,
         *,
         high_watermark: int | None = None,
         authorize_snapshot: Callable[[Profile | None], Awaitable[None]] | None = None,
-        on_commit=None,
         processing: ScopeInvocation | None = None,
-        authorize_commit: Callable[[AsyncConnection, Profile | None], Awaitable[None]] | None = None,
-    ) -> ProfileFlushResult:
+    ) -> PreparedProfileFlush:
+        """Snapshot one window and generate without committing anything.
+
+        The returned snapshot carries either a terminal ``result`` or the
+        prepared window for ``commit_flush``. Generation runs outside any
+        database transaction; nothing is written until ``commit_flush``.
+        """
+
+        async with self.operation_context():
+            if self._prompt_service is None:
+                return await self._prepare_flush(
+                    scope_id,
+                    high_watermark=high_watermark,
+                    authorize_snapshot=authorize_snapshot,
+                    processing=processing,
+                )
+            async with self._prompt_service.bind(scope_id, "profile.generate"):
+                return await self._prepare_flush(
+                    scope_id,
+                    high_watermark=high_watermark,
+                    authorize_snapshot=authorize_snapshot,
+                    processing=processing,
+                )
+
+    async def _prepare_flush(
+        self,
+        scope_id: str,
+        *,
+        high_watermark: int | None,
+        authorize_snapshot: Callable[[Profile | None], Awaitable[None]] | None,
+        processing: ScopeInvocation | None,
+    ) -> PreparedProfileFlush:
         async with self.database.transaction() as connection:
             if processing is not None:
                 await processing.start(connection)
@@ -223,11 +279,25 @@ class RelationalProfileService:
             if policy is None or not policy.generation_enabled:
                 if processing is not None:
                     await processing.complete(connection, remaining_work=after < high)
-                return ProfileFlushResult(status="disabled", **base)
+                return PreparedProfileFlush(
+                    scope_id=scope_id,
+                    after=after,
+                    high=high,
+                    evidence_count=0,
+                    result=ProfileFlushResult(status="disabled", **base),
+                )
             if policy.pending_candidate_id is not None:
                 if processing is not None:
                     await processing.complete(connection, remaining_work=True)
-                return ProfileFlushResult(status="review_pending", candidate_id=policy.pending_candidate_id, **base)
+                return PreparedProfileFlush(
+                    scope_id=scope_id,
+                    after=after,
+                    high=high,
+                    evidence_count=0,
+                    result=ProfileFlushResult(
+                        status="review_pending", candidate_id=policy.pending_candidate_id, **base
+                    ),
+                )
             current = await self.latest(connection, scope_id)
             prompt_refs = _profile_prompt_refs()
             reserved_artifacts = (0 if current is None else 1) + len(prompt_refs)
@@ -240,121 +310,200 @@ class RelationalProfileService:
             if not window and processing is not None:
                 await processing.complete(connection, remaining_work=False)
         if not window:
-            return ProfileFlushResult(status="noop", **base)
+            return PreparedProfileFlush(
+                scope_id=scope_id,
+                after=after,
+                high=high,
+                evidence_count=0,
+                result=ProfileFlushResult(status="noop", **base),
+            )
         # Authorize the exact Head used by generation. The commit CAS below also
         # rejects a Head created or changed after this snapshot was authorized.
         if authorize_snapshot is not None:
             await authorize_snapshot(current)
         through = window[-1].journal_position
         evidence = tuple(item for item in window if is_generation_eligible(item.value))
-        markdown = None
-        if evidence:
-            if self.generator is None:
-                # Import locally to avoid a cycle through the shared Review service.
-                from powercontext.builtin.review.generation import GenerationCapabilityUnavailableError
+        markdown = await self._generate_markdown(current, evidence)
+        return PreparedProfileFlush(
+            scope_id=scope_id,
+            after=after,
+            high=high,
+            evidence_count=len(evidence),
+            result=None,
+            policy=policy,
+            cursor=cursor,
+            current=current,
+            evidence=evidence,
+            prompt_refs=prompt_refs,
+            markdown=markdown,
+            through=through,
+        )
 
-                raise GenerationCapabilityUnavailableError("profile")
-            markdown = await self.generator.generate(
-                ProfileGenerationInput(
-                    previous_content=None if current is None else current.content.content,
-                    sources=tuple(item.value.model_dump_json() for item in evidence),
-                )
+    async def _generate_markdown(self, current: Profile | None, evidence: tuple[Any, ...]) -> str | None:
+        """Run one generation outside any transaction; ``None`` keeps the window."""
+
+        if not evidence:
+            return None
+        if self.generator is None:
+            # Import locally to avoid a cycle through the shared Review service.
+            from powercontext.builtin.review.generation import GenerationCapabilityUnavailableError
+
+            raise GenerationCapabilityUnavailableError("profile")
+        markdown = await self.generator.generate(
+            ProfileGenerationInput(
+                previous_content=None if current is None else current.content.content,
+                sources=tuple(item.value.model_dump_json() for item in evidence),
             )
-            if markdown is not None:
-                try:
-                    markdown = normalize_profile_markdown(markdown)
-                except ValueError as error:
-                    from powercontext.builtin.inference import InvalidInferenceOutputError
-
-                    raise InvalidInferenceOutputError("profile-generate", "invalid Markdown") from error
-                if current is not None and current.content.content == markdown:
-                    markdown = None
+        )
+        if markdown is None:
+            return None
         try:
-            async with self.database.transaction() as connection:
-                if processing is not None:
-                    await processing.guard(connection)
-                locked = await self.policies.get(connection, scope_id, for_update=True)
-                actual_cursor = await self.cursors.load(
-                    connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True
-                )
-                actual = await self.latest(connection, scope_id)
-                if (
-                    locked != policy
-                    or actual_cursor != cursor
-                    or (None if actual is None else actual.as_ref()) != (None if current is None else current.as_ref())
-                ):
-                    raise BaseValueConflictError("profile_processing", (scope_id,))  # noqa: TRY301
-                if authorize_commit is not None:
-                    await authorize_commit(connection, current)
-                # CAS also serializes SQLite, whose SELECT FOR UPDATE is a no-op.
-                updated = await self.policies.update(connection, policy)
-                refs = tuple(item.ref for item in evidence)
-                parents = () if current is None else (current.as_ref(),)
-                artifacts = (*parents, *prompt_refs)
-                source_window = SourceWindow(after=after, through=through)
-                candidate_id = None
-                candidate = None
-                artifact = None
-                if markdown is not None and policy.activation_mode == "review_required":
-                    candidate_id = self.id_factory("candidate")
-                    candidate = await self.candidates.create(
-                        connection,
-                        scope_id,
-                        candidate_id,
-                        "profile",
-                        ProfileCandidateProposal(
-                            content=markdown,
-                            source_window=source_window,
+            markdown = normalize_profile_markdown(markdown)
+        except ValueError as error:
+            from powercontext.builtin.inference import InvalidInferenceOutputError
+
+            raise InvalidInferenceOutputError("profile-generate", "invalid Markdown") from error
+        if current is not None and current.content.content == markdown:
+            return None
+        return markdown
+
+    async def commit_flush(
+        self,
+        connection: AsyncConnection,
+        prepared: PreparedProfileFlush,
+        /,
+        *,
+        authorize_commit: Callable[[AsyncConnection, Profile | None], Awaitable[None]] | None = None,
+        on_commit=None,
+        processing: ScopeInvocation | None = None,
+    ) -> ProfileFlushResult:
+        """Apply a prepared window on the caller's transaction.
+
+        No transaction is opened here and no conflict is absorbed: the caller
+        owns the transaction boundary and decides how contention is retried,
+        which is what lets a Work item share this commit with its ledger write.
+        """
+
+        if prepared.result is not None:
+            raise ValueError("a terminal Profile flush has no commit")  # noqa: TRY003
+        scope_id = prepared.scope_id
+        policy = prepared.policy
+        cursor = prepared.cursor
+        current = prepared.current
+        if processing is not None:
+            await processing.guard(connection)
+        locked = await self.policies.get(connection, scope_id, for_update=True)
+        actual_cursor = await self.cursors.load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True)
+        actual = await self.latest(connection, scope_id)
+        if (
+            locked is None
+            or policy is None
+            or locked != policy
+            or actual_cursor != cursor
+            or (None if actual is None else actual.as_ref()) != (None if current is None else current.as_ref())
+        ):
+            raise BaseValueConflictError("profile_processing", (scope_id,))
+        if authorize_commit is not None:
+            await authorize_commit(connection, current)
+        # CAS also serializes SQLite, whose SELECT FOR UPDATE is a no-op.
+        updated = await self.policies.update(connection, policy)
+        refs = tuple(item.ref for item in prepared.evidence)
+        parents = () if current is None else (current.as_ref(),)
+        artifacts = (*parents, *prepared.prompt_refs)
+        source_window = SourceWindow(after=prepared.after, through=prepared.through)
+        candidate_id = None
+        candidate = None
+        artifact = None
+        if prepared.markdown is not None and policy.activation_mode == "review_required":
+            candidate_id = self.id_factory("candidate")
+            candidate = await self.candidates.create(
+                connection,
+                scope_id,
+                candidate_id,
+                "profile",
+                ProfileCandidateProposal(
+                    content=prepared.markdown,
+                    source_window=source_window,
+                    generator_id=PROFILE_SOURCE_WINDOW_BINDING,
+                    generator_version="1",
+                    created_at=datetime.now(UTC),
+                ),
+                sources=refs,
+                artifacts=artifacts,
+                target=None if current is None else current.as_ref(),
+                reason="New source evidence",
+            )
+            await self.policies.update(connection, updated, pending_candidate_id=candidate_id)
+        else:
+            if prepared.markdown is not None:
+                draft = ProfileDraft(
+                    content=ProfileContent(
+                        content=prepared.markdown,
+                        generation=ProfileGeneration(
+                            mode="automatic",
+                            created_at=datetime.now(UTC),
                             generator_id=PROFILE_SOURCE_WINDOW_BINDING,
                             generator_version="1",
-                            created_at=datetime.now(UTC),
+                            source_window=source_window,
                         ),
-                        sources=refs,
-                        artifacts=artifacts,
-                        target=None if current is None else current.as_ref(),
-                        reason="New source evidence",
-                    )
-                    await self.policies.update(connection, updated, pending_candidate_id=candidate_id)
-                else:
-                    if markdown is not None:
-                        draft = ProfileDraft(
-                            content=ProfileContent(
-                                content=markdown,
-                                generation=ProfileGeneration(
-                                    mode="automatic",
-                                    created_at=datetime.now(UTC),
-                                    generator_id=PROFILE_SOURCE_WINDOW_BINDING,
-                                    generator_version="1",
-                                    source_window=source_window,
-                                ),
-                            ),
-                            sources=refs,
-                            artifacts=artifacts,
-                        )
-                        artifact = (
-                            await self.artifacts.create(connection, scope_id, PROFILE_ARTIFACT_ID, draft)
-                            if current is None
-                            else await self.artifacts.revise(connection, scope_id, current, draft)
-                        )
-                    await self.cursors.save(
-                        connection,
-                        scope_id,
-                        PROFILE_SOURCE_WINDOW_BINDING,
-                        SourceCursor(sequence=through),
-                        expected_generation=None if cursor is None else cursor.generation,
-                    )
-                if on_commit is not None:
-                    await on_commit(connection, artifact, candidate)
-                if processing is not None:
-                    await processing.complete(connection, remaining_work=candidate_id is not None or through < high)
-                return ProfileFlushResult(
-                    status="review_pending" if candidate_id else ("updated" if artifact else "noop"),
-                    previous_cursor=after,
-                    current_cursor=after if candidate_id else through,
-                    high_watermark=high,
-                    processed_source_count=len(evidence),
-                    candidate_id=candidate_id,
-                    artifact=None if artifact is None else artifact.as_ref(),
+                    ),
+                    sources=refs,
+                    artifacts=artifacts,
+                )
+                artifact = (
+                    await self.artifacts.create(connection, scope_id, PROFILE_ARTIFACT_ID, draft)
+                    if current is None
+                    else await self.artifacts.revise(connection, scope_id, current, draft)
+                )
+            await self.cursors.save(
+                connection,
+                scope_id,
+                PROFILE_SOURCE_WINDOW_BINDING,
+                SourceCursor(sequence=prepared.through),
+                expected_generation=None if cursor is None else cursor.generation,
+            )
+        if on_commit is not None:
+            await on_commit(connection, artifact, candidate)
+        if processing is not None:
+            await processing.complete(
+                connection, remaining_work=candidate_id is not None or prepared.through < prepared.high
+            )
+        return ProfileFlushResult(
+            status="review_pending" if candidate_id else ("updated" if artifact else "noop"),
+            previous_cursor=prepared.after,
+            current_cursor=prepared.after if candidate_id else prepared.through,
+            high_watermark=prepared.high,
+            processed_source_count=prepared.evidence_count,
+            candidate_id=candidate_id,
+            artifact=None if artifact is None else artifact.as_ref(),
+        )
+
+    async def _flush(
+        self,
+        scope_id: str,
+        *,
+        high_watermark: int | None,
+        authorize_snapshot: Callable[[Profile | None], Awaitable[None]] | None,
+        on_commit,
+        processing: ScopeInvocation | None,
+        authorize_commit: Callable[[AsyncConnection, Profile | None], Awaitable[None]] | None,
+    ) -> ProfileFlushResult:
+        prepared = await self._prepare_flush(
+            scope_id,
+            high_watermark=high_watermark,
+            authorize_snapshot=authorize_snapshot,
+            processing=processing,
+        )
+        if prepared.result is not None:
+            return prepared.result
+        try:
+            async with self.database.transaction() as connection:
+                return await self.commit_flush(
+                    connection,
+                    prepared,
+                    authorize_commit=authorize_commit,
+                    on_commit=on_commit,
+                    processing=processing,
                 )
         except (
             BaseValueConflictError,
@@ -369,10 +518,10 @@ class RelationalProfileService:
                 refreshed = await self.cursors.load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
             return ProfileFlushResult(
                 status="conflict",
-                previous_cursor=after,
+                previous_cursor=prepared.after,
                 current_cursor=0 if refreshed is None else refreshed.cursor.sequence,
-                high_watermark=high,
-                processed_source_count=len(evidence),
+                high_watermark=prepared.high,
+                processed_source_count=prepared.evidence_count,
             )
 
     async def scan(self, *, max_concurrency: int = 4) -> None:

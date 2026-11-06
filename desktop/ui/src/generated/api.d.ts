@@ -155,6 +155,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/scopes/{scope_id}/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List durable operations in one Scope
+         * @description List a snapshot-bounded page of public durable work in one Scope, newest first. Only the operation families a Scope owner can act on are listed; internal maintenance work stays invisible and reads as not found. Use the returned next_cursor to continue.
+         */
+        get: operations["list_operations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/operations/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one durable operation
+         * @description Read the current state of one public durable operation owned by this Scope. An operation belonging to another Scope, or internal maintenance work, reads as not found rather than revealing its existence.
+         */
+        get: operations["get_operation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/operations/{operation_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel one durable operation
+         * @description Request cancellation of a queued or running operation. expected_version must be the state_version of the read that decided to cancel, so a concurrent transition fails with 409 instead of silently winning. A running operation moves to cancelling and stops at its next fence; repeating the request with the current version is idempotent.
+         */
+        post: operations["cancel_operation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/scopes/{scope_id}/operations/{operation_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry one failed durable operation
+         * @description Grant one fresh bounded attempt to a failed operation, without advancing the Cursor or discarding the Sources it was selected from. expected_version must be the state_version of the read that decided to retry. Only a failed operation can be retried; any other state returns 409 and the original state is preserved.
+         */
+        post: operations["retry_operation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/scopes/{scope_id}/subject-sources": {
         parameters: {
             query?: never;
@@ -4810,6 +4890,56 @@ export interface components {
             scope_id: string;
             block_id: string;
         };
+        /**
+         * @description Lifecycle state of one durable operation.
+         * @enum {string}
+         */
+        OperationStatus: "queued" | "running" | "retry_wait" | "cancelling" | "succeeded" | "failed" | "cancelled";
+        DurableOperation: {
+            operation_id: string;
+            /** @description Durable work family, for example powercontext.memory.source-window. */
+            kind: string;
+            scope_id: string;
+            status: components["schemas"]["OperationStatus"];
+            /** @description Monotonic version to send as expected_version when cancelling or retrying. */
+            state_version: number;
+            attempt_count: number;
+            max_attempts: number;
+            /** @description True once cancellation was requested and the operation has not stopped yet. */
+            cancel_requested: boolean;
+            /** Format: date-time */
+            available_at: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /**
+             * Format: date-time
+             * @description Set once the operation reached a terminal state.
+             */
+            completed_at: string | null;
+            /** @description Sanitized result classification for a succeeded operation. */
+            result_code: string | null;
+            error_category: string | null;
+            error_code: string | null;
+        };
+        ListOperationsRequest: {
+            kind?: string | null;
+            /** @description One lifecycle state; unknown values are rejected with 422. */
+            status?: string | null;
+            /** @default 50 */
+            limit: number;
+            cursor?: string | null;
+        };
+        DurableOperationPage: {
+            items: components["schemas"]["DurableOperation"][];
+            /** @description Opaque cursor for the next page; null when this page is the last. */
+            next_cursor: string | null;
+        };
+        MutateOperationRequest: {
+            /** @description The state_version read before deciding to cancel or retry. */
+            expected_version: number;
+        };
         TopicMemoryProcessingBlock: {
             block_id: string;
             attempt_id: string;
@@ -6715,6 +6845,142 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    list_operations: {
+        parameters: {
+            query?: {
+                kind?: string;
+                status?: "queued" | "running" | "retry_wait" | "cancelling" | "succeeded" | "failed" | "cancelled";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                scope_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One stable page of public durable operations. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DurableOperationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            410: components["responses"]["CursorExpired"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current operation state. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DurableOperation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    cancel_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MutateOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description The operation after the cancellation request. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DurableOperation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidRequest"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    retry_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scope_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MutateOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description The operation after the retry was accepted. */
+            200: {
+                headers: {
+                    "X-PowerContext-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DurableOperation"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

@@ -188,6 +188,7 @@ from powercontext.builtin.runtime.atomic_memory import AtomicMemoryApplication
 from powercontext.builtin.runtime.atomic_memory_processing import (
     AtomicMemoryProcessingConfig,
     AtomicMemorySourceWindowProcessor,
+    PreparedMemoryWindow,
 )
 from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.models import (
@@ -1399,6 +1400,25 @@ class RelationalContexts:
             ).scalars()
             return tuple(str(value) for value in values)
 
+    async def scope_ids_page(self, after: str | None, limit: int, /) -> tuple[str, ...]:
+        """Return one bounded keyset page of scopes that own a Source journal.
+
+        Restored for the Work Ledger discoverers: the scheduler scans scopes in
+        keyset pages, so a full ``scope_ids()`` materialisation is neither
+        bounded nor restartable.
+        """
+
+        if limit < 1 or limit > 100:
+            raise ValueError("scope page limit must be between 1 and 100")  # noqa: TRY003
+        async with self.database.transaction() as connection:
+            statement = select(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id)
+            if after is not None:
+                statement = statement.where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id > validate_scope_id(after))
+            values = (
+                await connection.execute(statement.order_by(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id).limit(limit))
+            ).scalars()
+            return tuple(str(value) for value in values)
+
     async def unconsumed_source_scope_ids(self) -> tuple[str, ...]:
         """Return built-in Source windows that still have journal input."""
 
@@ -1546,6 +1566,32 @@ class RelationalContexts:
             processing=processing,
             atomic_context=atomic_context,
         )
+
+    async def prepare_memory(
+        self,
+        scope_id: str,
+        limit: int,
+        /,
+        *,
+        atomic_context: ArtifactSearchExecutionContext | None = None,
+        window: tuple[int, int] | None = None,
+    ) -> PreparedMemoryWindow | MemoryFlushResult:
+        """Prepare one Memory window's decisions without publishing it.
+
+        ``window`` pins the logical input to persisted ``(after, through)`` boundaries
+        so a retried or delayed claim processes the rows its Work record describes.
+
+        The returned window's ``publish`` commits the Memory artifacts and
+        advances the Source cursor on the caller's open transaction, so the
+        Work Ledger handler can run it inside the fenced Work completion
+        transaction. A ``MemoryFlushResult`` return means nothing to publish.
+        """
+        services = self._services_for(scope_id)
+        return await _RelationalTriggers(
+            services=services,
+            lock=self._state_for(services.scope_id).scope_locks.setdefault("activation", asyncio.Lock()),
+            tracing=self._tracing,
+        ).prepare(limit=limit, atomic_context=atomic_context, window=window)
 
     async def incubate_experience(
         self,
@@ -1808,6 +1854,27 @@ class _RelationalTriggers:
                 limit,
                 processing=processing,
                 context=atomic_context,
+            )
+
+    async def prepare(
+        self,
+        *,
+        limit: int,
+        atomic_context: ArtifactSearchExecutionContext | None = None,
+        window: tuple[int, int] | None = None,
+    ) -> PreparedMemoryWindow | MemoryFlushResult:
+        """Prepare one window's decisions while holding the activation lock.
+
+        The lock is released before the caller publishes, so the fenced Work
+        completion transaction never runs model calls under it; publication
+        relies on the cursor row lock and generation check instead.
+        """
+        async with self._lock:
+            return await self._services.atomic_memory_processor.prepare_window(
+                self._services.scope_id,
+                limit,
+                context=atomic_context,
+                window=window,
             )
 
     def _stage(

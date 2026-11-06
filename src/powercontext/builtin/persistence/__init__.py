@@ -21,6 +21,15 @@ from powercontext.builtin.persistence.agent_skill_targets import (
 )
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
+from powercontext.builtin.persistence.coordination import (
+    CoordinationRepository,
+    CoordinatorLease,
+    RuntimeMember,
+    RuntimeMemberSpec,
+    SchedulerScan,
+    StaleCoordinatorLeaseError,
+    StaleScanStateError,
+)
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
 from powercontext.builtin.persistence.errors import (
@@ -38,6 +47,7 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.rate_limit import RateLimitDecision, RateLimitRepository
 from powercontext.builtin.persistence.recurrence import RecurrenceRepository
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.skill_publications import (
@@ -66,6 +76,18 @@ from powercontext.builtin.persistence.topic_memory_index import (
     NoTopicMemoryIndex,
     TopicMemoryIndex,
 )
+from powercontext.builtin.persistence.work import (
+    EnqueueResult,
+    StaleWorkClaimError,
+    StoredWork,
+    WorkClaim,
+    WorkFailure,
+    WorkRepository,
+    WorkResult,
+    WorkSpec,
+    WorkStateConflictError,
+    WorkStatus,
+)
 
 __all__ = (
     "GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP",
@@ -78,8 +100,11 @@ __all__ = (
     "CandidateRepository",
     "CompositeTopicMemoryIndex",
     "ConnectorCheckpointRepository",
+    "CoordinationRepository",
+    "CoordinatorLease",
     "DatabaseClosedError",
     "DecisionObservationRepository",
+    "EnqueueResult",
     "ExternalSkillRepository",
     "GenerationConflictError",
     "IdentityMismatchError",
@@ -88,17 +113,25 @@ __all__ = (
     "InvalidStoredPayloadError",
     "NoTopicMemoryIndex",
     "PersistenceError",
+    "RateLimitDecision",
+    "RateLimitRepository",
     "RecurrenceRepository",
     "RemoteAgentSkillTarget",
     "RemoteAgentSkillTargetRepository",
     "RemoteAgentSkillTargetState",
     "RepositoryError",
     "RepositoryNotFoundError",
+    "RuntimeMember",
+    "RuntimeMemberSpec",
+    "SchedulerScan",
     "SkillPackageRepository",
     "SkillPublication",
     "SkillPublicationDesiredState",
     "SkillPublicationRepository",
     "SourceDefinitionManifestRepository",
+    "StaleCoordinatorLeaseError",
+    "StaleScanStateError",
+    "StaleWorkClaimError",
     "StatisticsRepository",
     "StoredArtifactProcessingBindingState",
     "StoredArtifactProcessingLease",
@@ -106,6 +139,14 @@ __all__ = (
     "StoredModelUsage",
     "StoredPayloadConflictError",
     "StoredRecallTokenUsage",
+    "StoredWork",
     "TopicMemoryIndex",
     "TopicMemoryRepository",
+    "WorkClaim",
+    "WorkFailure",
+    "WorkRepository",
+    "WorkResult",
+    "WorkSpec",
+    "WorkStateConflictError",
+    "WorkStatus",
 )

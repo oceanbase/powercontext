@@ -277,12 +277,17 @@ jobs:
             -o faulthandler_timeout=180 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-client-exit.xml
 
+      # The five registered-chain scenarios share one deadline and each applies
+      # the full Server migration chain. With the chain extending through
+      # v1_5_0_004 the two heaviest scenarios measured 164s and 155s on
+      # 2026-11-05 runners (plus a 180s teardown stall), so 600s left no
+      # margin; match the 900s scale of the single-scenario groups above.
       - name: Maintain the registered Server chain on real OceanBase without skips
         env:
           POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
-          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+          timeout --signal=TERM --kill-after=10s 900s uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_processing_mode_switch_preserves_revision_and_history \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_atomic_compatibility_command_uses_shared_server_upgrade \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_projection_repair_preserves_authority_and_revision \

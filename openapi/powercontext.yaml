@@ -326,6 +326,183 @@ paths:
         '422': {$ref: '#/components/responses/InvalidRequest'}
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/scopes/{scope_id}/operations:
+    get:
+      tags: [operations]
+      summary: List durable operations in one Scope
+      description: >-
+        List a snapshot-bounded page of public durable work in one Scope, newest first. Only the operation
+        families a Scope owner can act on are listed; internal maintenance work stays invisible and reads as
+        not found. Use the returned next_cursor to continue.
+      operationId: list_operations
+      x-powercontext-access:
+        action: "scope.read"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        - name: "kind"
+          in: "query"
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: "status"
+          in: "query"
+          required: false
+          schema:
+            type: string
+            enum: [queued, running, retry_wait, cancelling, succeeded, failed, cancelled]
+        - name: "limit"
+          in: "query"
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - name: "cursor"
+          in: "query"
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 4096}
+      responses:
+        '200':
+          description: One stable page of public durable operations.
+          headers:
+            X-PowerContext-Request-ID: {$ref: '#/components/headers/RequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DurableOperationPage'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '410': {$ref: '#/components/responses/CursorExpired'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/scopes/{scope_id}/operations/{operation_id}:
+    get:
+      tags: [operations]
+      summary: Read one durable operation
+      description: >-
+        Read the current state of one public durable operation owned by this Scope. An operation belonging to
+        another Scope, or internal maintenance work, reads as not found rather than revealing its existence.
+      operationId: get_operation
+      x-powercontext-access:
+        action: "scope.read"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        - name: "operation_id"
+          in: "path"
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+      responses:
+        '200':
+          description: The current operation state.
+          headers:
+            X-PowerContext-Request-ID: {$ref: '#/components/headers/RequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DurableOperation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/scopes/{scope_id}/operations/{operation_id}/cancel:
+    post:
+      tags: [operations]
+      summary: Cancel one durable operation
+      description: >-
+        Request cancellation of a queued or running operation. expected_version must be the state_version of the
+        read that decided to cancel, so a concurrent transition fails with 409 instead of silently winning. A
+        running operation moves to cancelling and stops at its next fence; repeating the request with the
+        current version is idempotent.
+      operationId: cancel_operation
+      x-powercontext-access:
+        action: "scope.contribute"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        - name: "operation_id"
+          in: "path"
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MutateOperationRequest'}
+      responses:
+        '200':
+          description: The operation after the cancellation request.
+          headers:
+            X-PowerContext-Request-ID: {$ref: '#/components/headers/RequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DurableOperation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/scopes/{scope_id}/operations/{operation_id}/retry:
+    post:
+      tags: [operations]
+      summary: Retry one failed durable operation
+      description: >-
+        Grant one fresh bounded attempt to a failed operation, without advancing the Cursor or discarding the
+        Sources it was selected from. expected_version must be the state_version of the read that decided to
+        retry. Only a failed operation can be retried; any other state returns 409 and the original state is
+        preserved.
+      operationId: retry_operation
+      x-powercontext-access:
+        action: "scope.contribute"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        - name: "operation_id"
+          in: "path"
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MutateOperationRequest'}
+      responses:
+        '200':
+          description: The operation after the retry was accepted.
+          headers:
+            X-PowerContext-Request-ID: {$ref: '#/components/headers/RequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DurableOperation'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/Unavailable'}
   /v1/scopes/{scope_id}/subject-sources:
     post:
       tags: ["profile"]
@@ -11395,6 +11572,111 @@ components:
       properties:
         scope_id: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         block_id: {type: string, minLength: 1, maxLength: 36}
+    OperationStatus:
+      type: string
+      description: Lifecycle state of one durable operation.
+      enum: [queued, running, retry_wait, cancelling, succeeded, failed, cancelled]
+    DurableOperation:
+      type: object
+      additionalProperties: false
+      required:
+        - operation_id
+        - kind
+        - scope_id
+        - status
+        - state_version
+        - attempt_count
+        - max_attempts
+        - cancel_requested
+        - available_at
+        - created_at
+        - updated_at
+        - completed_at
+        - result_code
+        - error_category
+        - error_code
+      properties:
+        operation_id: {type: string, minLength: 1, maxLength: 256}
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Durable work family, for example powercontext.memory.source-window.
+        scope_id: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        status: {$ref: '#/components/schemas/OperationStatus'}
+        state_version:
+          type: integer
+          minimum: 1
+          description: Monotonic version to send as expected_version when cancelling or retrying.
+        attempt_count: {type: integer, minimum: 0}
+        max_attempts: {type: integer, minimum: 1}
+        cancel_requested:
+          type: boolean
+          description: True once cancellation was requested and the operation has not stopped yet.
+        available_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set once the operation reached a terminal state.
+        result_code:
+          type: string
+          nullable: true
+          description: Sanitized result classification for a succeeded operation.
+        error_category:
+          type: string
+          nullable: true
+        error_code:
+          type: string
+          nullable: true
+    ListOperationsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+        status:
+          type: string
+          minLength: 1
+          maxLength: 32
+          nullable: true
+          description: One lifecycle state; unknown values are rejected with 422.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          nullable: true
+    DurableOperationPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/DurableOperation'}
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page; null when this page is the last.
+    MutateOperationRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version]
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1
+          description: The state_version read before deciding to cancel or retry.
     TopicMemoryProcessingBlock:
       type: object
       additionalProperties: false

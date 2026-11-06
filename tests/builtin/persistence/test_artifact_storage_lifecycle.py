@@ -16,6 +16,7 @@
 
 import asyncio
 import json
+import re
 import shutil
 
 import pytest
@@ -75,10 +76,22 @@ def test_fixed_artifact_storage_resumes_after_registration_columns(backend):  # 
     assert completed["source_fingerprint"] == interrupted["source_fingerprint"]
 
 
+def _next_release_revision(head):
+    """Return the release revision after ``head`` so the probe never re-declares one."""
+
+    match = re.fullmatch(r"v(\d+)_(\d+)_(\d+)_(\d+)", head)
+    if match is None:  # pragma: no cover - packaged bundles use the release shape
+        return f"{head}_probe"
+    major, minor, patch, build = match.groups()
+    return f"v{major}_{minor}_{patch}_{int(build) + 1:0{len(build)}d}"
+
+
 def _next_fixed_revision(bundle, directory):
     """A subsequent fixed-table addition leaves the space format untouched."""
     shutil.copytree(bundle.directory, directory)
-    revision = "v1_5_0_002"
+    # Reusing a packaged revision would rewrite its MySQL version file and create a
+    # down_revision cycle, so the probe always appends after the current head.
+    revision = _next_release_revision(bundle.head)
     sql = "CREATE TABLE pc_lifecycle_probe (id INTEGER NOT NULL, PRIMARY KEY (id))"
     name, layout = _parse_table(sql)
     resource = "schemas/mysql-lifecycle-probe.json"
@@ -88,10 +101,10 @@ def _next_fixed_revision(bundle, directory):
             "revisions": {revision: {"statements": [sql], "changes": [{name: layout}]}},
         })
     )
-    (directory / "versions/v1_5_0_002_probe.py").write_text(
+    (directory / f"versions/{revision}_probe.py").write_text(
         f"revision = '{revision}'\ndown_revision = '{bundle.head}'\ndef upgrade():\n    pass\n"
     )
-    (directory / "mysql/versions/v1_5_0_002.py").write_text(
+    (directory / f"mysql/versions/{revision}.py").write_text(
         "from alembic import context\n"
         f"revision = '{revision}'\ndown_revision = '{bundle.head}'\n"
         "def upgrade():\n    context.config.attributes['execute_revision'](revision)\n"

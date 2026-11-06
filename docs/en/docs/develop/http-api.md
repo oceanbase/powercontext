@@ -93,6 +93,29 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
+## Inspect, cancel and retry durable operations
+
+Memory and Experience background processing is a row per bounded window in the Work Ledger. Those rows can be
+inspected and controlled across processes, and only for the Scope that owns them:
+
+| Method and path | Purpose | Access |
+| --- | --- | --- |
+| `GET /v1/scopes/{scope_id}/operations` | Page the Scope's public operations, optionally filtered by `kind` and `status` | `scope.read` |
+| `GET /v1/scopes/{scope_id}/operations/{operation_id}` | Read one operation's current state | `scope.read` |
+| `POST /v1/scopes/{scope_id}/operations/{operation_id}/cancel` | Request cancellation | `scope.contribute` |
+| `POST /v1/scopes/{scope_id}/operations/{operation_id}/retry` | Grant one fresh bounded attempt to a failed operation | `scope.contribute` |
+
+Cancel and retry must send the `state_version` that was read as `expected_version`; `409 operation_conflict` means a
+concurrent transition won and the original state is preserved. A running operation moves to `cancelling` and stops at
+its next fence. After success, failure or cancellation `state_version` stops changing, so repeated reads are safe.
+
+An operation owned by another Scope, and internal maintenance work, both return `404`: neither is listed, and neither
+can be probed by id.
+
+These operations come from the Work Ledger, so they appear in a `distributed` deployment; a `single_node` install keeps
+processing Source windows through the APScheduler supervisor and has no such rows. `POST /v1/memory/flush` still
+completes inside the request with `200` and does not return a pollable handle for `Prefer: respond-async`.
+
 ## Scope-owned operational Prompts
 
 Operational Prompts use `family=prompt` and the same Scope access boundary as other Artifacts. Under enforced Access,
@@ -211,6 +234,7 @@ use the same policy enforcement point; MCP tool visibility is not permission.
 | External Skills | `/v1/external-skills/*` | Scan configured targets and resolve or import packages |
 | Handoff Reports | `/v1/handoff-reports/*` | Generate a read-only report for a Scope selection |
 | Statistics | `/v1/stats` | Read scoped usage statistics |
+| Durable operations | `/v1/scopes/{scope_id}/operations*` | Inspect, list, cancel, or recover Memory and Experience background work |
 
 Create an Artifact with `POST /v1/scopes/{scope_id}/artifacts`, specifying `family` in the request body.
 Profile candidate review uses `/v1/candidates/*`.
@@ -244,6 +268,7 @@ Common statuses are:
 | --- | --- |
 | `401` | The Server requires a valid bearer token |
 | `403` | The authenticated Principal is not authorized for the requested action and resource |
+| `429` | The shared request window is exhausted; wait for `Retry-After` |
 | `404` | The requested immutable value does not exist |
 | `409` | The request conflicts with current immutable state or an expected version |
 | `413` | A selected Handoff Report exceeds its output limit |

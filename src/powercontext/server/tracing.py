@@ -32,11 +32,22 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import RandomIdGenerator
 from opentelemetry.sdk.trace.sampling import ALWAYS_OFF, ParentBased
-from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode, Tracer, set_span_in_context
+from opentelemetry.trace import (
+    Link,
+    Span,
+    SpanContext,
+    SpanKind,
+    Status,
+    StatusCode,
+    TraceFlags,
+    Tracer,
+    set_span_in_context,
+)
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from typing_extensions import override
 
 from powercontext._logging import current_log_context, error_category
+from powercontext.builtin.runtime.protocols import RuntimeTraceContext
 from powercontext.server.context import bind_request_id, is_internal_bridge, reset_request_id
 from powercontext.server.settings import TracingConfig
 from powercontext.server.telemetry import service_resource
@@ -170,6 +181,7 @@ class ServerTracing:
         kind: SpanKind,
         attributes: dict[str, Any],
         context: Context | None = None,
+        links: Sequence[Link] = (),
     ) -> _ActiveSpan:
         return _ActiveSpan.start(
             self.tracer,
@@ -177,6 +189,7 @@ class ServerTracing:
             kind=kind,
             attributes=_scope_attributes(attributes),
             context=context,
+            links=links,
         )
 
     @contextmanager
@@ -214,6 +227,7 @@ class ServerTracing:
         *,
         operation: str,
         attributes: Mapping[str, _TraceAttribute],
+        links: Sequence[RuntimeTraceContext] = (),
     ) -> Iterator[_ActiveSpan]:
         """Trace one scheduled activation as an independent trace root."""
 
@@ -232,6 +246,7 @@ class ServerTracing:
                     "powercontext.operation.name": operation,
                     "powercontext.operation.unit": "background",
                 },
+                links=_otel_links(links),
             )
             try:
                 yield span
@@ -292,6 +307,19 @@ class _ActiveSpan:
     def outcome(self) -> str | None:
         return self._outcome
 
+    @property
+    def trace_context(self) -> RuntimeTraceContext | None:
+        if self.span is None:
+            return None
+        with suppress(Exception):
+            context = self.span.get_span_context()
+            if context.is_valid:
+                return RuntimeTraceContext(
+                    trace_id=f"{context.trace_id:032x}",
+                    span_id=f"{context.span_id:016x}",
+                )
+        return None
+
     def set_outcome(self, outcome: str) -> None:
         self._outcome = outcome
 
@@ -304,10 +332,11 @@ class _ActiveSpan:
         kind: SpanKind,
         attributes: dict[str, Any],
         context: Context | None,
+        links: Sequence[Link] = (),
     ) -> _ActiveSpan:
         span: Span | None = None
         try:
-            span = tracer.start_span(name, context=context, kind=kind, attributes=attributes)
+            span = tracer.start_span(name, context=context, kind=kind, attributes=attributes, links=links)
             token = otel_context.attach(set_span_in_context(span, context))
         except Exception:
             if span is not None:
@@ -469,6 +498,23 @@ class McpTracingMiddleware(Middleware):
             reset_request_id(request_id_token)
         span.finish("success")
         return result
+
+
+def _otel_links(contexts: Sequence[RuntimeTraceContext]) -> tuple[Link, ...]:
+    links: list[Link] = []
+    for context in contexts:
+        try:
+            span_context = SpanContext(
+                trace_id=int(context.trace_id, 16),
+                span_id=int(context.span_id, 16),
+                is_remote=True,
+                trace_flags=TraceFlags(TraceFlags.SAMPLED),
+            )
+        except (TypeError, ValueError):
+            continue
+        if span_context.is_valid:
+            links.append(Link(span_context))
+    return tuple(links)
 
 
 def configure_server_tracing(

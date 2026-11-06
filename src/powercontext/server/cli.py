@@ -289,6 +289,11 @@ async def _processing_maintenance(
         inference=settings.inference,
         handoff_report=settings.handoff_report,
         external_skills=settings.external_skills,
+        deployment=settings.deployment,
+        coordination=settings.coordination,
+        worker=settings.worker,
+        operations=settings.operations,
+        rate_limit=settings.rate_limit,
     )
     manifest = canonical_processing_manifest(config)
     database = settings.database
@@ -997,6 +1002,11 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
         handoff_report=settings.handoff_report,
         inference=settings.inference,
         external_skills=settings.external_skills,
+        deployment=settings.deployment,
+        coordination=settings.coordination,
+        worker=settings.worker,
+        operations=settings.operations,
+        rate_limit=settings.rate_limit,
     )
     from powercontext.builtin.persistence.migrations.server_readiness import prepare_server_storage
 
@@ -1044,6 +1054,7 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
                     provider_observer=None if metrics is None else metrics.observe_provider,
                     worker_provider_observer=None if metrics is None else metrics.observe_worker_provider,
                     processing_observer=None if metrics is None else metrics.observe_processing,
+                    work_observer=metrics,
                     worker_initializer=logging_bootstrap,
                     worker_entrypoint_wrapper=WorkerTracing(
                         settings.tracing, target=worker_target, owner_role="background"

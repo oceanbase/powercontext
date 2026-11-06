@@ -28,7 +28,7 @@ from powercontext.builtin.persistence.processing import ArtifactProcessingPendin
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import SHARED_TABLES
+from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SHARED_TABLES
 from powercontext.builtin.runtime import (
     ArtifactProcessingBinding,
     ArtifactProcessingWorkAssignment,
@@ -122,6 +122,8 @@ def test_runtime_capture_persists_idempotent_scope_isolated_pending(tmp_path: Pa
 def test_runtime_capture_rolls_back_source_when_pending_write_fails(tmp_path: Path) -> None:
     async def scenario() -> None:
         config = _sqlite_config(tmp_path / "rollback.db")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES):
+            pass
         async with (
             SQLiteProfile.open(config, tables=SHARED_TABLES) as profile,
             profile.database.transaction() as connection,

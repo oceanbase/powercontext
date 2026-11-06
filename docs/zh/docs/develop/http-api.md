@@ -86,6 +86,29 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
+## 检查、取消与重试持久 Operation
+
+Memory 与 Experience 的后台处理是一行行持久化的 Work Ledger operation。它们可以跨进程检查和控制，且只
+暴露给该 Scope 的访问者：
+
+| 方法与路径 | 作用 | 权限 |
+| --- | --- | --- |
+| `GET /v1/scopes/{scope_id}/operations` | 分页列出该 Scope 的公开 operation，可用 `kind`、`status` 过滤 | `scope.read` |
+| `GET /v1/scopes/{scope_id}/operations/{operation_id}` | 读取一个 operation 的当前状态 | `scope.read` |
+| `POST /v1/scopes/{scope_id}/operations/{operation_id}/cancel` | 请求取消 | `scope.contribute` |
+| `POST /v1/scopes/{scope_id}/operations/{operation_id}/retry` | 为 failed operation 再给一次有界尝试 | `scope.contribute` |
+
+取消与重试都必须把读取时的 `state_version` 作为 `expected_version` 传回；`409 operation_conflict` 表示该
+operation 已被并发状态变更抢先，原状态不受影响。running operation 收到取消请求后进入 `cancelling`，在下一次
+fence 停止。成功、失败、取消之后 `state_version` 不再变化，重复读取是安全的。
+
+另一个 Scope 的 operation 与内部 maintenance work 一律返回 `404`：两者既不出现在列表里，也不能通过 ID 探测
+是否存在。
+
+这些 operation 只由 Work Ledger 产生，因此出现在 `distributed` 部署中；`single_node` 仍由 APScheduler
+supervisor 处理 Source 窗口，没有对应的 operation 行。`POST /v1/memory/flush` 目前仍在请求内同步完成并返回
+`200`，不会为 `Prefer: respond-async` 返回可轮询的句柄。
+
 ## Scope 内的操作提示词
 
 操作提示词使用 `family=prompt`，遵循 Artifact 的 Scope 权限边界。由于 Prompt 会影响整个 Scope 的运行行为，启用
@@ -192,6 +215,7 @@ Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策�
 | 外部 Skill | `/v1/external-skills/*` | 扫描已配置 target，解析或导入 package |
 | Handoff Report | `/v1/handoff-reports/*` | 按 Scope selection 生成只读报告 |
 | 统计 | `/v1/stats` | 读取指定 scope 的使用统计 |
+| 持久 Operation | `/v1/scopes/{scope_id}/operations*` | 检查、列出、取消或恢复 Memory/Experience 后台任务 |
 
 创建 Artifact 使用 `POST /v1/scopes/{scope_id}/artifacts`，在请求体中指定 `family`。
 Profile 的候选审核复用 `/v1/candidates/*`。
@@ -223,6 +247,7 @@ Atomic Memory 正文最多为 8192 个 UTF-8 字节，超过限制返回 HTTP `4
 | --- | --- |
 | `401` | Server 要求有效的 Bearer token |
 | `403` | 已认证 Principal 无权对目标资源执行请求的 action |
+| `429` | 共享请求窗口已耗尽；按 `Retry-After` 等待 |
 | `404` | 请求的不可变值不存在 |
 | `409` | 请求与当前不可变状态或 expected version 冲突 |
 | `413` | 选中的 Handoff Report 超过输出限制 |

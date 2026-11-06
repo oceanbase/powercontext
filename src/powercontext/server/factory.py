@@ -116,6 +116,7 @@ from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import HttpMetricsMiddleware, ServerMetrics, http_operations
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.processing_security import build_worker_security
+from powercontext.server.rate_limit import SharedRateLimitMiddleware
 from powercontext.server.request_id import HttpRequestIdMiddleware
 from powercontext.server.settings import MissingAuthenticationProviderError, ServerSettings
 from powercontext.server.tracing import HttpTracingMiddleware, ServerTracing
@@ -199,6 +200,11 @@ def create_server_app(  # noqa: C901
         handoff_report=resolved.handoff_report,
         inference=resolved.inference,
         external_skills=resolved.external_skills,
+        deployment=resolved.deployment,
+        coordination=resolved.coordination,
+        worker=resolved.worker,
+        operations=resolved.operations,
+        rate_limit=resolved.rate_limit,
     )
     metrics = (
         ServerMetrics(
@@ -208,6 +214,18 @@ def create_server_app(  # noqa: C901
         if resolved.metrics.enabled
         else None
     )
+    # Distributed Scheduler/Worker roles expose only the health/metrics boundary
+    # (RFC 1430); the authenticated API replicas serve the data plane.
+    route_profile = (
+        "health"
+        if resolved.deployment.mode == "distributed" and resolved.deployment.role in {"scheduler", "worker"}
+        else "full"
+    )
+    if route_profile == "health" and (resolved.dashboard.enabled or resolved.mcp.enabled):
+        raise ValueError(  # noqa: TRY003
+            "Distributed Scheduler and Worker roles expose only health and metrics endpoints; "
+            "disable the Dashboard and MCP for these roles"
+        )
     resolved_tracing = (
         ServerTracing.context_only(role=resolved.runtime.artifact_processing_role) if tracing is None else tracing
     )
@@ -276,7 +294,10 @@ def create_server_app(  # noqa: C901
                 resolved,
                 active_access_control,
                 legacy_static_principal=static_principal if legacy_static_admin else None,
-                enabled=config.runtime.artifact_processing_role != "api" and bool(processing_capabilities(config)),
+                # A distributed deployment advertises no process-local capabilities,
+                # but its Workers still claim ledger work, so they need the spec.
+                enabled=config.runtime.artifact_processing_role != "api"
+                and (bool(processing_capabilities(config)) or config.deployment.mode == "distributed"),
                 injected=configured_access_control is not None,
             )
             runtime = await resources.enter_async_context(
@@ -307,6 +328,7 @@ def create_server_app(  # noqa: C901
                     provider_observer=None if metrics is None else metrics.observe_provider,
                     worker_provider_observer=None if metrics is None else metrics.observe_worker_provider,
                     processing_observer=None if metrics is None else metrics.observe_processing,
+                    work_observer=metrics,
                     scheduled_source_runner=scheduled_source_runner,
                     scheduled_experience_runner=scheduled_experience_runner,
                     worker_security=worker_security,
@@ -454,10 +476,17 @@ def create_server_app(  # noqa: C901
                 dashboard_enabled=resolved.dashboard.enabled,
             ),
         )
+    if resolved.rate_limit.enabled:
+        # Appended last so it runs inside the authentication middleware and sees
+        # the principal that request was bound to.
+        configured_middleware.append(
+            Middleware(SharedRateLimitMiddleware, config=resolved.rate_limit),
+        )
 
     app = create_app(
         lifespan=lifespan,
         readiness_probe=readiness_probe,
+        route_profile=route_profile,
         middleware=configured_middleware,
         metrics=metrics,
         tracing=resolved_tracing,

@@ -130,11 +130,18 @@ class SeekDBProfile:
         config: SeekDBConfig,
         *,
         tables: tuple[Table, ...],
+        create_schema: bool = True,
         _archive_recovery: bool = False,
     ) -> AsyncIterator[SeekDBProfile]:
         """Start seekdb locally and connect through its async Unix socket."""
 
-        async with cls._connect(config, tables=tables, provision=True, _archive_recovery=_archive_recovery) as profile:
+        async with cls._connect(
+            config,
+            tables=tables,
+            provision=True,
+            create_schema=create_schema,
+            _archive_recovery=_archive_recovery,
+        ) as profile:
             yield profile
 
     @classmethod
@@ -158,6 +165,7 @@ class SeekDBProfile:
         *,
         tables: tuple[Table, ...],
         provision: bool,
+        create_schema: bool = True,
         _archive_recovery: bool = False,
     ) -> AsyncIterator[SeekDBProfile]:
         from powercontext.builtin.persistence.migrations.locking import assert_no_local_migration
@@ -189,8 +197,9 @@ class SeekDBProfile:
                     await prepare_topic_memory_recovery_schema(
                         engine, initialize=any(table.name == BUDGET for table in tables)
                     )
-                async with database.transaction() as connection:
-                    await create_tables(connection, tables)
+                if create_schema:
+                    async with database.transaction() as connection:
+                        await create_tables(connection, tables)
                 yield profile
             finally:
                 close_task = asyncio.create_task(database.close())

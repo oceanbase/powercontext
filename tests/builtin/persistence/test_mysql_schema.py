@@ -180,6 +180,12 @@ def _assert_restore_layers_are_parent_first(
 
 
 def test_documented_obloader_restore_layers_are_parent_first() -> None:
+    transient_tables = {
+        "pc_rate_limit_windows",
+        "pc_runtime_members",
+        "pc_scheduler_leases",
+        "pc_scheduler_scans",
+    }
     restore_guides = (
         Path("docs/en/docs/operate/troubleshoot.md"),
         Path("docs/zh/docs/operate/troubleshoot.md"),
@@ -195,9 +201,13 @@ def test_documented_obloader_restore_layers_are_parent_first() -> None:
     assert len(set(restore_plans)) == 1
 
     restore_layers = restore_plans[0]
-    _assert_restore_layers_are_parent_first(
-        restore_layers, tuple(table for table in BUILTIN_TABLES if table.name != "pc_artifact_vectors")
+    durable_tables = tuple(
+        table for table in BUILTIN_TABLES if table.name not in transient_tables and table.name != "pc_artifact_vectors"
     )
+    assert {table.name for table in BUILTIN_TABLES} - {table.name for table in durable_tables} == (
+        transient_tables | {"pc_artifact_vectors"}
+    )
+    _assert_restore_layers_are_parent_first(restore_layers, durable_tables)
 
 
 def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:

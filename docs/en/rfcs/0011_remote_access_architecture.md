@@ -7,6 +7,10 @@ description: "A proposal for exposing Server services through one OpenAPI HTTP c
 - Start Date: 2026-07-16
 - RFC PR: [oceanbase/powercontext#11](https://github.com/oceanbase/powercontext/pull/11)
 
+> **Deployment boundary:** [RFC 1430](1430_distributed_server_workers.md) defines the accepted durable Operation,
+> stateless multi-replica API, role separation, and distributed coordination contract. It supersedes this RFC where
+> this document leaves execution and deployment semantics open.
+
 # Summary
 
 This RFC proposes a remote access boundary for PowerContext. A Server exposes application services through an
