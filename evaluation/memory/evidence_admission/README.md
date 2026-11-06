@@ -7,6 +7,11 @@ It never publishes Atomic Memory, runs reconciliation, changes a production regi
 
 [中文说明](README.zh.md) · [Experiment protocol](PROTOCOL.md)
 
+[v20 results](V20_RESULTS.zh.md): all 351 remaining requests were attempted with responses and usage, with no new
+unknown usage. The original 471-call plan has zero unrun calls; all 469 available responses replayed identically,
+while two historical responses remain unavailable. Citation, structured-output and literal failures plus unresolved
+semantics retain `insufficient_evidence`. See the [protocol](V20_PROTOCOL.zh.md) and [receipts](results/v20-live/README.zh.md).
+
 [v19 continuation](V19_RESULTS.zh.md) preserves v18 generation and admission settings. It attempted 116 additional
 calls: 98 Pipeline outputs, 17 citation rejections and one missing response/usage. There are 351 calls still unrun.
 Two unknown-call reservations leave the original cumulative CNY 5 cap unable to fund another full-context reservation.
