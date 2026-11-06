@@ -191,6 +191,33 @@ Selecting a compatibility profile does not attest the remote binary identity. Ex
 
 ### Current-Scope statistics qualification
 
+#### Server 1998909e statistics product qualification
+
+`sqlite-stats-1998909e-v1` qualifies all twelve bundled Desktop operations
+against Server commit `1998909eaea9fdc8ea6a0d16bbda3c2232ae0c70`
+and normalized OpenAPI SHA-256 `e0b4ef55b1fda0f4eb84416a033714fdcdf7b3458de873108d744ebb334d8e23`.
+The wheel `powercontext-1.5.1.dev129+g1998909ea-py3-none-any.whl` has SHA-256
+`bbc0b1301c23666ab48af0847097bf8306709bb882f27415923b955ab818f015`. Its 738
+packaged runtime files match that commit byte for byte. The sorted runtime
+manifest has SHA-256 `b54693d676ae80437df97fc2b21db6a2fb550436eadf51f0f23adc4841edab87`.
+
+On 2026-11-06, Linux x86_64 (WSL 2), Python 3.11.17 and Rust 1.95.0 passed
+anonymous loopback, static Bearer loopback, explicit-CA HTTPS with a base path,
+and enforced authentication Provider. The unchanged native `server_probe` and
+product protocol modules were built in a standalone crate with 298 dependencies
+matching the product Cargo lock by version and checksum. The Desktop sources
+were tested with `master` at `6247af95` merged with the Server commit and the
+new Desktop files applied.
+
+`uv run python desktop/tests/real_server.py --product-qualification sqlite-stats-1998909e-v1`
+reported `bundled product records` and the matching wheel and contract digests.
+The probe selected the new record through `ConnectionManager::new` and
+exercised statistics, Scope selection and pagination, Memory save/search/exact
+reads, access changes and lost write responses without replay. The native
+product coverage gate and `make contract-test` passed. The report is in
+`desktop/.artifacts/real-server.json`. This record covers the native SQLite
+protocol in WSL.
+
 #### Server 4568b499 statistics product qualification
 
 `sqlite-observability-stats-4568b499-v1` qualifies all twelve Desktop operations,
