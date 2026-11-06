@@ -442,12 +442,16 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
                 bindings=(binding,),
                 lease_mode="single-process",
                 tracing=tracing,
-            ):
+            ) as supervisor:
                 async with asyncio.timeout(30):
                     while not any(  # noqa: ASYNC110 - bounded polling of exported observations
                         span.name == "artifact_processing.worker" for span in exporter.get_finished_spans()
                     ):
                         await asyncio.sleep(0.01)
+                    if outcome == "blocked":
+                        # The worker span can end before the supervisor handles the result.
+                        while not supervisor.family_status["memory"]["blocked"]:  # noqa: ASYNC110 - bounded polling
+                            await asyncio.sleep(0.01)
             async with profile.database.transaction() as connection:
                 intent = await intents.load(connection, scope_id, binding_name)
                 assert intent is not None and intent.requested_generation > intent.handled_generation
