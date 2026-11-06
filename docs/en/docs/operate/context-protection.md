@@ -68,7 +68,9 @@ Both use root `scope_id`, current authentication/delegation, and current Scope/r
 The optional `X-PowerContext-Resolve-Target: true` header is reserved for an authenticated
 **service** principal with `gateway.invoke` and `scope.read` on the chosen Scope. On an allowed
 `before_send` only, the check also returns `target_endpoint` and `target_protocol` from Core's
-trusted profile; ordinary checks and blocked decisions never disclose the endpoint. Gateway
+trusted profile; ordinary checks and blocked decisions never disclose the endpoint. Python
+callers may opt in with `PowerContextClient.check_context(request, resolve_target=True)`;
+an allowed response without target fields is rejected by the client. Gateway
 must send the exact approved bytes to this endpoint before `valid_until`, and require a new
 check after a definite no-send. Missing target fields, an unsupported protocol, or Core
 unavailable before admission must result in zero sends. An already issued admission remains

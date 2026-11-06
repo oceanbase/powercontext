@@ -17,6 +17,8 @@
 import httpx
 import pytest
 
+from powercontext.client import PowerContextClient
+from powercontext.http import CheckContextRequest
 from powercontext.server.authz.composition import open_builtin_access_control
 from tests.e2e.server_storage import prepare_server_database
 from tests.e2e.test_context_protection_transports import _ADMIN, _OTHER, _app, _create_scope, _settings
@@ -96,6 +98,10 @@ async def test_target_is_only_returned_to_privileged_service_on_allowed_before_s
         assert privileged.json()["target_endpoint"] == "https://model.example/v1/chat/completions"
         assert privileged.json()["target_protocol"] == "openai-chat"
         assert privileged.json()["binding"]
+        sdk = PowerContextClient("http://localhost", http_client=client)
+        sdk_result = await sdk.check_context(CheckContextRequest.model_validate(request), resolve_target=True)
+        assert sdk_result.target_endpoint == "https://model.example/v1/chat/completions"
+        assert sdk_result.target_protocol == "openai-chat"
 
         other_scope = await _create_scope(client, "gateway-other-scope")
         granted = await client.post(
