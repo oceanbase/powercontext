@@ -1,0 +1,1752 @@
+{
+  "uid": "pc-processing",
+  "title": "PowerContext · 后台处理",
+  "schemaVersion": 40,
+  "version": 8,
+  "tags": [
+    "powercontext"
+  ],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "**先看四项：正在执行、排队等待、被规则阻止、已结束未确认。** “被规则阻止”是系统主动暂停，不是进程崩溃。常见原因是同一批输入达到允许的重试上限，或模型请求/Token 预算已经用完。 先打开下方阻止记录，查看业务空间和上次失败；修复后等待约 5 分钟自动复查，或重新触发。刷新页面、重启服务不会清零额度。 [打开最近 30 天的规则阻止记录](/d/pc-processing?viewPanel=21&from=now-30d&to=now&${role:queryparam}&${instance:queryparam}&${family:queryparam})"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "后台任务 · 正在执行",
+      "description": "当前正在占用后台并发位置的任务数。0 表示没有任务在执行，不代表队列为空。",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(powercontext_server_artifact_processing_used_workers{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "值",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "links": [],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "后台任务 · 排队等待",
+      "description": "已进入本机队列、尚未派发给后台子进程，或正在等待重试的任务数。持续增长时，查看下方处理类型和日志。",
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min((sum(powercontext_server_artifact_processing_ready{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) + sum(powercontext_server_artifact_processing_retry_wait{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) - sum(powercontext_server_artifact_processing_blocked{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"})), 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "值",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FF9830"
+          },
+          "links": [
+            {
+              "title": "查看等待任务的处理类型",
+              "url": "/d/pc-processing?viewPanel=15&${__url_time_range}&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "后台任务 · 被规则阻止",
+      "description": "因重试次数、请求数或 Token 预算达到上限而暂停的任务数。它不是后台子进程崩溃；查看下方阻塞证据。",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(powercontext_server_artifact_processing_blocked{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "值",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#B877D9"
+          },
+          "links": [
+            {
+              "title": "查看阻止原因和上次失败",
+              "url": "/d/pc-processing?viewPanel=21&from=now-30d&to=now&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "后台任务 · 最多同时执行",
+      "description": "配置允许同时执行的后台任务数，不是线程数，也不是实际子进程数。",
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(powercontext_server_artifact_processing_max_workers{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "值",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8A97A8"
+          },
+          "links": [],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "已结束，结果未确认",
+      "description": "后台任务已经结束，但系统还没确认结果成功保存。长时间大于零时，进入处理日志查看“确认”阶段；它不是输入数量或产物数量。",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(powercontext_server_artifact_processing_unacknowledged_requests{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "尚未确认",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "links": [
+            {
+              "title": "查看尚未确认的处理类型",
+              "url": "/d/pc-processing?viewPanel=16&${__url_time_range}&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "尚未确认"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "失败 / 超时率",
+      "description": "按最终执行尝试计算。失败和超时分别显示；没有完成样本时显示未知。",
+      "gridPos": {
+        "x": 8,
+        "y": 9,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum(increase(powercontext_server_artifact_processing_failed_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range])) or vector(0)) / sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range]))) and on() (sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "失败率",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "((sum(increase(powercontext_server_artifact_processing_timeouts_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range])) or vector(0)) / sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range]))) and on() (sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "超时率",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "links": [],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "失败率"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "超时率"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "处理耗时 P50 / P95",
+      "description": "已完成执行尝试的耗时，包含启动、执行和确认。每次重试单独采样。",
+      "gridPos": {
+        "x": 16,
+        "y": 9,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by(le) (increase(powercontext_server_artifact_processing_invocation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range]))) and on() (sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "P50",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by(le) (increase(powercontext_server_artifact_processing_invocation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range]))) and on() (sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "P95",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "links": [],
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P95"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 100,
+      "type": "row",
+      "title": "处理趋势 · 队列、结果与并发",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "后台队列 · 已入队待派发 / 等待重试 / 被规则阻止",
+      "description": "已入队待派发：任务已经进入本机队列，但还没有交给后台子进程。等待重试：执行失败后等待下一次机会。被规则阻止：同一批输入达到重试或预算上限，系统停止继续执行；这不是后台子进程崩溃。",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(powercontext_server_artifact_processing_ready{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "已入队待派发",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(powercontext_server_artifact_processing_retry_wait{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "等待重试",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum(powercontext_server_artifact_processing_blocked{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "被规则阻止",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂未观察",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 28,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "barAlignment": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-processing?viewPanel=20&time=${__value.time}&time.window=600000&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "已入队待派发"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "等待重试"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "被规则阻止"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#B877D9"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "已结束未确认 · 所选时间范围",
+      "description": "任务已结束但尚未确认写入成功的业务空间数量随时间的变化。它不是输入数，也不证明产物已经生成。",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(powercontext_server_artifact_processing_unacknowledged_requests{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "已结束未确认",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂未观察",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-processing?viewPanel=20&time=${__value.time}&time.window=600000&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "已结束未确认"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "处理结果 · 成功 / 失败 / 超时",
+      "description": "已完成执行尝试的结果。失败和超时分别计数；每次重试单独算一次尝试。",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\",outcome=\"success\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "成功",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(powercontext_server_artifact_processing_failed_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "失败",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum(increase(powercontext_server_artifact_processing_timeouts_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "超时",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂未观察",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 28,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "barAlignment": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-processing?viewPanel=20&time=${__value.time}&time.window=600000&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "成功"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "失败"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "超时"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "处理耗时 P50 / P95",
+      "description": "已完成执行尝试的耗时趋势。没有完成样本时保持未知。",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by(le) (increase(powercontext_server_artifact_processing_invocation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__rate_interval]))) and on() (sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__rate_interval])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "P50",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by(le) (increase(powercontext_server_artifact_processing_invocation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__rate_interval]))) and on() (sum(increase(powercontext_server_artifact_processing_invocation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}[$__rate_interval])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "P95",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "暂未观察",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-processing?viewPanel=20&time=${__value.time}&time.window=600000&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P95"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "后台并发 · 正在执行 / 最多同时执行",
+      "description": "正在执行表示当前占用并发位置的任务数；最多同时执行是配置允许同时执行的任务数，不是线程数或真实子进程数。",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(powercontext_server_artifact_processing_used_workers{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "正在执行",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum(powercontext_server_artifact_processing_max_workers{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "最多同时执行",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂未观察",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-processing?viewPanel=20&time=${__value.time}&time.window=600000&${role:queryparam}&${instance:queryparam}&${family:queryparam}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "正在执行"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最多同时执行"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8A97A8"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "处理类型 · 当前等待与阻止",
+      "description": "只列出正在等待、等待重试或被规则阻止的处理类型。点击一行可查看该实例和该类型的日志。",
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by(role,instance,family) (powercontext_server_artifact_processing_ready{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"} + powercontext_server_artifact_processing_retry_wait{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"} + powercontext_server_artifact_processing_blocked{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂无积压",
+          "links": [
+            {
+              "title": "查看该类处理日志",
+              "url": "/d/pc-processing?viewPanel=20&${__url_time_range}&var-role=${__data.fields[\"角色\"]:percentencode}&var-instance=${__data.fields[\"实例\"]:percentencode}&var-family=${__data.fields[\"处理类型\"]:percentencode}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "处理类型"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "atomic-memory": {
+                        "text": "记忆"
+                      },
+                      "memory": {
+                        "text": "记忆"
+                      },
+                      "topic-memory": {
+                        "text": "主题记忆"
+                      },
+                      "profile": {
+                        "text": "用户画像"
+                      },
+                      "experience": {
+                        "text": "经验"
+                      },
+                      "skill": {
+                        "text": "技能"
+                      },
+                      "handoff": {
+                        "text": "交接"
+                      },
+                      "prompt": {
+                        "text": "提示词"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "实例"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "角色"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "all": {
+                        "text": "组合"
+                      },
+                      "api": {
+                        "text": "API 服务"
+                      },
+                      "background": {
+                        "text": "后台进程"
+                      },
+                      "worker": {
+                        "text": "后台进程"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "待处理"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true
+            },
+            "indexByName": {
+              "family": 0,
+              "instance": 1,
+              "role": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "family": "处理类型",
+              "instance": "实例",
+              "role": "角色",
+              "Value": "待处理"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "处理类型 · 尚未确认",
+      "description": "只列出存在未确认结果的类型。点击一行可查看日志；未确认不等于产物不存在。",
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by(role,instance,family) (powercontext_server_artifact_processing_unacknowledged_requests{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",family=~\"$family\"}) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂无积压",
+          "links": [
+            {
+              "title": "查看该类处理日志",
+              "url": "/d/pc-processing?viewPanel=20&${__url_time_range}&var-role=${__data.fields[\"角色\"]:percentencode}&var-instance=${__data.fields[\"实例\"]:percentencode}&var-family=${__data.fields[\"处理类型\"]:percentencode}",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "处理类型"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "atomic-memory": {
+                        "text": "记忆"
+                      },
+                      "memory": {
+                        "text": "记忆"
+                      },
+                      "topic-memory": {
+                        "text": "主题记忆"
+                      },
+                      "profile": {
+                        "text": "用户画像"
+                      },
+                      "experience": {
+                        "text": "经验"
+                      },
+                      "skill": {
+                        "text": "技能"
+                      },
+                      "handoff": {
+                        "text": "交接"
+                      },
+                      "prompt": {
+                        "text": "提示词"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "实例"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "角色"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "all": {
+                        "text": "组合"
+                      },
+                      "api": {
+                        "text": "API 服务"
+                      },
+                      "background": {
+                        "text": "后台进程"
+                      },
+                      "worker": {
+                        "text": "后台进程"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "尚未确认"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true
+            },
+            "indexByName": {
+              "family": 0,
+              "instance": 1,
+              "role": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "family": "处理类型",
+              "instance": "实例",
+              "role": "角色",
+              "Value": "尚未确认"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "logs",
+      "title": "被规则阻止 · 当前原因与处理入口",
+      "description": "这里回答“为什么停住、该查什么”。本面板固定查看最近 30 天的阻止记录，避免当前阻塞原因因全局时间范围过短而消失。每行先给中文原因，再保留规则代码用于搜索。重试上限表示同一批输入已经达到允许的最大失败次数；预算上限表示请求数或 Token 已用完；输入上限表示结构过于复杂。检查业务空间、上次失败和失败调用链；修复后约 5 分钟自动复查。刷新或重启不会清零额度。",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=~\"powercontext.*\"} | json | service_target=~`${instance:regex}` | (service_owner_role=~`${role:regex}` or (service_owner_role=\"\" and service_role=~`${role:regex}`)) | family=~`${family:raw}` | event=\"artifact_processing.blocked\" | line_format `被规则阻止：{{if eq .error_code \"window_attempt_limit\"}}重试已达上限{{else if eq .error_code \"window_provider_budget_exceeded\"}}请求或 Token 预算已用完{{else if eq .error_code \"source_complexity_limit\"}}输入结构超过处理上限{{else}}{{.error_code}}{{end}}（{{.error_code}}） | 类型 {{ .family | replace \"atomic-memory\" \"记忆\" | replace \"topic-memory\" \"主题记忆\" | replace \"experience\" \"经验\" | replace \"profile\" \"用户画像\" | replace \"handoff\" \"交接记录\" | replace \"context\" \"上下文\" | replace \"memory\" \"记忆\" | replace \"prompt\" \"提示词\" | replace \"skill\" \"技能\" }} | 业务空间 {{.scope}}{{if .attempts}} | 已尝试 {{.attempts}} 次{{end}}{{if or .source_after .source_through}} | 输入范围 {{.source_after}} → {{.source_through}}{{end}}{{if .requests}} | 请求 {{.requests}}{{end}}{{if .tokens}} | Token {{.tokens}}{{end}}{{if .last_error_code}} | 上次失败 {{.last_error_code}}{{if eq .last_error_code \"model_configuration_error\"}}（模型配置错误）{{else if eq .last_error_code \"worker_timeout\"}}（后台子进程超时）{{else if eq .last_error_code \"access_denied\"}}（权限拒绝）{{end}} @ {{.last_error_stage}}{{end}}{{if .last_error_at}} 于 {{.last_error_at}}{{end}}{{if .last_error_trace_id}} | 失败调用链 trace_id={{.last_error_trace_id}}{{end}}{{if .trace_id}} | 当前调用链 trace_id={{.trace_id}}{{end}}`",
+          "queryType": "range",
+          "maxLines": 50,
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "direction": "backward"
+        }
+      ],
+      "timeFrom": "30d",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前范围没有规则阻止记录；也可能日志未采集"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "处理证据 · 日志与调用链",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "全部处理日志 · 展开查看调用链",
+      "description": "显示当前筛选、实例和时间范围内的入队、派发、后台子进程、确认和结果事件。逐条耗时来自事件；调用链可能未保存或已过保留期。",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 13
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=~\"powercontext.*\"} | json | service_target=~`${instance:regex}` | (service_owner_role=~`${role:regex}` or (service_owner_role=\"\" and service_role=~`${role:regex}`)) | family=~`${family:raw}` | event=~\"artifact_processing[.].*\" | line_format `{{ .event | replace \"artifact_processing.block_recheck_failed\" \"阻止复查失败\" | replace \"artifact_processing.worker.acknowledged\" \"处理结果已确认写入\" | replace \"artifact_processing.worker.acknowledge\" \"处理结果确认中\" | replace \"artifact_processing.worker.interrupted\" \"后台子进程被中断\" | replace \"artifact_processing.worker.memory_hold\" \"记忆写入暂缓\" | replace \"artifact_processing.attempt.completed\" \"本次处理尝试完成\" | replace \"artifact_processing.worker.returned\" \"后台子进程已返回\" | replace \"artifact_processing.worker.started\" \"后台子进程已开始\" | replace \"artifact_processing.worker.execute\" \"后台子进程执行中\" | replace \"artifact_processing.worker.blocked\" \"后台子进程被规则阻止\" | replace \"artifact_processing.worker.failed\" \"后台子进程失败\" | replace \"artifact_processing.worker.start\" \"后台子进程已开始\" | replace \"artifact_processing.worker.wait\" \"后台子进程等待中\" | replace \"artifact_processing.configured\" \"处理配置完成\" | replace \"artifact_processing.dispatched\" \"已派发给后台子进程\" | replace \"artifact_processing.failure\" \"处理失败\" | replace \"artifact_processing.blocked\" \"被规则阻止\" | replace \"artifact_processing.queued\" \"已进入队列\" | replace \"artifact_processing.failed\" \"处理失败\" }}{{if .family}} | {{ .family | replace \"atomic-memory\" \"记忆\" | replace \"topic-memory\" \"主题记忆\" | replace \"experience\" \"经验\" | replace \"profile\" \"用户画像\" | replace \"handoff\" \"交接记录\" | replace \"context\" \"上下文\" | replace \"memory\" \"记忆\" | replace \"prompt\" \"提示词\" | replace \"skill\" \"技能\" }}{{end}}{{if .stage}} · {{ .stage | replace \"acknowledge\" \"确认\" | replace \"dispatched\" \"已派发\" | replace \"queued\" \"已排队\" | replace \"started\" \"已开始\" | replace \"returned\" \"已返回\" | replace \"supervisor\" \"调度器\" | replace \"dispatch\" \"派发\" | replace \"execute\" \"执行\" | replace \"worker\" \"后台子进程\" | replace \"wait\" \"等待\" }}{{else}} · 后台子进程{{end}}{{if .outcome}} | {{ .outcome | replace \"not_modified\" \"未修改\" | replace \"unavailable\" \"不可用\" | replace \"cancelled\" \"取消\" | replace \"available\" \"可用\" | replace \"nonempty\" \"有结果\" | replace \"queued\" \"已排队\" | replace \"running\" \"执行中\" | replace \"pending\" \"待处理\" | replace \"received\" \"已收到\" | replace \"missing\" \"缺失\" | replace \"needs_evidence\" \"需补充证据\" | replace \"no_change\" \"无变化\" | replace \"success\" \"成功\" | replace \"failure\" \"失败\" | replace \"timeout\" \"超时\" | replace \"blocked\" \"被阻止\" | replace \"skipped\" \"跳过\" | replace \"empty\" \"空结果\" }}{{end}}{{if .error_category}} · 分类 {{.error_category}}{{end}}{{if .error_code}} · 代码 {{.error_code}}{{end}}{{if .duration_ms}} | 耗时 {{ .duration_ms | float64 | printf \"%.0f\" }} 毫秒{{end}}{{if .queue_wait_ms}} | 排队 {{.queue_wait_ms}} 毫秒{{end}}{{if .worker_id}} | 后台任务={{.worker_id}}{{end}}{{if .trace_id}} | 调用链 trace_id={{.trace_id}}{{end}}`",
+          "queryType": "range",
+          "maxLines": 300,
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "direction": "backward"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "暂无数据"
+        }
+      }
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "role",
+        "label": "服务角色",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"powercontext\"}, role)",
+          "refId": "role"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "instance",
+        "label": "服务实例",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"powercontext\",role=~\"$role\"}, instance)",
+          "refId": "instance"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "family",
+        "label": "处理类型",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(powercontext_server_artifact_processing_ready{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}, family)",
+          "refId": "family"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "scope_id",
+        "label": "业务空间",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 2
+      },
+      {
+        "name": "period",
+        "label": "用量周期（UTC）",
+        "type": "custom",
+        "query": "today,7d,30d",
+        "current": {
+          "text": "30d",
+          "value": "30d"
+        },
+        "options": [
+          {
+            "text": "today",
+            "value": "today",
+            "selected": false
+          },
+          {
+            "text": "7d",
+            "value": "7d",
+            "selected": false
+          },
+          {
+            "text": "30d",
+            "value": "30d",
+            "selected": true
+          }
+        ],
+        "hide": 2
+      }
+    ]
+  },
+  "description": "先看后台负载、待确认、失败和耗时，再按处理类型定位积压；底部日志显示执行证据和调用链。确认不代表新增产物，缺失数据保持未知。",
+  "links": [
+    {
+      "title": "全服务总览",
+      "type": "link",
+      "url": "/d/pc-overview",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "业务进展",
+      "type": "link",
+      "url": "/d/pc-flow",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "后台处理",
+      "type": "link",
+      "url": "/d/pc-processing",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "模型调用",
+      "type": "link",
+      "url": "/d/pc-providers",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "服务与采集",
+      "type": "link",
+      "url": "/d/pc-service",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "timepicker": {
+    "refresh_intervals": [
+      "15s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  }
+}

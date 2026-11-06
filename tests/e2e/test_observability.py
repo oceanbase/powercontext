@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+from collections.abc import Sequence
 from copy import copy
 from datetime import timedelta
 from functools import partial
@@ -368,15 +369,10 @@ def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog,
     assert application_span.parent.span_id == mcp_span.context.span_id
     assert not any(span.name == "HTTP list_memory_entries" for span in spans)
 
-    signal_payload = json.dumps(
-        {
-            "logs": [vars(record) for record in access_records],
-            "metrics": metrics,
-            "spans": [dict(span.attributes or {}) for span in spans],
-        },
-        default=str,
-    )
-    assert scope_id not in signal_payload
+    assert scope_id not in metrics
+    assert scope_id not in json.dumps([vars(record) for record in access_records], default=str)
+    _assert_scope_identity_confined(spans, scope_id)
+    assert (application_span.attributes or {})["powercontext.scope.id"] == scope_id
 
 
 def test_database_failure_log_does_not_include_memory_content(caplog, tmp_path) -> None:
@@ -450,13 +446,13 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
 
     assert application.parent is not None
     assert application.parent.span_id == transport.context.span_id
-    assert _pop_prompt_attributes(dict(flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
+    assert _pop_prompt_attributes(_operation_attributes(flush), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
         "powercontext.operation.name": "memory.flush",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.flush.source_count": 1,
         "powercontext.operation.outcome": "success",
     }
-    assert dict(commit.attributes or {}) == {
+    assert _operation_attributes(commit) == {
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": False,
@@ -505,7 +501,7 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
 
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda model: model if isinstance(model, Model) else MemoryModel(custom_output_text=model_output),
+        lambda model, **_kwargs: model if isinstance(model, Model) else MemoryModel(custom_output_text=model_output),
     )
     monkeypatch.setattr(
         "pydantic_ai.embeddings.infer_embedding_model",
@@ -558,7 +554,7 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
     )
     assert _only_child(spans, capture_application, "scope.lock")
     capture = _only_child(spans, capture_application, "memory.capture")
-    assert dict(capture.attributes or {}) == {
+    assert _operation_attributes(capture) == {
         "powercontext.operation.name": "memory.capture",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.capture.source_count": 1,
@@ -577,7 +573,7 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
         for application in flush_applications
         if processed_flush.parent is not None and processed_flush.parent.span_id == application.context.span_id
     )
-    assert _pop_prompt_attributes(dict(processed_flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
+    assert _pop_prompt_attributes(_operation_attributes(processed_flush), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
         "powercontext.operation.name": "memory.flush",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.flush.source_count": 1,
@@ -595,7 +591,7 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
     assert len(embeddings) == 2
     assert all(span.name == "embeddings test" for span in embeddings)
     commit = _only_child(spans, processed_flush, "memory.commit")
-    assert dict(commit.attributes or {}) == {
+    assert _operation_attributes(commit) == {
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": True,
@@ -607,7 +603,7 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
         for span in (processed_application, processed_flush, invoke_agent, chat, *embeddings, commit)
     } == {processed_application.context.trace_id}
 
-    assert _pop_prompt_attributes(dict(no_op_flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
+    assert _pop_prompt_attributes(_operation_attributes(no_op_flush), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
         "powercontext.operation.name": "memory.flush",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.flush.source_count": 0,
@@ -633,12 +629,12 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
                 for prefix in (_MEMORY_EXTRACT_PROMPT_PREFIX, _MEMORY_RECONCILE_PROMPT_PREFIX)
                 for key in _PROMPT_SELECTION_ATTRIBUTES
             }
-        attributes = dict(span.attributes or {})
+        attributes = _operation_attributes(span)
         assert attributes.keys() <= allowed_keys
         assert all(isinstance(value, str | bool | int | float) for value in attributes.values())
 
     exported = _exported_span_data(spans)
-    assert scope_id not in exported
+    _assert_scope_identity_confined(spans, scope_id)
     assert source_id not in exported
     assert private_source_content not in exported
     assert private_memory_content not in exported
@@ -693,7 +689,7 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
     )
     failed_flush = _only_child(failed_spans, failed_application, "memory.flush")
     failed_commit = _only_child(failed_spans, failed_flush, "memory.commit")
-    assert dict(failed_commit.attributes or {}) == {
+    assert _operation_attributes(failed_commit) == {
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": True,
@@ -737,7 +733,7 @@ def test_process_memory_preserves_commit_tracing(tmp_path) -> None:
 
     commits = [span for span in exporter.get_finished_spans() if span.name == "memory.commit"]
     assert len(commits) == 1
-    assert dict(commits[0].attributes or {}) == {
+    assert _operation_attributes(commits[0]) == {
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.commit.memory_changed": False,
@@ -840,7 +836,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     # Read-only searches never serialize on the scope write lock, so they emit no wait span.
     assert not _children(spans, search_application, "scope.lock")
     search = _only_child(spans, search_application, "memory.search")
-    search_attributes = dict(search.attributes or {})
+    search_attributes = _operation_attributes(search)
     prompt_prefix = "powercontext.prompt.memory.rerank."
     prompt_attributes = {
         key.removeprefix(prompt_prefix): search_attributes.pop(key)
@@ -871,7 +867,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         "powercontext.operation.outcome": "success",
     }
     rerank = _only_child(spans, search, "memory.rerank")
-    assert dict(rerank.attributes or {}) == {
+    assert _operation_attributes(rerank) == {
         "powercontext.operation.name": "memory.rerank",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.rerank.candidate_count": 1,
@@ -922,7 +918,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert ready_content_bytes > 0
 
     empty_memory = _only_child(spans, empty_application, "memory.search")
-    empty_memory_attributes = dict(empty_memory.attributes or {})
+    empty_memory_attributes = _operation_attributes(empty_memory)
     assert empty_memory_attributes["powercontext.memory.search.result_count"] == 0
     assert empty_memory_attributes["powercontext.memory.search.mode"] == "text"
     assert not _children(spans, empty_memory, "memory.rerank")
@@ -936,7 +932,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert (empty_context.attributes or {})["powercontext.context.build.content_bytes"] == 0
 
     for context in (ready_context, empty_context):
-        attributes = dict(context.attributes or {})
+        attributes = _operation_attributes(context)
         assert attributes["powercontext.context.build.code_candidate_count"] == 0
         assert attributes["powercontext.context.build.code_selected_count"] == 0
         assert attributes["powercontext.context.build.code_injected_count"] == 0
@@ -948,14 +944,14 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
             continue
         if span.name == "memory.search":
             allowed_keys = allowed_keys | {prompt_prefix + key for key in prompt_attributes}
-        attributes = dict(span.attributes or {})
+        attributes = _operation_attributes(span)
         assert attributes.keys() <= allowed_keys
         assert all(isinstance(value, str | bool | int | float) for value in attributes.values())
 
     exported = _exported_span_data(spans)
-    assert scope_id not in exported
-    assert empty_context_scope_id not in exported
-    assert empty_search_scope_id not in exported
+    _assert_scope_identity_confined(spans, scope_id)
+    _assert_scope_identity_confined(spans, empty_context_scope_id)
+    _assert_scope_identity_confined(spans, empty_search_scope_id)
     assert memory_content not in exported
     assert query not in exported
     assert no_match_query not in exported
@@ -1025,9 +1021,9 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(monk
             allowed_keys = (
                 None if allowed_keys is None else allowed_keys | {"error.type", "powercontext.error.category"}
             )
-        assert allowed_keys is None or (span.attributes or {}).keys() <= allowed_keys
+        assert allowed_keys is None or _operation_attributes(span).keys() <= allowed_keys
     exported = _exported_span_data(spans)
-    assert scope_id not in exported
+    _assert_scope_identity_confined(spans, scope_id)
     assert memory_content not in exported
 
 
@@ -1162,7 +1158,12 @@ def test_scope_worker_lifecycle_trace_is_family_neutral_and_detaches_ambient_htt
     async def run() -> tuple[str, ReadableSpan]:
         # Starting the controller under an ambient HTTP span catches accidental
         # context inheritance by its async scheduling task and child stages.
-        with provider.get_tracer(__name__).start_as_current_span("HTTP capture"):
+        from powercontext._logging import log_context
+
+        with (
+            log_context({"scope": "unrelated-caller-scope"}),
+            provider.get_tracer(__name__).start_as_current_span("HTTP capture"),
+        ):
             async with open_builtin_runtime(
                 config, artifact_processing_bindings=(binding,), tracing=ServerTracing(provider)
             ) as runtime:
@@ -1179,6 +1180,7 @@ def test_scope_worker_lifecycle_trace_is_family_neutral_and_detaches_ambient_htt
     scope_id, root = asyncio.run(run())
     spans = list(exporter.get_finished_spans())
     assert (root.attributes or {})["powercontext.artifact_processing.family"] == family
+    assert (root.attributes or {})["powercontext.scope.id"] == scope_id
     for stage_name in ("start", "wait", "acknowledge"):
         stage = _only_child(spans, root, f"artifact_processing.worker.{stage_name}")
         _assert_scheduled_background_trace(root, stage, spans, scope_id=scope_id, content=content)
@@ -1267,7 +1269,7 @@ def test_scheduled_worker_failure_trace_requires_acknowledgement_and_excludes_pa
             if span.name.startswith("artifact_processing.worker"):
                 _assert_stage_attribute_keys(span)
         exported = _exported_span_data(spans)
-        assert scope_id not in exported
+        _assert_scope_identity_confined(spans, scope_id)
         assert content not in exported
 
 
@@ -1326,7 +1328,7 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
     application = applications[0]
     search = _only_child(spans, application, "memory.search")
     embedding = _only_child_with_prefix(spans, search, "embeddings ")
-    assert dict(search.attributes or {}) == {
+    assert _operation_attributes(search) == {
         "powercontext.operation.name": "memory.search",
         "powercontext.operation.unit": "stage",
         "powercontext.memory.search.requested_mode": "vector",
@@ -1340,7 +1342,7 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
     assert embedding.context.trace_id == application.context.trace_id
     assert not any(_is_inference_span(span) and span.parent is None for span in spans)
     exported = _exported_span_data(spans)
-    assert scope_id not in exported
+    _assert_scope_identity_confined(spans, scope_id)
     assert memory_content not in exported
     assert private_text not in exported
 
@@ -1507,7 +1509,7 @@ def _wait_for_named_span(
 
 def _assert_stage_attribute_keys(span: ReadableSpan) -> None:
     allowed_keys = _STAGE_ATTRIBUTE_KEYS[span.name]
-    attributes = dict(span.attributes or {})
+    attributes = _operation_attributes(span)
     assert attributes.keys() <= allowed_keys | {"powercontext.error.category"}
     if "powercontext.error.category" in attributes:
         assert attributes["powercontext.error.category"] in {"internal", "timeout", "cancelled"}
@@ -1532,7 +1534,7 @@ def _assert_scheduled_background_trace(
     http_trace_ids = {span.context.trace_id for span in spans if span.name.startswith("HTTP ")}
     assert root.context.trace_id not in http_trace_ids
     exported = _exported_span_data(spans)
-    assert scope_id not in exported
+    _assert_scope_identity_confined(spans, scope_id)
     assert content not in exported
 
 
@@ -1568,3 +1570,25 @@ def _exported_span_data(spans: list[ReadableSpan]) -> str:
         ],
         default=str,
     )
+
+
+def _operation_attributes(span: ReadableSpan) -> dict[str, object]:
+    """Check stage contracts separately from the explicitly supported Scope identity fields."""
+    values: dict[str, object] = dict(span.attributes or {})
+    scope = values.pop("powercontext.scope.id", None)
+    scopes = values.pop("powercontext.scope.ids", None)
+    assert scope is None or isinstance(scope, str)
+    assert scopes is None or (isinstance(scopes, tuple) and all(isinstance(item, str) for item in scopes))
+    return values
+
+
+def _assert_scope_identity_confined(spans: Sequence[ReadableSpan], scope_id: str) -> None:
+    """The requested identifier exception does not permit IDs in names, events, statuses or arbitrary attributes."""
+    for span in spans:
+        other = {
+            "name": span.name,
+            "attributes": _operation_attributes(span),
+            "events": [{"name": event.name, "attributes": dict(event.attributes or {})} for event in span.events],
+            "status": span.status.description,
+        }
+        assert scope_id not in json.dumps(other, default=str)

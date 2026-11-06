@@ -68,6 +68,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerFailure,
     WorkerInitializerPreparation,
 )
+from powercontext.server.authz.errors import AccessDeniedError
 from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter, WorkerLogging, worker_logging
@@ -379,6 +380,8 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         raise CancelledError(_PRIVATE)
     if assignment.scope_id == "unexpected":
         raise RuntimeError(_PRIVATE)
+    if assignment.scope_id == "denied":
+        raise AccessDeniedError()
     if assignment.scope_id == "blocked":
         raise ArtifactProcessingBlockedError(
             ArtifactProcessingBlock("frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),))
@@ -398,6 +401,7 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         ("cancellation-subclass", "cancelled", "cancelled"),
         ("cancellation-name-collision", "internal", "failure"),
         ("unexpected", "internal", "failure"),
+        ("denied", "authorization", "failure"),
     ],
 )
 def test_supervisor_traces_preserve_spawned_worker_failure_semantics(

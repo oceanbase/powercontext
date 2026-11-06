@@ -133,9 +133,12 @@ class ServiceDefinition:
     env_file: EnvironmentFileIdentity | None = None
     start_on_login: bool = True
     isolated_runtime: bool = False
+    observability_home: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        if self.observability_home is None:
+            payload.pop("observability_home", None)
         # Omit the default so definitions written before this option was added remain byte-for-byte valid.
         if self.start_on_login:
             payload.pop("start_on_login", None)
@@ -161,7 +164,7 @@ class ServiceDefinition:
             "data_dir",
             "env_file",
         }
-        if set(payload) - {"start_on_login", "isolated_runtime"} != expected:
+        if set(payload) - {"start_on_login", "isolated_runtime", "observability_home"} != expected:
             raise ValueError("service definition fields do not match the supported contract")  # noqa: TRY003
         environment = payload["env_file"]
         env_file = None
@@ -195,6 +198,7 @@ class ServiceDefinition:
             env_file=env_file,
             start_on_login=start_on_login,
             isolated_runtime=isolated_runtime,
+            observability_home=_optional_observability_home(payload),
         )
 
     def launcher_arguments(
@@ -215,6 +219,8 @@ class ServiceDefinition:
             "--data-dir",
             self.data_dir,
         ]
+        if self.observability_home is not None:
+            arguments.extend(("--observability-home", self.observability_home))
         if self.env_file is not None:
             arguments.extend(("--env-file", self.env_file.path))
             if include_env_identity:
@@ -364,3 +370,10 @@ __all__ = [
     "ServiceTarget",
     "SupportState",
 ]
+
+
+def _optional_observability_home(payload: dict[str, object]) -> str | None:
+    value = payload.get("observability_home")
+    if value is not None and (not isinstance(value, str) or not Path(value).is_absolute()):
+        raise ValueError("service observability home must be an absolute path")  # noqa: TRY003
+    return value
