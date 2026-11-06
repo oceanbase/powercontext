@@ -8,93 +8,23 @@ status: community
 
 `community`
 
-## 安装匹配的 Server 和插件
+## 直接安装已发布版本（推荐）
 
-先安装 DeepSeek Harness Web 或 Desktop。真实宿主验收固定使用 DSH 0.1.2-rc.1。
-选择以下一种 PowerContext 安装方式，让 Server 和插件保持匹配。
+先准备好 DeepSeek Harness Web 或 Desktop。发布包已经包含编译后的插件代码，安装时不需要下载 PowerContext 源码，也不需要本地编译。
 
-使用本站对应的配置向导版本：
+1. 打开 **Plugins → Add plugin**。
+2. 输入 `powercontext-dsh`；需要固定版本时输入 `powercontext-dsh@<version>`。
+3. 点击 **Install**。如果国内镜像还没有同步目标版本，在 Registry 下拉框切换到官方 npm 源。
+4. 安装完成后按提示重启 DSH。
 
-```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup dsh
-```
+![在 DSH 中安装 powercontext-dsh](../../../assets/integrations/dsh/install-plugin-zh.gif)
 
-按照本站流程验收时，Server 和插件都使用这个源码分支。
+上面的动图使用 Desktop 界面演示，Web 版的入口名称相同。npm 安装只负责安装插件，不会启动或配置 PowerContext Server。
 
-开发版从同一个 checkout 安装两个组件，并记录 commit：
+npm 版本跟随 PowerContext Release：`1.6.0rc1` 对应 `1.6.0-rc.1`，alpha、beta 同样转换。
+正式版本使用 `latest` 标签，预发布版本使用 `next`；安装前先确认目标 npm 版本已经发布。
 
-```bash
-git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
-git -C powercontext-dsh-dev rev-parse HEAD
-uv tool install --force "./powercontext-dsh-dev[cli,server]"
-powercontext setup dsh --source ./powercontext-dsh-dev
-```
-
-更新时执行 `git -C powercontext-dsh-dev pull --ff-only`，记录新的 commit，再重复两个安装命令。
-本地目录必须包含仓库提交的已构建文件 `lib/index.js`。
-`setup dsh --source oceanbase/powercontext --ref master` 每次安装都会创建新的 checkout，并 clone 指定 ref；
-重复运行会重新解析移动分支，不复用之前的 checkout。Server 也应从同一 ref 更新，并在重装插件后重启 DSH。
-使用 `--json` 时，从 `hosts.dsh.result.plugin_path` 获取插件路径，再执行
-`git -C <plugin_path> rev-parse HEAD` 记录插件 commit；Server checkout 的 commit 单独记录。
-
-在交互终端中运行 `powercontext setup dsh` 会询问安装到 `web` 还是 `desktop`。
-非交互模式或使用 `--json` 时，未指定 profile 默认安装到 `web`。显式指定目标不会询问：
-
-```bash
-powercontext setup dsh --profile web
-powercontext setup dsh --profile desktop
-powercontext doctor dsh --profile desktop
-```
-
-Web 安装目录为 `$DSH_HOME/profiles/web`，Desktop 为 `$DSH_HOME/profiles/desktop`；
-`DSH_HOME` 默认是 `~/.dsh`。Setup 调用 `dsh plugin --profile <profile> add`，在对应 profile 的
-`package.json` 中安装依赖并启用 bundle，再加载插件包自带的 patch。两个 profile 的用户
-`cordis.patch.yml` 均会保留，安装不会改变另一个 profile 的插件启用状态。
-
-Desktop 必须使用**桌面版自带的 dsh 命令**，npm/pnpm 版 dsh 无权管理 desktop profile。
-请先启动一次 Desktop 初始化配置，通过 **Manage dsh Command…** 菜单安装命令并打开新终端，
-然后完全退出 Desktop 再安装插件；关闭窗口可能只是隐藏。即使 npm 命令排在前面，Setup 也会继续
-在 PATH 中查找 Desktop 启动器。未注册 PATH 时可以显式指定：
-
-```powershell
-powercontext setup dsh --profile desktop --dsh-command "D:\Apps\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd"
-```
-
-macOS 启动器位于 `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`。
-`doctor dsh` 同样支持 `--dsh-command`。支持 Windows/macOS 的打包桌面版布局，不支持未打包的开发启动器。
-配置检查使用桌面版自带的 Electron 和配置解析器，不启动插件。注册成功不代表运行中的宿主和 Server
-已经就绪；安装后重新打开 Desktop，在会话中执行 `/pc doctor`。Setup 不会替你启动 Server 或退出 Desktop。
-
-Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powercontext/credentials.json`。
-建议两者连接同一个 Server；修改共享 URL 会影响没有原生覆盖配置的 profile，凭据仍绑定原来的 Server URL。
-同时使用 Web 和 Desktop 时，分别执行两个 profile 的安装命令。
-
-已有界面和模型 patch 可以保留。setup 检查合成后的 PowerContext 连接设置；
-冲突处理及动态配置限制见[远程连接配置](../operate/connect-remote-server.md)。
-检查会遍历 `group: true` 分组及名称为 `@deepseek-ai/cordis-plugin-group` 或 `cordis:group` 的分组内的子项；
-安装前检查和安装后复查都会拒绝多个 PowerContext 条目。
-原生 `@deepseek-ai/cordis-plugin-include` 和 `cordis:include` 配置树使用所选宿主的 YAML/JSON 解析器及
-include patches 检查。相对路径从 profile 目录解析，嵌套 include 从所在文件的目录解析。
-setup 不求值无关的界面和模型表达式。启用的 include 文件必须已存在；循环引用、不支持的文件类型或 URL、
-动态路径或 patch 结构、无法验证的分组子项，都会在保存连接设置或凭据前报错。
-
-`DSH_HOME` 未设置、为空或仅包含空白时使用 `~/.dsh`；非空路径保留开头和末尾的空格。
-配置检查、凭据保存与读取、插件依赖查找都遵循这两条规则。
-
-Setup 不会启动 Server。安装完成后重启 DSH。
-面向模型的 PowerContext 能力通过 DSH 原生的 `@deepseek-ai/dsh-mcp-client` 注册。
-
-召回查询会排除当前 DSH 的 `runtime-context` 消息（包括上下文清空标记），以及旧版
-`@deepseek-ai/dsh-system-prompt` 插件 snapshot，避免宿主目录内容挤掉用户问题。
-
-运行 `powercontext setup dsh --json` 时，`hosts.dsh.setup: "complete"` 表示已完成安装和配置；
-注册结果位于 `hosts.dsh.checks.plugin.checks.registration: "present"`。同一报告还包含 Server 诊断，
-因此安装完成后整体 `ok` 仍可能为 `false`，退出码仍可能为 1。查看 `hosts.dsh.checks` 下的失败项，
-启动或修正所选 Server，再运行 `powercontext doctor dsh --json`。此命令会另行探测 Server；
-注册成功本身不证明运行中会话的连接正常。重启 DSH 后使用 `/pc doctor` 验证当前会话。
-
-## 启动 Server 和宿主
+## 启动 PowerContext Server
 
 需要自动将 Source 提取为 Memory 时，生成并校验 Server 配置：
 
@@ -108,7 +38,9 @@ Server 是前台进程，保持这个终端运行。配置 generation 和定时�
 显式写入 Memory 和全文检索不依赖 embedding。无模型的 Server 可以健康运行，同时关闭自动提取并返回空召回。
 模型与处理配置参见[完整 Memory 闭环](../get-started/configure-models.md)。
 
-在另一个终端指定同一个 Server，然后启动 DSH：
+## 连接 DSH 与 Server
+
+Server 默认地址为 `http://127.0.0.1:8000`。在另一个终端启动 DSH，并指定同一个地址：
 
 ```bash
 export POWERCONTEXT_DSH_BASE_URL=http://127.0.0.1:8000
@@ -116,12 +48,73 @@ dsh web
 ```
 
 PowerShell 使用 `$env:POWERCONTEXT_DSH_BASE_URL = "http://127.0.0.1:8000"`，然后运行 `dsh web`。
-Server 使用其他监听地址时同步修改 URL。鉴权使用 `POWERCONTEXT_DSH_AUTHORIZATION`，
-不要把 Server 的模型凭据复制到插件配置。使用 workspace binding 或 Server 默认 Scope 时不设置
-`POWERCONTEXT_DSH_SCOPE_ID`；需要覆盖时，指定一个已经存在的 Scope。
+如果之前运行过 `powercontext setup dsh`，插件也会读取已保存的连接设置。环境变量优先于插件 patch 配置，
+并且必须存在于启动 DSH 的终端中；修改其他终端的变量不会更新已经运行的宿主。
 
-环境变量优先于插件 patch 配置，patch 配置优先于默认值。环境变量必须存在于启动 DSH 的进程中；
-在其他终端修改变量不会更新已经运行的宿主。
+启用鉴权时，把同一个 token 配置给 Server 和 DSH：
+
+```bash
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
+powercontext server run
+
+export POWERCONTEXT_DSH_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
+dsh web
+```
+
+不要把 token 写进 patch 文件或 Server URL。需要覆盖 Scope 时，再设置一个已经存在的 `POWERCONTEXT_DSH_SCOPE_ID`；使用 workspace binding 或 Server 默认 Scope 时不需要设置它。
+
+## 先做一次最小验证
+
+在 DSH 会话中依次确认：
+
+1. 运行 `/pc doctor`，确认 Server、Scope、prepare 和原生 MCP 工具检查通过。
+2. 在工具列表中确认能看到 `mcp__powercontext__*`，然后调用一次 `remember_memory`，写入一句独特事实，例如：`aurora deployment color is violet-cedar-1457`。
+3. 等待处理完成，或显式运行 `/pc flush`；再打开同一 workspace/Scope 的新会话，询问这句事实。
+4. 展开实际的 PowerContext snapshot，确认召回内容和引用，而不是只看模型是否猜对。
+
+## 高级用户：从源码安装
+
+源码安装适合需要调试插件、验证未发布改动或固定仓库 commit 的场景。Server 和插件应来自同一个 checkout 或同一个 ref。
+
+使用本站对应的配置向导版本：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup dsh
+```
+
+开发版从同一个 checkout 安装两个组件，并记录 commit：
+
+```bash
+git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
+git -C powercontext-dsh-dev rev-parse HEAD
+uv tool install --force "./powercontext-dsh-dev[cli,server]"
+powercontext setup dsh --source ./powercontext-dsh-dev
+```
+
+更新时执行 `git -C powercontext-dsh-dev pull --ff-only`，记录新的 commit，再重复两个安装命令。
+本地目录必须包含仓库提交的已构建文件 `lib/index.js`。`setup dsh --source oceanbase/powercontext --ref master`
+每次都会创建新的 checkout；Server 也应从同一 ref 更新，并在重装插件后重启 DSH。
+
+交互终端会询问安装到 `web` 还是 `desktop`；非交互模式默认使用 `web`，也可以显式指定：
+
+```bash
+powercontext setup dsh --profile web
+powercontext setup dsh --profile desktop
+powercontext doctor dsh --profile desktop
+```
+
+Desktop 必须使用桌面版自带的 dsh 命令，npm/pnpm 版 dsh 无权管理 desktop profile。macOS 启动器位于
+`DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`；Windows 可以显式传入 `--dsh-command`。
+安装前先完全退出 Desktop，安装后重新打开。Setup 不会替你启动 Server。
+
+Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powercontext/credentials.json`。
+`DSH_HOME` 默认是 `~/.dsh`。使用 `powercontext setup dsh --json` 时，可从 `hosts.dsh.result.plugin_path`
+取得插件路径并记录插件 commit；`hosts.dsh.setup: "complete"` 只表示注册完成，不代表运行中的 Server 已就绪。
+
+已有界面和模型 patch 可以保留。setup 会检查合成后的 PowerContext 连接设置；冲突处理和动态配置限制见
+[远程连接配置](../operate/connect-remote-server.md)。原生 include 文件必须存在，循环引用、不支持的文件类型或无法验证的动态结构会在保存前报错。
 
 ## 诊断运行中的配置
 

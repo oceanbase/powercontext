@@ -8,10 +8,28 @@ status: community
 
 `community`
 
+## Install a published npm package
+
+For a version available on npm, open **Plugins → Add plugin** in DSH Web or Desktop, enter `powercontext-dsh`,
+and click **Install**. To pin a version, enter `powercontext-dsh@<version>`. Select the official npm registry if
+the Mainland China mirror has not synchronized the version. The npm archive includes built code and its bundle
+patch; no checkout or TypeScript build is needed.
+
+The plugin connects to a separately running PowerContext Server. Install a matching Server and configure its
+connection using the instructions below; npm installation does not start or configure the Server. The default
+endpoint is `http://127.0.0.1:8000`, and saved `powercontext setup dsh` connection settings are recognized.
+After installation, restart DSH if requested and run `/pc doctor` in a session. Check both Server readiness and
+native MCP discovery before validating capture and recall.
+
+The npm version follows the PowerContext Release: `1.6.0rc1` maps to `1.6.0-rc.1`, with equivalent `alpha` and
+`beta` suffixes. Stable releases use `latest`; prereleases use `next`. Verify the selected npm version exists
+before installation. Local `.tgz` installation verifies the archive path, not npm or mirror availability.
+
 ## Install matching Server and plugin versions
 
-Install DeepSeek Harness Web or Desktop. The real-host acceptance suite pins DSH
-0.1.2-rc.1. Choose one PowerContext installation path and keep the Server and plugin together.
+Install DeepSeek Harness Web or Desktop. The automated real-host suite pins DSH `0.1.2-rc.1`;
+manual macOS Desktop acceptance also covers `0.2.1-rc.5`, including native MCP writes and fresh-session recall.
+Choose one PowerContext installation path and keep the Server and plugin together.
 
 For this guided-setup build:
 
