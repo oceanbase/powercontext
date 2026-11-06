@@ -4376,6 +4376,13 @@ export interface components {
             correlate_until?: string;
             /** @description Present only for allow, bound to this phase, identity, target, policy, and exact payload. */
             binding?: string;
+            /** @description Exact Core-configured endpoint, present only on an allow for before_send when X-PowerContext-Resolve-Target was authorized for a service principal. */
+            target_endpoint?: string;
+            /**
+             * @description Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
+             * @enum {string}
+             */
+            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings";
         };
         ContextProtectionCapabilities: {
             check_versions: string[];
@@ -5860,7 +5867,7 @@ export interface components {
             artifact_families: components["schemas"]["ArtifactFamilyAccessCapability"][];
         };
         /** @enum {string} */
-        AccessAction: "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
+        AccessAction: "server.observe" | "server.admin" | "scope.read" | "scope.contribute" | "scope.review" | "scope.delegate" | "scope.admin" | "gateway.invoke" | "artifact.read" | "artifact.write" | "artifact.share" | "handoff.evidence.inspect" | "handoff.acknowledge" | "prompt.use";
         /** @enum {string} */
         AccessResourceType: "server" | "scope" | "artifact";
         ServerAccessResource: {
@@ -5933,7 +5940,7 @@ export interface components {
             next_cursor: string | null;
         };
         /** @enum {string} */
-        AccessRole: "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "server.observer" | "server.admin";
+        AccessRole: "handoff.viewer" | "handoff.receiver" | "artifact.viewer" | "prompt.user" | "artifact.owner" | "scope.viewer" | "scope.contributor" | "scope.reviewer" | "scope.delegator" | "scope.admin" | "gateway.user" | "server.observer" | "server.admin";
         /** @enum {string} */
         AccessRoleCardinality: "many_per_resource" | "one_per_resource";
         ListAccessRolesRequest: {
@@ -7744,7 +7751,10 @@ export interface operations {
     check_context: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Only for before_send by an authenticated service principal authorized for gateway.invoke on this Scope as well as scope.read. Neither scope.read nor server.admin implies invocation. */
+                "X-PowerContext-Resolve-Target"?: boolean;
+            };
             path?: never;
             cookie?: never;
         };

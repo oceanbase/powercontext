@@ -38,6 +38,8 @@ pub enum AccessAction {
     ScopeDelegate,
     #[serde(rename = "scope.admin")]
     ScopeAdmin,
+    #[serde(rename = "gateway.invoke")]
+    GatewayInvoke,
     #[serde(rename = "artifact.read")]
     ArtifactRead,
     #[serde(rename = "artifact.write")]
@@ -62,6 +64,7 @@ impl std::fmt::Display for AccessAction {
             Self::ScopeReview => write!(f, "scope.review"),
             Self::ScopeDelegate => write!(f, "scope.delegate"),
             Self::ScopeAdmin => write!(f, "scope.admin"),
+            Self::GatewayInvoke => write!(f, "gateway.invoke"),
             Self::ArtifactRead => write!(f, "artifact.read"),
             Self::ArtifactWrite => write!(f, "artifact.write"),
             Self::ArtifactShare => write!(f, "artifact.share"),
@@ -251,6 +254,8 @@ pub enum AccessRole {
     ScopeDelegator,
     #[serde(rename = "scope.admin")]
     ScopeAdmin,
+    #[serde(rename = "gateway.user")]
+    GatewayUser,
     #[serde(rename = "server.observer")]
     ServerObserver,
     #[serde(rename = "server.admin")]
@@ -270,6 +275,7 @@ impl std::fmt::Display for AccessRole {
             Self::ScopeReviewer => write!(f, "scope.reviewer"),
             Self::ScopeDelegator => write!(f, "scope.delegator"),
             Self::ScopeAdmin => write!(f, "scope.admin"),
+            Self::GatewayUser => write!(f, "gateway.user"),
             Self::ServerObserver => write!(f, "server.observer"),
             Self::ServerAdmin => write!(f, "server.admin"),
         }

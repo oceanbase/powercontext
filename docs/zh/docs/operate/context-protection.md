@@ -62,6 +62,16 @@ Server 用既有签名秘密派生独立用途的密钥，并绑定持久 Server
 两个阶段都沿用根级 `scope_id`、当前认证/委托和当前 Scope、资料权限。
 `scope.read` 不授予模型付费或工具执行权限；请求字段不能降低部署策略。
 
+可选请求头 `X-PowerContext-Resolve-Target: true` 仅供同时拥有 `gateway.invoke` 与相应
+`scope.read` 的已认证**服务**主体使用。只有准许的 `before_send` 才会从 Core 的可信
+profile 返回 `target_endpoint` 和 `target_protocol`；普通检查和拒绝决定不泄露地址。
+Gateway 必须在 `valid_until` 前向此地址发送获准的准确字节；确定未发送后重试必须重新检查。
+目标字段缺失、协议不符或准入前 Core 不可用时一律零发送。已签发的准入在 `valid_until`
+前仍可使用；Core 随后不可用或配置变化不会自动撤销它。UDS 本身不是认证；远端 Core
+必须通过 HTTPS 传递这一高权限凭据（回环地址允许 HTTP）。这只绑定端点，不声称已核验
+独立配置的服务商凭据背后的账号或区域。Gateway 的客户端密钥必须与 Core 服务凭据不同；
+这个统一的服务身份不提供逐客户端的 Scope 授权。
+
 版本化载体保存原始 JSON 文本，不接受重新拼装的摘要对象：
 
 ```json
