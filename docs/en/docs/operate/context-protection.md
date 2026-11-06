@@ -44,11 +44,17 @@ client returns either `PreparedContext` or `PreparedContextWithReuse`; narrow th
 In process, use `runtime.context.for_scope(scope_id).prepare(request)`. Its `validate_reuse` operation checks the
 retained proof without retrieval or embedding; embedded applications supply their own current authorization context.
 
-The first reuse profile supports a single Scope and selected Atomic Memory only, without context references or code.
-It records selected current revisions, lifecycle versions, and complete bounded historical dependencies. Exact
+The reuse profile supports a single Scope, selected Atomic Memory, and code evidence (`include_code: true`), without
+context references. For Atomic Memory it records selected current revisions, lifecycle versions, and complete bounded historical dependencies. Exact
 historical ancestors of a merge remain valid evidence when their owning domain permits them. Revised or forgotten
 roots, revoked access, changed reference policy, expired bindings, and ineligible Sources stop reuse.
 Other selected families are explicitly rejected for this option; ordinary preparation remains supported.
+
+For code evidence it records each cited file's repository path and SHA-256 digest, with the index fingerprint for the
+record. Validation reads only the cited files from the Scope's current worktree, with the same path and exclusion rules
+as indexing. A changed, removed, or no-longer-indexable cited file, or an unavailable repository, stops reuse. An edit to
+a file that was not cited, or a rebuilt index, does not. Code files and Atomic Memory dependencies share the dependency
+limit.
 
 Bindings are authenticated and encrypted, expire after five minutes, and are limited to 64 dependencies and eight
 ancestry levels. They do not grant access. Server bindings use the existing signing-secret material with a separate

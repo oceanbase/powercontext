@@ -1,0 +1,49 @@
+[
+  {
+    "file": "magpie-agents.zh.png",
+    "source": "https://github.com/yetone/magpie/blob/main/site/public/img/agents-zh-light.png",
+    "context": "Original project README screenshot; model names and counters belong to the documentation example."
+  },
+  {
+    "file": "magpie-routing.zh.png",
+    "source": "https://github.com/yetone/magpie/blob/main/site/public/img/routing-zh-light.png",
+    "context": "Original project README screenshot; model names and counters belong to the documentation example."
+  },
+  {
+    "file": "powercontext-memory.zh.png",
+    "source": "https://github.com/oceanbase/powercontext/blob/master/docs/assets/readme-dashboard-memories-zh.png",
+    "context": "Original project README screenshot with synthetic demonstration records; not this experiment."
+  },
+  {
+    "file": "powercontext-handoff.zh.png",
+    "source": "https://github.com/oceanbase/powercontext/blob/master/docs/assets/readme-dashboard-handoff-zh.png",
+    "context": "Original project README screenshot with synthetic demonstration records; not this experiment."
+  },
+  {
+    "file": "magpie-agents.en.png",
+    "source": "https://github.com/yetone/magpie/blob/main/site/public/img/agents-light.png",
+    "context": "Original project README screenshot; model names and counters belong to the documentation example."
+  },
+  {
+    "file": "magpie-routing.en.png",
+    "source": "https://github.com/yetone/magpie/blob/main/site/public/img/routing-light.png",
+    "context": "Original project README screenshot; model names and counters belong to the documentation example."
+  },
+  {
+    "file": "powercontext-memory.en.png",
+    "source": "https://github.com/oceanbase/powercontext/blob/master/docs/assets/readme-dashboard-memories.png",
+    "context": "Original project README screenshot with synthetic demonstration records; not this experiment."
+  },
+  {
+    "file": "powercontext-handoff.en.png",
+    "source": "https://github.com/oceanbase/powercontext/blob/master/docs/assets/readme-dashboard-handoff.png",
+    "context": "Original project README screenshot with synthetic demonstration records; not this experiment."
+  },
+  {
+    "file": "cover.png",
+    "source": "Author-supplied artwork",
+    "sha256": "a52fe661beb24353ec6208b929f1c7679b7e5e611408950b4cbfcac8c35333f5",
+    "context": "Final cover artwork supplied by the author and retained unchanged, including the original branding and English labels. The original generation prompt was not supplied.",
+    "public_url": "https://assets.tsukikage7.com/blog/cover/magpie-powercontext-memory-a52fe661beb2.webp"
+  }
+]
