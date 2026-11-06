@@ -20,6 +20,14 @@ Typed adapters separate liveness, readiness, identity and capabilities. Native c
 
 The renderer retains submitted input in window-local memory independently of form lifetime. Automatic disconnection does not discard it, and a retry cannot remove an earlier unresolved attempt. Recovery copies contain only user input and original-target metadata, never returned private Server bodies. Each copy is at most 8192 UTF-8 bytes plus metadata; retention grows with explicit user submissions awaiting success, recovery or discard. Successful receipts remove their own copy; rejected saves retain input for explicit recovery or discard; users can explicitly discard individual copies or all copies through navigation confirmation. Discarded identities cannot be revived by late receipts. Window close loses all copies. There is no disk persistence, background replay or export through session diagnostics.
 
+Connection checks and ordinary Scope/Memory operations do not invoke readiness. Explicit readiness observations
+are revision/deployment-bound, timestamped independently, and cannot activate a context or authorize a business action.
+Anonymous identity requires independently qualified `get_connection_identity` evidence matching live discovery,
+disabled authentication and Access, and no Principal. Generic failures, renderer-selected modes and previous probes
+are not anonymous evidence. Qualified authenticated legacy profiles can retain the existing Principal contract.
+Current identity failures never fall back; authentication/Access mode changes invalidate the context. Capability
+observation denial alone does not disable independently qualified and authorized resource actions.
+
 ## Budgets and error projection
 
 | Boundary | Limit |

@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { sanitizePublishManifest, stampPublishManifest } from '../scripts/stamp-version.mjs'
+import { releaseMetadata, sanitizePublishManifest, stampPublishManifest } from '../scripts/stamp-version.mjs'
 
 const sourceManifest = {
   name: 'powercontext-dsh',
@@ -63,5 +63,27 @@ describe('stampPublishManifest', () => {
   it('rejects a missing or invalid version', () => {
     expect(() => stampPublishManifest(sourceManifest, '')).toThrow(/semver/)
     expect(() => stampPublishManifest(sourceManifest, 'v0.0.2')).toThrow(/semver/)
+    for (const version of ['01.2.3', '1.2.3-01', '1.2.3-', '1.2.3-a..b', '1.2.3+']) {
+      expect(() => stampPublishManifest(sourceManifest, version)).toThrow(/semver/)
+    }
+  })
+})
+
+describe('releaseMetadata', () => {
+  it.each([
+    ['powercontext-v1.5.0', '1.5.0', 'latest'],
+    ['v1.6.0a1', '1.6.0-alpha.1', 'next'],
+    ['1.6.0b2', '1.6.0-beta.2', 'next'],
+    ['powercontext-v1.6.0rc3', '1.6.0-rc.3', 'next'],
+  ])('maps Release %s to npm version and channel', (input, version, tag) => {
+    expect(releaseMetadata(input)).toEqual({ version, tag })
+  })
+
+  it('keeps a GitHub prerelease off latest even with a stable version', () => {
+    expect(releaseMetadata('v1.6.0', true)).toEqual({ version: '1.6.0', tag: 'next' })
+  })
+
+  it.each(['master', 'v01.2.3', 'v1.2.3rc01', 'v1.2.3; echo unsafe'])('rejects %s', tag => {
+    expect(() => releaseMetadata(tag)).toThrow(/Release tag/)
   })
 })

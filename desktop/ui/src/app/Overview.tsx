@@ -17,7 +17,11 @@
 import type { DesktopState } from "../generated/ipc";
 import { messages, type Language } from "./messages";
 import { PageFeedback } from "./PageFeedback";
-import { activeCheckReport, operationSupported } from "./context";
+import {
+  activeCheckReport,
+  operationSupported,
+  connectionPrincipal,
+} from "./context";
 import { operationRestriction } from "./connection-messages";
 import memoryIcon from "../assets/memory.svg";
 import connectionsIcon from "../assets/connections.svg";
@@ -46,7 +50,7 @@ export function Overview({
   const enabled = !!active?.scope && !!report?.compatibilityVerified;
   const principal = report?.anonymousAccess
     ? null
-    : report?.identity.value?.principal;
+    : connectionPrincipal(report);
   const identity = !active
     ? t.unverified
     : report?.anonymousAccess

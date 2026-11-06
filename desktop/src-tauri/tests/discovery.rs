@@ -38,6 +38,7 @@ fn document() -> Value {
     json!({"schema_version":{"major":1,"minor":0},"product":"powercontext","server_id":"synthetic-server",
     "package_version":"display-only-version","api_contract_version":{"major":1,"minor":4},"feature_contracts":{
         "access.principal":{"version":{"major":1,"minor":0},"operations":["get_access_principal"]},
+        "connection.identity":{"version":{"major":1,"minor":0},"operations":["get_connection_identity"]},
         "scope.selection":{"version":{"major":1,"minor":0},"operations":["list_scopes","get_scope","get_default_scope"]},
         "memory.explicit":{"version":{"major":1,"minor":0},"operations":["remember_memory","search_memory"]}
     }})
@@ -84,6 +85,10 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
                 }
                 let (status, body) = match path {
                     "/prefix/v1/server-info" => (status, document),
+                    "/prefix/v1/connection/identity" => (
+                        200,
+                        json!({"server_id":"synthetic-server","authentication":"disabled","access_mode":"disabled","principal":null}),
+                    ),
                     "/prefix/health/ready" => (
                         200,
                         json!({"status":"ready","checks":{"access_mode":"disabled"}}),
@@ -222,7 +227,7 @@ async fn handshake_success_does_not_create_qualification() {
 }
 
 #[tokio::test]
-async fn only_a_missing_handshake_allows_explicit_qualified_legacy_operations() {
+async fn qualification_distinguishes_missing_discovery_from_denied_observation() {
     let result = check(404, json!({}), true).await;
     assert_eq!(result.status, DiscoveryStatus::Missing);
     assert_eq!(
@@ -237,7 +242,6 @@ async fn only_a_missing_handshake_allows_explicit_qualified_legacy_operations() 
     for (code, status) in [
         (0, DiscoveryStatus::Unavailable),
         (401, DiscoveryStatus::Denied),
-        (403, DiscoveryStatus::Denied),
         (503, DiscoveryStatus::Unavailable),
     ] {
         let result = check(code, json!({"error":{"code":"runtime_not_ready"}}), true).await;
@@ -245,6 +249,16 @@ async fn only_a_missing_handshake_allows_explicit_qualified_legacy_operations() 
         assert!(result.error.is_some());
         assert!(result.supported_operations().is_empty());
     }
+    let result = check(403, json!({}), true).await;
+    assert_eq!(result.status, DiscoveryStatus::Denied);
+    assert_eq!(
+        result.operations["get_connection_identity"].status,
+        CompatibilityStatus::Qualified
+    );
+    assert_eq!(
+        result.operations["remember_memory"].status,
+        CompatibilityStatus::Qualified
+    );
 }
 
 #[tokio::test]
