@@ -1,5 +1,16 @@
 # Validation
 
+## v19 剩余请求补跑验证
+
+执行提交 `1c62e664` 的完整无模型回归为 543 passed、2000 warnings（Python 3.11.15，494.28 秒）。
+v18/v19 专项 35 项通过；新增 12 项在 Python 3.11.15、3.12.3、3.13.13、3.14.5 全部通过。
+`make check`、issue Ruff check/format（220 个 Python 文件）、整个 evaluation 类型检查与评估包 wheel/sdist 构建通过，
+四个 v19 包文件与归档逐字节匹配。没有重跑根包全量 `make test` 或全项目四版本 `tox`。
+
+467 个待运行请求已全部通过无网络实际 SDK/Pipeline 预检，请求体哈希与 v18 冻结值匹配。
+真实补跑 116 次后新增未知 usage，保留停止状态和 351 次未运行；合并已有响应的 118 次离线回放全部匹配，
+2 次缺失响应不可回放，不能描述为 120 次全部回放成功。详见 [结果](V19_RESULTS.zh.md)和[验证凭据](results/v19-live/validation.json)。
+
 ## v18 固定生成比较验证
 
 执行提交 `90a3337e` 的完整无模型回归为 531 passed、1968 warnings（Python 3.11.15）。

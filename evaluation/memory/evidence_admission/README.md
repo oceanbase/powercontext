@@ -7,6 +7,11 @@ It never publishes Atomic Memory, runs reconciliation, changes a production regi
 
 [中文说明](README.zh.md) · [Experiment protocol](PROTOCOL.md)
 
+[v19 continuation](V19_RESULTS.zh.md) preserves v18 generation and admission settings. It attempted 116 additional
+calls: 98 Pipeline outputs, 17 citation rejections and one missing response/usage. There are 351 calls still unrun.
+Two unknown-call reservations leave the original cumulative CNY 5 cap unable to fund another full-context reservation.
+Original attempts and failures remain immutable; see the [protocol](V19_PROTOCOL.zh.md) and [receipts](results/v19-live/README.zh.md).
+
 [v18 admission comparison](V18_PROTOCOL.zh.md) fixes native generation instructions and output schema across complete
 projection, current window reduction and bounded fragments: 972 rows across three datasets, budgets and replays.
 Budget rejection, failed generation and unresolved semantics remain distinct. Ordinary quality failures are measured

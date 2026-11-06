@@ -1,0 +1,18 @@
+{
+  "schema": "evidence-admission.v19.remaining-budget-plan.v1",
+  "approved_total_cny": "5.00",
+  "remaining_calls": 351,
+  "remaining_estimated_input_tokens": 1194564,
+  "remaining_maximum_output_tokens": 718848,
+  "illustrative_future_cost_cny": "8.139912",
+  "cumulative_known_upper_cny": "0.688902",
+  "unknown_reserved_upper_cny": "4.227072",
+  "per_next_request_reservation_cny": "2.113536",
+  "minimum_cap_for_one_next_reservation_cny": "7.029510",
+  "known_plus_unknown_plus_estimated_future_plus_next_reserve_cny": "15.169422",
+  "estimate_is_not_provider_usage_or_hard_bound": true,
+  "does_not_authorize_new_requests": true,
+  "continuation_requires_new_frozen_unattempted_plan_preserving_all_120_attempts": true,
+  "proposed_cap_cny": "20.00",
+  "proposed_cap_approved": false
+}

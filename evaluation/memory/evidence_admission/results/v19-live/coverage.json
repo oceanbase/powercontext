@@ -1,0 +1,58 @@
+{
+  "schema": "evidence-admission.v19.coverage.v1",
+  "state": "unknown_usage_stopped",
+  "original_plan_calls": 471,
+  "inherited_attempted_calls": 4,
+  "new_attempted_calls": 116,
+  "new_pipeline_returned": 98,
+  "new_failed_with_usage": 17,
+  "new_unknown_usage": 1,
+  "unrun_calls": 351,
+  "total_attempted_calls": 120,
+  "total_raw_response_available": 118,
+  "by_arm": {
+    "complete-projection-v1": {
+      "new_attempted": 10,
+      "new_pipeline_returned": 10,
+      "new_usage_known": 10,
+      "unrun": 30
+    },
+    "window-reduction-v1": {
+      "new_attempted": 41,
+      "new_pipeline_returned": 41,
+      "new_usage_known": 41,
+      "unrun": 60
+    },
+    "bounded-fragments-v3": {
+      "new_attempted": 65,
+      "new_pipeline_returned": 47,
+      "new_usage_known": 64,
+      "unrun": 261
+    }
+  },
+  "new_case_calls": {
+    "small-complete": 23,
+    "single-source-overflow": 9,
+    "many-source-overflow": 69,
+    "oversized-tool-field": 9,
+    "positional-facts": 6
+  },
+  "unrun_dataset_calls": {
+    "synthetic-v1": 147,
+    "validation-v2": 132,
+    "validation-v3": 72
+  },
+  "not_live_covered": [
+    "exact-literals",
+    "Unicode",
+    "mixed-scaffolding",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "unknown_response_root_cause": "not_recorded_do_not_infer_timeout_or_provider_failure",
+  "assistant_reviews_inherited": 3,
+  "new_semantic_reviews": 0,
+  "semantic_unresolved_candidates": 73,
+  "independent_human_review_completed": false,
+  "original_fourth_call_retried": false
+}
