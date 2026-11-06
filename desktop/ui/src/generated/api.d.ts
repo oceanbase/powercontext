@@ -4382,7 +4382,7 @@ export interface components {
              * @description Protocol of the Core-configured endpoint; present under the same condition as target_endpoint.
              * @enum {string}
              */
-            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings";
+            target_protocol?: "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-embeddings" | "minimax-embeddings" | "jev-rerank";
         };
         ContextProtectionCapabilities: {
             check_versions: string[];

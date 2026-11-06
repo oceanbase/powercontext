@@ -1686,6 +1686,7 @@ class TargetProtocol(StrEnum):
     ANTHROPIC_MESSAGES = "anthropic-messages"
     OPENAI_EMBEDDINGS = "openai-embeddings"
     MINIMAX_EMBEDDINGS = "minimax-embeddings"
+    JEV_RERANK = "jev-rerank"
 
 
 class ContextCheckResult(BaseModel):

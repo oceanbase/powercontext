@@ -17,11 +17,13 @@
 import httpx
 import pytest
 
+from powercontext.builtin.inference.privacy import UpstreamProfile
 from powercontext.client import PowerContextClient
 from powercontext.http import CheckContextRequest
 from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.factory import create_server_app
 from tests.e2e.server_storage import prepare_server_database
-from tests.e2e.test_context_protection_transports import _ADMIN, _OTHER, _app, _create_scope, _settings
+from tests.e2e.test_context_protection_transports import _ADMIN, _OTHER, _app, _Authentication, _create_scope, _settings
 
 
 @pytest.mark.anyio
@@ -161,3 +163,60 @@ async def test_target_is_only_returned_to_privileged_service_on_allowed_before_s
         assert ordinary_after_revoke.status_code == 200
         assert ordinary_after_revoke.json()["decision"] == "allow"
         assert "target_endpoint" not in ordinary_after_revoke.json()
+
+
+@pytest.mark.anyio
+async def test_rerank_target_resolution_is_consumable_via_http_and_sdk(tmp_path):
+    settings = _settings(tmp_path)
+    settings.inference.protection.targets["model"] = UpstreamProfile(
+        endpoint="https://rerank.example/v1/rerank", model="rerank-v1", protocol="jev-rerank"
+    )
+    prepare_server_database(settings)
+    async with open_builtin_access_control(
+        settings.database, bootstrap_administrators=(_ADMIN,), deployment_id="context-transports"
+    ):
+        pass
+    app = create_server_app(
+        settings=settings, authentication_provider=_Authentication(), scheduler_path=tmp_path / "scheduler.db"
+    )
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer transport-admin"},
+        ) as client,
+    ):
+        scope = await _create_scope(client, "rerank-target")
+        for role in ("scope.viewer", "gateway.user"):
+            granted = await client.post(
+                "/v1/access/bindings/create",
+                json={
+                    "subject": {"type": "service", "id": _ADMIN.id},
+                    "resource": {"type": "scope", "scope_id": scope},
+                    "role": role,
+                    "idempotency_key": f"rerank-target-{role}",
+                },
+            )
+            assert granted.status_code == 201, granted.text
+        request = {
+            "scope_id": scope,
+            "phase": "before_send",
+            "target_profile": "model",
+            "payload": {
+                "schema": "powercontext.model-json-payload.v1",
+                "headers": {"content-type": "application/json"},
+                "body": '{"model":"rerank-v1","state":"sample","questions":["hello"]}',
+            },
+            "prepared_contexts": [],
+        }
+        response = await client.post(
+            "/v1/context/check", json=request, headers={"X-PowerContext-Resolve-Target": "true"}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["decision"] == "allow"
+        assert response.json()["target_endpoint"] == "https://rerank.example/v1/rerank"
+        assert response.json()["target_protocol"] == "jev-rerank"
+        sdk = PowerContextClient("http://localhost", http_client=client)
+        admitted = await sdk.check_context(CheckContextRequest.model_validate(request), resolve_target=True)
+        assert admitted.target_protocol == "jev-rerank"

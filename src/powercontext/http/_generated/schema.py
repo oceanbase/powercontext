@@ -10622,6 +10622,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "anthropic-messages",
                             "openai-embeddings",
                             "minimax-embeddings",
+                            "jev-rerank",
                         ],
                         "description": "Protocol "
                         "of "
