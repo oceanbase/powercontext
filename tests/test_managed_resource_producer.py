@@ -32,7 +32,7 @@ from typing import Any
 import httpx
 import pytest
 from build_intel_managed_wheel import _check_linkage, native_build_environment, verify_backend
-from ci_managed_resource_smoke import MAX_DIAGNOSTIC_BYTES, preserve_failure
+from ci_managed_resource_smoke import MAX_DIAGNOSTIC_BYTES, preserve_failure, smoke_phase
 from prepare_managed_resources import (
     _locked_dependencies,
     acquire,
@@ -396,6 +396,22 @@ def test_smoke_failure_keeps_bounded_logs_after_temporary_cleanup(tmp_path: Path
     assert "raw error content" not in str(failed.value)
 
 
+def test_smoke_progress_survives_failure_without_recording_exception_content(tmp_path: Path) -> None:
+    with smoke_phase(tmp_path, "prepare_resource"):
+        pass
+    with pytest.raises(ValueError), smoke_phase(tmp_path, "server_probe"):
+        message = "private failure detail"
+        raise ValueError(message)
+    progress = [json.loads(line) for line in (tmp_path / "progress.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(entry["phase"], entry["status"]) for entry in progress] == [
+        ("prepare_resource", "started"),
+        ("prepare_resource", "completed"),
+        ("server_probe", "started"),
+        ("server_probe", "failed"),
+    ]
+    assert "private failure detail" not in (tmp_path / "progress.jsonl").read_text(encoding="utf-8")
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires real Mach-O compiler and load-command inspection")
 @pytest.mark.parametrize("architecture", ["arm64", "x86_64"])
 @pytest.mark.parametrize("external", [None, "dependency", "rpath"])
@@ -541,8 +557,8 @@ def test_native_candidate_is_consumed_and_runs_independent_ops(native_candidates
         ],
         cwd=_ROOT,
         check=True,
-        # Leave room for the launcher and Ops phase deadlines, archive I/O,
-        # and writing failure evidence before the outer process is stopped.
+        # Leave room for the bounded probe, launcher and Ops phases, archive I/O,
+        # cleanup, and writing failure evidence before stopping the outer process.
         timeout=1200,
     )
 
