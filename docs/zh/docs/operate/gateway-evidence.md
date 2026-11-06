@@ -110,16 +110,28 @@ transport 交付完整响应后，解码或释放失败不会丢掉 usage。直�
 `started_ms + response_first_byte_ms` 或 `started_ms + response_complete_ms` 不能得到精确的调用相对时间戳。
 
 `delivery` 在获准/降级响应体放入 HTTP 响应时报告 `framework_handoff`，框架首次轮询取出非空 data frame
-时报告 `first_body_frame`，包装的 body 报告完成时为 `body_completed`，观察到完成之前被丢弃时为 `body_dropped`。
-strict 模式的释放批准先于框架交接与首个 data frame 观测。降级响应没有释放批准时间。
-对于 SSE，首个 data frame 可能仅包含 `response.created` 等控制事件，没有模型内容。
-因此 `first_body_frame` 不表示首次模型内容交付；当前没有测量该边界。
-G8 消费方若依赖首次模型内容交付指标，必须将其视为未知，不能用 `first_body_frame` 替代。
+时报告 `first_body_frame`，取出包含首个可识别模型输出编码字节的 frame 时报告 `first_model_content`，
+包装的 body 报告完成时为 `body_completed`，观察到完成之前被丢弃时为 `body_dropped`。
+strict 模式的释放批准先于框架交接、首个 data frame 与首内容观测。降级响应没有释放批准时间。
+
+首内容边界识别 OpenAI Chat/Responses JSON 与所支持 SSE 输出中的非空 assistant 文本、拒绝字符串、
+函数调用名称及参数，包含 Responses 重放。仅含 role、usage、reasoning、error 及其他控制信息的事件不触发。
+item-added 事件若确实包含函数名或输出文本，也可以建立内容边界；仅凭事件名称不能建立。
+定位器检查实际发送的完整缓冲正文，只把字节偏移交给观察器。观察器累计已轮询 data 字节，支持任意 frame
+切分，不保留正文，不改变响应字节。记录的是包含首个**编码**内容字节的 frame，该字节可能属于 JSON 转义，
+不等待完整解码字符或完整 SSE 事件。
+
+仅控制事件、空、畸形或不支持的输出没有 `first_model_content` 事件；在轮询到内容 frame 之前丢弃 body
+也不产生该事件。缺失表示证据不可得，不是耗时为零；消费方还须考虑 sink 丢失计数。
+首 body frame 可能只有 `response.created` 等 SSE 控制信息，因此 G8 必须单独读取 `first_model_content`。
+同一 frame 同时包含两种边界时，两条记录可以使用相同时间戳。
 这些边界都不证明 socket 写入、客户端收到、呈现或采用。当前宿主无法观察实际 socket 写出。
 非流式 Responses JSON 的首字节及重放的 SSE 输出不是 provider TTFT。
 
 ## 部署与兼容
 
+新增 `delivery.boundary=first_model_content` 值，穷举匹配枚举的消费方需要接受该值，
+不能假定每次调用的记录数量固定。
 原来从 stdout 采集人类可读 tracing 的部署，需要改为采集 stderr，并单独解析 stdout 证据。
 无需数据库迁移、新 HTTP 端点、Python operational 字段或 OpenAPI 重新生成。
 该 JSON schema 独立于 Server 的 Python 日志白名单与现有 exporter。

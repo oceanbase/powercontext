@@ -116,17 +116,30 @@ The executor handoff and the transport's own send start are separate origins. Th
 `started_ms + response_first_byte_ms` or `started_ms + response_complete_ms` is not an exact call-relative timestamp.
 
 A `delivery` record reports `framework_handoff` when the released/degraded body is placed in the HTTP response,
-`first_body_frame` when the framework first polls a nonempty data frame, `body_completed` when the wrapped body
+`first_body_frame` when the framework first polls a nonempty data frame, `first_model_content` when it polls
+the frame containing the first encoded byte of recognized model output, `body_completed` when the wrapped body
 reports completion, or `body_dropped` if dropped before observed completion. Strict release authorization precedes
-framework handoff and first-data-frame observation. A degraded response has no release authorization timestamp.
-For SSE, the first data frame may contain a control event such as `response.created` without model content.
-`first_body_frame` therefore does not measure first model-content delivery. That boundary is currently unmeasured;
-G8 consumers requiring it must treat it as unknown and must not substitute `first_body_frame`.
+framework handoff and both first-frame/content observations. A degraded response has no release authorization timestamp.
+
+The content boundary recognizes nonempty assistant text, refusal strings, and function-call names/arguments in
+OpenAI Chat/Responses JSON and their supported SSE output, including Responses replay. It skips role-only, usage,
+reasoning, error and other control events. An item-added event containing an actual function name or output text
+can establish content; the event name alone cannot. The locator inspects the exact buffered outgoing body and passes
+only a byte offset to the observer. The observer counts polled data bytes across arbitrary frame splits; it neither
+retains content nor changes response bytes. This measures the frame containing the first **encoded** content byte,
+which can be a JSON escape, rather than waiting for a complete decoded character or SSE event.
+
+Control-only, empty, malformed and unsupported output has no `first_model_content` event. Neither does a body dropped
+before its content frame is polled. Absence is unavailable evidence, not a zero duration; consumers must also account
+for the sink's loss counters. The first body frame may contain only `response.created` or other SSE controls, so G8
+must consume `first_model_content` separately. Both observations can share a timestamp when one frame contains both.
 No boundary proves a socket write, client receipt, rendering or adoption. The current host cannot observe actual
 socket writes. Non-streaming Responses JSON's first byte and replayed SSE output are not provider TTFT.
 
 ## Deployment and compatibility
 
+The additive `delivery.boundary=first_model_content` value requires consumers with exhaustive enum matching to
+accept the new value; consumers must not assume a fixed number of records per call.
 Collectors that previously consumed human tracing from stdout must move that input to stderr and parse evidence
 stdout separately. No database migration, new HTTP endpoint, Python operational field or OpenAPI regeneration is
 required. The JSON schema is separate from the Server's allowlisted Python log fields and existing exporters.

@@ -15,6 +15,7 @@
 //! 模型入口：OpenAI 兼容 `/gateway/v1/chat/completions`。
 //! 客户端只改 Base URL 与 API Key 即接入（PR #2199 产品形态）。
 
+use crate::evidence_body::FirstContentOffset;
 use crate::{proxy::SharedProxy, AppState, Injection};
 use axum::body::Bytes;
 use axum::extract::{Request, State};
@@ -22,7 +23,10 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pc_gateway_core::{ManagedCall, ManagedOutcome, RequestControl};
-use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputLimits, Role};
+use pc_gateway_protocol::{
+    first_model_content_offset, CanonicalMessage, CanonicalRequest, OutputLimits, OutputProtocol,
+    Role,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -132,6 +136,10 @@ async fn ingress_common(
                 | pc_gateway_core::ExecutionTerminal::Degraded
         )
     ) {
+        let first_content = response
+            .extensions()
+            .get::<FirstContentOffset>()
+            .and_then(|offset| offset.0);
         let (parts, body) = response.into_parts();
         response = Response::from_parts(
             parts,
@@ -139,6 +147,7 @@ async fn ingress_common(
                 body,
                 observation.clone(),
                 state.evidence.clone(),
+                first_content,
             ),
         );
     }
@@ -296,7 +305,13 @@ async fn ingress_model(
     if client_stream {
         return respond_responses_sse(outcome);
     }
-    respond(outcome)
+    respond(
+        outcome,
+        match format {
+            Format::Chat => OutputProtocol::OpenAiChat,
+            Format::Responses => OutputProtocol::OpenAiResponses,
+        },
+    )
 }
 
 /// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
@@ -310,17 +325,23 @@ fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
         ManagedOutcome::Degraded {
             status: 200, body, ..
         } => (body, true),
-        _ => return respond(outcome),
+        _ => return respond(outcome, OutputProtocol::OpenAiResponses),
     };
     let Ok(resp) = serde_json::from_slice::<serde_json::Value>(body) else {
-        return respond(outcome);
+        return respond(outcome, OutputProtocol::OpenAiResponses);
     };
+    let body = responses_sse(&resp);
+    let first_content =
+        first_model_content_offset(body.as_bytes(), OutputProtocol::OpenAiResponses, true);
     let mut response = (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/event-stream")],
-        responses_sse(&resp),
+        body,
     )
         .into_response();
+    response
+        .extensions_mut()
+        .insert(FirstContentOffset(first_content));
     if degraded {
         response.headers_mut().insert(
             "x-pc-degraded",
@@ -631,8 +652,35 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
 }
 
 /// 结果映射：不存在静默成功；降级直通必须显式标记。
-fn respond(outcome: ManagedOutcome) -> Response {
-    match outcome {
+fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
+    let first_content = match &outcome {
+        ManagedOutcome::Released {
+            status,
+            content_type,
+            body,
+            ..
+        }
+        | ManagedOutcome::Degraded {
+            status,
+            content_type,
+            body,
+        } if (200..300).contains(status) => {
+            let mime = content_type.split(';').next().unwrap_or("").trim();
+            if mime.eq_ignore_ascii_case("application/json")
+                || mime.eq_ignore_ascii_case("text/event-stream")
+            {
+                first_model_content_offset(
+                    body,
+                    protocol,
+                    mime.eq_ignore_ascii_case("text/event-stream"),
+                )
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    let mut response = match outcome {
         ManagedOutcome::Released {
             status,
             content_type,
@@ -695,7 +743,11 @@ fn respond(outcome: ManagedOutcome) -> Response {
             Json(serde_json::json!({ "decision": "gate_paused", "detail": msg })),
         )
             .into_response(),
-    }
+    };
+    response
+        .extensions_mut()
+        .insert(FirstContentOffset(first_content));
+    response
 }
 
 // 抑制未使用导入警告（Bytes 用于类型别名文档场景）。
@@ -739,22 +791,31 @@ mod tests {
             )
             .route(
                 "/v1/chat/completions",
-                post(|| async {
-                    (
-                        StatusCode::CREATED,
-                        Json(serde_json::json!({
-                            "choices": [{"message": {"role": "assistant", "content": "checked"}}],
-                            "usage": {"prompt_tokens": 100, "completion_tokens": 12, "prompt_tokens_details": {"cached_tokens": 70}},
-                            "provider_debug": "SYNTHETIC_SENSITIVE_RESPONSE"
-                        })),
-                    )
+                post(|Json(request): Json<serde_json::Value>| async move {
+                    let usage = serde_json::json!({"prompt_tokens": 100, "completion_tokens": 12, "prompt_tokens_details": {"cached_tokens": 70}});
+                    if request["stream"] == true {
+                        (
+                            StatusCode::CREATED,
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            format!("data: {{\"choices\":[{{\"delta\":{{\"role\":\"assistant\"}}}}]}}\n\ndata: {{\"choices\":[{{\"delta\":{{\"content\":\"SYNTHETIC_SENSITIVE_RESPONSE\"}}}}]}}\n\ndata: {{\"choices\":[],\"usage\":{usage}}}\n\ndata: [DONE]\n\n"),
+                        ).into_response()
+                    } else {
+                        (
+                            StatusCode::CREATED,
+                            Json(serde_json::json!({
+                                "choices": [{"message": {"role": "assistant", "content": "checked"}}],
+                                "usage": usage,
+                                "provider_debug": "SYNTHETIC_SENSITIVE_RESPONSE"
+                            })),
+                        ).into_response()
+                    }
                 }),
             )
             .route(
                 "/v1/responses",
                 post(|| async {
                     Json(serde_json::json!({
-                        "id": "resp-1", "object": "response", "status": "completed", "output": [],
+                        "id": "resp-1", "object": "response", "status": "completed", "output": [{"type":"message", "role":"assistant", "content":[{"type":"output_text", "text":"SYNTHETIC_SENSITIVE_RESPONSE"}]}],
                         "usage": {"input_tokens": 80, "output_tokens": 11, "input_tokens_details": {"cached_tokens": 30}}
                     }))
                 }),
@@ -1551,7 +1612,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn real_ingress_exports_usage_and_distinct_framework_boundaries_without_content() {
+    async fn real_ingress_exports_usage_and_content_boundaries_without_sensitive_data() {
         use pc_gateway_evidence::JsonEvidenceSink;
         use tower::ServiceExt;
         let output = EvidenceOutput::default();
@@ -1560,17 +1621,18 @@ mod tests {
                 .unwrap(),
         );
         let (router, server) = lifecycle_router_with_evidence(sink.clone()).await;
-        // Exercise both public routes and Responses replay, with the real reqwest transport.
+        // Exercise JSON/SSE on both public routes with the real reqwest transport.
         for i in 0..200 {
-            let chat = i % 2 == 0;
+            let chat = i % 4 < 2;
+            let stream = i % 2 == 1;
             let request = Request::builder().method("POST")
                 .uri(if chat { "/gateway/v1/chat/completions" } else { "/gateway/v1/responses" })
                 .header(header::AUTHORIZATION, "Bearer gateway-key")
                 .header("x-powercontext-request-id", "SYNTHETIC_SENSITIVE_CORRELATION")
                 .body(axum::body::Body::from(if chat {
-                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}]}).to_string()
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "stream":stream}).to_string()
                 } else {
-                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "input":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "store":false, "stream":true}).to_string()
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "input":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "store":false, "stream":stream}).to_string()
                 })).unwrap();
             let response = router.clone().oneshot(request).await.unwrap();
             assert!(response.status().is_success());
@@ -1579,7 +1641,7 @@ mod tests {
                 .unwrap();
         }
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while sink.stats().written < 1000 {
+            while sink.stats().written < 1200 {
                 tokio::task::yield_now().await;
             }
         })
@@ -1606,7 +1668,7 @@ mod tests {
                 .collect();
             assert_eq!(
                 names,
-                ["attempt", "call", "delivery", "delivery", "delivery"]
+                ["attempt", "call", "delivery", "delivery", "delivery", "delivery"]
             );
             let call = &events[1]["evidence"];
             let attempt = &events[0]["evidence"];
@@ -1628,7 +1690,12 @@ mod tests {
             );
             assert_eq!(events[2]["evidence"]["boundary"], "framework_handoff");
             assert_eq!(events[3]["evidence"]["boundary"], "first_body_frame");
-            assert_eq!(events[4]["evidence"]["boundary"], "body_completed");
+            assert_eq!(events[4]["evidence"]["boundary"], "first_model_content");
+            assert_eq!(events[5]["evidence"]["boundary"], "body_completed");
+            assert!(
+                events[4]["evidence"]["elapsed_ms"].as_u64()
+                    >= events[3]["evidence"]["elapsed_ms"].as_u64()
+            );
             assert!(
                 events[2]["evidence"]["elapsed_ms"].as_u64()
                     >= call["release_authorized_ms"].as_u64()

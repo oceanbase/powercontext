@@ -182,6 +182,9 @@ pub enum DeliveryBoundary {
     FrameworkHandoff,
     /// First nonempty HTTP data frame polled by the framework; may contain only SSE control events.
     FirstBodyFrame,
+    /// Framework polls the frame containing the first encoded byte of recognized model content.
+    /// This is a local body observation, not socket writing, client receipt or provider TTFT.
+    FirstModelContent,
     BodyCompleted,
     BodyDropped,
 }

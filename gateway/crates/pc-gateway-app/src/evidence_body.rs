@@ -21,11 +21,17 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+/// Offset in the exact outgoing body; this metadata contains no response content.
+#[derive(Clone, Copy)]
+pub(crate) struct FirstContentOffset(pub(crate) Option<usize>);
+
 pub(crate) struct EvidenceBody {
     body: Body,
     observation: ExecutionObservation,
     sink: Arc<dyn EvidenceSink>,
     first: bool,
+    first_content: Option<usize>,
+    body_bytes: usize,
     completed: bool,
 }
 
@@ -34,12 +40,15 @@ impl EvidenceBody {
         body: Body,
         observation: ExecutionObservation,
         sink: Arc<dyn EvidenceSink>,
+        first_content: Option<usize>,
     ) -> Body {
         let wrapper = Self {
             body,
             observation,
             sink,
             first: false,
+            first_content,
+            body_bytes: 0,
             completed: false,
         };
         wrapper.record(DeliveryBoundary::FrameworkHandoff);
@@ -65,15 +74,23 @@ impl HttpBody for EvidenceBody {
     ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
         let result = Pin::new(&mut self.body).poll_frame(cx);
         if let Poll::Ready(frame) = &result {
-            if !self.first
-                && frame
-                    .as_ref()
-                    .and_then(|r| r.as_ref().ok())
-                    .and_then(Frame::data_ref)
-                    .is_some_and(|data| !data.is_empty())
+            if let Some(data) = frame
+                .as_ref()
+                .and_then(|r| r.as_ref().ok())
+                .and_then(Frame::data_ref)
             {
-                self.first = true;
-                self.record(DeliveryBoundary::FirstBodyFrame);
+                if !self.first && !data.is_empty() {
+                    self.first = true;
+                    self.record(DeliveryBoundary::FirstBodyFrame);
+                }
+                self.body_bytes = self.body_bytes.saturating_add(data.len());
+                if self
+                    .first_content
+                    .is_some_and(|offset| offset < self.body_bytes)
+                {
+                    self.first_content = None;
+                    self.record(DeliveryBoundary::FirstModelContent);
+                }
             }
             if !self.completed
                 && (frame.is_none() || (matches!(frame, Some(Ok(_))) && self.body.is_end_stream()))
@@ -97,5 +114,118 @@ impl Drop for EvidenceBody {
         if !self.completed {
             self.record(DeliveryBoundary::BodyDropped);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http_body_util::BodyExt;
+    use pc_gateway_core::RequestControl;
+    use pc_gateway_evidence::{BufferedEvidenceSink, EvidenceEvent};
+    use pc_gateway_protocol::{first_model_content_offset, OutputProtocol};
+    use std::collections::VecDeque;
+    use std::convert::Infallible;
+
+    struct Frames(VecDeque<Bytes>);
+    impl HttpBody for Frames {
+        type Data = Bytes;
+        type Error = Infallible;
+
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
+            Poll::Ready(self.0.pop_front().map(|bytes| Ok(Frame::data(bytes))))
+        }
+    }
+
+    fn boundaries(sink: &BufferedEvidenceSink) -> Vec<String> {
+        sink.events()
+            .into_iter()
+            .filter_map(|event| match event {
+                EvidenceEvent::Delivery(e) => Some(
+                    serde_json::to_value(e.boundary)
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                ),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn wrap(bytes: Vec<Bytes>, offset: Option<usize>, sink: Arc<BufferedEvidenceSink>) -> Body {
+        let control = RequestControl::new(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(30),
+            None,
+        );
+        EvidenceBody::wrap(
+            Body::new(Frames(bytes.into())),
+            control.observation(),
+            sink,
+            offset,
+        )
+    }
+
+    #[tokio::test]
+    async fn content_observation_waits_for_matching_frame_at_every_wire_split() {
+        for (wire, protocol, sse) in [
+            ("event: response.created\ndata: {\"type\":\"response.created\"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"秘密\"}\n\n", OutputProtocol::OpenAiResponses, true),
+            (r#"{"choices":[{"message":{"content":"\u79d8密"}}]}"#, OutputProtocol::OpenAiChat, false),
+            ("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"{}\"}}]}}]}\n\n", OutputProtocol::OpenAiChat, true),
+            (r#"{"output":[{"type":"message","content":[{"type":"refusal","refusal":"no"}]}]}"#, OutputProtocol::OpenAiResponses, false),
+        ] {
+            let offset = first_model_content_offset(wire.as_bytes(), protocol, sse).unwrap();
+            for split in 0..=wire.len() {
+                let sink = Arc::new(BufferedEvidenceSink::new());
+                let mut body = wrap(vec![Bytes::copy_from_slice(&wire.as_bytes()[..split]), Bytes::copy_from_slice(&wire.as_bytes()[split..])], Some(offset), sink.clone());
+                let first = body.frame().await.unwrap().unwrap().into_data().unwrap();
+                assert_eq!(boundaries(&sink).iter().any(|b| b == "first_model_content"), split > offset);
+                let second = body.frame().await.unwrap().unwrap().into_data().unwrap();
+                assert_eq!([first.as_ref(), second.as_ref()].concat(), wire.as_bytes());
+                assert!(body.frame().await.is_none());
+                drop(body);
+                assert_eq!(boundaries(&sink), ["framework_handoff", "first_body_frame", "first_model_content", "body_completed"]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn dropping_after_control_frame_does_not_claim_later_content() {
+        let wire = "event: response.created\ndata: {\"type\":\"response.created\"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"secret\"}\n\n";
+        let split = wire.find("event: response.output_text").unwrap();
+        let sink = Arc::new(BufferedEvidenceSink::new());
+        let mut body = wrap(
+            vec![
+                Bytes::copy_from_slice(&wire.as_bytes()[..split]),
+                Bytes::copy_from_slice(&wire.as_bytes()[split..]),
+            ],
+            first_model_content_offset(wire.as_bytes(), OutputProtocol::OpenAiResponses, true),
+            sink.clone(),
+        );
+        body.frame().await.unwrap().unwrap();
+        drop(body);
+        assert_eq!(
+            boundaries(&sink),
+            ["framework_handoff", "first_body_frame", "body_dropped"]
+        );
+    }
+
+    #[tokio::test]
+    async fn control_only_output_completes_without_inventing_content() {
+        let wire = b"event: response.created\ndata: {\"type\":\"response.created\"}\n\n";
+        let sink = Arc::new(BufferedEvidenceSink::new());
+        let body = wrap(
+            vec![Bytes::from_static(wire)],
+            first_model_content_offset(wire, OutputProtocol::OpenAiResponses, true),
+            sink.clone(),
+        );
+        assert_eq!(body.collect().await.unwrap().to_bytes(), wire.as_slice());
+        assert_eq!(
+            boundaries(&sink),
+            ["framework_handoff", "first_body_frame", "body_completed"]
+        );
     }
 }

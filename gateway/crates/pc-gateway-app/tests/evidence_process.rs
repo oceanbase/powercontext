@@ -131,7 +131,7 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
         }
         if !disabled {
             tokio::time::timeout(Duration::from_secs(5), async {
-                while lines.load(Ordering::Relaxed) < count * 5 {
+                while lines.load(Ordering::Relaxed) < count * 6 {
                     tokio::task::yield_now().await;
                 }
             })
@@ -146,12 +146,19 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
             assert!(output.is_empty());
             assert!(errors.contains("evidence disabled"));
         } else {
-            assert_eq!(output.len(), count * 5);
+            assert_eq!(output.len(), count * 6);
             let mut call_ids = std::collections::BTreeSet::new();
+            let mut content_ids = std::collections::BTreeSet::new();
             for line in output {
                 assert!(!line.contains("SYNTHETIC_"));
                 let record: Value = serde_json::from_str(&line).unwrap();
                 assert_eq!(record["loss"]["dropped"], 0);
+                if record["event"] == "delivery"
+                    && record["evidence"]["boundary"] == "first_model_content"
+                {
+                    assert!(content_ids
+                        .insert(record["evidence"]["call_id"].as_str().unwrap().to_owned()));
+                }
                 if record["event"] == "call" {
                     let evidence = &record["evidence"];
                     assert_eq!(evidence["terminal"], "release_authorized");
@@ -163,6 +170,7 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
                 }
             }
             assert_eq!(call_ids.len(), count);
+            assert_eq!(content_ids, call_ids);
         }
     }
     fixture_task.abort();
