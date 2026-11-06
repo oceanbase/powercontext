@@ -42,12 +42,12 @@ impl ReqwestTransport {
             .expect("reqwest client build");
         Self {
             client,
-            max_buffer_bytes: 32 * 1024 * 1024,
+            max_buffer_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
         }
     }
 
     pub fn with_buffer_limit(mut self, max_buffer_bytes: usize) -> Self {
-        self.max_buffer_bytes = max_buffer_bytes;
+        self.max_buffer_bytes = max_buffer_bytes.min(pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT);
         self
     }
 }
@@ -72,7 +72,7 @@ impl Transport for ReqwestTransport {
             if !has_content_type {
                 req = req.header("content-type", "application/json");
             }
-            let resp = match req.body(send.payload.to_vec()).send().await {
+            let resp = match req.body(send.payload).send().await {
                 Err(e) => {
                     // NotSent 仅限于「可证明发生在传输之前」的失败：
                     // - is_connect()：TCP/TLS 握手未完成，body 必然未发出；
@@ -120,7 +120,7 @@ impl Transport for ReqwestTransport {
                         if send.stream && ttft.is_none() {
                             ttft = Some(start.elapsed().as_millis() as u64);
                         }
-                        if body.len() + chunk.len() > self.max_buffer_bytes {
+                        if chunk.len() > self.max_buffer_bytes.saturating_sub(body.len()) {
                             // 已送达且部分计费：不重发，向上标记不确定。
                             return SendOutcome::Indeterminate(
                                 SendIndeterminateReason::BufferLimitExceeded,
