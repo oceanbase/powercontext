@@ -203,6 +203,8 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"
     assert license_check["with"] == {"config": ".licenserc.yaml", "mode": "check"}
+    assert license_check["env"]["INSTALL_DIR"] == "${{ runner.temp }}/license-eye-bin"
+    assert license_check["env"]["PATH"].startswith("${{ runner.temp }}/license-eye-bin:")
     for step in (selection, license_check, quality, contract):
         assert not step.get("continue-on-error")
         assert "if" not in step  # A preceding failure prevents further admission work.

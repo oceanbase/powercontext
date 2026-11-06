@@ -205,6 +205,8 @@ jobs:
         uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTALL_DIR: ${{ runner.temp }}/license-eye-bin
+          PATH: ${{ runner.temp }}/license-eye-bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
           mode: check
