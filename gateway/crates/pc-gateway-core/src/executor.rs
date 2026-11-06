@@ -35,7 +35,7 @@ use crate::{GateClient, GateError};
 use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
-use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
+use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
     parse_rfc3339_ms, CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation, PrepareContextRequest,
@@ -103,6 +103,7 @@ pub struct Executor<G, T> {
     max_attempts: NonZeroU32,
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
+    max_input_bytes: usize,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -124,7 +125,15 @@ where
             transport,
             max_attempts,
             replays: ReplayCache::default(),
+            max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
         }
+    }
+
+    /// Apply the deployment/Core input intersection. Increasing configuration
+    /// cannot bypass the currently supported complete-body parser ceiling.
+    pub fn with_input_limit(mut self, limit: usize) -> Self {
+        self.max_input_bytes = limit.min(pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT);
+        self
     }
 
     pub async fn run<R: WireRenderer>(
@@ -166,6 +175,12 @@ where
                 }
             }
         };
+        // Measure the actual wire body after prepare/replay, steering and JSON escaping.
+        if payload.bytes.len() > self.max_input_bytes {
+            return ManagedOutcome::Blocked {
+                reason_codes: vec!["request_payload_too_large".into()],
+            };
+        }
         let payload_body = match String::from_utf8(payload.bytes.clone().to_vec()) {
             Ok(text) => text,
             Err(_) => {
@@ -255,6 +270,13 @@ where
                     SendOutcome::Delivered(raw) => {
                         execution.model_send(ModelSendState::ResponseReceived);
                         break (raw, sent_binding);
+                    }
+                    SendOutcome::Indeterminate(SendIndeterminateReason::BufferLimitExceeded) => {
+                        // A partial response cannot establish complete receipt. Keep PossiblySent:
+                        // the provider may have charged, and this call must never be retried.
+                        return ManagedOutcome::Withheld {
+                            reason_codes: vec!["response_buffer_limit_exceeded".into()],
+                        };
                     }
                     SendOutcome::Indeterminate(_) => return ManagedOutcome::SendIndeterminate,
                     SendOutcome::NotSent(reason) => {
@@ -586,6 +608,11 @@ where
                 }
             }
         };
+        if payload.bytes.len() > self.max_input_bytes {
+            return ManagedOutcome::Blocked {
+                reason_codes: vec!["request_payload_too_large".into()],
+            };
+        }
         let send = AdmittedSend {
             binding: "degraded-passthrough".into(),
             payload: payload.bytes,
@@ -601,6 +628,11 @@ where
                     status: raw.status,
                     content_type: raw.content_type,
                     body: raw.body,
+                }
+            }
+            SendOutcome::Indeterminate(SendIndeterminateReason::BufferLimitExceeded) => {
+                ManagedOutcome::Withheld {
+                    reason_codes: vec!["response_buffer_limit_exceeded".into()],
                 }
             }
             SendOutcome::Indeterminate(_) => ManagedOutcome::SendIndeterminate,

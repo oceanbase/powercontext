@@ -27,6 +27,9 @@ use std::collections::BTreeMap;
 pub const MODEL_JSON_PAYLOAD_SCHEMA: &str = "powercontext.model-json-payload.v1";
 pub const CONTEXT_CHECK_SCHEMA: &str = "powercontext.context-check.v1";
 pub const CONTEXT_CHECK_COMPLETION: &str = "complete";
+/// Current Core v1 complete-body parser ceiling, in UTF-8 bytes, in either direction.
+/// Input capabilities can lower this; they do not declare an output allowance.
+pub const CONTEXT_CHECK_BODY_LIMIT: usize = 1_048_576;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -148,4 +151,28 @@ pub struct ContextProtectionLimits {
     pub dependencies: u64,
     pub send_seconds: u64,
     pub correlate_seconds: u64,
+}
+
+impl ContextProtectionCapabilities {
+    /// Confirm the v1 contracts and intersect the advertised input capacity with
+    /// the current parser ceiling. An absent/invalid advertisement is not usable.
+    pub fn input_payload_limit(&self) -> Option<usize> {
+        if !self
+            .check_versions
+            .iter()
+            .any(|v| v == CONTEXT_CHECK_SCHEMA)
+            || !self
+                .payload_versions
+                .iter()
+                .any(|v| v == MODEL_JSON_PAYLOAD_SCHEMA)
+            || self.limits.payload_bytes == 0
+        {
+            return None;
+        }
+        Some(
+            self.limits
+                .payload_bytes
+                .min(CONTEXT_CHECK_BODY_LIMIT as u64) as usize,
+        )
+    }
 }
