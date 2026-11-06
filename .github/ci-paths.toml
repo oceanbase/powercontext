@@ -74,8 +74,15 @@ native = ["tests/native/**", "tests/test_service*.py", "tests/test_cursor_secret
 harness = [
   "e2e/**", "integrations/bub/**", "scripts/scan_e2e_evidence.sh", "tests/test_e2e_workflow_contract.py",
   ".github/workflows/e2e-harness.yml",
+]
+oceanbase_acceptance = [
+  "e2e/bub/compose*.yaml", "e2e/bub/run.sh",
+  ".github/workflows/e2e-harness.yml", "tests/test_e2e_workflow_contract.py",
   "tests/e2e/test_atomic_memory_search_authorization_snapshot.py", "tests/e2e/test_atomic_memory_read_snapshot.py",
-  "tests/e2e/test_runtime_server.py",
+  "tests/e2e/atomic_memory_migration_backend.py", "tests/e2e/test_runtime_server.py",
+  "tests/e2e/test_server_metrics_oceanbase.py", "tests/e2e/test_portable_archive.py",
+  "tests/e2e/server_storage.py", "tests/e2e/dream_support.py", "tests/builtin/persistence/contract.py",
+  "tests/e2e/atomic_memory_migration_fixture.py", "tests/legacy_memory.py",
 ]
 # ZCode acceptance also exercises the Pi plugin and cross-host handoff fixtures.
 zcode = [
@@ -138,6 +145,18 @@ skill_guidance = [
   ".github/workflows/skill-guidance.yml",
 ]
 
+# Audited SQLite/in-memory tests retain ordinary unit/e2e coverage. Exact paths
+# avoid exempting future native tests matched by the broad database patterns.
+# Exclusions affect direct matches only; shared and full-scope rules take precedence.
+# Remove a file from this list if it gains native database cases.
+[exclusions]
+database = [
+  "tests/builtin/runtime/test_recall_sufficiency.py",
+  "tests/builtin/runtime/test_statistics.py", "tests/builtin/runtime/test_model_usage_recorder.py",
+  "tests/builtin/runtime/test_prepared_context.py", "tests/e2e/test_recall_sufficiency_gate.py",
+  "tests/e2e/test_context_text_assembly.py",
+]
+
 # Packaged guidance and its generators are inputs to the native host tests.
 [shared.guidance]
 patterns = [
@@ -152,7 +171,7 @@ suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode
 patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
 suites = [
   "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "opendal",
-  "website", "native", "harness", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
+  "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
   "managed_resources",
 ]
 
@@ -199,6 +218,7 @@ website = ["check-website", "website-link-validation-windows"]
 docs_tests = ["docs-tests"]
 native = ["native-service"]
 harness = ["harness-validation"]
+oceanbase_acceptance = ["harness-validation"]
 zcode = ["zcode-acceptance"]
 kimi = ["kimi-acceptance"]
 upgrade = ["seekdb-managed-startup", "upgrade-acceptance"]

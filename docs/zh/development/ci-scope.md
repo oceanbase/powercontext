@@ -63,6 +63,25 @@ Helm chart 改动选择部署合约检查。托管资源生产器通过 Main 选
 
 共享辅助文件按实际消费者选择：干净迁移 runner 脚本同时触发 managed-startup 和升级验收；pnpm 缓存 action 同时覆盖 Python 测试环境及 Cindy 包。路径规则需要沿依赖关系判定，不能只看目录名称。
 
+## Harness 回放与 OceanBase 验收
+
+可复用 E2E 工作流分别选择回放范围 `harness`，以及原生快照、HTTP、指标和归档回归范围 `oceanbase_acceptance`。
+
+| 变更输入 | 回放任务 | 原生 OceanBase 验收 |
+| --- | --- | --- |
+| Bub 适配器或回放场景 | SQLite、OceanBase | 不选择 |
+| 原生 HTTP、指标或归档测试文件 | 无 | 选择 |
+| 共用 Compose 定义或 harness 启动脚本 | SQLite、OceanBase | 选择 |
+| 公共运行时、API 或根依赖 | SQLite、OceanBase | 选择，同时保留其他相关范围 |
+
+两种范围同时选中时，OceanBase 部分共用一个任务和容器。任一种范围选中都会完成数据库启动与容量配置。仅选择原生验收时，不分配 SQLite 回放任务，也不安装 Bub 验证环境。选中的测试和证据必须成功，缺少报告或意外跳过都会使验收门禁失败。原生 JUnit 结果独立于回放产物保留。
+
+Main 的 preflight 已检查全仓库的 lint 和格式；其 harness 验证运行 `make harness-test`，保留 harness 类型检查、场景测试、CLI 验证及 Compose 验证。独立运行仍通过 `make harness-lint` 检查格式；本地 `make harness-check` 同时执行两个目标。
+
+`[exclusions].database` 中的精确测试路径使用 SQLite 或内存行为，仍由普通 Python 测试及其他匹配范围覆盖。仅修改这些测试时，不启动整套数据库验收。文件新增原生数据库用例时，需要移除对应例外。例外不能抵消其他变更文件、共享夹具、公共运行时选择或全量兜底。升级验收被选中时，仍自动运行全部 12 个配置。
+
+这些规则减少局部改动带来的无关任务。公共运行时和 CI 策略改动仍保留广泛覆盖；runner 分钟和排队时间需要上线后实测。
+
 ## 并发预算与取消
 
 | 矩阵 | 每次运行的最大并发 | 失败策略 |

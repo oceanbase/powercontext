@@ -7,6 +7,10 @@ on:
         description: Scope already selected by the Main orchestrator
         required: true
         type: string
+      preflight-checked:
+        description: Main has already passed repository-wide lint and formatting checks
+        type: boolean
+        default: false
       suite:
         type: string
         default: all
@@ -43,9 +47,13 @@ jobs:
     needs: changes
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
-          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness) }}
+          ((inputs.suites == '' && needs.changes.result != 'success') ||
+           fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness ||
+           fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').oceanbase_acceptance) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -53,7 +61,32 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Plan selected acceptance work
+        id: plan
+        env:
+          CI_SUITES: ${{ inputs.suites || needs.changes.outputs.suites || '{"harness":true,"oceanbase_acceptance":true}' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          suites = json.loads(os.environ['CI_SUITES'])
+          replay = suites.get('harness', False)
+          native = suites.get('oceanbase_acceptance', False)
+          include = []
+          if replay:
+              include.append({'database': 'sqlite', 'replay': True, 'native': False})
+          if replay or native:
+              include.append({'database': 'oceanbase', 'replay': replay, 'native': native})
+          if not include:
+              raise SystemExit('Acceptance was selected without any work')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'matrix={json.dumps({"include": include})}\n')
+              output.write(f'replay={json.dumps(replay)}\n')
+          PY
+
       - name: Install uv
+        if: steps.plan.outputs.replay == 'true'
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
@@ -63,12 +96,18 @@ jobs:
       # checks out with tags because the root version is derived from them, which is what makes that
       # class of failure visible.
       - name: Verify dependencies resolve from scratch
+        if: steps.plan.outputs.replay == 'true'
         run: uv lock --upgrade --dry-run
 
+      - name: Check harness formatting for standalone runs
+        if: steps.plan.outputs.replay == 'true' && !inputs.preflight-checked
+        run: make harness-lint
+
       - name: Validate harness and Compose definitions
+        if: steps.plan.outputs.replay == 'true'
         run: |
           make harness-sync
-          make harness-check
+          make harness-test
           make harness-compose-check
 
   recall-effort:
@@ -545,12 +584,11 @@ jobs:
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Reserve 50m for OceanBase regressions, 15m for replay, and 10m for setup/evidence/cleanup.
+    # Keep the existing overall budget; selected suites share setup and cleanup.
     timeout-minutes: ${{ matrix.database == 'oceanbase' && 75 || 40 }}
     strategy:
       fail-fast: false
-      matrix:
-        database: [sqlite, oceanbase]
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
     name: Acceptance (${{ matrix.database }})
     steps:
       - name: Check out
@@ -564,9 +602,9 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
 
-      - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
-        # The 22 tests alone took 39m; this step also starts the database and installs dependencies.
-        timeout-minutes: 50
+      - name: Start and configure the shared OceanBase instance
+        id: oceanbase_setup
+        timeout-minutes: 15
         if: matrix.database == 'oceanbase'
         env:
           COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
@@ -611,6 +649,14 @@ jobs:
           test -n "$oceanbase_ip"
           export POWERCONTEXT_TEST_OCEANBASE_URL="mysql+aoceanbase://root%40test:powercontext-e2e@${oceanbase_ip}:2881/powercontext?charset=utf8mb4"
           export POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL="$POWERCONTEXT_TEST_OCEANBASE_URL"
+          echo "POWERCONTEXT_TEST_OCEANBASE_URL=$POWERCONTEXT_TEST_OCEANBASE_URL" >> "$GITHUB_ENV"
+          echo "POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL=$POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL" >> "$GITHUB_ENV"
+
+      - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
+        id: native_acceptance
+        timeout-minutes: 50
+        if: matrix.native
+        run: |
           uv run --locked --extra server python - <<'PY'
           import asyncio
           import os
@@ -653,6 +699,7 @@ jobs:
           PY
 
       - name: Run deterministic scenarios
+        if: matrix.replay
         timeout-minutes: ${{ matrix.database == 'oceanbase' && 15 || 40 }}
         id: acceptance_scenarios
         env:
@@ -662,7 +709,7 @@ jobs:
 
       - name: Scan replay evidence
         id: evidence_scan
-        if: always()
+        if: always() && matrix.replay
         env:
           DATABASE: ${{ matrix.database }}
           DIAGNOSTICS_PATH: ${{ runner.temp }}/powercontext-e2e-diagnostics-${{ matrix.database }}
@@ -672,7 +719,7 @@ jobs:
 
       - name: Upload sanitized replay diagnostics
         if: >-
-          always() &&
+          always() && matrix.replay &&
           (steps.evidence_scan.outcome != 'success' ||
            steps.acceptance_scenarios.outcome != 'success')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -683,7 +730,8 @@ jobs:
           retention-days: 14
 
       - name: Upload replay evidence
-        if: always() && steps.evidence_scan.outcome == 'success'
+        id: replay_evidence
+        if: always() && matrix.replay && steps.evidence_scan.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-acceptance-${{ matrix.database }}-${{ github.sha }}
@@ -691,6 +739,40 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload native acceptance results
+        id: native_results
+        if: always() && matrix.native
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: oceanbase-acceptance-results-${{ github.sha }}
+          path: ${{ runner.temp }}/atomic-memory-oceanbase-snapshots.xml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Require all selected acceptance work and evidence
+        if: always()
+        env:
+          ACCEPTANCE_PLAN: ${{ toJSON(matrix) }}
+          STEP_RESULTS: ${{ toJSON(steps) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          plan = json.loads(os.environ['ACCEPTANCE_PLAN'])
+          results = json.loads(os.environ['STEP_RESULTS'])
+          required = ['oceanbase_setup'] if plan['database'] == 'oceanbase' else []
+          if plan['native']:
+              required.extend(['native_acceptance', 'native_results'])
+          if plan['replay']:
+              required.extend(['acceptance_scenarios', 'evidence_scan', 'replay_evidence'])
+          failed = {step: results.get(step, {}).get('outcome', 'missing') for step in required
+                    if results.get(step, {}).get('outcome') != 'success'}
+          if failed:
+              raise SystemExit(f'Selected acceptance work did not succeed: {failed}')
+          print('All selected acceptance work and evidence passed.')
+          PY
 
       - name: Stop harness environment
         if: always()

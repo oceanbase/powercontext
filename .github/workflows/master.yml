@@ -1144,10 +1144,13 @@ jobs:
     if: >-
       ${{ !cancelled() && needs.quality.result == 'success' &&
           contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
-          (fromJSON(needs.quality.outputs.suites || '{}').database || fromJSON(needs.quality.outputs.suites || '{}').harness) }}
+          (fromJSON(needs.quality.outputs.suites || '{}').database ||
+           fromJSON(needs.quality.outputs.suites || '{}').harness ||
+           fromJSON(needs.quality.outputs.suites || '{}').oceanbase_acceptance) }}
     uses: ./.github/workflows/e2e-harness.yml
     with:
       suites: ${{ needs.quality.outputs.suites }}
+      preflight-checked: true
 
   gateway-validation:
     needs: [quality, tests]
