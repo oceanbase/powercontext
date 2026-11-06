@@ -45,7 +45,8 @@ for key in list(os.environ):
 
 entry = next(e for e in importlib.metadata.entry_points(group="bub") if e.name == "powercontext")
 plugin_type = entry.load()
-from bub.hooks.interception import LlmCallRequest
+import republic
+from bub.hooks.interception import LLMCallRequest
 from powercontext.client import PowerContextClient
 from powercontext_bub import plugin, tools
 
@@ -71,10 +72,10 @@ async def exercise(settings):
             return PowerContextClient(base_url, http_client=transport, trust_transport_security=True)
         plugin.open_client = tools.open_client = open_client
         result = await instance.before_llm_call(
-            LlmCallRequest(run_id="compatibility", model="test", messages=[{"role": "user", "content": "test"}]),
+            LLMCallRequest(run_id="compatibility", model="test", messages=[republic.user("test")]),
             state,
         )
-        assert result is not None and result.messages[0]["content"].endswith("context")
+        assert result is not None and result.messages[0].text.endswith("context")
         assert await tools.prepare_context.run(query="test", context=SimpleNamespace(state=state)) == "context"
 
 for value in [None, {}, {"sections": []}, {"sections": [{"family": "memory", "limit": 3}]}]:

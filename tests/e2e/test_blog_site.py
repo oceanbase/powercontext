@@ -127,6 +127,12 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "deepseek-harness-powercontext/dsh-web.png",
         "deepseek-harness-powercontext/plugin-list.png",
         "deepseek-harness-powercontext/pc-command.png",
+        # Preserve the reviewed project screenshots, paired by interface language.
+        *(
+            f"magpie-gateway-powercontext-memory/{name}.{language}.png"
+            for name in ("magpie-agents", "magpie-routing", "powercontext-memory", "powercontext-handoff")
+            for language in ("en", "zh")
+        ),
         # The Harbor article deliberately shares English architecture figures across editions.
         "harbor-context-evaluation-harness/coding-verification.png",
         "harbor-context-evaluation-harness/harbor-integration.png",
@@ -145,6 +151,10 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
             for image in re.findall(r"!\[[^\]]*\]\(\.\./\.\./\.\./assets/blog/([^\s)]+)\)", markdown):
                 if image in original_images:
                     assert (ROOT / "docs/assets/blog" / image).is_file()
+                    if image.startswith("magpie-gateway-powercontext-memory/"):
+                        assert image.endswith(f".{language}.png"), f"Wrong screenshot language: {source}: {image}"
+                        counterpart = image.replace(f".{language}.png", f".{other}.png")
+                        assert (ROOT / "docs/assets/blog" / counterpart).is_file()
                     continue
                 assert image.endswith(f".{language}.svg"), f"Unlocalized diagram: {source}: {image}"
                 asset = ROOT / "docs/assets/blog" / image

@@ -18,7 +18,11 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopState } from "../generated/ipc";
 import { messages, type Language } from "./messages";
 import { connectionError, connectionMessages } from "./connection-messages";
-import { activeCheckReport } from "./context";
+import {
+  activeCheckReport,
+  connectionAccessMode,
+  connectionPrincipal,
+} from "./context";
 
 type Props = {
   state: DesktopState | null;
@@ -106,7 +110,7 @@ export function TopBar({
   );
   const principal = report?.anonymousAccess
     ? null
-    : report?.identity.value?.principal;
+    : connectionPrincipal(report);
   const identityText = !active
     ? t.notConnected
     : report?.anonymousAccess
@@ -293,14 +297,21 @@ export function TopBar({
                   {principal.description ? ` · ${principal.description}` : ""}
                 </p>
                 <p className="menu-note">
-                  {t.accessMode}: {report?.identity.value?.mode ?? t.unverified}
+                  {t.accessMode}:{" "}
+                  {connectionAccessMode(report)?.value ?? t.unverified}
                 </p>
               </>
             ) : (
               <p className="menu-note">
                 {report?.anonymousAccess ? ct.noIdentity : t.identityUnverified}
-                {report?.identity.error && (
-                  <> {connectionError(report.identity.error, language)}</>
+                {connectionAccessMode(report)?.error && (
+                  <>
+                    {" "}
+                    {connectionError(
+                      connectionAccessMode(report)?.error,
+                      language,
+                    )}
+                  </>
                 )}
               </p>
             )}
