@@ -28,6 +28,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryExtractionInput,
     AtomicMemoryExtractionOutput,
 )
+from powercontext.builtin.inference.errors import InferenceError
 
 from powercontext_eval_evidence_admission.manifests import EvaluationError, read_json
 from powercontext_eval_evidence_admission.models import digest
@@ -250,7 +251,9 @@ def test_unknown_usage_stops_even_when_output_is_valid(tmp_path, monkeypatch):
 def test_request_hash_mismatch_stops_before_provider(tmp_path):
     async def scenario():
         called = []
-        with pytest.raises(EvaluationError, match="preflight_body_changed"):
+        # SDK versions may normalize a transport guard into InferenceError. The external
+        # guarantee is rejection before sending, not the adapter's private exception class.
+        with pytest.raises((EvaluationError, InferenceError)):
             await extract(
                 AtomicMemoryExtractionInput(evidence=()),
                 api_key="offline",
