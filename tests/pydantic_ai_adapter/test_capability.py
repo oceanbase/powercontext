@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from copy import deepcopy
 from typing import Any
 
 import powercontext_pydantic_ai.toolset as toolset_module
@@ -117,7 +118,27 @@ def test_recalled_context_preserves_new_messages_boundary_across_turns(
             if isinstance(part, (UserPromptPart, SystemPromptPart, ToolCallPart, ToolReturnPart, TextPart))
         ]
 
-    async def scenario() -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+    def part_projection(messages: list[Any]) -> list[tuple[Any, ...]]:
+        """An immutable view of the caller's message content, captured before the next run.
+
+        Message metadata such as `run_id` and `timestamp` is excluded: the framework may stamp it on the
+        caller's history for its own bookkeeping, so only content, tool arguments, results, and ids are
+        claimed unchanged.
+        """
+        return [
+            (
+                type(part).__name__,
+                getattr(part, "content", None),
+                getattr(part, "tool_name", None),
+                getattr(part, "tool_call_id", None),
+                repr(getattr(part, "args", None)),
+                repr(getattr(part, "tool_return", None)),
+            )
+            for message in messages
+            for part in message.parts
+        ]
+
+    async def scenario() -> tuple[list[Any], list[Any], list[Any]]:
         agent = Agent(FunctionModel(respond), capabilities=[PowerContext(scope_id="project:boundary")])
         first = await agent.run("first prompt")
         RecordingClient.prepare_result = prepared_response("boundary-two")
@@ -125,11 +146,11 @@ def test_recalled_context_preserves_new_messages_boundary_across_turns(
         # Resume from an explicit history that ends in a `ModelRequest`, not a completed response.
         history_before_resume = [*second.all_messages(), ModelRequest(parts=[UserPromptPart("unanswered prompt")])]
         RecordingClient.prepare_result = prepared_response("boundary-three")
-        snapshot = list(history_before_resume)
+        before_run = deepcopy(part_projection(history_before_resume))
         third = await agent.run(message_history=history_before_resume)
-        # The caller's objects are never rewritten in place; only the documented context replacement happens
-        # inside the result's own copy.
-        assert prompts_and_calls(history_before_resume) == prompts_and_calls(snapshot)
+        # Compare against the projection captured before the run, so an in-place part mutation cannot hide by
+        # shifting the snapshot too. Only the documented context replacement happens inside the result's copy.
+        assert part_projection(history_before_resume) == before_run
         return second.new_messages(), third.new_messages(), third.all_messages()
 
     second_new, third_new, third_all = asyncio.run(scenario())
