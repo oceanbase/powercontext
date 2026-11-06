@@ -43,10 +43,14 @@ Python Client 返回 `PreparedContext` 或 `PreparedContextWithReuse`，读取�
 进程内沿用 `runtime.context.for_scope(scope_id).prepare(request)`；
 `validate_reuse` 检查保留的证明，不做检索或 Embedding。嵌入式应用自行提供当前可信授权上下文。
 
-首个复用 profile 支持单 Scope、实际选中的 Atomic Memory，不支持 context references 或代码。
-它记录最终选中的当前 revision、生命周期版本和完整有界历史依赖。合并结果的旧祖先在领域规则允许时仍可作为证据。
+复用 profile 支持单 Scope、实际选中的 Atomic Memory 和代码证据（`include_code: true`），不支持 context references。
+对 Atomic Memory，它记录最终选中的当前 revision、生命周期版本和完整有界历史依赖。合并结果的旧祖先在领域规则允许时仍可作为证据。
 根记忆被修订或遗忘、访问撤销、引用范围变化、绑定过期、Source 不再符合资格，都会停止旧值复用。
 请求复用时实际选中了其他 family，会明确拒绝；普通 prepare 保持原支持范围。
+
+对代码证据，它记录每个被引用文件的仓库路径和 SHA-256 摘要，并附带索引指纹以备查。校验时只按与建索引相同的路径和排除
+规则，从 Scope 当前工作区读取被引用的文件。被引用文件被修改、删除或不再可索引，或仓库不可用，都会停止复用；修改未被
+引用的文件或重建索引不会。代码文件与 Atomic Memory 依赖共用依赖上限。
 
 绑定经过认证加密，期限五分钟，最多 64 个依赖、八层祖先。绑定不是访问权限。
 Server 用既有签名秘密派生独立用途的密钥，并绑定持久 Server 身份；同部署的多个进程需要共享该秘密。

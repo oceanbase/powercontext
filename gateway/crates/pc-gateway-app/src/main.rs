@@ -59,6 +59,8 @@ pub struct AppState {
     /// Responses 入口是否注入：默认跟随 injection，
     /// `PC_GATEWAY_INJECTION_RESPONSES=off` 可单独关闭。
     pub inject_responses: bool,
+    /// 注入时同时请求代码证据：`PC_GATEWAY_INJECTION_CODE=on`（默认关）。
+    pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
     /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
@@ -155,6 +157,10 @@ async fn main() {
         injection: injection_mode(
             std::env::var("PC_GATEWAY_INJECTION").ok().as_deref(),
             std::env::var("PC_GATEWAY_CORE_UDS").is_ok(),
+        ),
+        inject_code: matches!(
+            std::env::var("PC_GATEWAY_INJECTION_CODE").as_deref(),
+            Ok("on")
         ),
         inject_responses: !matches!(
             std::env::var("PC_GATEWAY_INJECTION_RESPONSES").as_deref(),

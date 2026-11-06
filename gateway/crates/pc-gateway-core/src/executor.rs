@@ -31,6 +31,9 @@
 use crate::lifecycle::Execution;
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
+
+/// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
+const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
 use crate::{GateClient, GateError};
 use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
@@ -62,6 +65,8 @@ pub struct ManagedCall {
     pub headers: Vec<(String, String)>,
     pub degrade_policy: DegradePolicy,
     pub inject_context: bool,
+    /// 注入时同时请求代码证据（默认关）。
+    pub include_code: bool,
     /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
     pub conversation_id: Option<String>,
     pub sediment: bool,
@@ -161,89 +166,120 @@ where
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
 
-        if call.inject_context {
-            let anchor = message_anchor(&pristine_request);
-            self.enrich(&mut call, anchor, renderer.message_list_key(), evidence)
-                .await;
-        }
-
-        let payload = match renderer.render(&call.request, None) {
-            Ok(p) => p,
-            Err(e) => {
-                return ManagedOutcome::Blocked {
-                    reason_codes: vec![format!("render_failed:{e}")],
-                }
+        let anchor = call
+            .inject_context
+            .then(|| message_anchor(&pristine_request))
+            .flatten();
+        let mut refreshed = false;
+        let (payload, admission) = loop {
+            if call.inject_context {
+                self.enrich(&mut call, anchor, renderer.message_list_key(), evidence)
+                    .await;
             }
-        };
-        // Measure the actual wire body after prepare/replay, steering and JSON escaping.
-        if payload.bytes.len() > self.max_input_bytes {
-            return ManagedOutcome::Blocked {
-                reason_codes: vec!["request_payload_too_large".into()],
-            };
-        }
-        let payload_body = match String::from_utf8(payload.bytes.clone().to_vec()) {
-            Ok(text) => text,
-            Err(_) => {
-                return ManagedOutcome::Blocked {
-                    reason_codes: vec!["invalid_payload_encoding".into()],
-                }
-            }
-        };
-        let model_payload = ModelJsonPayload::new(
-            content_headers(&call.headers, payload.content_type),
-            payload_body,
-        );
-        let check = ContextCheckRequest::BeforeSend {
-            scope_id: call.scope_id.clone(),
-            target_profile: call.target_profile.clone(),
-            payload: model_payload,
-            prepared_contexts: call.prepared_contexts.clone(),
-        };
 
-        let admission = match self.gate.check(check).await {
-            Err(e) => {
-                // 降级仅适用于 Core「不可用」；Malformed（可达但响应异常）一律暂停。
-                return match (e, call.degrade_policy) {
-                    (GateError::GateUnavailable(_), DegradePolicy::PassthroughWithoutMemory) => {
-                        // P1-3：降级时丢弃已注入的载荷，用 pristine 请求重新渲染。
-                        let mut degraded_call = ManagedCall {
-                            scope_id: call.scope_id.clone(),
-                            target_profile: call.target_profile.clone(),
-                            request: pristine_request,
-                            target_url: call.target_url.clone(),
-                            headers: call.headers.clone(),
-                            degrade_policy: DegradePolicy::Pause,
-                            inject_context: false,
-                            conversation_id: None,
-                            sediment: false,
-                            prepared_contexts: Vec::new(),
-                        };
-                        degraded_call.request.stream = call.request.stream;
-                        self.degraded_send(&degraded_call, renderer, evidence, execution)
-                            .await
+            let payload = match renderer.render(&call.request, None) {
+                Ok(p) => p,
+                Err(e) => {
+                    return ManagedOutcome::Blocked {
+                        reason_codes: vec![format!("render_failed:{e}")],
                     }
-                    (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
+                }
+            };
+            // Measure every rendered body, including a refreshed prepare result.
+            if payload.bytes.len() > self.max_input_bytes {
+                return ManagedOutcome::Blocked {
+                    reason_codes: vec!["request_payload_too_large".into()],
                 };
             }
-            Ok(result) => match result.decision {
-                CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
-                    Ok((binding, deadline)) => Admission {
-                        binding,
-                        valid_until_ms: deadline,
-                    },
-                    Err(outcome) => return outcome,
-                },
-                CheckDecision::Block => {
+            let payload_body = match String::from_utf8(payload.bytes.clone().to_vec()) {
+                Ok(text) => text,
+                Err(_) => {
                     return ManagedOutcome::Blocked {
-                        reason_codes: result.reason_codes,
+                        reason_codes: vec!["invalid_payload_encoding".into()],
                     }
                 }
-                CheckDecision::Withhold => {
-                    return ManagedOutcome::Withheld {
-                        reason_codes: result.reason_codes,
-                    }
+            };
+            let model_payload = ModelJsonPayload::new(
+                content_headers(&call.headers, payload.content_type),
+                payload_body,
+            );
+            let check = ContextCheckRequest::BeforeSend {
+                scope_id: call.scope_id.clone(),
+                target_profile: call.target_profile.clone(),
+                payload: model_payload,
+                prepared_contexts: call.prepared_contexts.clone(),
+            };
+
+            let admission = match self.gate.check(check).await {
+                Err(e) => {
+                    // 降级仅适用于 Core「不可用」；Malformed（可达但响应异常）一律暂停。
+                    return match (e, call.degrade_policy) {
+                        (
+                            GateError::GateUnavailable(_),
+                            DegradePolicy::PassthroughWithoutMemory,
+                        ) => {
+                            // P1-3：降级时丢弃已注入的载荷，用 pristine 请求重新渲染。
+                            let mut degraded_call = ManagedCall {
+                                scope_id: call.scope_id.clone(),
+                                target_profile: call.target_profile.clone(),
+                                request: pristine_request.clone(),
+                                target_url: call.target_url.clone(),
+                                headers: call.headers.clone(),
+                                degrade_policy: DegradePolicy::Pause,
+                                inject_context: false,
+                                include_code: false,
+                                conversation_id: None,
+                                sediment: false,
+                                prepared_contexts: Vec::new(),
+                            };
+                            degraded_call.request.stream = call.request.stream;
+                            self.degraded_send(&degraded_call, renderer, evidence, execution)
+                                .await
+                        }
+                        (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
+                    };
                 }
-            },
+                Ok(result) => match result.decision {
+                    CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
+                        Ok((binding, deadline)) => Admission {
+                            binding,
+                            valid_until_ms: deadline,
+                        },
+                        Err(outcome) => return outcome,
+                    },
+                    CheckDecision::Block => {
+                        return ManagedOutcome::Blocked {
+                            reason_codes: result.reason_codes,
+                        }
+                    }
+                    // 复用证明的依赖已变化（例如 Agent 改了被引用的代码文件）：丢弃该会话的重放，从注入前的
+                    // 请求重新准备一次再送检，不把可恢复的过期交给客户端。每个请求最多刷新一次。
+                    CheckDecision::Withhold
+                        if !refreshed
+                            && !call.prepared_contexts.is_empty()
+                            && result
+                                .reason_codes
+                                .iter()
+                                .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
+                    {
+                        refreshed = true;
+                        if let Some((conversation, anchor)) =
+                            call.conversation_id.as_deref().zip(anchor)
+                        {
+                            self.replays.forget(&call.scope_id, conversation, anchor);
+                        }
+                        call.request = pristine_request.clone();
+                        call.prepared_contexts.clear();
+                        continue;
+                    }
+                    CheckDecision::Withhold => {
+                        return ManagedOutcome::Withheld {
+                            reason_codes: result.reason_codes,
+                        }
+                    }
+                },
+            };
+            break (payload, admission);
         };
 
         // P1-4：发送阶段。每次尝试前验有效期；确定性失败后重新走 check 拿新准入。
@@ -494,6 +530,7 @@ where
                 query,
                 max_bytes: 8192,
                 include_reuse: true,
+                include_code: call.include_code,
                 // P2 review：限定 memory-only（#2313 reuse 只支持 atomic-memory），
                 // 防止 Experience/Topic 加入后 check 拒绝导致注入静默失效。
                 assembly: Some(pc_gateway_types::ContextAssembly::memory_only()),
