@@ -2988,6 +2988,13 @@ async fn terminal_evidence_covers_zero_send_release_refusal_and_paid_possibility
         assert_eq!(record.call_id, observation.call_id());
         assert_eq!(record.terminal, expected_terminal, "{case}");
         assert_eq!(record.sending, expected_send, "{case}");
+        let snapshot = observation.snapshot();
+        assert_eq!(
+            snapshot.execution,
+            ExecutionState::Finished(record.terminal),
+            "{case}"
+        );
+        assert_eq!(snapshot.model_send, record.sending, "{case}");
         assert_eq!(record.attempts, expected_attempts, "{case}");
         assert!(record.upstream_ttft_ms.is_none());
         assert!(
@@ -3054,6 +3061,7 @@ async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts()
             None,
         );
         let cancellation = control.cancellation();
+        let observation = control.observation();
         let renderer = RendererRef(renderer);
         let mut future =
             Box::pin(executor.run(control, call(DegradePolicy::Pause), &renderer, &evidence));
@@ -3070,6 +3078,12 @@ async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts()
         assert_eq!(record.terminal, Terminal::Abandoned);
         assert_eq!(record.sending, Sending::PossiblySent);
         assert_eq!(record.interruption, Some(expected));
+        let snapshot = observation.snapshot();
+        assert_eq!(
+            snapshot.execution,
+            ExecutionState::Finished(record.terminal)
+        );
+        assert_eq!(snapshot.model_send, record.sending);
         let EvidenceEvent::Attempt(attempt) = &evidence.events()[0] else {
             panic!("missing attempt")
         };

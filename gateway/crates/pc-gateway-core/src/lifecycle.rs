@@ -1,34 +1,23 @@
+// Copyright (c) 2026 OceanBase.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::ManagedOutcome;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-/// Sending facts for the whole call, independent of authorization and local delivery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelSendState {
-    /// No attempt has crossed the transport boundary.
-    NoSend,
-    /// Every attempted send was confirmed unsent by the transport.
-    DefinitelyNotSent,
-    /// An attempt was handed off without evidence ruling out sending.
-    PossiblySent,
-    /// A complete upstream response was obtained, regardless of release or decoding.
-    ResponseReceived,
-}
-
-/// The local execution terminal; none of these establishes client receipt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionTerminal {
-    ReleaseAuthorized,
-    Blocked,
-    Withheld,
-    SendIndeterminate,
-    NotSent,
-    GatePaused,
-    Degraded,
-    AdmissionExpired,
-    Abandoned,
-}
+pub use pc_gateway_types::{ExecutionTerminal, ModelSendState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionState {
@@ -164,17 +153,7 @@ impl Execution {
     }
 
     pub(crate) fn finish(&mut self, outcome: &ManagedOutcome) {
-        let terminal = match outcome {
-            ManagedOutcome::Released { .. } => ExecutionTerminal::ReleaseAuthorized,
-            ManagedOutcome::Blocked { .. } => ExecutionTerminal::Blocked,
-            ManagedOutcome::Withheld { .. } => ExecutionTerminal::Withheld,
-            ManagedOutcome::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
-            ManagedOutcome::NotSent { .. } => ExecutionTerminal::NotSent,
-            ManagedOutcome::GatePaused(_) => ExecutionTerminal::GatePaused,
-            ManagedOutcome::Degraded { .. } => ExecutionTerminal::Degraded,
-            ManagedOutcome::AdmissionExpired => ExecutionTerminal::AdmissionExpired,
-        };
-        self.control.shared.snapshot().execution = ExecutionState::Finished(terminal);
+        self.control.shared.snapshot().execution = ExecutionState::Finished(outcome.terminal());
     }
 }
 

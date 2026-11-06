@@ -88,30 +88,8 @@ impl UsageEvidence {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Sending {
-    #[default]
-    NoSend,
-    DefinitelyNotSent,
-    PossiblySent,
-    ResponseReceived,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Terminal {
-    ReleaseAuthorized,
-    Blocked,
-    Withheld,
-    SendIndeterminate,
-    NotSent,
-    GatePaused,
-    Degraded,
-    AdmissionExpired,
-    #[default]
-    Abandoned,
-}
+// Preserve the public evidence names while sharing the authoritative lifecycle fact types.
+pub use pc_gateway_types::{ExecutionTerminal as Terminal, ModelSendState as Sending};
 
 /// Facts observed on future drop; neither intent nor elapsed deadline proves its cause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

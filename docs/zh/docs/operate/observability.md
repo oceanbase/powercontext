@@ -11,6 +11,10 @@ description: 通过日志定位请求，并查看 Server 指标与 Trace。
 
 需要自动配置的本地 metrics、traces 和 logs 后端时，参见[参考监控环境](reference-observability-stack.md)。
 
+Rust Gateway 调用证据使用独立的 `gateway.model_call` 操作及 `call`、`attempt`、`delivery` 单位。
+通用 outcome 投影与 exporter 边界见 [Gateway 证据契约](gateway-evidence.md)。
+托管 Server OTLP pipeline 默认不采集该 JSONL 流。
+
 ## 日志
 
 前台 Server 将运行日志写入进程输出。可配置 `POWERCONTEXT_SERVER_LOGGING_LEVEL`（默认 `INFO`）、

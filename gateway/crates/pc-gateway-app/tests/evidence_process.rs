@@ -50,7 +50,11 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
             "usage":{"prompt_tokens":101, "completion_tokens":13, "prompt_tokens_details":{"cached_tokens":61}}
         })) }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
+    let base = format!(
+        "http://SYNTHETIC_CORE_USER:SYNTHETIC_CORE_PASSWORD@{}/SYNTHETIC_PRIVATE_PATH",
+        listener.local_addr().unwrap()
+    );
+    let fixture = Router::new().nest("/SYNTHETIC_PRIVATE_PATH", fixture);
     let fixture_task = tokio::spawn(async move {
         axum::serve(listener, fixture).await.unwrap();
     });
@@ -74,7 +78,7 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
             )
             .env("PC_GATEWAY_API_KEY", "SYNTHETIC_GATEWAY_KEY")
             .env("PC_GATEWAY_UPSTREAM_API_KEY", "SYNTHETIC_PROVIDER_KEY")
-            .env("PC_GATEWAY_INJECTION", "off")
+            .env("PC_GATEWAY_INJECTION", "SYNTHETIC_INVALID_INJECTION_VALUE")
             .env("RUST_LOG", "info")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -161,6 +165,10 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
                 }
                 if record["event"] == "call" {
                     let evidence = &record["evidence"];
+                    assert_eq!(record["operation"], "gateway.model_call");
+                    assert_eq!(record["unit"], "call");
+                    assert_eq!(record["outcome"], "success");
+                    assert_eq!(record["duration_ms"], evidence["duration_ms"]);
                     assert_eq!(evidence["terminal"], "release_authorized");
                     assert_eq!(evidence["usage"]["input"]["tokens"], 101);
                     assert_eq!(evidence["usage"]["cache_read"]["tokens"], 61);
@@ -174,4 +182,30 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
         }
     }
     fixture_task.abort();
+}
+
+#[test]
+fn rejected_startup_does_not_expose_uds_or_steering_paths() {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pc-gateway"));
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("PC_GATEWAY_") {
+            command.env_remove(key);
+        }
+    }
+    let missing = std::env::temp_dir()
+        .join(format!("SYNTHETIC_PRIVATE_STEERING_{}", std::process::id()))
+        .join("missing.txt");
+    let output = command
+        .env("PC_GATEWAY_CORE_UDS", "/SYNTHETIC_PRIVATE_SOCKET/core.sock")
+        .env("PC_GATEWAY_STEERING_FILE", missing)
+        .env("RUST_LOG", "info")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let errors = String::from_utf8(output.stderr).unwrap();
+    assert!(errors.contains("core link: UDS"));
+    assert!(errors.contains("proxy: forwarding"));
+    assert!(errors.contains("file cannot be read"));
+    assert!(!errors.contains("SYNTHETIC_"));
 }

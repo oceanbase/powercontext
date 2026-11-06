@@ -99,6 +99,23 @@ pub enum ManagedOutcome {
     AdmissionExpired,
 }
 
+impl ManagedOutcome {
+    /// One terminal interpretation shared by lifecycle snapshots and evidence.
+    pub(crate) fn terminal(&self) -> crate::ExecutionTerminal {
+        use crate::ExecutionTerminal;
+        match self {
+            Self::Released { .. } => ExecutionTerminal::ReleaseAuthorized,
+            Self::Blocked { .. } => ExecutionTerminal::Blocked,
+            Self::Withheld { .. } => ExecutionTerminal::Withheld,
+            Self::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
+            Self::NotSent { .. } => ExecutionTerminal::NotSent,
+            Self::GatePaused(_) => ExecutionTerminal::GatePaused,
+            Self::Degraded { .. } => ExecutionTerminal::Degraded,
+            Self::AdmissionExpired => ExecutionTerminal::AdmissionExpired,
+        }
+    }
+}
+
 pub struct Executor<G, T> {
     gate: G,
     transport: T,

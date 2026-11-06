@@ -142,16 +142,7 @@ impl<'a> CallRecorder<'a> {
     }
 
     pub(crate) fn finish(&mut self, outcome: &ManagedOutcome) {
-        self.call.terminal = match outcome {
-            ManagedOutcome::Released { .. } => Terminal::ReleaseAuthorized,
-            ManagedOutcome::Blocked { .. } => Terminal::Blocked,
-            ManagedOutcome::Withheld { .. } => Terminal::Withheld,
-            ManagedOutcome::SendIndeterminate => Terminal::SendIndeterminate,
-            ManagedOutcome::NotSent { .. } => Terminal::NotSent,
-            ManagedOutcome::GatePaused(_) => Terminal::GatePaused,
-            ManagedOutcome::Degraded { .. } => Terminal::Degraded,
-            ManagedOutcome::AdmissionExpired => Terminal::AdmissionExpired,
-        };
+        self.call.terminal = outcome.terminal();
     }
 }
 

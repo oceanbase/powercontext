@@ -297,11 +297,8 @@ fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
         Some("off") => Injection::Off,
         None if combined => Injection::ConversationsOnly,
         None => Injection::Off,
-        Some(other) => {
-            tracing::warn!(
-                value = other,
-                "PC_GATEWAY_INJECTION must be on or off; injection disabled"
-            );
+        Some(_) => {
+            tracing::warn!("PC_GATEWAY_INJECTION must be on or off; injection disabled");
             Injection::Off
         }
     }

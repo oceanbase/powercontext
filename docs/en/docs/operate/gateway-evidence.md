@@ -25,7 +25,7 @@ A stalled stdout can occupy the one exporter thread but cannot accumulate more t
 The rest of the Gateway still has its own request/response buffers and concurrency limits.
 
 Every readable line has `schema`, `operation=gateway.model_call`, `unit` (`call`, `attempt`, `delivery`),
-`event` (the same three values), `evidence`, and `loss`. The process-local cumulative `loss.dropped`,
+`event` (the same three values), `outcome`, `duration_ms`, `evidence`, and `loss`. The process-local cumulative `loss.dropped`,
 `loss.write_failed` and `loss.written` count discarded submissions, failed/unconfirmed record writes, and completed
 write-and-flush operations respectively, sampled before that line's write. Recovered output reports earlier losses;
 an embedding host can also read `JsonEvidenceSink.stats()` during congestion. No execution IDs are metric labels.
@@ -34,6 +34,41 @@ one line, and process exit can lose queued records. Readers should skip malforme
 the exporter restores a newline boundary before the next record. Counters reset on restart. There is no replay or
 billing/audit durability guarantee, and no financial reconciliation, token savings or task-success claim.
 If the worker cannot start, the application reports a fixed diagnostic and uses Noop without changing business results.
+
+## Operational vocabulary and exporter boundary
+
+The [Server operational contract](observability.md) and the managed stack from
+[#2388](https://github.com/oceanbase/powercontext/pull/2388) use bounded operation/unit/outcome fields.
+Gateway evidence uses the same field meanings with its own operation, `gateway.model_call`: it counts one local
+managed model execution, not a Core `context_check` application operation or a worker inference generation.
+`unit=call` counts logical executions, `attempt` counts real transport handoffs, and `delivery` describes local
+framework observations. Do not sum the three units or count delivery events as additional calls.
+
+| Evidence facts | Top-level operational `outcome` |
+| --- | --- |
+| Call `release_authorized` or `degraded`, observed upstream status < 400 | `success` |
+| Same terminals with observed upstream status >= 400 | `failure` |
+| Same terminals with missing upstream status | null |
+| Call `blocked`, `withheld`, `admission_expired` | `blocked` |
+| Call `send_indeterminate`, `not_sent`, `gate_paused` | `failure` |
+| Call `abandoned`, regardless of observed interruption intent/deadline | null |
+| Attempt `delivered` | `success` |
+| Attempt `possibly_sent` on future destruction | null |
+| Other terminal attempt outcomes | `failure` |
+| Any delivery observation | null |
+
+Null is unavailable classification, not `success` or `noop`. In particular, destruction-time cancellation intent
+is not a confirmed cancellation cause and is not projected as `cancelled`. Keep the nested terminal, sending,
+interruption and attempt outcome fields: the common outcome does not replace them. `success` here does not prove
+strict release authorization for degraded output, client receipt, task adoption or task success.
+Top-level `duration_ms` copies call/attempt duration; it is null for delivery, whose `elapsed_ms` has a different origin.
+
+The existing managed Collector receives Server OTLP logs and reduces them through the Server field allowlist.
+It does **not** ingest Gateway stdout by default, and that transform would discard nested `schema/evidence/loss`.
+Keep the complete JSONL in a collector with bounded retention; feeding it through the Server formatter or current
+OTLP pipeline is not a supported evidence-preserving path. The common fields enable vocabulary-compatible queries;
+this implementation adds no Prometheus metrics, OTLP exporter or duplicate monitoring stack. External Collector/Loki
+storage and readback have not been verified for this stream.
 
 ## Correlation and coverage
 
@@ -58,6 +93,8 @@ exported and are not model-send facts.
 The `call` record contains `terminal`, `sending`, `attempts`, `upstream_status`, normalized `usage`, optional
 `interruption`, and timing fields. Terminal values are `release_authorized`, `blocked`, `withheld`,
 `send_indeterminate`, `not_sent`, `gate_paused`, `degraded`, `admission_expired`, and `abandoned`.
+Lifecycle snapshots and evidence share `ExecutionTerminal` and `ModelSendState` from `pc-gateway-types`;
+`ManagedOutcome` has one terminal mapping. Existing Rust import names in core and evidence remain re-exports.
 `sending` independently reports `no_send`, `definitely_not_sent`, `possibly_sent`, or `response_received`.
 A release refusal or expiry after a response preserves `response_received` and any reported usage.
 
@@ -138,6 +175,11 @@ socket writes. Non-streaming Responses JSON's first byte and replayed SSE output
 
 ## Deployment and compatibility
 
+Operational diagnostics identify TCP/UDS connection mode without logging the configured Core URL or socket path.
+Invalid injection settings omit the supplied value; steering-file rejection uses fixed reasons without a file path.
+Operators should inspect their protected configuration for endpoints and paths.
+The additive top-level `outcome` and `duration_ms` fields preserve the nested domain records. Consumers must accept
+null classifications, including abandoned execution and delivery observations.
 The additive `delivery.boundary=first_model_content` value requires consumers with exhaustive enum matching to
 accept the new value; consumers must not assume a fixed number of records per call.
 Collectors that previously consumed human tracing from stdout must move that input to stderr and parse evidence

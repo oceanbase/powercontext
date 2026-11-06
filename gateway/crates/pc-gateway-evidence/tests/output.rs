@@ -181,3 +181,126 @@ fn writer_errors_are_isolated_counted_and_never_serialized() {
         1
     );
 }
+
+#[test]
+fn operational_fields_preserve_domain_facts_and_do_not_infer_interruption_causes() {
+    use serde_json::json;
+    let output = Output::default();
+    let sink = JsonEvidenceSink::new(output.clone(), NonZeroUsize::new(64).unwrap()).unwrap();
+    let mut expected = Vec::new();
+    for (terminal, status, interruption, outcome) in [
+        (
+            Terminal::ReleaseAuthorized,
+            Some(200),
+            None,
+            json!("success"),
+        ),
+        (
+            Terminal::ReleaseAuthorized,
+            Some(500),
+            None,
+            json!("failure"),
+        ),
+        (Terminal::ReleaseAuthorized, None, None, json!(null)),
+        (Terminal::Degraded, Some(200), None, json!("success")),
+        (Terminal::Degraded, Some(429), None, json!("failure")),
+        (Terminal::Blocked, None, None, json!("blocked")),
+        (Terminal::Withheld, Some(200), None, json!("blocked")),
+        (
+            Terminal::AdmissionExpired,
+            Some(200),
+            None,
+            json!("blocked"),
+        ),
+        (Terminal::SendIndeterminate, None, None, json!("failure")),
+        (Terminal::NotSent, None, None, json!("failure")),
+        (Terminal::GatePaused, None, None, json!("failure")),
+        (
+            Terminal::Abandoned,
+            None,
+            Some(Interruption::CancellationRequested),
+            json!(null),
+        ),
+        (
+            Terminal::Abandoned,
+            None,
+            Some(Interruption::DeadlineElapsed),
+            json!(null),
+        ),
+        (
+            Terminal::Abandoned,
+            None,
+            Some(Interruption::FutureDropped),
+            json!(null),
+        ),
+    ] {
+        let call = CallEvidence {
+            terminal,
+            upstream_status: status,
+            interruption,
+            duration_ms: 17,
+            ..record()
+        };
+        sink.record_call(&call);
+        expected.push((
+            "call",
+            outcome,
+            json!(17),
+            serde_json::to_value(call).unwrap(),
+        ));
+    }
+    for (outcome, operational) in [
+        (AttemptOutcome::Delivered, json!("success")),
+        (AttemptOutcome::UpstreamError, json!("failure")),
+        (AttemptOutcome::ConnectRefused, json!("failure")),
+        (AttemptOutcome::RejectedLocally, json!("failure")),
+        (AttemptOutcome::LostAfterHandoff, json!("failure")),
+        (AttemptOutcome::TimeoutAwaitingResponse, json!("failure")),
+        (AttemptOutcome::BufferLimitExceeded, json!("failure")),
+        (AttemptOutcome::PossiblySent, json!(null)),
+    ] {
+        let attempt = AttemptEvidence {
+            call_id: new_call_id(),
+            outcome,
+            duration_ms: 9,
+            ..Default::default()
+        };
+        sink.record_attempt_evidence(&attempt);
+        expected.push((
+            "attempt",
+            operational,
+            json!(9),
+            serde_json::to_value(attempt).unwrap(),
+        ));
+    }
+    for boundary in [
+        DeliveryBoundary::FrameworkHandoff,
+        DeliveryBoundary::FirstBodyFrame,
+        DeliveryBoundary::FirstModelContent,
+        DeliveryBoundary::BodyCompleted,
+        DeliveryBoundary::BodyDropped,
+    ] {
+        let delivery = DeliveryEvidence {
+            call_id: new_call_id(),
+            boundary,
+            elapsed_ms: 23,
+        };
+        sink.record_delivery(&delivery);
+        expected.push((
+            "delivery",
+            json!(null),
+            json!(null),
+            serde_json::to_value(delivery).unwrap(),
+        ));
+    }
+    until(|| sink.stats().written as usize == expected.len());
+    let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+    for (line, (unit, outcome, duration, domain)) in text.lines().zip(expected) {
+        let value: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(value["operation"], "gateway.model_call");
+        assert_eq!(value["unit"], unit);
+        assert_eq!(value["outcome"], outcome);
+        assert_eq!(value["duration_ms"], duration);
+        assert_eq!(value["evidence"], domain);
+    }
+}

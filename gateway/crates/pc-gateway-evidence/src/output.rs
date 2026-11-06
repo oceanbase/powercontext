@@ -12,11 +12,49 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AttemptEvidence, CallEvidence, DeliveryEvidence, EvidenceEvent, EvidenceSink};
+use crate::{
+    AttemptEvidence, AttemptOutcome, CallEvidence, DeliveryEvidence, EvidenceEvent, EvidenceSink,
+    Terminal,
+};
 use serde::Serialize;
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
+
+// Match the Server's bounded operational vocabulary without discarding domain facts.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OperationalOutcome {
+    Success,
+    Failure,
+    Blocked,
+}
+
+fn operational_outcome(event: &EvidenceEvent) -> Option<OperationalOutcome> {
+    use OperationalOutcome::*;
+    match event {
+        EvidenceEvent::Call(call) => match call.terminal {
+            Terminal::ReleaseAuthorized | Terminal::Degraded => call
+                .upstream_status
+                .map(|status| if status >= 400 { Failure } else { Success }),
+            Terminal::Blocked | Terminal::Withheld | Terminal::AdmissionExpired => Some(Blocked),
+            Terminal::SendIndeterminate | Terminal::NotSent | Terminal::GatePaused => Some(Failure),
+            // Drop-time intent/deadline facts do not establish why the owner stopped execution.
+            Terminal::Abandoned => None,
+        },
+        EvidenceEvent::Attempt(attempt) => match attempt.outcome {
+            AttemptOutcome::Delivered => Some(Success),
+            AttemptOutcome::PossiblySent => None,
+            AttemptOutcome::UpstreamError
+            | AttemptOutcome::ConnectRefused
+            | AttemptOutcome::RejectedLocally
+            | AttemptOutcome::LostAfterHandoff
+            | AttemptOutcome::TimeoutAwaitingResponse
+            | AttemptOutcome::BufferLimitExceeded => Some(Failure),
+        },
+        EvidenceEvent::Delivery(_) => None,
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct EvidenceStats {
@@ -68,6 +106,8 @@ impl JsonEvidenceSink {
                         schema: &'static str,
                         operation: &'static str,
                         unit: &'static str,
+                        outcome: Option<OperationalOutcome>,
+                        duration_ms: Option<u64>,
                         #[serde(flatten)]
                         event: &'a EvidenceEvent,
                         loss: EvidenceStats,
@@ -79,6 +119,12 @@ impl JsonEvidenceSink {
                             EvidenceEvent::Call(_) => "call",
                             EvidenceEvent::Attempt(_) => "attempt",
                             EvidenceEvent::Delivery(_) => "delivery",
+                        },
+                        outcome: operational_outcome(&event),
+                        duration_ms: match &event {
+                            EvidenceEvent::Call(call) => Some(call.duration_ms),
+                            EvidenceEvent::Attempt(attempt) => Some(attempt.duration_ms),
+                            EvidenceEvent::Delivery(_) => None,
                         },
                         event: &event,
                         loss: worker_counters.snapshot(),

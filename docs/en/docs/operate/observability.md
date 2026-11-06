@@ -10,6 +10,10 @@ These signals describe service behavior; they do not replace inspection of store
 
 For a provisioned local metrics/trace/log backend, see the [reference observability stack](reference-observability-stack.md).
 
+Rust Gateway call evidence uses its own `gateway.model_call` operation with `call`, `attempt`, and `delivery` units.
+Its common outcome projection and exporter limits are defined in the [Gateway evidence contract](gateway-evidence.md).
+The managed Server OTLP pipeline does not ingest that JSONL stream by default.
+
 ## Logs
 
 The foreground Server writes operational logs to its process output. Configure

@@ -23,7 +23,7 @@ PC_GATEWAY_EVIDENCE=off ./gateway/target/release/pc-gateway
 不会持续增加线程或队列条目。Gateway 的请求/响应缓冲与并发仍有各自的资源限制。
 
 每行包含 `schema`、`operation=gateway.model_call`、`unit`（`call`、`attempt`、`delivery`）、
-`event`（同样的三个值）、`evidence` 和 `loss`。进程内累计的 `loss.dropped`、`loss.write_failed`、
+`event`（同样的三个值）、`outcome`、`duration_ms`、`evidence` 和 `loss`。进程内累计的 `loss.dropped`、`loss.write_failed`、
 `loss.written` 分别统计被丢弃的提交、失败或无法确认的记录写出、完成写入并 flush 的记录，
 采样发生在当前行写出之前。恢复后的输出会携带此前的丢失计数；嵌入宿主也能在拥塞时读取
 `JsonEvidenceSink.stats()`。执行身份不作为指标标签。
@@ -31,6 +31,38 @@ PC_GATEWAY_EVIDENCE=off ./gateway/target/release/pc-gateway
 读取器应跳过畸形行和空行；写出失败后，exporter 会先补换行，再写下一条记录。计数随进程重启清零。
 没有重放、计费或审计持久性保证，也不建立财务对账、token 节省或任务成功结论。
 写出线程无法启动时，应用输出固定诊断并使用 Noop，不改变业务结果。
+
+## 运维词汇与 exporter 边界
+
+[Server 运维契约](observability.md)和 [#2388](https://github.com/oceanbase/powercontext/pull/2388)
+的托管监控栈使用有界的 operation/unit/outcome 字段。Gateway 证据沿用这些字段的含义，
+使用自身所属操作 `gateway.model_call`：统计一次本地托管模型执行，不是 Core 的 `context_check`
+application operation，也不是 worker 的 inference generation。
+`unit=call` 统计逻辑执行，`attempt` 统计实际 transport 交接，`delivery` 描述本地框架观测。
+三种 unit 不能相加，delivery 事件也不能当作额外调用。
+
+| 证据事实 | 顶层运维 `outcome` |
+| --- | --- |
+| 调用 `release_authorized` 或 `degraded`，已观察上游状态码 < 400 | `success` |
+| 同上，已观察上游状态码 >= 400 | `failure` |
+| 同上，上游状态码缺失 | null |
+| 调用 `blocked`、`withheld`、`admission_expired` | `blocked` |
+| 调用 `send_indeterminate`、`not_sent`、`gate_paused` | `failure` |
+| 调用 `abandoned`，不论销毁时的取消意图/期限事实 | null |
+| 尝试 `delivered` | `success` |
+| future 销毁时的尝试 `possibly_sent` | null |
+| 其他终态尝试结果 | `failure` |
+| 任何 delivery 观测 | null |
+
+null 表示分类不可得，不是 `success` 或 `noop`。销毁时存在取消意图不能证明取消原因，因此不投影为
+`cancelled`。保留嵌套的 terminal、sending、interruption 和尝试 outcome；通用 outcome 不能替代这些事实。
+这里的 `success` 不证明降级输出获得 strict 释放批准、客户端收到、任务采用或任务成功。
+顶层 `duration_ms` 复制调用/尝试耗时；delivery 为 null，因为其 `elapsed_ms` 使用不同的起点。
+
+现有托管 Collector 接收 Server OTLP 日志，并通过 Server 字段白名单精简；默认**不采集** Gateway stdout，
+该 transform 也会丢弃嵌套的 `schema/evidence/loss`。完整 JSONL 应交给具有有界保留策略的采集器；
+通过 Server formatter 或当前 OTLP pipeline 转发不能保全此证据流。公共字段用于词汇兼容的查询，
+本实现不新增 Prometheus 指标、OTLP exporter 或重复监控栈；未验证该流在外部 Collector/Loki 中的存储与读回。
 
 ## 关联与覆盖范围
 
@@ -53,6 +85,8 @@ PC_GATEWAY_EVIDENCE=off ./gateway/target/release/pc-gateway
 `call` 记录包含 `terminal`、`sending`、`attempts`、`upstream_status`、归一化 `usage`、
 可选 `interruption` 和计时字段。终态取值为 `release_authorized`、`blocked`、`withheld`、
 `send_indeterminate`、`not_sent`、`gate_paused`、`degraded`、`admission_expired`、`abandoned`。
+生命周期快照与证据共享 `pc-gateway-types` 的 `ExecutionTerminal`、`ModelSendState`；
+`ManagedOutcome` 只保留一处终态映射。core 与 evidence 现有 Rust 导入名称继续通过重导出提供。
 `sending` 独立表示 `no_send`、`definitely_not_sent`、`possibly_sent`、`response_received`。
 取得响应后发生释放拒绝或期限过期，仍保留 `response_received` 与已上报的 usage。
 
@@ -130,6 +164,11 @@ item-added 事件若确实包含函数名或输出文本，也可以建立内容
 
 ## 部署与兼容
 
+运维诊断只说明 TCP/UDS 连接模式，不输出配置的 Core URL 或 socket 路径。
+非法 injection 配置不输出输入值；steering 文件拒绝使用固定原因，不包含文件路径。
+运维人员应从受保护配置中检查端点和路径。
+新增顶层 `outcome`、`duration_ms` 字段，嵌套领域记录保持原有含义。消费方必须接受 null 分类，
+包括 abandoned 执行与 delivery 观测。
 新增 `delivery.boundary=first_model_content` 值，穷举匹配枚举的消费方需要接受该值，
 不能假定每次调用的记录数量固定。
 原来从 stdout 采集人类可读 tracing 的部署，需要改为采集 stderr，并单独解析 stdout 证据。
