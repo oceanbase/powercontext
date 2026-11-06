@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from urllib.parse import urlparse
 
 import httpx
@@ -42,6 +43,12 @@ from powercontext.builtin.inference.errors import (
     InvalidInferenceOutputError,
 )
 from powercontext.builtin.inference.models import EmbeddingResult, InferenceUsage, combine_inference_usage
+from powercontext.builtin.inference.observability import (
+    ProviderObservationSource,
+    current_provider_observer,
+    observe_business_error,
+    observe_http_client,
+)
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
@@ -99,6 +106,14 @@ class MiniMaxEmbeddingModel:
             )
         else:
             self._client = http_client or httpx.AsyncClient(timeout=timeout_seconds)
+        self._provider_observations = ProviderObservationSource("minimax", "embedding", current_provider_observer())
+        if self._provider_observations.observer is not None:
+            supported = False
+            if http_client is None:
+                with suppress(Exception):
+                    observe_http_client(self._client)
+                    supported = True
+            self._provider_observations.emit("coverage", outcome="available" if supported else "unavailable")
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client (registered with the runtime stack)."""
@@ -123,62 +138,63 @@ class MiniMaxEmbeddingModel:
         if not texts:
             return EmbeddingResult(vectors=())
 
-        try:
-            result = await asyncio.wait_for(
-                self._embed_batches(texts, embedding_type=embedding_type), timeout=self._timeout
-            )
-        except asyncio.CancelledError:
-            raise
-        except (InvalidInferenceOutputError, InferenceConfigurationError):
-            raise
-        except TimeoutError as error:
-            raise attach_diagnostics(
-                InferenceTimeoutError("embed", self._timeout),
-                ProcessingDiagnostics(
-                    stage=ProcessingStage.EMBEDDING,
-                    reason=ProcessingFailureReason.TIMEOUT,
-                    cause_exception_type=type(error).__name__,
-                ),
-            ) from error
-        except httpx.TimeoutException as error:
-            raise attach_diagnostics(
-                InferenceTimeoutError("embed", self._timeout),
-                ProcessingDiagnostics(
-                    stage=ProcessingStage.EMBEDDING,
-                    reason=ProcessingFailureReason.TIMEOUT,
-                    cause_exception_type=type(error).__name__,
-                ),
-            ) from error
-        except httpx.HTTPStatusError as error:
-            status = error.response.status_code
-            if status == 429:
-                reason = ProcessingFailureReason.RATE_LIMIT
-            elif status in {408, 504}:
-                reason = ProcessingFailureReason.TIMEOUT
-            elif status in {401, 403}:
-                reason = ProcessingFailureReason.CONFIGURATION
-            elif status in {409, 425} or status >= 500:
-                reason = ProcessingFailureReason.PROVIDER_UNAVAILABLE
-            else:
-                reason = None
-            raise attach_diagnostics(
-                InferenceUnavailableError("embed"),
-                ProcessingDiagnostics(
-                    stage=ProcessingStage.EMBEDDING,
-                    reason=reason,
-                    cause_exception_type=type(error).__name__,
-                ),
-            ) from error
-        except httpx.HTTPError as error:
-            raise attach_diagnostics(
-                InferenceUnavailableError("embed"),
-                ProcessingDiagnostics(
-                    stage=ProcessingStage.EMBEDDING,
-                    reason=ProcessingFailureReason.PROVIDER_UNAVAILABLE,
-                    cause_exception_type=type(error).__name__,
-                ),
-            ) from error
-        return result
+        with self._provider_observations.operation():
+            try:
+                result = await asyncio.wait_for(
+                    self._embed_batches(texts, embedding_type=embedding_type), timeout=self._timeout
+                )
+            except asyncio.CancelledError:
+                raise
+            except (InvalidInferenceOutputError, InferenceConfigurationError):
+                raise
+            except TimeoutError as error:
+                raise attach_diagnostics(
+                    InferenceTimeoutError("embed", self._timeout),
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.EMBEDDING,
+                        reason=ProcessingFailureReason.TIMEOUT,
+                        cause_exception_type=type(error).__name__,
+                    ),
+                ) from error
+            except httpx.TimeoutException as error:
+                raise attach_diagnostics(
+                    InferenceTimeoutError("embed", self._timeout),
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.EMBEDDING,
+                        reason=ProcessingFailureReason.TIMEOUT,
+                        cause_exception_type=type(error).__name__,
+                    ),
+                ) from error
+            except httpx.HTTPStatusError as error:
+                status = error.response.status_code
+                if status == 429:
+                    reason = ProcessingFailureReason.RATE_LIMIT
+                elif status in {408, 504}:
+                    reason = ProcessingFailureReason.TIMEOUT
+                elif status in {401, 403}:
+                    reason = ProcessingFailureReason.CONFIGURATION
+                elif status in {409, 425} or status >= 500:
+                    reason = ProcessingFailureReason.PROVIDER_UNAVAILABLE
+                else:
+                    reason = None
+                raise attach_diagnostics(
+                    InferenceUnavailableError("embed"),
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.EMBEDDING,
+                        reason=reason,
+                        cause_exception_type=type(error).__name__,
+                    ),
+                ) from error
+            except httpx.HTTPError as error:
+                raise attach_diagnostics(
+                    InferenceUnavailableError("embed"),
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.EMBEDDING,
+                        reason=ProcessingFailureReason.PROVIDER_UNAVAILABLE,
+                        cause_exception_type=type(error).__name__,
+                    ),
+                ) from error
+            return result
 
     async def _embed_batches(self, texts: tuple[str, ...], *, embedding_type: str) -> EmbeddingResult:
         vectors: list[tuple[float, ...]] = []
@@ -223,6 +239,7 @@ class MiniMaxEmbeddingModel:
         if isinstance(base_resp, Mapping):
             status_code = base_resp.get("status_code")
             if status_code is not None and status_code != 0:
+                observe_business_error(status_code)
                 status_msg = base_resp.get("status_msg")
                 detail = f"provider returned MiniMax status_code {status_code}"
                 if isinstance(status_msg, str) and status_msg.strip():

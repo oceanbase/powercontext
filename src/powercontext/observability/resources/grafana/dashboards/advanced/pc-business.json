@@ -1,0 +1,1272 @@
+{
+  "uid": "pc-business",
+  "title": "PowerContext · 库存与用量明细",
+  "description": "从主监控页进入的业务明细。填写业务空间可看一个业务空间；留空则汇总所有可访问业务空间。库存是当前快照，模型用量按 UTC 周期，不受图表时间范围影响。手动刷新；缺少数据或权限不足显示未知，不显示为零。",
+  "schemaVersion": 40,
+  "version": 8,
+  "tags": [
+    "powercontext"
+  ],
+  "timezone": "browser",
+  "refresh": "",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "scope_id",
+        "label": "业务空间",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "text": "",
+            "value": "",
+            "selected": true
+          }
+        ]
+      },
+      {
+        "name": "period",
+        "label": "用量周期（UTC）",
+        "type": "custom",
+        "query": "today,7d,30d",
+        "current": {
+          "text": "30d",
+          "value": "30d"
+        },
+        "options": [
+          {
+            "text": "today",
+            "value": "today",
+            "selected": false
+          },
+          {
+            "text": "7d",
+            "value": "7d",
+            "selected": false
+          },
+          {
+            "text": "30d",
+            "value": "30d",
+            "selected": true
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 200,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**这里查看库存与模型用量。** “业务空间（Scope）”是业务隔离空间；输入（Source）是形成记忆的原始记录；记忆（Memory）是已保存的长期记忆；产物（Artifact）是可检索产物；Token 是模型处理的计量单位。业务空间留空时汇总所有可访问业务空间。库存是当前快照；模型用量按 UTC 周期，不随图表时间范围变化。"
+      }
+    },
+    {
+      "id": 1,
+      "title": "记忆数量 · 当前库存",
+      "type": "stat",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "inventory.memory.entries",
+          "columns": [
+            {
+              "selector": "total",
+              "text": "总计",
+              "type": "number"
+            },
+            {
+              "selector": "active",
+              "text": "有效",
+              "type": "number"
+            },
+            {
+              "selector": "inactive",
+              "text": "失效",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "当前业务空间的记忆数量，包含已遗忘、已合并和已退役项。不是历史修订数，也不是可召回数量。",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 2,
+      "title": "输入与记忆处理进度 · 当前库存",
+      "type": "stat",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "inventory.sources",
+          "columns": [
+            {
+              "selector": "total",
+              "text": "输入总数",
+              "type": "number"
+            },
+            {
+              "selector": "memory_processed",
+              "text": "已处理",
+              "type": "number"
+            },
+            {
+              "selector": "memory_pending",
+              "text": "待处理",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "输入是形成记忆的原始记录，游标是已处理位置。已处理可能正常无产出；未处理不一定表示失败。",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 3,
+      "title": "产物类型 · 当前库存",
+      "type": "table",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "inventory.artifacts.by_family",
+          "columns": [
+            {
+              "selector": "family",
+              "text": "产物类型",
+              "type": "string"
+            },
+            {
+              "selector": "total",
+              "text": "当前有效数",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "当前有效的产物数量。不是历史修订数或后台执行成功数。",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "产物类型"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "atomic-memory": {
+                        "text": "记忆"
+                      },
+                      "memory": {
+                        "text": "记忆"
+                      },
+                      "topic-memory": {
+                        "text": "主题记忆"
+                      },
+                      "profile": {
+                        "text": "用户画像"
+                      },
+                      "experience": {
+                        "text": "经验"
+                      },
+                      "skill": {
+                        "text": "技能"
+                      },
+                      "handoff": {
+                        "text": "交接"
+                      },
+                      "prompt": {
+                        "text": "提示词"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "title": "候选审核状态 · 当前库存",
+      "type": "stat",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "inventory.candidates",
+          "columns": [
+            {
+              "selector": "total",
+              "text": "总计",
+              "type": "number"
+            },
+            {
+              "selector": "pending",
+              "text": "待处理",
+              "type": "number"
+            },
+            {
+              "selector": "approved",
+              "text": "已通过",
+              "type": "number"
+            },
+            {
+              "selector": "rejected",
+              "text": "已拒绝",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "当前候选的审核状态。候选待审不等于已经发布，审核通过也不等于一定被召回或采用。",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 5,
+      "title": "模型用量 · 所选 UTC 周期",
+      "type": "stat",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "usage.totals",
+          "columns": [
+            {
+              "selector": "generation.requests",
+              "text": "生成请求数",
+              "type": "number"
+            },
+            {
+              "selector": "generation.input_tokens",
+              "text": "生成输入 Token",
+              "type": "number"
+            },
+            {
+              "selector": "generation.output_tokens",
+              "text": "生成输出 Token",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.requests",
+              "text": "向量化请求数",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.input_tokens",
+              "text": "向量化输入 Token",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.output_tokens",
+              "text": "向量化输出 Token",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "模型服务商上报的模型请求和 Token 用量。空值表示未上报，不能按 0 计算；用量按 UTC 周期。",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "模型服务商未回报用量",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 6,
+      "title": "模型用途用量 · 所选 UTC 周期",
+      "type": "table",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "usage.by_purpose",
+          "columns": [
+            {
+              "selector": "purpose",
+              "text": "用途",
+              "type": "string"
+            },
+            {
+              "selector": "generation.requests",
+              "text": "生成请求数",
+              "type": "number"
+            },
+            {
+              "selector": "generation.input_tokens",
+              "text": "生成输入 Token",
+              "type": "number"
+            },
+            {
+              "selector": "generation.output_tokens",
+              "text": "生成输出 Token",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.requests",
+              "text": "向量化请求数",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.input_tokens",
+              "text": "向量化输入 Token",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.output_tokens",
+              "text": "向量化输出 Token",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "按用途拆分的模型服务商上报用量。空值表示未上报；不要把它当作计费账单。",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "用途"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "生成请求数"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "生成输入 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "生成输出 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "向量化请求数"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "向量化输入 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "向量化输出 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          }
+        ]
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "用途": 0,
+              "生成请求数": 1,
+              "生成输入 Token": 2,
+              "生成输出 Token": 3,
+              "向量化请求数": 4,
+              "向量化输入 Token": 5,
+              "向量化输出 Token": 6
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "召回 Token 估算 · 所选 UTC 周期",
+      "type": "stat",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "recall.totals",
+          "columns": [
+            {
+              "selector": "preparations",
+              "text": "上下文准备次数",
+              "type": "number"
+            },
+            {
+              "selector": "ready_preparations",
+              "text": "上下文已就绪次数",
+              "type": "number"
+            },
+            {
+              "selector": "comparable_preparations",
+              "text": "可比较准备次数",
+              "type": "number"
+            },
+            {
+              "selector": "baseline_tokens",
+              "text": "基线 Token",
+              "type": "number"
+            },
+            {
+              "selector": "recalled_tokens",
+              "text": "召回后 Token",
+              "type": "number"
+            },
+            {
+              "selector": "token_reduction",
+              "text": "Token 减少量",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "按当前估算器计算的召回 Token 数，不是模型服务商实际计费量；Token 减少量可以为负。",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "当前周期没有召回记录",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 8,
+      "title": "记忆种类 · 当前库存",
+      "type": "table",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "inventory.memory.entries.by_kind",
+          "columns": [
+            {
+              "selector": "kind",
+              "text": "记忆类型",
+              "type": "string"
+            },
+            {
+              "selector": "total",
+              "text": "总计",
+              "type": "number"
+            },
+            {
+              "selector": "active",
+              "text": "有效",
+              "type": "number"
+            },
+            {
+              "selector": "inactive",
+              "text": "失效",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "当前记忆按种类统计的数量。它是库存快照，不是所选时间范围的新增数。",
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "记忆类型"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "fact": {
+                        "text": "事实"
+                      },
+                      "preference": {
+                        "text": "偏好"
+                      },
+                      "decision": {
+                        "text": "决策"
+                      },
+                      "constraint": {
+                        "text": "约束"
+                      },
+                      "working_note": {
+                        "text": "工作笔记"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "总计"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "有效"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "失效"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "记忆类型": 0,
+              "总计": 1,
+              "有效": 2,
+              "失效": 3
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "每日模型用量 · 所选 UTC 周期",
+      "type": "table",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "usage.daily",
+          "columns": [
+            {
+              "selector": "date",
+              "text": "UTC 日期",
+              "type": "string"
+            },
+            {
+              "selector": "generation.requests",
+              "text": "生成请求数",
+              "type": "number"
+            },
+            {
+              "selector": "generation.input_tokens",
+              "text": "生成输入 Token",
+              "type": "number"
+            },
+            {
+              "selector": "generation.output_tokens",
+              "text": "生成输出 Token",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.requests",
+              "text": "向量化请求数",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.input_tokens",
+              "text": "向量化输入 Token",
+              "type": "number"
+            },
+            {
+              "selector": "embedding.output_tokens",
+              "text": "向量化输出 Token",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "description": "按 UTC 日期拆分的模型服务商上报用量。空值表示未上报，不能按 0 计算。",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "UTC 日期"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "生成请求数"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "生成输入 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "生成输出 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "向量化请求数"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "向量化输入 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "向量化输出 Token"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          }
+        ]
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "UTC 日期": 0,
+              "生成请求数": 1,
+              "生成输入 Token": 2,
+              "生成输出 Token": 3,
+              "向量化请求数": 4,
+              "向量化输入 Token": 5,
+              "向量化输出 Token": 6
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "数据口径说明",
+      "type": "table",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "pc-stats"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://stats:8080/stats?scope_id=${scope_id:percentencode}&period=${period}",
+          "url_options": {
+            "method": "GET"
+          },
+          "root_selector": "",
+          "columns": [
+            {
+              "selector": "as_of",
+              "text": "快照时间",
+              "type": "string"
+            },
+            {
+              "selector": "usage.period.preset",
+              "text": "用量周期",
+              "type": "string"
+            },
+            {
+              "selector": "usage.period.start_date",
+              "text": "开始 UTC 日期",
+              "type": "string"
+            },
+            {
+              "selector": "usage.period.end_date",
+              "text": "结束 UTC 日期",
+              "type": "string"
+            },
+            {
+              "selector": "recall.estimator.estimator_id",
+              "text": "Token 估算器",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "description": "业务空间留空时汇总所有可访问业务空间。库存是当前快照；用量按 UTC 周期；缺少数据或权限不足显示未知，不显示为零。",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "快照时间"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "用量周期"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "today": {
+                        "text": "今日"
+                      },
+                      "7d": {
+                        "text": "近 7 天"
+                      },
+                      "30d": {
+                        "text": "近 30 天"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Token 估算器"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "character:weighted": {
+                        "text": "按字符数加权估算"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "快照时间": 0,
+              "用量周期": 1,
+              "开始 UTC 日期": 2,
+              "结束 UTC 日期": 3,
+              "Token 估算器": 4
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "全服务总览",
+      "type": "link",
+      "url": "/d/pc-overview",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "业务进展",
+      "type": "link",
+      "url": "/d/pc-flow",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "后台处理",
+      "type": "link",
+      "url": "/d/pc-processing",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "模型调用",
+      "type": "link",
+      "url": "/d/pc-providers",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "服务与采集",
+      "type": "link",
+      "url": "/d/pc-service",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ]
+}

@@ -42,3 +42,6 @@ tower = { workspace = true }
 hyper-util = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

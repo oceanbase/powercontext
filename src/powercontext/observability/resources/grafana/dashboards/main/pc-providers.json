@@ -1,0 +1,1304 @@
+{
+  "uid": "pc-providers",
+  "title": "PowerContext · 模型调用",
+  "description": "按所选时间范围查看模型调用次数、结果、耗时、HTTP 状态和逐次日志。进程累计值受服务重启影响；调用链是否保存需单独核对。",
+  "schemaVersion": 40,
+  "version": 8,
+  "tags": [
+    "powercontext"
+  ],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "role",
+        "label": "服务角色",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"powercontext\"}, role)",
+          "refId": "role"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "instance",
+        "label": "服务实例",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"powercontext\",role=~\"$role\"}, instance)",
+          "refId": "instance"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "provider",
+        "label": "模型服务商 / 协议",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(powercontext_server_provider_http_observation_supported, provider)",
+          "refId": "provider"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "capability",
+        "label": "模型能力",
+        "type": "custom",
+        "query": "生成模型 : generation,向量模型 : embedding",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "execution",
+        "label": "执行进程",
+        "type": "custom",
+        "query": "服务主进程 : parent,后台子进程 : worker",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "scope_id",
+        "label": "业务空间",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 2
+      },
+      {
+        "name": "period",
+        "label": "用量周期（UTC）",
+        "type": "custom",
+        "query": "today,7d,30d",
+        "current": {
+          "text": "30d",
+          "value": "30d"
+        },
+        "options": [
+          {
+            "text": "today",
+            "value": "today",
+            "selected": false
+          },
+          {
+            "text": "7d",
+            "value": "7d",
+            "selected": false
+          },
+          {
+            "text": "30d",
+            "value": "30d",
+            "selected": true
+          }
+        ],
+        "hide": 2
+      },
+      {
+        "name": "operation",
+        "label": "操作筛选（正则）",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "hide": 2
+      },
+      {
+        "name": "family",
+        "label": "处理类型（正则）",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "hide": 2
+      },
+      {
+        "name": "error_category",
+        "label": "错误分类（正则）",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "**先看调用规模、结果和耗时。** 点击曲线点可查看前后 5 分钟日志；展开日志后可打开调用链。调用次数按最终模型操作计算；HTTP 状态码按每次响应头计算，重试会让二者数量不同。服务主进程与后台子进程分别显示。"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "调用次数 · 时间范围 / 累计",
+      "description": "“时间范围”是所选区间内的估算调用次数；“累计”从当前服务进程启动后累计，重启归零。调用次数按最终模型操作计算。",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range]))) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "所选窗口",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "(sum(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"})) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "进程累计",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "所选窗口"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "进程累计"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "调用结果比例",
+      "description": "按最终模型操作计算成功、失败和取消比例。取消不等于失败；没有调用时保持未知。",
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",outcome=\"success\"}[$__range])) or vector(0)) / sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range]))) and on() (sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "成功率",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "((sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",outcome=\"failure\"}[$__range])) or vector(0)) / sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range]))) and on() (sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "失败率",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "expr": "((sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",outcome=\"cancelled\"}[$__range])) or vector(0)) / sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range]))) and on() (sum(increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "取消率",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "成功率"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "失败率"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "取消率"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8A97A8"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "调用耗时 P50 / P95",
+      "description": "最终模型操作从开始到返回的完整耗时，包含重试、读取响应和校验输出。",
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by(le) (increase(powercontext_server_provider_operation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range]))) and on() (sum(increase(powercontext_server_provider_operation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "P50",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by(le) (increase(powercontext_server_provider_operation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range]))) and on() (sum(increase(powercontext_server_provider_operation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "P95",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "未知 · 缺少观测",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "未知 · 缺少观测",
+                  "color": "#8A97A8"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "P95"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 100,
+      "type": "row",
+      "title": "调用趋势 · 成功、失败、服务主进程与后台子进程",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "调用量 · 成功 / 失败 / 取消",
+      "description": "每个时间段的最终模型操作数量。取消不是失败；重试会产生多次 HTTP 尝试，但不一定产生多次最终操作。",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(role,instance,provider,capability) (increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",outcome=\"success\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · 成功",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(role,instance,provider,capability) (increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",outcome=\"failure\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · 失败",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(role,instance,provider,capability) (increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",outcome=\"cancelled\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · 取消",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂无调用",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 28,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "barAlignment": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-providers?viewPanel=20&time=${__value.time}&time.window=600000&var-role=${__field.labels.role:percentencode}&var-instance=${__field.labels.instance:percentencode}&var-provider=${__field.labels.provider:percentencode}&var-capability=${__field.labels.capability:percentencode}&var-execution=${execution:percentencode}&var-operation=.*&var-family=.*&var-error_category=.*",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*成功$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*失败$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*取消$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8A97A8"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)host\\.docker\\.internal:([0-9]+)(.*)",
+            "renamePattern": "$1端口 $2$3"
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "调用量 · 服务主进程 / 后台子进程",
+      "description": "同一模型操作按执行进程拆分。后台子进程的调用在服务主进程收到回传后才计入。",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(role,instance,provider,capability) (increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",execution=\"parent\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · 服务主进程",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(role,instance,provider,capability) (increase(powercontext_server_provider_operations_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\",execution=\"worker\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · 后台子进程",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂无调用",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 28,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "barAlignment": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-providers?viewPanel=20&time=${__value.time}&time.window=600000&var-role=${__field.labels.role:percentencode}&var-instance=${__field.labels.instance:percentencode}&var-provider=${__field.labels.provider:percentencode}&var-capability=${__field.labels.capability:percentencode}&var-execution=${execution:percentencode}&var-operation=.*&var-family=.*&var-error_category=.*",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*服务主进程$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*后台子进程$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)host\\.docker\\.internal:([0-9]+)(.*)",
+            "renamePattern": "$1端口 $2$3"
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "调用耗时 P50 / P95",
+      "description": "最终模型操作的耗时趋势。日志会显示每一条调用的实际耗时。",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by(role,instance,provider,capability,le) (increase(powercontext_server_provider_operation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__rate_interval]))) and on(role,instance,provider,capability) (sum by(role,instance,provider,capability) (increase(powercontext_server_provider_operation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__rate_interval])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · P50",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by(role,instance,provider,capability,le) (increase(powercontext_server_provider_operation_duration_seconds_bucket{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__rate_interval]))) and on(role,instance,provider,capability) (sum by(role,instance,provider,capability) (increase(powercontext_server_provider_operation_duration_seconds_count{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__rate_interval])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · P95",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "暂无调用",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-providers?viewPanel=20&time=${__value.time}&time.window=600000&var-role=${__field.labels.role:percentencode}&var-instance=${__field.labels.instance:percentencode}&var-provider=${__field.labels.provider:percentencode}&var-capability=${__field.labels.capability:percentencode}&var-execution=${execution:percentencode}&var-operation=.*&var-family=.*&var-error_category=.*",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*P50$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*P95$"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)host\\.docker\\.internal:([0-9]+)(.*)",
+            "renamePattern": "$1端口 $2$3"
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "HTTP 状态码 · 请求量",
+      "description": "模型服务商实际返回的 HTTP 响应头。超时或连接失败可能没有状态码；SDK 重试会增加尝试次数。",
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(role,instance,provider,capability,status_code) (increase(powercontext_server_provider_http_responses_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",provider=~\"$provider\",capability=~\"$capability\",execution=~\"$execution\"}[$__rate_interval])) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+          "legendFormat": "{{instance}} · {{capability}} · HTTP {{status_code}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "暂无调用",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 28,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "barAlignment": 0
+          },
+          "links": [
+            {
+              "title": "查看此时的相关日志",
+              "url": "/d/pc-providers?viewPanel=20&time=${__value.time}&time.window=600000&var-role=${__field.labels.role:percentencode}&var-instance=${__field.labels.instance:percentencode}&var-provider=${__field.labels.provider:percentencode}&var-capability=${__field.labels.capability:percentencode}&var-execution=${execution:percentencode}&var-operation=.*&var-family=.*&var-error_category=.*",
+              "targetBlank": false
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)generation(.*)",
+            "renamePattern": "$1生成模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)embedding(.*)",
+            "renamePattern": "$1向量模型$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)host\\.docker\\.internal:([0-9]+)(.*)",
+            "renamePattern": "$1端口 $2$3"
+          }
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "调用证据 · 日志与调用链",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "logs",
+      "title": "调用日志 · 展开查看调用链",
+      "description": "显示当前筛选、实例和时间范围内的模型服务 HTTP 与最终操作事件。逐条耗时来自日志；展开记录可打开调用链，调用链可能未保存或已过保留期。",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 13
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=~\"powercontext.*\"} | json | service_target=~`${instance:regex}` | (service_owner_role=~`${role:regex}` or (service_owner_role=\"\" and service_role=~`${role:regex}`)) | provider=~`${provider:raw}` | model_capability=~`${capability:raw}` | operation=~`${operation:raw}` | family=~`${family:raw}` | error_category=~`${error_category:raw}` | event=~\"provider[.].*\" | line_format `{{ .event | replace \"artifact_processing.block_recheck_failed\" \"阻止复查失败\" | replace \"artifact_processing.worker.acknowledged\" \"处理结果已确认写入\" | replace \"artifact_processing.worker.acknowledge\" \"处理结果确认中\" | replace \"artifact_processing.worker.interrupted\" \"后台子进程被中断\" | replace \"artifact_processing.worker.memory_hold\" \"记忆写入暂缓\" | replace \"topic_memory.search.embedding_fallback\" \"主题记忆改用关键词检索\" | replace \"artifact_processing.attempt.completed\" \"本次处理尝试完成\" | replace \"artifact_processing.worker.returned\" \"后台子进程已返回\" | replace \"artifact_processing.worker.started\" \"后台子进程已开始\" | replace \"artifact_processing.worker.execute\" \"后台子进程执行中\" | replace \"artifact_processing.worker.blocked\" \"后台子进程被规则阻止\" | replace \"artifact_processing.worker.failed\" \"后台子进程失败\" | replace \"artifact_processing.worker.start\" \"后台子进程已开始\" | replace \"application.operation.completed\" \"业务操作完成\" | replace \"artifact_processing.worker.wait\" \"后台子进程等待中\" | replace \"artifact_processing.configured\" \"处理配置完成\" | replace \"artifact_processing.dispatched\" \"已派发给后台子进程\" | replace \"provider.operation.completed\" \"最终模型操作完成\" | replace \"application.scope.completed\" \"业务空间操作完成\" | replace \"provider.business.completed\" \"服务商业务拒绝\" | replace \"artifact_processing.failure\" \"处理失败\" | replace \"artifact_processing.blocked\" \"被规则阻止\" | replace \"transport.request.completed\" \"外部请求完成\" | replace \"artifact_processing.queued\" \"已进入队列\" | replace \"artifact_processing.failed\" \"处理失败\" | replace \"collector.continuity.probe\" \"采集连续性测试\" | replace \"artifact.read.completed\" \"产物读取完成\" | replace \"provider.http.completed\" \"模型服务响应\" | replace \"retrieval.completed\" \"检索完成\" | replace \"server.degraded\" \"服务降级\" }} | {{ .provider | replace \"huggingface\" \"Hugging Face\" | replace \"openrouter\" \"OpenRouter\" | replace \"anthropic\" \"Anthropic\" | replace \"deepseek\" \"DeepSeek\" | replace \"bedrock\" \"Amazon Bedrock\" | replace \"mistral\" \"Mistral\" | replace \"minimax\" \"MiniMax\" | replace \"openai\" \"OpenAI\" | replace \"google\" \"Google\" | replace \"cohere\" \"Cohere\" | replace \"ollama\" \"Ollama\" | replace \"azure\" \"Azure OpenAI\" | replace \"other\" \"其他服务商\" | replace \"groq\" \"Groq\" }} / {{ .model_capability | replace \"generation\" \"生成模型\" | replace \"embedding\" \"向量模型\" }} | {{ .operation | replace \"incubate_experience_candidates\" \"生成经验候选（incubate_experience_candidates）\" | replace \"mcp.resources.templates.list\" \"列出 MCP 资源模板（mcp.resources.templates.list）\" | replace \"prepare_bootstrap_context\" \"准备启动上下文（prepare_bootstrap_context）\" | replace \"get_prompt_configuration\" \"读取提示词配置（get_prompt_configuration）\" | replace \"capture_content_source\" \"采集输入（capture_content_source）\" | replace \"process_artifact_scope\" \"处理产物任务（process_artifact_scope）\" | replace \"resolve_scope_binding\" \"解析业务空间绑定（resolve_scope_binding）\" | replace \"get_artifact_revision\" \"读取产物版本（get_artifact_revision）\" | replace \"process_source_window\" \"处理输入窗口（process_source_window）\" | replace \"review_catalog_change\" \"审核目录变更（review_catalog_change）\" | replace \"list_atomic_memories\" \"列出记忆（list_atomic_memories）\" | replace \"search_atomic_memory\" \"检索原子记忆（search_atomic_memory）\" | replace \"provider.generation\" \"生成模型调用（provider.generation）\" | replace \"artifact_processing\" \"处理后台任务（artifact_processing）\" | replace \"record_task_outcome\" \"记录任务结果（record_task_outcome）\" | replace \"search_topic_memory\" \"检索主题记忆（search_topic_memory）\" | replace \"mcp.resources.list\" \"列出 MCP 资源（mcp.resources.list）\" | replace \"provider.embedding\" \"向量模型调用（provider.embedding）\" | replace \"record_skill_usage\" \"记录技能使用（record_skill_usage）\" | replace \"set_scope_binding\" \"设置业务空间绑定（set_scope_binding）\" | replace \"get_default_scope\" \"读取默认业务空间（get_default_scope）\" | replace \"artifact_dreaming\" \"生成产物（artifact_dreaming）\" | replace \"get_capabilities\" \"读取服务能力（get_capabilities）\" | replace \"continue_handoff\" \"继续交接（continue_handoff）\" | replace \"access_readiness\" \"检查访问就绪（access_readiness）\" | replace \"review_candidate\" \"审核候选（review_candidate）\" | replace \"prepare_context\" \"准备检索上下文（prepare_context）\" | replace \"remember_memory\" \"保存记忆（remember_memory）\" | replace \"collector_probe\" \"采集连续性测试（collector_probe）\" | replace \"list_artifacts\" \"列出产物（list_artifacts）\" | replace \"mcp.initialize\" \"MCP 初始化（mcp.initialize）\" | replace \"mcp.tools.list\" \"列出 MCP 工具（mcp.tools.list）\" | replace \"mcp.tools.call\" \"调用 MCP 工具（mcp.tools.call）\" | replace \"create_source\" \"创建输入（create_source）\" | replace \"flush_profile\" \"刷新用户画像（flush_profile）\" | replace \"search_memory\" \"检索记忆（search_memory）\" | replace \"get_artifact\" \"读取产物（get_artifact）\" | replace \"list_scopes\" \"列出业务空间（list_scopes）\" | replace \"get_metrics\" \"读取监控指标（get_metrics）\" | replace \"query_code\" \"查询代码（query_code）\" | replace \"get_stats\" \"读取统计数据（get_stats）\" | replace \"get_scope\" \"读取业务空间（get_scope）\" | replace \"unmatched\" \"未匹配接口（unmatched）\" }}{{if .outcome}} | {{ .outcome | replace \"not_modified\" \"未修改\" | replace \"unavailable\" \"不可用\" | replace \"cancelled\" \"取消\" | replace \"available\" \"可用\" | replace \"nonempty\" \"有结果\" | replace \"fallback\" \"降级回退\" | replace \"queued\" \"已排队\" | replace \"running\" \"执行中\" | replace \"pending\" \"待处理\" | replace \"received\" \"已收到\" | replace \"missing\" \"缺失\" | replace \"needs_evidence\" \"需补充证据\" | replace \"no_change\" \"无变化\" | replace \"success\" \"成功\" | replace \"failure\" \"失败\" | replace \"timeout\" \"超时\" | replace \"blocked\" \"被阻止\" | replace \"skipped\" \"跳过\" | replace \"empty\" \"空结果\" }}{{end}}{{if .error_category}} · 分类 {{ .error_category | replace \"invalid_request\" \"请求无效（invalid_request）\" | replace \"authentication\" \"认证失败（authentication）\" | replace \"authorization\" \"授权失败（authorization）\" | replace \"configuration\" \"配置错误（configuration）\" | replace \"unavailable\" \"不可用（unavailable）\" | replace \"dependency\" \"依赖异常（dependency）\" | replace \"rate_limit\" \"限流（rate_limit）\" | replace \"not_found\" \"未找到（not_found）\" | replace \"cancelled\" \"已取消（cancelled）\" | replace \"conflict\" \"冲突（conflict）\" | replace \"internal\" \"内部错误（internal）\" | replace \"timeout\" \"超时（timeout）\" | replace \"blocked\" \"被规则阻止（blocked）\" | replace \"unknown\" \"未知（unknown）\" }}{{end}}{{if .error_code}} · 代码 {{.error_code}}{{end}}{{if eq .event \"provider.http.completed\"}} | {{if .status_code}}HTTP {{.status_code}}{{else}}无响应头{{end}}{{if eq .provider_retry \"retry\"}} · SDK 重试{{else if eq .provider_retry \"initial\"}} · 首次尝试{{else if .provider_retry}} · 重试标记 {{.provider_retry}}{{end}}{{end}}{{if .duration_ms}} | {{ .duration_ms | float64 | printf \"%.0f\" }} 毫秒{{else}} | 耗时未知{{end}} | {{ .service_role | replace \"background\" \"后台服务\" | replace \"worker\" \"后台子进程\" | replace \"server\" \"服务主进程\" | replace \"api\" \"API 服务\" | replace \"all\" \"组合进程\" }} {{.service_target}}{{if .trace_id}} | 调用链 trace_id={{.trace_id}}{{end}}{{if .request_id}} 请求={{.request_id}}{{end}}{{if .worker_id}} worker_id={{.worker_id}}{{end}}`",
+          "queryType": "range",
+          "maxLines": 300,
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "direction": "backward"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "暂无数据"
+        }
+      }
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "采集完整性 · 按需展开",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "后台子进程回报覆盖率",
+          "description": "后台子进程完成调用后，服务主进程实际收到回传的比例。它不是模型成功率；仍在运行的子进程尚未回传，无调用时也不能据此判断模型健康。",
+          "gridPos": {
+            "x": 0,
+            "y": 40,
+            "w": 24,
+            "h": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "(sum(increase(powercontext_server_provider_worker_reports_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\",outcome=\"received\"}[$__range])) / sum(increase(powercontext_server_provider_worker_reports_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}[$__range]))) and on() (sum(increase(powercontext_server_provider_worker_reports_total{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}[$__range])) > 0) and on() (max(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"}) == 1) and on() (max(time() - timestamp(up{job=\"powercontext\",role=~\"$role\",instance=~\"$instance\"})) < 45)",
+              "legendFormat": "已收到",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "decimals": 2,
+              "noValue": "未知 · 缺少观测",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#5794F2"
+              },
+              "mappings": [
+                {
+                  "type": "special",
+                  "options": {
+                    "match": "null",
+                    "result": {
+                      "text": "未知 · 缺少观测",
+                      "color": "#8A97A8"
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "已收到"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "#F2495C",
+                          "value": null
+                        },
+                        {
+                          "color": "#FF9830",
+                          "value": 0.9
+                        },
+                        {
+                          "color": "#73BF69",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "textMode": "value_and_name",
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          }
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "title": "全服务总览",
+      "type": "link",
+      "url": "/d/pc-overview",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "业务进展",
+      "type": "link",
+      "url": "/d/pc-flow",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "后台处理",
+      "type": "link",
+      "url": "/d/pc-processing",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "模型调用",
+      "type": "link",
+      "url": "/d/pc-providers",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "服务与采集",
+      "type": "link",
+      "url": "/d/pc-service",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "timepicker": {
+    "refresh_intervals": [
+      "15s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  }
+}

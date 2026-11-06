@@ -68,6 +68,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerFailure,
     WorkerInitializerPreparation,
 )
+from powercontext.server.authz.errors import AccessDeniedError
 from powercontext.server.context import bind_request_id, current_request_id, reset_request_id
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import JsonFormatter, OperationalContextFilter, WorkerLogging, worker_logging
@@ -379,6 +380,8 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         raise CancelledError(_PRIVATE)
     if assignment.scope_id == "unexpected":
         raise RuntimeError(_PRIVATE)
+    if assignment.scope_id == "denied":
+        raise AccessDeniedError()
     if assignment.scope_id == "blocked":
         blocked = ArtifactProcessingBlockedError(
             ArtifactProcessingBlock("frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),))
@@ -409,10 +412,11 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
         ("cancellation-subclass", "cancelled", "cancelled"),
         ("cancellation-name-collision", "internal", "failure"),
         ("unexpected", "internal", "failure"),
+        ("denied", "authorization", "failure"),
     ],
 )
 def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
-    capfd, tmp_path, scope_id, category, outcome
+    capfd, caplog, tmp_path, scope_id, category, outcome
 ) -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
@@ -464,6 +468,13 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
         assert _PRIVATE not in captured.out + captured.err + repr([dict(span.attributes or {}) for span in spans])
         terminal = [record for record in _json_records(captured.out) if record.get("duration_ms") is not None]
         assert terminal and terminal[-1]["error_category"] == category
+        if outcome == "blocked":
+            blocked = next(r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked")
+            worker_span = next(span for span in spans if span.name == "artifact_processing.worker")
+            assert worker_span.context is not None
+            assert blocked.trace_id == f"{worker_span.context.trace_id:032x}"
+            assert blocked.estimated_input_tokens == 123
+            assert blocked.effective_budget == 100
     finally:
         tracing.shutdown()
 

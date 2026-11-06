@@ -215,6 +215,8 @@ class ServerLoggingConfig(BaseModel):
     def resolve_directory(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
+    otlp_enabled: bool = False
+
     @field_validator("level", mode="before")
     @classmethod
     def normalize_level(cls, value: object) -> object:
