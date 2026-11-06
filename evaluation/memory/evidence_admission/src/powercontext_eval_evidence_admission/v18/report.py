@@ -134,8 +134,10 @@ def summarize(directory):
         }
         literal_measured = row["planned_calls"] > 0 and missing == 0
         known_literal_absence = eligible and literal_measured and bool(required_literals - raw_literals)
+        failed_output = any(r["outcome"] != "returned" for r in actual)
         failure = (
             critical > 0
+            or failed_output
             or known_literal_absence
             or eligible
             and missing == 0
@@ -162,6 +164,7 @@ def summarize(directory):
             "proven_delivered_atom_hashes": sorted(retained),
             "semantic_unresolved": unreviewed,
             "known_quality_failure": bool(failure),
+            "failed_output": failed_output,
             "known_literal_absence": bool(known_literal_absence),
             "literal_output_measured": literal_measured,
             "literal_presence_basis": "Pipeline_accepted_candidates; rejected_output_occurrences_are_separate_diagnostics",

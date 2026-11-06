@@ -421,3 +421,23 @@ def test_cancellation_after_response_keeps_usage_and_remains_reportable(tmp_path
         assert not result["rows"][-1]["proven_delivered_atom_hashes"]
 
     asyncio.run(scenario())
+
+
+def test_invalid_negative_control_output_is_a_quality_failure_with_zero_required_facts(tmp_path, monkeypatch):
+    async def scenario():
+        await controlled_session(tmp_path, monkeypatch, "negative-control")
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        response["choices"][0]["message"]["content"] = "{not-json"
+        for _ in range(3):
+            await workflow.run_next(
+                tmp_path, transport=httpx.MockTransport(lambda req: httpx.Response(200, json=response))
+            )
+        result = report.summarize(tmp_path)
+        candidate = result["rows"][-1]
+        assert candidate["required_atom_hashes"] == []
+        assert candidate["failed_output"] and candidate["known_quality_failure"]
+        assert result["candidate_known_quality_failure_rows"] == 1
+        assert not result["quality_gate_passed"]
+
+    asyncio.run(scenario())
