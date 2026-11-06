@@ -149,8 +149,8 @@ def test_cumulative_reservation_uses_v9_scope_and_v17_actual_usage():
     assert not workflow.can_reserve("2.775815")
 
 
-async def controlled_session(tmp_path, monkeypatch):
-    case = core.suite_for("synthetic-v1").cases[0]
+async def controlled_session(tmp_path, monkeypatch, case_id="small-complete"):
+    case = next(c for c in core.suite_for("synthetic-v1").cases if c.case_id == case_id)
     row, values = await core.prepare_one("synthetic-v1", case, core.ARMS[-1], 4096, 0)
     # Two explicitly planned calls; no fake claim about a complete formal matrix.
     row["planned_calls"] = 2
@@ -361,5 +361,34 @@ def test_public_report_distinguishes_unrun_calls_from_measured_quality_failure(t
         first = after["records"][0]["call_id"]
         (tmp_path / "audit" / (first + ".response-bytes.json")).unlink()
         assert report.summarize(tmp_path)["decision"] == "insufficient_evidence"
+
+    asyncio.run(scenario())
+
+
+def test_unresolved_semantics_does_not_hide_proven_literal_absence(tmp_path, monkeypatch):
+    async def scenario():
+        await controlled_session(tmp_path, monkeypatch, "exact-literals")
+        response = mock_response()
+        response["model"] = "deepseek-flash"
+        request = read_json(next(iter((tmp_path / "preflight/audit").glob("*.request.json"))))
+        evidence_id = json.loads(request["messages"][2]["content"])["evidence"][0]["evidence_id"]
+        response["choices"][0]["message"]["content"] = json.dumps(
+            {
+                "candidates": [
+                    {"kind": "fact", "text": "The deployment settings were recorded.", "evidence_ids": [evidence_id]}
+                ]
+            }
+        )
+        for _ in range(3):
+            await workflow.run_next(
+                tmp_path, transport=httpx.MockTransport(lambda req: httpx.Response(200, json=response))
+            )
+        result = report.summarize(tmp_path)
+        candidate = result["rows"][-1]
+        assert candidate["semantic_unresolved"] == 2
+        assert len(candidate["required_literal_hashes"]) == 4
+        assert candidate["raw_present_literal_hashes"] == []
+        assert candidate["known_literal_absence"] and candidate["known_quality_failure"]
+        assert result["decision"] == "insufficient_evidence"
 
     asyncio.run(scenario())

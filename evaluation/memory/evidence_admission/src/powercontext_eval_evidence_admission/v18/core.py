@@ -142,7 +142,8 @@ async def prepare_one(dataset, case, arm, budget, repetition):
     if sample.memory_mutations or sample.published_cursor:
         raise EvaluationError("v18_unexpected_production_mutation")
     quotes = tuple(q for value in probe.inputs for q in quote_inventory(value, sample.supports))
-    admitted = {a["id"] for a in ground_truth(case) if supported_atom(a, quotes)} if quotes else set()
+    truth = ground_truth(case)
+    admitted = {a["id"] for a in truth if supported_atom(a, quotes)} if quotes else set()
     row = {
         "row_id": sample_key(dataset, case, arm, budget, repetition),
         "dataset": dataset,
@@ -151,7 +152,12 @@ async def prepare_one(dataset, case, arm, budget, repetition):
         "budget": budget,
         "repetition": repetition,
         "sample": sample.model_dump(mode="json"),
-        "required_atom_hashes": sorted(digest(a["id"]) for a in ground_truth(case)),
+        "required_atom_hashes": sorted(digest(a["id"]) for a in truth),
+        "required_literal_hashes": sorted(
+            digest({"atom": atom["id"], "literal_index": index})
+            for atom in truth
+            for index in range(len(atom["literals"]))
+        ),
         "admitted_atom_hashes": sorted(digest(a) for a in admitted),
         "planned_calls": len(probe.inputs),
         "input_estimated_tokens": [token_count(v, INSTRUCTIONS) for v in probe.inputs],

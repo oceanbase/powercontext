@@ -125,7 +125,23 @@ def summarize(directory):
             c["eligible_qualified_retained_literals"] += sum(
                 (r.get("score") or {}).get("retained_literals", 0) for r in actual if r["outcome"] == "returned"
             )
-        failure = critical > 0 or eligible and missing == 0 and retained != required and unreviewed == 0
+        required_literals = set(row["required_literal_hashes"])
+        raw_literals = {
+            h
+            for r in actual
+            if r["outcome"] == "returned"
+            for h in (r.get("score") or {}).get("raw_present_literal_hashes", [])
+        }
+        literal_measured = row["planned_calls"] > 0 and missing == 0
+        known_literal_absence = eligible and literal_measured and bool(required_literals - raw_literals)
+        failure = (
+            critical > 0
+            or known_literal_absence
+            or eligible
+            and missing == 0
+            and retained != required
+            and unreviewed == 0
+        )
         quality_failures += bool(failure and row["arm"] == ARMS[-1])
         unresolved += unreviewed
         outcome = {
@@ -146,6 +162,11 @@ def summarize(directory):
             "proven_delivered_atom_hashes": sorted(retained),
             "semantic_unresolved": unreviewed,
             "known_quality_failure": bool(failure),
+            "known_literal_absence": bool(known_literal_absence),
+            "literal_output_measured": literal_measured,
+            "literal_presence_basis": "Pipeline_accepted_candidates; rejected_output_occurrences_are_separate_diagnostics",
+            "required_literal_hashes": sorted(required_literals),
+            "raw_present_literal_hashes": sorted(raw_literals),
             "measurement_complete": missing == 0,
             "preparation": {
                 k: row["sample"][k]

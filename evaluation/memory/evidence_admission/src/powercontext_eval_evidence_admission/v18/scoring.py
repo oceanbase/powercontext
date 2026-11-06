@@ -89,4 +89,13 @@ def score_output(case, value, supports, output, review=None):
         for atom in ground_truth(case)
         for literal in atom["literals"]
     )
+    literal_ids = [
+        (digest({"atom": atom["id"], "literal_index": index}), literal)
+        for atom in ground_truth(case)
+        for index, literal in enumerate(atom["literals"])
+    ]
+    result["required_literal_hashes"] = sorted(key for key, _ in literal_ids)
+    result["raw_present_literal_hashes"] = sorted(
+        key for key, literal in literal_ids if any(literal.encode() in text.encode() for text in texts)
+    )
     return result, review
