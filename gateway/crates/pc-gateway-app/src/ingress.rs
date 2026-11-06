@@ -124,7 +124,24 @@ async fn ingress_common(
     );
     let observation = control.observation();
     let cancellation = control.cancellation();
-    let mut response = ingress_model(state, headers, req, format, control).await;
+    let mut response = ingress_model(state.clone(), headers, req, format, control).await;
+    if matches!(
+        observation.snapshot().execution,
+        pc_gateway_core::ExecutionState::Finished(
+            pc_gateway_core::ExecutionTerminal::ReleaseAuthorized
+                | pc_gateway_core::ExecutionTerminal::Degraded
+        )
+    ) {
+        let (parts, body) = response.into_parts();
+        response = Response::from_parts(
+            parts,
+            crate::evidence_body::EvidenceBody::wrap(
+                body,
+                observation.clone(),
+                state.evidence.clone(),
+            ),
+        );
+    }
     response.extensions_mut().insert(observation);
     response.extensions_mut().insert(cancellation);
     response
@@ -691,6 +708,12 @@ mod tests {
     use super::*;
 
     async fn lifecycle_router() -> (axum::Router, tokio::task::JoinHandle<()>) {
+        lifecycle_router_with_evidence(Arc::new(pc_gateway_evidence::NoopEvidenceSink)).await
+    }
+
+    async fn lifecycle_router_with_evidence(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
@@ -720,7 +743,9 @@ mod tests {
                     (
                         StatusCode::CREATED,
                         Json(serde_json::json!({
-                            "choices": [{"message": {"role": "assistant", "content": "checked"}}]
+                            "choices": [{"message": {"role": "assistant", "content": "checked"}}],
+                            "usage": {"prompt_tokens": 100, "completion_tokens": 12, "prompt_tokens_details": {"cached_tokens": 70}},
+                            "provider_debug": "SYNTHETIC_SENSITIVE_RESPONSE"
                         })),
                     )
                 }),
@@ -729,7 +754,8 @@ mod tests {
                 "/v1/responses",
                 post(|| async {
                     Json(serde_json::json!({
-                        "id": "resp-1", "object": "response", "status": "completed", "output": []
+                        "id": "resp-1", "object": "response", "status": "completed", "output": [],
+                        "usage": {"input_tokens": 80, "output_tokens": 11, "input_tokens_details": {"cached_tokens": 30}}
                     }))
                 }),
             );
@@ -742,11 +768,11 @@ mod tests {
                 pc_gateway_transport::ReqwestTransport::new(std::time::Duration::from_secs(120)),
                 std::num::NonZeroU32::new(2).unwrap(),
             )),
-            evidence: Arc::new(pc_gateway_evidence::BufferedEvidenceSink::new()),
+            evidence,
             upstream_profile: "test".into(),
             upstream_chat: format!("{base}/v1/chat/completions"),
             upstream_responses: format!("{base}/v1/responses"),
-            upstream_chat_api_key: String::new(),
+            upstream_chat_api_key: "SYNTHETIC_SENSITIVE_CREDENTIAL".into(),
             upstream_responses_api_key: String::new(),
             api_key: Some("gateway-key".into()),
             degrade: pc_gateway_core::DegradePolicy::Pause,
@@ -1510,5 +1536,141 @@ mod tests {
         let canonical = to_canonical_chat(chat).unwrap();
         assert!(canonical.messages[0].content_null);
         assert!(canonical.messages[0].tool_calls.is_none());
+    }
+
+    #[derive(Clone, Default)]
+    struct EvidenceOutput(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for EvidenceOutput {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn real_ingress_exports_usage_and_distinct_framework_boundaries_without_content() {
+        use pc_gateway_evidence::JsonEvidenceSink;
+        use tower::ServiceExt;
+        let output = EvidenceOutput::default();
+        let sink = Arc::new(
+            JsonEvidenceSink::new(output.clone(), std::num::NonZeroUsize::new(1024).unwrap())
+                .unwrap(),
+        );
+        let (router, server) = lifecycle_router_with_evidence(sink.clone()).await;
+        // Exercise both public routes and Responses replay, with the real reqwest transport.
+        for i in 0..200 {
+            let chat = i % 2 == 0;
+            let request = Request::builder().method("POST")
+                .uri(if chat { "/gateway/v1/chat/completions" } else { "/gateway/v1/responses" })
+                .header(header::AUTHORIZATION, "Bearer gateway-key")
+                .header("x-powercontext-request-id", "SYNTHETIC_SENSITIVE_CORRELATION")
+                .body(axum::body::Body::from(if chat {
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}]}).to_string()
+                } else {
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "input":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "store":false, "stream":true}).to_string()
+                })).unwrap();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert!(response.status().is_success());
+            axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while sink.stats().written < 1000 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(sink.stats().dropped, 0);
+        let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+        assert!(!text.contains("SYNTHETIC_SENSITIVE"));
+        assert!(!text.contains("gateway-key"));
+        assert!(!text.contains("/v1/"));
+        let mut records = std::collections::BTreeMap::<String, Vec<serde_json::Value>>::new();
+        for line in text.lines() {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            records
+                .entry(value["evidence"]["call_id"].as_str().unwrap().to_owned())
+                .or_default()
+                .push(value);
+        }
+        assert_eq!(records.len(), 200);
+        for events in records.values() {
+            let names: Vec<_> = events
+                .iter()
+                .map(|e| e["event"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                names,
+                ["attempt", "call", "delivery", "delivery", "delivery"]
+            );
+            let call = &events[1]["evidence"];
+            let attempt = &events[0]["evidence"];
+            let chat = call["usage_mapping"] == "open_ai_chat";
+            assert_eq!(
+                call["usage"]["input"]["tokens"],
+                if chat { 100 } else { 80 }
+            );
+            assert_eq!(
+                call["usage"]["cache_read"]["tokens"],
+                if chat { 70 } else { 30 }
+            );
+            assert!(call["usage"]["cache_write"]["tokens"].is_null());
+            assert!(call["upstream_ttft_ms"].is_null());
+            assert!(attempt["response_first_byte_ms"].is_u64());
+            assert!(
+                attempt["response_complete_ms"].as_u64()
+                    >= attempt["response_first_byte_ms"].as_u64()
+            );
+            assert_eq!(events[2]["evidence"]["boundary"], "framework_handoff");
+            assert_eq!(events[3]["evidence"]["boundary"], "first_body_frame");
+            assert_eq!(events[4]["evidence"]["boundary"], "body_completed");
+            assert!(
+                events[2]["evidence"]["elapsed_ms"].as_u64()
+                    >= call["release_authorized_ms"].as_u64()
+            );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn unconsumed_response_reports_drop_without_claiming_content_delivery() {
+        use pc_gateway_evidence::{BufferedEvidenceSink, DeliveryBoundary, EvidenceEvent};
+        use tower::ServiceExt;
+        let evidence = Arc::new(BufferedEvidenceSink::new());
+        let (router, server) = lifecycle_router_with_evidence(evidence.clone()).await;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/gateway/v1/chat/completions")
+            .header(header::AUTHORIZATION, "Bearer gateway-key")
+            .body(axum::body::Body::from(
+                r#"{"model":"test","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+        drop(response);
+        let delivery: Vec<_> = evidence
+            .events()
+            .into_iter()
+            .filter_map(|e| {
+                if let EvidenceEvent::Delivery(d) = e {
+                    Some(d.boundary)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(matches!(
+            delivery.as_slice(),
+            [
+                DeliveryBoundary::FrameworkHandoff,
+                DeliveryBoundary::BodyDropped
+            ]
+        ));
+        server.abort();
     }
 }

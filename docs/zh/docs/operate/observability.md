@@ -510,3 +510,6 @@ Topic 处理可通过 `invalid_topic_placeholder` 标识可识别的编号占位
 这些不含内容的诊断码表示可恢复的生成拒绝，不表示成功 NOOP。
 重试消耗现有 Window 持久化预算；耗尽后保留待处理前沿。诊断码由现有 Worker 事件及关联字段承载。
 不得将 Source 文本、生成正文或服务商响应写入运维日志。
+
+Rust Gateway 的调用/尝试/usage 与 HTTP 框架观测使用独立的[有界证据输出](gateway-evidence.md)，
+不新增 Python 日志字段，也不证明客户端已收到内容。

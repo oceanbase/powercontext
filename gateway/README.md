@@ -28,7 +28,7 @@ An optional Rust executor for PowerContext, defined by the gateway design in #21
 - **OpenAI-compatible ingress** at `/gateway/v1/chat/completions` and `/gateway/v1/responses` (same format in and out, no cross-format translation), authenticated by a gateway key that replaces provider keys.
 - **Responses fidelity**: on `/gateway/v1/responses`, every input item other than a plain user message (developer messages, tool calls and outputs, reasoning, client-specific items such as Codex's `additional_tools`) is forwarded unchanged, and request fields the ingress does not model (for example `reasoning`, `include`, `prompt_cache_key`) are passed through for Core's request allowlist to decide; only the client-local `client_metadata` is dropped. The upstream request is always non-streaming; a streaming client receives the released (or permitted degraded-passthrough, still marked `x-pc-degraded`) 200 response replayed as Responses SSE events: `response.created`, `response.output_item.added`/`done` per item with each message content part as `response.content_part.added`/`done` around one buffered `response.output_text.delta`/`done` (or `response.refusal.delta`/`done`), and a terminal event chosen from the response status (`response.completed`, `response.incomplete`, or `response.failed` when the status is `failed`/`cancelled` or an `error` is present).
 - **Middleware chain**: composable `GatewayMiddleware` trait; ships with resource limits (request-body precheck + concurrency semaphore, health probe exempt) and request-id propagation (`x-powercontext-request-id`, client-supplied or generated, echoed on responses).
-- **Body-free evidence**: usage completeness (known/estimated/unknown), cache tokens, TTFT vs first-release latency, attempt counters — never request/response bodies.
+- **Body-free evidence**: bounded JSONL on stdout (1024 queued records plus one in flight), correlated call/attempt terminals, per-field usage completeness and cache reads, explicit first-byte/release/framework timing; model TTFT stays unknown. Operational tracing uses stderr. See the [output and deployment contract](../docs/en/docs/operate/gateway-evidence.md) / [中文](../docs/zh/docs/operate/gateway-evidence.md). `PC_GATEWAY_EVIDENCE=off` explicitly disables coverage.
 
 ## PC call sequence over UDS
 
@@ -71,7 +71,7 @@ Everything else (Core's 127 domain operations, MCP, dashboard) is reverse-proxie
 | `pc-gateway-types` | contract DTOs aligned field-by-field with #2264 |
 | `pc-gateway-protocol` | canonical request, chat/responses wire renderers, SSE framing |
 | `pc-gateway-transport` | upstream transport, bounded retry, streaming buffer with caps |
-| `pc-gateway-evidence` | body-free evidence (usage completeness, cache tokens, TTFT) |
+| `pc-gateway-evidence` | bounded body-free JSONL evidence (calls, attempts, usage, delivery boundaries) |
 | `pc-gateway-embedded` | placeholder for the in-process (FFI) executor path |
 
 ## Run
@@ -103,4 +103,4 @@ Credentials live only in server-side environment variables; they are never accep
 
 ## Tests
 
-`cargo test` — 27 tests covering the failure-semantics table (gate unavailable, withhold terminal, bounded retry, indeterminate no-resend, blocked turns never sediment), renderer fidelity (no timestamps/request ids injected), byte-range declaration, UDS connection-pool correctness over a real Unix socket, and live integration tests against a real PowerContext Server (binding validity, cross-scope rejection, deadlines) that skip gracefully when no server is reachable.
+`cargo test --locked --workspace` exercises executor outcomes and pending-future destruction, actual HTTP transport fixtures, strict release/framework order, queue overflow, slow/failing writers and privacy markers. The `live_context_check` tests return early when no real Core is reachable; a green workspace run alone is not real-Core/provider/host acceptance. No hosted-model calls are required.

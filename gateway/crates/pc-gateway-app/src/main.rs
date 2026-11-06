@@ -24,6 +24,7 @@
 //! PC_GATEWAY_UPSTREAM_API_KEY、PC_GATEWAY_UPSTREAM_PROFILE、
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
+mod evidence_body;
 mod ingress;
 mod link;
 mod middleware;
@@ -34,7 +35,7 @@ use crate::link::CoreLink;
 use axum::routing::{get, post};
 use axum::Router;
 use pc_gateway_core::Executor;
-use pc_gateway_evidence::BufferedEvidenceSink;
+use pc_gateway_evidence::{EvidenceSink, JsonEvidenceSink, NoopEvidenceSink};
 use pc_gateway_transport::ReqwestTransport;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
@@ -44,7 +45,7 @@ use std::time::Duration;
 pub struct AppState {
     /// 单一执行器；线格式渲染器按请求格式传入（同格式进出）。
     pub executor: Arc<Executor<CoreLink, ReqwestTransport>>,
-    pub evidence: Arc<BufferedEvidenceSink>,
+    pub evidence: Arc<dyn EvidenceSink>,
     pub upstream_profile: String,
     /// chat-completions 上游（含 key；老变量 PC_GATEWAY_UPSTREAM_URL 仍作缺省）。
     pub upstream_chat: String,
@@ -74,6 +75,7 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
@@ -109,13 +111,37 @@ async fn main() {
         }
     };
 
+    // stdout is reserved for body-free evidence JSONL; operational tracing uses stderr.
+    let evidence: Arc<dyn EvidenceSink> =
+        if matches!(std::env::var("PC_GATEWAY_EVIDENCE").as_deref(), Ok("off")) {
+            tracing::info!("gateway evidence disabled; usage and call coverage unavailable");
+            Arc::new(NoopEvidenceSink)
+        } else {
+            match JsonEvidenceSink::new(
+                std::io::stdout(),
+                std::num::NonZeroUsize::new(1024).unwrap(),
+            ) {
+                Ok(sink) => {
+                    tracing::info!(
+                        capacity = 1024,
+                        "gateway evidence JSONL enabled on stdout; drop newest on overflow"
+                    );
+                    Arc::new(sink)
+                }
+                Err(_) => {
+                    tracing::error!("gateway evidence worker unavailable; evidence disabled");
+                    Arc::new(NoopEvidenceSink)
+                }
+            }
+        };
+
     let state = Arc::new(AppState {
         executor: Arc::new(Executor::new(
             core_link.clone(),
             ReqwestTransport::new(Duration::from_secs(120)),
             NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
         )),
-        evidence: Arc::new(BufferedEvidenceSink::new()),
+        evidence,
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
         upstream_chat: std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
@@ -237,8 +263,8 @@ async fn resolve_degradation(link: link::CoreLink) -> bool {
             );
             allowed
         }
-        Ok(Err(e)) => {
-            tracing::warn!(error = %e, "capabilities error; degradation disabled (fail-closed)");
+        Ok(Err(_)) => {
+            tracing::warn!("capabilities error; degradation disabled (fail-closed)");
             false
         }
         Err(_) => {

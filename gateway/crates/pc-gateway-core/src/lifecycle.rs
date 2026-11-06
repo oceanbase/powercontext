@@ -47,6 +47,8 @@ pub struct ExecutionSnapshot {
 struct Shared {
     deadline: Instant,
     request_id: Option<String>,
+    call_id: String,
+    started: std::time::Instant,
     snapshot: Mutex<ExecutionSnapshot>,
 }
 
@@ -71,6 +73,8 @@ impl RequestControl {
             shared: Arc::new(Shared {
                 deadline,
                 request_id,
+                call_id: pc_gateway_evidence::new_call_id(),
+                started: std::time::Instant::now(),
                 snapshot: Mutex::new(ExecutionSnapshot {
                     model_send: ModelSendState::NoSend,
                     execution: ExecutionState::NotStarted,
@@ -127,6 +131,16 @@ pub struct ExecutionObservation {
 }
 
 impl ExecutionObservation {
+    /// Process-local logical call identity; contains no host-provided values.
+    pub fn call_id(&self) -> &str {
+        &self.shared.call_id
+    }
+
+    /// Monotonic milliseconds since the host created request control.
+    pub fn elapsed_ms(&self) -> u64 {
+        self.shared.started.elapsed().as_millis() as u64
+    }
+
     pub fn deadline(&self) -> Instant {
         self.shared.deadline
     }

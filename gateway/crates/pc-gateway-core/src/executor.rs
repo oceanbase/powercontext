@@ -28,12 +28,14 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
 use crate::{GateClient, GateError};
 use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
+use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
 use pc_gateway_types::{
@@ -134,8 +136,22 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
     ) -> ManagedOutcome {
+        let mut recording = CallRecorder::new(
+            evidence,
+            control.observation(),
+            control.cancellation(),
+            &call.target_url,
+            match renderer.message_list_key() {
+                "input" => Some(UsageMapping::OpenAiResponses),
+                "messages" => Some(UsageMapping::OpenAiChat),
+                _ => None,
+            },
+        );
         let mut execution = control.start();
-        let outcome = self.execute(call, renderer, evidence, &mut execution).await;
+        let outcome = self
+            .execute(call, renderer, evidence, &mut execution, &mut recording)
+            .await;
+        recording.finish(&outcome);
         execution.finish(&outcome);
         outcome
     }
@@ -146,6 +162,7 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
+        recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
         let mut call = call;
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
@@ -204,7 +221,7 @@ where
                             prepared_contexts: Vec::new(),
                         };
                         degraded_call.request.stream = call.request.stream;
-                        self.degraded_send(&degraded_call, renderer, evidence, execution)
+                        self.degraded_send(&degraded_call, renderer, evidence, execution, recording)
                             .await
                     }
                     (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
@@ -250,14 +267,28 @@ where
                     stream: call.request.stream,
                 };
                 let sent_binding = current.binding.clone();
+                recording.begin_attempt();
                 execution.model_send(ModelSendState::PossiblySent);
                 match self.transport.send(send).await {
                     SendOutcome::Delivered(raw) => {
+                        recording.received(&raw);
                         execution.model_send(ModelSendState::ResponseReceived);
                         break (raw, sent_binding);
                     }
-                    SendOutcome::Indeterminate(_) => return ManagedOutcome::SendIndeterminate,
+                    SendOutcome::IncompleteResponse {
+                        reason,
+                        status,
+                        response_first_byte_ms,
+                    } => {
+                        recording.incomplete_response(&reason, status, response_first_byte_ms);
+                        return ManagedOutcome::SendIndeterminate;
+                    }
+                    SendOutcome::Indeterminate(reason) => {
+                        recording.indeterminate(&reason);
+                        return ManagedOutcome::SendIndeterminate;
+                    }
                     SendOutcome::NotSent(reason) => {
+                        recording.not_sent(&reason);
                         execution.model_send(ModelSendState::DefinitelyNotSent);
                         evidence.record_not_sent(attempt, &reason.to_string());
                         if attempt >= self.max_attempts.get() {
@@ -326,7 +357,9 @@ where
             ),
             completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
         };
-        match self.gate.check(release_check).await {
+        let verdict = self.gate.check(release_check).await;
+        recording.release_decision();
+        match verdict {
             Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
             Ok(result) => match result.decision {
                 CheckDecision::Allow => {
@@ -376,13 +409,14 @@ where
                             Err(GateError::GateRejected(409)) => {
                                 evidence.record_not_sent(0, "sediment_duplicate")
                             }
-                            Err(e) => evidence.record_not_sent(0, &format!("sediment_failed:{e}")),
+                            Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
                         if now_ms() >= release_deadline {
                             return ManagedOutcome::AdmissionExpired;
                         }
                     }
+                    recording.authorized();
                     ManagedOutcome::Released {
                         binding: result.binding,
                         status: raw.status,
@@ -479,9 +513,9 @@ where
             .await
         {
             Ok(p) => p,
-            Err(e) => {
-                evidence.record_not_sent(0, &format!("prepare_failed:{e}"));
-                tracing::warn!(error = %e, "prepare failed; injecting nothing");
+            Err(_) => {
+                evidence.record_not_sent(0, "prepare_failed");
+                tracing::warn!("prepare failed; injecting nothing");
                 return None;
             }
         };
@@ -576,6 +610,7 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
+        recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
         evidence.record_not_sent(0, "degraded_passthrough");
         let payload = match renderer.render(&call.request, None) {
@@ -593,9 +628,11 @@ where
             headers: call.headers.clone(),
             stream: call.request.stream,
         };
+        recording.begin_attempt();
         execution.model_send(ModelSendState::PossiblySent);
         match self.transport.send(send).await {
             SendOutcome::Delivered(raw) => {
+                recording.received(&raw);
                 execution.model_send(ModelSendState::ResponseReceived);
                 ManagedOutcome::Degraded {
                     status: raw.status,
@@ -603,8 +640,20 @@ where
                     body: raw.body,
                 }
             }
-            SendOutcome::Indeterminate(_) => ManagedOutcome::SendIndeterminate,
+            SendOutcome::IncompleteResponse {
+                reason,
+                status,
+                response_first_byte_ms,
+            } => {
+                recording.incomplete_response(&reason, status, response_first_byte_ms);
+                ManagedOutcome::SendIndeterminate
+            }
+            SendOutcome::Indeterminate(reason) => {
+                recording.indeterminate(&reason);
+                ManagedOutcome::SendIndeterminate
+            }
             SendOutcome::NotSent(reason) => {
+                recording.not_sent(&reason);
                 execution.model_send(ModelSendState::DefinitelyNotSent);
                 evidence.record_not_sent(1, &reason.to_string());
                 ManagedOutcome::NotSent { attempts: 1 }
@@ -635,10 +684,9 @@ fn validate_allow(
 ) -> Result<(String, u64), ManagedOutcome> {
     // 1. schema 必须匹配
     if result.schema != pc_gateway_types::CONTEXT_CHECK_SCHEMA {
-        return Err(ManagedOutcome::GatePaused(format!(
-            "malformed_verdict: schema mismatch: {}",
-            result.schema
-        )));
+        return Err(ManagedOutcome::GatePaused(
+            "malformed_verdict: schema mismatch".into(),
+        ));
     }
     // 2. phase 必须与请求阶段一致
     if result.phase != expected_phase {
@@ -668,7 +716,8 @@ fn validate_allow(
 
 fn classify_gate_error(e: GateError) -> String {
     match e {
-        GateError::GateUnavailable(msg) | GateError::Malformed(msg) => msg,
+        GateError::GateUnavailable(_) => "gate_unavailable".into(),
+        GateError::Malformed(_) => "malformed_gate_response".into(),
         GateError::GateRejected(status) => format!("gate rejected: HTTP {status}"),
     }
 }

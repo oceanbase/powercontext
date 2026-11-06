@@ -580,3 +580,6 @@ Topic processing may report `invalid_topic_placeholder` for recognizable numbere
 identify recoverable generation rejection, not successful NOOP. Retries use the existing durable Window budget;
 exhaustion retains the pending frontier. Existing worker events and correlation fields carry the diagnostic code.
 Source text, generated bodies and provider responses must not be added to operational logs.
+
+Rust Gateway call/attempt/usage and HTTP-framework observations use a separate
+[bounded evidence output](gateway-evidence.md); they do not add Python log fields or establish client receipt.
