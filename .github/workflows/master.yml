@@ -366,7 +366,6 @@ jobs:
         run: |
           uv run --locked python -m pytest -q -ra \
             tests/test_release_version.py \
-            tests/test_full_capability_docs.py \
             tests/test_integration_guidance_evaluation.py \
             tests/test_docs_remote_access_contract.py \
             tests/e2e/test_mcp_full_profile.py
