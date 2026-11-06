@@ -23,12 +23,11 @@ from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.server.context import is_internal_bridge
 
 
-class HttpResourceLimitsMiddleware:
-    """Bound external request bodies and concurrent response lifetimes."""
+class HttpAdmissionMiddleware:
+    """Bound concurrent external response lifetimes."""
 
-    def __init__(self, app: ASGIApp, *, max_request_body_bytes: int, max_concurrent_requests: int) -> None:
+    def __init__(self, app: ASGIApp, *, max_concurrent_requests: int) -> None:
         self.app = app
-        self._max_body = max_request_body_bytes
         self._max_requests = max_concurrent_requests
         self._active = 0
 
@@ -70,12 +69,26 @@ class HttpResourceLimitsMiddleware:
                 release()
 
         try:
-            body = await self._receive_body(scope, receive, send)
-            if body is None:
-                return
-            await self.app(scope, _replay_body(body, receive), send_response)
+            await self.app(scope, receive, send_response)
         finally:
             release()
+
+
+class HttpRequestBodyLimitMiddleware:
+    """Bound external request bodies before downstream parsing."""
+
+    def __init__(self, app: ASGIApp, *, max_request_body_bytes: int) -> None:
+        self.app = app
+        self._max_body = max_request_body_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or is_internal_bridge():
+            await self.app(scope, receive, send)
+            return
+        body = await self._receive_body(scope, receive, send)
+        if body is None:
+            return
+        await self.app(scope, _replay_body(body, receive), send)
 
     async def _receive_body(self, scope: Scope, receive: Receive, send: Send) -> bytearray | None:
         if self._declared_too_large(scope):

@@ -24,14 +24,21 @@ import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from powercontext.http import ArtifactReference, ProposeSkillPackageRequest
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import HttpConfig, McpConfig, MetricsConfig, ServerSettings
+from powercontext.server.settings import (
+    AccessControlConfig,
+    BearerAuthConfig,
+    HttpConfig,
+    McpConfig,
+    MetricsConfig,
+    ServerSettings,
+)
 from powercontext.server.tracing import ServerTracing
 
 
@@ -122,6 +129,87 @@ def test_blocked_outward_response_holds_server_capacity_until_sent() -> None:
         assert accepted[0]["status"] == 200
 
     asyncio.run(scenario())
+
+
+def test_unauthenticated_stalled_body_does_not_hold_server_capacity() -> None:
+    async def scenario() -> None:
+        app = create_server_app(
+            settings=ServerSettings(
+                http=HttpConfig(max_concurrent_requests=1),
+                mcp=McpConfig(enabled=False),
+                access=AccessControlConfig(mode="enforced"),
+                auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            )
+        )
+        app.mount("/sentinel", Response(status_code=204))
+        receiving = asyncio.Event()
+        never = asyncio.Event()
+        stalled_output: list[Message] = []
+
+        async def stalled_receive() -> Message:
+            receiving.set()
+            await never.wait()
+            return {"type": "http.disconnect"}
+
+        async def stalled_send(message: Message) -> None:
+            stalled_output.append(message)
+
+        stalled = asyncio.create_task(
+            app(
+                {
+                    "type": "http",
+                    "asgi": {"version": "3.0"},
+                    "http_version": "1.1",
+                    "method": "POST",
+                    "scheme": "http",
+                    "path": "/sentinel/",
+                    "raw_path": b"/sentinel/",
+                    "query_string": b"",
+                    "headers": [(b"content-length", b"1024")],
+                    "server": ("localhost", 8000),
+                    "client": ("127.0.0.1", 10000),
+                },
+                stalled_receive,
+                stalled_send,
+            )
+        )
+        try:
+            await asyncio.wait([stalled], timeout=2)
+            accepted, _ = await _invoke(app, [b"{}"], headers=[(b"authorization", b"Bearer server-secret")])
+            assert accepted[0]["status"] == 204
+            assert stalled.done()
+            assert stalled_output[0]["status"] == 401
+            assert not receiving.is_set()
+        finally:
+            never.set()
+            await stalled
+
+    asyncio.run(scenario())
+
+
+def test_authenticated_oversized_body_is_rejected_before_downstream() -> None:
+    reached = False
+
+    async def downstream(scope: Scope, receive: Receive, send: Send) -> None:
+        nonlocal reached
+        reached = True
+        await Response(status_code=204)(scope, receive, send)
+
+    app = create_server_app(
+        settings=ServerSettings(
+            http=HttpConfig(max_request_body_bytes=8),
+            mcp=McpConfig(enabled=False),
+            access=AccessControlConfig(mode="enforced"),
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+        )
+    )
+    app.mount("/sentinel", downstream)
+
+    output, _ = asyncio.run(_invoke(app, [b"12345", b"6789"], headers=[(b"authorization", b"Bearer server-secret")]))
+
+    assert output[0]["status"] == 413
+    assert json.loads(output[1]["body"])["error"]["code"] == "request_too_large"
+    assert not reached
 
 
 @pytest.mark.parametrize("rejection", ["declared_body", "streamed_body", "capacity"])
