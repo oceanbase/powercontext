@@ -274,7 +274,7 @@ def test_cancelled_or_draft_runs_cannot_start_terminal_runner_jobs():
     assert "converted_to_draft" in workflow("master.yml")["on"]["pull_request"]["types"]
 
 
-@pytest.mark.parametrize("selected_job", ["quality", "harness-validation"])
+@pytest.mark.parametrize("selected_job", ["quality", "harness-validation", "script-installation"])
 @pytest.mark.parametrize(
     ("selected_result", "unselected_result", "passes"),
     [
@@ -290,7 +290,7 @@ def test_actual_ci_result_script_rejects_missing_selected_acceptance(
 ):
     script = workflow("master.yml")["jobs"]["ci-result"]["steps"][0]["run"]
     script = script.split("<<'PYTHON'\n", 1)[1].rsplit("PYTHON", 1)[0]
-    required = ["quality", "upgrade-release-gate", "harness-validation"]
+    required = ["quality", "upgrade-release-gate", "harness-validation", "script-installation"]
     results = {job: {"result": "success"} for job in required}
     results[selected_job]["result"] = selected_result
     results["desktop-validation"] = {"result": unselected_result}

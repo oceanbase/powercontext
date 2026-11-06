@@ -1175,6 +1175,16 @@ jobs:
     with:
       suites: ${{ needs.quality.outputs.suites }}
 
+  script-installation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
+    uses: ./.github/workflows/installation.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+
   native-service:
     needs: [quality, tests]
     if: >-
@@ -1276,6 +1286,7 @@ jobs:
       - desktop-validation
       - managed-resource-candidates
       - helm
+      - script-installation
       - native-service
       - kimi-acceptance
       - zcode-acceptance
