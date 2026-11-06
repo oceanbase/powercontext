@@ -122,6 +122,8 @@ transport 交付完整响应后，解码或释放失败不会丢掉 usage。直�
 不会把 Anthropic 的缓存创建/写入字段猜测为 OpenAI 字段。缺失、null、畸形或负数保持未知；明确上报的零为已知零。
 仅有 `total_tokens` 不能确定输入/输出数量。SSE 只使用 Chat usage chunk 中明确的 usage 对象或 Responses
 事件的 `response.usage`，保留最后一个对象，不累加累计 chunk。SSE usage 缺失或无法解析时保持未知。
+SSE 媒体类型在分离参数后按大小写不敏感方式比较。usage 与首内容检查只忽略流开头的一个 UTF-8 BOM；
+首内容偏移仍对应包含 BOM 的原始输出字节。响应字节与原始 Content-Type 保持不变。
 这不会扩展 Core 接受的流式协议范围。
 
 ## 计时与 HTTP 交付

@@ -151,3 +151,24 @@ fn large_content_needs_no_fixed_observer_buffer_or_content_copy() {
         first_model_content_offset(body.as_bytes(), OutputProtocol::OpenAiChat, false).unwrap();
     assert_eq!(&body[offset..offset + content.len()], content);
 }
+
+#[test]
+fn sse_ignores_only_one_leading_bom_and_returns_original_wire_offset() {
+    for (wire, protocol, content) in [
+        ("\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"FIRST\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"LATER\"}}]}\n\n", OutputProtocol::OpenAiChat, "FIRST"),
+        ("\u{feff}event: response.output_text.delta\r\ndata: {\"delta\":\"FIRST\"}\r\n\r\n", OutputProtocol::OpenAiResponses, "FIRST"),
+        ("\u{feff}data: {\"type\":\"response.output_text.delta\",\r\ndata: \"delta\":\"FIRST\"}\r\n\r\n", OutputProtocol::OpenAiResponses, "FIRST"),
+        ("\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"\u{feff}FIRST\"}}]}\n\n", OutputProtocol::OpenAiChat, "\u{feff}FIRST"),
+    ] {
+        assert_eq!(first_model_content_offset(wire.as_bytes(), protocol, true), wire.find(content));
+    }
+    for wire in [
+        "\u{feff}\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"DECOY\"}}]}\n\n",
+        ": comment\n\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"DECOY\"}}]}\n\n",
+    ] {
+        assert_eq!(
+            first_model_content_offset(wire.as_bytes(), OutputProtocol::OpenAiChat, true),
+            None
+        );
+    }
+}

@@ -131,6 +131,9 @@ No Anthropic cache-creation/write fields are guessed into the OpenAI mapping. Mi
 counts remain unknown; a reported zero is known zero. `total_tokens` alone cannot establish input/output counts.
 SSE uses an explicitly present usage object from a Chat usage chunk or Responses event's `response.usage`.
 It retains the last such object, without summing cumulative chunks. Missing/malformed SSE usage remains unknown.
+The SSE media type is compared case-insensitively after separating parameters. Usage and first-content inspection
+ignore exactly one leading UTF-8 BOM; first-content offsets still refer to the original outgoing bytes, including
+that BOM. Response bytes and the original Content-Type are preserved.
 This does not expand the Core's accepted streaming protocols.
 
 ## Timing and HTTP delivery

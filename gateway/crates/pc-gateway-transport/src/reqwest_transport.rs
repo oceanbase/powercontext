@@ -155,7 +155,8 @@ impl Transport for ReqwestTransport {
 }
 
 fn extract_usage(body: &[u8], content_type: &str) -> Option<serde_json::Value> {
-    if !content_type.starts_with("text/event-stream") {
+    let media_type = content_type.split(';').next().unwrap_or("").trim();
+    if !media_type.eq_ignore_ascii_case("text/event-stream") {
         return serde_json::from_slice::<serde_json::Value>(body)
             .ok()
             .and_then(|v| v.get("usage").filter(|v| v.is_object()).cloned());
@@ -163,6 +164,8 @@ fn extract_usage(body: &[u8], content_type: &str) -> Option<serde_json::Value> {
     // Usage-only Chat chunks and Responses terminal events. Do not infer missing usage.
     // Join multi-line SSE data, reset at blank lines, and retain only the latest usage.
     let text = std::str::from_utf8(body).ok()?;
+    // SSE ignores one BOM at stream start; keep the original response bytes intact.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut data = String::new();
     let mut usage = None;
     for line in text.lines().chain(std::iter::once("")) {

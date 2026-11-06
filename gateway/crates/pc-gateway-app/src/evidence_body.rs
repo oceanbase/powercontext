@@ -172,6 +172,7 @@ mod tests {
     #[tokio::test]
     async fn content_observation_waits_for_matching_frame_at_every_wire_split() {
         for (wire, protocol, sse) in [
+            ("\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"FIRST\"}}]}\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"LATER\"}}]}\r\n\r\n", OutputProtocol::OpenAiChat, true),
             ("event: response.created\ndata: {\"type\":\"response.created\"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"秘密\"}\n\n", OutputProtocol::OpenAiResponses, true),
             (r#"{"choices":[{"message":{"content":"\u79d8密"}}]}"#, OutputProtocol::OpenAiChat, false),
             ("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"{}\"}}]}}]}\n\n", OutputProtocol::OpenAiChat, true),

@@ -43,7 +43,12 @@ async fn response(
             payload: bytes::Bytes::from_static(b"{}"),
             target_url: format!("http://{addr}/v1/responses"),
             headers: vec![],
-            stream: content_type == "text/event-stream",
+            stream: content_type
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .eq_ignore_ascii_case("text/event-stream"),
         })
         .await;
     server.await.unwrap();
@@ -92,4 +97,38 @@ async fn sse_usage_only_chunks_and_missing_usage_keep_their_distinct_meaning() {
     let usage = UsageEvidence::openai(raw.usage.as_ref(), UsageMapping::OpenAiResponses);
     assert_eq!(usage.input.tokens, Some(7));
     assert!(usage.cache_read.tokens.is_none());
+}
+
+#[tokio::test]
+async fn sse_usage_matches_case_insensitive_media_types_without_prefix_aliases() {
+    let body = "data: {\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":7,\"prompt_tokens_details\":{\"cached_tokens\":20}}}\n\ndata: [DONE]\n\n";
+    for content_type in ["text/event-stream", "Text/Event-Stream; charset=utf-8"] {
+        let raw = response(body, content_type).await;
+        assert_eq!(raw.body.as_ref(), body.as_bytes());
+        assert_eq!(raw.content_type, content_type);
+        let usage = UsageEvidence::openai(raw.usage.as_ref(), UsageMapping::OpenAiChat);
+        assert_eq!(usage.input.tokens, Some(80), "{content_type}");
+        assert_eq!(usage.output.tokens, Some(7));
+        assert_eq!(usage.cache_read.tokens, Some(20));
+    }
+    let raw = response(body, "text/event-stream-invalid").await;
+    assert!(raw.usage.is_none());
+}
+
+#[tokio::test]
+async fn sse_leading_bom_preserves_first_event_usage_and_original_bytes() {
+    for (body, mapping) in [
+        ("\u{feff}data: {\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":7,\"prompt_tokens_details\":{\"cached_tokens\":20}}}\r\n\r\ndata: [DONE]\r\n\r\n", UsageMapping::OpenAiChat),
+        ("\u{feff}data: {\"response\":{\"usage\":{\"input_tokens\":80,\"output_tokens\":7,\"input_tokens_details\":{\"cached_tokens\":20}}}}\n\n", UsageMapping::OpenAiResponses),
+    ] {
+        for content_type in ["text/event-stream", "Text/Event-Stream; charset=utf-8"] {
+            let raw = response(body, content_type).await;
+            assert_eq!(raw.body.as_ref(), body.as_bytes());
+            let usage = UsageEvidence::openai(raw.usage.as_ref(), mapping);
+            assert_eq!(usage.input.tokens, Some(80));
+            assert_eq!(usage.output.tokens, Some(7));
+            assert_eq!(usage.cache_read.tokens, Some(20));
+            assert_eq!(usage.cache_write.completeness, UsageCompleteness::Unknown);
+        }
+    }
 }

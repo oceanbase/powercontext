@@ -14,6 +14,7 @@
 
 //! Production composition in a real spawned Gateway, with local HTTP Core/provider fixtures.
 use axum::{
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -25,6 +26,9 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
+
+// First-event usage and the only content delta share a leading-BOM event.
+const BOM_SSE_RESPONSE: &str = "\u{feff}data: {\"choices\":[{\"delta\":{\"content\":\"SYNTHETIC_RESPONSE_SECRET\"}}],\"usage\":{\"prompt_tokens\":101,\"completion_tokens\":13,\"prompt_tokens_details\":{\"cached_tokens\":61}}}\r\n\r\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\r\n\r\ndata: [DONE]\r\n\r\n";
 
 struct Gateway(Child);
 impl Drop for Gateway {
@@ -45,10 +49,16 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
             "reason_codes":[], "coverage":{"profile":"text-and-tools.v1", "complete":true},
             "policy_version":"fixture", "valid_until":"2999-01-01T00:00:00Z", "binding":"fixture-binding"
         })) }))
-        .route("/v1/chat/completions", post(|| async { Json(json!({
-            "choices":[{"message":{"role":"assistant", "content":"SYNTHETIC_RESPONSE_SECRET"}}],
-            "usage":{"prompt_tokens":101, "completion_tokens":13, "prompt_tokens_details":{"cached_tokens":61}}
-        })) }));
+        .route("/v1/chat/completions", post(|Json(request): Json<Value>| async move {
+            if request["stream"] == true {
+                ([("content-type", "Text/Event-Stream; charset=utf-8")], BOM_SSE_RESPONSE).into_response()
+            } else {
+                Json(json!({
+                    "choices":[{"message":{"role":"assistant", "content":"SYNTHETIC_RESPONSE_SECRET"}}],
+                    "usage":{"prompt_tokens":101, "completion_tokens":13, "prompt_tokens_details":{"cached_tokens":61}}
+                })).into_response()
+            }
+        }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!(
         "http://SYNTHETIC_CORE_USER:SYNTHETIC_CORE_PASSWORD@{}/SYNTHETIC_PRIVATE_PATH",
@@ -121,17 +131,29 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
         .await
         .unwrap();
         let count = if disabled { 100 } else { 1000 };
-        for _ in 0..count {
+        for i in 0..count {
+            let stream = i % 2 == 1;
             let response = client.post(format!("{url}/gateway/v1/chat/completions"))
                 .bearer_auth("SYNTHETIC_GATEWAY_KEY")
                 .header("x-powercontext-request-id", "SYNTHETIC_REQUEST_SECRET")
-                .json(&json!({"model":"SYNTHETIC_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_PROMPT_SECRET"}]}))
+                .json(&json!({"model":"SYNTHETIC_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_PROMPT_SECRET"}], "stream":stream}))
                 .send().await.unwrap();
             assert_eq!(response.status(), 200);
-            assert_eq!(
-                response.json::<Value>().await.unwrap()["usage"]["prompt_tokens"],
-                101
-            );
+            if stream {
+                assert_eq!(
+                    response.headers()["content-type"],
+                    "Text/Event-Stream; charset=utf-8"
+                );
+                assert_eq!(
+                    response.bytes().await.unwrap().as_ref(),
+                    BOM_SSE_RESPONSE.as_bytes()
+                );
+            } else {
+                assert_eq!(
+                    response.json::<Value>().await.unwrap()["usage"]["prompt_tokens"],
+                    101
+                );
+            }
         }
         if !disabled {
             tokio::time::timeout(Duration::from_secs(5), async {
@@ -171,6 +193,7 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
                     assert_eq!(record["duration_ms"], evidence["duration_ms"]);
                     assert_eq!(evidence["terminal"], "release_authorized");
                     assert_eq!(evidence["usage"]["input"]["tokens"], 101);
+                    assert_eq!(evidence["usage"]["output"]["tokens"], 13);
                     assert_eq!(evidence["usage"]["cache_read"]["tokens"], 61);
                     assert!(evidence["usage"]["cache_write"]["tokens"].is_null());
                     assert!(evidence["upstream_ttft_ms"].is_null());

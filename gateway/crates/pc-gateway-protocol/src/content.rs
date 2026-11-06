@@ -216,7 +216,10 @@ fn sse_offset(text: &str, protocol: OutputProtocol) -> Option<usize> {
     let mut data = String::new();
     let mut segments = Vec::new();
     let mut event = None;
-    let mut original = 0;
+    // Ignore exactly one leading SSE BOM, but keep offsets in the original wire body.
+    let wire_len = text.len();
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut original = wire_len - text.len();
     // LF and CRLF framing, matching the supported SSE wire profiles. Unfinished events are not dispatched.
     for line in text.split_inclusive('\n') {
         let line_start = original;
