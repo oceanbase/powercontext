@@ -28,6 +28,7 @@ tests = [
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
   "scripts/check_atomic_memory_migration_shards.py",
+  "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
   # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
   ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
@@ -49,6 +50,7 @@ database = [
   ".github/workflows/e2e-harness.yml", ".github/actions/setup-upgrade-oceanbase/**",
   "tests/native/test_oceanbase_engine_recovery.py",
   "tests/*migration*.py", "scripts/check_atomic_memory_migration_shards.py",
+  "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
 ]
 dify = ["integrations/dify/**", "tests/*dify*"]
 hermes = ["integrations/hermes/**", "tests/*hermes*"]
@@ -72,6 +74,7 @@ website = [
 docs_tests = ["docs/**", "README*.md"]
 native = ["tests/native/**", "tests/test_service*.py", "tests/test_cursor_secret.py", "tests/test_server.py"]
 harness = [
+  "scripts/oceanbase_ci.py",
   "e2e/**", "integrations/bub/**", "scripts/scan_e2e_evidence.sh", "tests/test_e2e_workflow_contract.py",
   ".github/workflows/e2e-harness.yml",
   "tests/e2e/test_atomic_memory_search_authorization_snapshot.py", "tests/e2e/test_atomic_memory_read_snapshot.py",
@@ -84,6 +87,7 @@ zcode = [
 ]
 kimi = ["integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-code-acceptance.yml"]
 upgrade = [
+  "scripts/oceanbase_ci.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/build_ops_bundle.py",
   "release/**", "scripts/upgrade_*.py", "scripts/ci_legacy_upgrade_rejection.py",
   "scripts/ci_release_smoke.py", "scripts/ci_ops_bundle_smoke.py", "scripts/capture_release_schema.py",
@@ -114,11 +118,13 @@ managed_resources = [
   ".github/workflows/managed-resource-candidates.yml",
 ]
 candidate_replay = [
+  "scripts/oceanbase_ci.py",
   "src/powercontext/builtin/persistence/**", "src/powercontext/builtin/artifacts/**", "pyproject.toml", "uv.lock",
   "tests/builtin/persistence/**", "scripts/replay_candidate_migration.py",
   ".github/workflows/candidate-schema-replay.yml", ".github/actions/setup-upgrade-oceanbase/**",
 ]
 release_schema = [
+  "scripts/oceanbase_ci.py",
   "scripts/capture_release_schema.py", "scripts/upgrade_database_probe.py", "scripts/upgrade_process.py",
   "tests/release_upgrades/test_full_server.py", ".github/workflows/capture-release-schema.yml",
   ".github/actions/setup-upgrade-oceanbase/**",
