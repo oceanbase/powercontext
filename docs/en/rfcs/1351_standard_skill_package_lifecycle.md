@@ -1,3 +1,8 @@
+---
+title: "RFC 1351: Standard Skill package lifecycle"
+description: A proposal for versioned Skill packages, review, exact-byte publication, local or remote distribution, and safe unpublication.
+---
+
 - Proposal Name: `standard_skill_package_lifecycle`
 - Start Date: 2026-08-21
 - RFC PR: [oceanbase/powercontext#1351](https://github.com/oceanbase/powercontext/pull/1351)

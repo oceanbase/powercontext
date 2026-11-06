@@ -1,6 +1,6 @@
 ---
-title: Artifact plugin framework
-description: Extend Artifact types with trusted generation plugins, shared scheduling, transactions, versioned evidence, and declarative search.
+title: "RFC 2175: Artifact plugin framework"
+description: A proposal for trusted Artifact generation plugins with shared scheduling, atomic publication, versioned evidence, and declared search capabilities.
 ---
 
 - Proposal Name: `artifact_plugin_framework`

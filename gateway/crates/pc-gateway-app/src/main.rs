@@ -154,15 +154,7 @@ async fn main() {
         degradation_allowed: resolve_degradation(core_link.clone()).await,
     });
 
-    let router = Router::new()
-        .route("/healthz", get(healthz))
-        .route(
-            "/gateway/v1/chat/completions",
-            post(ingress::chat_completions),
-        )
-        .route("/gateway/v1/responses", post(ingress::responses))
-        .fallback(proxy::fallback)
-        .with_state((state, proxy_state));
+    let router = router(state, proxy_state);
 
     // 中间件链：按序注册，前者为外层。新增功能 = 实现 GatewayMiddleware + 此处一行。
     let chain: Vec<std::sync::Arc<dyn middleware::GatewayMiddleware>> = vec![
@@ -185,6 +177,18 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");
+}
+
+fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {
+    Router::new()
+        .route("/healthz", get(healthz))
+        .route(
+            "/gateway/v1/chat/completions",
+            post(ingress::chat_completions),
+        )
+        .route("/gateway/v1/responses", post(ingress::responses))
+        .fallback(proxy::fallback)
+        .with_state((state, proxy_state))
 }
 
 async fn shutdown_signal() {

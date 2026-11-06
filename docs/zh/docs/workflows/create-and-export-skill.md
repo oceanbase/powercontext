@@ -1,6 +1,6 @@
 ---
 title: 创建与导出 Skill
-description: 根据精确证据生成 managed Skill Candidate，批准后将一个 Revision 导出给 Codex。
+description: 根据精确证据生成托管 Skill 候选，审核批准后将指定版本导出给 Codex。
 ---
 
 # 创建与导出 Skill

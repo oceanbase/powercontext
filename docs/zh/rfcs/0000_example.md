@@ -1,3 +1,8 @@
+---
+title: "RFC 0000：提案模板"
+description: "供贡献者编写设计提案的模板，说明变更动机、技术设计、替代方案和未决问题。"
+---
+
 - Proposal Name: (fill me in with a unique identifier, `my_awesome_feature`)
 - Start Date: (fill me in with today's date, YYYY-MM-DD)
 - RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)

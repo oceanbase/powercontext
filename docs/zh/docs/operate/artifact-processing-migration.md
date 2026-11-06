@@ -1,5 +1,6 @@
 ---
 title: 迁移 Artifact 后台处理状态
+description: "在启动 Supervisor 前迁移已有的 Artifact 后台处理状态，完成迁移规划、异常恢复和就绪检查。"
 ---
 
 已有 Topic Memory 处理数据库必须先完成显式维护迁移，再启动按 Scope 调用的

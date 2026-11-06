@@ -1,3 +1,8 @@
+---
+title: "RFC 0001: Product definition and vision"
+description: "Design goals for work continuity between people and agents, with PowerContext concepts, phased scope, and acceptance criteria."
+---
+
 - Proposal Name: `product_definition_and_vision`
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#0001](https://github.com/oceanbase/powercontext/pull/0001)

@@ -30,6 +30,7 @@ from powercontext.sources.definitions import (
     SourceDefinitionRegistry,
     SourceProjection,
 )
+from powercontext.sources.evidence import MemoryEvidenceDeclaration, SourceEvidence
 from powercontext.sources.models import Source, SourceMaterialization, SourceProjectionKey, SourceRef
 from powercontext.sources.observations import (
     SourceDefinitionManifest,
@@ -53,6 +54,7 @@ __all__ = [
     "ConnectorRunSession",
     "ConnectorRunStatus",
     "ConnectorSubmissionStatus",
+    "MemoryEvidenceDeclaration",
     "Source",
     "SourceAdapter",
     "SourceCatalog",
@@ -60,6 +62,7 @@ __all__ = [
     "SourceDefinition",
     "SourceDefinitionManifest",
     "SourceDefinitionRegistry",
+    "SourceEvidence",
     "SourceMaterialization",
     "SourceObservation",
     "SourceProjection",

@@ -1,6 +1,6 @@
 ---
-title: Usability and Agent workflows
-description: A common direction for installation, operations, staged configuration, scenario Skills, and the local Client.
+title: "RFC 1733: Usability and Agent workflows"
+description: A proposal defining installer, operations tooling, shared Client, and Skill responsibilities for setup and continued Agent use.
 ---
 
 - Proposal Name: `usability_and_agent_workflows`

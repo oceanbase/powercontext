@@ -263,6 +263,44 @@ def test_web_config_reads_portable_network_settings_and_deduplicates_hosts(tmp_p
     assert config.extra_no_proxy_hosts == ("mirror.example.test", "10.0.0.7")
 
 
+def test_web_config_reads_egress_settings_for_custom_providers(tmp_path: Path) -> None:
+    default = WebConfig.from_environment({"POWERCONTEXT_EVAL_ROOT": str(tmp_path)})
+    assert default.egress == "allowlist"
+    assert default.allow_hosts == ()
+
+    config = WebConfig.from_environment(
+        {
+            "POWERCONTEXT_EVAL_ROOT": str(tmp_path),
+            "POWERCONTEXT_EVAL_ALLOW_HOSTS": "LLM.example.test,llm.example.test,api.example.test",
+            "POWERCONTEXT_EVAL_EXTRA_NO_PROXY_HOSTS": "gateway.internal",
+        }
+    )
+    assert config.allow_hosts == ("llm.example.test", "api.example.test")
+    assert config.extra_no_proxy_hosts == ("gateway.internal",)
+
+    native = WebConfig.from_environment({"POWERCONTEXT_EVAL_ROOT": str(tmp_path), "POWERCONTEXT_EVAL_EGRESS": "native"})
+    assert native.egress == "native"
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "message"),
+    [
+        ("POWERCONTEXT_EVAL_EGRESS", "open", "egress"),
+        ("POWERCONTEXT_EVAL_ALLOW_HOSTS", "10.0.0.1", "DNS names"),
+    ],
+)
+def test_web_config_rejects_invalid_egress_settings(tmp_path: Path, variable: str, value: str, message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        WebConfig.from_environment({"POWERCONTEXT_EVAL_ROOT": str(tmp_path), variable: value})
+
+
+def test_web_config_rejects_tokensflow_with_the_egress_allowlist(tmp_path: Path) -> None:
+    # TokensFlow attaches an unrestricted network to the agent container, which would bypass the allowlist.
+    with pytest.raises(ValidationError, match="TokensFlow attaches"):
+        WebConfig.for_root(tmp_path, tokensflow_enabled=True, tokensflow_egress_network="bridge")
+    WebConfig.for_root(tmp_path, tokensflow_enabled=True, tokensflow_egress_network="bridge", egress="native")
+
+
 @pytest.mark.parametrize("pool", ["public.example", "8.8.8.0/24", "10.0.0.0/24", "fd00::/64"])
 def test_web_config_rejects_unsafe_docker_network_pool(tmp_path: Path, pool: str) -> None:
     with pytest.raises(ValidationError, match="Docker network pool"):

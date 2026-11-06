@@ -19,7 +19,7 @@ pub mod connections;
 pub mod credentials;
 #[cfg(windows)]
 mod diagnostic_process;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[path = "diagnostic_process_macos.rs"]
 mod diagnostic_process;
 pub mod diagnostics;
@@ -56,6 +56,12 @@ pub fn run() {
             commands::search_memory,
             commands::atomic_memory_entry,
             commands::cancel_memory_reads,
+            commands::observe_runtime_liveness,
+            commands::observe_runtime_capabilities,
+            commands::probe_runtime_readiness,
+            commands::cancel_runtime_reads,
+            commands::get_stats,
+            commands::cancel_stats_reads,
             commands::desktop_state,
             commands::save_profile,
             commands::remove_profile,
@@ -93,16 +99,19 @@ pub fn run() {
                 .as_ref()
                 .map(|manager| manager.observations().clone())
                 .unwrap_or_default();
-            app.manage(observations);
+            app.manage(observations.clone());
             app.manage(commands::HostState { manager });
             app.manage(diagnostics::DiagnosticHost::new(
                 app.path().app_data_dir().ok(),
             ));
-            app.manage(ops_bridge::OpsHost::new(
-                app.path().resource_dir().ok(),
-                app.path().local_data_dir().ok(),
-                app.path().home_dir().ok(),
-            ));
+            app.manage(
+                ops_bridge::OpsHost::new(
+                    app.path().resource_dir().ok(),
+                    app.path().local_data_dir().ok(),
+                    app.path().home_dir().ok(),
+                )
+                .with_observations(observations),
+            );
             let config = &app.config().app.windows[0];
             tauri::WebviewWindowBuilder::from_config(app, config)?
                 .on_navigation(ipc::allowed_navigation)

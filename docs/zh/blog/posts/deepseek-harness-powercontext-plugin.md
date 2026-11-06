@@ -1,9 +1,9 @@
 ---
+title: 给 DeepSeek Harness 写一个 PowerContext 插件
+description: 用 Cordis 薄适配层把项目级 Memory、自动召回和 Handoff 接入 DeepSeek Harness。
 draft: true
 authors: []
 slug: deepseek-harness-powercontext-plugin
-title: 给 DeepSeek Harness 写一个 PowerContext 插件
-description: 用 Cordis 薄适配层把项目级 Memory、自动召回和 Handoff 接入 DeepSeek Harness。
 date: 2026-08-14
 ---
 

@@ -308,6 +308,61 @@ class RecurrenceStatistics(BaseModel):
     top_revisions: tuple[RecurrenceStreak, ...] = Field(max_length=MAX_RECURRENCE_TOP_REVISIONS)
 
 
+class ProcessingObservation(BaseModel):
+    """Durable invocation progress and a separately identified local scheduler sample."""
+
+    binding: str
+    family: str | None = None
+    state: Literal["idle", "dirty", "pending", "acknowledged", "queued", "running", "retry_wait", "blocked"]
+    observed_at: datetime
+    scheduler_observed: bool = False
+    reason: Literal[
+        "unobserved",
+        "waiting_schedule",
+        "waiting_dispatch",
+        "waiting_capacity",
+        "executing",
+        "retry_backoff",
+        "policy_block",
+        "idle",
+    ] = "unobserved"
+    requested_generation: int = Field(default=0, ge=0)
+    handled_generation: int = Field(default=0, ge=0)
+    dirty_generation: int = Field(default=0, ge=0)
+    clean_generation: int = Field(default=0, ge=0)
+    pending_since: datetime | None = None
+    running_seconds: float | None = Field(default=None, ge=0)
+    next_check_seconds: float | None = Field(default=None, ge=0)
+    worker_id: str | None = None
+    attempt_generation: int | None = Field(default=None, ge=0)
+    retry_failures: int | None = Field(default=None, ge=0)
+    block_code: str | None = None
+    last_error_code: str | None = None
+    last_error_stage: str | None = None
+    last_error_at: datetime | None = None
+    last_error_worker_id: str | None = None
+    last_error_trace_id: str | None = None
+
+
+class BootstrapDeliveryReading(BaseModel):
+    """Current retained receipt states grouped by integration and preparation period."""
+
+    integration: str
+    state: Literal["pending", "injected", "skipped", "failed"]
+    receipts: int = Field(ge=0)
+    content_bytes: int = Field(ge=0)
+    last_prepared_at: datetime
+
+
+class BootstrapDeliveryStatistics(BaseModel):
+    """Host-reported delivery does not establish model adoption or billing savings."""
+
+    period: ResolvedUsagePeriod
+    retention_days: int = 30
+    actual_adoption: Literal["unobserved"] = "unobserved"
+    by_integration: tuple[BootstrapDeliveryReading, ...] = ()
+
+
 class ScopeStatistics(BaseModel):
     """Statistics retained for one Scope inside a resolved selection."""
 
@@ -316,6 +371,8 @@ class ScopeStatistics(BaseModel):
     usage: UsageStatistics
     recall: RecallTokenStatistics
     recurrence: RecurrenceStatistics
+    processing: tuple[ProcessingObservation, ...] = ()
+    bootstrap_delivery: BootstrapDeliveryStatistics | None = None
 
 
 class Statistics(BaseModel):
@@ -339,6 +396,8 @@ class Statistics(BaseModel):
 __all__ = [
     "MAX_RECURRENCE_TOP_REVISIONS",
     "ArtifactInventoryStatistics",
+    "BootstrapDeliveryReading",
+    "BootstrapDeliveryStatistics",
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",
     "FamilyCount",

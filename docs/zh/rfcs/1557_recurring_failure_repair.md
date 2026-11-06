@@ -1,3 +1,8 @@
+---
+title: RFC 1557：重复故障修复
+description: 重复故障修复的设计提案，以证据定义故障身份、修复归属和结果记录，核对已有经验是否在故障再现时有效。
+---
+
 - Proposal Name: `recurring_failure_repair`
 - Start Date: 2026-09-10
 - Status: Proposed

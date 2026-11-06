@@ -1,3 +1,8 @@
+---
+title: "RFC 0002: Core SDK product model"
+description: "Design record for the first Python Core SDK, covering Source references, immutable Artifact Revisions, and evidence tracking."
+---
+
 - Proposal Name: `core_sdk_product_model`
 - Start Date: 2026-07-07
 - RFC PR: [oceanbase/powercontext#2](https://github.com/oceanbase/powercontext/pull/2)
