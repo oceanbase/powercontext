@@ -366,8 +366,9 @@ the existing per-request behavior.
 A non-empty PreparedContext is appended once as a plugin message with `source.form=snapshot` and a `PowerContext`
 section. In DSH 0.1.2-rc.1 Web, expand a completed turn's process details, then its **Context injection — powercontext-dsh**
 row. Other host versions may expose this in a context browser. The section
-contains the same text sent to the model and saved in the session log, including the untrusted-history label and
-request-specific replacement wording. Reopening session history retains this metadata.
+contains the same text sent to the model and saved in the session log: the plugin's request-specific replacement
+wording, then the Server's prepared context, where the Server's trust policy precedes the recalled items. Reopening
+session history retains this metadata.
 
 Empty responses and automatic failures do not create a snapshot or a model-visible error notice. Presentation uses
 the host's existing snapshot support; it does not add a separate PowerContext panel or claim receipt/source details

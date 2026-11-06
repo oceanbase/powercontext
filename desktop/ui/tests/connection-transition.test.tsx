@@ -15,7 +15,14 @@
  */
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  within,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
@@ -31,6 +38,7 @@ vi.mock("../src/shared/ipc", () => ({
     state: vi.fn(),
     save: vi.fn(),
     check: vi.fn(),
+    probeReadiness: vi.fn(),
     remember: vi.fn(),
     search: vi.fn(),
     scopes: vi.fn(),
@@ -351,6 +359,123 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });
+
+test.each(["success", "failure"] as const)(
+  "a delayed readiness %s leaves Scope and Memory usable and preserves a new draft",
+  async (result) => {
+    const user = userEvent.setup();
+    let finish!: (next: DesktopState) => void;
+    let fail!: (error: unknown) => void;
+    vi.mocked(desktopApi.probeReadiness).mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+    );
+    vi.mocked(desktopApi.scopes).mockResolvedValue({
+      items: [scope],
+      next_cursor: null,
+    });
+    vi.mocked(desktopApi.search).mockResolvedValue({ hits: [] });
+    vi.mocked(desktopApi.remember).mockResolvedValue({
+      record: {
+        operationId: "independent-memory-save",
+        context: {
+          connectionId: profile.id,
+          endpoint: profile.endpoint,
+          serverId: null,
+          principal: null,
+          generation: state.generation,
+          scopeId: scope.scope_id,
+        },
+        status: "succeeded",
+        references: [],
+        error: null,
+      },
+      result: { changed: false, records: [] },
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "连接" }));
+    await user.click(screen.getByRole("button", { name: /Original http/ }));
+    await user.click(screen.getByRole("button", { name: "探测就绪状态" }));
+    expect(desktopApi.probeReadiness).toHaveBeenCalledWith(
+      profile.id,
+      profile.revision,
+    );
+    const selector = screen.getByRole("button", { name: /Scope A scope-a/ });
+    expect(selector.matches(":enabled")).toBe(true);
+    await user.click(selector);
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "查找范围",
+      }),
+    );
+    await waitFor(() =>
+      expect(desktopApi.scopes).toHaveBeenCalledWith(
+        state.generation,
+        "",
+        null,
+      ),
+    );
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "记忆" }));
+    expect(
+      screen.queryByRole("heading", { name: "正在更新连接状态…" }),
+    ).toBeNull();
+    const input = screen.getByRole("textbox", { name: "记忆内容" });
+    expect(input.matches(":enabled")).toBe(true);
+    await user.type(
+      screen.getByRole("textbox", { name: "关键词搜索" }),
+      "independent query",
+    );
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await waitFor(() =>
+      expect(desktopApi.search).toHaveBeenCalledWith(
+        state.generation,
+        "independent query",
+      ),
+    );
+    await user.type(input, "independent save");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(desktopApi.remember).toHaveBeenCalledWith(
+        state.generation,
+        "independent save",
+      ),
+    );
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
+    await user.type(input, "draft while diagnostics finish");
+    await act(async () => {
+      if (result === "failure") fail({ code: "timeout" });
+      else {
+        const probed = {
+          ...report,
+          readinessCheckedAt: 2,
+          readiness: {
+            value: { status: "ready" as const, checks: {} },
+            error: null,
+          },
+        };
+        finish({
+          ...state,
+          reports: [probed],
+          active: { ...state.active!, report: probed },
+        });
+      }
+    });
+    expect((input as HTMLTextAreaElement).value).toBe(
+      "draft while diagnostics finish",
+    );
+    expect(input.matches(":enabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: /Scope A scope-a/ })
+        .matches(":enabled"),
+    ).toBe(true);
+  },
+  15_000,
+);
 
 test.each(["使用此连接", "检查连接"])(
   "pending %s stays global after leaving the editor and prevents a draft in the stale context",

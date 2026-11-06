@@ -316,7 +316,8 @@ Source 被接收不代表已经生成 Memory，后者需要 Server 成功处理�
 非空 PreparedContext 只追加一次，消息带有 `source.form=snapshot` 和名为 `PowerContext` 的 section。
 在 DSH 0.1.2-rc.1 Web 中，展开已完成轮次的“已思考”过程内容，再展开“上下文注入 — powercontext-dsh”。
 其他宿主版本也可能将它展示在上下文浏览器中。section 与发给模型、
-保存到会话日志的文字一致，包含不可信历史证据的提示，以及当前请求替换此前快照的说明。
+保存到会话日志的文字一致：先是插件关于当前请求替换此前快照的说明，然后是 Server 准备的上下文，
+其中 Server 的信任策略（trust policy）位于召回条目之前。
 重新打开会话历史时，这些元数据仍然保留。
 
 空结果和自动失败不会生成 snapshot，也不会向模型注入错误通知。展示使用宿主已有的 snapshot 能力，

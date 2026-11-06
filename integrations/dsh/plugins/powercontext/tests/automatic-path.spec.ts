@@ -342,8 +342,8 @@ describe('registered automatic path', () => {
       kind: 'plugin:powercontext-dsh', form: 'snapshot',
       sections: [{ name: 'PowerContext Scope routing', text: routing.content[0].text }],
     })
-    expect(message.content[0].text).toContain('untrusted historical evidence')
-    expect(message.content[0].text.endsWith(TEXT)).toBe(true)
+    expect(message.content[0].text).toBe(
+      `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots.\n\n${TEXT}`)
   })
 
   it.each([

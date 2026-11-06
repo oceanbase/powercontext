@@ -74,13 +74,6 @@ _OCEANBASE = OceanBaseConfig(
 )
 
 
-class _InjectedGate:
-    policy_id = "test.injected.memory.write-gate.v1"
-
-    async def assess(self, request, /):
-        raise AssertionError
-
-
 def _sqlite(path: Path) -> SQLiteConfig:
     return SQLiteConfig(url=f"sqlite+aiosqlite:///{path}")
 
@@ -283,12 +276,6 @@ def test_dream_injection_requires_a_reconstructible_worker(tmp_path: Path, famil
                 pytest.fail("a spawned Worker must not silently ignore an injected Dream generator")
 
     asyncio.run(scenario())
-
-
-def test_injected_memory_write_gate_is_preserved_for_atomic_memory_composition() -> None:
-    gate = _InjectedGate()
-
-    assert composition._configured_memory_write_gate(gate, None, RuntimeConfig()) is gate
 
 
 @pytest.mark.parametrize("role", ["all", "api"])

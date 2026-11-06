@@ -1551,6 +1551,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_connection_identity: {
+		method: "GET",
+		path: "/v1/connection/identity",
+		location: null,
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_access_principal: {
 		method: "GET",
 		path: "/v1/access/me",
