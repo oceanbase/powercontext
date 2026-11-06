@@ -132,8 +132,9 @@ impl Gateway {
         let peer_base = format!("http://{}", listener.local_addr().unwrap());
         let router = Router::new()
             .route("/v1/context/check", post(check))
-            // 启动发现必须拿到完整 v1 能力：缺失即暂停模型路由（`input_capacity_unconfirmed`），
-            // 这些行为用例验证的是载荷与流式语义，因此声明与 Core v1 解析上限等价的能力。
+            // Startup discovery needs the complete v1 capability document; without it the model
+            // routes stay paused (`input_capacity_unconfirmed`). These cases verify payload and
+            // streaming semantics, so advertise the same ceiling as Core's v1 parser.
             .route(
                 "/v1/capabilities",
                 axum::routing::get(|| async {
@@ -156,9 +157,10 @@ impl Gateway {
             .timeout(Duration::from_secs(10))
             .build()
             .unwrap();
-        // 网关自行绑定监听端口，因此这里先探测一个空闲端口再交给子进程；探测与绑定之间存在
-        // 被其他套接字（含本进程的出站连接）抢占的窗口，抢占后子进程会以 AddrInUse 退出，
-        // 此时换端口重试而不是判定行为失败。其他启动退出不是端口竞争，立即带诊断失败。
+        // The gateway binds its own port, so probe a free one and hand it to the child. Between the
+        // probe and the child's bind another socket (including this process's outbound connections)
+        // can take it; the child then exits with AddrInUse, which is retried on a fresh port instead
+        // of failing the case. Any other startup exit is not a port race and fails immediately.
         let mut attempts = 0;
         let (child, address, log) = loop {
             attempts += 1;
@@ -191,8 +193,8 @@ impl Gateway {
                 .env("PC_GATEWAY_API_KEY", "gateway-test-key")
                 .env("PC_GATEWAY_INJECTION", "off")
                 .env("PC_GATEWAY_SEDIMENT", "off")
-                // 网关的诊断走 stdout/stderr，重定向到每次尝试独占的日志文件，
-                // 失败时连同退出状态一起报告。
+                // Gateway diagnostics go to stdout/stderr; capture them per attempt and report
+                // them together with the exit status on failure.
                 .stdout(Stdio::from(log_file.try_clone().unwrap()))
                 .stderr(Stdio::from(log_file))
                 .spawn()
@@ -207,8 +209,9 @@ impl Gateway {
                             Startup::Exited(status, output)
                         };
                     }
-                    // 单次探测有独立上限：端口被其他套接字占用时连接可能成功却无人应答，
-                    // 不能让一次探测耗尽整个启动窗口而掩盖子进程的退出。
+                    // Bound each probe on its own: an occupied port can accept a connection that
+                    // never answers, and one such probe must not consume the whole startup window
+                    // and hide the child's exit.
                     let probe = tokio::time::timeout(
                         Duration::from_millis(250),
                         client.get(format!("http://{address}/healthz")).send(),
