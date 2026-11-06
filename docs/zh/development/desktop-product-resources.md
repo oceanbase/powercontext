@@ -31,7 +31,7 @@ uv run --locked --no-dev --group resource-build python scripts/prepare_desktop_p
 重定向来源通过重复 `--allowed-origin` 提供。每次使用全新输出目录。脚本验证生产绑定、实际 Server 归档字节、完整 Ops 文件及可执行入口、目标身份和精确产品资格；复制 helper，更新目录的 URL 和资格引用，固定新目录及 Ops 清单摘要，全部验证后才原子发布暂存目录。输入保持不变。输出包括：
 
 - 应用资源目录所需的 `ops/`、`server/catalog.json` 和 `ops-provision.json`。
-- `tauri.product.conf.json`，包含产品标识 `com.powercontext.desktop`、选定的 Desktop 版本，以及包含隐藏文件的显式资源映射。构建结束前保持暂存目录的绝对位置不变。
+- `tauri.product.conf.json`，包含产品标识 `com.powercontext.desktop`、选定的 Desktop 版本，以及保留完整 Ops 树（含隐藏文件）的目录映射。构建结束前保持暂存目录的绝对位置不变。
 - `product-resources.json`，记录生产和资源绑定及选定资格。签名和安装验收明确标记为 `not_performed`；它不是正式发布清单。
 
 从 `desktop/` 执行，不启用 `ci-fixtures` 或预览特性：

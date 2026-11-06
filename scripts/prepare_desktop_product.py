@@ -162,8 +162,9 @@ def prepare(
             "catalog_sha256": digest(stage / "server/catalog.json"),
         }
         (stage / "ops-provision.json").write_bytes(json_bytes(provision))
-        # Explicit paths preserve all inventoried files, including dotfiles. No renderer inputs select these paths.
-        mappings = {str(output.resolve() / "ops" / f["path"]): "ops/" + f["path"] for f in files}
+        # Tauri walks a directory mapping recursively, preserving nested paths
+        # and dotfiles without putting the full inventory in TAURI_CONFIG.
+        mappings = {str(output.resolve() / "ops"): "ops/"}
         mappings.update({str(output.resolve() / p): p for p in ("ops-provision.json", "server/catalog.json")})
         (stage / "tauri.product.conf.json").write_bytes(
             json_bytes({
