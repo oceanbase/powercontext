@@ -200,11 +200,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_changes.py
 
+      - name: Prepare a writable license-eye prefix
+        # Install license-eye via the action's supported INSTALL_DIR override,
+        # using a user-writable path that the action resolves from PATH.
+        env:
+          LICENSE_EYE_BIN: ${{ runner.temp }}/license-eye-bin
+        run: |
+          mkdir -p "$LICENSE_EYE_BIN"
+          echo "$LICENSE_EYE_BIN" >> "$GITHUB_PATH"
+
       - name: Check License Header
         timeout-minutes: 10
         uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTALL_DIR: ${{ runner.temp }}/license-eye-bin
         with:
           config: .licenserc.yaml
           mode: check
@@ -521,7 +531,7 @@ jobs:
           mkdir -p .powercontext/database-bootstrap-ci
           uv run --locked --extra seekdb --extra code python -m pytest \
             tests/e2e/test_database_bootstrap.py -k seekdb -vv -rs \
-            -o faulthandler_timeout=60 --durations=20 \
+            -o faulthandler_timeout=0 --durations=20 \
             --junitxml=.powercontext/database-bootstrap-ci/seekdb.xml \
             2>&1 | tee .powercontext/database-bootstrap-ci/pytest.log
           uv run --locked --extra seekdb --extra code python - <<'PYCODE'
@@ -569,7 +579,7 @@ jobs:
           df -h . /tmp
           if [ "$SEEKDB_MIGRATION_SHARD" -eq 0 ]; then
             uv run --locked --extra seekdb --extra code pytest -vv \
-              -o faulthandler_timeout=120 --durations=20 \
+              -o faulthandler_timeout=0 --durations=20 \
               tests/builtin/persistence/test_database_migration_backends.py \
               tests/builtin/persistence/test_database_backup_providers.py \
               tests/builtin/persistence/test_database_migration_connections.py \

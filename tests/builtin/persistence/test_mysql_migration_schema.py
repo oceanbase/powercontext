@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import re
@@ -90,6 +91,71 @@ class _ReflectedDatabase:
 @pytest.fixture
 def schema() -> MySQLSchema:
     return MySQLSchema(MigrationBundle(_RESOURCES))
+
+
+@pytest.fixture(scope="module")
+def server_schema() -> MySQLSchema:
+    return MySQLSchema(server_bundle())
+
+
+def test_server_schema_accepts_compatible_extensions_without_changing_evidence(server_schema: MySQLSchema) -> None:
+    revision = server_schema.bundle.revisions[0]
+    inventory = server_schema.required(revision)
+    original = copy.deepcopy(inventory)
+    table = inventory["tables"]["pc_artifacts"]
+    table["columns"]["extension_note"] = {**table["columns"]["artifact_id"], "nullable": True, "default": None}
+    table["indexes"]["extension_lookup"] = {"columns": [("extension_note", None, "asc")], "unique": False}
+    for definition in inventory["tables"].values():
+        definition["checks"] = {f"renamed_{name}": check for name, check in definition["checks"].items()}
+    for column in table["columns"].values():
+        if column["type"][0] not in {"char", "varchar", "text", "mediumtext", "longtext"}:
+            continue
+        if column["charset"] is None:
+            column["charset"] = "utf8mb4"
+        if column["collation"] is None:
+            column["collation"] = "utf8mb4_general_ci"
+    inventory["tables"]["extension_records"] = copy.deepcopy(table)
+    inventory["views"].append("extension_view")
+    inventory["triggers"].append({"Trigger": "extension_writer", "Table": "extension_records"})
+    evidence = copy.deepcopy(inventory)
+
+    server_schema.verify(inventory, revision)
+    server_schema.verify(inventory, revision)
+
+    assert inventory == evidence
+    assert server_schema.required(revision) == original
+
+
+@pytest.mark.parametrize(
+    "change", ["missing_table", "missing_column", "required_column", "unique_index", "check", "trigger"]
+)
+def test_server_schema_rejects_incompatible_extensions_without_changing_evidence(
+    server_schema: MySQLSchema, change: str
+) -> None:
+    revision = server_schema.bundle.revisions[0]
+    inventory = server_schema.required(revision)
+    original = copy.deepcopy(inventory)
+    table = inventory["tables"]["pc_artifacts"]
+    if change == "missing_table":
+        del inventory["tables"]["pc_artifacts"]
+    elif change == "missing_column":
+        del table["columns"]["artifact_id"]
+    elif change == "required_column":
+        table["columns"]["extension_note"] = {**table["columns"]["artifact_id"], "nullable": False, "default": None}
+    elif change == "unique_index":
+        table["indexes"]["extension_unique"] = {"columns": [("artifact_id", None, "asc")], "unique": True}
+    elif change == "check":
+        checked_table = next(definition for definition in inventory["tables"].values() if definition["checks"])
+        checked_table["checks"] = {}
+    else:
+        inventory["triggers"].append({"Trigger": "extension_writer", "Table": "pc_artifacts"})
+    evidence = copy.deepcopy(inventory)
+
+    with pytest.raises(MigrationError, match="recorded revision"):
+        server_schema.verify(inventory, revision)
+
+    assert inventory == evidence
+    assert server_schema.required(revision) == original
 
 
 _NEXT_TABLE = "CREATE TABLE pc_extension_marker (id INTEGER NOT NULL, PRIMARY KEY (id))"
