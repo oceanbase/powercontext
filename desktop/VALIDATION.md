@@ -181,7 +181,7 @@ The historical Server c535d816 protocol qualification below records the specific
 all twelve operations, including statistics, for its exact Server source and wheel below.
 The separate `sqlite-observability-4568b499-v1` retains its eleven-operation evidence.
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence. A record qualifies only its recorded Server source, wheel and contract; records with a different contract digest are disabled in the selector. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. Historical records retain their exact identities and evidence, including the separate `sqlite-atomic-1da99747-linux-v1` qualification. A record qualifies only its recorded Server source, wheel and contract; records with a different contract digest are disabled in the selector. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
 Statistics additionally require `get_stats` in the selected record's independently qualified operation set.
 
@@ -1473,6 +1473,34 @@ Repository hooks passed except the existing Windows Python type errors in unchan
 see ignored `.artifacts/desktop-shell/current-contract-prek.log`.
 仓库全量钩子仍有未修改代码的既存 Windows Python 类型错误，其余钩子通过。
 
+#### Server 1da99747 Linux protocol qualification
+
+`sqlite-atomic-1da99747-linux-v1` records a separate qualification wheel for the same Server
+contract as `sqlite-atomic-1da99747-v1`. It identifies Server sources at
+`1da997476651c2850ff7141e2b7cd512d0152a90` and normalized OpenAPI digest
+`5878999ce9e239d6642e4da858074b281ed465629432c578b3584eec47cbce6c`.
+The qualification wheel is `powercontext-1.4.1.dev139+g1da997476-py3-none-any.whl`,
+SHA-256 `92c71e27f406df8663b6cac894ecef9fe8aff17454a5a0dda736b09624c305d9`.
+All 540 packaged runtime files match the recorded Server commit byte for byte; the OpenAPI
+contract, project configuration and lock also match. The sorted runtime source-manifest digest
+is `da5b32b18298795299135c585c618d8238683eb596b2121f4904f61da23c3786`
+(one `wheel/path sha256` entry per line, with a final newline).
+
+The existing real-Server harness passed against this isolated wheel and SQLite in all four modes:
+anonymous loopback, static Bearer, HTTPS with an explicit CA and base path, and an injected
+provider with enforced access. The ten recorded operations cover Scope selection and pagination,
+Atomic Memory save/search/exact revision reads, identity changes, same-identity revocation,
+committed writes with lost responses without replay, and independent Server survival after the
+client exits.
+
+Qualification ran on Linux x86_64 with Python 3.12.3 and Rust 1.95.0. The standalone Rust client
+compiled the unmodified product connection, transport, credential and error modules, plus
+`server_probe.rs`, from Desktop merge commit `5bab8fc3720087e537a1a5cd1da613fd044780b7`.
+Every client dependency version and checksum matches the product Cargo lock. The Tauri GUI shell
+was excluded. This establishes Server protocol compatibility for the recorded sources and wheel;
+it does not qualify Linux Desktop support, native macOS/Windows packaging, credential stores,
+or installed UI workflows. Historical records retain their original identities and evidence.
+
 #### Server c535d816 protocol qualification
 
 `sqlite-atomic-c535d816-v1` records Server sources at
@@ -1686,7 +1714,6 @@ Headless Edge 155.0.4283.62 with synthetic IPC checked all five pages in 24 comb
 2026-10-21 在 Windows x64 上使用 Node 24.14.1、pnpm 11.13.1 验证，生成合同检查使用 Rust 1.95.0。37 项 UI 测试、类型检查、lint 和前端生产构建通过。原有业务行为测试保留，观察测试覆盖导航、双语、键盘标签切换、不可用状态和现有草稿确认。
 
 无头 Edge 155.0.4283.62 使用合成 IPC 检查中英文、三种主题及上述四组 CSS 视口，共 24 种组合，五个页面没有横向溢出。在桌面宽度下，有无观察入口时“设置与诊断”的坐标一致；小窗口中它仍位于主导航下方。400×300 配合设备缩放因子 2 仅检查 800×600 在 200% 下的等效布局，不代表安装版 WebView 缩放。真实 Server、安装包、原生 IME、屏幕阅读器和 macOS 仍需实际验收。
-
 
 ## Shared feedback and global context (#2102)
 
