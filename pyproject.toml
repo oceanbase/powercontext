@@ -222,6 +222,7 @@ extra-paths = [
     "./scripts",
     "./deploy/observability",
     "./desktop/tests",
+    "./deploy/observability",
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/claude-code/plugins/powercontext/scripts",
     "./integrations/codex/plugins/powercontext",

@@ -629,6 +629,15 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
 defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
 
+Atomic Memory uses native `minimum_should_match` filtering when the connected OceanBase or seekDB engine supports it.
+Older engines retain the whole-word `LOCATE` coverage check. Capability detection does not treat query timeouts,
+permission failures, or connection errors as an unsupported feature. Both paths keep the same analyzed, deduplicated
+query terms and admission threshold, including recovery probes and complete related-memory enumeration.
+Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
+Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
+OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.
+This selection requires no new setting, table, or index migration; the existing `SPACE` full-text index is reused.
+
 seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
 without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;
 other connection errors do not trigger fallback. seekDB detects PowerContext-named tables in the old `test` database
