@@ -197,13 +197,17 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
     assert len(checkouts) == 1
     assert checkouts[0]["with"]["fetch-depth"] == 0
+    assert checkouts[0]["with"]["filter"] == "blob:none"
     selection = next(step for step in steps if step.get("id") == "select")
-    license_check = next(step for step in steps if step.get("uses", "").startswith("apache/skywalking-eyes/header@"))
+    license_tool = next(step for step in steps if step.get("id") == "license_tool")
+    license_check = next(step for step in steps if step.get("id") == "license_check")
     quality = next(step for step in steps if step.get("run") == "make check")
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"
-    assert license_check["with"] == {"config": ".licenserc.yaml", "mode": "check"}
-    for step in (selection, license_check, quality, contract):
+    assert license_tool["uses"] == "./.github/actions/setup-license-eye"
+    assert license_check["run"] == '"$LICENSE_EYE" -v info -c .licenserc.yaml header check'
+    assert license_check["env"]["LICENSE_EYE"] == "${{ steps.license_tool.outputs.executable }}"
+    for step in (selection, license_tool, license_check, quality, contract):
         assert not step.get("continue-on-error")
         assert "if" not in step  # A preceding failure prevents further admission work.
     for output in ("suites", "test-matrix", "required-jobs"):
