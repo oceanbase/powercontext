@@ -1,0 +1,23 @@
+integrations/codex/plugins/powercontext/hooks/diagnostics.py
+  s_2ef0feea0a110d::t_d983cead0900e0 130
+  s_2ef0feea0a110d::t_2e668408643677 50,106-107,113-129,131-132
+integrations/claude-code/plugins/powercontext/hooks/diagnostics.py
+  s_2ef0feea0a110d::t_d983cead0900e0 130
+  s_2ef0feea0a110d::t_2e668408643677 50,106-107,113-129,131-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4857ba9f2f7a30d58d0d83ceab85bcf0ceeb562d",
+  "prompts": {},
+  "sessions": {
+    "s_2ef0feea0a110d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9cf-a4e7-7f63-9c51-1284f7c332e8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

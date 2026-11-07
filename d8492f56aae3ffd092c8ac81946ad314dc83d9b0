@@ -1,0 +1,19 @@
+tests/e2e/test_worker_otlp.py
+  s_98c1bb9fbaf7be::t_674d103ce508c6 309-326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d8492f56aae3ffd092c8ac81946ad314dc83d9b0",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

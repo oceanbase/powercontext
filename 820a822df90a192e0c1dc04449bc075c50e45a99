@@ -1,0 +1,40 @@
+integrations/dsh/plugins/powercontext/src/errors.ts
+  s_dd718a55552956::t_acec9afde8cba3 24-35
+integrations/dsh/plugins/powercontext/src/recall.ts
+  s_dd718a55552956::t_acec9afde8cba3 90-97,99
+integrations/dsh/plugins/powercontext/tests/registry.spec.ts
+  s_dd718a55552956::t_acec9afde8cba3 1-15
+integrations/dsh/plugins/powercontext/tests/e2e/call-through.spec.ts
+  s_dd718a55552956::t_9812c2044ee1ae 40,51,56,115-124,126,153-154,194
+  s_dd718a55552956::t_5c8cddf34d2bde 290,296,303-307,348
+integrations/dsh/plugins/powercontext/tests/recall-query.spec.ts
+  s_dd718a55552956::t_9812c2044ee1ae 57-66
+integrations/dsh/plugins/powercontext/src/index.ts
+  s_dd718a55552956::t_acec9afde8cba3 18,30,35,160-170,176
+integrations/dsh/plugins/powercontext/scripts/check-registry.mjs
+  s_dd718a55552956::t_acec9afde8cba3 1-15
+integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
+  s_dd718a55552956::t_3db752117228a3 22,46-49
+  s_dd718a55552956::t_acec9afde8cba3 1-15
+  s_dd718a55552956::t_26cdffe05f4aa3 28
+integrations/cindy/plugins/powercontext-hooks/node/worker.cjs
+  s_dd718a55552956::t_b8200d6e375492 18,26-34
+integrations/dsh/plugins/powercontext/lib/index.js
+  s_dd718a55552956::t_4daf80518a2adf 32-40,4087-4093,4095,4367,4479-4488,4494
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "820a822df90a192e0c1dc04449bc075c50e45a99",
+  "prompts": {},
+  "sessions": {
+    "s_dd718a55552956": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ab78-7a60-76c2-b2ed-ff4f3e121e7c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}

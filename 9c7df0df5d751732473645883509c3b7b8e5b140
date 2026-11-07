@@ -1,0 +1,23 @@
+LICENSE
+  s_432a585ecc877c::t_5bbcc12ee0b047 1-202
+README.md
+  s_432a585ecc877c::t_072b2441518756 1-100
+README_CN.md
+  s_432a585ecc877c::t_6dedfe359e9821 1-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9c7df0df5d751732473645883509c3b7b8e5b140",
+  "prompts": {},
+  "sessions": {
+    "s_432a585ecc877c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1530f-9d08-7b53-a520-56dad9a00880",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "rongfeng.frf <rongfeng.frf@oceanbase.com>"
+    }
+  }
+}
