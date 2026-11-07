@@ -191,11 +191,13 @@ Topic Memory is the first consumer. This RFC does not migrate the existing Memor
 
 ## Window selection and context budgets
 
-In Journal order, the Topic Window Policy selects the largest contiguous prefix after the Cursor that satisfies both
+In Journal order, the Topic Window Policy selects the largest contiguous prefix after the Cursor that satisfies these
 limits:
 
 - no more than `runtime.topic_memory_source_window_limit` Sources, with a default of 10 and a server ceiling of 100;
-- estimated Source tokens no greater than 80% of the generation model's context window.
+- estimated Source tokens no greater than 80% of the generation model's context window;
+- canonical evidence within the character ceiling described in "Cumulative work and evidence ceilings", ending before
+  any Source that cannot be projected.
 
 `inference.generation_model_context_window_tokens` defaults to 125,000, so the default Source Window limit is 100,000
 tokens. Every actual generation request must still satisfy:
@@ -233,7 +235,9 @@ A Topic Window admits at most 4,194,304 canonical evidence characters in total. 
 canonical JSON serialization for at most 65,536 visited values/keys, depth 32, and 4,194,304 text characters; the final
 serialized content must also fit the character ceiling. These are Topic processing limits, including metadata, not a
 new capture API limit. Oversized or excessively nested captured content remains stored, but Topic processing stops
-with `source_complexity_limit`. The selector isolates the earliest Source when projection cannot fit; the Worker
+with `source_complexity_limit`. The selector ends the Window before the first Source that cannot be projected or would
+push the Window past the character ceiling; the Sources before it still form the Window that the count and token limits
+allow. When that Source directly follows the Cursor, the selector isolates it as a single-Source Window, and the Worker
 persists rejection instead of repeatedly serializing it on every discovery pass.
 
 All generation stages (including temporary Topics and reduction), structured retries, and Embedding share a durable
