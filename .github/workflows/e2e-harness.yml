@@ -19,7 +19,6 @@ on:
         options:
           - all
           - recall-effort
-          - entrypoint-diagnostics
 
 permissions:
   actions: read
@@ -30,27 +29,10 @@ env:
   UV_VERSION: "0.10.12"
 
 concurrency:
-  group: ${{ inputs.suite == 'entrypoint-diagnostics' && format('e2e-entrypoint-diagnostic-{0}-{1}', github.run_id, github.run_attempt) || format('e2e-harness-{0}-{1}', github.event.pull_request.number || github.ref, github.event_name) }}
+  group: e2e-harness-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
-  entrypoint-diagnostics:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'entrypoint-diagnostics' }}
-    runs-on: powercontext-ci-standard
-    timeout-minutes: 20
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: ${{ env.UV_VERSION }}
-      - name: Inspect the isolated harness image and container
-        run: bash scripts/diagnose_harness_entrypoint.sh
-
   changes:
     if: ${{ inputs.suites == '' }}
     uses: ./.github/workflows/ci-changes.yml
@@ -60,7 +42,7 @@ jobs:
   validate:
     needs: changes
     if: >-
-      ${{ !cancelled() && inputs.suite != 'entrypoint-diagnostics' && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 15
@@ -91,7 +73,7 @@ jobs:
 
   recall-effort:
     needs: changes
-    if: ${{ !cancelled() && inputs.suite != 'entrypoint-diagnostics' && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 60
@@ -359,7 +341,7 @@ jobs:
     name: Atomic Memory clean migration (OceanBase shard ${{ matrix.shard }}/3)
     needs: changes
     if: >-
-      ${{ !cancelled() && inputs.suite != 'entrypoint-diagnostics' && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     # Test steps total 155m; reserve 25m for setup, diagnostics and artifact upload.
@@ -523,7 +505,7 @@ jobs:
     name: Atomic Memory clean migration (OceanBase)
     needs: [changes, atomic-memory-clean-oceanbase-shards]
     if: >-
-      ${{ !cancelled() && inputs.suite != 'entrypoint-diagnostics' && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 5
