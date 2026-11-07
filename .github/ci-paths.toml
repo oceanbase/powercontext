@@ -60,7 +60,11 @@ cindy = [
   "integrations/dsh/plugins/powercontext/tsconfig.json",
 ]
 pi = ["integrations/pi/**", "tests/*pi_*"]
-opencode = ["integrations/opencode/**", "tests/*opencode*"]
+# The OpenCode service chain reuses the ZCode acceptance wire fixtures.
+opencode = [
+  "integrations/opencode/**", "tests/*opencode*", "tests/e2e/zcode_acceptance/protocol.py",
+  "tests/e2e/zcode_acceptance/runner.py",
+]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
 opendal = ["integrations/opendal/**"]
 website = [
