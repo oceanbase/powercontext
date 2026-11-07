@@ -64,7 +64,7 @@ class _Provider:
                     },
                     {
                         "kind": "decision",
-                        "text": "MySQL is no longer an option.",
+                        "text": "Billing no longer uses MySQL.",
                         "description": "MySQL is excluded",
                         "evidence_ids": [evidence],
                     },

@@ -29,10 +29,17 @@ from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingLeaseRepository,
 )
 from powercontext.builtin.persistence.tables import SHARED_TABLES
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 from powercontext.builtin.runtime import artifact_processing as processing
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingBinding, ArtifactProcessingSupervisor
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlock,
+    ArtifactProcessingBlockedError,
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
 )
@@ -808,6 +815,9 @@ def test_blocked_recheck_errors_preserve_spacing_diagnostics_and_explicit_wakes(
                 assert intent.requested_generation == 4 and intent.handled_generation == 0
                 blocked_logs = [r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked"]
                 assert len(blocked_logs) == 1
+                assert blocked_logs[0].processing_stage == "generation"
+                assert blocked_logs[0].failure_reason == "usage_limit"
+                assert blocked_logs[0].failure_location == "window_attempt_limit"
                 assert not [r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.failed"]
                 recheck_logs = [
                     r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.block_recheck_failed"
@@ -854,5 +864,52 @@ def test_admission_quantum_exhaustion_does_not_charge_a_healthy_scope(tmp_path, 
                 assert (await _intent(profile.database, "topic-binding", "healthy")).handled_generation == 1
                 assert (await _intent(profile.database, "topic-binding", "prefix")).handled_generation == 0
                 assert not [r for r in caplog.records if getattr(r, "stage", None) == "work_admission"]
+
+    asyncio.run(scenario())
+
+
+def test_worker_blocked_log_carries_diagnostics(tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger=processing.__name__)
+
+    async def scenario():
+        async with _profile(tmp_path, "blocked-diagnostics") as profile:
+            await _request(profile.database, "topic-binding", "blocked")
+
+            async def blocked(_assignment):
+                error = ArtifactProcessingBlockedError(
+                    ArtifactProcessingBlock("0", "topic_memory", "window_attempt_limit", (("attempts", 3),))
+                )
+                attach_diagnostics(
+                    error,
+                    ProcessingDiagnostics(
+                        stage=ProcessingStage.GENERATION,
+                        reason=ProcessingFailureReason.USAGE_LIMIT,
+                        failure_location="window_attempt_limit",
+                    ),
+                )
+                raise error
+
+            launcher = _Launcher(profile.database, on_work=blocked)
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding("topic-binding", "topic-memory", launcher),),
+                lease_mode="single-process",
+                retry_base_seconds=0.01,
+                retry_cap_seconds=0.01,
+                retry_jitter=lambda: 1,
+                blocked_check_seconds=60,
+            ) as supervisor:
+                await _wait(
+                    lambda: any(getattr(r, "event", None) == "artifact_processing.blocked" for r in caplog.records)
+                )
+                logs = [r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked"]
+                assert len(logs) == 1
+                record = logs[0]
+                assert record.stage == "topic_memory" and record.error_code == "window_attempt_limit"
+                assert record.attempts == 3
+                assert record.processing_stage == "generation"
+                assert record.failure_reason == "usage_limit"
+                assert record.failure_location == "window_attempt_limit"
+                assert supervisor.family_status["topic-memory"]["failed"] == 0
 
     asyncio.run(scenario())
