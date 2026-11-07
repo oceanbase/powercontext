@@ -126,7 +126,7 @@ jobs:
       - name: Build release distributions
         run: |
           uv build --out-dir dist
-          uvx --from twine twine check dist/*
+          uvx --from 'twine>=7.0.0' twine check dist/*
 
       - name: Freeze distributions and resolve the source matrix once
         if: ${{ !inputs.skip_upgrade_acceptance }}
