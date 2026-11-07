@@ -87,20 +87,24 @@ async def execute(directory, handler):
         ('{"candidates":', "stop", "json_parse_error"),
         ('{"candidates":[{"kind":"bad","text":"x","evidence_ids":["x"]}]}', "stop", "schema_error"),
         (
-            '{"candidates":[{"kind":"fact","text":"x","evidence_ids":["missing"]}]}',
+            '{"candidates":[{"kind":"fact","text":"x","description":"x","evidence_ids":["missing"]}]}',
             "stop",
             "invalid_evidence_reference",
         ),
-        ('{"candidates":[{"kind":"fact","text":" ","evidence_ids":["missing"]}]}', "stop", "domain_content_error"),
+        (
+            '{"candidates":[{"kind":"fact","text":" ","description":"x","evidence_ids":["missing"]}]}',
+            "stop",
+            "domain_content_error",
+        ),
         ('{"candidates":[]}', "length", "response_incomplete"),
         ('{"candidates":[]}', None, "response_completion_unknown"),
         (
-            '```json\n{"candidates":[{"kind":"fact","text":"x","evidence_ids":["missing"]}]}\n```',
+            '```json\n{"candidates":[{"kind":"fact","text":"x","description":"x","evidence_ids":["missing"]}]}\n```',
             "stop",
             "invalid_evidence_reference",
         ),
         (
-            '```json\n{"candidates":[{"kind":"fact","text":" ","evidence_ids":["missing"]}]}\n```',
+            '```json\n{"candidates":[{"kind":"fact","text":" ","description":"x","evidence_ids":["missing"]}]}\n```',
             "stop",
             "domain_content_error",
         ),
