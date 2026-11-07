@@ -114,9 +114,11 @@ HTTP inputs that use `name` instead of `source_type` accept the same locator.
   Lines refer to the exact decoded text supplied by the adapter. These locators introduce no byte offsets.
 
 Atomic Memory extraction derives a journal locator from the persisted capture position for built-in captured
-Content Sources and other Sources without a finer position. An adapter may report a line range in
-`TextEvidence.locator`; worker observations preserve it in the text-evidence projection, and extraction keeps it
-instead of guessing an offset. Adapters must report a location in their exact evidence text, not in a subsequently
+Content Sources and other Sources without a finer position. If an adapter reports a sequence locator in
+`TextEvidence.locator`, extraction uses the persisted Source journal position for the citation, including for
+previously accepted observations; the adapter's evidence is retained unchanged. An adapter may also report a line
+range in `TextEvidence.locator`; worker observations preserve it in the text-evidence projection, and extraction
+keeps it instead of guessing an offset. Adapters must report a location in their exact evidence text, not in a subsequently
 edited file. Opaque sources and ordinary caller-supplied references may omit the locator. Other generation APIs
 preserve explicitly supplied locators; they do not infer line numbers or heading paths. No read-time text scan or
 historical backfill is performed. Existing worker manifests retain their exact fingerprints; a worker adopting

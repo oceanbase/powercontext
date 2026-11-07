@@ -108,6 +108,8 @@ locator 只描述证据位置，不会选择其他 Source 或 Artifact Revision�
   行号对应适配器提供的准确解码文本；此功能不引入字节偏移量。
 
 Atomic Memory 提取会为内置 Content Source 及没有更细位置的 Source，根据持久化的采集位置生成 journal locator。
+若适配器在 `TextEvidence.locator` 中报告 sequence locator，提取时会使用 Source 实际持久化的 journal 位置生成引用，
+已有 observation 也遵循此规则；适配器提供的证据保持原样。
 适配器可通过 `TextEvidence.locator` 报告行范围；远程 worker observation 在文本证据投影中保存该信息，提取时原样保留，
 不会猜测偏移。适配器报告的位置必须对应准确的证据文本，不能指向随后被编辑的文件。
 不透明来源和调用方提供的普通引用可以省略 locator。其他生成接口保留显式传入的 locator，不推测行号或标题路径。

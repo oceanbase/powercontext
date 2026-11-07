@@ -305,7 +305,12 @@ async def project_atomic_memory_evidence(
         source_ref=SourceRef(
             source_type=stored.ref.source_type,
             source_id=stored.ref.source_id,
-            locator=locator or SourceSequenceLocator(sequence=stored.journal_position),
+            # Journal positions belong to the persisted Source, not the adapter.
+            locator=(
+                SourceSequenceLocator(sequence=stored.journal_position)
+                if locator is None or isinstance(locator, SourceSequenceLocator)
+                else locator
+            ),
         ),
         journal_position=stored.journal_position,
         content=body,
