@@ -2597,3 +2597,36 @@ including the bundled-record Principal fence and rejected unauthenticated mode.
 All 195 UI tests, generated-contract checks, lint, TypeScript checking and the
 frontend production build pass. The native fixtures and UI tests do not establish
 installed-platform acceptance.
+
+
+## Server c00dbf14 Source plugin protocol qualification
+
+`sqlite-source-plugins-c00dbf14-v1` qualifies all thirteen Desktop protocol operations against
+Server source `c00dbf1455e1985f6a782b4d39c9ee8cde6e74b7`.
+
+- Normalized OpenAPI SHA-256: `3ea9f0661702254563e72d2291469b84a961730f572a32467f15458e7a979650`.
+- Wheel: `powercontext-0.1.dev1509+gc00dbf145-py3-none-any.whl`.
+- Wheel SHA-256: `5555c090e6efa7b2194bd643b6f95e495aec17e9ed87e55a0cbc744ab2b7c529`.
+- Native debug probe SHA-256: `777c6d62d605da84e2039fb74ea1542fdb3b2d333880232643a99c877aeb8e9f`.
+
+All 744 packaged runtime files match the recorded Git source after CRLF normalization, with no
+missing or extra runtime files. On 2026-11-07, macOS 26.6.2 ARM64 and Python 3.13.12 passed
+anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the ordinary product ConnectionManager. The probe was built with the product Cargo lock
+without `ci-fixtures` and selected this bundled qualification.
+
+The unchanged `desktop/tests/real_server.py` exercised identity, discovery, exact Scope selection,
+statistics, Memory save/search/revision reads, committed writes with lost responses without replay,
+Principal changes, same-identity revocation, scoped authorization and 51 same-title Scopes.
+The wheel and report are retained under ignored `desktop/.artifacts/source-framework-upgrade/`.
+This qualifies the observed local SQLite protocol; it does not establish installed WebView,
+native credential persistence, other operating systems, native database upgrades or release acceptance.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-source-plugins-c00dbf14-v1 \
+  --wheel desktop/.artifacts/source-framework-upgrade/powercontext-0.1.dev1509+gc00dbf145-py3-none-any.whl
+```
