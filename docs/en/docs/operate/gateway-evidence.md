@@ -33,7 +33,27 @@ These are best-effort records: overflow can remove a call terminal or an attempt
 one line, and process exit can lose queued records. Readers should skip malformed/blank lines; after a write failure,
 the exporter restores a newline boundary before the next record. Counters reset on restart. There is no replay or
 billing/audit durability guarantee, and no financial reconciliation, token savings or task-success claim.
-If the worker cannot start, the application reports a fixed diagnostic and uses Noop without changing business results.
+The production host also starts one independent stderr health thread. It samples `JsonEvidenceSink.stats()` once
+per second: the first nonzero `write_failed` emits `gateway.evidence.write_failed` at ERROR, and the first nonzero
+`dropped` emits `gateway.evidence.dropped` at WARN. Each notification occurs at most once per sink. Either first
+notification includes a `gateway.evidence.health` summary; thereafter a summary is emitted every 30 seconds even
+without new requests or recovered stdout output. Healthy summaries use INFO; summaries with any cumulative loss use
+WARN. Normal scheduling and writable stderr are required for timely reporting; `RUST_LOG` filters still apply.
+
+These stderr events contain fixed messages and only three cumulative unsigned record counts: `dropped` (rejected
+submissions, including invalid records/full or disconnected queue), `write_failed` (failed/unconfirmed serialization,
+write or flush), and `written` (successful write-and-flush operations). They carry no execution identity, writer error,
+content, URL, credential or path. Counts reset on process restart and are independent atomic snapshots, not a reconciled
+ledger. The embedded JSONL `loss` fields and schema are unchanged. This host-owned tracing output does not add Python
+operational fields or change its JSON/console allowlists.
+
+A stalled stdout writer does not stop health reporting. A stalled stderr can occupy the one health thread; that
+thread releases its sink reference before I/O, has no record queue, and cannot delay evidence submissions or sink
+destruction. Dropping the sink retires the reporter on its next poll; shutdown never joins either potentially blocked
+thread, so there is no guaranteed final summary or drain. Keep stderr collected separately from stdout: losing or
+filtering both outputs cannot establish that there was no traffic. Embedding hosts that use `JsonEvidenceSink` directly
+own their health reporting; the library does not configure logging or start a stderr reporter.
+If either worker cannot start, the application reports a fixed diagnostic and uses Noop without changing business results.
 
 ## Operational vocabulary and exporter boundary
 

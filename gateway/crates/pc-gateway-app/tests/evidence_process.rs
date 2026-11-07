@@ -23,7 +23,7 @@ use std::io::{BufRead, Read};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::Duration;
 
@@ -38,8 +38,7 @@ impl Drop for Gateway {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
+async fn evidence_fixture() -> (String, tokio::task::JoinHandle<()>) {
     let fixture = Router::new()
         .route("/v1/capabilities", get(|| async { Json(json!({"context_protection": {
             "check_versions": ["powercontext.context-check.v1"], "payload_versions": ["powercontext.model-json-payload.v1"], "enforcing":true,
@@ -71,6 +70,12 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
     let fixture_task = tokio::spawn(async move {
         axum::serve(listener, fixture).await.unwrap();
     });
+    (base, fixture_task)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
+    let (base, fixture_task) = evidence_fixture().await;
     let client = reqwest::Client::new();
     for disabled in [false, true] {
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -174,6 +179,7 @@ async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
         if disabled {
             assert!(output.is_empty());
             assert!(errors.contains("evidence disabled"));
+            assert!(!errors.contains("gateway.evidence."));
         } else {
             assert_eq!(output.len(), count * 6);
             let mut call_ids = std::collections::BTreeSet::new();
@@ -234,4 +240,162 @@ fn rejected_startup_does_not_expose_uds_or_steering_paths() {
     assert!(errors.contains("proxy: forwarding"));
     assert!(errors.contains("file cannot be read"));
     assert!(!errors.contains("SYNTHETIC_"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn total_evidence_loss_is_reported_on_stderr_without_blocking_requests() {
+    let (base, fixture_task) = evidence_fixture().await;
+    let client = reqwest::Client::new();
+    for closed_stdout in [true, false] {
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = port.local_addr().unwrap();
+        drop(port);
+        let mut gateway = Gateway(
+            Command::new(env!("CARGO_BIN_EXE_pc-gateway"))
+                .env_clear()
+                .env("PC_GATEWAY_CORE_BASE", &base)
+                .env("PC_GATEWAY_LISTEN", address.to_string())
+                .env(
+                    "PC_GATEWAY_UPSTREAM_URL",
+                    format!("{base}/v1/chat/completions"),
+                )
+                .env("PC_GATEWAY_UPSTREAM_API_KEY", "SYNTHETIC_PROVIDER_KEY")
+                .env("RUST_LOG", "info")
+                .env("NO_COLOR", "1")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let mut stdout = gateway.0.stdout.take();
+        if closed_stdout {
+            drop(stdout.take());
+        }
+        // Leave an open stdout pipe unread to force a blocked writer and queue overflow.
+        let stderr = gateway.0.stderr.take().unwrap();
+        let errors = Arc::new(Mutex::new(String::new()));
+        let captured = errors.clone();
+        let reader = std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stderr).lines() {
+                let mut text = captured.lock().unwrap();
+                text.push_str(&line.unwrap());
+                text.push('\n');
+            }
+        });
+        let url = format!("http://{address}");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if client.get(format!("{url}/healthz")).send().await.is_ok() {
+                    break;
+                }
+                assert!(gateway.0.try_wait().unwrap().is_none());
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let count = if closed_stdout { 10 } else { 500 };
+        for _ in 0..count {
+            let response = tokio::time::timeout(Duration::from_secs(3),
+                client.post(format!("{url}/gateway/v1/chat/completions"))
+                    .json(&json!({"model":"SYNTHETIC_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_PROMPT_SECRET"}]}))
+                    .send()).await.unwrap().unwrap();
+            assert_eq!(response.status(), 200);
+            assert_eq!(
+                response.json::<Value>().await.unwrap()["usage"]["prompt_tokens"],
+                101
+            );
+        }
+        let event = if closed_stdout {
+            "gateway.evidence.write_failed"
+        } else {
+            "gateway.evidence.dropped"
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let text = errors.lock().unwrap().clone();
+                if text.contains(event) && text.contains("gateway evidence loss summary") {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        {
+            let text = errors.lock().unwrap();
+            assert_eq!(text.matches(event).count(), 1);
+            assert!(!text.contains("SYNTHETIC_"));
+            let summary = text
+                .lines()
+                .find(|line| line.contains("gateway evidence loss summary"))
+                .unwrap();
+            let count = |field: &str| -> u64 {
+                summary
+                    .split_once(&format!("{field}="))
+                    .unwrap()
+                    .1
+                    .split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap()
+            };
+            if closed_stdout {
+                assert_eq!(count("written"), 0);
+                assert!(count("write_failed") > 0);
+            } else {
+                assert!(count("dropped") > 0);
+                assert_eq!(
+                    count("write_failed"),
+                    0,
+                    "the stdout writer is blocked, not recovered"
+                );
+            }
+        }
+        if !closed_stdout {
+            // No new requests and no stdout recovery: the independent summary still recurs.
+            let previous = errors
+                .lock()
+                .unwrap()
+                .matches("gateway evidence loss summary")
+                .count();
+            tokio::time::timeout(Duration::from_secs(35), async {
+                loop {
+                    if errors
+                        .lock()
+                        .unwrap()
+                        .matches("gateway evidence loss summary")
+                        .count()
+                        > previous
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(errors.lock().unwrap().matches(event).count(), 1);
+            // Retire the unread pipe; requests remain usable after the write fails as well.
+            drop(stdout.take());
+            let response = tokio::time::timeout(
+                Duration::from_secs(3),
+                client
+                    .post(format!("{url}/gateway/v1/chat/completions"))
+                    .json(&json!({"model":"test", "messages":[{"role":"user", "content":"hello"}]}))
+                    .send(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(response.status(), 200);
+        }
+        drop(gateway);
+        reader.join().unwrap();
+        let text = errors.lock().unwrap();
+        assert!(!text.contains("SYNTHETIC_"));
+        assert!(!text.contains("Broken pipe"));
+    }
+    fixture_task.abort();
 }

@@ -30,7 +30,24 @@ PC_GATEWAY_EVIDENCE=off ./gateway/target/release/pc-gateway
 这些记录是尽力输出：溢出可能丢掉终态或尝试记录，失败/部分写入可能损坏一行，进程退出可能丢掉队列内容。
 读取器应跳过畸形行和空行；写出失败后，exporter 会先补换行，再写下一条记录。计数随进程重启清零。
 没有重放、计费或审计持久性保证，也不建立财务对账、token 节省或任务成功结论。
-写出线程无法启动时，应用输出固定诊断并使用 Noop，不改变业务结果。
+生产宿主另启动一个独立的 stderr 健康线程，每秒读取一次 `JsonEvidenceSink.stats()`：首次观察到非零
+`write_failed` 时以 ERROR 输出 `gateway.evidence.write_failed`，首次观察到非零 `dropped` 时以 WARN 输出
+`gateway.evidence.dropped`，每种通知每个 sink 最多一次。任一首次通知同时输出 `gateway.evidence.health`
+汇总，此后每 30 秒汇总一次，即使没有新请求、stdout 仍未恢复也继续报告。无丢失的汇总为 INFO，
+存在累计丢失的汇总为 WARN。及时报告依赖正常线程调度与可写的 stderr，仍遵循 `RUST_LOG` 过滤。
+
+stderr 事件使用固定消息，仅携带三个累计无符号记录计数：`dropped` 为被拒绝的提交（含非法记录、队列满或断开），
+`write_failed` 为失败或无法确认的序列化/写入/flush，`written` 为成功写入并 flush 的记录。
+不携带执行身份、writer 异常原文、正文、URL、凭据或路径。计数随进程重启清零，各字段为独立原子快照，
+不是对账账本。JSONL 的 `loss` 字段及 schema 保持不变。此输出由 Rust 宿主通过 tracing 管理，
+不新增 Python operational 字段，也不修改其 JSON/console 白名单。
+
+stdout 写出卡住不影响健康线程。stderr 卡住最多占用该健康线程；线程在 I/O 前释放 sink 引用，
+不维护记录队列，不会延迟证据提交或 sink 销毁。sink 销毁后 reporter 在下一次轮询时退出；
+关闭时不 join 任何可能阻塞的线程，因此不保证最终汇总或排空。应独立采集 stderr 与 stdout；
+两路输出同时丢失或被过滤时，不能据此推断没有流量。直接使用 `JsonEvidenceSink` 的嵌入宿主负责自身健康报告，
+库不会配置日志或自动启动 stderr reporter。
+任一线程无法启动时，应用输出固定诊断并使用 Noop，不改变业务结果。
 
 ## 运维词汇与 exporter 边界
 

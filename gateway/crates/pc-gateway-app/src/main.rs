@@ -25,6 +25,7 @@
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
 mod evidence_body;
+mod evidence_diagnostics;
 mod ingress;
 mod link;
 mod middleware;
@@ -124,11 +125,19 @@ async fn main() {
                 std::num::NonZeroUsize::new(1024).unwrap(),
             ) {
                 Ok(sink) => {
-                    tracing::info!(
-                        capacity = 1024,
-                        "gateway evidence JSONL enabled on stdout; drop newest on overflow"
-                    );
-                    Arc::new(sink)
+                    let sink = Arc::new(sink);
+                    if evidence_diagnostics::start(&sink).is_err() {
+                        tracing::error!(
+                            "gateway evidence health reporter unavailable; evidence disabled"
+                        );
+                        Arc::new(NoopEvidenceSink)
+                    } else {
+                        tracing::info!(
+                            capacity = 1024,
+                            "gateway evidence JSONL enabled on stdout; drop newest on overflow"
+                        );
+                        sink
+                    }
                 }
                 Err(_) => {
                     tracing::error!("gateway evidence worker unavailable; evidence disabled");
