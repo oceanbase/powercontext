@@ -21,7 +21,12 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, m
 from pydantic_core import PydanticCustomError
 
 from powercontext.errors import InvalidSourceReferenceError
-from powercontext.limits import MAX_SOURCE_ID_LENGTH, MAX_SOURCE_TYPE_LENGTH
+from powercontext.limits import (
+    MAX_SOURCE_HEADING_PATH_LENGTH,
+    MAX_SOURCE_ID_LENGTH,
+    MAX_SOURCE_LOCATOR_LINES,
+    MAX_SOURCE_TYPE_LENGTH,
+)
 
 
 class SourceMaterialization(StrEnum):
@@ -48,12 +53,17 @@ class SourceLineRangeLocator(BaseModel):
     kind: Literal["line_range"] = "line_range"
     start_line: StrictInt = Field(ge=1)
     end_line: StrictInt = Field(ge=1)
-    heading_path: str | None = Field(default=None, max_length=1024, exclude_if=lambda value: value is None)
+    heading_path: str | None = Field(
+        default=None, max_length=MAX_SOURCE_HEADING_PATH_LENGTH, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def validate_span(self) -> SourceLineRangeLocator:
-        if self.end_line < self.start_line or self.end_line - self.start_line + 1 > 200:
-            raise PydanticCustomError("source_locator_range", "Source line range must contain 1 to 200 inclusive lines")
+        if self.end_line < self.start_line or self.end_line - self.start_line + 1 > MAX_SOURCE_LOCATOR_LINES:
+            raise PydanticCustomError(
+                "source_locator_range",
+                f"Source line range must contain 1 to {MAX_SOURCE_LOCATOR_LINES} inclusive lines",
+            )
         return self
 
 
