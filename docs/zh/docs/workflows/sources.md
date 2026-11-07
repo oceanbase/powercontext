@@ -108,15 +108,16 @@ locator 只描述证据位置，不会选择其他 Source 或 Artifact Revision�
   行号对应适配器提供的准确解码文本；此功能不引入字节偏移量。
 
 Atomic Memory 提取会为内置 Content Source 及没有更细位置的 Source，根据持久化的采集位置生成 journal locator。
-若适配器在 `TextEvidence.locator` 中报告 sequence locator，提取时会使用 Source 实际持久化的 journal 位置生成引用，
+若适配器在 `LocatedTextEvidence.locator` 中报告 sequence locator，提取时会使用 Source 实际持久化的 journal 位置生成引用，
 已有 observation 也遵循此规则；适配器提供的证据保持原样。
-适配器可通过 `TextEvidence.locator` 报告行范围；远程 worker observation 在文本证据投影中保存该信息，提取时原样保留，
+适配器可通过 `LocatedTextEvidence.locator` 报告行范围；远程 worker observation 在文本证据投影中保存该信息，提取时原样保留，
 不会猜测偏移。适配器报告的位置必须对应准确的证据文本，不能指向随后被编辑的文件。
 不透明来源和调用方提供的普通引用可以省略 locator。其他生成接口保留显式传入的 locator，不推测行号或标题路径。
 读取时不会扫描文本定位，也不会给历史引用回填推测的位置。已有 worker manifest 保留原指纹；
 worker 采用扩展后的文本证据 schema 时，须先提高 Source Definition 版本再注册。
-内置 Content 与 OpenDAL 的 version-1 定义继续使用冻结的 `TextEvidenceV1` 结构；其 journal locator 在提取时附加，
-不会改变已注册投影的 schema。
+`TextEvidence` 为已有 Source 插件保留原始 schema；`TextEvidenceV1` 是该稳定模型的别名。
+需要位置的插件须显式采用 `LocatedTextEvidence`，并先提高 Source Definition 版本再注册扩展后的 schema。
+内置 Content 与 OpenDAL 的 version-1 定义保持原始结构，其 journal locator 在提取时附加。
 
 locator 会经过 Candidate 负载、Artifact 血缘、Handoff 引用、HTTP/MCP 读取以及便携备份导出恢复而保留。
 同一 Source 的不同位置是不同的引用。缺失的 locator 在序列化时仍被省略，已有记录及其规范编码保持兼容。

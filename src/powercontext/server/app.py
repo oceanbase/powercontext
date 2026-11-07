@@ -3151,7 +3151,7 @@ async def generate_prompt_demonstrations(
 
 
 async def get_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     family: Annotated[TaggableArtifactFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     response: Response,
@@ -3164,7 +3164,7 @@ async def get_artifact_tags(
 
 
 async def replace_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     family: Annotated[TaggableArtifactFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
@@ -3195,7 +3195,7 @@ def _tag_family(family: TaggableArtifactFamily) -> RuntimeTaggableArtifactFamily
 
 
 async def get_memory_entry_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     response: Response,
@@ -3207,7 +3207,7 @@ async def get_memory_entry_tags(
 
 
 async def replace_memory_entry_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
@@ -3239,7 +3239,7 @@ def _tag_response(
 
 
 async def query_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     request: QueryArtifactTagsRequest,
     http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],

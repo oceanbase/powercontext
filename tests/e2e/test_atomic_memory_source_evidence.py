@@ -53,11 +53,11 @@ from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     AdapterSourceDefinition,
+    LocatedTextEvidence,
     SourceDefinitionRegistry,
     SourceMaterialization,
     SourceRef,
     SourceSequenceLocator,
-    TextEvidence,
 )
 from powercontext.sources.evidence import MemoryEvidenceDeclaration
 from powercontext.sources.observations import manifest_for_definition, project_source_for_transport
@@ -90,7 +90,7 @@ async def _commit(contexts, scope_id, artifact_id, text_value, *, sources=(), ar
 def test_accepted_adapter_sequence_can_finish_memory_window(migration_backend, representation) -> None:
     class SequenceAdapter(NoteAdapter):
         async def read(self, source, /):
-            return TextEvidence(
+            return LocatedTextEvidence(
                 source_type=self.name,
                 source_id=source.name,
                 content=source.body,
@@ -103,10 +103,10 @@ def test_accepted_adapter_sequence_can_finish_memory_window(migration_backend, r
         name = TEXT_EVIDENCE_PROJECTION_KEY.name
         version = TEXT_EVIDENCE_PROJECTION_KEY.version
         source_class: type[NoteSource] = NoteSource
-        output_class: type[BaseModel] = TextEvidence
+        output_class: type[BaseModel] = LocatedTextEvidence
 
         def project(self, source, /):
-            return TextEvidence(
+            return LocatedTextEvidence(
                 source_type=adapter.name,
                 source_id=source.name,
                 content=source.body,

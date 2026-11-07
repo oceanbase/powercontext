@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm generate && next dev",
-    "build": "pnpm test && pnpm check:links && next build && tsx scripts/redirect-docs.ts && pnpm verify:export",
+    "build": "pnpm test && pnpm check:links && next build --webpack && tsx scripts/redirect-docs.ts && pnpm verify:export",
     "check:links": "pnpm test:links && pnpm generate && tsx scripts/validate-links.ts",
     "test:links": "tsx --test tests/link-validation.test.ts",
     "generate": "tsx scripts/generate-content.ts && tsx scripts/generate-blog.ts",

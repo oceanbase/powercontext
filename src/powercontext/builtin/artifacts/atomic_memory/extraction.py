@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, Valid
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
 from powercontext.builtin.artifacts.atomic_memory.summary import DESCRIPTION_RULES
+from powercontext.builtin.artifacts.atomic_memory.temporal import preserves_time_literals, source_time_literals
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.inference import InvalidInferenceOutputError, StructuredGenerator, TokenEstimator
 from powercontext.builtin.persistence.records import _canonical_source_text
@@ -37,11 +38,11 @@ from powercontext.builtin.processing_diagnostics import (
 )
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
+    LocatedTextEvidence,
     Source,
     SourceObservation,
     SourceRef,
     SourceSequenceLocator,
-    TextEvidence,
 )
 
 _JSON = TypeAdapter(JsonValue)
@@ -61,6 +62,10 @@ meaningful content order and context, never candidate output order. Preserve fut
 different applicability conditions. Late old evidence must not overwrite newer effective facts.
 Artifact publication/revision/migration time does not date its facts. Do not take the largest journal_position
 of all supporting Sources as the date of every statement. Inspect which exact evidence supports each fact.
+For a structured single-statement Source, retain its explicit effective_at or event_at in the fact's text;
+when neither is supplied, retain recorded_at as the Source's recording time, not as an invented effective time.
+Keep supplied ISO date/time literals or equivalent ISO instants. Midnight UTC may be expressed as its ISO date;
+other time precision must remain. Do not leave these qualifiers only in a reason, description or evidence ID.
 """.strip()
 
 LANGUAGE_RULES = """
@@ -77,7 +82,7 @@ A language difference alone is not a factual correction and does not authorize r
 def atomic_memory_extraction_instructions_version(profile: MemoryExtractionProfile) -> str:
     """Return the stable built-in instruction identity for one extraction profile."""
 
-    return f"powercontext.atomic-memory.extract.{profile.value}.v3"
+    return f"powercontext.atomic-memory.extract.{profile.value}.v4"
 
 
 def atomic_memory_extraction_instructions(profile: MemoryExtractionProfile) -> str:
@@ -167,33 +172,53 @@ class AtomicMemoryGenerationPipeline:
                     failure_location="atomic-memory-extract",
                 ),
             ) from error
-        supplied = {item.evidence_id for item in value.evidence}
-        for candidate in output.candidates:
-            try:
-                AtomicMemoryContent(
-                    kind=candidate.kind,
-                    text=candidate.text,
-                    description=candidate.description,
-                )
-            except ValidationError as error:
-                raise attach_diagnostics(
-                    InvalidInferenceOutputError("atomic-memory-extract", "candidate content is invalid"),
-                    ProcessingDiagnostics(
-                        stage=ProcessingStage.BUSINESS_VALIDATION,
-                        reason=ProcessingFailureReason.INVALID_OUTPUT,
-                        failure_location="atomic-memory-extract",
-                    ),
-                ) from error
-            if not set(candidate.evidence_ids) <= supplied:
-                raise attach_diagnostics(
-                    InvalidInferenceOutputError("atomic-memory-extract", "candidate cites unavailable Source evidence"),
-                    ProcessingDiagnostics(
-                        stage=ProcessingStage.BUSINESS_VALIDATION,
-                        reason=ProcessingFailureReason.INVALID_OUTPUT,
-                        failure_location="atomic-memory-extract",
-                    ),
-                )
+        validate_extraction_output(value, output)
         return output.candidates
+
+
+def validate_extraction_output(value: AtomicMemoryExtractionInput, output: AtomicMemoryExtractionOutput) -> None:
+    """Validate supported facts before publication and permit bounded provider correction."""
+
+    supplied = {item.evidence_id: item for item in value.evidence}
+    for candidate in output.candidates:
+        try:
+            AtomicMemoryContent(
+                kind=candidate.kind,
+                text=candidate.text,
+                description=candidate.description,
+            )
+        except ValidationError as error:
+            raise attach_diagnostics(
+                InvalidInferenceOutputError("atomic-memory-extract", "candidate content is invalid"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.BUSINESS_VALIDATION,
+                    reason=ProcessingFailureReason.INVALID_OUTPUT,
+                    failure_location="atomic-memory-extract",
+                ),
+            ) from error
+        if not set(candidate.evidence_ids) <= supplied.keys():
+            raise attach_diagnostics(
+                InvalidInferenceOutputError("atomic-memory-extract", "candidate cites unavailable Source evidence"),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.BUSINESS_VALIDATION,
+                    reason=ProcessingFailureReason.INVALID_OUTPUT,
+                    failure_location="atomic-memory-extract",
+                ),
+            )
+        if any(
+            not preserves_time_literals(candidate.text, source_time_literals(supplied[identifier].content))
+            for identifier in candidate.evidence_ids
+        ):
+            raise attach_diagnostics(
+                InvalidInferenceOutputError(
+                    "atomic-memory-extract", "candidate must retain explicit time qualifiers from its cited Source"
+                ),
+                ProcessingDiagnostics(
+                    stage=ProcessingStage.BUSINESS_VALIDATION,
+                    reason=ProcessingFailureReason.INVALID_OUTPUT,
+                    failure_location="atomic-memory-extract",
+                ),
+            )
 
 
 def _duplicates_body(value: JsonValue, body: JsonValue) -> bool:
@@ -287,14 +312,14 @@ async def project_atomic_memory_evidence(
         content = value.payload
         for projection in value.projections:
             if projection.key == TEXT_EVIDENCE_PROJECTION_KEY:
-                text_evidence = TextEvidence.model_validate(projection.value)
+                text_evidence = LocatedTextEvidence.model_validate(projection.value)
                 locator = text_evidence.locator
                 content = text_evidence.model_dump(mode="json")
                 body_from_text_projection = True
                 break
     else:
         materialized = await sources.read_value(value)
-        if isinstance(materialized, TextEvidence):
+        if isinstance(materialized, LocatedTextEvidence):
             locator = materialized.locator
         content = (
             materialized.model_dump(mode="json", by_alias=True) if isinstance(materialized, BaseModel) else materialized

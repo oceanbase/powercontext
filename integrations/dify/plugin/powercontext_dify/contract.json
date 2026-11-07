@@ -39,7 +39,8 @@
           "schema": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "pattern": ".*\\S.*"
           }
         },
         {
@@ -811,7 +812,8 @@
         "scope_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256
+          "maxLength": 256,
+          "pattern": ".*\\S.*"
         },
         "artifact_id": {
           "type": "string",

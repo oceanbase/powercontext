@@ -296,7 +296,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: artifact_id
           in: path
           required: true
@@ -4617,7 +4617,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: family
           in: path
           required: true
@@ -4666,7 +4666,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: family
           in: path
           required: true
@@ -4721,7 +4721,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: artifact_id
           in: path
           required: true
@@ -4770,7 +4770,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: artifact_id
           in: path
           required: true
@@ -4825,7 +4825,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
       requestBody:
         required: true
         content:

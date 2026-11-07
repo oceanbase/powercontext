@@ -35,6 +35,7 @@ from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     AdapterSourceDefinition,
+    LocatedTextEvidence,
     Source,
     SourceDefinitionRegistry,
     SourceLineRangeLocator,
@@ -168,8 +169,12 @@ def test_adapter_text_position_survives_memory_generation_and_reopen(tmp_path) -
     locator = SourceLineRangeLocator(start_line=40, end_line=55, heading_path="部署 / 约束")
 
     class LocatedProjection(_TextProjection):
-        def project(self, source: _WireSource) -> TextEvidence:
-            return TextEvidence(source_type="wire-note", source_id=source.name, content=source.content, locator=locator)
+        output_class: type[BaseModel] = LocatedTextEvidence
+
+        def project(self, source: _WireSource) -> LocatedTextEvidence:
+            return LocatedTextEvidence(
+                source_type="wire-note", source_id=source.name, content=source.content, locator=locator
+            )
 
     class Extractor:
         async def generate(self, request: AtomicMemoryExtractionInput, /):

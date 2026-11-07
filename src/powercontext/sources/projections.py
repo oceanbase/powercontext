@@ -21,7 +21,7 @@ from powercontext.sources.models import SourceLocator, SourceProjectionKey
 TEXT_EVIDENCE_PROJECTION_KEY = SourceProjectionKey(name="powercontext.text-evidence", version="1")
 
 
-class TextEvidenceV1(BaseModel):
+class TextEvidence(BaseModel):
     """Canonical JSON shape consumed as textual Artifact evidence."""
 
     # Definitions already registered with this shape keep their immutable
@@ -34,10 +34,13 @@ class TextEvidenceV1(BaseModel):
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-class TextEvidence(TextEvidenceV1):
+TextEvidenceV1 = TextEvidence
+
+
+class LocatedTextEvidence(TextEvidence):
     """Canonical JSON shape consumed as textual Artifact evidence."""
 
     locator: SourceLocator | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
-__all__ = ["TEXT_EVIDENCE_PROJECTION_KEY", "TextEvidence", "TextEvidenceV1"]
+__all__ = ["TEXT_EVIDENCE_PROJECTION_KEY", "LocatedTextEvidence", "TextEvidence", "TextEvidenceV1"]

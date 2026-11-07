@@ -48,7 +48,12 @@ from powercontext.sources.observations import (
     manifest_for_definition,
     project_source_for_transport,
 )
-from powercontext.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextEvidence, TextEvidenceV1
+from powercontext.sources.projections import (
+    TEXT_EVIDENCE_PROJECTION_KEY,
+    LocatedTextEvidence,
+    TextEvidence,
+    TextEvidenceV1,
+)
 from powercontext.sources.protocols import SourceCatalogBackend, SourceStore
 
 __all__ = [
@@ -62,6 +67,7 @@ __all__ = [
     "ConnectorRunSession",
     "ConnectorRunStatus",
     "ConnectorSubmissionStatus",
+    "LocatedTextEvidence",
     "MemoryEvidenceDeclaration",
     "Source",
     "SourceAdapter",

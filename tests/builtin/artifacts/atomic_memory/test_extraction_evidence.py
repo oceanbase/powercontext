@@ -35,6 +35,7 @@ from powercontext.builtin.persistence.sources import SourceRepository, StoredSou
 from powercontext.builtin.sources.content import CONTENT_SOURCE_NAME, ContentCapture, ContentSource
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
+    LocatedTextEvidence,
     SourceMaterialization,
     SourceObservation,
     SourceProjectionKey,
@@ -317,7 +318,7 @@ def test_extraction_preserves_adapter_reported_text_position() -> None:
 @pytest.mark.parametrize("sequence", [0, 1, 42])
 def test_extraction_uses_stored_journal_position_over_adapter_sequence(representation, sequence) -> None:
     async def scenario() -> None:
-        text = TextEvidence(
+        text = LocatedTextEvidence(
             source_type="tool-result",
             source_id="observation-1",
             content=_BODY,

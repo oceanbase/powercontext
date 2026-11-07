@@ -38,3 +38,5 @@ pub use gate_client::*;
 pub use http_gate_client::*;
 pub use lifecycle::*;
 pub use uds_gate_client::*;
+
+mod evidence;

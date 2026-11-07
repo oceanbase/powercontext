@@ -21,10 +21,8 @@ const withMDX = createMDX();
 /** @type {import('next').NextConfig} */
 const config = {
   basePath: process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/$/, '') || '',
-  // Next defaults to (visible CPUs - 1) build workers, so peak memory grows with the
-  // host's CPU count. Cap it: memory-constrained build runners were OOM-killed (exit 137)
-  // while collecting page data. Every page is still rendered.
-  experimental: { cpus: 2 },
+  // CI uses memory-constrained runners; keep page generation to one worker.
+  experimental: { cpus: process.env.CI ? 1 : 2 },
   images: { unoptimized: true },
   output: 'export',
   reactStrictMode: true,
