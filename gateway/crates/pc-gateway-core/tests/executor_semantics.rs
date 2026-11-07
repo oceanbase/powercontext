@@ -3574,3 +3574,141 @@ async fn response_capacity_withholds_without_retry_and_preserves_possible_billin
         }
     }
 }
+
+#[tokio::test]
+async fn real_body_timeout_exports_timeout_attempt_and_unknown_usage_without_release_or_retry() {
+    use pc_gateway_evidence::JsonEvidenceSink;
+    use pc_gateway_transport::ReqwestTransport;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[derive(Clone, Default)]
+    struct Output(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Output {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    for degrade in [
+        DegradePolicy::Pause,
+        DegradePolicy::PassthroughWithoutMemory,
+    ] {
+        for stream in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                loop {
+                    let n = socket.read(&mut buffer).await.unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                        let length: usize = head
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                let (mime, partial) = if stream {
+                    ("text/event-stream", "data: {\"usage\":{\"prompt_tokens\":80},\"secret\":\"SYNTHETIC_PARTIAL_SECRET\"}\n\n")
+                } else {
+                    ("application/json", "{\"usage\":{\"prompt_tokens\":80},\"secret\":\"SYNTHETIC_PARTIAL_SECRET\"}")
+                };
+                socket.write_all(format!("HTTP/1.1 201 Created\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{partial}", partial.len() + 100).as_bytes()).await.unwrap();
+                let _ = finish_rx.await;
+            });
+            let verdict = if degrade == DegradePolicy::Pause {
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))
+            } else {
+                Err(GateError::GateUnavailable("SYNTHETIC_GATE_SECRET".into()))
+            };
+            let (_, renderer, _, gate) = harness(vec![verdict], vec![], 3);
+            let executor = Executor::new(
+                FakeGateRef(gate.clone()),
+                ReqwestTransport::new(Duration::from_millis(250)),
+                NonZeroU32::new(3).unwrap(),
+            );
+            let mut call = call(degrade);
+            call.target_url =
+                format!("http://SYNTHETIC_USER:SYNTHETIC_PASSWORD@{address}/SYNTHETIC_PATH");
+            call.request.stream = stream;
+            let control = request_control();
+            let observation = control.observation();
+            let output = Output::default();
+            let sink =
+                JsonEvidenceSink::new(output.clone(), std::num::NonZeroUsize::new(8).unwrap())
+                    .unwrap();
+            let outcome = executor
+                .run(control, call, &RendererRef(renderer), &sink)
+                .await;
+            let _ = finish_tx.send(());
+            server.await.unwrap();
+            assert!(matches!(outcome, ManagedOutcome::SendIndeterminate));
+            assert_eq!(
+                gate.seen.lock().unwrap().len(),
+                1,
+                "no release check or readmission"
+            );
+            assert_eq!(
+                observation.snapshot().model_send,
+                ModelSendState::PossiblySent
+            );
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(ExecutionTerminal::SendIndeterminate)
+            );
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while sink.stats().written < 2 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+            assert!(!text.contains("SYNTHETIC_"));
+            let records: Vec<serde_json::Value> = text
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(
+                records.len(),
+                2,
+                "one attempt and one call, without delivery"
+            );
+            assert_eq!(records[0]["event"], "attempt");
+            assert_eq!(records[1]["event"], "call");
+            let attempt = &records[0]["evidence"];
+            let call = &records[1]["evidence"];
+            assert_eq!(attempt["call_id"], call["call_id"]);
+            assert_eq!(attempt["outcome"], "timeout_awaiting_response");
+            assert_eq!(attempt["upstream_status"], 201);
+            assert!(attempt["response_first_byte_ms"].is_number());
+            assert!(attempt["response_complete_ms"].is_null());
+            assert_eq!(call["terminal"], "send_indeterminate");
+            assert_eq!(call["sending"], "possibly_sent");
+            assert_eq!(call["attempts"], 1);
+            assert_eq!(call["upstream_status"], 201);
+            assert!(call["release_decision_ms"].is_null());
+            assert!(call["release_authorized_ms"].is_null());
+            for evidence in [attempt, call] {
+                for field in ["input", "output", "cache_read", "cache_write"] {
+                    assert_eq!(evidence["usage"][field]["completeness"], "unknown");
+                    assert!(evidence["usage"][field]["tokens"].is_null());
+                }
+            }
+        }
+    }
+}

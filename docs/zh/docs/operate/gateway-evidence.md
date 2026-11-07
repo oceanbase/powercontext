@@ -118,6 +118,8 @@ pending 执行 future 销毁时输出 `abandoned` 并保留发送事实。
 结果取值为 `possibly_sent`（pending 发送被中断）、`delivered`、`upstream_error`（完整 HTTP 响应且状态码 >= 400）、
 `connect_refused`、`rejected_locally`、`lost_after_handoff`、`timeout_awaiting_response`、`buffer_limit_exceeded`。
 部分响应失败保留已观察到的状态码与首字节时间，完整响应时间和 usage 保持未知。
+`timeout_awaiting_response` 包含等待响应头超时和读取正文超时（含已经收到部分正文）；
+`lost_after_handoff` 表示其他传输/正文读取失败。两者均不允许自动重试。
 transport 交付完整响应后，解码或释放失败不会丢掉 usage。直接丢弃 pending transport 时无法取得其内部的部分观测。
 响应缓冲区超限时，调用记录为 `withheld`、发送事实为 `possibly_sent`，仅有一次 `buffer_limit_exceeded` 尝试；
 usage 与完整响应时间未知，保留已观察到的状态码和首字节时间。不释放响应前缀，也不重试，降级直通同样遵循此行为。

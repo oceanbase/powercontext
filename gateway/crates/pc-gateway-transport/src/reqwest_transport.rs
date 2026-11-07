@@ -111,9 +111,9 @@ impl Transport for ReqwestTransport {
             loop {
                 match next_chunk(&mut stream).await {
                     None => break,
-                    Some(Err(_)) => {
+                    Some(Err(reason)) => {
                         return SendOutcome::IncompleteResponse {
-                            reason: SendIndeterminateReason::LostAfterHandoff,
+                            reason,
                             status,
                             response_first_byte_ms: first_byte,
                         }
@@ -190,12 +190,22 @@ fn extract_usage(body: &[u8], content_type: &str) -> Option<serde_json::Value> {
 }
 
 /// 不引入 futures-util 依赖的 next()：用标准库 poll_fn 轮询 Stream。
-async fn next_chunk<S>(stream: &mut S) -> Option<Result<Bytes, ()>>
+async fn next_chunk<S>(stream: &mut S) -> Option<Result<Bytes, SendIndeterminateReason>>
 where
     S: futures_core::Stream<Item = reqwest::Result<Bytes>> + Unpin,
 {
     use std::pin::Pin;
     std::future::poll_fn(|cx| Pin::new(&mut *stream).poll_next(cx))
         .await
-        .map(|r| r.map_err(|_| ()))
+        .map(|r| {
+            r.map_err(|error| {
+                // Preserve the failure category after headers too, without retaining
+                // or exporting reqwest errors (which can contain URLs/credentials).
+                if error.is_timeout() {
+                    SendIndeterminateReason::TimeoutAwaitingResponse
+                } else {
+                    SendIndeterminateReason::LostAfterHandoff
+                }
+            })
+        })
 }

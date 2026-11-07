@@ -74,6 +74,7 @@ pub enum NotSentReason {
 pub enum SendIndeterminateReason {
     #[error("connection lost after request handed to transport")]
     LostAfterHandoff,
+    /// Timeout waiting for response headers or reading the response body.
     #[error("timeout awaiting response")]
     TimeoutAwaitingResponse,
     /// 流式接收超过缓冲上限：请求已送达且部分计费，不重发。

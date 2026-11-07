@@ -132,3 +132,83 @@ async fn sse_leading_bom_preserves_first_event_usage_and_original_bytes() {
         }
     }
 }
+
+#[tokio::test]
+async fn body_read_timeouts_and_truncations_keep_distinct_reasons_without_retry() {
+    use pc_gateway_evidence::BufferedEvidenceSink;
+    use pc_gateway_transport::{BoundedRetry, RetryOutcome, SendIndeterminateReason};
+    for stream in [false, true] {
+        for (stall, partial) in [(true, false), (true, true), (false, true)] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0; 4096];
+                // The fixture request has the two-byte body "{}". Read it before
+                // closing to isolate response truncation from an unread-request reset.
+                while !request.ends_with(b"\r\n\r\n{}") {
+                    let n = socket.read(&mut chunk).await.unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&chunk[..n]);
+                }
+                let mime = if stream {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                };
+                socket.write_all(format!("HTTP/1.1 201 Created\r\nContent-Type: {mime}\r\nContent-Length: 4096\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+                if partial {
+                    socket
+                        .write_all(b"SYNTHETIC_PARTIAL_RESPONSE_SECRET")
+                        .await
+                        .unwrap();
+                }
+                if stall {
+                    // Keep the socket open until the transport's timeout has fired.
+                    let _ = finish_rx.await;
+                }
+            });
+            let transport = BoundedRetry::new(
+                ReqwestTransport::new(Duration::from_millis(100)),
+                std::num::NonZeroU32::new(3).unwrap(),
+            );
+            let evidence = BufferedEvidenceSink::new();
+            let outcome = transport
+                .send_with_retry(
+                    &AdmittedSend {
+                        binding: "fixture".into(),
+                        payload: bytes::Bytes::from_static(b"{}"),
+                        target_url: format!("http://{address}/provider"),
+                        headers: vec![],
+                        stream,
+                    },
+                    &evidence,
+                )
+                .await;
+            let _ = finish_tx.send(());
+            server.await.unwrap();
+            assert_eq!(
+                evidence.attempts(),
+                [1],
+                "an incomplete response must never retry"
+            );
+            let RetryOutcome::Done(SendOutcome::IncompleteResponse {
+                reason,
+                status,
+                response_first_byte_ms,
+            }) = outcome
+            else {
+                panic!("expected an incomplete response, got {outcome:?}");
+            };
+            assert_eq!(status, 201);
+            assert_eq!(response_first_byte_ms.is_some(), partial);
+            assert!(matches!(
+                (stall, reason),
+                (true, SendIndeterminateReason::TimeoutAwaitingResponse)
+                    | (false, SendIndeterminateReason::LostAfterHandoff)
+            ));
+        }
+    }
+}

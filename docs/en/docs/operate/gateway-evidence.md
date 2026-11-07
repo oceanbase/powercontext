@@ -129,7 +129,9 @@ Each `attempt` contains `attempt`, `outcome`, `started_ms`, `duration_ms`, `upst
 `response_first_byte_ms`, and `response_complete_ms`. Outcomes are `possibly_sent` (interrupted pending send),
 `delivered`, `upstream_error` (complete HTTP response with status >= 400), `connect_refused`, `rejected_locally`,
 `lost_after_handoff`, `timeout_awaiting_response`, and `buffer_limit_exceeded`. A partial-response failure preserves
-its observed status/first-byte timing but keeps completion and usage unknown. Once the transport reports delivery,
+its observed status/first-byte timing but keeps completion and usage unknown. `timeout_awaiting_response` covers
+both waiting for response headers and timing out while reading the body, including after a partial body;
+`lost_after_handoff` covers other transport/body failures. Neither permits automatic retry. Once the transport reports delivery,
 usage survives decoding/release failures. A dropped pending transport cannot provide its private partial observations.
 A response-buffer overflow produces a `withheld` call with `possibly_sent`, one `buffer_limit_exceeded` attempt,
 unknown usage/completion, and any observed status/first-byte timing. It releases no response prefix and does not retry,
