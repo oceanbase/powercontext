@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Bub recalls with the end of a long prompt, as the hook-based hosts do."""
+"""Bub recalls with what the user sent: the inbound content, or the end of a long prompt."""
 
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ from typing import Any, ClassVar
 
 import pytest
 import republic
+from bub.builtin.hook_impl import BuiltinImpl
+from bub.channels.message import ChannelMessage
 from bub.hooks.interception import LLMCallRequest
 from powercontext_bub import plugin as plugin_module
 from powercontext_bub.plugin import PowerContextPlugin, PowerContextSettings
@@ -57,21 +59,95 @@ class RecordingClient:
         return SimpleNamespace(content="remembered context", content_bytes=18, status=SimpleNamespace(value="ready"))
 
 
-@pytest.mark.parametrize("case", FIXTURE["cases"], ids=[case["id"] for case in FIXTURE["cases"]])
-def test_recall_query_keeps_the_end_of_the_prompt(monkeypatch, tmp_path: Path, case: dict[str, Any]) -> None:
+def _plugin(monkeypatch, tmp_path: Path) -> PowerContextPlugin:
     RecordingClient.prepared.clear()
     settings = PowerContextSettings(base_url="http://127.0.0.1:8000")
     monkeypatch.setattr(plugin_module, "ensure_config", lambda _: settings)
     monkeypatch.setattr(plugin_module, "PowerContextClient", RecordingClient)
-    plugin = PowerContextPlugin(SimpleNamespace(workspace=tmp_path))
-    state = plugin.load_state(message=None, session_id="session-1")
-    request = LLMCallRequest(
-        run_id="run-1",
-        model="test-model",
-        messages=[republic.user(_expand(case["prompt"]))],
-    )
+    return PowerContextPlugin(SimpleNamespace(workspace=tmp_path))
+
+
+def _prepared_queries(plugin: PowerContextPlugin, state: dict[str, Any], prompt: str) -> list[str]:
+    request = LLMCallRequest(run_id="run-1", model="test-model", messages=[republic.user(prompt)])
 
     result = asyncio.run(plugin.before_llm_call(request, state))
 
-    assert result is not None
-    assert [prepared.query for prepared in RecordingClient.prepared] == [_expand(case["query"])]
+    assert (result is not None) == bool(RecordingClient.prepared)
+    return [prepared.query for prepared in RecordingClient.prepared]
+
+
+def _recall_queries(
+    monkeypatch, tmp_path: Path, prompt: str, *, message: ChannelMessage | None = None, session_id: str = "session-1"
+) -> list[str]:
+    plugin = _plugin(monkeypatch, tmp_path)
+    # Bub's builtin load_state supplies the session id beside the plugin's state.
+    state = {"session_id": session_id, **plugin.load_state(message=message, session_id=session_id)}
+    return _prepared_queries(plugin, state, prompt)
+
+
+def _bub_prompt(message: ChannelMessage) -> str:
+    agent = SimpleNamespace(command_prefix=",")
+    prompt = asyncio.run(
+        BuiltinImpl(framework=None).build_prompt(message, message.session_id, {"_runtime_agent": agent})
+    )
+    assert len(prompt) == 1
+    assert isinstance(prompt[0], str)
+    return prompt[0]
+
+
+@pytest.mark.parametrize("case", FIXTURE["cases"], ids=[case["id"] for case in FIXTURE["cases"]])
+def test_recall_query_keeps_the_end_of_the_prompt(monkeypatch, tmp_path: Path, case: dict[str, Any]) -> None:
+    assert _recall_queries(monkeypatch, tmp_path, _expand(case["prompt"])) == [_expand(case["query"])]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        ChannelMessage(
+            session_id="cli:local",
+            channel="cli",
+            chat_id="local",
+            content="How should we deploy the migrations?",
+            context={"sender_id": "human"},
+        ),
+        ChannelMessage(
+            session_id="chat:room-7",
+            channel="chat",
+            chat_id="room-7",
+            content="How should we deploy the migrations?\nKeep the rollout order.",
+            context={"sender_id": "42", "username": "ada"},
+        ),
+        ChannelMessage(
+            session_id="cli:local",
+            channel="cli",
+            chat_id="local",
+            content='{"message": "report", "constraint": "database migrations"}',
+        ),
+    ],
+    ids=["cli", "chat-channel", "json-text"],
+)
+def test_recall_query_is_the_inbound_content_without_the_bub_frame(
+    monkeypatch, tmp_path: Path, message: ChannelMessage
+) -> None:
+    prompt = _bub_prompt(message)
+    assert prompt != message.content
+
+    assert _recall_queries(monkeypatch, tmp_path, prompt, message=message, session_id=message.session_id) == [
+        message.content
+    ]
+
+
+def test_recall_skips_a_message_without_text(monkeypatch, tmp_path: Path) -> None:
+    message = ChannelMessage(session_id="cli:local", channel="cli", chat_id="local", content="")
+
+    assert _recall_queries(monkeypatch, tmp_path, _bub_prompt(message), message=message, session_id="cli:local") == []
+
+
+def test_subagent_recalls_with_its_own_prompt(monkeypatch, tmp_path: Path) -> None:
+    message = ChannelMessage(session_id="cli:local", channel="cli", chat_id="local", content="Plan the release.")
+    plugin = _plugin(monkeypatch, tmp_path)
+    parent_state = {"session_id": "cli:local", **plugin.load_state(message=message, session_id="cli:local")}
+    # Bub runs a subagent with a copy of the parent's turn state under the subagent's own session.
+    subagent_state = {**parent_state, "session_id": "cli:local/subagent-1"}
+
+    assert _prepared_queries(plugin, subagent_state, "Check the migration order.") == ["Check the migration order."]
