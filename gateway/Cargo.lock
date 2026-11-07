@@ -656,6 +656,7 @@ dependencies = [
 name = "pc-gateway-core"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "bytes",
  "pc-gateway-evidence",
  "pc-gateway-protocol",

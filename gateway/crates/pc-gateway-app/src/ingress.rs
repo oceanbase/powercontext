@@ -21,7 +21,7 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pc_gateway_core::{ManagedCall, ManagedOutcome, RequestControl};
+use pc_gateway_core::{LifecycleStopReason, ManagedCall, ManagedOutcome, RequestControl};
 use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputLimits, Role};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -122,9 +122,20 @@ async fn ingress_common(
         tokio::time::Instant::now() + std::time::Duration::from_secs(180),
         req.extensions().get::<String>().cloned(),
     );
+    let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
-    let mut response = ingress_model(state, headers, req, format, control).await;
+    let mut response = match lifecycle
+        .run(ingress_model(state, headers, req, format, control))
+        .await
+    {
+        Ok(response) => response,
+        Err(reason) => respond(ManagedOutcome::Stopped {
+            reason,
+            model_send: observation.snapshot().model_send,
+        }),
+    };
+    response.extensions_mut().insert(lifecycle);
     response.extensions_mut().insert(observation);
     response.extensions_mut().insert(cancellation);
     response
@@ -179,6 +190,13 @@ async fn ingress_model(
                 .into_response();
         }
     };
+    let lifecycle = control.lifecycle();
+    if let Err(reason) = lifecycle.checkpoint() {
+        return respond(ManagedOutcome::Stopped {
+            reason,
+            model_send: lifecycle.observation().snapshot().model_send,
+        });
+    }
     let mut client_stream = false;
     let canonical = match format {
         Format::Chat => {
@@ -279,6 +297,12 @@ async fn ingress_model(
         prepared_contexts: Vec::new(),
     };
 
+    if let Err(reason) = lifecycle.checkpoint() {
+        return respond(ManagedOutcome::Stopped {
+            reason,
+            model_send: lifecycle.observation().snapshot().model_send,
+        });
+    }
     let outcome = state
         .executor
         .run(control, call, &renderer, state.evidence.as_ref())
@@ -680,6 +704,17 @@ fn respond(outcome: ManagedOutcome) -> Response {
             Json(serde_json::json!({ "decision": "admission_expired" })),
         )
             .into_response(),
+        ManagedOutcome::Stopped { reason, model_send } => (
+            match reason {
+                LifecycleStopReason::DeadlineExceeded => StatusCode::GATEWAY_TIMEOUT,
+                LifecycleStopReason::GatewayShutdown => StatusCode::SERVICE_UNAVAILABLE,
+                // Explicit cancellation is a Rust control result. If an embedding owner still
+                // has an HTTP response channel, use a standard error status without a new endpoint.
+                LifecycleStopReason::RequestCancelled => StatusCode::SERVICE_UNAVAILABLE,
+            },
+            Json(serde_json::json!({ "decision": reason, "model_send": model_send })),
+        )
+            .into_response(),
         ManagedOutcome::GatePaused(msg) => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "decision": "gate_paused", "detail": msg })),
@@ -774,6 +809,86 @@ mod tests {
             ],
         );
         (router, server)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn real_listener_slow_body_stops_before_executor_and_recovers() {
+        use pc_gateway_core::{ExecutionObservation, ExecutionState, ModelSendState};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (router, upstream) = lifecycle_router().await;
+        let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let retained = observations.clone();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let ingress_entered = entered.clone();
+        let router = router.layer(axum::middleware::from_fn(
+            move |req: Request, next: axum::middleware::Next| {
+                let retained = retained.clone();
+                let ingress_entered = ingress_entered.clone();
+                async move {
+                    if req.uri().path().starts_with("/gateway/") {
+                        ingress_entered.notify_one();
+                    }
+                    let response = next.run(req).await;
+                    if let Some(observation) = response.extensions().get::<ExecutionObservation>() {
+                        retained.lock().unwrap().push(observation.clone());
+                    }
+                    response
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        // Resume for network setup, then freeze once the request has entered the body read.
+        tokio::time::resume();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        // A health request establishes that the listener is progressing before advancing time.
+        let healthy = reqwest::Client::new()
+            .get(format!("http://{addr}/healthz"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(healthy.status(), reqwest::StatusCode::OK);
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(181)).await;
+        tokio::time::resume();
+        let mut response = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.read_to_end(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 504"), "{response}");
+        assert!(response.contains(r#""decision":"deadline_exceeded""#));
+        assert!(response.contains(r#""model_send":"no_send""#));
+        let observation = observations.lock().unwrap()[0].clone();
+        assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+        assert_eq!(
+            observation.snapshot().stop_reason,
+            Some(LifecycleStopReason::DeadlineExceeded)
+        );
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/gateway/v1/chat/completions"))
+            .bearer_auth("gateway-key")
+            .json(
+                &serde_json::json!({"model":"test","messages":[{"role":"user","content":"hello"}]}),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+        server.abort();
+        server.await.unwrap_err();
+        upstream.abort();
+        upstream.await.unwrap_err();
     }
 
     struct PendingBody {

@@ -6613,6 +6613,30 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "components": {
         "schemas": {
+            "GatewayLifecycleDecision": {
+                "type": "string",
+                "enum": ["deadline_exceeded", "gateway_shutdown", "request_cancelled"],
+            },
+            "GatewayModelSend": {
+                "type": "string",
+                "enum": ["no_send", "definitely_not_sent", "possibly_sent", "response_received"],
+                "description": "Sending facts known at the stop "
+                "boundary. Possibly sent never "
+                "means safe to resend; response "
+                "received does not authorize "
+                "release or establish client "
+                "receipt.",
+            },
+            "GatewayLifecycleError": {
+                "properties": {
+                    "decision": {"$ref": "#/components/schemas/GatewayLifecycleDecision"},
+                    "model_send": {"$ref": "#/components/schemas/GatewayModelSend"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["decision", "model_send"],
+                "description": "Lifecycle control result, independent of Core allow/block/withhold and local delivery.",
+            },
             "ContractVersion": {
                 "properties": {
                     "major": {"type": "integer", "minimum": 1.0},
@@ -15267,6 +15291,31 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
         },
         "responses": {
+            "GatewayDeadlineExceeded": {
+                "description": "Total monotonic work "
+                "deadline exceeded. Best "
+                "effort only while HTTP "
+                "status can still be "
+                "sent; an expired "
+                "deadline or unavailable "
+                "connection may prevent "
+                "delivery. Does not imply "
+                "zero cost or permit "
+                "retry.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GatewayLifecycleError"}}},
+            },
+            "GatewayStopped": {
+                "description": "Gateway shutdown, or explicit "
+                "in-process cancellation when a "
+                "response channel remains "
+                "available. No HTTP cancellation "
+                "endpoint or nonstandard "
+                "cancellation status is defined. "
+                "Already started HTTP status and "
+                "completed execution terminals are "
+                "preserved.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GatewayLifecycleError"}}},
+            },
             "ClientUpgradeRequired": {
                 "description": "This response requires a "
                 "coordinated client "
@@ -15387,5 +15436,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "access.principal": {"major": 1, "minor": 0},
         "scope.selection": {"major": 1, "minor": 0},
         "memory.explicit": {"major": 1, "minor": 0},
+    },
+    "x-powercontext-gateway-lifecycle": {
+        "paths": ["/gateway/v1/chat/completions", "/gateway/v1/responses"],
+        "responses": {
+            "504": {"$ref": "#/components/responses/GatewayDeadlineExceeded"},
+            "503": {"$ref": "#/components/responses/GatewayStopped"},
+        },
     },
 }

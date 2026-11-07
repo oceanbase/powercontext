@@ -106,3 +106,34 @@ Credentials live only in server-side environment variables; they are never accep
 ## Tests
 
 `cargo test` — 27 tests covering the failure-semantics table (gate unavailable, withhold terminal, bounded retry, indeterminate no-resend, blocked turns never sediment), renderer fidelity (no timestamps/request ids injected), byte-range declaration, UDS connection-pool correctness over a real Unix socket, and live integration tests against a real PowerContext Server (binding validity, cross-scope rejection, deadlines) that skip gracefully when no server is reachable.
+
+## Execution deadline and cancellation
+
+Model ingress establishes one absolute monotonic deadline of 180 seconds before reading the body.
+Intake, parsing, preparation, admission, provider sending, release checks, capture, and response handoff
+consume that budget. Admission refreshes and permitted retries keep the original deadline. HTTP and UDS
+Core RPCs run inline under this control, including connection/pool waits and response framing; repeated
+reads cannot extend the deadline. Startup capabilities discovery retains its separate 10-second bound.
+Provider attempts retain their existing 120-second limit, further bounded by remaining call time.
+Core admission validity and correlation windows remain separate authorization constraints.
+
+Rust callers supply `RequestControl::new(deadline, request_id)`, retain its `lifecycle()`, `cancellation()`,
+and `observation()` handles, and pass the one-shot control to `Executor::run`. `cancel()` stops pending
+local execution; `cancel_with(LifecycleStopReason::GatewayShutdown)` also supports the service owner's
+shutdown cause. `ManagedOutcome::Stopped { reason, model_send }` agrees with the retained execution
+snapshot. Cancellation intent alone does not rewrite completed terminals. A known interrupted execution
+has `ExecutionTerminal::Stopped(reason)`; dropping unknown unfinished execution still records `Abandoned`.
+Before Executor startup, lifecycle interruption retains `NotStarted`.
+
+Ingress attaches the same `RequestLifecycle`, `RequestCancellation`, and `ExecutionObservation` to
+response extensions for the next local owner. The Executor and ingress own their futures inline and
+create no request cleanup tasks. Embedding owners that spawn tasks must cancel and join them themselves.
+Response handoff establishes neither socket completion nor client receipt. Connection-level cancellation,
+delivery ownership, concurrency permits through socket completion, and service drain/exit remain separate
+work under the G3 delivery and shutdown tasks.
+
+When an HTTP error can still be returned, deadline expiration maps to 504 and shutdown to 503. An explicit
+in-process cancellation uses 503 if a response channel remains available; there is no cancellation endpoint
+or nonstandard cancellation status. The lifecycle JSON contains independent `decision` and `model_send`
+fields, registered in `openapi/powercontext.yaml`. Stopping preserves possible sending and complete response
+facts; it does not establish zero cost, remote rollback, safe resend, release authorization, or delivery.

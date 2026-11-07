@@ -2771,6 +2771,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        GatewayLifecycleDecision: "deadline_exceeded" | "gateway_shutdown" | "request_cancelled";
+        /**
+         * @description Sending facts known at the stop boundary. Possibly sent never means safe to resend; response received does not authorize release or establish client receipt.
+         * @enum {string}
+         */
+        GatewayModelSend: "no_send" | "definitely_not_sent" | "possibly_sent" | "response_received";
+        /** @description Lifecycle control result, independent of Core allow/block/withhold and local delivery. */
+        GatewayLifecycleError: {
+            decision: components["schemas"]["GatewayLifecycleDecision"];
+            model_send: components["schemas"]["GatewayModelSend"];
+        };
         /** @description A major/minor compatibility version. A major increment may remove or incompatibly change the governed contract. A minor increment only adds backward-compatible behavior or fields. */
         ContractVersion: {
             major: number;
@@ -6346,6 +6358,24 @@ export interface components {
         };
     };
     responses: {
+        /** @description Total monotonic work deadline exceeded. Best effort only while HTTP status can still be sent; an expired deadline or unavailable connection may prevent delivery. Does not imply zero cost or permit retry. */
+        GatewayDeadlineExceeded: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["GatewayLifecycleError"];
+            };
+        };
+        /** @description Gateway shutdown, or explicit in-process cancellation when a response channel remains available. No HTTP cancellation endpoint or nonstandard cancellation status is defined. Already started HTTP status and completed execution terminals are preserved. */
+        GatewayStopped: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["GatewayLifecycleError"];
+            };
+        };
         /** @description This response requires a coordinated client supporting Dream contract 2. Upgrade the Python SDK, CLI or integration and send X-PowerContext-Dream-Contract: 2. Original operations and compatible candidate shapes remain available without the header. */
         ClientUpgradeRequired: {
             headers: {
