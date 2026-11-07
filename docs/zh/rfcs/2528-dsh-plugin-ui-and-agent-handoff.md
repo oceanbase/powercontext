@@ -1,5 +1,5 @@
 ---
-title: DSH 插件界面、内嵌 Dashboard 与跨 Agent 交接
+title: "RFC 2528: DSH 插件界面、内嵌 Dashboard 与跨 Agent 交接"
 description: 通过插件实现 DSH 连接状态、现有 Dashboard 内嵌及向其他 Agent 精确交接的设计提案。
 ---
 

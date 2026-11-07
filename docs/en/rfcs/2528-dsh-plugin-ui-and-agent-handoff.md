@@ -1,5 +1,5 @@
 ---
-title: DSH plugin UI, embedded dashboard, and cross-agent handoff
+title: "RFC 2528: DSH plugin UI, embedded dashboard, and cross-agent handoff"
 description: A plugin-owned design for DSH connection status, existing dashboard embedding, and exact handoff to another agent.
 ---
 
