@@ -13,6 +13,9 @@ the shared `evaluation/` environment.
 | [Memory write gate](write_gate/README.md) | Offline evidence-sufficiency calibration, held-out checks, and promotion decision. |
 | [Source poisoning observation](source_poisoning/README.md) | Versioned synthetic inputs, immutable citations, and actual host answers from a bounded live-model run. |
 
+For issue #2074, the [evidence admission review handoff](evidence_admission/REVIEW_HANDOFF.zh.md) separates the
+requesting user's reported checks, unresolved semantic judgments, frozen results and publication/merge limitations.
+
 Add dataset-specific Memory quality suites here. Put latency, throughput, storage, and capacity measurements in
 [performance](../performance/README.md). Keep each suite's execution and grading tools with the suite; see
 [evaluation](../README.md) for the shared Python environment. LongMemEval-V2 provides its own `longmemeval-v2` command.
