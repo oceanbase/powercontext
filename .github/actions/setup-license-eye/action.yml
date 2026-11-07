@@ -14,7 +14,7 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ runner.temp }}/license-eye/bin
-        key: license-eye-v1-${{ runner.os }}-${{ runner.arch }}-a196742f472feaffafea537ce5a2a4c3c53a8de4-go1.25.14
+        key: license-eye-static-v1-${{ runner.os }}-${{ runner.arch }}-a196742f472feaffafea537ce5a2a4c3c53a8de4-go1.25.14
 
     - name: Fetch the pinned checker source
       id: source
@@ -49,6 +49,8 @@ runs:
       env:
         GOTOOLCHAIN: local
         GO111MODULE: 'on'
+        # Share the tool across Linux runner images without a host libc dependency.
+        CGO_ENABLED: '0'
       run: |
         mkdir -p "$RUNNER_TEMP/license-eye/bin"
         go build -o "$RUNNER_TEMP/license-eye/bin/license-eye" \
