@@ -183,8 +183,9 @@ def test_selected_scopes_have_a_complete_terminal_result_contract():
     main = workflow("master.yml")["jobs"]
     assert RULES["checks"].keys() == RULES["suites"].keys()
     covered = {job for jobs in RULES["checks"].values() for job in jobs}
-    assert covered | {"quality", "upgrade-release-gate", "ci-result"} == set(main)
-    assert set(main["ci-result"]["needs"]) == set(main) - {"ci-result"}
+    assert covered | {"quality", "upgrade-release-gate", "ci-result"} <= set(main)
+    assert "managed-resource-candidates-linux" in set(main) - set(main["ci-result"]["needs"])
+    assert set(main["ci-result"]["needs"]) == set(main) - {"ci-result", "managed-resource-candidates-linux"}
 
 
 def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
@@ -274,6 +275,41 @@ def test_compatibility_and_upgrade_matrices_have_bounded_runner_bursts():
     assert rows["linux-x86_64"]["optional"] is True
     assert all(rows[target]["optional"] is False for target in rows if target != "linux-x86_64")
     assert native_job["continue-on-error"] == "${{ matrix.optional }}"
+
+
+def test_managed_resource_linux_is_outside_required_main_result_gate():
+    main = workflow("master.yml")["jobs"]
+    required = main["managed-resource-candidates"]
+    optional = main["managed-resource-candidates-linux"]
+    assert required["with"]["targets"] == '["windows-x86_64","macos-arm64","macos-x86_64"]'
+    assert optional["with"]["targets"] == '["linux-x86_64"]'
+    assert "managed-resource-candidates-linux" not in main["ci-result"]["needs"]
+    assert main["ci-result"]["needs"].count("managed-resource-candidates") == 1
+
+
+def test_managed_resource_workflow_filters_called_targets():
+    jobs = workflow("managed-resource-candidates.yml")["jobs"]
+    candidate = jobs["candidate"]
+    condition = candidate["if"]
+    assert "inputs.targets == ''" in condition
+    assert "contains(fromJSON(inputs.targets), matrix.target)" in condition
+
+
+def test_ci_result_ignores_only_the_separate_optional_linux_call():
+    script = workflow("master.yml")["jobs"]["ci-result"]["steps"][0]["run"]
+    script = script.split("<<'PYTHON'\n", 1)[1].rsplit("PYTHON", 1)[0]
+    required = ["quality", "upgrade-release-gate", "managed-resource-candidates"]
+    results = {job: {"result": "success"} for job in required}
+    # The optional caller is intentionally absent because GitHub only exposes
+    # jobs listed in ci-result.needs to the terminal aggregation script.
+    run = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "RESULTS": json.dumps(results), "REQUIRED": json.dumps(required)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
 
 
 def test_linux_desktop_and_native_validation_are_optional_platform_gates():

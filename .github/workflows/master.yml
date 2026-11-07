@@ -1173,6 +1173,22 @@ jobs:
     uses: ./.github/workflows/managed-resource-candidates.yml
     with:
       suites: ${{ needs.quality.outputs.suites }}
+      # Windows and macOS are the required managed-resource platforms. Linux
+      # qualification runs in a separate optional caller below.
+      targets: '["windows-x86_64","macos-arm64","macos-x86_64"]'
+
+  managed-resource-candidates-linux:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').managed_resources) }}
+    uses: ./.github/workflows/managed-resource-candidates.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
+      # Linux is optional under #2112. Its diagnostics and artifacts remain
+      # visible, but it is deliberately outside the required result gate.
+      targets: '["linux-x86_64"]'
 
   native-service:
     needs: [quality, tests]

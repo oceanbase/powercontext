@@ -7,6 +7,11 @@ on:
         description: Scope already selected by the Main orchestrator
         required: true
         type: string
+      targets:
+        description: JSON array of resource targets to qualify; empty selects every target
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
 
 permissions:
@@ -26,7 +31,11 @@ jobs:
 
   candidate:
     needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
+    if: >-
+      ${{ !cancelled() &&
+          (inputs.targets == '' || contains(fromJSON(inputs.targets), matrix.target)) &&
+          ((inputs.suites == '' && needs.changes.result != 'success') ||
+           fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
     name: Candidate ${{ matrix.target }}
     # Linux candidate qualification is optional for #2110. Keep its result and
     # diagnostics visible without allowing it to fail the required Windows/macOS
