@@ -1320,3 +1320,137 @@ async fn runtime_drops_late_results_on_replacement_disconnect_or_cancel() {
         }
     }
 }
+
+#[tokio::test]
+async fn local_handoff_fences_default_and_exact_scope_reads_with_the_observed_deployment() {
+    for path in ["/v1/scopes/default", "/v1/scopes/scope-a"] {
+        let fixture = Fixture::new(false).await;
+        let before = fixture.manager.state().unwrap();
+        let endpoint = before.profiles[0].endpoint.clone();
+        fixture.state.lock().unwrap().pause = Some(path.into());
+        let manager = fixture.manager.clone();
+        let handoff = tokio::spawn(async move {
+            manager
+                .connect_local(
+                    before.generation,
+                    endpoint,
+                    common::PROFILE_ID.into(),
+                    "synthetic".into(),
+                )
+                .await
+        });
+        fixture.entered().await;
+        assert!(fixture.manager.state().unwrap().active.is_none());
+        fixture.replace();
+        fixture.release.notify_one();
+        let error = timeout(Duration::from_secs(5), handoff)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap();
+        assert_eq!(error.code, SafeError::StaleContext, "{path}");
+        fixture.assert_disconnected(before.generation);
+        if path == "/v1/scopes/default" {
+            assert!(
+                !fixture
+                    .state
+                    .lock()
+                    .unwrap()
+                    .requests
+                    .iter()
+                    .any(|request| request == "/v1/scopes/scope-a")
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn local_scope_retention_requires_the_same_deployment_and_rechecks_it_after_the_exact_read() {
+    for replace_during_read in [false, true] {
+        let fixture = Fixture::new(false).await;
+        let before = fixture.manager.state().unwrap();
+        let selected = fixture
+            .manager
+            .connect_local(
+                before.generation,
+                before.profiles[0].endpoint.clone(),
+                common::PROFILE_ID.into(),
+                "synthetic".into(),
+            )
+            .await
+            .unwrap();
+        let id = selected.active.as_ref().unwrap().connection_id.clone();
+        let refreshed = fixture.manager.check(&id, false).await.unwrap();
+        assert_eq!(refreshed.active.unwrap().scope.unwrap().scope_id, "scope-a");
+        if replace_during_read {
+            fixture.state.lock().unwrap().pause = Some("/v1/scopes/scope-a".into());
+            let manager = fixture.manager.clone();
+            let recheck = tokio::spawn(async move { manager.check(&id, false).await });
+            fixture.entered().await;
+            fixture.replace();
+            fixture.release.notify_one();
+            let error = timeout(Duration::from_secs(5), recheck)
+                .await
+                .unwrap()
+                .unwrap()
+                .err()
+                .unwrap();
+            assert_eq!(error.code, SafeError::StaleContext);
+            fixture.assert_disconnected(refreshed.generation);
+        } else {
+            fixture.replace();
+            let replaced = fixture.manager.check(&id, false).await.unwrap();
+            assert!(replaced.active.unwrap().scope.is_none());
+        }
+    }
+}
+
+#[tokio::test]
+async fn local_handoff_rejects_a_changed_connection_identity_during_scope_read() {
+    let fixture = Fixture::new(false).await;
+    let before = fixture.manager.state().unwrap();
+    fixture.state.lock().unwrap().pause = Some("/v1/scopes/default".into());
+    let manager = fixture.manager.clone();
+    let handoff = tokio::spawn(async move {
+        manager
+            .connect_local(
+                before.generation,
+                before.profiles[0].endpoint.clone(),
+                common::PROFILE_ID.into(),
+                "synthetic".into(),
+            )
+            .await
+    });
+    fixture.entered().await;
+    fixture.state.lock().unwrap().principal = Some("new-principal".into());
+    fixture.release.notify_one();
+    let error = timeout(Duration::from_secs(5), handoff)
+        .await
+        .unwrap()
+        .unwrap()
+        .err()
+        .unwrap();
+    assert_eq!(error.code, SafeError::StaleContext);
+    assert!(fixture.manager.state().unwrap().active.is_none());
+}
+
+#[tokio::test]
+async fn local_scope_is_not_retained_after_connection_identity_changes() {
+    let fixture = Fixture::new(false).await;
+    let before = fixture.manager.state().unwrap();
+    let selected = fixture
+        .manager
+        .connect_local(
+            before.generation,
+            before.profiles[0].endpoint.clone(),
+            common::PROFILE_ID.into(),
+            "synthetic".into(),
+        )
+        .await
+        .unwrap();
+    let id = selected.active.unwrap().connection_id;
+    fixture.state.lock().unwrap().principal = Some("new-principal".into());
+    let refreshed = fixture.manager.check(&id, false).await.unwrap();
+    assert!(refreshed.active.unwrap().scope.is_none());
+}

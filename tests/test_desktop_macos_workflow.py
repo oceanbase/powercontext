@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -72,8 +73,23 @@ def test_macos_dmg_build_preserves_transient_failure_evidence(
 ) -> None:
     bash = shutil.which("bash")
     assert bash is not None
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copyfile(ROOT / "desktop/scripts/build_macos.py", scripts / "build_macos.py")
+    (tmp_path / "sitecustomize.py").write_text("import time\ntime.sleep = lambda _: None\n")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    _write_executable(
+        bin_dir / "hdiutil",
+        f"#!{sys.executable}\n"
+        "import plistlib, sys\n"
+        "from pathlib import Path\n"
+        "image = Path.cwd() / 'src-tauri/target/release/bundle/macos/rw.123.Preview.dmg'\n"
+        "if sys.argv[1:] == ['info', '-plist']:\n"
+        "    sys.stdout.buffer.write(plistlib.dumps({'images': [{'image-path': str(image), "
+        "'system-entities': [{'dev-entry': '/dev/disk2'}]}]}))\n",
+    )
     counter = tmp_path / "calls"
     output = tmp_path / "github-output"
     _write_executable(
@@ -89,8 +105,12 @@ IFS=, read -r -a outcomes <<< "$TEST_PNPM_SEQUENCE"
 outcome="${outcomes[$((count - 1))]:-success}"
 case "$outcome" in
   success) echo 'bundle complete' ;;
-  busy) echo 'hdiutil: create failed - Resource busy' >&2; exit 1 ;;
-  busy_eject) echo "hdiutil: couldn't eject disk2 - Resource busy" >&2; exit 1 ;;
+  busy) echo 'hdiutil: create failed - Resource busy' >&2; echo 'failed to bundle project: error running bundle_dmg.sh' >&2; exit 1 ;;
+  busy_eject)
+    image="$PWD/src-tauri/target/release/bundle/macos/rw.123.Preview.dmg"
+    mkdir -p "$(dirname "$image")"; : > "$image"; echo "created: $image"
+    echo 'hdiutil: couldn'"'"'t eject "disk2" - Resource busy' >&2
+    echo 'failed to bundle project: error running bundle_dmg.sh' >&2; exit 1 ;;
   failure) echo 'unrelated packaging failure' >&2; exit 42 ;;
   *) exit 99 ;;
 esac
@@ -103,6 +123,7 @@ esac
             **os.environ,
             "PATH": os.pathsep.join((str(bin_dir), os.environ["PATH"])),
             "GITHUB_OUTPUT": str(output),
+            "PYTHONPATH": str(tmp_path),
             "TEST_CALL_COUNT": str(counter),
             "TEST_PNPM_SEQUENCE": sequence,
         },

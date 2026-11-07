@@ -47,8 +47,25 @@ def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failur
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("Bash is required to execute the macOS build step")
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copyfile(ROOT / "desktop/scripts/build_macos.py", scripts / "build_macos.py")
+    (tmp_path / "sitecustomize.py").write_text("import time\ntime.sleep = lambda _: None\n")
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    hdiutil = bin_dir / "hdiutil"
+    hdiutil.write_text(
+        f"#!{sys.executable}\n"
+        "import plistlib, sys\n"
+        "from pathlib import Path\n"
+        "image = Path.cwd() / 'src-tauri/target/release/bundle/macos/rw.123.Preview.dmg'\n"
+        "if sys.argv[1:] == ['info', '-plist']:\n"
+        "    sys.stdout.buffer.write(plistlib.dumps({'images': [{'image-path': str(image), "
+        "'system-entities': [{'dev-entry': '/dev/disk2'}]}]}))\n"
+    )
+    hdiutil.chmod(0o755)
     driver = bin_dir / "pnpm"
     driver.write_text(
         f"#!{sys.executable}\n"
@@ -62,7 +79,14 @@ def test_macos_build_retries_only_busy_disk_images(tmp_path, monkeypatch, failur
         "count.write_text(str(attempt))\n"
         "failures = json.loads(os.environ['TEST_BUILD_FAILURES'])\n"
         "if attempt <= len(failures):\n"
-        "    print(failures[attempt - 1], file=sys.stderr)\n"
+        "    failure = failures[attempt - 1]\n"
+        "    if 'couldn\\'t eject' in failure:\n"
+        "        image = Path.cwd() / 'src-tauri/target/release/bundle/macos/rw.123.Preview.dmg'\n"
+        "        image.parent.mkdir(parents=True, exist_ok=True)\n"
+        "        image.write_bytes(b'image')\n"
+        "        print('created: ' + str(image))\n"
+        "    print(failure, file=sys.stderr)\n"
+        "    print('failed to bundle project: error running bundle_dmg.sh', file=sys.stderr)\n"
         "    sys.exit(17)\n"
     )
     driver.chmod(0o755)

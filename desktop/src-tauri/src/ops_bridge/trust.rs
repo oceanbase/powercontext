@@ -159,6 +159,65 @@ impl Trust {
             digest,
         })
     }
+    pub fn connection_qualification(
+        &self,
+        components: &super::OpsComponents,
+        qualifications: &[crate::connections::session::CompatibilityProfile],
+    ) -> Result<(String, String), Error> {
+        let binding = self.binding()?;
+        if binding.catalog_digest.is_none() {
+            return Err(Error::Unavailable);
+        }
+        let catalog: serde_json::Value =
+            serde_json::from_slice(&binding.bytes).map_err(|_| Error::IntegrityFailure)?;
+        let resource = catalog["resources"]
+            .as_array()
+            .ok_or(Error::IntegrityFailure)?
+            .iter()
+            .find(|resource| resource["resource_id"].as_str() == components.resource_id.as_deref())
+            .ok_or(Error::IntegrityFailure)?;
+        let mut canonical = resource.clone();
+        // Match ResourceSpec.model_dump: non-executable file entries may omit their false default.
+        if let Some(files) = canonical["files"].as_array_mut() {
+            for file in files {
+                file.as_object_mut()
+                    .ok_or(Error::IntegrityFailure)?
+                    .entry("executable")
+                    .or_insert(serde_json::Value::Bool(false));
+            }
+        }
+        canonical.sort_all_objects();
+        if Some(
+            sha256(&serde_json::to_vec(&canonical).map_err(|_| Error::IntegrityFailure)?).as_str(),
+        ) != components.resource_digest.as_deref()
+        {
+            return Err(Error::IntegrityFailure);
+        }
+        let qualification = resource["qualification_ref"]
+            .as_str()
+            .ok_or(Error::IntegrityFailure)?;
+        let version = resource["server_version"]
+            .as_str()
+            .ok_or(Error::IntegrityFailure)?;
+        if let Some(record) = qualifications
+            .iter()
+            .find(|record| record.id == qualification)
+        {
+            let sources = resource["source_refs"]
+                .as_array()
+                .ok_or(Error::IntegrityFailure)?;
+            let commit_suffix = format!("@{}", record.server_commit);
+            let wheel = format!("wheel-sha256:{}", record.artifact_sha256);
+            let source_matches = sources
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|source| source.starts_with("git+") && source.ends_with(&commit_suffix));
+            if !source_matches || !sources.iter().any(|source| source.as_str() == Some(&wheel)) {
+                return Err(Error::IntegrityFailure);
+            }
+        }
+        Ok((qualification.to_owned(), version.to_owned()))
+    }
     pub fn launch(&self, binding: &Binding) -> Result<Launch, Error> {
         if self.binding()?.fingerprint != binding.fingerprint {
             return Err(Error::StaleApproval);
@@ -588,6 +647,10 @@ struct Document {
 pub(super) struct Reference {
     pub operation_id: String,
     pub binding_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<super::OpsOperation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<super::OpsOptions>,
 }
 pub(super) struct References {
     support: Option<PathBuf>,
@@ -613,7 +676,11 @@ impl References {
         }
         let mut ids = BTreeSet::new();
         for r in &d.operations {
-            if wire::identifier(&r.operation_id).is_err()
+            if match (r.operation, &r.options) {
+                (Some(operation), Some(options)) => options.validate(operation).is_err(),
+                (None, None) => false,
+                _ => true,
+            } || wire::identifier(&r.operation_id).is_err()
                 || !is_digest(&r.binding_id)
                 || !ids.insert(&r.operation_id)
             {
@@ -629,14 +696,26 @@ impl References {
             None => Err(Error::UnknownOperation),
         }
     }
-    pub fn add(&self, id: &str, binding: &str) -> Result<(), Error> {
+    pub fn add(
+        &self,
+        id: &str,
+        binding: &str,
+        operation: super::OpsOperation,
+        options: super::OpsOptions,
+    ) -> Result<(), Error> {
         let dir = self.support.as_ref().ok_or(Error::Storage)?;
         let mut operations = self.read()?;
         if let Some(r) = operations.iter().find(|r| r.operation_id == id) {
-            return if r.binding_id == binding {
+            if r.binding_id != binding {
+                return Err(Error::ForeignBinding);
+            }
+            return if r.operation == Some(operation)
+                && r.options.as_ref().map(super::OpsOptions::wire_value)
+                    == Some(options.wire_value())
+            {
                 Ok(())
             } else {
-                Err(Error::ForeignBinding)
+                Err(Error::InvalidInput)
             };
         }
         if operations.len() >= 4096 {
@@ -645,6 +724,8 @@ impl References {
         operations.push(Reference {
             operation_id: id.into(),
             binding_id: binding.into(),
+            operation: Some(operation),
+            options: Some(options),
         });
         atomic(
             dir,

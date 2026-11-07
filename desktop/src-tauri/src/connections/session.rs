@@ -173,6 +173,7 @@ impl Drop for WriteGuard<'_> {
         }
     }
 }
+#[derive(PartialEq)]
 enum NativeIdentity {
     Principal(AccessMeResponse),
     Connection(ConnectionIdentity),
@@ -290,7 +291,10 @@ impl ConnectionManager {
     }
     pub fn state(&self) -> Result<DesktopState, SafeError> {
         let inner = self.lock()?;
-        Ok(DesktopState {
+        Ok(self.state_view(&inner))
+    }
+    fn state_view(&self, inner: &Inner) -> DesktopState {
+        DesktopState {
             generation: inner.generation,
             profiles: inner.profiles.views(),
             reports: inner.reports.values().cloned().collect(),
@@ -298,7 +302,7 @@ impl ConnectionManager {
             compatibility_profiles: self.compatibility.clone(),
             pending_credential_cleanup: inner.profiles.pending_cleanup(),
             last_write: inner.last_write.clone(),
-        })
+        }
     }
     pub fn save_profile(&self, input: ProfileInput) -> Result<DesktopState, SafeError> {
         let mut inner = self.lock()?;
@@ -356,9 +360,82 @@ impl ConnectionManager {
         self.state()
     }
     pub async fn check(&self, id: &str, activate: bool) -> Result<DesktopState, ApiFailure> {
-        let _permit = self.probes.try_acquire().map_err(|_| SafeError::Busy)?;
-        let (api, profile, generation, mut cancelled, use_as_active) = {
+        self.check_expected(id, activate, None, None).await
+    }
+    /// Explicit local setup handoff. The endpoint comes from native Ops, never the renderer.
+    pub async fn connect_local(
+        &self,
+        expected_generation: u32,
+        endpoint: String,
+        qualification: String,
+        server_version: String,
+    ) -> Result<DesktopState, ApiFailure> {
+        use super::profiles::Authentication;
+        let endpoint = crate::transport::Endpoint::parse(&endpoint)?
+            .as_str()
+            .to_owned();
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../transport/operations.json"))
+                .map_err(|_| SafeError::InvalidResponse)?;
+        if !self.compatibility.iter().any(|profile| {
+            profile.id == qualification
+                && Some(profile.contract_sha256.as_str()) == contract["contractSha256"].as_str()
+        }) {
+            return Err(SafeError::CompatibilityUnverified.into());
+        }
+        let (id, generation) = {
             let mut inner = self.lock()?;
+            if inner.generation != expected_generation {
+                return Err(SafeError::StaleContext.into());
+            }
+            let profiles = inner.profiles.views();
+            let existing = profiles.iter().find(|p| {
+                p.endpoint == endpoint
+                    && p.authentication == Authentication::UnauthenticatedLoopback
+                    && p.ca_pem.is_none()
+                    && p.compatibility.as_deref() == Some(qualification.as_str())
+            });
+            let id = if let Some(profile) = existing {
+                profile.id.clone()
+            } else {
+                let mut name = "Local Server".to_string();
+                if profiles.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
+                    name = format!("Local Server {}", &uuid::Uuid::new_v4().to_string()[..8]);
+                }
+                inner
+                    .profiles
+                    .save(ProfileInput {
+                        id: None,
+                        revision: None,
+                        name,
+                        endpoint,
+                        authentication: Authentication::UnauthenticatedLoopback,
+                        ca_pem: None,
+                        compatibility: Some(qualification),
+                        keep_credential: false,
+                        credential: None,
+                    })?
+                    .id
+            };
+            self.invalidate(&mut inner)?;
+            (id, inner.generation)
+        };
+        self.check_expected(&id, true, Some(generation), Some(&server_version))
+            .await
+    }
+    async fn check_expected(
+        &self,
+        id: &str,
+        activate: bool,
+        expected: Option<u32>,
+        local_version: Option<&str>,
+    ) -> Result<DesktopState, ApiFailure> {
+        let _permit = self.probes.try_acquire().map_err(|_| SafeError::Busy)?;
+        let (api, profile, generation, mut cancelled, use_as_active, retained_scope) = {
+            let mut inner = self.lock()?;
+            if expected.is_some_and(|value| value != inner.generation) {
+                return Err(SafeError::StaleContext.into());
+            }
             let profile = inner
                 .profiles
                 .views()
@@ -370,6 +447,21 @@ impl ConnectionManager {
                     .active
                     .as_ref()
                     .is_some_and(|a| a.view.connection_id == id);
+            let retained_scope = if !activate {
+                inner
+                    .active
+                    .as_ref()
+                    .filter(|active| active.view.connection_id == id)
+                    .and_then(|active| {
+                        active
+                            .view
+                            .scope
+                            .clone()
+                            .map(|scope| (scope, active.view.report.clone()))
+                    })
+            } else {
+                None
+            };
             // A failed recheck must not expose a previously verified report.
             inner.reports.remove(id);
             if use_as_active {
@@ -387,6 +479,7 @@ impl ConnectionManager {
                 inner.generation,
                 self.changed.subscribe(),
                 use_as_active,
+                retained_scope,
             )
         };
         let report = Self::cancellable(&mut cancelled, async {
@@ -521,10 +614,132 @@ impl ConnectionManager {
             })
         })
         .await?;
+        // Local setup publishes no active context until version, identity and the exact default Scope pass.
+        let scope = if let Some(version) = local_version {
+            let server = report
+                .discovery
+                .as_ref()
+                .and_then(|discovery| discovery.server.as_ref())
+                .ok_or(SafeError::CompatibilityUnverified)?;
+            if server.package_version != version
+                || [
+                    "get_default_scope",
+                    "get_scope",
+                    "remember_memory",
+                    "search_memory",
+                    "get_artifact_revision",
+                ]
+                .iter()
+                .any(|operation| {
+                    !report
+                        .supported_operations
+                        .iter()
+                        .any(|supported| supported == operation)
+                })
+            {
+                return Err(SafeError::CompatibilityUnverified.into());
+            }
+            let identity = Self::native_identity(&report)?;
+            let server_id = server.server_id.clone();
+            Some(
+                Self::cancellable(&mut cancelled, async {
+                    self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
+                        .await?;
+                    let default = api.default_scope().await?;
+                    self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
+                        .await?;
+                    let exact = api.scope(&default.scope_id).await?;
+                    self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
+                        .await?;
+                    match api.server_info().await? {
+                        crate::transport::DiscoveryDocument::Server(current)
+                            if current.server_id == server_id
+                                && current.package_version == version => {}
+                        _ => return Err(SafeError::StaleContext.into()),
+                    }
+                    Ok(exact)
+                })
+                .await?,
+            )
+        } else if let Some((scope, previous)) = retained_scope {
+            let previous_server = previous
+                .discovery
+                .as_ref()
+                .and_then(|value| value.server.as_ref());
+            let current_server = report
+                .discovery
+                .as_ref()
+                .and_then(|value| value.server.as_ref());
+            let same_identity = matches!(
+                (Self::native_identity(&previous), Self::native_identity(&report)),
+                (Ok(before), Ok(current)) if before == current
+            );
+            match (previous_server, current_server) {
+                (Some(before), Some(current))
+                    if before.server_id == current.server_id
+                        && same_identity
+                        && report
+                            .supported_operations
+                            .iter()
+                            .any(|operation| operation == "get_scope") =>
+                {
+                    let identity = Self::native_identity(&report)?;
+                    let server_id = current.server_id.clone();
+                    Self::cancellable(&mut cancelled, async {
+                        self.identity_unchanged(
+                            &api,
+                            &identity,
+                            Some(server_id.as_str()),
+                            generation,
+                        )
+                        .await?;
+                        // Revoked or removed Scopes lose selection without disabling other authorized Scopes.
+                        let exact = match api.scope(&scope.scope_id).await {
+                            Ok(scope) => Some(scope),
+                            Err(error)
+                                if matches!(
+                                    error.code,
+                                    SafeError::Forbidden | SafeError::NotFound
+                                ) =>
+                            {
+                                None
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        self.identity_unchanged(
+                            &api,
+                            &identity,
+                            Some(server_id.as_str()),
+                            generation,
+                        )
+                        .await?;
+                        match api.server_info().await? {
+                            crate::transport::DiscoveryDocument::Server(current)
+                                if current.server_id == server_id =>
+                            {
+                                Ok(exact)
+                            }
+                            _ => Err(SafeError::StaleContext.into()),
+                        }
+                    })
+                    .await?
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         let mut inner = self.lock()?;
         if inner.generation != generation {
             return Err(SafeError::StaleContext.into());
         }
+        // Scope publication must be newer than state snapshots taken while activation was pending.
+        let generation = if use_as_active && scope.is_some() {
+            self.invalidate(&mut inner)?;
+            inner.generation
+        } else {
+            generation
+        };
         inner.reports.insert(id.into(), report.clone());
         // Activation can expose diagnostic facts while business operations remain independently gated.
         if use_as_active {
@@ -533,13 +748,12 @@ impl ConnectionManager {
                     connection_id: id.into(),
                     generation,
                     report,
-                    scope: None,
+                    scope,
                 },
                 api,
             });
         }
-        drop(inner);
-        self.state().map_err(Into::into)
+        Ok(self.state_view(&inner))
     }
     /// Explicit diagnostic action. Its result cannot activate or authorize a context.
     pub async fn probe_readiness(
@@ -605,6 +819,24 @@ impl ConnectionManager {
         drop(inner);
         self.state().map_err(Into::into)
     }
+    fn native_identity(report: &CheckReport) -> Result<NativeIdentity, SafeError> {
+        match &report.connection_identity {
+            Some(fact) => Ok(NativeIdentity::Connection(fact.value.clone().ok_or_else(
+                || {
+                    fact.error
+                        .as_ref()
+                        .map_or(SafeError::Unauthorized, |error| error.code)
+                },
+            )?)),
+            None => Ok(NativeIdentity::Principal(
+                report
+                    .identity
+                    .value
+                    .clone()
+                    .ok_or(SafeError::Unauthorized)?,
+            )),
+        }
+    }
     fn snapshot(&self, generation: u32, operation: &str) -> Result<ReadSnapshot, SafeError> {
         let inner = self.lock()?;
         let active = inner.active.as_ref().ok_or(SafeError::NotConnected)?;
@@ -621,22 +853,7 @@ impl ConnectionManager {
         {
             return Err(SafeError::CompatibilityUnverified);
         }
-        let identity = match &active.view.report.connection_identity {
-            Some(fact) => NativeIdentity::Connection(fact.value.clone().ok_or_else(|| {
-                fact.error
-                    .as_ref()
-                    .map_or(SafeError::Unauthorized, |error| error.code)
-            })?),
-            None => NativeIdentity::Principal(
-                active
-                    .view
-                    .report
-                    .identity
-                    .value
-                    .clone()
-                    .ok_or(SafeError::Unauthorized)?,
-            ),
-        };
+        let identity = Self::native_identity(&active.view.report)?;
         Ok(ReadSnapshot {
             api: active.api.clone(),
             server_id: active.view.report.server_id().map(str::to_owned),

@@ -431,6 +431,16 @@ test.each(["en", "zh"] as const)(
         name: language === "en" ? "Connections" : "连接",
       }),
     );
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      language === "en"
+        ? "Discard all retained submitted text and unsaved input?"
+        : "丢弃所有保留的提交文本和尚未保存的输入？",
+    );
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      language === "en"
+        ? "This does not undo submissions or change Server records."
+        : "这不会撤销提交或修改 Server 上的记录。",
+    );
     await answerConfirmation(user, false);
     expect(original.value).toBe("preserve me");
     await user.click(
