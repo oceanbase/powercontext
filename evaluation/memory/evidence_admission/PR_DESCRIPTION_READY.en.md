@@ -48,7 +48,8 @@ are retained in the execution records.
 Input budgets are 2,048, 4,096, and 8,192 under the native estimator, not hard limits on provider-billed tokens.
 The candidate's frozen limits allow up to 16 requests per sample and a cumulative estimated-input multiplier of 8.
 Equal per-input budgets therefore do not imply equal request counts or total cost; these are reported separately.
-Live findings are bound to execution revision `1515a0d11cc2040d0beb341f6626a33c09cce73b`.
+Live findings are bound to execution revision `1515a0d11cc2040d0beb341f6626a33c09cce73b`; the full
+historical branch is archived as `evaluation/2074-bounded-evidence-admission-37commits`.
 
 All **471 planned requests were attempted**; none remain unrun. There are 469 auditable responses and two historical
 calls with unavailable responses and usage.
@@ -113,7 +114,7 @@ Evidence and review entry points:
 # Are there any user-facing changes?
 
 This PR adds evaluation commands, tests, and reports. Production sources are unchanged relative to the integrated
-upstream revision `b8b189091e7a412300cf1292531208a8ead0e325`.
+upstream revision `ed8902b234c4111b6f54e66694806430e25be3a9`.
 
 There is no new production admission policy, truncation, fragment registration, feature flag, migration, or public API.
 Authorization, exact Source windows, CAS, cancellation, search, ranking, citation, lifecycle, and Artifact write
@@ -121,8 +122,8 @@ semantics remain unchanged.
 
 Published aggregate artifacts exclude raw private Source text, rendered provider prompts, response bodies,
 credentials, and sensitive paths. Private audit material stays outside the repository. Reproducing historical
-execution requires the corresponding frozen commits and locked environments; those commits must remain retrievable
-if the branch is squashed or removed.
+execution requires the corresponding frozen commits and locked environments; those commits are retained in the
+archived branch `evaluation/2074-bounded-evidence-admission-37commits` and in the local backup bundle.
 
 # How was this change tested?
 
@@ -174,4 +175,5 @@ requirements, cost controls, cancellation, and report regeneration are documente
 OpenAI Codex assisted with implementation, testing, integration, audit binding, analysis, and documentation.
 The requesting user supplied the human inspection feedback and explicit partial judgments. The assistant did not
 sign off unreviewed candidates or establish a second independent human reviewer. Unresolved semantics, unavailable
-responses, skipped tests, and validation boundaries remain explicit. Nothing has been pushed and no PR has been created.
+responses, skipped tests, and validation boundaries remain explicit. The branch was pushed to the requester's fork
+at the requester's direction; no PR has been created.
