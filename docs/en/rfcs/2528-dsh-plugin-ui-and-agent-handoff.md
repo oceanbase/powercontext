@@ -45,6 +45,8 @@ Clicking the entry opens the existing PowerContext dashboard in the right panel.
 
 ## Continue with another agent
 
+The initial workflow is a deliberate choice to continue current work in another agent. It does not add automatic saving, per-response Handoff generation, or automatic checkpoints. Recovery applies to deliveries already persisted after an explicit request; there is no guarantee of a ready-to-use Handoff if the source session ends before that request or before its payload is saved. Existing capture behavior remains separate and is not proof that a complete recoverable Handoff exists. Automatic saving is outside this RFC's design and acceptance scope.
+
 Only the latest eligible completed assistant response in the entire conversation receives the action. The action opens an agent submenu with names, bundled icons, availability, and actionable limitations. Hover, click, and keyboard interaction are supported.
 
 The normal path is:
@@ -81,6 +83,8 @@ The user sends the prompt. Codex reads the exact package, verifies the current r
 The inspected source baseline is PowerContext `961b1aa2574f410a6412aff4cecd56d7a5a07288` and DSH `ce7073d51254c26cd63b22a60835b8f948deb447` (`0.2.2-alpha.2`). The PowerContext DSH package is `0.0.2`. These are source-checkout facts, not a supported-release declaration.
 
 The qualification baseline is the latest officially published DSH release, not the inspected checkout. As checked on 2026-11-06, it is [v0.2.2-rc.1](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.1), published on 2026-11-04 and marked as a prerelease/release candidate. At implementation start and release qualification, check the official release list again and pin the actual version/package. Older-version compatibility is not an initial requirement. Do not silently upgrade DSH or advertise a moving “latest” range as tested.
+
+Qualification results apply only to the recorded release/package and environment. If the pin changes, rerun the affected acceptance cases against the new installed package before declaring it supported; retain earlier results as historical evidence. In particular, passing on a release candidate does not qualify a later stable release. A destination, Server, plugin, OS, or access-mode change also requires requalification of the affected paths.
 
 Relevant DSH mechanisms already exist in that checkout:
 
@@ -143,7 +147,9 @@ The existing Dashboard is optional and disabled by default. Its current local mo
 | Dashboard disabled | No usable dashboard page; show enable/configuration guidance |
 | Dashboard enabled, `POWERCONTEXT_SERVER_ACCESS_MODE=disabled`, bound to loopback | Direct viewing without password or token |
 | Dashboard enabled, `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` | Uses the existing static Server token/login |
-| Injected team authentication/authorization provider | Current Dashboard does not support this deployment; outside the personal-local scope |
+| Dashboard enabled with an injected custom authentication provider or access-control implementation | Server application creation is rejected, including on a personal local deployment; unsupported by this Dashboard integration |
+
+`create_server_app` rejects the last combination with `ValueError("Dashboard supports only the built-in static Bearer profile")`. This is a Server configuration limitation reached before DSH embedding, not evidence of a plugin defect. Personal-local deployment does not imply built-in authentication. The supported acceptance paths remain loopback access with access mode disabled and the built-in static token profile. Do not disable authentication, discard a custom provider, or change Server configuration to make an embedding test pass. Confirm the startup cause from configuration and Server diagnostics; an unreachable Server alone does not identify this particular error.
 
 Opening a page and starting the Server are separate actions. The plugin does not silently restart the Server, enable Dashboard, or weaken authentication. A healthy PC API with Dashboard disabled must not be reported as a broken PC connection.
 
@@ -177,6 +183,17 @@ Detection and any consented installation finish before model calls or task-conte
 
 Read bounded material retaining the active objective, user constraints, selected completed response and relevant observations: up to 512 events / 256 KiB, including at most 32 KiB of workspace observations, subject to lower model/token budgets. Explicitly record omissions. Do not reinterpret an uncaptured full transcript as available evidence.
 
+Use existing Handoff fields and evidence references to preserve the following when available; these are input requirements, not a new carrier schema or a requirement to rerun tests during handoff:
+
+| Evidence | Required meaning |
+| --- | --- |
+| Tests and checks | The command/check, observed outcome, exit status when available, observation time, and exact available evidence reference; distinguish passed, failed, interrupted, and not run |
+| Open failures | The unresolved error, attempted investigation or fix, remaining blocker, and next check; distinguish observed failures from unverified hypotheses |
+| Workspace state | The revision and relevant observed working-tree state to which the result applies, including uncommitted changes when observed; do not imply that a result covers later edits |
+| Evidence limits | Missing, uncaptured, truncated, or stale material and the effect of the input budget; unavailable details stay explicitly unknown |
+
+A summary cannot turn an unexecuted test into a pass. If the workspace changed after a check, identify the result as evidence for the earlier observed state and require the receiver to reassess it. Preserve available references rather than silently dropping a known failure to fit the snapshot. Keep these details in authorized Handoff content, not operational logs.
+
 Any source-Agent assistance is a logged preparation action under existing host guidance. Permit only the necessary Handoff calls and fixed read-only observations; prohibit unrelated project-changing tools. DSH global tool restrictions do not alone cover scoped registrations or every executor, so verify the actual execution boundary. If safe automatic assistance is unavailable, use the editable path. PC generation does not gain DSH filesystem tools. No broad autonomous task run is introduced.
 
 Validate the result through the existing PC models/services. Unsupported claims remain `basis: declared`; exact evidence is required for `verified`. Preserve the returned Prepared value unchanged. One explicit request makes at most one automatic drafting attempt, with a 90-second generation deadline; install/login/user-action waits use separate states and budgets. Failures do not trigger a second model route silently. Corrections after preparation create a new delivery version. Default transfer does not commit a milestone.
@@ -184,6 +201,8 @@ Validate the result through the existing PC models/services. Unsupported claims 
 ## 6. Delivery records and payload
 
 A delivery is plugin transport bookkeeping, not a new PowerContext domain entity. Persist a versioned envelope in a Host-owned user-data directory. Proposed envelope version: `powercontext.dsh-delivery.v1`.
+
+Store one record per delivery ID, associated with its Server/Scope, source conversation, and exact response/event boundary. A Scope groups related context; it is not a single package slot, and a conversation can have multiple deliveries at different boundaries. Two conversations sharing a Scope must keep separate payloads, launch attempts, and receipts. For example, handing off a failing test from conversation A must not overwrite or acknowledge an API-design delivery from conversation B. A “latest” UI shortcut may select a record, but launch, recovery, and acknowledgement must resolve the exact saved delivery and payload. Repeated transport requests for the same active operation reuse its record under the existing deduplication rules; they do not create a new package merely because the request was retried.
 
 | Field group | Required meaning |
 | --- | --- |
@@ -331,11 +350,28 @@ Operational diagnostics follow the [observability guide](../development/observab
 | --- | --- | --- | --- |
 | 1 | Client export/assets, Host bridge, setup checks | RFC | Actual tarball installs on the current latest official DSH Web/Desktop release, with pinned release identity; owner-local mode, bridge checks, upgrade/uninstall/headless behavior verified |
 | 2 | Sidebar status and diagnostics | 1 | Unconfigured, connecting, success, 401/403, offline, stale, recovery and Scope change; accessible collapsed/dark/light UI |
-| 3 | Direct existing Dashboard embed and only necessary compatibility/auth adapter | 2 | Latest DSH Web/Desktop: local passwordless and token-login paths, disabled-dashboard guidance, resources/navigation/Scope/theme; original auth and confirmations preserved, no token exposure |
-| 4 | Existing PC Handoff workflow, current-work inputs, returned-carrier persistence/export | 1 | Existing operations generate/validate/continue the payload; no mandatory independent summarizer; bounded inputs, no unrelated source-Agent tool writes, no implicit commit, exact restart/unknown-result handling |
+| 3 | Direct existing Dashboard embed and only necessary compatibility/auth adapter | 2 | Server/Dashboard prerequisites checked first; custom-auth startup rejection distinguished from embedding failure; latest DSH Web/Desktop local passwordless and token-login paths, disabled guidance, resources/navigation/Scope/theme; original auth and confirmations preserved, no token exposure |
+| 4 | Existing PC Handoff workflow, current-work inputs, returned-carrier persistence/export | 1 | Existing operations generate/validate/continue the payload; test/open-failure evidence and omissions preserved; same-Scope conversations remain separate; bounded inputs, no unrelated source-Agent tool writes, no implicit commit or automatic saving; exact restart/unknown-result handling |
 | 5 | Three target adapters, detection, consented PC installation, directory/Scope preflight | 4 | Codex Desktop + Claude Desktop + Claude Code CLI each pass real install/readiness/open/prefill; missing app stops, No cancels, Yes installs then verifies, failures/restart handled, no silent agent installation |
 | 6 | Response submenu, preflight/install dialogs and waiting animation | 2, 4, 5 | Real UI, latest boundary, keyboard/reduced motion, stage text, no fake percentage, No/Cancel, deduplication, restore after closing, five-minute waiting timeout |
-| 7 | Exact receipt reads, recovery UI, qualification and bilingual guides | 4, 5, 6 | Actual receiving model invokes Continue and ACK; wrong payload/identity rejected; restart recovers; no full-history polling |
+| 7 | Exact receipt reads, recovery UI, qualification and bilingual guides | 4, 5, 6 | Actual receiving model invokes Continue and ACK; wrong payload/identity and another conversation's receipt rejected; restart restores the exact saved delivery; interruption limits disclosed; no full-history polling; affected cases rerun when qualification versions change |
+
+### Dashboard acceptance prerequisites
+
+1. Record the Server access mode and whether custom authentication or access control was injected. Confirm successful Server startup and explicit Dashboard enablement before testing the panel.
+2. Treat Dashboard plus an injected custom provider as an unsupported startup configuration. Verify the startup rejection and its diagnostic separately; it does not reach embedding acceptance. Do not infer its cause from a connection error alone or change authentication to bypass it.
+3. In each supported mode, first confirm Dashboard access in a normal browser, including the existing token login when enabled. Then test the actual DSH Web/Desktop panel with its own cookie/container behavior. External-browser success is a prerequisite, not a substitute for in-panel acceptance.
+4. Record Server startup/configuration failure, Dashboard disabled, authentication failure, and embedding failure separately. Preserve a healthy API connection status when only Dashboard is disabled or unavailable.
+
+### Handoff evidence and recovery acceptance
+
+- Exercise passed, failed, interrupted, and not-run checks, an unresolved failure, missing/truncated evidence, and a workspace edited after a check. The exact Handoff must retain the observed distinctions or disclose omissions; unavailable results cannot become verified success.
+- Prepare deliveries from two conversations in one Scope and from different boundaries in one conversation. Verify that preparing, retrying, opening, recovering, or acknowledging one does not overwrite or confirm the others. A mismatched exact payload or attempt remains unconfirmed.
+- Restart after a payload has been durably saved and restore that exact delivery and status. If preparation completed remotely but its payload was not saved, retain the unknown outcome and offer explicit creation of a new version; do not claim recovery of the original. If interruption preceded any request, show no saved delivery rather than claiming an automatic checkpoint. None of these cases adds per-response saving or generation.
+
+### Qualification evidence
+
+For each scenario and required destination, record the test date, DSH release tag and prerelease status, installed package identity, plugin archive identity, PC Server version, OS version, destination version, access mode/provider configuration, observed result, and evidence location. Do not include credentials. A changed pin or environment invalidates any unqualified extrapolation: rerun the affected cases on the new combination, retain earlier evidence, and leave the new combination unqualified until it passes.
 
 The status/dashboard release may precede cross-agent handoff. Complete delivery requires PR 3 and PR 7 acceptance plus all three initial targets; Claude Code CLI is not an optional release add-on. A source build or test double is not a release qualification. Record exact DSH, plugin, PC Server, OS, destination version, package identity, access mode, and observed result for each scenario. Windows/Linux results cannot be inferred from macOS; remote/shared DSH deployment is out of scope.
 
