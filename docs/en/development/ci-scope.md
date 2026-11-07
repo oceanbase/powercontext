@@ -31,6 +31,10 @@ Draft PRs allocate no automatic CI runners. Marking a PR ready validates its com
 
 ## Validation profiles
 
+Preflight keeps the complete commit history and tags using a `blob:none` partial clone; historical file contents are fetched only when needed. This preserves merge-base scope selection and version calculation while reducing historical file transfers. The checkout has a ten-minute limit.
+
+License validation caches a native license-eye executable built from the pinned v0.9.0 commit. The cache key includes the source commit, Go version, runner OS and architecture; cache hits skip source fetching, Go setup and compilation. Cold starts use pinned Go 1.25.14 and cache dependencies against the fetched repository's root `go.sum`. The checker is installed under the runner's temporary directory, verified as executable, and saved before source-header validation so a license violation does not discard the tool. Tool preparation and header validation have separate fifteen-minute and three-minute limits; preflight allows forty minutes for a cold start plus the remaining checks. These are ceilings, not added work. Cold builds still depend on network availability, and measured savings require CI observations.
+
 | Entry point or input | Python validation | Other acceptance |
 | --- | --- | --- |
 | Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations | Complete selected backend, upgrade, installation-role, platform and host acceptance |
@@ -62,6 +66,27 @@ For example, documentation selects website and documentation-contract checks; Ci
 Helm charts select deployment-contract checks. Managed resource producers select the Windows x86-64, macOS arm64 and macOS x86-64 candidate builds through Main, after quality and any selected Python tests succeed. Their native build matrix has no independent PR trigger. Shared runtime and dependency changes retain these candidate builds; unrelated website or Desktop UI changes do not start them. Candidate artifacts remain unqualified until the separate resource qualification process accepts them.
 
 Shared helpers select their actual consumers: the clean-migration runner also selects managed-startup and upgrade acceptance; the pnpm cache action also selects the Python test setup and Cindy package. A path filter must follow dependencies, not only directory names.
+
+## Harness replay and OceanBase acceptance
+
+The reusable E2E workflow selects replay (`harness`) separately from native snapshot, HTTP, metrics and archive regressions (`oceanbase_acceptance`).
+
+| Changed input | Replay workers | Native OceanBase acceptance |
+| --- | --- | --- |
+| Bub adapter or replay scenarios | SQLite and OceanBase | Not selected |
+| Native HTTP, metrics or archive test files | None | Selected |
+| Shared Compose definitions or harness startup script | SQLite and OceanBase | Selected |
+| Shared runtime, API or root dependencies | SQLite and OceanBase | Selected, alongside the other affected suites |
+
+When both scopes are selected, their OceanBase work shares one worker and container. Database startup and capacity configuration run for either scope. Native-only changes do not allocate a SQLite replay worker or install the Bub validation environment. Selected tests and evidence must succeed; missing reports and unexpected skips fail the acceptance gate. Native JUnit results are retained independently of replay artifacts.
+
+The OceanBase acceptance job allows 90 minutes: 15 for shared startup, 50 for native regressions, 15 for replay, and 10 for diagnostics, evidence and cleanup. These are ceilings; unselected work is skipped. The native process deadline starts in its own step, and the setup step passes the container ID explicitly. Native report validation and upload use the same JUnit file.
+
+Main's preflight covers repository-wide lint and formatting. Its harness validation runs `make harness-test`, retaining harness type checks, scenario tests and CLI validation, plus Compose validation. Standalone runs retain formatting through `make harness-lint`; local `make harness-check` runs both targets.
+
+The exact test paths in `[exclusions].database` use SQLite or in-memory behavior and retain ordinary Python coverage, plus any other matching scope. Their test-only edits do not start the broad database suite. Remove an exclusion if that file gains native database cases. Exclusions cannot suppress another changed file, shared fixtures, shared runtime selection or the full fallback. Selected upgrade acceptance still runs all 12 configurations automatically.
+
+These rules reduce unnecessary work for local changes. Shared-runtime and CI-policy changes retain broad coverage; runner minutes and queue latency require measurement after rollout.
 
 ## Parallelism and cancellation budgets
 

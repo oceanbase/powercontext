@@ -40,6 +40,7 @@ def select_suites(paths: list[str], rules: dict[str, Any]) -> dict[str, bool]:
             suite
             for suite, patterns in rules["suites"].items()
             if any(fnmatchcase(path, pattern) for pattern in patterns)
+            and path not in rules.get("exclusions", {}).get(suite, [])
         }
         for group in rules["shared"].values():
             if any(fnmatchcase(path, pattern) for pattern in group["patterns"]):

@@ -62,10 +62,33 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["scripts/generate_js_operations.py"], {"tests", "dsh", "cindy"}),
         (["tests/builtin/persistence/test_mysql_schema.py"], {"tests", "database", "upgrade", "candidate_replay"}),
         (["tests/native/test_personal_service_lifecycle.py"], {"tests", "native"}),
-        (["e2e/bub/compose.yaml"], {"harness"}),
+        (["e2e/bub/compose.yaml"], {"harness", "oceanbase_acceptance"}),
+        (["e2e/bub/compose.oceanbase.yaml"], {"harness", "oceanbase_acceptance"}),
+        (["e2e/bub/run.sh"], {"harness", "oceanbase_acceptance"}),
+        (["e2e/bub/scenarios/new.json"], {"harness"}),
+        (["tests/e2e/test_runtime_server.py"], {"tests", "oceanbase_acceptance"}),
+        (["tests/e2e/test_server_metrics_oceanbase.py"], {"tests", "oceanbase_acceptance"}),
+        (["tests/e2e/test_portable_archive.py"], {"tests", "oceanbase_acceptance"}),
+        (["tests/e2e/test_atomic_memory_read_snapshot.py"], {"tests", "database", "oceanbase_acceptance"}),
+        (["tests/builtin/runtime/test_recall_sufficiency.py"], {"tests"}),
+        (["tests/builtin/runtime/test_statistics.py"], {"tests"}),
+        (["tests/builtin/runtime/test_prepared_context.py"], {"tests"}),
+        (["tests/builtin/runtime/test_model_usage_recorder.py"], {"tests", "observability"}),
+        (["tests/e2e/test_recall_sufficiency_gate.py"], {"tests"}),
+        (["tests/e2e/test_context_text_assembly.py"], {"tests"}),
+        (["tests/builtin/runtime/test_recall_new_backend.py"], {"tests", "database"}),
+        (
+            ["tests/builtin/runtime/test_recall_sufficiency.py", "tests/builtin/runtime/test_recall_new_backend.py"],
+            {"tests", "database"},
+        ),
         (["scripts/scan_e2e_evidence.sh"], {"tests", "harness"}),
         (["scripts/run_atomic_memory_clean_migration.py"], {"tests", "database", "upgrade"}),
         (["scripts/check_atomic_memory_migration_shards.py"], {"tests", "database"}),
+        ([".github/oceanbase-migration-durations.json"], {"tests", "database"}),
+        (
+            ["scripts/oceanbase_ci.py"],
+            {"tests", "database", "harness", "oceanbase_acceptance", "upgrade", "candidate_replay", "release_schema"},
+        ),
         (["scripts/sync_dsh_plugin_tree.py"], {"tests", "dsh"}),
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
@@ -164,6 +187,8 @@ def test_shared_runtime_inputs_keep_backend_upgrade_and_consumer_coverage(path: 
         "zcode",
         "cindy",
         "managed_resources",
+        "harness",
+        "oceanbase_acceptance",
     } <= {suite for suite, enabled in selected.items() if enabled}
     assert not selected["release_schema"]
     assert selected["seekdb_lock"] is (path != "src/powercontext/server/authz/owner_recovery.py")
@@ -268,7 +293,41 @@ def test_harness_workflow_change_selects_acceptance_and_database_suites(reposito
 
     selected = run_selector(repository, "pull_request", base, head)
 
-    assert {suite for suite, enabled in selected.items() if enabled} == {"harness", "database"}
+    assert {suite for suite, enabled in selected.items() if enabled} == {"harness", "database", "oceanbase_acceptance"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/e2e/atomic_memory_migration_backend.py",
+        "tests/e2e/atomic_memory_migration_fixture.py",
+        "tests/e2e/server_storage.py",
+        "tests/e2e/dream_support.py",
+        "tests/builtin/persistence/contract.py",
+        "tests/legacy_memory.py",
+    ],
+)
+def test_native_acceptance_helper_changes_keep_real_backend_coverage(path: str) -> None:
+    selected = select_suites([path], RULES)
+    assert selected["tests"]
+    assert selected["oceanbase_acceptance"]
+
+
+def test_test_only_exclusion_cannot_suppress_shared_or_full_coverage() -> None:
+    for path in ("src/powercontext/server/settings.py", "tests/conftest.py", "uv.lock", "new-component/code.py"):
+        assert select_suites(["tests/builtin/runtime/test_recall_sufficiency.py", path], RULES) == select_suites(
+            [path], RULES
+        )
+
+
+def test_native_acceptance_moves_and_deletions_preserve_coverage(repository: Path) -> None:
+    base = commit(repository, "tests/e2e/test_runtime_server.py", "tests/e2e/test_server_metrics_oceanbase.py")
+    (repository / "e2e/bub").mkdir(parents=True)
+    git(repository, "mv", "tests/e2e/test_runtime_server.py", "e2e/bub/moved.py")
+    git(repository, "rm", "tests/e2e/test_server_metrics_oceanbase.py")
+    git(repository, "commit", "-m", "Move and remove native test inputs")
+    selected = run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD"))
+    assert {suite for suite, enabled in selected.items() if enabled} == {"tests", "harness", "oceanbase_acceptance"}
 
 
 def test_diff_covers_all_pr_commits_and_excludes_base_branch_changes(repository: Path) -> None:
@@ -308,6 +367,33 @@ def test_moves_and_deletions_keep_the_original_suite(repository: Path) -> None:
         "native",
         "zcode",
     }
+
+
+def test_blobless_checkout_preserves_pr_scope_and_version_tags(repository: Path) -> None:
+    historical = repository / "old.bin"
+    historical.write_bytes(b"historical content that is no longer checked out")
+    git(repository, "add", "old.bin")
+    git(repository, "commit", "-m", "Historical content")
+    old_blob = git(repository, "rev-parse", "HEAD:old.bin")
+    git(repository, "rm", "old.bin")
+    git(repository, "commit", "-m", "Remove historical content")
+    git(repository, "tag", "v1.0.0")
+    git(repository, "checkout", "-b", "feature")
+    head = commit(repository, "docs/zh/说明.md")
+    git(repository, "checkout", "master")
+    base = commit(repository, "src/powercontext/unrelated.py")
+    git(repository, "checkout", "feature")
+    git(repository, "config", "uploadpack.allowFilter", "true")
+    clone = repository.parent / f"{repository.name}-partial"
+    git(repository, "clone", "--filter=blob:none", repository.as_uri(), str(clone))
+
+    assert git(clone, "rev-parse", "--is-shallow-repository") == "false"
+    assert git(clone, "describe", "--tags") == git(repository, "describe", "--tags")
+    selected = run_selector(clone, "pull_request", base, head)
+    assert {suite for suite, enabled in selected.items() if enabled} == {"website", "docs_tests"}
+    # Inspect missing objects without triggering a lazy fetch of the old content.
+    missing = git(clone, "rev-list", "--objects", "--all", "--missing=print")
+    assert f"?{old_blob}" in missing.splitlines()
 
 
 def test_large_diff_includes_code_after_hundreds_of_docs(repository: Path) -> None:

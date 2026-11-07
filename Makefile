@@ -114,9 +114,15 @@ opendal-test: ## Validate the standalone OpenDAL Connector against this checkout
 	@$(OPENDAL_TEST_RUN) powercontext-connector-opendal --help >/dev/null
 
 .PHONY: harness-check
-harness-check: ## Validate the Bub replay harness and committed scenarios.
+harness-check: harness-lint harness-test ## Validate the Bub replay harness and committed scenarios.
+
+.PHONY: harness-lint
+harness-lint: ## Check harness formatting (also covered by Main's preflight).
 	@uv run ruff check e2e/bub
 	@uv run ruff format --check e2e/bub
+
+.PHONY: harness-test
+harness-test: ## Check harness types, scenarios and CLI without repeating formatting.
 	@uv run ty check --project e2e/bub --python e2e/bub/.venv --python-version 3.12 e2e/bub/src integrations/bub/src
 	@uv run --project e2e/bub python -m pytest e2e/bub/tests
 	@uv run --project e2e/bub powercontext-e2e --help >/dev/null

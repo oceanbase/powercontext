@@ -5,6 +5,7 @@ full = [
   ".mise.toml", ".pre-commit-config.yaml", ".github/actions/setup-python-env/**",
   ".github/workflows/ci-changes.yml", ".github/workflows/master.yml",
   ".github/ci-paths.toml", "scripts/ci_changes.py", "tests/test_ci_changes.py", "tests/test_ci_pipeline.py",
+  ".github/actions/setup-license-eye/**", "tests/test_ci_license_eye.py",
   "tests/conftest.py", "tests/**/conftest.py", "tests/fixtures/**", "integrations/capabilities.toml",
   "integrations/langchain/pyproject.toml", "integrations/langgraph/pyproject.toml",
   "integrations/opendal/pyproject.toml",
@@ -28,6 +29,7 @@ tests = [
   "scripts/sync_dsh_plugin_tree.py", "scripts/generate_integration_manifest_docs.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/scan_e2e_evidence.sh",
   "scripts/check_atomic_memory_migration_shards.py",
+  "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
   "scripts/ci_role_smoke.py", "scripts/ci_installation_roles.py",
   # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
   ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
@@ -49,6 +51,7 @@ database = [
   ".github/workflows/e2e-harness.yml", ".github/actions/setup-upgrade-oceanbase/**",
   "tests/native/test_oceanbase_engine_recovery.py",
   "tests/*migration*.py", "scripts/check_atomic_memory_migration_shards.py",
+  "scripts/oceanbase_ci.py", ".github/oceanbase-migration-durations.json",
 ]
 dify = ["integrations/dify/**", "tests/*dify*"]
 hermes = ["integrations/hermes/**", "tests/*hermes*"]
@@ -72,10 +75,19 @@ website = [
 docs_tests = ["docs/**", "README*.md"]
 native = ["tests/native/**", "tests/test_service*.py", "tests/test_cursor_secret.py", "tests/test_server.py"]
 harness = [
+  "scripts/oceanbase_ci.py",
   "e2e/**", "integrations/bub/**", "scripts/scan_e2e_evidence.sh", "tests/test_e2e_workflow_contract.py",
   ".github/workflows/e2e-harness.yml",
+]
+oceanbase_acceptance = [
+  "scripts/oceanbase_ci.py",
+  "e2e/bub/compose*.yaml", "e2e/bub/run.sh",
+  ".github/workflows/e2e-harness.yml", "tests/test_e2e_workflow_contract.py",
   "tests/e2e/test_atomic_memory_search_authorization_snapshot.py", "tests/e2e/test_atomic_memory_read_snapshot.py",
-  "tests/e2e/test_runtime_server.py",
+  "tests/e2e/atomic_memory_migration_backend.py", "tests/e2e/test_runtime_server.py",
+  "tests/e2e/test_server_metrics_oceanbase.py", "tests/e2e/test_portable_archive.py",
+  "tests/e2e/server_storage.py", "tests/e2e/dream_support.py", "tests/builtin/persistence/contract.py",
+  "tests/e2e/atomic_memory_migration_fixture.py", "tests/legacy_memory.py",
 ]
 # ZCode acceptance also exercises the Pi plugin and cross-host handoff fixtures.
 zcode = [
@@ -84,6 +96,7 @@ zcode = [
 ]
 kimi = ["integrations/kimi-code/**", "tests/*kimi*", ".github/workflows/kimi-code-acceptance.yml"]
 upgrade = [
+  "scripts/oceanbase_ci.py",
   "scripts/run_atomic_memory_clean_migration.py", "scripts/build_ops_bundle.py",
   "release/**", "scripts/upgrade_*.py", "scripts/ci_legacy_upgrade_rejection.py",
   "scripts/ci_release_smoke.py", "scripts/ci_ops_bundle_smoke.py", "scripts/capture_release_schema.py",
@@ -116,11 +129,13 @@ managed_resources = [
   ".github/workflows/managed-resource-candidates.yml",
 ]
 candidate_replay = [
+  "scripts/oceanbase_ci.py",
   "src/powercontext/builtin/persistence/**", "src/powercontext/builtin/artifacts/**", "pyproject.toml", "uv.lock",
   "tests/builtin/persistence/**", "scripts/replay_candidate_migration.py",
   ".github/workflows/candidate-schema-replay.yml", ".github/actions/setup-upgrade-oceanbase/**",
 ]
 release_schema = [
+  "scripts/oceanbase_ci.py",
   "scripts/capture_release_schema.py", "scripts/upgrade_database_probe.py", "scripts/upgrade_process.py",
   "tests/release_upgrades/test_full_server.py", ".github/workflows/capture-release-schema.yml",
   ".github/actions/setup-upgrade-oceanbase/**",
@@ -138,6 +153,18 @@ skill_guidance = [
   ".github/workflows/skill-guidance.yml",
 ]
 
+# Audited SQLite/in-memory tests retain ordinary unit/e2e coverage. Exact paths
+# avoid exempting future native tests matched by the broad database patterns.
+# Exclusions affect direct matches only; shared and full-scope rules take precedence.
+# Remove a file from this list if it gains native database cases.
+[exclusions]
+database = [
+  "tests/builtin/runtime/test_recall_sufficiency.py",
+  "tests/builtin/runtime/test_statistics.py", "tests/builtin/runtime/test_model_usage_recorder.py",
+  "tests/builtin/runtime/test_prepared_context.py", "tests/e2e/test_recall_sufficiency_gate.py",
+  "tests/e2e/test_context_text_assembly.py",
+]
+
 # Packaged guidance and its generators are inputs to the native host tests.
 [shared.guidance]
 patterns = [
@@ -152,7 +179,7 @@ suites = ["tests", "dify", "hermes", "dsh", "pi", "opencode", "openclaw", "zcode
 patterns = ["src/**", "openapi/**", "pyproject.toml", "uv.lock"]
 suites = [
   "tests", "evaluation", "database", "dify", "hermes", "dsh", "cindy", "pi", "opencode", "openclaw", "opendal",
-  "website", "native", "harness", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
+  "website", "native", "harness", "oceanbase_acceptance", "zcode", "kimi", "upgrade", "observability", "packaging", "desktop",
   "managed_resources",
 ]
 
@@ -199,6 +226,7 @@ website = ["check-website", "website-link-validation-windows"]
 docs_tests = ["docs-tests"]
 native = ["native-service"]
 harness = ["harness-validation"]
+oceanbase_acceptance = ["harness-validation"]
 zcode = ["zcode-acceptance"]
 kimi = ["kimi-acceptance"]
 upgrade = ["seekdb-managed-startup", "upgrade-acceptance"]
