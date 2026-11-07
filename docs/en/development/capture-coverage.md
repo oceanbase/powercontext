@@ -134,8 +134,11 @@ New captures submit body and declaration together. Identical retries preserve so
 declaration and unrelated metadata, and do not allocate another journal position. Coverage does
 not enter the source ID algorithm. SourceRepository retains its complete-payload conflict rule.
 
-Hermes pre-compress freezes the first attempted coverage reasons for each Source identity in
-the active provider Scope/stream, before sending. If acknowledgement is lost and the host later
+Hermes pre-compress does not freeze a declaration before sending; it computes coverage reasons
+from the current window. It freezes those reasons for the Source identity in the active provider
+Scope/stream only after the send succeeds or its outcome is uncertain (the write cannot be ruled
+out). A definitive Server rejection (a 4xx other than 408/409) does not freeze, so the next attempt
+recomputes from its current window. Once frozen, if acknowledgement is lost and the host later
 supplies a shorter or larger window with the same captured prefix, replay uses the original
 declaration. The current window is still independently checked for required-checkpoint eligibility;
 successful replay does not turn a partial historical declaration into complete.

@@ -168,6 +168,18 @@ def _precompress_snapshot_after_capture(
     return captured_fingerprints
 
 
+def _definitive_rejection(error: PowerContextError) -> bool:
+    """Return True only when the Server provably refused the request without writing.
+
+    A 4xx response other than request-timeout (408) and payload conflict (409) is a
+    definitive rejection: the Server received the request and refused it, so no Source
+    was persisted. Transport failures, timeouts, unparseable success responses and 5xx
+    server errors cannot prove the absence of a write, so they conservatively keep any
+    frozen declaration.
+    """
+    return isinstance(error, PowerContextHTTPError) and 400 <= error.status < 500 and error.status not in {408, 409}
+
+
 def _merge_config(existing: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     merged = {**existing, **values}
     if "base_url" in values and "allow_insecure_http" not in values and "allow_insecure_http" in existing:
@@ -1095,8 +1107,10 @@ class PowerContextMemoryProvider(MemoryProvider):
             + hashlib.sha256(json.dumps(idempotency_payload, sort_keys=True).encode("utf-8")).hexdigest()[:24]
         )
         # The same captured prefix can be retried within a differently sized host window.
-        # Freeze its first declaration before sending, including when the acknowledgement is lost.
-        coverage_reasons = self._precompress_coverage_reasons.setdefault(
+        # Reuse the declaration already frozen for this identity when one exists; otherwise
+        # compute it from the current window. It is frozen only once the capture is known
+        # (or presumed) durable, so a definitive rejection lets the next attempt recompute.
+        coverage_reasons = self._precompress_coverage_reasons.get(
             source_id, () if complete_checkpoint else ("character_limit",)
         )
         try:
@@ -1117,8 +1131,12 @@ class PowerContextMemoryProvider(MemoryProvider):
             )
         except PowerContextError as error:
             self._emit_failure_diagnostic("pre_compression_capture", error)
+            self._record_coverage_declaration(source_id, coverage_reasons, error)
             self._fail_required_checkpoint(require_checkpoint, f"storing the transcript failed: {error}")
             return ""
+        # The capture is durable; record the declaration for any later retry of the same
+        # prefix within a differently sized window.
+        self._record_coverage_declaration(source_id, coverage_reasons, None)
         if scope_id != self._scope_id:
             self._fail_required_checkpoint(
                 require_checkpoint, "the active Scope changed while the transcript was being captured"
@@ -1139,6 +1157,18 @@ class PowerContextMemoryProvider(MemoryProvider):
     def _fail_required_checkpoint(required: bool, reason: str) -> None:
         if required:
             raise PreCompressCheckpointError(reason)
+
+    def _record_coverage_declaration(
+        self, source_id: str, coverage_reasons: tuple[str, ...], error: PowerContextError | None
+    ) -> None:
+        """Record the declaration for later retries unless it was definitively rejected.
+
+        ``error`` is the capture failure, or ``None`` when the capture succeeded. A
+        definitive rejection proves nothing was written, so nothing is recorded and the
+        next attempt recomputes the declaration from the current window.
+        """
+        if error is None or not _definitive_rejection(error):
+            self._precompress_coverage_reasons[source_id] = coverage_reasons
 
     def on_memory_write(
         self,

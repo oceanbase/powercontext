@@ -121,9 +121,11 @@ Chat 工具调用的 function name、arguments 均为字符串，且 type 为 `f
 不新增 journal position。coverage 不参与 source ID 算法。SourceRepository 继续执行完整 payload
 冲突检查。
 
-Hermes pre-compress 在发送前，按当前 provider Scope/stream 内的 Source 身份固定首次尝试的 coverage
-reasons。若应答丢失，宿主随后提供更短或更长的窗口，只要捕获前缀的身份相同，重放就使用首次声明。
-当前窗口能否满足 required checkpoint 仍独立判断；重放成功不会把历史 partial 声明改成 complete。
+Hermes pre-compress 发送前不冻结声明，而是按当前窗口临时计算 coverage reasons。发送成功、或结果
+不确定（无法证明未写入）时，才按当前 provider Scope/stream 内的 Source 身份固定该 reasons；被 Server
+明确拒绝（除 408/409 外的 4xx）时不固定，下一次尝试按当时窗口重新计算。一旦固定，若应答丢失，宿主
+随后提供更短或更长的窗口，只要捕获前缀的身份相同，重放就使用首次声明。当前窗口能否满足 required
+checkpoint 仍独立判断；重放成功不会把历史 partial 声明改成 complete。
 
 该进程内映射只为每个尝试过的身份保存固定 reason 元组，不缓存正文。内存随当前 Scope/stream 内的
 不同尝试身份数增长，初始化、Scope 切换及 stream reset/rewind 时清空。它不是持久化恢复日志：provider

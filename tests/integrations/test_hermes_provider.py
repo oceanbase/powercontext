@@ -644,6 +644,68 @@ def test_checkpoint_replay_preserves_its_first_declaration_after_lost_ack(
     assert len(provider._precompress_snapshot) == 1
 
 
+@pytest.mark.parametrize("first_partial", [False, True])
+def test_checkpoint_recomputes_declaration_after_definitive_rejection(provider_and_client, monkeypatch, first_partial):
+    """A definitive rejection proves nothing was persisted, so a later retry of the
+    same prefix recomputes its declaration from the new host window."""
+    provider, client = provider_and_client
+    module = hermes_provider_module(provider)
+    provider._config["capture_pre_compress"] = True
+    attempts = []
+    rejection = module.PowerContextHTTPError(401, path="/v1/sources/content")
+
+    def capture(scope_id, *, source_id, content, metadata):
+        attempts.append(json.loads(json.dumps(metadata)))
+        if len(attempts) == 1:
+            raise rejection
+        return {}
+
+    monkeypatch.setattr(client, "capture_content", capture)
+    prefix = [{"role": "user", "content": "Already stored."}]
+    oversized_window = [*prefix, {"role": "assistant", "content": "x" * 30_001}]
+    provider.on_pre_compress(oversized_window if first_partial else prefix)
+    provider.on_pre_compress(prefix if first_partial else oversized_window)
+
+    assert len(attempts) == 2
+    expected = ("partial", "complete") if first_partial else ("complete", "partial")
+    assert attempts[0]["powercontext_capture_coverage"]["status"] == expected[0]
+    assert attempts[1]["powercontext_capture_coverage"]["status"] == expected[1]
+
+
+@pytest.mark.parametrize("first_partial", [False, True])
+def test_definitive_rejection_after_uncertain_attempt_keeps_frozen_declaration(
+    provider_and_client, monkeypatch, first_partial
+):
+    """A later definitive rejection cannot prove an earlier uncertain attempt did not
+    persist, so the frozen declaration survives and is reused on the next retry."""
+    provider, client = provider_and_client
+    module = hermes_provider_module(provider)
+    provider._config["capture_pre_compress"] = True
+    attempts = []
+    lost_ack = module.PowerContextTransportError("Acknowledgement lost after capture committed")
+    rejection = module.PowerContextHTTPError(401, path="/v1/sources/content")
+
+    def capture(scope_id, *, source_id, content, metadata):
+        attempts.append(json.loads(json.dumps(metadata)))
+        if len(attempts) == 1:
+            raise lost_ack
+        if len(attempts) == 2:
+            raise rejection
+        return {}
+
+    monkeypatch.setattr(client, "capture_content", capture)
+    prefix = [{"role": "user", "content": "Already stored."}]
+    oversized_window = [*prefix, {"role": "assistant", "content": "x" * 30_001}]
+    provider.on_pre_compress(oversized_window if first_partial else prefix)
+    provider.on_pre_compress(prefix if first_partial else oversized_window)
+    provider.on_pre_compress(prefix if first_partial else oversized_window)
+
+    assert len(attempts) == 3
+    expected_status = "partial" if first_partial else "complete"
+    for attempt in attempts:
+        assert attempt["powercontext_capture_coverage"]["status"] == expected_status
+
+
 @pytest.mark.parametrize("operation", ["turn", "precompress"])
 @pytest.mark.parametrize("legacy_succeeds", [False, True])
 def test_capture_409_retries_only_the_exact_legacy_payload(
