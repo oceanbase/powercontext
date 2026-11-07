@@ -15,10 +15,14 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
+import json
+import sys
 from pathlib import Path
 
 import httpx
 import opendalfs
+import powercontext.sources as source_models
 import pytest
 from fastapi import FastAPI
 from powercontext.builtin.artifacts.atomic_memory.extraction import (
@@ -281,6 +285,36 @@ def test_text_file_definition_declares_its_executable_contract() -> None:
     assert definition.version == "1"
     assert definition.input_class is TextFileSnapshotCapture
     assert len(definition.projections) == 1
+
+
+def test_worker_preserves_manifest_when_runtime_only_exports_legacy_text_evidence(monkeypatch) -> None:
+    """Simulate the pre-locator export surface; real installation checks are separate."""
+
+    legacy_model = source_models.TextEvidenceV1
+    monkeypatch.setattr(source_models, "TextEvidence", legacy_model)
+    monkeypatch.delattr(source_models, "TextEvidenceV1")
+    source_path = Path(__file__).parents[1] / "src/powercontext_connector_opendal/source.py"
+    spec = importlib.util.spec_from_file_location("opendal_legacy_runtime_source", source_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+
+    definition = module.TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION
+    expected = json.loads((Path(__file__).parent / "fixtures/text_file_manifest_before_locators.json").read_text())
+    assert manifest_for_definition(definition).model_dump(mode="json", by_alias=True) == expected
+
+    async def scenario():
+        registry = SourceDefinitionRegistry((definition,))
+        source = await registry.resolve(
+            module.TextFileSnapshotCapture(namespace="workspace", path="decision.md", content="保留旧版本兼容。")
+        )
+        observation = project_source_for_transport(registry, source)
+        (projection,) = observation.projections
+        assert projection.value["content"] == "保留旧版本兼容。"
+        assert "locator" not in projection.value
+
+    asyncio.run(scenario())
 
 
 def test_remote_opendal_worker_completes_the_source_to_memory_loop(tmp_path: Path) -> None:

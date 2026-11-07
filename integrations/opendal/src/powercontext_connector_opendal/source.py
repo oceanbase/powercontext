@@ -21,17 +21,19 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Literal, cast
 
+import powercontext.sources as source_models
 from powercontext.sources import (
     TEXT_EVIDENCE_PROJECTION_KEY,
     MemoryEvidenceDeclaration,
     Source,
     SourceMaterialization,
     SourceProjection,
-    TextEvidenceV1,
 )
 from pydantic import BaseModel, JsonValue, field_validator
 
 TEXT_FILE_SNAPSHOT_SOURCE_NAME = "text-file-snapshot"
+# Older runtimes expose the same frozen schema under TextEvidence alone.
+_TEXT_EVIDENCE_MODEL: type[BaseModel] = getattr(source_models, "TextEvidenceV1", source_models.TextEvidence)
 
 
 class TextFileSnapshotCapture(BaseModel):
@@ -138,9 +140,9 @@ class TextFileEvidenceProjection:
     name = TEXT_EVIDENCE_PROJECTION_KEY.name
     version = TEXT_EVIDENCE_PROJECTION_KEY.version
     source_class = TextFileSnapshotSource
-    output_class: type[BaseModel] = TextEvidenceV1
+    output_class: type[BaseModel] = _TEXT_EVIDENCE_MODEL
 
-    def project(self, source: TextFileSnapshotSource, /) -> TextEvidenceV1:
+    def project(self, source: TextFileSnapshotSource, /) -> BaseModel:
         metadata: dict[str, JsonValue] = {
             "namespace": source.namespace,
             "path": source.path,
@@ -155,7 +157,7 @@ class TextFileEvidenceProjection:
             metadata["provider_version"] = source.provider_version
         if source.modified_at is not None:
             metadata["modified_at"] = source.modified_at.isoformat()
-        return TextEvidenceV1(
+        return _TEXT_EVIDENCE_MODEL(
             source_type=TEXT_FILE_SNAPSHOT_SOURCE_NAME,
             source_id=source.name,
             content=source.content,
