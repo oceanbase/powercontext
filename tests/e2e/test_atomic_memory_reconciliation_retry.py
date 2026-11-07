@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from powercontext.builtin.inference import InvalidInferenceOutputError
@@ -42,9 +42,11 @@ class _Provider:
     async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         request = messages[-1]
         assert isinstance(request, ModelRequest)
-        retries = [part for part in request.parts if isinstance(part, RetryPromptPart)]
+        retries = [
+            part for part in request.parts if isinstance(part, UserPromptPart) and REVISE_RULE in str(part.content)
+        ]
         self.retry_feedback.extend(str(part.content) for part in retries)
-        (prompt,) = (
+        prompt = next(
             part.content
             for message in messages
             if isinstance(message, ModelRequest)

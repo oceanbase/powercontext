@@ -22,11 +22,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from anthropic import APIConnectionError as AnthropicConnectionError
 from anthropic import AsyncAnthropic
-from openai import APIConnectionError, AsyncOpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel, SecretStr
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -349,7 +349,7 @@ def test_native_responses_sdk_requires_non_storing_expanded_input_before_real_se
             update={"targets": {"test": protection.targets["test"].model_copy(update={"protocol": "openai-responses"})}}
         )
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(protection)) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(protection)) as http,
             AsyncOpenAI(
                 base_url=endpoint.removesuffix("/responses"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
@@ -364,7 +364,7 @@ def test_native_responses_sdk_requires_non_storing_expanded_input_before_real_se
                 ({"input": [{"id": "msg_prior_private", "type": None}], "store": False}, "content_unsupported"),
             )
             for extra, reason in cases:
-                with pytest.raises(APIConnectionError) as caught:
+                with pytest.raises(InferencePrivacyError) as caught:
                     await sdk.responses.create(model="test-model", max_output_tokens=10, **extra)
                 refusal = find_privacy_error(caught.value)
                 assert refusal is not None and refusal.phase == "before_send"
@@ -389,7 +389,7 @@ def test_native_anthropic_sdk_withholds_opaque_documents_before_real_send() -> N
             }
         )
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(protection)) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(protection)) as http,
             AsyncAnthropic(
                 base_url=endpoint.removesuffix("/v1/messages"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
@@ -450,7 +450,7 @@ async def generate(
     usages: list[InferenceUsage] | None = None,
 ) -> Value:
     async with (
-        httpx.AsyncClient(transport=ProtectedAsyncTransport(configuration or config(endpoint))) as http,
+        httpx2.AsyncClient(transport=ProtectedAsyncTransport(configuration or config(endpoint))) as http,
         AsyncOpenAI(
             base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
         ) as sdk,
@@ -507,7 +507,7 @@ def test_shadow_reports_input_rejection_without_blocking_real_request() -> None:
     async def run(endpoint: str) -> None:
         observed = []
         shadow = config(endpoint).model_copy(update={"mode": "shadow"})
-        async with httpx.AsyncClient(transport=ProtectedAsyncTransport(shadow, observer=observed.append)) as client:
+        async with httpx2.AsyncClient(transport=ProtectedAsyncTransport(shadow, observer=observed.append)) as client:
             received = await client.post(endpoint, content=body(SECRET), headers={"content-type": "application/json"})
         assert received.status_code == 200
         assert observed[0].decision == "block"
@@ -520,7 +520,7 @@ def test_shadow_reports_input_rejection_without_blocking_real_request() -> None:
 def test_strict_response_buffer_limit_releases_no_raw_content() -> None:
     async def run(endpoint: str) -> None:
         bounded = config(endpoint).model_copy(update={"max_response_bytes": 256})
-        async with httpx.AsyncClient(transport=ProtectedAsyncTransport(bounded)) as client:
+        async with httpx2.AsyncClient(transport=ProtectedAsyncTransport(bounded)) as client:
             with pytest.raises(InferencePrivacyError, match="before_release") as caught:
                 await client.post(endpoint, content=body("clean"), headers={"content-type": "application/json"})
             assert caught.value.reason_codes == ("payload_too_large",)
@@ -596,7 +596,7 @@ def test_sse_strict_transport_releases_no_content_before_joined_inspection(
 
     async def run(endpoint: str) -> None:
         released: list[bytes] = []
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))
         ) as client:
             with pytest.raises(InferencePrivacyError) as caught:
@@ -634,7 +634,7 @@ def test_embedding_transport_preserves_inputs_and_blocks_before_real_send() -> N
             targets={"embed": UpstreamProfile(endpoint=endpoint, model="test-model", protocol="openai-embeddings")},
         )
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(configuration)) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(configuration)) as http,
             AsyncOpenAI(
                 base_url=endpoint.removesuffix("/embeddings"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
@@ -735,15 +735,15 @@ def test_unbounded_request_stream_stops_before_send_at_the_byte_budget() -> None
             reads += 1
             yield b"x" * 128
 
-    async def upstream(_request: httpx.Request) -> httpx.Response:
+    async def upstream(_request: httpx2.Request) -> httpx2.Response:
         nonlocal sent
         sent = True
-        return httpx.Response(200, json={})
+        return httpx2.Response(200, json={})
 
     async def run() -> None:
         protection = config().model_copy(update={"max_payload_bytes": 256})
-        async with httpx.AsyncClient(
-            transport=ProtectedAsyncTransport(protection, transport=httpx.MockTransport(upstream))
+        async with httpx2.AsyncClient(
+            transport=ProtectedAsyncTransport(protection, transport=httpx2.MockTransport(upstream))
         ) as client:
             with pytest.raises(InferencePrivacyError) as caught:
                 await client.post(ENDPOINT, content=chunks())
@@ -769,7 +769,7 @@ def test_failed_schema_validation_keeps_the_provider_reported_bill() -> None:
 
 def test_rejected_sse_preserves_its_cumulative_provider_usage() -> None:
     async def run(endpoint: str) -> None:
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))
         ) as client:
             with pytest.raises(InferencePrivacyError) as caught:
@@ -796,17 +796,17 @@ def test_shadow_leaves_request_stream_unread_until_the_actual_transport() -> Non
         yield b"first"
         yield b"second"
 
-    async def upstream(request: httpx.Request) -> httpx.Response:
+    async def upstream(request: httpx2.Request) -> httpx2.Response:
         assert await request.aread() == b"firstsecond"
-        return httpx.Response(200, content=b"unchanged")
+        return httpx2.Response(200, content=b"unchanged")
 
     async def run() -> None:
         transport = ProtectedAsyncTransport(
             config().model_copy(update={"mode": "shadow"}),
-            transport=httpx.MockTransport(upstream),
+            transport=httpx2.MockTransport(upstream),
             observer=observations.append,
         )
-        async with httpx.AsyncClient(transport=transport) as client:
+        async with httpx2.AsyncClient(transport=transport) as client:
             result = await client.post(ENDPOINT, content=chunks())
             assert result.content == b"unchanged"
 
@@ -853,12 +853,12 @@ def test_native_stream_withholds_ambiguous_tool_indices(index: str) -> None:
 
     async def run(endpoint: str) -> None:
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
             AsyncOpenAI(
                 base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
         ):
-            with pytest.raises(APIConnectionError) as caught:
+            with pytest.raises(InferencePrivacyError) as caught:
                 async with sdk.chat.completions.stream(
                     model="test-model",
                     messages=[{"role": "user", "content": "clean"}],
@@ -885,7 +885,7 @@ def test_native_responses_sdk_withholds_image_generation_input_and_output() -> N
             update={"targets": {"test": protection.targets["test"].model_copy(update={"protocol": "openai-responses"})}}
         )
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(protection)) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(protection)) as http,
             AsyncOpenAI(
                 base_url=endpoint.removesuffix("/responses"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
@@ -895,12 +895,12 @@ def test_native_responses_sdk_withholds_image_generation_input_and_output() -> N
                 {"input": [item]},
             )
             for extra in cases:
-                with pytest.raises(APIConnectionError) as caught:
+                with pytest.raises(InferencePrivacyError) as caught:
                     await sdk.responses.create(model="test-model", max_output_tokens=10, store=False, **extra)
                 refusal = find_privacy_error(caught.value)
                 assert refusal is not None and refusal.phase == "before_send"
                 assert refusal.reason_codes == ("content_unsupported",)
-            with pytest.raises(APIConnectionError) as caught:
+            with pytest.raises(InferencePrivacyError) as caught:
                 await sdk.responses.create(model="test-model", input="clean", max_output_tokens=10, store=False)
             refusal = find_privacy_error(caught.value)
             assert refusal is not None and refusal.phase == "before_release"
@@ -990,12 +990,12 @@ def test_native_stream_rejects_split_secret_despite_extra_metadata(metadata_at: 
 
         released = []
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
             AsyncOpenAI(
                 base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
         ):
-            with pytest.raises(APIConnectionError) as caught:
+            with pytest.raises(InferencePrivacyError) as caught:
                 async with sdk.chat.completions.stream(
                     model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
                 ) as stream:
@@ -1053,7 +1053,7 @@ def test_native_stream_allows_tool_updates_in_different_order(initialization: st
 
     async def scenario(endpoint: str) -> None:
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
             AsyncOpenAI(
                 base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
@@ -1104,7 +1104,7 @@ def test_native_stream_checks_root_model_despite_unrelated_extension_fields(exte
 
         released = []
         async with (
-            httpx.AsyncClient(
+            httpx2.AsyncClient(
                 transport=ProtectedAsyncTransport(
                     config(endpoint, allow_streaming=True, response_models=("approved-alias",))
                 )
@@ -1113,7 +1113,7 @@ def test_native_stream_checks_root_model_despite_unrelated_extension_fields(exte
                 base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
         ):
-            with pytest.raises(APIConnectionError) as caught:
+            with pytest.raises(InferencePrivacyError) as caught:
                 async with sdk.chat.completions.stream(
                     model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
                 ) as stream:
@@ -1145,7 +1145,7 @@ def test_native_stream_checks_root_model_despite_unrelated_extension_fields(exte
 
 @pytest.mark.parametrize("carrier", ["reordered_name", "duplicate_name", "id"])
 @pytest.mark.parametrize("preamble", [False, True])
-def test_native_stream_rejects_tool_text_assembled_by_sdk(carrier: str, preamble: bool) -> None:
+def test_native_stream_withholds_ambiguous_or_forbidden_tool_identity(carrier: str, preamble: bool) -> None:
     first_call = {
         "index": 1 if carrier == "reordered_name" else 0,
         "id": "synthetic-forbidden-" if carrier == "id" else "call_first",
@@ -1186,25 +1186,28 @@ def test_native_stream_rejects_tool_text_assembled_by_sdk(carrier: str, preamble
     payload = ("".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n").encode()
 
     async def scenario(endpoint: str) -> None:
-        async with (
-            AsyncOpenAI(base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0) as sdk,
-            sdk.chat.completions.stream(
-                model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
-            ) as stream,
-        ):
-            completion = await stream.get_final_completion()
-        calls = completion.choices[0].message.tool_calls
-        assert calls is not None and calls[0].type == "function"
-        assert (calls[0].id if carrier == "id" else calls[0].function.name) == SECRET
+        # Ambiguous indices must be withheld even when the SDK rejects or reinterprets them.
+        # Only the valid identity fragments have a portable SDK assembly result.
+        if carrier == "id":
+            async with (
+                AsyncOpenAI(base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0) as sdk,
+                sdk.chat.completions.stream(
+                    model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
+                ) as stream,
+            ):
+                completion = await stream.get_final_completion()
+            calls = completion.choices[0].message.tool_calls
+            assert calls is not None and calls[0].type == "function"
+            assert calls[0].id == SECRET
 
         released = []
         async with (
-            httpx.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
+            httpx2.AsyncClient(transport=ProtectedAsyncTransport(config(endpoint, allow_streaming=True))) as http,
             AsyncOpenAI(
                 base_url=endpoint.removesuffix("/chat/completions"), api_key="test", max_retries=0, http_client=http
             ) as sdk,
         ):
-            with pytest.raises(APIConnectionError) as caught:
+            with pytest.raises(InferencePrivacyError) as caught:
                 async with sdk.chat.completions.stream(
                     model="test-model", messages=[{"role": "user", "content": "clean"}], max_tokens=10
                 ) as stream:

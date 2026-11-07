@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
-import httpx
+import httpx2
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -41,13 +41,12 @@ from pydantic_ai.embeddings import (
     TestEmbeddingModel,
 )
 from pydantic_ai.embeddings.result import EmbedInputType
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.exceptions import ModelContextWindowExceededError, ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     FinishReason,
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
     UserPromptPart,
@@ -252,9 +251,9 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
 ) -> None:
     requests: list[dict[str, object]] = []
 
-    def respond(request: httpx.Request) -> httpx.Response:
+    def respond(request: httpx2.Request) -> httpx2.Response:
         requests.append(json.loads(request.content))
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "id": "receipt-settings",
@@ -273,7 +272,7 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
         )
 
     async def scenario() -> None:
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
             settings: OpenAIChatModelSettings = {"temperature": 0.0, "top_p": 0.2, "max_tokens": 512}
             settings.update(overrides)
             generator = PydanticAIStructuredGenerator(
@@ -336,9 +335,12 @@ def test_structured_generator_bounds_each_retry_and_cumulative_output() -> None:
         nonlocal calls
         calls += 1
         observed_max_tokens.append(None if info.model_settings is None else info.model_settings.get("max_tokens"))
-        retry_feedback.extend(
-            part.model_response() for message in messages for part in message.parts if isinstance(part, RetryPromptPart)
-        )
+        if calls > 1:
+            retry_feedback.extend(
+                part.content
+                for part in messages[-1].parts
+                if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+            )
         text = (
             '{"candidates":[{"text":"candidate"}]}'
             if calls == 1
@@ -955,13 +957,27 @@ def test_embedding_adapter_maps_a_rejected_request_to_a_stable_reason_without_le
     asyncio.run(scenario())
 
 
-def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_the_body() -> None:
+@pytest.mark.parametrize("provider_error_kind", ["typed", "typed-http", "uncategorized-http"])
+def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_the_body(
+    provider_error_kind: str,
+) -> None:
     async def scenario() -> None:
-        provider_error = ModelHTTPError(
-            400,
-            "result-model",
-            {"error": {"message": "maximum context length is 8192 tokens, body secret-provider-body"}},
-        )
+        provider_error = {
+            # A typed error names the limit directly; the HTTP variants carry it in the response body, which is
+            # the only signal an OpenAI-compatible endpoint that does not set a context-limit code provides.
+            "typed": lambda: ModelContextWindowExceededError("result-model", "secret-provider-body"),
+            "typed-http": lambda: ModelHTTPError.for_category(
+                ModelContextWindowExceededError,
+                status_code=400,
+                model_name="result-model",
+                body={"error": {"message": "secret-provider-body"}},
+            ),
+            "uncategorized-http": lambda: ModelHTTPError(
+                400,
+                "result-model",
+                {"error": {"message": "Input is too long for this model: secret-provider-body"}},
+            ),
+        }[provider_error_kind]()
         adapter = PydanticAIEmbeddingModel(
             embedder=Embedder(ResultEmbeddingModel((), error=provider_error)),
             profile=TEST_PROFILE,
