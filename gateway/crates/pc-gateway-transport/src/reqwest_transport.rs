@@ -37,6 +37,11 @@ impl ReqwestTransport {
     pub fn new(timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            // hyper can silently reconnect a stale pooled HTTP/1 connection. Using
+            // fresh HTTP/1 connections keeps every attempt under Executor admission.
+            .http1_only()
+            .pool_max_idle_per_host(0)
             .timeout(timeout)
             .build()
             .expect("reqwest client build");

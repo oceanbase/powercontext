@@ -80,29 +80,39 @@ impl UdsGateClient {
         }
     }
 
-    /// 发送单次 HTTP/1.1 请求；keep-alive 下连接归还池中复用。
-    ///
-    /// 对端（uvicorn）会关闭空闲超时的 keep-alive 连接；本地 `writable()`
-    /// 探活发现不了这种半关闭。因此池中借出的连接若在收到任何响应前
-    /// 失败（broken pipe / EOF），丢弃该连接并用新连接重试一次。
+    /// One operation budget covers pool acquisition, both attempts and complete framing.
+    /// Only read-only operations and exact capture bytes may replay after handoff.
     async fn request(
         &self,
         method: &str,
         path: &str,
         body: Option<&[u8]>,
+        replay_safe: bool,
     ) -> Result<(u16, Vec<u8>), GateError> {
-        let mut from_pool = true; // 首次也允许重试一次（对端重启场景）
-        for _ in 0..2 {
-            match self.request_once(method, path, body, from_pool).await {
-                Ok(x) => return Ok(x),
-                Err(e) if retryable(&e) => {
-                    from_pool = false; // 下一次强制新建连接
-                    continue;
+        tokio::time::timeout(READ_TIMEOUT, async {
+            for attempt in 0..2 {
+                if attempt != 0 {
+                    // Return to the enclosing lifecycle before starting recovery, even
+                    // when the failed socket completed synchronously in this poll.
+                    tokio::task::yield_now().await;
                 }
-                Err(e) => return Err(e),
+                match self.request_once(method, path, body, attempt == 0).await {
+                    Ok(response) => return Ok(response),
+                    Err(failure) => {
+                        if attempt == 0
+                            && matches!(failure.error, GateError::GateUnavailable(_))
+                            && (replay_safe || !failure.handed_off)
+                        {
+                            continue;
+                        }
+                        return Err(failure.error);
+                    }
+                }
             }
-        }
-        Err(GateError::GateUnavailable("uds exhausted retry".into()))
+            unreachable!("the last attempt always returns")
+        })
+        .await
+        .map_err(|_| GateError::GateUnavailable("uds operation timeout".into()))?
     }
 
     async fn request_once(
@@ -111,10 +121,11 @@ impl UdsGateClient {
         path: &str,
         body: Option<&[u8]>,
         prefer_pool: bool,
-    ) -> Result<(u16, Vec<u8>), GateError> {
+    ) -> Result<(u16, Vec<u8>), RpcFailure> {
         let mut leased = LeasedConnection::new(self.clone());
-        let stream = leased.acquire(prefer_pool).await.map_err(|e| {
-            GateError::GateUnavailable(format!("uds connect {}: {e}", self.socket.display()))
+        let stream = leased.acquire(prefer_pool).await.map_err(|e| RpcFailure {
+            error: GateError::GateUnavailable(format!("uds connect: {}", e.kind())),
+            handed_off: false,
         })?;
         let (mut rd, mut wr) = tokio::io::split(stream);
 
@@ -129,21 +140,39 @@ impl UdsGateClient {
         }
         head.push_str("Connection: keep-alive\r\n\r\n");
 
-        let write = async {
-            wr.write_all(head.as_bytes()).await?;
-            wr.write_all(body).await
-        };
-        tokio::time::timeout(READ_TIMEOUT, write)
-            .await
-            .map_err(|_| GateError::GateUnavailable("uds write timeout".into()))?
-            .map_err(|e| GateError::GateUnavailable(format!("uds write: {e}")))?;
-
-        let (status, body, reusable) = read_response(&mut rd).await?;
+        // Track successful writes, not response arrival or error text. A partial header
+        // is already handoff; an EOF afterwards says nothing about Core execution.
+        let mut request = head.into_bytes();
+        request.extend_from_slice(body);
+        let mut written = 0;
+        while written < request.len() {
+            let result = wr.write(&request[written..]).await;
+            match result {
+                Ok(n) if n > 0 => written += n,
+                _ => {
+                    return Err(RpcFailure {
+                        error: GateError::GateUnavailable("uds write failed".into()),
+                        handed_off: written != 0,
+                    })
+                }
+            }
+        }
+        let (status, body, reusable) =
+            read_response(&mut rd).await.map_err(|error| RpcFailure {
+                error,
+                handed_off: true,
+            })?;
         if reusable {
             leased.release(rd, wr);
         }
         Ok((status, body))
     }
+}
+
+// Private transport evidence; never infer handoff from a GateError message.
+struct RpcFailure {
+    error: GateError,
+    handed_off: bool,
 }
 
 /// 从池中租借/归还连接。出错时不归还（连接状态不可信）。
@@ -198,7 +227,9 @@ async fn read_response(rd: &mut ReadHalf<UnixStream>) -> Result<(u16, Vec<u8>, b
         }
         let n = read_with_timeout(rd, &mut buf, 4096).await?;
         if n == 0 {
-            return Err(GateError::Malformed("uds closed before headers".into()));
+            return Err(GateError::GateUnavailable(
+                "uds closed before headers".into(),
+            ));
         }
     };
 
@@ -211,6 +242,9 @@ async fn read_response(rd: &mut ReadHalf<UnixStream>) -> Result<(u16, Vec<u8>, b
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| GateError::Malformed(format!("bad status line: {status_line}")))?;
 
+    if !(200..300).contains(&status) {
+        return Err(GateError::GateRejected(status));
+    }
     let mut content_length: Option<usize> = None;
     let mut chunked = false;
     let mut keep_alive = true; // HTTP/1.1 默认 keep-alive
@@ -270,7 +304,7 @@ async fn read_more(
     while buf.len() < target {
         let n = read_with_timeout(rd, buf, 8192).await?;
         if n == 0 {
-            return Err(GateError::Malformed("uds closed mid-body".into()));
+            return Err(GateError::GateUnavailable("uds closed mid-body".into()));
         }
     }
     Ok(())
@@ -290,7 +324,7 @@ async fn read_chunked(
             }
             let n = read_with_timeout(rd, buf, 4096).await?;
             if n == 0 {
-                return Err(GateError::Malformed("uds closed mid-chunk".into()));
+                return Err(GateError::GateUnavailable("uds closed mid-chunk".into()));
             }
         };
         let size_str = String::from_utf8_lossy(&buf[..line_end]).into_owned();
@@ -314,10 +348,9 @@ async fn read_chunked(
                     }
                     continue; // trailer 头部行
                 }
-                match read_with_timeout(rd, buf, 1024).await {
-                    Ok(0) | Err(_) => return Ok((out, false)),
-                    Ok(_) => {}
-                };
+                if read_with_timeout(rd, buf, 1024).await? == 0 {
+                    return Err(GateError::GateUnavailable("uds closed mid-trailer".into()));
+                }
             }
         }
         // 累计预算：在读取 chunk 数据之前检查（不在读完 64 MiB 后才拒绝）。
@@ -328,26 +361,16 @@ async fn read_chunked(
         while buf.len() < needed {
             let n = read_with_timeout(rd, buf, 8192).await?;
             if n == 0 {
-                return Err(GateError::Malformed("uds closed mid-chunk-data".into()));
+                return Err(GateError::GateUnavailable(
+                    "uds closed mid-chunk-data".into(),
+                ));
             }
+        }
+        if &buf[size..needed] != b"\r\n" {
+            return Err(GateError::Malformed("invalid chunk data terminator".into()));
         }
         out.extend_from_slice(&buf[..size]);
         buf.drain(..needed);
-    }
-}
-
-/// 仅“未收到任何响应字节”的传输失败才可安全重试（幂等：请求未达对端或
-/// 对端在解析前丢弃）；已收到响应头的失败必须上抛。
-fn retryable(e: &GateError) -> bool {
-    match e {
-        GateError::GateUnavailable(msg) => {
-            (msg.contains("uds write") || msg.starts_with("uds connect"))
-                && !msg.contains("timeout")
-        }
-        // "uds closed before headers"：对端在响应前关闭，请求未生效。
-        GateError::Malformed(msg) => msg.contains("closed before headers"),
-        // Core 可达但明确拒绝（401/403/422 等）：不可重试。
-        GateError::GateRejected(_) => false,
     }
 }
 
@@ -376,7 +399,7 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/context/check", Some(&body))
+                .request("POST", "/v1/context/check", Some(&body), true)
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));
@@ -389,11 +412,9 @@ impl GateClient for UdsGateClient {
     async fn capabilities(&self) -> Result<serde_json::Value, GateError> {
         let this = self.clone();
         {
-            let (status, body) = this.request("GET", "/v1/capabilities", None).await?;
+            let (status, body) = this.request("GET", "/v1/capabilities", None, true).await?;
             if !(200..300).contains(&status) {
-                return Err(GateError::GateUnavailable(format!(
-                    "capabilities HTTP {status}"
-                )));
+                return Err(GateError::GateRejected(status));
             }
             serde_json::from_slice(&body)
                 .map_err(|e| GateError::Malformed(format!("decode capabilities: {e}")))
@@ -408,7 +429,7 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/context/prepare", Some(&body))
+                .request("POST", "/v1/context/prepare", Some(&body), false)
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));
@@ -426,7 +447,7 @@ impl GateClient for UdsGateClient {
         let this = self.clone();
         {
             let (status, body) = this
-                .request("POST", "/v1/sources/content", Some(&body))
+                .request("POST", "/v1/sources/content", Some(&body), true)
                 .await?;
             if !(200..300).contains(&status) {
                 return Err(GateError::GateRejected(status));

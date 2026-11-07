@@ -22,7 +22,7 @@ use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pc_gateway_core::{ManagedCall, ManagedOutcome, RequestControl};
+use pc_gateway_core::{LifecycleStopReason, ManagedCall, ManagedOutcome, RequestControl};
 use pc_gateway_protocol::{
     first_model_content_offset, CanonicalMessage, CanonicalRequest, OutputLimits, OutputProtocol,
     Role,
@@ -116,26 +116,44 @@ enum Format {
     Responses,
 }
 
+/// Marks a response carrying released or explicitly degraded model content.
+#[derive(Clone, Copy)]
+pub(crate) struct ModelContent;
+
 async fn ingress_common(
     state: Arc<AppState>,
     headers: HeaderMap,
     req: Request,
     format: Format,
 ) -> Response {
-    let control = RequestControl::new(
-        tokio::time::Instant::now() + std::time::Duration::from_secs(180),
-        req.extensions().get::<String>().cloned(),
-    );
+    let control = match req.extensions().get::<crate::connection::ModelConnection>() {
+        Some(owner) => owner.take_control(),
+        None => RequestControl::new(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+            req.extensions().get::<String>().cloned(),
+        ),
+    };
+    let protocol = match format {
+        Format::Chat => OutputProtocol::OpenAiChat,
+        Format::Responses => OutputProtocol::OpenAiResponses,
+    };
+    let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
-    let mut response = ingress_model(state.clone(), headers, req, format, control).await;
-    if matches!(
-        observation.snapshot().execution,
-        pc_gateway_core::ExecutionState::Finished(
-            pc_gateway_core::ExecutionTerminal::ReleaseAuthorized
-                | pc_gateway_core::ExecutionTerminal::Degraded
-        )
-    ) {
+    let mut response = match lifecycle
+        .run(ingress_model(state.clone(), headers, req, format, control))
+        .await
+    {
+        Ok(response) => response,
+        Err(reason) => respond(
+            ManagedOutcome::Stopped {
+                reason,
+                model_send: observation.snapshot().model_send,
+            },
+            protocol,
+        ),
+    };
+    if response.extensions().get::<ModelContent>().is_some() {
         let first_content = response
             .extensions()
             .get::<FirstContentOffset>()
@@ -151,8 +169,13 @@ async fn ingress_common(
             ),
         );
     }
+    response.extensions_mut().insert(lifecycle);
     response.extensions_mut().insert(observation);
     response.extensions_mut().insert(cancellation);
+    response.headers_mut().insert(
+        header::CONNECTION,
+        header::HeaderValue::from_static("close"),
+    );
     response
 }
 
@@ -206,6 +229,19 @@ async fn ingress_model(
                 .into_response();
         }
     };
+    let lifecycle = control.lifecycle();
+    if let Err(reason) = lifecycle.checkpoint() {
+        return respond(
+            ManagedOutcome::Stopped {
+                reason,
+                model_send: lifecycle.observation().snapshot().model_send,
+            },
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        );
+    }
     let mut client_stream = false;
     let canonical = match format {
         Format::Chat => {
@@ -306,6 +342,18 @@ async fn ingress_model(
         prepared_contexts: Vec::new(),
     };
 
+    if let Err(reason) = lifecycle.checkpoint() {
+        return respond(
+            ManagedOutcome::Stopped {
+                reason,
+                model_send: lifecycle.observation().snapshot().model_send,
+            },
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        );
+    }
     let outcome = state
         .executor
         .run(control, call, &renderer, state.evidence.as_ref())
@@ -347,6 +395,7 @@ fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
         body,
     )
         .into_response();
+    response.extensions_mut().insert(ModelContent);
     response
         .extensions_mut()
         .insert(FirstContentOffset(first_content));
@@ -697,12 +746,14 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
         } => {
             // 上游状态码与 Content-Type 原样透传（错误不伪装 200）。
             let code = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
-            (
+            let mut response = (
                 code,
                 [(header::CONTENT_TYPE, content_type.as_str())],
                 body.to_vec(),
             )
-                .into_response()
+                .into_response();
+            response.extensions_mut().insert(ModelContent);
+            response
         }
         ManagedOutcome::Degraded {
             status,
@@ -714,7 +765,10 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             .header("x-pc-degraded", "passthrough_without_memory")
             .body(axum::body::Body::from(body.to_vec()))
         {
-            Ok(r) => r,
+            Ok(mut response) => {
+                response.extensions_mut().insert(ModelContent);
+                response
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(serde_json::json!({ "error": e.to_string() })),
@@ -746,6 +800,17 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             Json(serde_json::json!({ "decision": "admission_expired" })),
         )
             .into_response(),
+        ManagedOutcome::Stopped { reason, model_send } => (
+            match reason {
+                LifecycleStopReason::DeadlineExceeded => StatusCode::GATEWAY_TIMEOUT,
+                LifecycleStopReason::GatewayShutdown => StatusCode::SERVICE_UNAVAILABLE,
+                // Explicit cancellation is a Rust control result. If an embedding owner still
+                // has an HTTP response channel, use a standard error status without a new endpoint.
+                LifecycleStopReason::RequestCancelled => StatusCode::SERVICE_UNAVAILABLE,
+            },
+            Json(serde_json::json!({ "decision": reason, "model_send": model_send })),
+        )
+            .into_response(),
         ManagedOutcome::GatePaused(msg) => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({ "decision": "gate_paused", "detail": msg })),
@@ -763,28 +828,48 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
 fn _unused(_: Option<Bytes>) {}
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     //! PR #2307 review P2：chat 工具元数据经入口 canonical 化的保真测试。
     use super::*;
 
-    async fn lifecycle_router() -> (axum::Router, tokio::task::JoinHandle<()>) {
+    #[derive(Default)]
+    pub(crate) struct Receivers {
+        pub admissions: std::sync::atomic::AtomicUsize,
+        pub sends: std::sync::atomic::AtomicUsize,
+        pub response_bytes: std::sync::atomic::AtomicUsize,
+        pub blocked_phase: std::sync::atomic::AtomicUsize,
+        pub entered: tokio::sync::Notify,
+        pub release: tokio::sync::Notify,
+    }
+
+    pub(crate) async fn lifecycle_router(
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         lifecycle_router_with_evidence(Arc::new(pc_gateway_evidence::NoopEvidenceSink)).await
     }
 
     async fn lifecycle_router_with_evidence(
         evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
-    ) -> (axum::Router, tokio::task::JoinHandle<()>) {
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
+        let received = Arc::new(Receivers::default());
         let mock = axum::Router::new()
             .route(
                 "/v1/context/check",
-                post(|Json(request): Json<ContextCheckRequest>| async move {
+                post(|State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| async move {
                     let phase = match request {
                         ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
                         ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
                     };
+                    let phase_id = if phase == CheckPhase::BeforeSend {
+                        received.admissions.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        1
+                    } else { 2 };
+                    if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == phase_id {
+                        received.entered.notify_one();
+                        std::future::pending::<()>().await;
+                    }
                     Json(serde_json::json!({
                         "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
                         "phase": phase,
@@ -799,7 +884,12 @@ mod tests {
             )
             .route(
                 "/v1/chat/completions",
-                post(|Json(request): Json<serde_json::Value>| async move {
+                post(|State(received): State<Arc<Receivers>>, Json(request): Json<serde_json::Value>| async move {
+                    received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
+                        received.entered.notify_one();
+                        received.release.notified().await;
+                    }
                     let usage = serde_json::json!({"prompt_tokens": 100, "completion_tokens": 12, "prompt_tokens_details": {"cached_tokens": 70}});
                     if request["stream"] == true {
                         (
@@ -811,7 +901,7 @@ mod tests {
                         (
                             StatusCode::CREATED,
                             Json(serde_json::json!({
-                                "choices": [{"message": {"role": "assistant", "content": "checked"}}],
+                                "choices": [{"message": {"role": "assistant", "content": if received.response_bytes.load(std::sync::atomic::Ordering::SeqCst) == 0 { "checked".to_owned() } else { "x".repeat(received.response_bytes.load(std::sync::atomic::Ordering::SeqCst)) }}}],
                                 "usage": usage,
                                 "provider_debug": "SYNTHETIC_SENSITIVE_RESPONSE"
                             })),
@@ -821,13 +911,15 @@ mod tests {
             )
             .route(
                 "/v1/responses",
-                post(|| async {
+                post(|State(received): State<Arc<Receivers>>| async move {
+                    received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     Json(serde_json::json!({
                         "id": "resp-1", "object": "response", "status": "completed", "output": [{"type":"message", "role":"assistant", "content":[{"type":"output_text", "text":"SYNTHETIC_SENSITIVE_RESPONSE"}]}],
                         "usage": {"input_tokens": 80, "output_tokens": 11, "input_tokens_details": {"cached_tokens": 30}}
                     }))
                 }),
             );
+        let mock = mock.with_state(received.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
@@ -857,11 +949,11 @@ mod tests {
         let router = crate::middleware::apply_chain(
             crate::router(state, crate::proxy::ProxyState::from_env()),
             vec![
-                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 2),
+                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 1),
                 Arc::new(crate::middleware::RequestId),
             ],
         );
-        (router, server)
+        (router, server, received)
     }
 
     struct PendingBody {
@@ -917,7 +1009,7 @@ mod tests {
                 true,
             ),
         ] {
-            let (router, server) = lifecycle_router().await;
+            let (router, server, _) = lifecycle_router().await;
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let started = tokio::time::Instant::now();
             let request = Request::builder()
@@ -969,6 +1061,7 @@ mod tests {
                 response.headers()["x-powercontext-request-id"],
                 "route-request"
             );
+            assert_eq!(response.headers()[header::CONNECTION], "close");
             assert_eq!(
                 response.status(),
                 if path.contains("chat") {
@@ -1031,7 +1124,7 @@ mod tests {
                 serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false, "stream": true}),
             ),
         ] {
-            let (router, server) = lifecycle_router().await;
+            let (router, server, _) = lifecycle_router().await;
             let response = router
                 .oneshot(
                     Request::builder()
@@ -1629,7 +1722,7 @@ mod tests {
             JsonEvidenceSink::new(output.clone(), std::num::NonZeroUsize::new(1024).unwrap())
                 .unwrap(),
         );
-        let (router, server) = lifecycle_router_with_evidence(sink.clone()).await;
+        let (router, server, _) = lifecycle_router_with_evidence(sink.clone()).await;
         // Exercise JSON/SSE on both public routes with the real reqwest transport.
         for i in 0..200 {
             let chat = i % 4 < 2;
@@ -1718,7 +1811,7 @@ mod tests {
         use pc_gateway_evidence::{BufferedEvidenceSink, DeliveryBoundary, EvidenceEvent};
         use tower::ServiceExt;
         let evidence = Arc::new(BufferedEvidenceSink::new());
-        let (router, server) = lifecycle_router_with_evidence(evidence.clone()).await;
+        let (router, server, _) = lifecycle_router_with_evidence(evidence.clone()).await;
         let request = Request::builder()
             .method("POST")
             .uri("/gateway/v1/chat/completions")

@@ -36,7 +36,7 @@ use crate::transcript::turn_transcript;
 /// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
 const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
 use crate::{GateClient, GateError};
-use crate::{ModelSendState, RequestControl};
+use crate::{LifecycleStopReason, ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
@@ -48,6 +48,10 @@ use pc_gateway_types::{
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Gate 不可用时的策略（PR #2199 故障语义）。
@@ -102,6 +106,11 @@ pub enum ManagedOutcome {
     },
     /// 准入已过期（valid_until 超窗）：零发送或零释放，可安全重走完整流程。
     AdmissionExpired,
+    /// Local work stopped; sending facts do not imply remote rollback or permission to retry.
+    Stopped {
+        reason: LifecycleStopReason,
+        model_send: ModelSendState,
+    },
 }
 
 impl ManagedOutcome {
@@ -117,6 +126,7 @@ impl ManagedOutcome {
             Self::GatePaused(_) => ExecutionTerminal::GatePaused,
             Self::Degraded { .. } => ExecutionTerminal::Degraded,
             Self::AdmissionExpired => ExecutionTerminal::AdmissionExpired,
+            Self::Stopped { reason, .. } => ExecutionTerminal::Stopped(*reason),
         }
     }
 }
@@ -125,9 +135,32 @@ pub struct Executor<G, T> {
     gate: G,
     transport: T,
     max_attempts: NonZeroU32,
+    model_admission: ModelAdmission,
+    handoff: Mutex<()>,
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     max_input_bytes: usize,
+}
+
+/// One-way admission closure, also usable by a process signal handler. Closing
+/// only stores an atomic flag; it does not cancel already committed attempts.
+#[derive(Clone)]
+pub struct ModelAdmission(Arc<AtomicBool>);
+
+impl Default for ModelAdmission {
+    fn default() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+}
+
+impl ModelAdmission {
+    pub fn close(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+
+    fn is_open(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
 }
 
 /// 单次发送尝试的准入凭证。
@@ -148,9 +181,70 @@ where
             gate,
             transport,
             max_attempts,
+            model_admission: ModelAdmission::default(),
+            handoff: Mutex::new(()),
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
         }
+    }
+
+    /// Permanently prevent new model attempts, including retries and degraded sends.
+    /// Already handed-off work may finish under its original lifecycle. Service draining
+    /// can close this boundary without introducing another retry algorithm.
+    pub fn close_model_admission(&self) {
+        self.model_admission.close();
+        // Synchronize with any attempt already committing its handoff, before
+        // the service inspects sending facts to stop unsent calls.
+        drop(
+            self.handoff
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
+    }
+
+    pub fn model_admission(&self) -> ModelAdmission {
+        self.model_admission.clone()
+    }
+
+    fn attempt_checkpoint(&self, execution: &Execution) -> Result<(), ManagedOutcome> {
+        execution.checkpoint()?;
+        if !self.model_admission.is_open() {
+            execution
+                .lifecycle()
+                .cancellation()
+                .cancel_with(LifecycleStopReason::GatewayShutdown);
+            execution.checkpoint()?;
+        }
+        Ok(())
+    }
+
+    /// Commit handoff under the same lock used to close admission. Constructing the
+    /// transport future is the public transport boundary; no async wait holds the lock.
+    async fn send_attempt(
+        &self,
+        send: AdmittedSend,
+        execution: &mut Execution,
+        recording: &mut CallRecorder<'_>,
+    ) -> Result<SendOutcome, ManagedOutcome> {
+        let work = {
+            let _handoff = self
+                .handoff
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            execution.checkpoint()?;
+            // This atomic read commits an attempt relative to signal closure.
+            if !self.model_admission.is_open() {
+                execution
+                    .lifecycle()
+                    .cancellation()
+                    .cancel_with(LifecycleStopReason::GatewayShutdown);
+                execution.checkpoint()?;
+            }
+            recording.begin_attempt();
+            execution.model_send(ModelSendState::PossiblySent);
+            self.transport.send(send)
+        };
+        Ok(work.await)
     }
 
     /// Apply the deployment/Core input intersection. Increasing configuration
@@ -179,9 +273,17 @@ where
             },
         );
         let mut execution = control.start();
-        let outcome = self
-            .execute(call, renderer, evidence, &mut execution, &mut recording)
-            .await;
+        let lifecycle = execution.lifecycle();
+        let outcome = match lifecycle
+            .run(self.execute(call, renderer, evidence, &mut execution, &mut recording))
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(reason) => ManagedOutcome::Stopped {
+                reason,
+                model_send: lifecycle.observation().snapshot().model_send,
+            },
+        };
         recording.finish(&outcome);
         execution.finish(&outcome);
         outcome
@@ -195,6 +297,9 @@ where
         execution: &mut Execution,
         recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
+        if let Err(stop) = self.attempt_checkpoint(execution) {
+            return stop;
+        }
         let mut call = call;
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
@@ -206,11 +311,23 @@ where
             .flatten();
         let mut refreshed = false;
         let (payload, admission) = loop {
+            if let Err(stop) = execution.checkpoint() {
+                return stop;
+            }
             if call.inject_context {
-                self.enrich(&mut call, anchor, renderer.message_list_key(), evidence)
-                    .await;
+                self.enrich(
+                    &mut call,
+                    anchor,
+                    renderer.message_list_key(),
+                    evidence,
+                    execution,
+                )
+                .await;
             }
 
+            if let Err(stop) = execution.checkpoint() {
+                return stop;
+            }
             let payload = match renderer.render(&call.request, None) {
                 Ok(p) => p,
                 Err(e) => {
@@ -219,6 +336,9 @@ where
                     }
                 }
             };
+            if let Err(stop) = execution.checkpoint() {
+                return stop;
+            }
             // Measure every rendered body, including a refreshed prepare result.
             if payload.bytes.len() > self.max_input_bytes {
                 return ManagedOutcome::Blocked {
@@ -244,7 +364,14 @@ where
                 prepared_contexts: call.prepared_contexts.clone(),
             };
 
-            let admission = match self.gate.check(check).await {
+            if let Err(stop) = execution.checkpoint() {
+                return stop;
+            }
+            let checked = self.gate.check(check).await;
+            if let Err(stop) = execution.checkpoint() {
+                return stop;
+            }
+            let admission = match checked {
                 Err(e) => {
                     // 降级仅适用于 Core「不可用」；Malformed（可达但响应异常）一律暂停。
                     return match (e, call.degrade_policy) {
@@ -327,6 +454,9 @@ where
             let mut current = admission;
             let mut attempt: u32 = 0;
             loop {
+                if let Err(stop) = execution.checkpoint() {
+                    return stop;
+                }
                 attempt += 1;
                 evidence.record_attempt(attempt);
                 // P1-4：发送前验 valid_until（解析失败=0=立即过期，fail-closed）。
@@ -341,9 +471,11 @@ where
                     stream: call.request.stream,
                 };
                 let sent_binding = current.binding.clone();
-                recording.begin_attempt();
-                execution.model_send(ModelSendState::PossiblySent);
-                match self.transport.send(send).await {
+                let outcome = match self.send_attempt(send, execution, recording).await {
+                    Ok(outcome) => outcome,
+                    Err(stop) => return stop,
+                };
+                match outcome {
                     SendOutcome::Delivered(raw) => {
                         recording.received(&raw);
                         execution.model_send(ModelSendState::ResponseReceived);
@@ -368,9 +500,8 @@ where
                         if attempt >= self.max_attempts.get() {
                             return ManagedOutcome::NotSent { attempts: attempt };
                         }
-                        #[allow(unused_assignments)]
-                        {
-                            let _ = sent_binding;
+                        if let Err(stop) = self.attempt_checkpoint(execution) {
+                            return stop;
                         }
                         // P1-4：重试前重新准入——撤销在这里被看见。
                         let recheck = ContextCheckRequest::BeforeSend {
@@ -382,7 +513,11 @@ where
                             ),
                             prepared_contexts: call.prepared_contexts.clone(),
                         };
-                        match self.gate.check(recheck).await {
+                        let checked = self.gate.check(recheck).await;
+                        if let Err(stop) = execution.checkpoint() {
+                            return stop;
+                        }
+                        match checked {
                             Ok(r) if r.decision == CheckDecision::Allow => {
                                 match validate_allow(&r, CheckPhase::BeforeSend) {
                                     Ok((binding, deadline)) => {
@@ -412,6 +547,9 @@ where
         };
 
         // 释放阶段。
+        if let Err(stop) = execution.checkpoint() {
+            return stop;
+        }
         let (raw, send_binding_for_release) = raw;
         let release_body = match String::from_utf8(raw.body.clone().to_vec()) {
             Ok(text) => text,
@@ -431,9 +569,15 @@ where
             ),
             completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
         };
-        let verdict = self.gate.check(release_check).await;
+        if let Err(stop) = execution.checkpoint() {
+            return stop;
+        }
+        let checked = self.gate.check(release_check).await;
         recording.release_decision();
-        match verdict {
+        if let Err(stop) = execution.checkpoint() {
+            return stop;
+        }
+        match checked {
             Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
             Ok(result) => match result.decision {
                 CheckDecision::Allow => {
@@ -477,7 +621,14 @@ where
                                 "target_profile": call.target_profile,
                             })),
                         };
-                        match self.gate.capture(capture).await {
+                        if let Err(stop) = execution.checkpoint() {
+                            return stop;
+                        }
+                        let captured = self.gate.capture(capture).await;
+                        if let Err(stop) = execution.checkpoint() {
+                            return stop;
+                        }
+                        match captured {
                             Ok(_) => {}
                             // 同一回合已以不同内容沉淀（重试或重复的终止请求）：先写入的记录保留。
                             Err(GateError::GateRejected(409)) => {
@@ -489,6 +640,9 @@ where
                         if now_ms() >= release_deadline {
                             return ManagedOutcome::AdmissionExpired;
                         }
+                    }
+                    if let Err(stop) = execution.checkpoint() {
+                        return stop;
                     }
                     recording.authorized();
                     ManagedOutcome::Released {
@@ -528,6 +682,7 @@ where
         anchor: Option<u64>,
         list_key: &str,
         evidence: &dyn EvidenceSink,
+        execution: &Execution,
     ) {
         let replay = call.conversation_id.clone().zip(anchor);
         let cached = replay.as_ref().and_then(|(conversation, anchor)| {
@@ -537,7 +692,9 @@ where
         let prepared = match cached {
             Some(prepared) => prepared,
             None => {
-                let Some((prepared, expires_at)) = self.prepare_turn(call, evidence).await else {
+                let Some((prepared, expires_at)) =
+                    self.prepare_turn(call, evidence, execution).await
+                else {
                     return;
                 };
                 match &replay {
@@ -571,9 +728,13 @@ where
         &self,
         call: &ManagedCall,
         evidence: &dyn EvidenceSink,
+        execution: &Execution,
     ) -> Option<(Option<PreparedBlock>, Option<String>)> {
         let query = last_user_text(&call.request)?;
-        let prepared = match self
+        if execution.checkpoint().is_err() {
+            return None;
+        }
+        let prepared = self
             .gate
             .prepare(PrepareContextRequest {
                 scope_id: call.scope_id.clone(),
@@ -585,8 +746,11 @@ where
                 // 防止 Experience/Topic 加入后 check 拒绝导致注入静默失效。
                 assembly: Some(pc_gateway_types::ContextAssembly::memory_only()),
             })
-            .await
-        {
+            .await;
+        if execution.checkpoint().is_err() {
+            return None;
+        }
+        let prepared = match prepared {
             Ok(p) => p,
             Err(_) => {
                 evidence.record_not_sent(0, "prepare_failed");
@@ -687,6 +851,9 @@ where
         execution: &mut Execution,
         recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
+        if let Err(stop) = execution.checkpoint() {
+            return stop;
+        }
         evidence.record_not_sent(0, "degraded_passthrough");
         let payload = match renderer.render(&call.request, None) {
             Ok(p) => p,
@@ -708,9 +875,11 @@ where
             headers: call.headers.clone(),
             stream: call.request.stream,
         };
-        recording.begin_attempt();
-        execution.model_send(ModelSendState::PossiblySent);
-        match self.transport.send(send).await {
+        let outcome = match self.send_attempt(send, execution, recording).await {
+            Ok(outcome) => outcome,
+            Err(stop) => return stop,
+        };
+        match outcome {
             SendOutcome::Delivered(raw) => {
                 recording.received(&raw);
                 execution.model_send(ModelSendState::ResponseReceived);

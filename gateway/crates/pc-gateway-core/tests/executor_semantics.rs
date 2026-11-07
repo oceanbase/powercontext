@@ -15,8 +15,8 @@
 //! PR #2264 失败语义表的状态机级验证（真实契约形态）。
 
 use pc_gateway_core::{
-    DegradePolicy, ExecutionState, ExecutionTerminal, Executor, GateClient, GateError, ManagedCall,
-    ManagedOutcome, ModelSendState, RequestControl,
+    DegradePolicy, ExecutionState, ExecutionTerminal, Executor, GateClient, GateError,
+    LifecycleStopReason, ManagedCall, ManagedOutcome, ModelSendState, RequestControl,
 };
 use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
 use pc_gateway_protocol::{
@@ -86,6 +86,7 @@ struct FakeGate {
     captured: Mutex<Vec<(String, String)>>,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
+    capture_hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
     prepare_barrier: Mutex<Option<Arc<tokio::sync::Barrier>>>,
     /// 依次给出的 prepare 结果，先于 `prepare_result` 使用。
@@ -173,6 +174,10 @@ impl GateClient for FakeGate {
             .lock()
             .unwrap()
             .push((request.source_id, request.content));
+        let hold = self.capture_hold.lock().unwrap().clone();
+        if let Some(hold) = hold {
+            hold.notified().await;
+        }
         match self.capture_error.lock().unwrap().take() {
             Some(error) => Err(error),
             None => Ok(serde_json::json!({"captured": true})),
@@ -368,6 +373,7 @@ fn harness(
         prepare_include_code: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
         capture_error: Mutex::new(None),
+        capture_hold: Mutex::new(None),
     });
     let executor = Executor::new(
         FakeGateRef(gate.clone()),
@@ -378,6 +384,223 @@ fn harness(
 }
 
 // ---------- 用例 ----------
+
+#[tokio::test]
+async fn interrupted_ingress_control_records_known_stop_without_starting_execution() {
+    let control = request_control();
+    let lifecycle = control.lifecycle();
+    let observation = control.observation();
+    let mut ingress = Box::pin(lifecycle.run(std::future::pending::<()>()));
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(ingress.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    control.cancellation().cancel();
+    drop(ingress);
+    assert_eq!(
+        observation.snapshot().stop_reason,
+        Some(LifecycleStopReason::RequestCancelled)
+    );
+    assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+    assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+}
+
+#[tokio::test]
+async fn cancellation_before_execution_prevents_model_send() {
+    let (executor, renderer, transport, _) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let control = request_control();
+    control.cancellation().cancel();
+    let outcome = executor
+        .run(
+            control,
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(transport.sends.lock().unwrap().is_empty(), "{outcome:?}");
+}
+
+// The same public execution path is exercised with an explicit stop, expiration,
+// and an outer owner interruption. Every fault has a normal request on the same executor.
+#[tokio::test(start_paused = true)]
+async fn known_stops_preserve_facts_at_every_execution_boundary() {
+    for boundary in [
+        "prepare",
+        "admission",
+        "model",
+        "release",
+        "capture",
+        "readmission",
+        "degraded",
+    ] {
+        for mode in ["cancel", "deadline", "outer", "shutdown"] {
+            let degraded = boundary == "degraded";
+            let (executor, renderer, transport, gate) = harness(
+                if degraded {
+                    vec![Err(GateError::GateUnavailable("offline".into()))]
+                } else {
+                    vec![
+                        Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                        Ok(result(
+                            if boundary == "readmission" {
+                                CheckPhase::BeforeSend
+                            } else {
+                                CheckPhase::BeforeRelease
+                            },
+                            CheckDecision::Allow,
+                            &[],
+                        )),
+                    ]
+                },
+                vec![if boundary == "readmission" {
+                    SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused)
+                } else {
+                    raw_response()
+                }],
+                2,
+            );
+            let hold = Arc::new(tokio::sync::Notify::new());
+            match boundary {
+                "prepare" => gate.prepare_holds.lock().unwrap().push_back(Some(hold)),
+                "admission" => gate.check_holds.lock().unwrap().push_back(Some(hold)),
+                "release" | "readmission" => {
+                    gate.check_holds.lock().unwrap().extend([None, Some(hold)])
+                }
+                "capture" => *gate.capture_hold.lock().unwrap() = Some(hold),
+                _ => transport.send_holds.lock().unwrap().push_back(Some(hold)),
+            }
+            let expected_send = match boundary {
+                "prepare" | "admission" => ModelSendState::NoSend,
+                "release" | "capture" => ModelSendState::ResponseReceived,
+                "readmission" => ModelSendState::DefinitelyNotSent,
+                _ => ModelSendState::PossiblySent,
+            };
+            let control = RequestControl::new(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(7),
+                None,
+            );
+            let observer = control.observation();
+            let cancellation = control.cancellation();
+            let mut managed = call(DegradePolicy::PassthroughWithoutMemory);
+            managed.inject_context = boundary == "prepare";
+            managed.sediment = boundary == "capture";
+            let renderer = RendererRef(renderer);
+            let mut pending =
+                Box::pin(executor.run(control, managed, &renderer, &NoopEvidenceSink));
+            assert!(
+                std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+                    .await
+                    .is_pending(),
+                "{boundary}"
+            );
+            assert_eq!(observer.snapshot().model_send, expected_send, "{boundary}");
+            let reason = match mode {
+                "deadline" => {
+                    tokio::time::advance(std::time::Duration::from_secs(7)).await;
+                    LifecycleStopReason::DeadlineExceeded
+                }
+                "shutdown" => {
+                    cancellation.cancel_with(LifecycleStopReason::GatewayShutdown);
+                    LifecycleStopReason::GatewayShutdown
+                }
+                _ => {
+                    cancellation.cancel();
+                    LifecycleStopReason::RequestCancelled
+                }
+            };
+            if mode == "outer" {
+                drop(pending);
+            } else {
+                assert!(
+                    matches!(pending.await, ManagedOutcome::Stopped { reason: actual, model_send } if actual == reason && model_send == expected_send),
+                    "{boundary} {mode}"
+                );
+            }
+            let snapshot = observer.snapshot();
+            assert_eq!(snapshot.stop_reason, Some(reason), "{boundary} {mode}");
+            assert_eq!(
+                snapshot.execution,
+                ExecutionState::Finished(ExecutionTerminal::Stopped(reason)),
+                "{boundary} {mode}"
+            );
+            assert_eq!(snapshot.model_send, expected_send);
+            assert_eq!(
+                transport.sends.lock().unwrap().len(),
+                usize::from(expected_send != ModelSendState::NoSend)
+            );
+            cancellation.cancel_with(LifecycleStopReason::GatewayShutdown);
+            assert_eq!(observer.snapshot(), snapshot);
+
+            gate.results.lock().unwrap().clear();
+            gate.results.lock().unwrap().extend([
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+            ]);
+            transport.outcomes.lock().unwrap().clear();
+            transport.outcomes.lock().unwrap().push_back(raw_response());
+            *gate.capture_hold.lock().unwrap() = None;
+            assert!(matches!(
+                executor
+                    .run(
+                        request_control(),
+                        call(DegradePolicy::Pause),
+                        &renderer,
+                        &NoopEvidenceSink
+                    )
+                    .await,
+                ManagedOutcome::Released { .. }
+            ));
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancellation_during_synchronous_render_prevents_send() {
+    struct CancellingRenderer(pc_gateway_core::RequestCancellation);
+    impl WireRenderer for CancellingRenderer {
+        fn name(&self) -> &'static str {
+            "cancel"
+        }
+        fn render(
+            &self,
+            _: &CanonicalRequest,
+            _: Option<&serde_json::Value>,
+        ) -> Result<RenderedPayload, pc_gateway_protocol::RenderError> {
+            self.0.cancel();
+            Ok(RenderedPayload {
+                bytes: bytes::Bytes::from_static(b"{}"),
+                content_type: "application/json",
+            })
+        }
+    }
+    let (executor, _, transport, _) = harness(vec![], vec![], 2);
+    let control = request_control();
+    let renderer = CancellingRenderer(control.cancellation());
+    assert!(matches!(
+        executor
+            .run(
+                control,
+                call(DegradePolicy::PassthroughWithoutMemory),
+                &renderer,
+                &NoopEvidenceSink
+            )
+            .await,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::RequestCancelled,
+            model_send: ModelSendState::NoSend
+        }
+    ));
+    assert!(transport.sends.lock().unwrap().is_empty());
+}
 
 #[tokio::test]
 async fn released_execution_retains_control_and_complete_response_facts() {
@@ -391,6 +614,7 @@ async fn released_execution_retains_control_and_complete_response_facts() {
     );
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(37);
     let control = RequestControl::new(deadline, Some("request-1".into()));
+    let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
     assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
@@ -421,6 +645,20 @@ async fn released_execution_retains_control_and_complete_response_facts() {
     cancellation.cancel();
     drop(cancellation);
     assert_eq!(observation.snapshot(), terminal);
+    assert_eq!(
+        lifecycle.checkpoint(),
+        Err(LifecycleStopReason::RequestCancelled)
+    );
+    assert_eq!(observation.snapshot().execution, terminal.execution);
+    assert_eq!(observation.snapshot().model_send, terminal.model_send);
+    assert_eq!(
+        observation.snapshot().stop_reason,
+        Some(LifecycleStopReason::RequestCancelled)
+    );
+    assert_eq!(
+        lifecycle.checkpoint(),
+        Err(LifecycleStopReason::RequestCancelled)
+    );
 }
 
 #[tokio::test]
@@ -514,7 +752,7 @@ async fn abandonment_preserves_sending_facts_at_each_pending_boundary() {
 }
 
 #[tokio::test]
-async fn cancellation_is_shared_intent_and_does_not_finalize_pending_execution() {
+async fn cancellation_stops_pending_execution_without_releasing_or_sending() {
     let (executor, renderer, transport, gate) = harness(
         vec![Ok(result(
             CheckPhase::BeforeSend,
@@ -556,63 +794,135 @@ async fn cancellation_is_shared_intent_and_does_not_finalize_pending_execution()
     assert!(other_cancellation.is_cancelled());
     other_cancellation.cancelled().await;
     assert_eq!(observer.snapshot().execution, ExecutionState::Running);
-    hold.notify_one();
-    assert!(matches!(execution.await, ManagedOutcome::Blocked { .. }));
+    assert!(matches!(
+        execution.await,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::RequestCancelled,
+            model_send: ModelSendState::NoSend
+        }
+    ));
     assert_eq!(
         observer.snapshot().execution,
-        ExecutionState::Finished(ExecutionTerminal::Blocked)
+        ExecutionState::Finished(ExecutionTerminal::Stopped(
+            LifecycleStopReason::RequestCancelled
+        ))
     );
     assert_eq!(observer.snapshot().model_send, ModelSendState::NoSend);
     assert!(transport.sends.lock().unwrap().is_empty());
 }
 
-#[tokio::test]
-async fn readmission_keeps_the_callers_deadline_even_when_it_has_expired() {
+#[tokio::test(start_paused = true)]
+async fn prepare_admission_and_provider_share_one_total_budget() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![Ok(result(
+            CheckPhase::BeforeSend,
+            CheckDecision::Allow,
+            &[],
+        ))],
+        vec![raw_response()],
+        2,
+    );
+    let prepare = Arc::new(tokio::sync::Notify::new());
+    let admission = Arc::new(tokio::sync::Notify::new());
+    gate.prepare_holds
+        .lock()
+        .unwrap()
+        .push_back(Some(prepare.clone()));
+    gate.check_holds
+        .lock()
+        .unwrap()
+        .push_back(Some(admission.clone()));
+    transport
+        .send_holds
+        .lock()
+        .unwrap()
+        .push_back(Some(Arc::new(tokio::sync::Notify::new())));
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let control = RequestControl::new(deadline, None);
+    let observer = control.observation();
+    let renderer = RendererRef(renderer);
+    let mut managed = call(DegradePolicy::Pause);
+    managed.inject_context = true;
+    let mut pending = Box::pin(executor.run(control, managed, &renderer, &NoopEvidenceSink));
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    tokio::time::advance(std::time::Duration::from_secs(4)).await;
+    prepare.notify_one();
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    tokio::time::advance(std::time::Duration::from_secs(4)).await;
+    admission.notify_one();
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    assert_eq!(observer.snapshot().model_send, ModelSendState::PossiblySent);
+    assert!(matches!(
+        pending.await,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::DeadlineExceeded,
+            ..
+        }
+    ));
+    assert_eq!(tokio::time::Instant::now(), deadline);
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn readmission_consumes_the_original_remaining_budget() {
     let (executor, renderer, transport, gate) = harness(
         vec![
             Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
             Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
-            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
         ],
-        vec![
-            SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
-            raw_response(),
-        ],
+        vec![SendOutcome::NotSent(
+            pc_gateway_transport::NotSentReason::ConnectRefused,
+        )],
         2,
     );
-    let hold = Arc::new(tokio::sync::Notify::new());
     gate.check_holds
         .lock()
         .unwrap()
-        .extend([None, Some(hold.clone())]);
-    let deadline = tokio::time::Instant::now() - std::time::Duration::from_secs(1);
+        .extend([None, Some(Arc::new(tokio::sync::Notify::new()))]);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(7);
     let control = RequestControl::new(deadline, None);
     let observer = control.observation();
     let renderer = RendererRef(renderer);
-    let mut execution = Box::pin(executor.run(
-        control,
-        call(DegradePolicy::Pause),
-        &renderer,
-        &NoopEvidenceSink,
+    let outcome = executor
+        .run(
+            control,
+            call(DegradePolicy::Pause),
+            &renderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(
+        outcome,
+        ManagedOutcome::Stopped {
+            reason: LifecycleStopReason::DeadlineExceeded,
+            model_send: ModelSendState::DefinitelyNotSent
+        }
     ));
-    assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
-        execution.as_mut().poll(context)
-    ))
-    .await
-    .is_pending());
+    assert_eq!(tokio::time::Instant::now(), deadline);
     assert_eq!(observer.deadline(), deadline);
     assert_eq!(
-        observer.snapshot().model_send,
-        ModelSendState::DefinitelyNotSent
+        observer.snapshot().stop_reason,
+        Some(LifecycleStopReason::DeadlineExceeded)
     );
-    hold.notify_one();
-    assert!(matches!(execution.await, ManagedOutcome::Released { .. }));
-    assert_eq!(observer.deadline(), deadline);
     assert_eq!(
-        observer.snapshot().model_send,
-        ModelSendState::ResponseReceived
+        observer.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::Stopped(
+            LifecycleStopReason::DeadlineExceeded
+        ))
     );
-    assert_eq!(transport.sends.lock().unwrap().len(), 2);
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -3036,11 +3346,12 @@ async fn terminal_evidence_covers_zero_send_release_refusal_and_paid_possibility
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts() {
     use pc_gateway_evidence::{AttemptOutcome, EvidenceEvent, Interruption, Sending, Terminal};
     for (stop, expected) in [
         ("cancel", Interruption::CancellationRequested),
+        ("shutdown", Interruption::CancellationRequested),
         ("deadline", Interruption::DeadlineElapsed),
         ("drop", Interruption::FutureDropped),
     ] {
@@ -3062,7 +3373,7 @@ async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts()
         let control = RequestControl::new(
             tokio::time::Instant::now()
                 + if stop == "deadline" {
-                    std::time::Duration::ZERO
+                    std::time::Duration::from_secs(10)
                 } else {
                     std::time::Duration::from_secs(30)
                 },
@@ -3078,12 +3389,24 @@ async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts()
                 .await
                 .is_pending()
         );
-        if stop == "cancel" {
-            cancellation.cancel();
-        }
+        let terminal = match stop {
+            "cancel" => {
+                cancellation.cancel();
+                Terminal::Stopped(LifecycleStopReason::RequestCancelled)
+            }
+            "shutdown" => {
+                cancellation.cancel_with(LifecycleStopReason::GatewayShutdown);
+                Terminal::Stopped(LifecycleStopReason::GatewayShutdown)
+            }
+            "deadline" => {
+                tokio::time::advance(std::time::Duration::from_secs(11)).await;
+                Terminal::Stopped(LifecycleStopReason::DeadlineExceeded)
+            }
+            _ => Terminal::Abandoned,
+        };
         drop(future);
         let record = &evidence.calls()[0];
-        assert_eq!(record.terminal, Terminal::Abandoned);
+        assert_eq!(record.terminal, terminal);
         assert_eq!(record.sending, Sending::PossiblySent);
         assert_eq!(record.interruption, Some(expected));
         let snapshot = observation.snapshot();
@@ -3239,7 +3562,9 @@ async fn failing_or_blocked_full_evidence_output_cannot_change_release_or_cancel
         );
         assert_eq!(
             observation.snapshot().execution,
-            ExecutionState::Finished(ExecutionTerminal::Abandoned)
+            ExecutionState::Finished(ExecutionTerminal::Stopped(
+                LifecycleStopReason::RequestCancelled
+            ))
         );
         let (executor, renderer, _, _) = harness(
             vec![

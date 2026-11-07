@@ -31,3 +31,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
+hyper = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+axum = { workspace = true }
