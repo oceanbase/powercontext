@@ -1,7 +1,7 @@
 # Gateway evidence validation / Gateway 证据验收
 
 - Date / 日期: 2026-11-07.
-- Implementation commit / 实现提交: `b1f03eb59cc9327e9c1e8ad3df60a2fbcf914713`.
+- Implementation commit / 实现提交: `c8eeb50166d886f6155797a4ed6d74e645f979c1`.
 - Merged master / 已合并 master: `b8b189091e7a412300cf1292531208a8ead0e325`, including #2513 capacity limits and context refresh. / 包含 #2513 容量限制与上下文刷新。
 - Platform / 平台: Darwin arm64, Rust `1.95.0 (59807616e 2026-04-14)`, Python 3.13.15.
 - Scope / 范围: [#2463](https://github.com/oceanbase/powercontext/issues/2463),
@@ -33,17 +33,22 @@ Cargo was invoked through `/Users/lioky/.cargo/bin/cargo` because the shell's mi
 | --- | --- |
 | `cargo fmt --manifest-path gateway/Cargo.toml --all --check` | Passed / 通过 |
 | `cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings` | Passed / 通过 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml --workspace` | 181 exercised behavior tests passed; 4 live-Core cases returned early / 181 个实际行为测试通过，4 个真实 Core 用例提前返回 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app --test capacity_process --test evidence_process` | 13 passed: capacity/UDS scenarios, readable overflow evidence, 1000 enabled + 100 disabled calls and rejected startup / 13 个通过：容量/UDS 场景、可读超限证据、启用 1000 次与关闭 100 次调用及启动拒绝 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-core --test executor_semantics` | 73 passed; workspace also verifies normal/degraded capacity terminals, partial response facts and context refresh / 73 个通过；workspace 同时验证正常/降级容量终态、部分响应事实与上下文刷新 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml --workspace` | 183 exercised behavior tests passed; 4 live-Core cases returned early / 183 个实际行为测试通过，4 个真实 Core 用例提前返回 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app` | 49 passed, including independent stderr diagnostics, capacity/UDS, readable overflow evidence, 1000 enabled + 100 disabled calls, 511 calls with stdout loss and rejected startup / 49 个通过，含独立 stderr 诊断、容量/UDS、可读超限证据、启用 1000 次与关闭 100 次调用、stdout 丢失时 511 次调用及启动拒绝 |
 | `make check` | Passed, including lock/policy checks, hooks, types and 61 integration-manifest tests / 通过，包含锁文件/策略检查、hooks、类型及 61 个集成清单测试 |
 | `uv run prek run -a` | Passed with all implementation files staged / 实现文件暂存后通过 |
 | `make docs-test` | Passed: bilingual links and static build, 1097 public pages verified / 双语链接与静态构建通过，验证 1097 个公开页面 |
 | `git diff --check` | Passed / 通过 |
 
-The workspace runner prints 185 passing test cases. Four `live_context_check` cases return early when the real Core
+The workspace runner prints 187 passing test cases. Four `live_context_check` cases return early when the real Core
 at `127.0.0.1:8000` is unavailable; readiness was unavailable here. Those four are not real-Core acceptance evidence.
-workspace 输出共 185 个通过用例；其中 4 个 `live_context_check` 因真实 Core 不可达而提前返回，不能算作真实 Core 验收。
+workspace 输出共 187 个通过用例；其中 4 个 `live_context_check` 因真实 Core 不可达而提前返回，不能算作真实 Core 验收。
+
+One earlier workspace attempt failed in the existing capacity process startup check (`gateway exited during startup`)
+while the documentation build was also running. That harness discarded child stderr, so the cause was not established.
+A complete workspace rerun passed with all tests included and the usual parallelism; no assertion or test was removed.
+一次较早的 workspace 执行在文档构建并行期间遇到既有容量子进程启动检查失败；该 harness 丢弃子进程 stderr，
+因此未确认原因。完整 workspace 重跑以通常并行度通过，没有移除测试或断言。
 
 ## Observed behavior / 实际覆盖
 
@@ -54,6 +59,8 @@ workspace 输出共 185 个通过用例；其中 4 个 `live_context_check` 因�
 | Capacity/evidence integration / 容量与证据集成 | Real fixed-length/chunked overflow returns 409 with no prefix or resend; JSONL links one `buffer_limit_exceeded` attempt to a `withheld`/`possibly_sent` call with unknown usage and observed status/first byte. Normal/degraded executor variants agree with lifecycle snapshots / 真实定长/chunked 超限返回 409，不释放前缀、不重发；JSONL 将一次超限尝试与 `withheld`/`possibly_sent` 调用关联，usage 未知且保留状态码/首字节，正常/降级 executor 与生命周期快照一致 |
 | SSE evidence framing / SSE 证据 framing | Real transport reads 80/7/20 input/output/cache-read from lowercase and mixed-case media types, including first-event Chat/Responses usage behind one leading UTF-8 BOM. Protocol/body tests preserve original offsets through BOM and reject stripping a second/interior BOM / 真实 transport 在小写/混合大小写媒体类型及带一个开头 UTF-8 BOM 的 Chat/Responses 首事件读出 80/7/20 input/output/cache-read；协议/body 测试保留原始偏移，不移除第二个/流中间的 BOM |
 | Bounded retention and visible loss / 有界保留与可见丢失 | A held writer with capacity 4 receives 100000 extra submissions: exactly 4 queue, 99996 drop; 1 record remains in flight, and recovered output reports loss / 容量 4 且 writer 卡住时额外提交 10 万条，4 条排队、99996 条丢弃、1 条在写，恢复输出含丢失计数 |
+| Total stream loss / 整条输出流丢失 | Real Gateway with closed stdout reports nonzero write failures and zero writes on stderr; unread stdout reports nonzero drops, then another summary after 30 seconds without new requests or recovery. 511 requests return HTTP 200 with original usage; diagnostics exclude synthetic content/credentials and OS error text / 真实 Gateway 关闭 stdout 时 stderr 报告非零写失败与零写出；不读取 stdout 时报告非零丢弃，停止请求且不恢复后 30 秒再次汇总。511 次请求返回 200 并保留 usage，诊断不含合成正文/凭据或 OS 异常文本 |
+| Diagnostic isolation / 诊断隔离 | A controlled blocked diagnostic writer cannot retain the sink or delay 10000 submissions and sink destruction / 受控诊断 writer 卡住时，不保留 sink、不延迟 10000 次提交及 sink 销毁 |
 | Business isolation / 业务隔离 | Blocking/full and I/O-error writers preserve release/withhold decisions and pending-send cancellation/drop facts; errors are counted without their text / 慢写/队列满/I/O 错误不改变释放与 withhold 结论及发送中取消/销毁事实，错误仅计数不输出原文 |
 | Timing and strict order / 计时与 strict 顺序 | Header-wait fixture is included in first-byte timing; incomplete responses retain observed status/first byte; release approval precedes framework handoff, first body frame and first model-content observation; model TTFT is null / 首字节包含响应头等待，部分失败保留已知状态与首字节，批准先于框架交接、首 frame 与首次模型内容观测，模型 TTFT 为 null |
 | Privacy / 隐私 | Synthetic prompt/response/model/request-ID/credential/provider-error/I/O-error markers are absent from evidence; process test also checks stderr / 合成 prompt、响应、模型名、请求 ID、凭据、provider 异常及 I/O 异常标记未出现在证据中，进程测试另检查 stderr |
@@ -71,6 +78,16 @@ the pre-send rejection assertion. No HTTP OpenAPI change is introduced by this r
 合并后的实现保留 #2513 的启动容量交集、最终渲染限制（含刷新上下文）、响应缓冲上限与独立 fallback 容量。
 容量与证据进程测试使用同一个生产二进制。兼容性上限测试发送超限 Content-Length 请求头后直接读取提前返回的
 413，避开客户端上传 BrokenPipe 竞态，同时保留发送前拒绝的断言。本次协调未修改 HTTP OpenAPI 契约。
+
+The production host reads aggregate sink stats on an independent thread every second, emits one warning/error
+per first loss category and periodic 30-second summaries to stderr. These reports do not need a successful stdout
+record. The reporter releases its sink reference before logging and has no record queue. Both worker startups must
+succeed to enable production evidence. Shutdown does not join blocked writers or promise a final summary; logging
+filters and loss of stderr remain operational limits. JSONL schema, Python allowlists and dependency versions are unchanged.
+生产宿主在独立线程每秒读取聚合计数，首次各类丢失仅通知一次，之后每 30 秒通过 stderr 汇总，
+不依赖 stdout 成功写出。reporter 在日志 I/O 前释放 sink 引用且没有记录队列。两个线程均成功启动后才启用生产证据。
+关闭时不 join 阻塞 writer，也不保证最终汇总；日志过滤和 stderr 丢失仍是运维边界。
+未修改 JSONL schema、Python 白名单或依赖版本。
 
 The spawned-process workload alternates JSON and mixed-case `Text/Event-Stream; charset=utf-8` responses.
 Of 1000 enabled calls, 500 SSE responses contain a leading BOM with the sole content delta and usage in the first event;
