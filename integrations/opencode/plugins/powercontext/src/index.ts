@@ -43,6 +43,7 @@ Memory correction requires the requested change, exact current Atomic Memory art
 Use powercontext-project-context for a relevant detailed workflow if that Skill is available; no Skill detour is needed before every response.`
 
 const CONTEXT_PREFIX = 'PowerContext host-supplied context.'
+const PERMISSION = 'powercontext'
 const MAX_SOURCE_BYTES = 200_000
 const MAX_SESSION_CACHE = 256
 
@@ -331,7 +332,7 @@ function operationTool(
     async execute(args, context) {
       if (operationMutates(definition.operationId)) {
         await context.ask({
-          permission: 'powercontext',
+          permission: PERMISSION,
           patterns: [definition.operationId],
           always: [],
           metadata: { operation: definition.operationId },
@@ -650,6 +651,14 @@ export const PowerContextPlugin: Plugin = async (input) => {
   }
 
   const hooks: Awaited<ReturnType<Plugin>> = {
+    // OpenCode's agents allow every permission their defaults do not name, so a durable mutation would run without
+    // the confirmation it requests. OpenCode applies the last matching rule, so the user's own rules still decide.
+    config: async (config) => {
+      // The SDK's Config type predates permissions keyed by name.
+      const settings = config as { permission?: string | Record<string, unknown> }
+      if (typeof settings.permission === 'string' || (settings.permission && PERMISSION in settings.permission)) return
+      settings.permission = { [PERMISSION]: 'ask', ...settings.permission }
+    },
     tool: createTools(runtime),
     'chat.message': async (event, output) => {
       const messageID = event.messageID ?? output.message.id

@@ -305,6 +305,26 @@ describe('PowerContextPlugin', () => {
     expect(JSON.parse(String(result))).toMatchObject({ ok: true })
   })
 
+  it('makes OpenCode ask for durable mutations unless the user permission rules decide', async () => {
+    const hooks = await PowerContextPlugin(pluginInput())
+    const configure = async (config: any) => {
+      await hooks.config?.(config)
+      return config.permission
+    }
+    // OpenCode's agents allow permissions their defaults do not name, and they apply the last matching rule.
+    expect(await configure({})).toEqual({ powercontext: 'ask' })
+    expect(Object.entries(await configure({ permission: { bash: 'ask', '*': 'allow' } }))).toEqual([
+      ['powercontext', 'ask'],
+      ['bash', 'ask'],
+      ['*', 'allow'],
+    ])
+    expect(Object.entries(await configure({ permission: { '*': 'ask', powercontext: 'allow' } }))).toEqual([
+      ['*', 'ask'],
+      ['powercontext', 'allow'],
+    ])
+    expect(await configure({ permission: 'allow' })).toBe('allow')
+  })
+
   it('captures a Working Note through the scoped operation', async () => {
     process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
     const calls: Array<{ url: string; body: any }> = []

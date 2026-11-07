@@ -43,6 +43,12 @@ traffic goes through the gateway, turn prompt-time recall off so the gateway pre
 Named `pc_*` tools expose curated Memory, Handoff, Experience, Skill, and read-only Candidate operations. OpenCode
 asks for confirmation before a durable mutation. Candidate approval and rejection remain explicit human CLI actions.
 
+The confirmation is OpenCode's `powercontext` permission, which the plugin sets to `ask`. A rule you configure that
+matches it, such as `"*": "allow"` in `permission` or in an agent's `permission`, takes precedence. Each request uses
+the operation as its pattern, so `"permission": {"powercontext": {"*": "ask", "remember_memory": "allow"}}` saves
+memories without asking. `opencode run` rejects permission requests unless it runs with `--auto` or the older
+`--dangerously-skip-permissions`.
+
 ## Configure the connection
 
 Set variables before starting OpenCode:
