@@ -80,11 +80,27 @@ for path in / /usr /usr/local /usr/local/bin /bin /bin/sh "$DIAG_ENTRYPOINT"; do
     if command -v getfacl >/dev/null 2>&1; then getfacl -p "$path"; fi
 done
 if ! command -v getfacl >/dev/null 2>&1; then echo 'getfacl unavailable in image'; fi
+python3 - "$DIAG_ENTRYPOINT" <<'PY'
+import os
+import struct
+import sys
+
+for path in ("/", "/usr", "/usr/local", "/usr/local/bin", sys.argv[1]):
+    for attr in ("system.posix_acl_access", "system.posix_acl_default"):
+        try:
+            raw = os.getxattr(path, attr)
+        except OSError:
+            continue
+        version, = struct.unpack_from("<I", raw)
+        entries = [struct.unpack_from("<HHI", raw, i) for i in range(4, len(raw), 8)]
+        print(path, attr, "version", version, "entries", entries)
+PY
 printf 'entrypoint executable: '; test -x "$DIAG_ENTRYPOINT" && echo yes || echo no
 printf 'shebang: '; head -n 1 "$DIAG_ENTRYPOINT"
 printf 'shell target: '; readlink -f /bin/sh
 echo 'Relevant mount information:'
-awk '$5 == "/" || $5 == "/usr" || $5 == "/usr/local" || $5 == "/usr/local/bin" || $5 == "/bin" { print $5, $6, $7, $8, $9, $10 }' /proc/self/mountinfo
+awk '$5 == "/" || $5 == "/usr" || $5 == "/usr/local" || $5 == "/usr/local/bin" || $5 == "/bin" { print $5, $6 }' /proc/self/mountinfo
+test -x "$DIAG_ENTRYPOINT"
 SH
 )
 # Match the harness's privileged setting, but attach no host bind mounts or network.
