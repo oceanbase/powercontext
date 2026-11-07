@@ -21,6 +21,7 @@ import type {
   ProfileView,
   StorageChoice,
   Fact,
+  CompatibilityProfile,
 } from "../generated/ipc";
 import { contractSha256 } from "../generated/operations";
 import { desktopApi } from "../shared/ipc";
@@ -33,6 +34,11 @@ import { messages, type Language } from "./messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { useConfirmation } from "./useConfirmation";
 import connectionsIcon from "../assets/connections.svg";
+import {
+  connectionAccessMode,
+  connectionPrincipal,
+  identityVerified,
+} from "./context";
 
 type Props = {
   state: DesktopState | null;
@@ -76,6 +82,13 @@ export function Connections({
     "save" | "check" | "activate" | "remove" | null
   >(null);
   const pending = useRef(false);
+  const probePending = useRef(false);
+  const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState<{
+    id: string;
+    revision: number;
+    error: unknown;
+  } | null>(null);
   const [notice, setNotice] = useState<{
     id: string;
     kind: "saved" | "checkedComplete" | "activationBlocked";
@@ -102,6 +115,7 @@ export function Connections({
     setDirty(false);
     onDirty(false);
     setError(null);
+    setProbeError(null);
     invalidated.current = false;
   }
   useEffect(() => {
@@ -170,6 +184,25 @@ export function Connections({
       }
     }
   }
+  async function probeReadiness() {
+    if (!profile || dirty || pending.current || probePending.current) return;
+    const target = { id: profile.id, revision: profile.revision };
+    const ticket = lifetime.current;
+    probePending.current = true;
+    setProbing(true);
+    setProbeError(null);
+    try {
+      const next = await desktopApi.probeReadiness(target.id, target.revision);
+      const accepted = onState(next);
+      if (ticket === lifetime.current && accepted === false)
+        setProbeError({ ...target, error: { code: "stale_context" } });
+    } catch (error) {
+      if (ticket === lifetime.current) setProbeError({ ...target, error });
+    } finally {
+      probePending.current = false;
+      if (ticket === lifetime.current) setProbing(false);
+    }
+  }
   async function save() {
     const input = {
       id: profile?.id ?? null,
@@ -210,7 +243,7 @@ export function Connections({
       active?.connectionId === profile.id &&
       active.report.revision === profile.revision &&
       active.report.compatibilityVerified &&
-      (active.report.anonymousAccess || active.report.identity.value)
+      (active.report.anonymousAccess || identityVerified(active.report))
     ) {
       onActivated?.(trigger);
     } else {
@@ -234,18 +267,19 @@ export function Connections({
     (profile.credentialState === "stored" ||
       profile.credentialState === "session_only") &&
     !invalidated.current;
-  const availableProfiles = state?.compatibilityProfiles.filter(
-    (p) => p.contractSha256 === contractSha256,
-  );
+  const available = (p: CompatibilityProfile) =>
+    p.contractSha256 === contractSha256 ||
+    (authentication === "bearer" && !!p.authenticatedClients?.[contractSha256]);
+  const availableProfiles = state?.compatibilityProfiles.filter(available);
   const historicalProfiles = state?.compatibilityProfiles.filter(
-    (p) => p.contractSha256 !== contractSha256,
+    (p) => !available(p),
   );
   const selectedCompatibility = state?.compatibilityProfiles.find(
     (p) => p.id === compatibility,
   );
   const unavailableCompatibility =
     compatibility !== "" &&
-    selectedCompatibility?.contractSha256 !== contractSha256;
+    (!selectedCompatibility || !available(selectedCompatibility));
   return (
     <div className="connection-grid">
       {confirmation}
@@ -521,9 +555,14 @@ export function Connections({
                 <dd>
                   {report?.anonymousAccess
                     ? t.noIdentity
-                    : fact(
-                        report?.identity,
-                        (v) => `${v.principal.type}: ${v.principal.id}`,
+                    : fact<unknown>(
+                        report?.connectionIdentity ?? report?.identity,
+                        () => {
+                          const principal = connectionPrincipal(report);
+                          return principal
+                            ? `${principal.type}: ${principal.id}`
+                            : t.unverified;
+                        },
                       )}
                 </dd>
               </div>
@@ -541,11 +580,7 @@ export function Connections({
               </div>
               <div>
                 <dt>{t.access}</dt>
-                <dd>
-                  {report?.anonymousAccess
-                    ? "disabled"
-                    : fact(report?.identity, (v) => v.mode)}
-                </dd>
+                <dd>{fact(connectionAccessMode(report), (mode) => mode)}</dd>
               </div>
               <div>
                 <dt>{t.compatibility}</dt>
@@ -581,7 +616,31 @@ export function Connections({
               </div>
             </dl>
             <p className="note-line">{t.noPermissionClaim}</p>
+            <p id="readiness-explanation" className="note-line">
+              {t.readinessExplanation}
+            </p>
+            {report?.readinessCheckedAt && (
+              <p>
+                {t.readinessTime}:{" "}
+                {new Date(report.readinessCheckedAt * 1000).toLocaleString(
+                  language === "zh" ? "zh-CN" : "en-US",
+                )}
+              </p>
+            )}
+            {!dirty &&
+              probeError?.id === profile.id &&
+              probeError.revision === profile.revision && (
+                <ErrorFeedback error={probeError.error} language={language} />
+              )}
             <div className="actions">
+              <button
+                disabled={dirty || !!busy || probing || !report}
+                aria-describedby="readiness-explanation"
+                aria-busy={probing}
+                onClick={() => void probeReadiness()}
+              >
+                {probing ? t.wait : t.probeReadiness}
+              </button>
               <button
                 disabled={dirty || !!busy}
                 onClick={(event) => void check(false, event.currentTarget)}

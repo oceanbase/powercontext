@@ -102,6 +102,8 @@ observability = [
   "tests/e2e/*observability*", "tests/builtin/runtime/*worker*", "tests/builtin/runtime/*model_usage*",
 ]
 packaging = [
+  "website/public/install.sh", "website/public/install.ps1", ".github/workflows/installation.yml",
+  "tests/test_installation_contract.py", "tests/native/test_installation.py", "tests/native/test_install_sources.py",
   "scripts/build_ops_bundle.py",
   "tests/test_installation.py", "tests/test_upgrade_publication.py", "scripts/ci_role_smoke.py",
   "scripts/ci_installation_roles.py", "tests/test_ci_installation_roles.py", "release/**",
@@ -207,7 +209,7 @@ zcode = ["zcode-acceptance"]
 kimi = ["kimi-acceptance"]
 upgrade = ["seekdb-managed-startup", "upgrade-acceptance"]
 observability = ["worker-observability"]
-packaging = ["isolated-installations"]
+packaging = ["isolated-installations", "script-installation"]
 desktop = ["desktop-validation"]
 managed_resources = ["managed-resource-candidates"]
 candidate_replay = ["candidate-replay"]

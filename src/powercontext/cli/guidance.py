@@ -101,6 +101,8 @@ HOST_GUIDANCE = {
     "agent-plugin": HostGuidance("integrations/agent-plugin/powercontext"),
     "minimax": HostGuidance(
         "integrations/minimax/plugins/powercontext",
+        source_files=(".minimax-plugin/plugin.json",),
+        package_name="powercontext",
     ),
 }
 
@@ -138,7 +140,8 @@ def _linked_resources(directory: Path, *, require_files: bool) -> set[str]:
     return seen
 
 
-def _package_resources(directory: Path) -> set[str]:
+def skill_resources(directory: Path) -> set[str]:
+    """Validate linked Skill resources and return the complete package inventory."""
     _linked_resources(directory, require_files=True)
     names = set()
     for path in directory.rglob("*"):
@@ -264,7 +267,7 @@ def refresh_skill(
     Plan every merge first, so malformed markers or unrecognized user content cannot
     leave a partially refreshed Skill. Native host installation remains separate.
     """
-    resources = _package_resources(source)
+    resources = skill_resources(source)
     writes: dict[Path, bytes] = {}
     previous = previous or target
     _validate_resource_transition(source, previous, resources)
@@ -300,7 +303,7 @@ def preserve_installed_guidance(previous_plugin: Path, staged_plugin: Path) -> N
     previous = previous_plugin / SKILL_DIRECTORY
     staged = staged_plugin / SKILL_DIRECTORY
     if not previous.is_dir() and staged.is_dir():
-        _package_resources(staged)
+        skill_resources(staged)
     if previous.is_dir():
         if not (staged / "SKILL.md").is_file():
             message = "incoming package omits existing guidance; cannot safely replace a pre-marker or managed Skill"

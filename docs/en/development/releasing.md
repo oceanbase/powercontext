@@ -74,6 +74,7 @@ the next release updates and checks it.
 | --- | --- |
 | Python wheel/sdist version and installed `powercontext --version` | `pyproject.toml` declares `dynamic = ["version"]`; Hatch VCS reads Git metadata. Use the intended release tag for the final build. |
 | Runtime package metadata | Reads the installed Python distribution version; there is no separate static runtime version to bump. |
+| DSH npm archive | The release workflow stamps `powercontext-dsh` from the selected Release tag in a temporary package directory. The checkout manifest remains a development version; runtime identity reads the installed manifest. |
 | Desktop API bindings | Regenerate OpenAPI types and contract digests with `pnpm --dir desktop generate`, then run `pnpm --dir desktop generate:check`. The Desktop application has its own package version. |
 | Dify tool contract | Regenerate with `uv run python integrations/dify/generate_contract.py`, then run the same command with `--check` to verify its API version and schemas. |
 | Docker and Bub harness build version | Build inputs pass `POWERCONTEXT_VERSION` from the selected package/Git version. Do not add a fixed release number to Dockerfiles. |
@@ -95,7 +96,7 @@ PowerContext release number.
 | Portable Agent Plugin | `integrations/agent-plugin/powercontext/plugin.json`. Its package version is separate from the Agent Plugins schema version. |
 | Hermes plugins | `integrations/hermes/plugins/{powercontext,powercontext-command}/plugin.yaml`. |
 | MiniMax and ZCode plugins | `integrations/minimax/plugins/powercontext/.minimax-plugin/plugin.json` and `integrations/zcode/plugins/powercontext/.zcode-plugin/plugin.json`. |
-| JavaScript plugins | `integrations/{dsh,opencode,pi}/plugins/powercontext/package.json` and `integrations/openclaw/plugins/memory-powercontext/package.json`. The OpenClaw discovery manifest has no separate version field. |
+| JavaScript plugins | `integrations/{opencode,pi}/plugins/powercontext/package.json` and `integrations/openclaw/plugins/memory-powercontext/package.json`. The OpenClaw discovery manifest has no separate version field. DSH release archives follow the main Release. |
 | WorkBuddy integration | Its hooks and transport scripts carry User-Agent strings; there is no plugin manifest version to align with the Server. |
 | Skill Receiver | `RECEIVER_VERSION` in `src/powercontext/client/skill_receiver.py` supplies the default receiver identity version reported during enrollment, reconciliation, and receipts. It is independent of the Server version. |
 | Python integrations | `integrations/{bub,langchain,langgraph,opendal,pydantic-ai}/pyproject.toml` contain separate distribution versions. Dependency constraints express compatibility, not the current main release. |
@@ -124,6 +125,63 @@ migration introduced in `1.1.0` and the pre-`1.0.0` processing migration remain 
 
 The DSH README's statement that a capability was included in release `1.1.0` is also historical; only its current
 installation pins are synchronized.
+
+## DSH npm package
+
+`release.yml` builds `powercontext-dsh` from the same pinned commit as the Python release. It tests the plugin,
+packs compiled entry points, declarations, packaged Skills, the bundle patch, README, license, and manifest, then installs
+that exact archive into a clean consumer directory. The source manifest is never rewritten during packing.
+The verified `.tgz` is retained as `dsh-release-package` and attached to the GitHub Release.
+PyPI publication requires this package check as well as the existing release gate. npm publication follows
+successful PyPI publication and runs only in `oceanbase/powercontext`.
+
+Versions follow the Release tag: `powercontext-v1.6.0rc1` becomes `1.6.0-rc.1`; `a` and `b` become `alpha` and
+`beta`. Stable releases use `latest`; version prereleases and releases marked as prerelease on GitHub use `next`.
+The checkout's development version is not a separate npm release counter. Older tags without these packaging
+scripts cannot be published through this workflow; select a release containing the npm delivery changes.
+
+The publication job uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/), Node 24, and
+GitHub's `id-token: write` permission. No npm token is stored in the workflow. A package owner must complete
+the initial npm publication and configure its trusted publisher:
+
+| npm setting | Value |
+| --- | --- |
+| Package | `powercontext-dsh` |
+| Provider | GitHub Actions |
+| Organization | `oceanbase` |
+| Repository | `powercontext` |
+| Workflow filename | `release.yml` |
+| Environment | Leave blank; the publication job does not declare one |
+| Allowed actions | Allow direct `npm publish` |
+
+For the first publication, download the verified archive from the intended release build, sign in with the
+maintainer's npm account, and publish that exact file. For example, a prerelease archive uses:
+
+```bash
+npm login --registry=https://registry.npmjs.org/
+npm publish ./powercontext-dsh-1.6.0-rc.1.tgz --access public --ignore-scripts --tag next --registry=https://registry.npmjs.org/
+```
+
+Use `--tag latest` for a stable release. Configure the trusted publisher after the package exists, then rerun
+the failed npm job. A rerun skips publishing only if the registry's SHA-512 integrity matches the archive;
+different bytes under the same version fail explicitly. Identical reruns leave dist-tags unchanged.
+Re-running an older release is not a way to roll back `latest` or promote a prerelease. Check the registry's
+current tags before publishing a previously unpublished historical release.
+
+To validate packaging locally, run from the repository root:
+
+```bash
+pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+pnpm --dir integrations/dsh/plugins/powercontext test
+pnpm --dir integrations/dsh/plugins/powercontext test:package
+pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
+```
+
+The archive is written under the plugin's `dist/` directory. In DSH Desktop, install it using **Plugins → Add
+plugin**, confirm the package and enabled state, restart if requested, and run `/pc doctor` against a matching
+Server. Record the Desktop version and installation/loading results separately from Server readiness and
+memory behavior. A local archive test does not establish npm availability; after publishing, repeat with
+`powercontext-dsh@<version>` against the official registry and verify the selected mirror separately.
 
 ## Verify before publication
 
