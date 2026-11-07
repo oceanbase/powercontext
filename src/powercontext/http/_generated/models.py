@@ -3721,6 +3721,21 @@ class ShareUnit(StrEnum):
     MEMORY_ENTRY = "memory_entry"
 
 
+class ConnectionAuthentication(StrEnum):
+    DISABLED = "disabled"
+    AUTHENTICATED = "authenticated"
+
+
+class ConnectionIdentity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    server_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    authentication: ConnectionAuthentication
+    access_mode: AccessControlMode
+    principal: Annotated[AccessPrincipal | None, Field(...)]
+
+
 class AccessAction(StrEnum):
     SERVER_OBSERVE = "server.observe"
     SERVER_ADMIN = "server.admin"

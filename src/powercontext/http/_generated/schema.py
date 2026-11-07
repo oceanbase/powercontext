@@ -5675,6 +5675,46 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/connection/identity": {
+            "get": {
+                "tags": ["access"],
+                "summary": "Observe the current connection identity without readiness probes",
+                "description": "Returns the actual deployment, "
+                "access mode and request "
+                "authentication identity. Does not "
+                "invoke model, "
+                "authentication-provider or "
+                "access-provider readiness probes, "
+                "require server.observe, or grant "
+                "resource permissions. Anonymous "
+                "identity is explicit only when "
+                "authentication and access "
+                "enforcement are disabled. "
+                "Authentication errors and "
+                "unavailable enforced access remain "
+                "errors, never anonymous fallback.",
+                "operationId": "get_connection_identity",
+                "responses": {
+                    "200": {
+                        "description": "Current "
+                        "request "
+                        "identity; not "
+                        "an operation "
+                        "authorization "
+                        "or binary "
+                        "attestation.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectionIdentity"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-feature-contracts": ["connection.identity"],
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
+            }
+        },
         "/v1/access/me": {
             "get": {
                 "tags": ["access"],
@@ -14274,6 +14314,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["family", "enabled", "share_unit", "actions", "grantable_roles"],
             },
+            "ConnectionAuthentication": {"type": "string", "enum": ["disabled", "authenticated"]},
+            "ConnectionIdentity": {
+                "properties": {
+                    "server_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "authentication": {"$ref": "#/components/schemas/ConnectionAuthentication"},
+                    "access_mode": {"$ref": "#/components/schemas/AccessControlMode"},
+                    "principal": {"allOf": [{"$ref": "#/components/schemas/AccessPrincipal"}], "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["server_id", "authentication", "access_mode", "principal"],
+            },
             "AccessMeResponse": {
                 "properties": {
                     "principal": {"$ref": "#/components/schemas/AccessPrincipal"},
@@ -15389,6 +15441,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "security": [{"BearerAuth": []}, {}],
     "x-powercontext-feature-contracts": {
+        "connection.identity": {"major": 1, "minor": 0},
         "access.principal": {"major": 1, "minor": 0},
         "scope.selection": {"major": 1, "minor": 0},
         "memory.explicit": {"major": 1, "minor": 0},

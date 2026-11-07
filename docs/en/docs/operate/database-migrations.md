@@ -162,8 +162,9 @@ Sequence `000` identifies a registered historical baseline; upgrade steps start 
 | `v1_5_0_001` | 1.5.0 | 1 | `v1_5_0_001` | Artifact plugin storage and search registrations |
 | `v1_5_0_002` | 1.5.0 | 2 | `v1_5_0_002` | Retained Source evidence and historical validation |
 | `v1_5_0_003` | 1.5.0 | 3 | `v1_5_0_003` | Disposable exact-revision evidence projection |
+| `v1_5_0_004` | 1.5.0 | 4 | `v1_5_0_004` | Source citation position locators |
 
-Both registered source paths reach `v1_5_0_003`; only 1.3.0 is selected for CI upgrade acceptance:
+Both registered source paths reach `v1_5_0_004`; only 1.3.0 is selected for CI upgrade acceptance:
 
 ```text
 1.3.0: v1_3_0_000 -> v1_4_1_001 -> v1_4_1_002 -> v1_4_1_003 -> v1_4_1_004 -> v1_4_1_005 -> v1_4_1_006 -> v1_5_0_001 -> v1_5_0_002 -> v1_5_0_003 -> v1_5_0_004
@@ -189,7 +190,7 @@ existing plans and original backups usable. Partial prototype bundles keep their
 
 For a new Server migration, use the release-based name directly as its Alembic `revision` and
 register its schema, domain steps and recovery checkpoints as usual. `down_revision` must reference
-the actual preceding ID (`v1_5_0_003` when appending directly to the current head), even if that ID has
+the actual preceding ID (`v1_5_0_004` when appending directly to the current head), even if that ID has
 a display alias. The framework follows this registered chain, not lexical name ordering. Already
 registered names and release assignments stay immutable; a version bump must not rename history.
 

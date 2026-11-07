@@ -187,9 +187,9 @@ def test_source_write_plugin_upgrade_preserves_data_and_registration(tmp_path, v
     bundle = server_bundle(embedding_profile=embedding)
     upgraded = SQLiteMigrationRunner(database, bundle, configuration=config)
     assert upgraded.plan().revisions == (
-        ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002", "v1_5_0_004")
+        ("v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002", "v1_5_0_003", "v1_5_0_004")
         if include_owner
-        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002", "v1_5_0_004")
+        else ("v1_4_1_004", "v1_4_1_005", "v1_4_1_006", "v1_5_0_001", "v1_5_0_002", "v1_5_0_003", "v1_5_0_004")
     )
     assert apply(upgraded).revision == "v1_5_0_004"
     definition = b'{"configuration":{"id":"tickets","entry":"tickets"}}'

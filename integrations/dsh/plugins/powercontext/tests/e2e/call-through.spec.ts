@@ -37,7 +37,7 @@ vi.mock('../../src/peers.ts', () => ({
 
 let scopeId = ''
 const TEXT = 'Keep the DSH plugin on the public HTTP contract.'
-const REQUIRED_SERVICES = ['tools', 'agents', 'commands', 'systemPrompt'] as const
+const REQUIRED_SERVICES = ['tools', 'agents', 'commands', 'skills', 'systemPrompt'] as const
 
 type RequiredService = typeof REQUIRED_SERVICES[number]
 type PcHandler = (invocation: {
@@ -48,10 +48,12 @@ type PcHandler = (invocation: {
 
 type CommandDefinition = { name: string; handler: PcHandler }
 type PromptSection = { name: string; text: string }
+type SkillRegistration = { name: string; description: string; source: string; content: string }
 
 type Registrations = {
   tools: Record<string, unknown>[]
   commands: CommandDefinition[]
+  skills: SkillRegistration[]
   sections: PromptSection[]
 }
 
@@ -110,8 +112,18 @@ class SystemPromptService extends RegistrationService<PromptSection> {
   }
 }
 
+class SkillsService extends RegistrationService<SkillRegistration> {
+  constructor(ctx: Context, registrations: SkillRegistration[]) {
+    super(ctx, 'skills', registrations)
+  }
+
+  register(skill: SkillRegistration): () => void {
+    return this.registerOwned(skill, 'skills.register()')
+  }
+}
+
 function emptyRegistrations(): Registrations {
-  return { tools: [], commands: [], sections: [] }
+  return { tools: [], commands: [], skills: [], sections: [] }
 }
 
 class PluginHarness {
@@ -138,6 +150,8 @@ class PluginHarness {
       provider = this.ctx.plugin(AgentsService)
     } else if (name === 'commands') {
       provider = this.ctx.plugin(CommandsService, this.registrations.commands)
+    } else if (name === 'skills') {
+      provider = this.ctx.plugin(SkillsService, this.registrations.skills)
     } else {
       provider = this.ctx.plugin(SystemPromptService, this.registrations.sections)
     }
@@ -177,6 +191,7 @@ function registrationCounts(registrations: Registrations) {
   return {
     tools: registrations.tools.length,
     commands: registrations.commands.length,
+    skills: registrations.skills.length,
     sections: registrations.sections.length,
   }
 }
@@ -272,19 +287,24 @@ describe('plugin HTTP call-through without a model', () => {
     await withHarness(server.baseUrl, async (harness) => {
       await Promise.resolve()
       expect(registrationCounts(harness.registrations)).toEqual({
-        tools: 0, commands: 0, sections: 0,
+        tools: 0, commands: 0, skills: 0, sections: 0,
       })
 
       for (const name of REQUIRED_SERVICES.slice(0, -1)) {
         await harness.provide(name)
         expect(registrationCounts(harness.registrations)).toEqual({
-          tools: 0, commands: 0, sections: 0,
+          tools: 0, commands: 0, skills: 0, sections: 0,
         })
       }
 
       await harness.provide(REQUIRED_SERVICES.at(-1)!)
       await harness.fiber
       expect(harness.registrations.tools).toEqual([])
+      expect(harness.registrations.skills).toEqual([expect.objectContaining({
+        name: 'powercontext-project-context',
+        source: 'runtime',
+        content: expect.stringContaining('# PowerContext routing'),
+      })])
       expect(harness.registrations.commands.map(item => item.name)).toEqual(['pc'])
       expect(harness.registrations.sections).toEqual([expect.objectContaining({
         name: 'tool:powercontext',
@@ -325,7 +345,7 @@ describe('plugin HTTP call-through without a model', () => {
 
       await harness.remove('commands')
       expect(registrationCounts(harness.registrations)).toEqual({
-        tools: 0, commands: 0, sections: 0,
+        tools: 0, commands: 0, skills: 0, sections: 0,
       })
       expect(harness.fiber.getEffects()).toEqual([])
 

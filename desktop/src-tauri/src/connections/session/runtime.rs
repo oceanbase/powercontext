@@ -15,7 +15,7 @@
  */
 
 //! Read-only Runtime observations scoped to an already activated connection.
-use super::{ConnectionManager, Fact};
+use super::{ConnectionManager, Fact, NativeIdentity};
 use crate::{
     error::SafeError,
     transport::{ApiFailure, ServerApi, wire::*},
@@ -85,9 +85,7 @@ impl From<Capabilities> for RuntimeCapabilities {
 struct RuntimeTarget {
     api: Arc<ServerApi>,
     server_id: Option<String>,
-    identity: Option<AccessMeResponse>,
-    anonymous_access: bool,
-    compatibility_verified: bool,
+    identity: Option<NativeIdentity>,
     readiness_qualified: bool,
     changed: watch::Receiver<u32>,
     cancelled: watch::Receiver<u32>,
@@ -102,14 +100,14 @@ impl ConnectionManager {
         let report = &active.view.report;
         Ok(RuntimeTarget {
             api: active.api.clone(),
-            server_id: report
-                .discovery
-                .as_ref()
-                .and_then(|d| d.server.as_ref())
-                .map(|server| server.server_id.clone()),
-            identity: report.identity.value.clone(),
-            anonymous_access: report.anonymous_access,
-            compatibility_verified: report.compatibility_verified,
+            server_id: report.server_id().map(str::to_owned),
+            identity: if let Some(fact) = &report.connection_identity {
+                fact.value.clone().map(NativeIdentity::Connection)
+            } else if report.compatibility_verified {
+                report.identity.value.clone().map(NativeIdentity::Principal)
+            } else {
+                None
+            },
             readiness_qualified: report
                 .supported_operations
                 .iter()
@@ -129,21 +127,18 @@ impl ConnectionManager {
         Ok(())
     }
 
-    // Unlike business revalidation on this baseline, observation never calls readiness
-    // to recheck anonymous access and never invalidates independently authorized work.
+    // Observation verifies the selected identity contract without invalidating
+    // independently authorized work when an observation is denied.
     async fn runtime_identity(target: &RuntimeTarget) -> Result<(), ApiFailure> {
-        Self::deployment_unchanged(&target.api, target.server_id.as_deref()).await?;
-        if target.server_id.is_none() && !target.compatibility_verified {
-            return Err(SafeError::CompatibilityUnverified.into());
+        let identity = target
+            .identity
+            .as_ref()
+            .ok_or(SafeError::CompatibilityUnverified)?;
+        identity.verify(&target.api).await?;
+        if matches!(identity, NativeIdentity::Principal(_)) {
+            Self::deployment_unchanged(&target.api, target.server_id.as_deref()).await?;
         }
-        match target.api.principal().await {
-            Ok(identity) if Some(&identity) == target.identity.as_ref() => Ok(()),
-            Err(error) if target.anonymous_access && error.code == SafeError::RuntimeNotReady => {
-                Ok(())
-            }
-            Err(error) => Err(error),
-            Ok(_) => Err(SafeError::StaleContext.into()),
-        }
+        Ok(())
     }
 
     async fn runtime_budget<T>(
