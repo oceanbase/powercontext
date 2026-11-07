@@ -336,6 +336,7 @@ def test_genuine_git_freeze_accepts_committed_bytes_and_rejects_untracked_bytes(
     monkeypatch.setattr(freeze, "frozen_paths", lambda: [freeze.REPOSITORY / "pyproject.toml"])
     assert freeze.committed_freeze()["verified"]
     temporary = freeze.REPOSITORY / ".artifacts/evidence-admission/v12-readiness/checks/untracked-freeze-test.json"
+    temporary.parent.mkdir(parents=True, exist_ok=True)
     write_private(temporary, {"uncommitted": True})
     monkeypatch.setattr(freeze, "frozen_paths", lambda: [temporary])
     with pytest.raises(EvaluationError, match="not_committed"):
