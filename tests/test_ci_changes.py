@@ -66,6 +66,11 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["scripts/scan_e2e_evidence.sh"], {"tests", "harness"}),
         (["scripts/run_atomic_memory_clean_migration.py"], {"tests", "database", "upgrade"}),
         (["scripts/check_atomic_memory_migration_shards.py"], {"tests", "database"}),
+        ([".github/oceanbase-migration-durations.json"], {"tests", "database"}),
+        (
+            ["scripts/oceanbase_ci.py"],
+            {"tests", "database", "harness", "upgrade", "candidate_replay", "release_schema"},
+        ),
         (["scripts/sync_dsh_plugin_tree.py"], {"tests", "dsh"}),
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
@@ -308,6 +313,33 @@ def test_moves_and_deletions_keep_the_original_suite(repository: Path) -> None:
         "native",
         "zcode",
     }
+
+
+def test_blobless_checkout_preserves_pr_scope_and_version_tags(repository: Path) -> None:
+    historical = repository / "old.bin"
+    historical.write_bytes(b"historical content that is no longer checked out")
+    git(repository, "add", "old.bin")
+    git(repository, "commit", "-m", "Historical content")
+    old_blob = git(repository, "rev-parse", "HEAD:old.bin")
+    git(repository, "rm", "old.bin")
+    git(repository, "commit", "-m", "Remove historical content")
+    git(repository, "tag", "v1.0.0")
+    git(repository, "checkout", "-b", "feature")
+    head = commit(repository, "docs/zh/说明.md")
+    git(repository, "checkout", "master")
+    base = commit(repository, "src/powercontext/unrelated.py")
+    git(repository, "checkout", "feature")
+    git(repository, "config", "uploadpack.allowFilter", "true")
+    clone = repository.parent / f"{repository.name}-partial"
+    git(repository, "clone", "--filter=blob:none", repository.as_uri(), str(clone))
+
+    assert git(clone, "rev-parse", "--is-shallow-repository") == "false"
+    assert git(clone, "describe", "--tags") == git(repository, "describe", "--tags")
+    selected = run_selector(clone, "pull_request", base, head)
+    assert {suite for suite, enabled in selected.items() if enabled} == {"website", "docs_tests"}
+    # Inspect missing objects without triggering a lazy fetch of the old content.
+    missing = git(clone, "rev-list", "--objects", "--all", "--missing=print")
+    assert f"?{old_blob}" in missing.splitlines()
 
 
 def test_large_diff_includes_code_after_hundreds_of_docs(repository: Path) -> None:

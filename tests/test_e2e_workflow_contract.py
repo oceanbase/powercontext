@@ -43,3 +43,16 @@ def test_e2e_scan_keeps_raw_scanner_output_out_of_artifacts() -> None:
 def test_e2e_diagnostics_upload_only_runs_for_failed_validation_or_scan() -> None:
     assert "steps.evidence_scan.outcome != 'success'" in WORKFLOW
     assert "steps.acceptance_scenarios.outcome != 'success'" in WORKFLOW
+
+
+def test_native_snapshot_precedes_replay_container_teardown() -> None:
+    steps = yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]["steps"]
+    collect_index = next(i for i, step in enumerate(steps) if step["name"] == "Collect OceanBase native diagnostics")
+    replay_index = next(i for i, step in enumerate(steps) if step.get("id") == "acceptance_scenarios")
+    upload_index = next(i for i, step in enumerate(steps) if step["name"] == "Upload OceanBase native reports")
+    # run.sh removes the container before returning, even when replay fails.
+    assert collect_index < replay_index < upload_index
+    assert steps[collect_index]["if"] == "always() && matrix.database == 'oceanbase'"
+    assert steps[replay_index]["env"]["POWERCONTEXT_E2E_OCEANBASE_DIAGNOSTICS"] == (
+        "${{ runner.temp }}/oceanbase-acceptance/replay-failure"
+    )

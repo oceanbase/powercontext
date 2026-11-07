@@ -1,0 +1,73 @@
+name: Setup license-eye
+description: Cache the pinned native license checker and compile only on a cache miss
+
+outputs:
+  executable:
+    description: Absolute path to the license checker
+    value: ${{ runner.temp }}/license-eye/bin/license-eye
+
+runs:
+  using: composite
+  steps:
+    - name: Restore the compiled checker
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ runner.temp }}/license-eye/bin
+        key: license-eye-static-v1-${{ runner.os }}-${{ runner.arch }}-a196742f472feaffafea537ce5a2a4c3c53a8de4-go1.25.14
+
+    - name: Fetch the pinned checker source
+      id: source
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        LICENSE_EYE_REVISION: a196742f472feaffafea537ce5a2a4c3c53a8de4
+      run: |
+        source_dir="$RUNNER_TEMP/license-eye/source"
+        mkdir -p "$source_dir"
+        git -C "$source_dir" init
+        timeout --signal=TERM --kill-after=10s 180s \
+          git -C "$source_dir" fetch --depth=1 --no-tags \
+          https://github.com/apache/skywalking-eyes.git "$LICENSE_EYE_REVISION"
+        git -C "$source_dir" checkout --detach FETCH_HEAD
+        test "$(git -C "$source_dir" rev-parse HEAD)" = "$LICENSE_EYE_REVISION"
+        test -f "$source_dir/go.sum"
+
+    - name: Prepare Go only for a cold tool cache
+      id: go
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+      with:
+        go-version: '1.25.14'
+        cache-dependency-path: ${{ runner.temp }}/license-eye/source/go.sum
+
+    - name: Compile the native checker
+      id: build
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ runner.temp }}/license-eye/source
+      env:
+        GOTOOLCHAIN: local
+        GO111MODULE: 'on'
+        # Share the tool across Linux runner images without a host libc dependency.
+        CGO_ENABLED: '0'
+      run: |
+        mkdir -p "$RUNNER_TEMP/license-eye/bin"
+        go build -o "$RUNNER_TEMP/license-eye/bin/license-eye" \
+          -ldflags '-X github.com/apache/skywalking-eyes/commands.version=0.9.0' \
+          cmd/license-eye/main.go
+
+    - name: Verify the installed checker
+      id: verify
+      shell: bash
+      run: |
+        test -x "$RUNNER_TEMP/license-eye/bin/license-eye"
+        "$RUNNER_TEMP/license-eye/bin/license-eye" --help > /dev/null
+
+    # Save before source validation so a license violation does not discard the tool.
+    - name: Save the compiled checker
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ runner.temp }}/license-eye/bin
+        key: ${{ steps.cache.outputs.cache-primary-key }}
