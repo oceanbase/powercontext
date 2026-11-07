@@ -1,8 +1,8 @@
 # Gateway evidence validation / Gateway 证据验收
 
-- Date / 日期: 2026-11-06.
-- Implementation commit / 实现提交: `91f576f6f0c3d8a4285a613e95a07919b79ad447`.
-- Master base / master 基线: `69b2d7e2ac1aacc05f386d04d4616aa9254b3f5d`; latest master rechecked at `24e0017e0504f2980300ed87b21412bb425b1744` (no additional Gateway changes).
+- Date / 日期: 2026-11-07.
+- Implementation commit / 实现提交: `b1f03eb59cc9327e9c1e8ad3df60a2fbcf914713`.
+- Merged master / 已合并 master: `b8b189091e7a412300cf1292531208a8ead0e325`, including #2513 capacity limits and context refresh. / 包含 #2513 容量限制与上下文刷新。
 - Platform / 平台: Darwin arm64, Rust `1.95.0 (59807616e 2026-04-14)`, Python 3.13.15.
 - Scope / 范围: [#2463](https://github.com/oceanbase/powercontext/issues/2463),
   [planning discussion / 规划讨论 #2433](https://github.com/oceanbase/powercontext/discussions/2433).
@@ -33,19 +33,17 @@ Cargo was invoked through `/Users/lioky/.cargo/bin/cargo` because the shell's mi
 | --- | --- |
 | `cargo fmt --manifest-path gateway/Cargo.toml --all --check` | Passed / 通过 |
 | `cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings` | Passed / 通过 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml --workspace` | 163 exercised behavior tests passed; 4 live-Core cases returned early / 163 个实际行为测试通过，4 个真实 Core 用例提前返回 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app --test evidence_process` | Spawned Gateway: 1000 enabled + 100 disabled requests, plus rejected UDS/steering startup passed / 真实 Gateway 子进程，启用 1000 次、关闭 100 次请求及 UDS/steering 启动拒绝测试通过 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app -p pc-gateway-transport -p pc-gateway-protocol` | Passed, including mixed-case SSE media types, first-event BOM usage/content, every body split and spawned Gateway byte preservation / 通过，含 SSE 媒体类型大小写、首事件 BOM usage/内容、任意 body 切分及真实子进程字节保持 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-evidence` | Usage/privacy/bounded-writer tests and operational outcome output passed / usage、隐私、有界 writer 与运维 outcome 输出测试通过 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-core --test executor_semantics` | 66 passed, including snapshot/evidence consistency on normal terminals and pending-future destruction / 66 个通过，含正常终态及 pending future 销毁时快照/证据一致性 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml --workspace` | 181 exercised behavior tests passed; 4 live-Core cases returned early / 181 个实际行为测试通过，4 个真实 Core 用例提前返回 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app --test capacity_process --test evidence_process` | 13 passed: capacity/UDS scenarios, readable overflow evidence, 1000 enabled + 100 disabled calls and rejected startup / 13 个通过：容量/UDS 场景、可读超限证据、启用 1000 次与关闭 100 次调用及启动拒绝 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-core --test executor_semantics` | 73 passed; workspace also verifies normal/degraded capacity terminals, partial response facts and context refresh / 73 个通过；workspace 同时验证正常/降级容量终态、部分响应事实与上下文刷新 |
 | `make check` | Passed, including lock/policy checks, hooks, types and 61 integration-manifest tests / 通过，包含锁文件/策略检查、hooks、类型及 61 个集成清单测试 |
 | `uv run prek run -a` | Passed with all implementation files staged / 实现文件暂存后通过 |
-| `make docs-test` | Passed: bilingual links and static build, 1084 public pages verified / 双语链接与静态构建通过，验证 1084 个公开页面 |
+| `make docs-test` | Passed: bilingual links and static build, 1097 public pages verified / 双语链接与静态构建通过，验证 1097 个公开页面 |
 | `git diff --check` | Passed / 通过 |
 
-The workspace runner prints 167 passing test cases. Four `live_context_check` cases return early when the real Core
+The workspace runner prints 185 passing test cases. Four `live_context_check` cases return early when the real Core
 at `127.0.0.1:8000` is unavailable; readiness was unavailable here. Those four are not real-Core acceptance evidence.
-workspace 输出共 167 个通过用例；其中 4 个 `live_context_check` 因真实 Core 不可达而提前返回，不能算作真实 Core 验收。
+workspace 输出共 185 个通过用例；其中 4 个 `live_context_check` 因真实 Core 不可达而提前返回，不能算作真实 Core 验收。
 
 ## Observed behavior / 实际覆盖
 
@@ -53,6 +51,7 @@ workspace 输出共 167 个通过用例；其中 4 个 `live_context_check` 因�
 | --- | --- |
 | Correlated call terminals and actual attempts / 关联终态与真实尝试 | Executor tests cover success, zero-send block/withhold/expiry, retry/NotSent, Indeterminate, upstream HTTP error, release refusal/expiry, degraded execution and pending-future destruction / 覆盖成功、零发送拒绝/过期、重试/NotSent、不确定、上游 HTTP 错误、释放拒绝/过期、降级和 pending future 销毁 |
 | Usage through real transport / 真实 transport usage | Local HTTP JSON/SSE fixtures verify Chat/Responses input, output, cached reads, known zero and missing/malformed usage; cache writes stay unknown / 核对两种协议的输入、输出、缓存读、已知零及缺失/畸形 usage，缓存写保持未知 |
+| Capacity/evidence integration / 容量与证据集成 | Real fixed-length/chunked overflow returns 409 with no prefix or resend; JSONL links one `buffer_limit_exceeded` attempt to a `withheld`/`possibly_sent` call with unknown usage and observed status/first byte. Normal/degraded executor variants agree with lifecycle snapshots / 真实定长/chunked 超限返回 409，不释放前缀、不重发；JSONL 将一次超限尝试与 `withheld`/`possibly_sent` 调用关联，usage 未知且保留状态码/首字节，正常/降级 executor 与生命周期快照一致 |
 | SSE evidence framing / SSE 证据 framing | Real transport reads 80/7/20 input/output/cache-read from lowercase and mixed-case media types, including first-event Chat/Responses usage behind one leading UTF-8 BOM. Protocol/body tests preserve original offsets through BOM and reject stripping a second/interior BOM / 真实 transport 在小写/混合大小写媒体类型及带一个开头 UTF-8 BOM 的 Chat/Responses 首事件读出 80/7/20 input/output/cache-read；协议/body 测试保留原始偏移，不移除第二个/流中间的 BOM |
 | Bounded retention and visible loss / 有界保留与可见丢失 | A held writer with capacity 4 receives 100000 extra submissions: exactly 4 queue, 99996 drop; 1 record remains in flight, and recovered output reports loss / 容量 4 且 writer 卡住时额外提交 10 万条，4 条排队、99996 条丢弃、1 条在写，恢复输出含丢失计数 |
 | Business isolation / 业务隔离 | Blocking/full and I/O-error writers preserve release/withhold decisions and pending-send cancellation/drop facts; errors are counted without their text / 慢写/队列满/I/O 错误不改变释放与 withhold 结论及发送中取消/销毁事实，错误仅计数不输出原文 |
@@ -63,6 +62,15 @@ workspace 输出共 167 个通过用例；其中 4 个 `live_context_check` 因�
 | Startup privacy / 启动隐私 | Spawned TCP requests embed synthetic Core URL credentials/path and invalid injection text; UDS plus rejected steering startup embeds socket/file paths. Markers are absent from stdout/stderr while diagnostics remain readable / 真实 TCP 进程植入 Core URL 凭据/路径及非法 injection 文本，UDS/steering 启动拒绝植入 socket/文件路径；stdout/stderr 不含标记且保留可读诊断 |
 | Real production composition / 真实生产装配 | Spawned binary handles 1000 requests with 6000 readable records and 1000 distinct call IDs; explicit Noop handles 100 requests with empty stdout and an evidence-disabled startup diagnostic / 真实二进制处理 1000 次请求，输出 6000 条可读记录、1000 个不同调用 ID；显式 Noop 处理 100 次请求，stdout 为空且启动诊断说明证据关闭 |
 | Both ingress formats / 两种入口格式 | In-process public-router tests send 200 calls through actual reqwest to local HTTP fixtures, covering Chat JSON/SSE and Responses JSON/replayed SSE, and read 1200 serialized production-sink records / 进程内公开路由用真实 reqwest 完成 200 次本地 HTTP 调用，覆盖 Chat JSON/SSE 与 Responses JSON/重放 SSE，读取生产 sink 的 1200 条序列化输出 |
+
+The combined implementation preserves startup-confirmed input intersection, rendered-body limits (including
+refreshed context), the response-buffer ceiling and separate fallback capacity from #2513. Capacity and evidence
+process tests run against the same compiled production binary. The compatibility-ceiling test sends oversized
+Content-Length headers and reads the early 413 before upload, avoiding a client BrokenPipe race while preserving
+the pre-send rejection assertion. No HTTP OpenAPI change is introduced by this reconciliation.
+合并后的实现保留 #2513 的启动容量交集、最终渲染限制（含刷新上下文）、响应缓冲上限与独立 fallback 容量。
+容量与证据进程测试使用同一个生产二进制。兼容性上限测试发送超限 Content-Length 请求头后直接读取提前返回的
+413，避开客户端上传 BrokenPipe 竞态，同时保留发送前拒绝的断言。本次协调未修改 HTTP OpenAPI 契约。
 
 The spawned-process workload alternates JSON and mixed-case `Text/Event-Stream; charset=utf-8` responses.
 Of 1000 enabled calls, 500 SSE responses contain a leading BOM with the sole content delta and usage in the first event;
