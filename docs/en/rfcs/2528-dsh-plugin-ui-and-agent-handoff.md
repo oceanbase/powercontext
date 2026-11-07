@@ -6,7 +6,7 @@ description: A plugin-owned design for DSH connection status, existing dashboard
 - Proposal Name: `dsh_plugin_ui_and_agent_handoff`
 - Start Date: 2026-11-06
 - Status: Draft
-- RFC PR: Not opened; number assigned when the RFC pull request is created
+- RFC PR: [oceanbase/powercontext#2528](https://github.com/oceanbase/powercontext/pull/2528)
 - Tracking Issue: [oceanbase/powercontext#2514](https://github.com/oceanbase/powercontext/issues/2514)
 - Related RFCs: [RFC 0048](0048_handoff_artifact.md), [RFC 1223](1223_human_agent_work_continuity.md), [RFC 1345](1345_scope_organization_and_agent_integration.md), [RFC 1783](1783-handoff-session-rollover.md), and [RFC 1629](1629_dashboard_profile_and_handoff_markdown_export.md)
 
