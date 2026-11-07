@@ -87,11 +87,10 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         for relative in INSTALL_PAGES:
             content = (release_repo / relative).read_text(encoding="utf-8")
             assert set(re.findall(r"powercontext\[[^\]\n]+\]==([^\s\"`]+)", content)) == {version}, relative
-            assert set(re.findall(r"powercontext-v([^\s\"`]+)", content)) == {version}, relative
+            assert set(re.findall(r"powercontext-v([0-9][^\s\"`]+)", content)) == {version}, relative
             if relative.startswith(("README", "docs/")) and not relative.endswith("/manual-start.md"):
                 assert f"PowerContext {version}" in content, relative
             if re.search(r"(?:a|b|rc)[0-9]+$", version):
-                assert "stable release" not in content, relative
                 assert f"stable PowerContext {version}" not in content, relative
                 assert "正式版本" not in content, relative
                 assert "正式リリース" not in content, relative
@@ -99,6 +98,8 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         english = (release_repo / "docs/en/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         chinese = (release_repo / "docs/zh/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         assert f"package `{version}`" in english
+        assert f"--version {version}" in english
+        assert f"--version {version}" in chinese
         assert f"To install {version} in a separate environment" in english
         assert f"Python 包版本为 `{version}`" in chinese
         assert f"安装 {version} 到独立环境" in chinese

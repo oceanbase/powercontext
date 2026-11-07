@@ -67,6 +67,7 @@ pub fn run() {
             commands::save_profile,
             commands::remove_profile,
             commands::check_connection,
+            commands::probe_readiness,
             commands::disconnect,
             commands::invalidate_profile,
             commands::list_scopes,

@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parents[1]
@@ -33,28 +33,28 @@ DESKTOP = Path(__file__).resolve().parents[1]
 
 def capture_macos_state(artifacts: Path, attempt: int) -> None:
     with (artifacts / f"macos-build-attempt-{attempt}-state.log").open("w", encoding="utf-8") as state:
-        state.write(f"captured_at={datetime.now(UTC).isoformat()}\n")
-        for command in (
-            ["sw_vers"],
-            ["uname", "-a"],
-            ["xcodebuild", "-version"],
-            ["node", "--version"],
-            ["pnpm", "--version"],
-            ["rustc", "--version"],
-            ["cargo", "--version"],
-            ["hdiutil", "info"],
-            ["diskutil", "list"],
-            ["mount"],
-            ["find", "src-tauri/target/release/bundle", "-maxdepth", "4", "-print"],
+        state.write(f"captured_at={datetime.now(timezone.utc).isoformat()}\n")  # noqa: UP017 -- macOS runner Python may be 3.9.
+        for section, commands in (
+            ("macOS", (["sw_vers"], ["uname", "-a"])),
+            ("Xcode", (["xcodebuild", "-version"],)),
+            (
+                "toolchain",
+                (["node", "--version"], ["pnpm", "--version"], ["rustc", "--version"], ["cargo", "--version"]),
+            ),
+            ("attached disk images", (["hdiutil", "info"],)),
+            ("disks", (["diskutil", "list"],)),
+            ("mounts", (["mount"],)),
+            ("bundle files", (["find", "src-tauri/target/release/bundle", "-maxdepth", "4", "-print"],)),
         ):
-            state.write(f"## {' '.join(command)}\n")
+            state.write(f"## {section}\n")
             state.flush()
-            try:
-                subprocess.run(  # noqa: S603 -- Fixed diagnostic commands, no shell.
-                    command, cwd=DESKTOP, stdout=state, stderr=subprocess.STDOUT, check=False, timeout=15
-                )
-            except (OSError, subprocess.TimeoutExpired) as error:
-                state.write(f"Diagnostic unavailable: {type(error).__name__}\n")
+            for command in commands:
+                try:
+                    subprocess.run(  # noqa: S603 -- Fixed diagnostic commands, no shell.
+                        command, cwd=DESKTOP, stdout=state, stderr=subprocess.STDOUT, check=False, timeout=15
+                    )
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    state.write(f"Diagnostic unavailable: {type(error).__name__}\n")
 
 
 def discard_busy_image(output: str, artifacts: Path) -> Path | None:

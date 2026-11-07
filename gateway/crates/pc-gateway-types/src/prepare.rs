@@ -32,6 +32,9 @@ pub struct PrepareContextRequest {
     pub max_bytes: u32,
     #[serde(default)]
     pub include_reuse: bool,
+    /// 同时召回代码证据（Core `include_code`）。复用证明记录被引用文件的摘要，check 时逐个复核。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub include_code: bool,
     /// #2313 契约：限定召回家族。reuse 只支持 atomic-memory；
     /// 不指定 assembly 时 Core 默认召回 Experience/Topic → check 阶段拒绝。
     #[serde(default, skip_serializing_if = "Option::is_none")]

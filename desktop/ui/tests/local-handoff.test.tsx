@@ -396,3 +396,76 @@ test.each(["zh", "en"] as const)(
     ).toBeTruthy();
   },
 );
+
+test.each(["success", "failure"] as const)(
+  "Memory editing stays guarded until local invalidation %s reconciles",
+  async (result) => {
+    const user = userEvent.setup();
+    let finish!: (state: DesktopState) => void;
+    let fail!: (error: unknown) => void;
+    vi.mocked(desktopApi.state).mockResolvedValue(connected());
+    vi.mocked(desktopApi.invalidate).mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+    );
+    vi.mocked(opsApi.preflight).mockResolvedValue({
+      outcome: "succeeded",
+      approval: {
+        approvalId: "approval-a",
+        planId: "plan-a",
+        operation: "repair",
+        options: {},
+        target: {
+          targetId: "personal",
+          packageVersion: "1.4.2",
+          pythonExecutable: "/program/runtime/python",
+          envFile: "/config/server.env",
+          dataDir: "/data/personal",
+          endpoint: "http://127.0.0.1:8123",
+          startOnLogin: true,
+        },
+        effects: { mayStart: true, preservesData: true },
+      },
+    });
+    render(<App />);
+    await screen.findAllByText("Local Server");
+    await user.click(screen.getByRole("button", { name: "设置与诊断" }));
+    await user.click(
+      screen.getByRole("button", { name: localText("zh", "repair") }),
+    );
+    const plan = await screen.findByRole("dialog", {
+      name: localText("zh", "plan"),
+    });
+    await user.click(
+      within(plan).getByRole("button", { name: localText("zh", "approve") }),
+    );
+    await waitFor(() =>
+      expect(desktopApi.invalidate).toHaveBeenCalledWith("local-profile"),
+    );
+    await user.click(
+      within(plan).getByRole("button", { name: localText("zh", "dismiss") }),
+    );
+    await user.click(screen.getByRole("button", { name: "记忆" }));
+    const input = screen.getByRole("textbox", { name: "记忆内容" });
+    expect(input.matches(":disabled")).toBe(true);
+    await user.type(input, "must not be lost");
+    expect((input as HTMLTextAreaElement).value).toBe("");
+    await act(async () => {
+      if (result === "success")
+        finish({ ...connected(), generation: 7, active: null });
+      else fail({ code: "timeout" });
+    });
+    expect(opsApi.apply).not.toHaveBeenCalled();
+    if (result === "failure") {
+      const recovered = screen.getByRole("textbox", { name: "记忆内容" });
+      expect(recovered.matches(":enabled")).toBe(true);
+      await user.type(recovered, "draft after failure");
+      expect((recovered as HTMLTextAreaElement).value).toBe(
+        "draft after failure",
+      );
+    }
+  },
+);

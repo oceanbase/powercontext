@@ -63,7 +63,13 @@ pub struct CheckReport {
     pub checked_at: u64,
     pub liveness: Fact<HealthResponse>,
     pub readiness: Fact<ReadinessResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub readiness_checked_at: Option<u64>,
     pub identity: Fact<AccessMeResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub connection_identity: Option<Fact<ConnectionIdentity>>,
     pub capabilities: Fact<Capabilities>,
     pub compatibility_verified: bool,
     pub anonymous_access: bool,
@@ -71,6 +77,21 @@ pub struct CheckReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub discovery: Option<DiscoveryResult>,
+}
+impl CheckReport {
+    fn server_id(&self) -> Option<&str> {
+        self.connection_identity
+            .as_ref()
+            .and_then(|fact| fact.value.as_ref())
+            .map(|identity| identity.server_id.as_str())
+            .or_else(|| {
+                self.discovery
+                    .as_ref()?
+                    .server
+                    .as_ref()
+                    .map(|server| server.server_id.as_str())
+            })
+    }
 }
 #[derive(Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -81,6 +102,10 @@ pub struct CompatibilityProfile {
     pub artifact_sha256: String,
     pub operations: Vec<String>,
     pub evidence: String,
+    /// Separate current-client evidence; the original Server qualification remains unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub authenticated_clients: Option<BTreeMap<String, String>>,
 }
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -148,10 +173,31 @@ impl Drop for WriteGuard<'_> {
         }
     }
 }
+#[derive(PartialEq)]
+enum NativeIdentity {
+    Principal(AccessMeResponse),
+    Connection(ConnectionIdentity),
+}
+impl NativeIdentity {
+    async fn verify(&self, api: &ServerApi) -> Result<(), ApiFailure> {
+        let unchanged = match self {
+            Self::Principal(original) => api.principal().await.map(|current| current == *original),
+            Self::Connection(original) => api
+                .connection_identity()
+                .await
+                .map(|current| current == *original),
+        }?;
+        if unchanged {
+            Ok(())
+        } else {
+            Err(SafeError::StaleContext.into())
+        }
+    }
+}
 struct ReadSnapshot {
     api: Arc<ServerApi>,
     server_id: Option<String>,
-    identity: Option<AccessMeResponse>,
+    identity: NativeIdentity,
     cancelled: watch::Receiver<u32>,
 }
 struct Active {
@@ -172,6 +218,7 @@ pub struct ConnectionManager {
     scope_reads: watch::Sender<u32>,
     compatibility: Vec<CompatibilityProfile>,
     probes: tokio::sync::Semaphore,
+    readiness_probes: tokio::sync::Semaphore,
     writes: tokio::sync::Semaphore,
     memory_reads: watch::Sender<u32>,
     stats_reads: watch::Sender<u32>,
@@ -219,6 +266,7 @@ impl ConnectionManager {
             scope_reads: watch::channel(0).0,
             compatibility,
             probes: tokio::sync::Semaphore::new(1),
+            readiness_probes: tokio::sync::Semaphore::new(1),
             writes: tokio::sync::Semaphore::new(1),
             memory_reads: watch::channel(0).0,
             stats_reads: watch::channel(0).0,
@@ -437,26 +485,21 @@ impl ConnectionManager {
         let report = Self::cancellable(&mut cancelled, async {
             // Discovery is separate from the bounded observation batch (four transport slots).
             let discovery = api.server_info().await;
-            let (live, ready, identity, capabilities) = tokio::join!(
-                api.live(),
-                api.readiness(),
-                api.principal(),
-                api.capabilities()
-            );
-            let anonymous_access = profile.authentication
-                == super::profiles::Authentication::UnauthenticatedLoopback
-                && ready
-                    .as_ref()
-                    .is_ok_and(|r| r.checks.get("access_mode").is_some_and(|v| v == "disabled"))
-                && identity
-                    .as_ref()
-                    .is_err_and(|e| e.code == SafeError::RuntimeNotReady);
+            let (live, identity, capabilities) =
+                tokio::join!(api.live(), api.principal(), api.capabilities());
             let contract: serde_json::Value =
                 serde_json::from_str(include_str!("../transport/operations.json"))
                     .map_err(|_| SafeError::InvalidResponse)?;
             let compatible = self.compatibility.iter().find(|c| {
                 profile.compatibility.as_ref() == Some(&c.id)
-                    && contract["contractSha256"].as_str() == Some(&c.contract_sha256)
+                    && (contract["contractSha256"].as_str() == Some(&c.contract_sha256)
+                        || (profile.authentication == super::profiles::Authentication::Bearer
+                            && identity.is_ok()
+                            && contract["contractSha256"].as_str().is_some_and(|digest| {
+                                c.authenticated_clients
+                                    .as_ref()
+                                    .is_some_and(|clients| clients.contains_key(digest))
+                            })))
                     && !identity
                         .as_ref()
                         .is_err_and(|e| e.code == SafeError::InvalidResponse)
@@ -465,17 +508,88 @@ impl ConnectionManager {
                         .is_err_and(|e| e.code == SafeError::InvalidResponse)
             });
             let discovery = DiscoveryResult::assess(discovery, compatible);
-            let supported_operations = discovery.supported_operations();
+            let mut supported_operations = discovery.supported_operations();
+            let requires_identity = compatible.is_some_and(|profile| {
+                profile
+                    .operations
+                    .iter()
+                    .any(|op| op == "get_connection_identity")
+            });
+            let connection_identity = if requires_identity {
+                let result = if supported_operations
+                    .iter()
+                    .any(|op| op == "get_connection_identity")
+                {
+                    api.connection_identity().await.and_then(|value| {
+                        let deployment_matches = discovery
+                            .server
+                            .as_ref()
+                            .map_or(discovery.status == DiscoveryStatus::Denied, |server| {
+                                server.server_id == value.server_id
+                            });
+                        if deployment_matches
+                            && (value.authentication != ConnectionAuthentication::Disabled
+                                || profile.authentication
+                                    == super::profiles::Authentication::UnauthenticatedLoopback)
+                        {
+                            Ok(value)
+                        } else {
+                            Err(SafeError::StaleContext.into())
+                        }
+                    })
+                } else {
+                    supported_operations.clear();
+                    Err(SafeError::CompatibilityUnverified.into())
+                };
+                if result
+                    .as_ref()
+                    .is_err_and(|error| error.code == SafeError::StaleContext)
+                {
+                    return Err(SafeError::StaleContext.into());
+                }
+                Some(Fact::from(result))
+            } else if identity
+                .as_ref()
+                .is_err_and(|error| error.code == SafeError::RuntimeNotReady)
+            {
+                // A generic 503 is not evidence that authentication or Access is disabled.
+                Some(Fact {
+                    value: None,
+                    error: Some(SafeError::CompatibilityUnverified.into()),
+                })
+            } else {
+                None
+            };
+            let anonymous_access = connection_identity
+                .as_ref()
+                .and_then(|fact| fact.value.as_ref())
+                .is_some_and(|value| value.authentication == ConnectionAuthentication::Disabled);
+            if requires_identity
+                && connection_identity
+                    .as_ref()
+                    .and_then(|fact| fact.value.as_ref())
+                    .is_none()
+            {
+                supported_operations.clear();
+            }
             if !supported_operations.is_empty() {
-                // Do not activate a Principal observed across a deployment replacement.
-                Self::deployment_unchanged(
-                    &api,
-                    discovery
-                        .server
-                        .as_ref()
-                        .map(|server| server.server_id.as_str()),
-                )
-                .await?;
+                if let Some(value) = connection_identity
+                    .as_ref()
+                    .and_then(|fact| fact.value.as_ref())
+                {
+                    NativeIdentity::Connection(value.clone())
+                        .verify(&api)
+                        .await?;
+                } else {
+                    Self::deployment_unchanged(
+                        &api,
+                        discovery
+                            .server
+                            .as_ref()
+                            .map(|server| server.server_id.as_str()),
+                    )
+                    .await?;
+                }
             }
             Ok(CheckReport {
                 anonymous_access,
@@ -486,8 +600,13 @@ impl ConnectionManager {
                     .unwrap_or_default()
                     .as_secs(),
                 liveness: live.into(),
-                readiness: ready.into(),
+                readiness: Fact {
+                    value: None,
+                    error: None,
+                },
+                readiness_checked_at: None,
                 identity: identity.into(),
+                connection_identity,
                 capabilities: capabilities.into(),
                 compatibility_verified: !supported_operations.is_empty(),
                 supported_operations,
@@ -520,10 +639,7 @@ impl ConnectionManager {
             {
                 return Err(SafeError::CompatibilityUnverified.into());
             }
-            let identity = report.identity.value.clone();
-            if identity.is_none() && !report.anonymous_access {
-                return Err(SafeError::Unauthorized.into());
-            }
+            let identity = Self::native_identity(&report)?;
             let server_id = server.server_id.clone();
             Some(
                 Self::cancellable(&mut cancelled, async {
@@ -554,9 +670,10 @@ impl ConnectionManager {
                 .discovery
                 .as_ref()
                 .and_then(|value| value.server.as_ref());
-            let same_identity = previous.identity.value == report.identity.value
-                && previous.anonymous_access == report.anonymous_access
-                && (report.identity.value.is_some() || report.anonymous_access);
+            let same_identity = matches!(
+                (Self::native_identity(&previous), Self::native_identity(&report)),
+                (Ok(before), Ok(current)) if before == current
+            );
             match (previous_server, current_server) {
                 (Some(before), Some(current))
                     if before.server_id == current.server_id
@@ -566,7 +683,7 @@ impl ConnectionManager {
                             .iter()
                             .any(|operation| operation == "get_scope") =>
                 {
-                    let identity = report.identity.value.clone();
+                    let identity = Self::native_identity(&report)?;
                     let server_id = current.server_id.clone();
                     Self::cancellable(&mut cancelled, async {
                         self.identity_unchanged(
@@ -638,6 +755,88 @@ impl ConnectionManager {
         }
         Ok(self.state_view(&inner))
     }
+    /// Explicit diagnostic action. Its result cannot activate or authorize a context.
+    pub async fn probe_readiness(
+        &self,
+        id: &str,
+        revision: u32,
+    ) -> Result<DesktopState, ApiFailure> {
+        let _permit = self
+            .readiness_probes
+            .try_acquire()
+            .map_err(|_| SafeError::Busy)?;
+        let (api, generation, server_id, identity, mut cancelled) = {
+            let inner = self.lock()?;
+            let report = inner.reports.get(id).ok_or(SafeError::NotConnected)?;
+            if report.revision != revision {
+                return Err(SafeError::StaleContext.into());
+            }
+            (
+                inner
+                    .profiles
+                    .api(id)?
+                    .with_observations(self.observations.clone()),
+                inner.generation,
+                report.server_id().map(str::to_owned),
+                report
+                    .connection_identity
+                    .as_ref()
+                    .and_then(|fact| fact.value.clone())
+                    .map(NativeIdentity::Connection),
+                self.changed.subscribe(),
+            )
+        };
+        let result = Self::cancellable(&mut cancelled, async {
+            if let Some(identity) = &identity {
+                identity.verify(&api).await?;
+            } else {
+                Self::deployment_unchanged(&api, server_id.as_deref()).await?;
+            }
+            let result = api.readiness().await;
+            if let Some(identity) = &identity {
+                identity.verify(&api).await?;
+            } else {
+                Self::deployment_unchanged(&api, server_id.as_deref()).await?;
+            }
+            Ok(result)
+        })
+        .await?;
+        let mut inner = self.lock()?;
+        if inner.generation != generation {
+            return Err(SafeError::StaleContext.into());
+        }
+        let report = inner.reports.get_mut(id).ok_or(SafeError::StaleContext)?;
+        if report.revision != revision {
+            return Err(SafeError::StaleContext.into());
+        }
+        report.readiness = result.into();
+        report.readiness_checked_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        );
+        drop(inner);
+        self.state().map_err(Into::into)
+    }
+    fn native_identity(report: &CheckReport) -> Result<NativeIdentity, SafeError> {
+        match &report.connection_identity {
+            Some(fact) => Ok(NativeIdentity::Connection(fact.value.clone().ok_or_else(
+                || {
+                    fact.error
+                        .as_ref()
+                        .map_or(SafeError::Unauthorized, |error| error.code)
+                },
+            )?)),
+            None => Ok(NativeIdentity::Principal(
+                report
+                    .identity
+                    .value
+                    .clone()
+                    .ok_or(SafeError::Unauthorized)?,
+            )),
+        }
+    }
     fn snapshot(&self, generation: u32, operation: &str) -> Result<ReadSnapshot, SafeError> {
         let inner = self.lock()?;
         let active = inner.active.as_ref().ok_or(SafeError::NotConnected)?;
@@ -654,20 +853,11 @@ impl ConnectionManager {
         {
             return Err(SafeError::CompatibilityUnverified);
         }
-        let principal = active.view.report.identity.value.clone();
-        if principal.is_none() && !active.view.report.anonymous_access {
-            return Err(SafeError::Unauthorized);
-        }
+        let identity = Self::native_identity(&active.view.report)?;
         Ok(ReadSnapshot {
             api: active.api.clone(),
-            server_id: active
-                .view
-                .report
-                .discovery
-                .as_ref()
-                .and_then(|discovery| discovery.server.as_ref())
-                .map(|server| server.server_id.clone()),
-            identity: principal,
+            server_id: active.view.report.server_id().map(str::to_owned),
+            identity,
             cancelled: self.changed.subscribe(),
         })
     }
@@ -698,29 +888,15 @@ impl ConnectionManager {
     async fn identity_unchanged(
         &self,
         api: &ServerApi,
-        original: &Option<AccessMeResponse>,
+        original: &NativeIdentity,
         server_id: Option<&str>,
         generation: u32,
     ) -> Result<(), ApiFailure> {
-        let current = api.principal().await;
-        let unchanged = if let Some(original) = original {
-            current.as_ref().is_ok_and(|value| value == original)
-        } else {
-            current
-                .as_ref()
-                .is_err_and(|e| e.code == SafeError::RuntimeNotReady)
-                && api
-                    .readiness()
-                    .await
-                    .is_ok_and(|r| r.checks.get("access_mode").is_some_and(|v| v == "disabled"))
-        };
-        let result = if unchanged {
-            Self::deployment_unchanged(api, server_id).await
-        } else {
-            match current {
-                Err(error) => Err(error),
-                Ok(_) => Err(SafeError::StaleContext.into()),
+        let result = match original.verify(api).await {
+            Ok(()) if matches!(original, NativeIdentity::Principal(_)) => {
+                Self::deployment_unchanged(api, server_id).await
             }
+            result => result,
         };
         if result.is_ok() {
             return result;
@@ -865,10 +1041,10 @@ impl ConnectionManager {
             .find(|profile| profile.id == active.view.connection_id)
             .ok_or(SafeError::NotConnected)?
             .endpoint;
-        let principal = snapshot
-            .identity
-            .as_ref()
-            .map(|value| value.principal.clone());
+        let principal = match &snapshot.identity {
+            NativeIdentity::Principal(value) => Some(value.principal.clone()),
+            NativeIdentity::Connection(value) => value.principal.clone(),
+        };
         let server_id = snapshot.server_id.clone();
         Ok((
             snapshot,

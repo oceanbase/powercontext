@@ -213,6 +213,39 @@ def test_corrupt_cached_interpreter_is_rejected_without_network(tmp_path: Path) 
     assert artifact.read_bytes() == b"bad existing input"
 
 
+@pytest.mark.parametrize("retry_succeeds", [True, False])
+def test_acquire_retries_windows_curl_crash_with_fresh_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retry_succeeds: bool
+) -> None:
+    content = b"locked candidate bytes"
+    item = {
+        "url": "https://candidate.invalid/wheel.whl",
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "size": len(content),
+    }
+    results = iter((False, retry_succeeds))
+
+    def download(command: list[str], **_options: Any) -> None:
+        succeeded = next(results)
+        partial = Path(command[command.index("--output") + 1])
+        with partial.open("xb") as stream:
+            stream.write(content if succeeded else b"incomplete")
+        if not succeeded:
+            raise subprocess.CalledProcessError(0xC0000005, command)
+
+    monkeypatch.setattr(subprocess, "run", download)
+    artifact = tmp_path / "wheel.whl"
+    if retry_succeeds:
+        acquire(item, artifact, tmp_path / "cache")
+        assert artifact.read_bytes() == content
+    else:
+        with pytest.raises(subprocess.CalledProcessError) as error:
+            acquire(item, artifact, tmp_path / "cache")
+        assert error.value.returncode == 0xC0000005
+        assert not artifact.exists()
+    assert next(results, None) is None
+
+
 def test_windows_layout_requires_console_and_windowless_interpreters(tmp_path: Path) -> None:
     source = tmp_path / "python.tar.gz"
     _runtime_archive(source)
@@ -508,7 +541,9 @@ def test_native_candidate_is_consumed_and_runs_independent_ops(native_candidates
         ],
         cwd=_ROOT,
         check=True,
-        timeout=300,
+        # Leave room for the launcher and Ops phase deadlines, archive I/O,
+        # and writing failure evidence before the outer process is stopped.
+        timeout=1200,
     )
 
 

@@ -30,8 +30,8 @@ PowerContext 进程启动时从环境变量读取配置。当前工作目录存�
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_SIGNING_KEY_ID` | `atomic-memory-v1` | 当前密钥标识，1–128 字符；部署配置只加载这一把密钥 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_TTL_SECONDS` | `300` | 预览有效期，1–3600 秒 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RESTORE_RETRY_BUDGET` | `3` | 无 token 恢复遇到 `atomic_memory_changed` 后重新读取和准备的次数，0–10；默认最多初次尝试加 3 次重试 |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Source 抽取的相关记忆召回：`auto`、`fts`、`vector` 或 `hybrid`；auto 在无 profile 时选 fts，有 profile 时选 hybrid |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | 相关记忆向量枚举的最大精确 L2 距离，非负；不用于普通有 limit 的搜索 |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Source 抽取的相关记忆召回，内置 Prompt 下也用于同窗口的先前候选：`auto`、`fts`、`vector` 或 `hybrid`；auto 在无 profile 时选 fts，有 profile 时选 hybrid |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | 相关记忆向量枚举及同窗口先前候选的最大精确 L2 距离，非负；不用于普通有 limit 的搜索 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | 显式允许相关召回在查询向量不可用、profile 不匹配或向量投影不完整时改用全文枚举；不改变普通搜索的错误处理 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | 每次相关记忆判断最多比较的对象数，正整数；不是总候选上限 |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | 每次抽取或判断输入的估算 token 上限，包含指令和完整输入，正整数 |
