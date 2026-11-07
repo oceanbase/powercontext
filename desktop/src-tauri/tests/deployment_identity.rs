@@ -19,7 +19,7 @@ mod common;
 use powercontext_desktop::{
     connections::{
         profiles::ProfileRepository,
-        session::{ConnectionManager, WriteStatus},
+        session::{CompatibilityProfile, ConnectionManager, WriteStatus},
     },
     credentials::NativeVault,
     error::SafeError,
@@ -85,6 +85,13 @@ impl Fixture {
         Self::with_profile(authenticated, None).await
     }
     async fn with_profile(authenticated: bool, compatibility: Option<&str>) -> Self {
+        Self::with_profile_evidence(authenticated, compatibility, true).await
+    }
+    async fn with_profile_evidence(
+        authenticated: bool,
+        compatibility: Option<&str>,
+        qualify_legacy: bool,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let state = Arc::new(Mutex::new(State {
@@ -217,8 +224,30 @@ impl Fixture {
             Arc::new(NativeVault),
         )
         .unwrap();
-        let manager = Arc::new(if compatibility.is_some() {
-            ConnectionManager::new(repository)
+        let manager = Arc::new(if let Some(id) = compatibility {
+            if qualify_legacy
+                && ["sqlite-atomic-112db11e-v1", "sqlite-atomic-3cefa45a-v1"].contains(&id)
+            {
+                // Only synthetic HTTP fixtures are qualified here; never alter bundled product evidence.
+                let mut records: Vec<CompatibilityProfile> =
+                    serde_json::from_str(include_str!("../src/connections/compatibility.json"))
+                        .unwrap();
+                let contract: Value =
+                    serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
+                records
+                    .iter_mut()
+                    .find(|record| record.id == id)
+                    .unwrap()
+                    .authenticated_clients
+                    .get_or_insert_with(Default::default)
+                    .insert(
+                        contract["contractSha256"].as_str().unwrap().into(),
+                        "Synthetic HTTP fixture; not product qualification".into(),
+                    );
+                ConnectionManager::with_compatibility(repository, records)
+            } else {
+                ConnectionManager::new(repository)
+            }
         } else {
             common::connection_manager(repository)
         });
@@ -320,6 +349,25 @@ async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal
                 .any(|path| path == "/health/ready" || path == "/v1/connection/identity")
         );
     }
+}
+
+#[tokio::test]
+async fn bundled_legacy_profile_without_current_client_evidence_is_unavailable() {
+    let fixture =
+        Fixture::with_profile_evidence(true, Some("sqlite-atomic-112db11e-v1"), false).await;
+    let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+    let report = state.active.unwrap().report;
+    assert!(!report.compatibility_verified);
+    assert_eq!(
+        fixture
+            .manager
+            .scopes(state.generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
 }
 
 #[tokio::test]

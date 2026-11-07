@@ -1165,6 +1165,7 @@ class ScopedContextApplication:
         binding_identity: str = "local",
         atomic_context: ArtifactSearchExecutionContext | None = None,
         authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+        resolve_target: bool = False,
     ) -> ContextCheckResult:
         """Admit final bytes without retrieving or changing the current context."""
         async with self._runtime._scope_operation(self.scope_id):
@@ -1187,6 +1188,7 @@ class ScopedContextApplication:
                 binding_identity=binding_identity,
                 now=self._runtime._clock(),
                 validate_reuse=validate,
+                resolve_target=resolve_target,
             )
 
     async def _prepare(

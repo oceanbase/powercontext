@@ -190,6 +190,7 @@ def validate_action_resource(action: AccessAction, resource: ResourceRef, *, dep
             AccessAction.SCOPE_REVIEW,
             AccessAction.SCOPE_DELEGATE,
             AccessAction.SCOPE_ADMIN,
+            AccessAction.GATEWAY_INVOKE,
         }:
             raise AccessInvalidRequestError("action-resource")
         return
@@ -212,6 +213,7 @@ def validate_binding_role(resource: ResourceRef, role: AccessRole, *, deployment
             AccessRole.SCOPE_REVIEWER,
             AccessRole.SCOPE_DELEGATOR,
             AccessRole.SCOPE_ADMIN,
+            AccessRole.GATEWAY_USER,
         }:
             raise AccessInvalidRequestError("binding-role")
         return

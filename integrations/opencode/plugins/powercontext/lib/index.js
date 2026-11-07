@@ -547,7 +547,7 @@ const OPERATIONS = {
 		scopeMode: "current",
 		pathParameters: [],
 		queryParams: [],
-		headerParams: [],
+		headerParams: ["X-PowerContext-Resolve-Target"],
 		successStatuses: [200],
 		emptyStatuses: []
 	},

@@ -39,6 +39,7 @@ class AccessAction(StrEnum):
     SCOPE_REVIEW = "scope.review"
     SCOPE_DELEGATE = "scope.delegate"
     SCOPE_ADMIN = "scope.admin"
+    GATEWAY_INVOKE = "gateway.invoke"
     ARTIFACT_READ = "artifact.read"
     ARTIFACT_WRITE = "artifact.write"
     ARTIFACT_SHARE = "artifact.share"
@@ -71,6 +72,7 @@ class AccessRole(StrEnum):
     SCOPE_REVIEWER = "scope.reviewer"
     SCOPE_DELEGATOR = "scope.delegator"
     SCOPE_ADMIN = "scope.admin"
+    GATEWAY_USER = "gateway.user"
     SERVER_OBSERVER = "server.observer"
     SERVER_ADMIN = "server.admin"
 
@@ -378,6 +380,7 @@ ROLE_ACTIONS: dict[AccessRole, frozenset[AccessAction]] = {
     AccessRole.SCOPE_REVIEWER: frozenset({AccessAction.SCOPE_READ, AccessAction.SCOPE_REVIEW}),
     AccessRole.SCOPE_DELEGATOR: frozenset({AccessAction.SCOPE_READ, AccessAction.SCOPE_DELEGATE}),
     AccessRole.SCOPE_ADMIN: frozenset({AccessAction.SCOPE_ADMIN}),
+    AccessRole.GATEWAY_USER: frozenset({AccessAction.GATEWAY_INVOKE}),
     AccessRole.SERVER_OBSERVER: frozenset({AccessAction.SERVER_OBSERVE}),
     AccessRole.SERVER_ADMIN: frozenset({AccessAction.SERVER_ADMIN}),
 }
@@ -421,6 +424,7 @@ ROLE_RESOURCE_TYPES: dict[AccessRole, AccessResourceType] = {
     AccessRole.SCOPE_REVIEWER: AccessResourceType.SCOPE,
     AccessRole.SCOPE_DELEGATOR: AccessResourceType.SCOPE,
     AccessRole.SCOPE_ADMIN: AccessResourceType.SCOPE,
+    AccessRole.GATEWAY_USER: AccessResourceType.SCOPE,
     AccessRole.SERVER_OBSERVER: AccessResourceType.SERVER,
     AccessRole.SERVER_ADMIN: AccessResourceType.SERVER,
 }
