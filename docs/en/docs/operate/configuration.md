@@ -35,8 +35,8 @@ use the same secret and key ID:
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_SIGNING_KEY_ID` | `atomic-memory-v1` | Current key ID, 1–128 characters; deployment configuration loads only this one key |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_TTL_SECONDS` | `300` | Preview lifetime, 1–3600 seconds |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RESTORE_RETRY_BUDGET` | `3` | Re-read and preparation retries after `atomic_memory_changed` during restoration without a token, 0–10; the default permits the initial attempt plus 3 retries |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Related-memory recall during Source processing: `auto`, `fts`, `vector` or `hybrid`; auto selects fts without a profile and hybrid with one |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration, nonnegative; does not apply to ordinary searches with a limit |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Related-memory recall during Source processing, also applied to earlier candidates of the same window under built-in Prompts: `auto`, `fts`, `vector` or `hybrid`; auto selects fts without a profile and hybrid with one |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration and for earlier candidates of the same window, nonnegative; does not apply to ordinary searches with a limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | Explicitly permit full-text enumeration when the related query vector is unavailable, profiles mismatch or vector projections are incomplete; ordinary search error handling is unchanged |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | Maximum related objects per comparison call, positive integer; it is not a total candidate limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
@@ -633,6 +633,9 @@ Atomic Memory uses native `minimum_should_match` filtering when the connected Oc
 Older engines retain the whole-word `LOCATE` coverage check. Capability detection does not treat query timeouts,
 permission failures, or connection errors as an unsupported feature. Both paths keep the same analyzed, deduplicated
 query terms and admission threshold, including recovery probes and complete related-memory enumeration.
+Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
+Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
+OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.
 This selection requires no new setting, table, or index migration; the existing `SPACE` full-text index is reused.
 
 seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases

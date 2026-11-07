@@ -18,7 +18,7 @@ version = "0.0.1"
 description = "Bub-driven PowerContext session replay harness."
 requires-python = ">=3.12,<4.0"
 dependencies = [
-    "bub==0.5.1",
+    "bub[app]==0.6.1",
     "harbor>=0.16,<0.17",
     "loguru>=0.7,<1",
     "marko>=2.2,<3",

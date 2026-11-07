@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from weakref import WeakKeyDictionary
 
 from pyobvector import VECTOR, VectorIndex
@@ -98,6 +99,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         super().__init__(atomic_memory_current_table(None if profile is None else VECTOR(profile.dimension)), profile)
         self._ef_search = ef_search
         self._native_fts_support: WeakKeyDictionary[Pool, bool] = WeakKeyDictionary()
+        self._native_long_fts_support: WeakKeyDictionary[Pool, bool] = WeakKeyDictionary()
         self._native_fts_locks: WeakKeyDictionary[Pool, asyncio.Lock] = WeakKeyDictionary()
         self._vector_index = (
             None
@@ -130,13 +132,16 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             ) from error
         await self._initialize_vectors(connection)
 
-    async def _supports_native_fts(self, connection: AsyncConnection) -> bool:
+    async def _supports_native_fts(self, connection: AsyncConnection, *, term_count: int = 1) -> bool:
         # Managed-schema startup can skip initialize(). Cache by pool so reusing
         # this index with another backend, or disposing its engine, cannot carry
         # a capability decision into a different connection lifecycle.
         pool = connection.sync_engine.pool
         if pool in self._native_fts_support:
-            return self._native_fts_support[pool]
+            if not self._native_fts_support[pool] or term_count <= 256:
+                return self._native_fts_support[pool]
+            if pool in self._native_long_fts_support:
+                return self._native_long_fts_support[pool]
         lock = self._native_fts_locks.setdefault(pool, asyncio.Lock())
         async with lock:
             if pool not in self._native_fts_support:
@@ -150,7 +155,19 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
                     self._native_fts_support[pool] = False
                 else:
                     self._native_fts_support[pool] = True
-        return self._native_fts_support[pool]
+            if not self._native_fts_support[pool] or term_count <= 256:
+                return self._native_fts_support[pool]
+            if pool not in self._native_long_fts_support:
+                # CE 4.4.2.1 accepts MATCH but ignores minimum_should_match
+                # above 256 query terms. Keep complete-word coverage until a
+                # qualified OceanBase version supports the long-query path.
+                # SeekDB's MySQL/OceanBase compatibility version is not proof.
+                version = str((await connection.exec_driver_sql("SELECT VERSION()")).scalar_one())
+                match = re.search(r"OceanBase(?:_CE|_EE|\s+AI)?[\s_-]*v?(\d+)\.(\d+)\.", version, re.IGNORECASE)
+                self._native_long_fts_support[pool] = bool(
+                    "seekdb" not in version.lower() and match is not None and (int(match[1]), int(match[2])) >= (4, 6)
+                )
+            return self._native_long_fts_support[pool]
 
     async def _initialize_vectors(self, connection: AsyncConnection) -> None:
         if self.profile is None:
@@ -220,7 +237,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             if request.mode in {"fts", "hybrid"}
             else ((), 0)
         )
-        if not terms or not await self._supports_native_fts(connection):
+        if not terms or not await self._supports_native_fts(connection, term_count=len(terms)):
             return await super().probe_recoverable(connection, scope_id, request, floor)
         _, lower_required = fts_query_requirements(request.query, floor=floor)
         eligibility, parameters = atomic_memory_filter_sql(request.filters, "mysql")
@@ -309,7 +326,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             terms = ()
         if not terms and not vector:
             return (), {}
-        native = bool(terms) and await self._supports_native_fts(connection)
+        native = bool(terms) and await self._supports_native_fts(connection, term_count=len(terms))
         if terms:
             parameters["fts_query"] = " ".join(terms)
             parameters["fts_required"] = required
@@ -455,7 +472,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             terms, required = fts_query_requirements(request.query, floor=request.admission)
             if terms and required <= len(terms):
                 parameters["fts_query"] = " ".join(terms)
-                if await self._supports_native_fts(connection):
+                if await self._supports_native_fts(connection, term_count=len(terms)):
                     score = "SCORE()"
                     admission = _NATIVE_FTS_MATCH
                     parameters["fts_options"] = f"operator=or;minimum_should_match={required}"

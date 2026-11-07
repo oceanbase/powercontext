@@ -15,10 +15,12 @@
 """Lexical admission keeps distinct whole terms and same-row eligibility on every backend."""
 
 import asyncio
+import os
+from collections.abc import Iterator
 from dataclasses import replace
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import Engine, event, update
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory import AtomicMemoryContent
@@ -34,6 +36,34 @@ from powercontext.builtin.persistence.atomic_memory_index import (
 from powercontext.builtin.tags import TagFilter
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
 from tests.e2e.test_atomic_memory_vector_index import Embedding, _initialize_related_authority
+
+
+@pytest.fixture(autouse=True)
+def require_oceanbase_fts_path() -> Iterator[None]:
+    """CI must exercise successful business queries, not just the capability probe."""
+    expected = os.environ.get("POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH")
+    if expected is None:
+        yield
+        return
+    assert expected in {"native", "legacy"}, f"Unknown OceanBase FTS path: {expected}"
+    observed: set[str] = set()
+
+    def record_path(connection, cursor, statement, parameters, context, executemany):
+        if "pc_atomic_memory_current" not in statement or not any(
+            "fts_query" in bound for bound in getattr(context, "compiled_parameters", ()) or ()
+        ):
+            return
+        if "MATCH(searchable_text^1" in statement:
+            observed.add("native")
+        elif "LOCATE(BINARY" in statement:
+            observed.add("legacy")
+
+    event.listen(Engine, "after_cursor_execute", record_path)
+    try:
+        yield
+    finally:
+        event.remove(Engine, "after_cursor_execute", record_path)
+    assert observed == {expected}, f"Expected successful {expected} FTS queries, observed {sorted(observed)}"
 
 
 def test_fts_coverage_keeps_distinct_terms_and_filters_before_limits(migration_backend: MigrationBackend):

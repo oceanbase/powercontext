@@ -172,6 +172,7 @@ def test_manifest_v2_declares_pre_compaction_mode_for_every_maintained_agent_hos
         "workbuddy": "unsupported",
         "zcode": "unsupported",
         "kimi-code": "unsupported",
+        "minimax": "unsupported",
     }
 
 
@@ -515,8 +516,8 @@ def test_removing_a_declaration_does_not_hide_its_directory(integration_tree: Pa
 
 def test_stale_directory_exclusion_is_reported(integration_tree: Path) -> None:
     manifest = load_integration_manifest()
-    (integration_tree / "integrations/minimax").rmdir()
-    assert integration_directory_errors(manifest, integration_tree) == ("integrations/minimax/: excluded but absent",)
+    (integration_tree / "integrations/opendal").rmdir()
+    assert integration_directory_errors(manifest, integration_tree) == ("integrations/opendal/: excluded but absent",)
 
 
 @pytest.mark.parametrize("locale", ["en", "zh"])

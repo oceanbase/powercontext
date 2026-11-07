@@ -55,7 +55,7 @@ def test_off_arm_installs_bub_without_the_powercontext_plugin() -> None:
     command = _install_bub_command(powercontext=False)
 
     assert "integrations/bub" not in command
-    assert f"bub=={version('bub')}" in command
+    assert f"bub[app]=={version('bub')}" in command
 
 
 def test_acp_server_install_names_the_pre_release_sdk_and_keeps_the_harness_bub() -> None:
@@ -68,7 +68,7 @@ def test_acp_server_install_names_the_pre_release_sdk_and_keeps_the_harness_bub(
     assert set(command[install_index + 1 :]) == {
         f"bub-acp-server=={BUB_ACP_SERVER_VERSION}",
         ACP_SDK_REQUIREMENT,
-        f"bub=={version('bub')}",
+        f"bub[app]=={version('bub')}",
     }
 
 

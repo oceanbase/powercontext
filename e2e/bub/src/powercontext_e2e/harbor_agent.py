@@ -40,8 +40,8 @@ REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
 # Change ACP_SDK_REQUIREMENT together with this version: it repeats the server's own pin of the ACP SDK.
-BUB_ACP_SERVER_VERSION = "0.1.1"
-# bub-acp-server 0.1.1 pins this pre-release. uv accepts a pre-release only when a direct requirement names it, so the
+BUB_ACP_SERVER_VERSION = "0.1.3"
+# bub-acp-server 0.1.3 pins this pre-release. uv accepts a pre-release only when a direct requirement names it, so the
 # install must repeat the pin or it cannot resolve the server at all. A server release that pins another SDK version
 # conflicts with this requirement and fails to install.
 ACP_SDK_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
@@ -176,7 +176,7 @@ def _install_bub_command(*, powercontext: bool = True) -> str:
         "fi; "
         f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
         f"{uv} tool install --force {plugin}"
-        f"{shlex.quote(f'bub=={BUB_VERSION}')}"
+        f"{shlex.quote(f'bub[app]=={BUB_VERSION}')}"
     )
 
 
@@ -189,5 +189,5 @@ def _install_acp_server_command() -> str:
         f"BUB_PROJECT={REMOTE_BUB_PROJECT} "
         f"{_tool_environment()} {REMOTE_BIN_DIR}/bub install "
         f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')} {shlex.quote(ACP_SDK_REQUIREMENT)} "
-        f"{shlex.quote(f'bub=={BUB_VERSION}')}"
+        f"{shlex.quote(f'bub[app]=={BUB_VERSION}')}"
     )

@@ -83,6 +83,13 @@ impl ReplayCache {
             .map(|e| e.prepared.clone())
     }
 
+    /// 丢弃一个锚点的结果，例如它的复用证明已不能通过 check；下一次请求重新准备。
+    pub(crate) fn forget(&self, scope_id: &str, conversation_id: &str, anchor: u64) {
+        lock(&self.entries).retain(|e| {
+            !(e.scope_id == scope_id && e.conversation_id == conversation_id && e.anchor == anchor)
+        });
+    }
+
     /// 写入一个锚点的结果（put-if-absent）：已有同一锚点时保留先写入的值并返回它，保证同一锚点只有
     /// 一种注入内容。同一会话的不同锚点并存、不互相替换，上一回合迟到完成的准备不会挤掉当前回合。
     pub(crate) fn put_if_absent(

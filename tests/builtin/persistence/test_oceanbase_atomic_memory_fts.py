@@ -67,14 +67,22 @@ def _database_error(code: int) -> DBAPIError:
 class _Connection:
     """Model the server's accepted dialect, not full-text matching or SQL execution."""
 
-    def __init__(self, *, capability_error: BaseException | None = None):
+    def __init__(
+        self,
+        *,
+        capability_error: BaseException | None = None,
+        version: str = "5.7.25-OceanBase_CE-v4.6.0.1",
+    ):
         self.dialect = SimpleNamespace(name="mysql")
         self.sync_engine = SimpleNamespace(pool=_Pool())
         self.capability_error = capability_error
+        self.version = version
         self.native_query_error: BaseException | None = None
         self.parameters: list[dict[str, object]] = []
 
     async def exec_driver_sql(self, statement):
+        if statement == "SELECT VERSION()":
+            return SimpleNamespace(scalar_one=lambda: self.version)
         if "SCORE()" in statement and self.capability_error is not None:
             raise self.capability_error
         return _Result()
@@ -115,6 +123,29 @@ def test_search_uses_legacy_coverage_when_server_lacks_native_match(code):
         connection = _Connection(capability_error=_database_error(code))
         hit = await _search(OceanBaseAtomicMemoryIndex(), connection)
         assert hit.score == 0.5
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_score"),
+    [
+        ("5.7.25-OceanBase_CE-v4.4.2.1", 0.5),
+        ("5.7.25-OceanBase_CE-v4.5.0.0", 0.5),
+        ("5.7.25-OceanBase_CE-v4.6.0.1", 0.75),
+        ("5.7.25-OceanBase_CE-v5.0.1.0", 0.75),
+        ("5.7.25-OceanBase seekdb-v1.4.0.0", 0.5),
+        ("5.7.25", 0.5),
+    ],
+)
+def test_long_queries_preserve_coverage_on_engines_with_limited_native_matching(version, expected_score):
+    async def scenario():
+        connection = _Connection(version=version)
+        index = OceanBaseAtomicMemoryIndex()
+        long_hit = await _search(index, connection, " ".join(f"q{i:04}" for i in range(257)))
+        assert long_hit.score == expected_score
+        short_hit = await _search(index, connection, " ".join(f"q{i:04}" for i in range(256)))
+        assert short_hit.score == 0.75
 
     asyncio.run(scenario())
 
