@@ -288,6 +288,9 @@ jobs:
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.installer_run == '') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').desktop) }}
+    # Ubuntu Desktop qualification is optional under #2112; required Windows
+    # and macOS validation must remain independent of a Linux failure.
+    continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:

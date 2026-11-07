@@ -28,6 +28,10 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
     name: Candidate ${{ matrix.target }}
+    # Linux candidate qualification is optional for #2110. Keep its result and
+    # diagnostics visible without allowing it to fail the required Windows/macOS
+    # candidate aggregate.
+    continue-on-error: ${{ matrix.optional }}
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -35,12 +39,16 @@ jobs:
         include:
           - target: linux-x86_64
             runner: ubuntu-24.04
+            optional: true
           - target: windows-x86_64
             runner: windows-2025
+            optional: false
           - target: macos-arm64
             runner: macos-15
+            optional: false
           - target: macos-x86_64
             runner: macos-15-intel
+            optional: false
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     defaults:

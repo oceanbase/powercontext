@@ -262,13 +262,30 @@ def test_compatibility_and_upgrade_matrices_have_bounded_runner_bursts():
     assert int(upgrade["max-parallel"]) <= 3
     assert upgrade["fail-fast"] is False  # Complete upgrade evidence remains mandatory.
     native = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]["strategy"]
+    native_job = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]
     assert int(native["max-parallel"]) <= 2
-    assert {row["target"] for row in native["matrix"]["include"]} == {
+    rows = {row["target"]: row for row in native["matrix"]["include"]}
+    assert set(rows) == {
         "linux-x86_64",
         "windows-x86_64",
         "macos-arm64",
         "macos-x86_64",
     }
+    assert rows["linux-x86_64"]["optional"] is True
+    assert all(rows[target]["optional"] is False for target in rows if target != "linux-x86_64")
+    assert native_job["continue-on-error"] == "${{ matrix.optional }}"
+
+
+def test_linux_desktop_and_native_validation_are_optional_platform_gates():
+    desktop = workflow("desktop.yml")["jobs"]
+    native = workflow("native-service.yml")["jobs"]
+
+    assert desktop["linux"]["continue-on-error"] is True
+    assert "continue-on-error" not in desktop["windows"]
+    assert "continue-on-error" not in desktop["macos"]
+    assert native["linux-systemd-user"]["continue-on-error"] is True
+    assert "continue-on-error" not in native["macos-launchagent"]
+    assert "continue-on-error" not in native["windows-task-scheduler"]
 
 
 def test_cancelled_or_draft_runs_cannot_start_terminal_runner_jobs():

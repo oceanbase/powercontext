@@ -960,7 +960,7 @@ def _process_identity(pid: int) -> str | None:
     # PID reuse during the parallel suite must not look like a surviving descendant.
     try:
         stat = Path(f"/proc/{pid}/stat").read_text()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return None
     fields = stat[stat.rfind(")") + 2 :].split()
     return fields[19] if len(fields) > 19 else None
