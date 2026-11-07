@@ -178,6 +178,16 @@ async fn ingress_model(
         }
     }
 
+    if state.max_body_bytes == 0 {
+        return respond(
+            ManagedOutcome::GatePaused("input_capacity_unconfirmed".into()),
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        );
+    }
+
     // Applies the configured limit to the consumed body as well: chunked requests have no Content-Length,
     // so the middleware precheck cannot limit them. Here we use the same configured value to prevent bypassing via framing.
     let body = match axum::body::to_bytes(req.into_body(), state.max_body_bytes).await {
@@ -293,6 +303,7 @@ async fn ingress_model(
             state.inject_responses,
             conversation.is_some(),
         ),
+        include_code: state.inject_code,
         conversation_id: conversation,
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
@@ -839,6 +850,7 @@ mod tests {
             degrade: pc_gateway_core::DegradePolicy::Pause,
             injection: Injection::Off,
             inject_responses: false,
+            inject_code: false,
             sediment: false,
             steering: None,
             default_scope: "test".into(),
@@ -848,7 +860,7 @@ mod tests {
         let router = crate::middleware::apply_chain(
             crate::router(state, crate::proxy::ProxyState::from_env()),
             vec![
-                crate::middleware::ResourceLimits::new(1024 * 1024, 2),
+                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 2),
                 Arc::new(crate::middleware::RequestId),
             ],
         );

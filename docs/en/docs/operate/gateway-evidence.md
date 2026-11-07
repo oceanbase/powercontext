@@ -111,6 +111,9 @@ Each `attempt` contains `attempt`, `outcome`, `started_ms`, `duration_ms`, `upst
 `lost_after_handoff`, `timeout_awaiting_response`, and `buffer_limit_exceeded`. A partial-response failure preserves
 its observed status/first-byte timing but keeps completion and usage unknown. Once the transport reports delivery,
 usage survives decoding/release failures. A dropped pending transport cannot provide its private partial observations.
+A response-buffer overflow produces a `withheld` call with `possibly_sent`, one `buffer_limit_exceeded` attempt,
+unknown usage/completion, and any observed status/first-byte timing. It releases no response prefix and does not retry,
+including degraded passthrough. This preserves the capacity-limit decision separately from possible billing.
 
 ## Usage mapping
 

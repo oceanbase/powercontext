@@ -42,7 +42,10 @@ impl Drop for Gateway {
 async fn production_jsonl_and_explicit_noop_keep_real_requests_usable() {
     let fixture = Router::new()
         .route("/v1/capabilities", get(|| async { Json(json!({"context_protection": {
-            "check_versions": ["powercontext.context-check.v1"], "payload_versions": ["powercontext.model-json-payload.v1"], "enforcing":true
+            "check_versions": ["powercontext.context-check.v1"], "payload_versions": ["powercontext.model-json-payload.v1"], "enforcing":true,
+            "reuse_versions": [], "reuse_families": [],
+            "limits": {"payload_bytes": 1048576, "binding_bytes": 8192, "prepared_contexts": 16,
+                "dependencies": 256, "send_seconds": 60, "correlate_seconds": 300}
         }})) }))
         .route("/v1/context/check", post(|Json(request): Json<Value>| async move { Json(json!({
             "schema":"powercontext.context-check.v1", "phase":request["phase"], "decision":"allow",

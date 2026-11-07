@@ -102,6 +102,9 @@ pending 执行 future 销毁时输出 `abandoned` 并保留发送事实。
 `connect_refused`、`rejected_locally`、`lost_after_handoff`、`timeout_awaiting_response`、`buffer_limit_exceeded`。
 部分响应失败保留已观察到的状态码与首字节时间，完整响应时间和 usage 保持未知。
 transport 交付完整响应后，解码或释放失败不会丢掉 usage。直接丢弃 pending transport 时无法取得其内部的部分观测。
+响应缓冲区超限时，调用记录为 `withheld`、发送事实为 `possibly_sent`，仅有一次 `buffer_limit_exceeded` 尝试；
+usage 与完整响应时间未知，保留已观察到的状态码和首字节时间。不释放响应前缀，也不重试，降级直通同样遵循此行为。
+容量限制的拒绝结论与可能计费事实分别保留。
 
 ## Usage 映射
 

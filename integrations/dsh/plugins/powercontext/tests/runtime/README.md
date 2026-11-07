@@ -1,5 +1,8 @@
 # DSH runtime acceptance
 
+The [2026-11-05 Desktop archive acceptance](acceptance/2026-11-05.md) records actual macOS Desktop
+`0.2.1-rc.5` installation, authenticated MCP writes, fresh-session search, and automatic recall.
+
 The [2026-09-04 acceptance record](acceptance/2026-09-04.md) includes build identity, automated results,
 actual Web checks, a snapshot screenshot, and the outstanding live-model authentication blocker.
 

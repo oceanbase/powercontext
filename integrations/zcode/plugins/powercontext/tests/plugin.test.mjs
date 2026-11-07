@@ -165,7 +165,8 @@ test('hook resolves Scope, injects prepared context and captures one Source', as
   assert.equal(result.stderr, '')
   const output = JSON.parse(result.stdout)
   assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit')
-  assert.match(output.hookSpecificOutput.additionalContext, /Remember the blue deployment/)
+  assert.match(output.hookSpecificOutput.additionalContext,
+    /\}\n\nPowerContext context for this request\.\n\nRemember the blue deployment\.$/)
   assert.deepEqual(requests.map(request => request.path), [
     '/v1/scope-bindings/resolve', '/v1/context/prepare', '/v1/sources/content',
   ])
