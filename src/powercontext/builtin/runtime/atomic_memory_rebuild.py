@@ -284,31 +284,23 @@ async def _record(
     # Projection repair needs only exact content and authoritative state. Historical
     # migration checkpoints must not depend on lineage tables added by later steps.
     heads, bodies = ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE
-    row = (
-        (
-            await connection.execute(
-                select(heads.c.artifact_id, heads.c.family, heads.c.revision, bodies.c.content)
-                .select_from(
-                    heads.outerjoin(
-                        bodies,
-                        and_(
-                            *(
-                                heads.c[name] == bodies.c[name]
-                                for name in ("scope_id", "family", "artifact_id", "revision")
-                            )
-                        ),
-                    )
-                )
-                .where(
-                    heads.c.scope_id == scope_id,
-                    heads.c.family == AtomicMemory.family,
-                    heads.c.artifact_id == artifact_id,
-                )
+    statement = (
+        select(heads.c.artifact_id, heads.c.family, heads.c.revision, bodies.c.content)
+        .select_from(
+            heads.outerjoin(
+                bodies,
+                and_(*(heads.c[name] == bodies.c[name] for name in ("scope_id", "family", "artifact_id", "revision"))),
             )
         )
-        .mappings()
-        .one_or_none()
+        .where(
+            heads.c.scope_id == scope_id,
+            heads.c.family == AtomicMemory.family,
+            heads.c.artifact_id == artifact_id,
+        )
     )
+    if for_update:
+        statement = statement.with_for_update()
+    row = (await connection.execute(statement)).mappings().one_or_none()
     if row is None or row["content"] is None:
         raise AtomicMemoryIndexError("authority-content", "Atomic Memory head has no authoritative content")
     artifact = AtomicMemory(

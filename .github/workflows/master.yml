@@ -291,6 +291,12 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
+      - name: Check Source serialization with minimum Pydantic
+        if: matrix.suite == 'unit' && matrix.python-version == '3.11'
+        run: >-
+          uv run --with 'pydantic==2.12.0' python -m pytest
+          tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
+
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
         # Preserve the real Hook deadlines without competing with xdist workers.

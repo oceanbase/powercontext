@@ -23,7 +23,7 @@ keywords = ['python']
 requires-python = ">=3.11,<4.0"
 dependencies = [
     "jsonschema>=4.23,<5",
-    "pydantic>=2.10,<3",
+    "pydantic>=2.12,<3",
     "rfc8785>=0.1.4,<1",
     "typing-extensions>=4.12,<5",
 ]

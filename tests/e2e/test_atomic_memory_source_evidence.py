@@ -23,7 +23,8 @@ from typing import cast
 
 import pytest
 from pydantic import BaseModel, Field, field_serializer, field_validator
-from sqlalchemy import event, text, update
+from sqlalchemy import Select, event, text, update
+from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import SQLAlchemyError
 
 from powercontext.artifacts import ArtifactLineage
@@ -579,5 +580,33 @@ def test_current_rebuild_accepts_the_configured_source_registry(migration_backen
                 )
             assert report.ready, report.errors
             assert await memory.evidence("rebuild", revision=1) == expected
+
+    asyncio.run(scenario())
+
+
+def test_current_rebuild_locks_authoritative_heads(migration_backend: MigrationBackend) -> None:
+    """Check emitted locking semantics; SQLite execution does not certify native row locks."""
+
+    async def scenario():
+        async with open_builtin_contexts(BuiltinConfig(database=migration_backend.config)) as contexts:
+            await _commit(contexts, "scope", "locked-rebuild", "Retain the current head.")
+            head_reads = []
+
+            def capture(_connection, clause, _multiparams, _params, _options):
+                if not isinstance(clause, Select):
+                    return
+                statement = str(clause.compile(dialect=mysql.dialect()))
+                if "pc_artifact_heads LEFT OUTER JOIN pc_artifacts" in statement:
+                    head_reads.append(statement)
+
+            engine = contexts.database.engine.sync_engine
+            event.listen(engine, "before_execute", capture)
+            try:
+                async with contexts.database.transaction() as connection:
+                    report = await rebuild_atomic_memory_current(connection, contexts.atomic_memory.index)
+                assert report.ready, report.errors
+            finally:
+                event.remove(engine, "before_execute", capture)
+            assert head_reads and head_reads[0].endswith("FOR UPDATE")
 
     asyncio.run(scenario())
