@@ -1,0 +1,13 @@
+{
+  "schema": "evidence-admission.v13.evidence-index.v1",
+  "files": {
+    "committed-freeze.json": "4e1a3acda56692d73243b80ec3a691f4bf258f3d84e30e1721e1654cc46bb5dc",
+    "quality-replay.json": "3d3af6a2eb4594d932195ab2eb4c13f8556749e57bc1941b964e9e54818bb31f",
+    "COMPLETE.json": "2acfc18989252a2523d195199d3a71b14e2d2a5a32e83be7047a4307ebf034e3",
+    "literal-audit.json": "c4132bff73840b450364cee65e18999b7c9e3bc61000a0df07c1824da9caf7d0",
+    "summary.json": "ac130018277233265b88bc6a9d5692eb226c45584668a1539123a552b7a332a5",
+    "authorization-basis.json": "7ac0f44a94b6599120bec9c83d1fd6a0e8a86e5cd4729c4af5e6bdf12448841b"
+  },
+  "formal_acceptance": false,
+  "production_authorized": false
+}

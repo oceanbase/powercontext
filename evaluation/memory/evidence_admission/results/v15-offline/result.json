@@ -1,0 +1,96 @@
+{
+  "schema": "evidence-admission.v15.final-result.v1",
+  "baseline_commit": "f40a4d13",
+  "identity_hash": "a44d21c112e5a269d31c1c5d1ce2dc3cef2123a40ff325f02c4d5a8266c37938",
+  "offline_execution_identity": "content_snapshot_before_local_archive_commit; not_authenticated_as_committed_execution",
+  "offline_gate_passed": true,
+  "minimal_live_ready": false,
+  "stop_required": true,
+  "stop_stage": "minimal_manifest_readiness_before_SDK_preflight",
+  "decision": "insufficient_evidence",
+  "reason": "Unicode requires four requests; frozen minimal manifest allows one per case. The ordinary packing budget passes but does not authorize expanding this manifest.",
+  "provider_requests": 0,
+  "production_authorized": false,
+  "validation": {
+    "new_behavior_tests": 22,
+    "full_evaluator_tests_passed": 447,
+    "warnings": 1926,
+    "python": "3.11.15",
+    "ruff": "passed",
+    "v15_types": "passed",
+    "root_types": "passed",
+    "pydantic_ai_integration_types": "passed",
+    "root_lock": "passed",
+    "evaluation_lock": "passed",
+    "integration_manifest_and_guidance": "passed_50_tests",
+    "repository_hooks": "all_executed; historical_v14_json_format_failed_and_original_bytes_restored; other_hooks_passed",
+    "new_json_format_hook": "passed",
+    "whole_evaluation_types": "one_preexisting_ScopedAtomicMemory.evidence_diagnostic_in_LongMemEval",
+    "other_python_versions": "not_run"
+  },
+  "reference_status_counts": {
+    "complete-projection-v1": {
+      "prepared": 42,
+      "budget_rejected": 237,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "window-reduction-v1": {
+      "prepared": 54,
+      "budget_rejected": 225,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v1": {
+      "prepared": 279,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v2": {
+      "prepared": 279,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v3": {
+      "prepared": 279,
+      "unavailable": 18,
+      "cancelled": 27
+    }
+  },
+  "artifact_integrity": [
+    {
+      "dataset": "synthetic-v1",
+      "samples": 900,
+      "sha256": "f4aa6d21997a95da1a5e0307bab95e2eb15a2870f65d72ce85b0ade472ff3988",
+      "result_hash": "969bddcc0a4e450df39605a8dd9e73515e890454b21db1d73aca4d6bc0707a8b",
+      "reference_manifest_hash": "53afd25be72cf1168efdf144a183294bbb9ba9734ac1c78b10eb316cef99df03",
+      "identity_hash": "a44d21c112e5a269d31c1c5d1ce2dc3cef2123a40ff325f02c4d5a8266c37938"
+    },
+    {
+      "dataset": "validation-v2",
+      "samples": 360,
+      "sha256": "2354ee1b133b293ac73ad759e275f0b4fb2daeae612fd72c0eb2ad2cd832fef5",
+      "result_hash": "d11d1a89f5e0871d1991072bf63792c44e28293300165905f1748f482b909be4",
+      "reference_manifest_hash": "dc83443fe720f5856781884a66fa1af354b7124a95482cbb0e12ff9cc36aa2d9",
+      "identity_hash": "a44d21c112e5a269d31c1c5d1ce2dc3cef2123a40ff325f02c4d5a8266c37938"
+    },
+    {
+      "dataset": "validation-v3",
+      "samples": 360,
+      "sha256": "e9130ae2e4f362151c51957d30ce3bda3594a4e387d0d5dc8489d1784f6ee7c7",
+      "result_hash": "813d89a269fead6ff413d2aeabf0dff263378ed15577dcef588c28a4fe62a254",
+      "reference_manifest_hash": "9fb49ca9df8663841409f1fe155fc1d038813eeb746cc78922249305d40016ae",
+      "identity_hash": "a44d21c112e5a269d31c1c5d1ce2dc3cef2123a40ff325f02c4d5a8266c37938"
+    }
+  ],
+  "unpacked_unicode_estimate_observed": 10170,
+  "unpacked_unicode_estimate_source": "local preparation diagnostic; packed per-call costs are bound in minimal-readiness.json",
+  "many_source_2048": {
+    "requests": 8,
+    "estimated_input_tokens_each": 2048,
+    "cumulative_estimated_input_tokens": 16384,
+    "cumulative_limit": 16384,
+    "estimated_headroom": 0,
+    "sdk_and_provider_budget_verified": false
+  }
+}

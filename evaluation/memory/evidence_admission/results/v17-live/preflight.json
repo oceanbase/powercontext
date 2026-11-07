@@ -1,0 +1,14 @@
+{
+  "schema": "evidence-admission.v17.preflight.v1",
+  "passed": true,
+  "plan_hash": "69db305f1cd2383afe595950edfc408d32734afd3e1814e44d136c14140e8e05",
+  "http_request_hashes": {
+    "exact-literals-0": "88c6959a7e32d5aeaf3a90a334898999cc04b606340f41324e024ae09f1c5370",
+    "unicode-boundaries-0": "552e41e3bc833fbcf617cc09bcb86bccc107d77564a1ccc8ccb1d9b681fb5aff",
+    "unicode-boundaries-1": "d6e95e553d005d12de5e6674fc7d42bd6752a70f03c8621dc5ccd20c521ad0be",
+    "unicode-boundaries-2": "4f27125f0e5b74c221efb4d5e52718a227b7c78fd7ae79eee11f4e8a5bbc9017"
+  },
+  "mock_http_requests": 4,
+  "provider_requests": 0,
+  "semantic_quality": "not_measured"
+}

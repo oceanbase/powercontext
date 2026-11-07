@@ -1,0 +1,25 @@
+{
+  "samples": 1620,
+  "reexecuted_window_samples": 324,
+  "inherited_unchanged_samples": 1296,
+  "measurement_modes": {
+    "protocol_aware_window_reexecuted": 279,
+    "unchanged_fault_boundary_reexecuted": 45
+  },
+  "recovered_historical_failures": 6,
+  "regressed_window_samples": [],
+  "nondeterministic_groups": [],
+  "window_offline_gate_passed": true,
+  "window_statuses": {
+    "prepared": 54,
+    "budget_rejected": 225,
+    "unavailable": 18,
+    "cancelled": 27
+  },
+  "window_cost_accepted_eligible_claims": 171,
+  "window_executable_calls": 114,
+  "window_estimated_input_tokens": 256332,
+  "provider_requests": 0,
+  "decision": "insufficient_evidence",
+  "production_authorized": false
+}

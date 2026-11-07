@@ -1,0 +1,43 @@
+{
+  "schema": "evidence-admission.v12.pipeline-smoke.v1",
+  "scope": "diagnostic_single_arm_not_formal_all_arm_comparison",
+  "generation_and_scoring": "unchanged_v10_instructions_schema_binding_parent_atom_and_legacy_diagnostics",
+  "selection": "v11_hash_verified_candidate_v3_selection_no_label_access",
+  "ordered_cases": [
+    "exact-literals",
+    "unicode-boundaries"
+  ],
+  "dataset": "synthetic-v1",
+  "arm": "bounded-fragments-v3",
+  "budget": 4096,
+  "repetition": 0,
+  "max_calls": 2,
+  "max_output_tokens": 2048,
+  "retries": 0,
+  "concurrency": 1,
+  "advance": "one_request_then_explicit_context_bound_review_before_next_case",
+  "copy_gate": "at_least_one_valid_copy_part_per_case_in_addition_to_fact_literal_atomicity_gate",
+  "freeze": "actual_HEAD_blobs_equal_current_all_runtime_evaluator_data_dependency_and_protocol_files_before_credentials",
+  "provider": {
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com"
+  },
+  "billing_envelope": {
+    "checked_date": "2026-10-28",
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+    "limit_source": "https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/",
+    "currency": "CNY",
+    "input_token_bound": 1048576,
+    "output_token_bound": 2048,
+    "input_cny_per_million": "2",
+    "output_cny_per_million": "8",
+    "reservation_cny": "2.113536",
+    "claim": "conditional_price_and_usage_envelope_not_account_spend_cap"
+  },
+  "unknown_send_or_usage": "retain_reservation_and_stop_never_retry",
+  "budget_scope": "explicit_plan_bound_approval_no_inheritance_of_stopped_v9_plan",
+  "independent_human_review_required_for_formal_acceptance": true,
+  "formal_acceptance": false,
+  "production_authorized": false,
+  "baseline_v11_sha256": "acb157254b613633673a3fc1c78be8fc303b9922c4fcd91f0b8c2163e49b5a5f"
+}

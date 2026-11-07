@@ -1,0 +1,18 @@
+{
+  "schema": "evidence-admission.v8.contract.v1",
+  "scope": "offline_full_request_budget_repacking",
+  "parent_selection": "frozen_v5_per_arm_selected_inputs",
+  "wire_protocol": "v7_budget_and_binding_audit_v2",
+  "selection_labels_available": false,
+  "drop_or_truncate_selected_content": false,
+  "cross_original_request_merge": false,
+  "packing": "stable_adjacent_whole_range_greedy",
+  "oversized_indivisible_range": "explicitly_block_sample",
+  "default_max_calls_per_sample": 16,
+  "default_total_input_budget_multiplier": 8,
+  "existing_v2_v3_caps": "unchanged",
+  "fact_scoring": "reference_denominator_unchanged_plus_union_and_same_request_coverage",
+  "normalization": "none_before_existing_persistence",
+  "provider_requests": 0,
+  "production_authorized": false
+}

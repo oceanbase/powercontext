@@ -19,3 +19,6 @@ src/powercontext/builtin/persistence/migrations/server_resources/** text eol=lf
 src/powercontext/builtin/persistence/migration_resources/** text eol=lf
 # SSE recordings retain their final blank event separator.
 gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/**/*.sse whitespace=-blank-at-eof
+
+# Historical evaluation evidence must retain its exact committed bytes.
+evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v14/contract.json -text

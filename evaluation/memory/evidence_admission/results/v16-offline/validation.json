@@ -1,0 +1,136 @@
+{
+  "schema": "evidence-admission.v16.validation.v1",
+  "execution_revision": "faf15ad6c1e20eb5d8ed36ca36f5816c07c09348",
+  "evaluation_tox": [
+    {
+      "environment": "py311-evaluation",
+      "python": "3.11.15",
+      "passed": 1320,
+      "skipped": 1,
+      "warnings": 1935,
+      "all_commands_exit_zero": true,
+      "full_evaluation_types": "passed"
+    },
+    {
+      "environment": "py312-evaluation",
+      "python": "3.12.3",
+      "passed": 1320,
+      "skipped": 1,
+      "warnings": 1935,
+      "all_commands_exit_zero": true,
+      "full_evaluation_types": "passed"
+    },
+    {
+      "environment": "py313-evaluation",
+      "python": "3.13.13",
+      "passed": 1320,
+      "skipped": 1,
+      "warnings": 1935,
+      "all_commands_exit_zero": true,
+      "full_evaluation_types": "passed"
+    },
+    {
+      "environment": "py314-evaluation",
+      "python": "3.14.5",
+      "passed": 1320,
+      "skipped": 1,
+      "warnings": 1935,
+      "all_commands_exit_zero": true,
+      "full_evaluation_types": "passed"
+    }
+  ],
+  "evaluation_tox_artifact_sha256": "640b7b191957f64f4fbf76651ffbc174839ad0b96e788f049d34da5ae1ffe73e",
+  "issue_pytest": {
+    "passed": 490,
+    "warnings": 1934,
+    "log_sha256": "6a65e0fdbdf82f339a46883b5535b47b50c9eb8104125bc0b453c733c1953e27"
+  },
+  "new_behavior_tests_passed": 29,
+  "make_check": {
+    "passed": true,
+    "log_sha256": "8ee2d245eee6c84b8b5e0f6b1d39722a0c38701ae10e438bd5778321363b9bbc"
+  },
+  "issue_ruff_check": "passed",
+  "issue_ruff_format_check": "passed",
+  "root_validation": {
+    "receipt": "../engineering-readiness/summary.json",
+    "receipt_sha256": "127a3d0302ac76c229dfc51d4fcda15a66ae3f5825a442ddee3098776ff6b833",
+    "engineering_commit": "87c70714",
+    "root_runtime_changed_since_engineering_commit": false,
+    "full_root_four_version_matrix_rerun_for_evaluation_only_v16": false
+  },
+  "builds": {
+    "archives": [
+      {
+        "archive": "powercontext-1.4.1.dev190+gfaf15ad6c-py3-none-any.whl",
+        "sha256": "110a0f1db84330933ed6901684085a5165525bf6a7a5deb9d0e4acbdaf73d60c",
+        "members": 558,
+        "v16_members_byte_matched": 0,
+        "forbidden_generated_members": 0
+      },
+      {
+        "archive": "powercontext-1.4.1.dev190+gfaf15ad6c.tar.gz",
+        "sha256": "bd9361fc20673412058402a107327402d00641039e6740d64d9556627c3d652b",
+        "members": 3073,
+        "v16_members_byte_matched": 10,
+        "forbidden_generated_members": 0
+      },
+      {
+        "archive": "powercontext_eval-0.1.0-py3-none-any.whl",
+        "sha256": "e70cdf6174b4e99a8148be7de517aa1a37eae4e4afe6010387bff4ebd2e9ded7",
+        "members": 219,
+        "v16_members_byte_matched": 10,
+        "forbidden_generated_members": 0
+      },
+      {
+        "archive": "powercontext_eval-0.1.0.tar.gz",
+        "sha256": "d53cc5bd41d153ff42d5a139ceb279ea5a6cf3ec14546f729a8998192bde30bf",
+        "members": 554,
+        "v16_members_byte_matched": 10,
+        "forbidden_generated_members": 0
+      }
+    ]
+  },
+  "installed_wheel": {
+    "actual_installed_wheel": true,
+    "outside_checkout": true,
+    "checks": [
+      {
+        "check": "help",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "output_sha256": "b79bc005dd0b81cf4ace9f28b784020e1772c231683a7958006bfb4fa44bc82e",
+        "passed": true
+      },
+      {
+        "check": "fixture",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "output_sha256": "10196b5439fe93c374b5a82ad6da8758df0f173b5196e6d6c70555615ec77af7",
+        "passed": true
+      },
+      {
+        "check": "checkout_guard",
+        "exit_code": 2,
+        "expected_exit_code": 2,
+        "output_sha256": "2d17d39fd546f17de5cf20efe55c3389d840044527536df5a48ff60174dc0ae9",
+        "passed": true
+      }
+    ],
+    "provider_requests": 0
+  },
+  "provider_requests": 0,
+  "delivery_make_check": {
+    "passed": true,
+    "log_sha256": "d6be1e592dd22e476ba0f52d05d22070e054489824176ac1cabbcb942eac9333"
+  },
+  "read_only_summary_regeneration": {
+    "matched_saved_result": true,
+    "log_sha256": "50388519c9b9aac214593b693dbc01efe493946b94cdb07779a97d13a70ae7fb"
+  },
+  "check_log_sha256": {
+    "ruff-check.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "ruff-format.log": "c0f9c747ad491bb65b3a843ef99f08d2d00c7aee3b8ca1e196a8644a0297f026",
+    "evaluation-types.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  }
+}

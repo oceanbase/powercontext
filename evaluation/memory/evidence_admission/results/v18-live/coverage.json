@@ -1,0 +1,78 @@
+{
+  "planned_sample_rows": 972,
+  "planned_provider_calls": 471,
+  "attempted_calls": 4,
+  "http_200_with_usage": 3,
+  "no_response_or_usage_calls": 1,
+  "unrun_calls": 467,
+  "attempted": [
+    {
+      "call_id": "067108184485bfc8a91219cfb5e5ded44d6ebaa23d3dcb947d981ac08fa4c634",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "arm": "complete-projection-v1",
+      "budget": 2048,
+      "repetition": 0,
+      "http_status": 200,
+      "outcome": "returned",
+      "response_saved": true,
+      "usage_known": true
+    },
+    {
+      "call_id": "b871e10177e56f60a7f53c8b1a997a1886e3e9a5193953359e30ba0b87b38c2d",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "arm": "window-reduction-v1",
+      "budget": 2048,
+      "repetition": 0,
+      "http_status": 200,
+      "outcome": "returned",
+      "response_saved": true,
+      "usage_known": true
+    },
+    {
+      "call_id": "dee12046c57c88816e1c8e5765553f1e35d82bb7b8b334960e2a3e93efdab911",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "arm": "bounded-fragments-v3",
+      "budget": 2048,
+      "repetition": 0,
+      "http_status": 200,
+      "outcome": "returned",
+      "response_saved": true,
+      "usage_known": true
+    },
+    {
+      "call_id": "af60fe86503f6f6209615dc652a99ed91effe08d485d56c3da1f2d8429a53d4e",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "arm": "complete-projection-v1",
+      "budget": 2048,
+      "repetition": 1,
+      "http_status": null,
+      "outcome": "output_or_inference_failed",
+      "response_saved": false,
+      "usage_known": false
+    }
+  ],
+  "measured_oversized_or_mixed_live_cases": 0,
+  "datasets_with_any_provider_attempt": [
+    "synthetic-v1"
+  ],
+  "validation_v2_live": "not_run",
+  "validation_v3_live": "not_run",
+  "independent_critical_human_review": false,
+  "semantic_diagnostic_not_formal_acceptance": true,
+  "generation_totals_are_proven_lower_bounds_not_full_plan_retention_rates": true,
+  "only_completed_three_arm_generation_pair": {
+    "dataset": "synthetic-v1",
+    "case": "small-complete",
+    "budget": 2048,
+    "repetition": 0
+  },
+  "unrun_sample_rows_with_provider_plan": 371,
+  "row_measurement_complete_field_means_planned_calls_attempted_not_successful_response": true,
+  "unknown_call_reason": "request_attempt_started_but_no_http_response_or_usage; underlying_error_type_not_retained",
+  "approved_budget_scope_preapproval_unknown_calls": 13,
+  "preapproval_unknown_calls_excluded_from_v9_budget_not_zero": true
+}

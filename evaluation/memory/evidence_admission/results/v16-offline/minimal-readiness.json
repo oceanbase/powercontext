@@ -1,0 +1,87 @@
+{
+  "schema": "evidence-admission.v16.minimal-readiness.v1",
+  "identity_hash": "487cdea929226e028da889ac6dc633553e593689732e9167fe115e854546c00d",
+  "offline_summary_hash": "25756a16fa9598e7bd26784fea5a3e4a133ec9306581e410a8c8196aa63fa693",
+  "cases": [
+    {
+      "case": "exact-literals",
+      "sample_id": "e736b421e64dbc132ebc0b283a8a66c05872b72b329fc8912201f5288a9108a9",
+      "budget": 4096,
+      "accepted": true,
+      "requests": 1,
+      "estimated_input_tokens": [
+        3795
+      ],
+      "cell_count": 4,
+      "request_hashes": [
+        "0d55d563c52b7138cbe5f7b8c1cb6f01d22b4395142457a264c37952490168a7"
+      ],
+      "required_literals_copy_selectable": true,
+      "coverage": {
+        "retained_claim_hashes": [
+          "f9f836daebfb326f91ced87da98ba2d743f66803159a2e8ee4eeebf902808799"
+        ],
+        "same_request_claim_hashes": [
+          "f9f836daebfb326f91ced87da98ba2d743f66803159a2e8ee4eeebf902808799"
+        ],
+        "retained_literal_hashes": [
+          "9208e9d2663f6c01c0aa0f3697a8b466a8aaa294798c393246eae44bce5bfdad",
+          "13e3ae5f1b97e651bec230cc60b9c37d0ccdc40ef23e30c03450787509d3e701",
+          "2d8acee26a313917bac178c3d9150bf739afc14afaf022a4b894ef675d012885",
+          "b898f6671f986f6aee92b8678a25fb000c160411b8fe029f8432f567e6e33a76"
+        ],
+        "same_request_literal_hashes": [
+          "9208e9d2663f6c01c0aa0f3697a8b466a8aaa294798c393246eae44bce5bfdad",
+          "13e3ae5f1b97e651bec230cc60b9c37d0ccdc40ef23e30c03450787509d3e701",
+          "2d8acee26a313917bac178c3d9150bf739afc14afaf022a4b894ef675d012885",
+          "b898f6671f986f6aee92b8678a25fb000c160411b8fe029f8432f567e6e33a76"
+        ]
+      },
+      "one_request_gate_passed": true
+    },
+    {
+      "case": "unicode-boundaries",
+      "sample_id": "caba4176174315a8eea9a9e0b3056495657fce5a357c12a48d1b4cfb20763bca",
+      "budget": 4096,
+      "accepted": true,
+      "requests": 3,
+      "estimated_input_tokens": [
+        3947,
+        4033,
+        3189
+      ],
+      "cell_count": 891,
+      "request_hashes": [
+        "673d1e9f4eeecb89e085639b76f0ce0d9a4d14310d6114a44627f3533993be66",
+        "5a2206058ab02ba593942720fe8e87f6a074de83228a44e318f279e9324bb928",
+        "37b4925abb26f7d151cc213c543ccd88a85f723905a190ddc24be94579688ad0"
+      ],
+      "required_literals_copy_selectable": true,
+      "coverage": {
+        "retained_claim_hashes": [
+          "22cc8dbe58a4fed3818e81067742add52aa2d2a2f5fa1cf84557dc8c049590fc"
+        ],
+        "same_request_claim_hashes": [
+          "22cc8dbe58a4fed3818e81067742add52aa2d2a2f5fa1cf84557dc8c049590fc"
+        ],
+        "retained_literal_hashes": [
+          "fc0da505cd801bdba839b508d3e31f6ecbba54e380e5f1c5758a3f0b2cbddeab",
+          "1ec2e83e09f788150ee780288e8ed373edf3c2a9db94c496a288b4ad440e88cc",
+          "280c199d1c421fc36ba998f51fb5c320213edaed8d591011cdab9e41e5c0625b"
+        ],
+        "same_request_literal_hashes": [
+          "fc0da505cd801bdba839b508d3e31f6ecbba54e380e5f1c5758a3f0b2cbddeab",
+          "1ec2e83e09f788150ee780288e8ed373edf3c2a9db94c496a288b4ad440e88cc",
+          "280c199d1c421fc36ba998f51fb5c320213edaed8d591011cdab9e41e5c0625b"
+        ]
+      },
+      "one_request_gate_passed": false
+    }
+  ],
+  "minimal_manifest_gate_passed": false,
+  "sdk_preflight": "not_run",
+  "provider_requests": 0,
+  "decision": "insufficient_evidence",
+  "stop_required": true,
+  "production_authorized": false
+}

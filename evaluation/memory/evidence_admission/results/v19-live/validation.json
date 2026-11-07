@@ -1,0 +1,87 @@
+{
+  "schema": "evidence-admission.v19.validation.v1",
+  "offline_suite": {
+    "command": "evaluation/.venv/bin/python -m pytest evaluation/memory/evidence_admission/tests -m 'not live' -q",
+    "passed": 543,
+    "warnings": 2000,
+    "duration_seconds": "494.28",
+    "provider_requests": 0
+  },
+  "focused_v18_v19": {
+    "passed": 35,
+    "warnings": 65,
+    "duration_seconds": "15.39"
+  },
+  "v19_supported_python": {
+    "3.11.15": {
+      "passed": 12
+    },
+    "3.12.3": {
+      "passed": 12,
+      "duration_seconds": "11.50"
+    },
+    "3.13.13": {
+      "passed": 12,
+      "duration_seconds": "10.10"
+    },
+    "3.14.5": {
+      "passed": 12,
+      "warnings": 32,
+      "duration_seconds": "9.83"
+    }
+  },
+  "make_check": {
+    "passed": true,
+    "lock_and_all_hooks_and_root_ty": true,
+    "integration_manifest_tests": 50
+  },
+  "ruff_check": {
+    "passed": true
+  },
+  "ruff_format": {
+    "passed": true,
+    "files": 220
+  },
+  "evaluation_ty": {
+    "passed": true,
+    "command": "uv run --no-sync --project evaluation ty check --project evaluation"
+  },
+  "evaluation_build": {
+    "powercontext_eval-0.1.0-py3-none-any.whl": {
+      "source_bytes_match": true,
+      "v19_files": 4,
+      "sha256": "b4d91885cc3fd3a867a359b36c393b92839afd0a7e020250e75e247b8b149633"
+    },
+    "powercontext_eval-0.1.0.tar.gz": {
+      "source_bytes_match": true,
+      "v19_files": 4,
+      "sha256": "1fa45605896c8b088e13574338b89406c937b17ef855eef806a6b55ff9c67aae"
+    }
+  },
+  "not_rerun": [
+    "full_runtime_make_test",
+    "full_tox_all_projects_all_versions"
+  ],
+  "production_behavior_changes": false,
+  "recorded_replay": {
+    "provider_requests": 0,
+    "matched": 118,
+    "unavailable": 2,
+    "observed_mismatches": 0
+  },
+  "privacy_scan": {
+    "actual_credential_found": false,
+    "private_files_scanned": 4012,
+    "allowed_numeric_content_counters": 558
+  },
+  "known_limitations": [
+    "frozen_report_failure_flag_includes_one_unknown_response",
+    "pair_semantics_flag_alone_does_not_prove_response_coverage"
+  ],
+  "delivery_make_check": {
+    "passed": true,
+    "integration_manifest_tests": 50,
+    "duration_seconds": "5.31",
+    "receipt_log_sha256": "5ac82fba1cf4158d0b447543e412625c9d5259767bab12fc5b7c016312ef5ba7"
+  }
+}

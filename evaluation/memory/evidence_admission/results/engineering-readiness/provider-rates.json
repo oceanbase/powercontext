@@ -1,0 +1,25 @@
+{
+  "schema": "evidence-admission.provider-rate-verification.v1",
+  "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "retrieved_at_utc": "2026-11-02T14:36:47.922155+00:00",
+  "currency": "CNY",
+  "per_million_tokens": {
+    "cache_miss_input_peak": "2",
+    "output_peak": "8",
+    "cache_miss_input_off_peak": "1",
+    "output_off_peak": "4"
+  },
+  "request_model": "deepseek-v4-flash",
+  "documented_current_route": "DeepSeek-V4.1-Flash-1017",
+  "physical_snapshot_pinned": false,
+  "documented_context": "1M",
+  "conservative_context_tokens_for_reservation": 1048576,
+  "generation_output_limit": 2048,
+  "one_call_peak_reservation_cny": "2.113536",
+  "new_generation_calls": 0,
+  "search_fetch_apis_requested": false,
+  "thinking_mode_source_url": "https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/",
+  "explicit_thinking_setting": {
+    "type": "disabled"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema": "evidence-admission.v18.admission-comparison.v1",
+  "scope": "three_known_synthetic_datasets_three_arms_three_budgets_three_replays",
+  "arms": [
+    "complete-projection-v1",
+    "window-reduction-v1",
+    "bounded-fragments-v3"
+  ],
+  "datasets": [
+    "synthetic-v1",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "budgets": [
+    2048,
+    4096,
+    8192
+  ],
+  "repetitions": 3,
+  "expected_rows": 972,
+  "generation": "native_coding_instructions_and_AtomicMemoryExtractionOutput_no_copy_no_rewrite",
+  "selection": "v5_selection_algorithms_and_parameters_native_range_bundles_no_citation_rewrite",
+  "fragment_bytes": 512,
+  "candidate_max_calls_per_sample": 16,
+  "candidate_cumulative_input_multiplier": 8,
+  "control_limits": "native_complete_input_and_contiguous_Source_window_behavior_no_repacking",
+  "budget_definition": "native_character_weighted_estimator_instructions_plus_input_not_provider_billed_tokens",
+  "source_identity": "fresh_isolated_SQLite_capture_close_reopen_each_arm_and_replay; exact_logical_Source_materialization_projection_hashes_must_match_pairs",
+  "ordering": "dataset_manifest_case_budget_repetition_arm_then_original_admission_request_order",
+  "provider": "openai-compatible",
+  "model": "deepseek-v4-flash",
+  "base_url": "https://api.deepseek.com",
+  "allowed_response_models": [
+    "deepseek-flash",
+    "deepseek-v4-flash"
+  ],
+  "thinking": {
+    "type": "disabled"
+  },
+  "temperature": 0,
+  "max_output_tokens": 2048,
+  "timeout_seconds": 60,
+  "retries": 0,
+  "concurrency": 1,
+  "input_context_ceiling": 1048576,
+  "input_per_million_cny": "2",
+  "output_per_million_cny": "8",
+  "budget_total_cny": "5.00",
+  "prior_known_upper_cny": "0.110650",
+  "budget_scope": "user_confirmed_v9_and_later; preapproval_unknown_usage_separate_not_zero",
+  "rates_verified_on": "2026-11-06",
+  "rate_source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "billing": "serial_full_context_reservation_before_each_call_peak_all_input_cache_miss_upper_charge_not_invoice",
+  "ordinary_quality_failure": "record_without_retry_then_continue_independent_planned_calls",
+  "global_stop": [
+    "unknown_usage",
+    "insufficient_full_context_reservation",
+    "identity_change",
+    "Scope_or_audit_failure",
+    "cancellation",
+    "unrecognized_model"
+  ],
+  "review": "v10_bound_parent_atom_support_checks; exact_complete_assertions_only_auto_approved; paraphrases_unresolved_until_bound_review",
+  "positive_gate": "all_issue_gates_plus_complete_output_atom_literal_retention_zero_nonatomic_candidates_and_reproducible_one_Source_window_control_improvement",
+  "decision": "incomplete_or_unresolved_is_insufficient_evidence; complete_resolved_failed_candidate_is_no_production_change; only_complete_gate_pass_allows_follow_up",
+  "historical_results": "immutable_not_pooled_into_new_scores",
+  "production_behavior_change": false
+}

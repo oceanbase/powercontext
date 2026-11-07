@@ -1,0 +1,580 @@
+{
+  "schema_version": "evidence-admission.human-sample-declaration.v1",
+  "reviewer": "issue-2074-requesting-user",
+  "recorded_on": "2026-11-07",
+  "review_date": null,
+  "basis_result_sha256": "4fbbb41f87296f6c1866a829d47757ed4723b68afb6bf28623b33a11c0f2e43b",
+  "basis_queue_sha256": "7b1b80e482d6abff3da7b9db4ff8aa3b52748a4f92716b368d76031d2cebd138",
+  "preparation_hash": "82ab68b2674ee6ab0c0015a28f28b22c7f8041af4acc29c864a8896784dceeb8",
+  "state_hash": "7367bf8fafd3f62b85524927069813e949bdec3c10191c32375200cb498fe43a",
+  "execution_revision": "1515a0d11cc2040d0beb341f6626a33c09cce73b",
+  "samples": [
+    {
+      "sample_id": "exact-literals-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-4096-r2",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 4096,
+      "repetition": 2,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-8192-r0",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 8192,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-8192-r1",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 8192,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "exact-literals-8192-r2",
+      "dataset": "synthetic-v1",
+      "case": "exact-literals",
+      "budget": 8192,
+      "repetition": 2,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "forged-role-marker-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "forged-role-marker-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "forged-role-marker-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "forged-role-marker-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "forged-role-marker",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "identity-replay-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "identity-replay-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "identity-replay-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "identity-replay-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "identity-replay",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "many-source-overflow-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "many-source-overflow-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "many-source-overflow-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "many-source-overflow-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "many-source-overflow",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "mixed-scaffolding-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "mixed-scaffolding-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "mixed-scaffolding-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "mixed-scaffolding-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "mixed-scaffolding",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "attribution_varies",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "single-source-overflow-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "single-source-overflow-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "single-source-overflow-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "single-source-overflow-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "single-source-overflow",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "small-complete-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "small-complete-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "small-complete-4096-r0",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "small-complete-4096-r1",
+      "dataset": "synthetic-v1",
+      "case": "small-complete",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "no_problem_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "unicode-boundaries-2048-r0",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "unicode-boundaries-2048-r1",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "unicode-boundaries-2048-r2",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 2048,
+      "repetition": 2,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "unicode-boundaries-8192-r0",
+      "dataset": "synthetic-v1",
+      "case": "unicode-boundaries",
+      "budget": 8192,
+      "repetition": 0,
+      "reported_finding": "unicode_literal_loss",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-crlf-scaffolding-2048-r0",
+      "dataset": "validation-v2",
+      "case": "validation-crlf-scaffolding",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "attribution_failure_and_risk",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-literal-offset-2048-r0",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-literal-offset-2048-r1",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 2048,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-literal-offset-4096-r0",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-literal-offset-4096-r1",
+      "dataset": "validation-v2",
+      "case": "validation-literal-offset",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "compound_candidate",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-reordered-sources-2048-r0",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 2048,
+      "repetition": 0,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-reordered-sources-4096-r0",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "repetition": 0,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-reordered-sources-4096-r1",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "repetition": 1,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    },
+    {
+      "sample_id": "validation-reordered-sources-4096-r2",
+      "dataset": "validation-v2",
+      "case": "validation-reordered-sources",
+      "budget": 4096,
+      "repetition": 2,
+      "reported_finding": "partial_output_reported",
+      "arm": null,
+      "input_index": null
+    }
+  ],
+  "annotations": [
+    {
+      "sample_id": "exact-literals-2048-r0",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-2048-r1",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-2048-r2",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-4096-r0",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-4096-r1",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-4096-r2",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-8192-r0",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-8192-r1",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "exact-literals-8192-r2",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "validation-literal-offset-2048-r0",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "validation-literal-offset-2048-r1",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "validation-literal-offset-4096-r0",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "validation-literal-offset-4096-r1",
+      "candidate_index": 0,
+      "field": "atomic",
+      "value": false,
+      "reason_code": "independent_assertions_combined"
+    },
+    {
+      "sample_id": "mixed-scaffolding-2048-r2",
+      "candidate_index": 2,
+      "field": "false_attribution",
+      "value": true,
+      "reason_code": "tool_statement_attributed_to_current_user"
+    },
+    {
+      "sample_id": "validation-crlf-scaffolding-2048-r0",
+      "candidate_index": 2,
+      "field": "false_attribution",
+      "value": true,
+      "reason_code": "tool_statement_attributed_to_current_user"
+    }
+  ]
+}

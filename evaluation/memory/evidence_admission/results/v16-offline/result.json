@@ -1,0 +1,110 @@
+{
+  "schema": "evidence-admission.v16.final-result.v1",
+  "execution_revision": "faf15ad6c1e20eb5d8ed36ca36f5816c07c09348",
+  "identity_hash": "487cdea929226e028da889ac6dc633553e593689732e9167fe115e854546c00d",
+  "execution_freeze_verified": true,
+  "offline_gate_passed": true,
+  "minimal_manifest_gate_passed": false,
+  "stop_stage": "minimal_manifest_readiness_before_SDK_preflight",
+  "decision": "insufficient_evidence",
+  "stop_required": true,
+  "reason": "Unicode needs three requests; the unchanged frozen minimal manifest allows one. No SDK or provider stage was started.",
+  "artifact_integrity": [
+    {
+      "dataset": "synthetic-v1",
+      "samples": 900,
+      "sha256": "1f3c2dfdce1323f7e6fdd20a03299c340f5fa872a6c35b59c96a9b363df09480",
+      "result_hash": "d69e22423a201a861febcda137b3fcf77846a588973d73d464942e01eb571168",
+      "reference_manifest_hash": "4a27a7b535fb21505f48369eff56f64c8082accb0a175c2842659e3d045edf5a",
+      "historical_v15_comparison_sha256": "f4aa6d21997a95da1a5e0307bab95e2eb15a2870f65d72ce85b0ade472ff3988",
+      "execution_revision": "faf15ad6c1e20eb5d8ed36ca36f5816c07c09348"
+    },
+    {
+      "dataset": "validation-v2",
+      "samples": 360,
+      "sha256": "76e384557c2796f80900af9ea41c2aad5d61febe8baf6dbb6a3e499ee5fa9c60",
+      "result_hash": "104de7f4f8f5c3e79a9f38f94a94c2f559e77c48be48a3fa2fc9d3fae82534a1",
+      "reference_manifest_hash": "4f012ba0e22bdd4d402b0c67b349b4cb4f15f89ec44e5b0f970e1680698131b8",
+      "historical_v15_comparison_sha256": "2354ee1b133b293ac73ad759e275f0b4fb2daeae612fd72c0eb2ad2cd832fef5",
+      "execution_revision": "faf15ad6c1e20eb5d8ed36ca36f5816c07c09348"
+    },
+    {
+      "dataset": "validation-v3",
+      "samples": 360,
+      "sha256": "2f02baf43ff7b43294f08afdf4011088a94279ecca4ce7a0974cab75331969df",
+      "result_hash": "9f92f10521684597d451947838457e234a0a2f9b8658cd394b7cbc4f4945c051",
+      "reference_manifest_hash": "e45144d139945b0c5a79b47a700f8cfcb69c94e6432d1787e0946dcea23f5457",
+      "historical_v15_comparison_sha256": "e9130ae2e4f362151c51957d30ce3bda3594a4e387d0d5dc8489d1784f6ee7c7",
+      "execution_revision": "faf15ad6c1e20eb5d8ed36ca36f5816c07c09348"
+    }
+  ],
+  "reference_status_counts": {
+    "complete-projection-v1": {
+      "prepared": 42,
+      "budget_rejected": 237,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "window-reduction-v1": {
+      "prepared": 54,
+      "budget_rejected": 225,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v1": {
+      "prepared": 279,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v2": {
+      "prepared": 279,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v3": {
+      "prepared": 279,
+      "unavailable": 18,
+      "cancelled": 27
+    }
+  },
+  "reference_completeness_counts": {
+    "complete-projection-v1": {
+      "complete": 42,
+      "bounded": 237,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "window-reduction-v1": {
+      "complete": 54,
+      "bounded": 225,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v1": {
+      "complete": 42,
+      "bounded": 237,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v2": {
+      "complete": 54,
+      "bounded": 225,
+      "unavailable": 18,
+      "cancelled": 27
+    },
+    "bounded-fragments-v3": {
+      "complete": 54,
+      "bounded": 225,
+      "unavailable": 18,
+      "cancelled": 27
+    }
+  },
+  "provider_requests": 0,
+  "model_generation": "not_run",
+  "model_output_quality": null,
+  "independent_semantic_review": "not_run",
+  "sdk_preflight": "not_run_after_manifest_failure",
+  "formal_joint_live_matrix": "not_run",
+  "production_authorized": false,
+  "frozen_contract_label_erratum": "The stopping description contains the historical label v15; the schema, executable checks, identities and this decision apply to v16. No gate is changed."
+}

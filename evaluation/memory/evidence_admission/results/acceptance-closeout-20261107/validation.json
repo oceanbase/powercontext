@@ -1,0 +1,115 @@
+{
+  "schema": "evidence-admission.closeout-validation.v1",
+  "overall_status": "closed_with_failures",
+  "validation_revision": "91c47917df395f707e2ecea1573f1eb3e1983d61",
+  "checks": [
+    {
+      "name": "repository_checks",
+      "command": "make check",
+      "status": "passed",
+      "summaries": [
+        {
+          "passed": 61
+        }
+      ],
+      "log_name": "powercontext-2074-closeout-check.log",
+      "log_sha256": "f764b493e0b7322e57b5f69503015ea009b420acc35318145c0e96fa6d52ec48"
+    },
+    {
+      "name": "runtime_build",
+      "command": "make build",
+      "status": "passed",
+      "summaries": [],
+      "log_name": "powercontext-2074-closeout-build.log",
+      "log_sha256": "2c9c9c34147ef5afcdc0c210e0dbcd240d83bb7eb45243fc8acd6aafa91341e1"
+    },
+    {
+      "name": "initial_new_material_hooks",
+      "command": "prek run --files <six initial supplemental files>",
+      "status": "passed",
+      "summaries": [],
+      "log_name": "powercontext-2074-closeout-new-hooks.log",
+      "log_sha256": "8bf106b15117b28c5b4449156fdaaf93174bce829bc00b43537bc9908d434d1f"
+    }
+  ],
+  "prior_attempts": [
+    {
+      "status": "dependency_setup_failed_offline",
+      "exit_code": 1,
+      "counts_as_passed": false,
+      "log_name": "powercontext-2074-closeout-tox.log",
+      "log_sha256": "94c1124d0b6fb15da8e798e84c121d1f68ea2d30d7addd5fd2c86796b3195ed7"
+    },
+    {
+      "status": "interrupted_for_parallel_orchestration",
+      "exit_code": 1,
+      "counts_as_passed": false,
+      "log_name": "powercontext-2074-closeout-tox-retry.log",
+      "log_sha256": "2d55c0d13eba74e97c4c150e053647495f2d641b1a168c84838cc627eb55270b"
+    },
+    {
+      "status": "interrupted_by_turn_update",
+      "exit_code": null,
+      "counts_as_passed": false,
+      "log_name": "powercontext-2074-closeout-tox-parallel.log",
+      "log_sha256": "ab484f245b097179940f46e04af39561e02833fc11601692bfb3b6e633c4fb53"
+    }
+  ],
+  "matrix": {
+    "status": "closed_6_of_8_completed_with_failures",
+    "command": "tox -p 2 -e py311,py312,py313,py314,py311-evaluation,py312-evaluation,py313-evaluation,py314-evaluation -- -n 4 --ignore=tests/e2e/test_zcode_service_chain.py",
+    "required_main_environments": 8,
+    "completed_environment_statuses": {
+      "py311": "OK",
+      "py312": "FAIL",
+      "py314": "FAIL",
+      "py313": "OK",
+      "py311-evaluation": "OK",
+      "py312-evaluation": "OK"
+    },
+    "not_run_environments": [
+      "py313-evaluation",
+      "py314-evaluation"
+    ],
+    "not_run_reason": "no_matching_python_environment",
+    "root_package_failures": {
+      "py312": "2 failed (test_handoff_report_statement_count_does_not_grow_with_scope_count SQL count + test_healthy_combined_api scope-discovery diagnostic)",
+      "py314": "1 failed (upgrade gate cancellation test /proc ProcessLookupError)"
+    },
+    "root_main_exclusion": "tests/e2e/test_zcode_service_chain.py",
+    "exclusion_is_pending_serial_partition_not_removed_coverage": true,
+    "evaluation_suite_unchanged": true,
+    "log_name": "powercontext-2074-closeout-tox-resumed.log",
+    "log_sha256": null,
+    "log_not_sealed_while_running": false,
+    "fully_passed_claimed": false
+  },
+  "serial_service_chain": {
+    "status": "completed_py311_only",
+    "required_python_versions": [
+      "3.11",
+      "3.12",
+      "3.13",
+      "3.14"
+    ],
+    "must_append_same_version_coverage": true,
+    "executed_python_versions": [
+      "3.11"
+    ],
+    "py311_command": "pytest tests/e2e/test_zcode_service_chain.py -q --no-cov",
+    "py311_result": "4 passed",
+    "not_run_versions": [
+      "3.12",
+      "3.13",
+      "3.14"
+    ],
+    "not_run_reason": "no_matching_python_environment"
+  },
+  "final_complete_file_hooks": "completed",
+  "raw_logs_or_tox_environment_dumps_committed": false,
+  "original_semantic_scores_changed": false,
+  "decision": "insufficient_evidence",
+  "provider_requests": 0,
+  "production_source_modified": false,
+  "pushed": false
+}

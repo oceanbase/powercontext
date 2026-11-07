@@ -1,0 +1,42 @@
+{
+  "provider_requests_this_phase": 0,
+  "focused_tests": {
+    "passed": 16,
+    "failures": 0,
+    "errors": 0
+  },
+  "full_evaluator_tests": {
+    "passed": 371,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "warnings": 1592,
+    "python": "3.11.15"
+  },
+  "root_types": "passed",
+  "evidence_admission_module_types": "passed",
+  "evaluation_all_types": {
+    "status": "existing_failure",
+    "diagnostics": 1,
+    "reason": "ScopedAtomicMemory.evidence unavailable in LongMemEval lineage evaluator"
+  },
+  "locked_repository_hooks": "passed",
+  "new_files_explicit_hooks": "passed",
+  "evaluation_ruff_0_16": {
+    "status": "existing_failures",
+    "diagnostics": 13,
+    "v11_diagnostics": 0
+  },
+  "evaluation_ruff_format": "passed",
+  "hook_ruff_0_15_7_v11": "passed",
+  "root_and_evaluation_lock_checks": "passed",
+  "source_distribution_and_wheel": {
+    "wheel_source_contract_files": 6,
+    "sdist_source_contract_files": 6,
+    "all_bytes_match": true
+  },
+  "historical_content_identity_simulation": "passed_not_actual_commit_freeze",
+  "public_content_scan": "passed_safe_labels_hashes_counts_no_raw_content",
+  "other_python_versions": "not_rerun",
+  "production_authorized": false
+}

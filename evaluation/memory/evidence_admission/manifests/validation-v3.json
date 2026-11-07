@@ -1,0 +1,217 @@
+{
+  "schema": "evidence-admission.catalog.v1",
+  "cases": [
+    {
+      "case_id": "probe-shifted-middle",
+      "case_hash": "370791c77cdc2fc9406a2882578b49c2ae41f7c93ae32509ddbbe5f39a8b9678",
+      "capture_hashes": [
+        "ed24d1b43990923e862ff449b42d25c4c4d2164948db7e2ee53bbfe4be345da2"
+      ],
+      "claims": [
+        {
+          "claim_hash": "db5ef3a0f2df755f0b6116e53d23bd1ac2b6b33e3f36358d3207b9ce5068dec0",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 0,
+          "char_end": 34,
+          "byte_start": 0,
+          "byte_end": 34,
+          "required": true
+        },
+        {
+          "claim_hash": "604dc80c5b39a9f879a3f5cf23eeb9d466a51a5114c839c3d8ec1bc68bd63282",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 91108,
+          "char_end": 91147,
+          "byte_start": 91108,
+          "byte_end": 91147,
+          "required": true
+        },
+        {
+          "claim_hash": "0c3f5e9d2376aedc81b0d16d6fa8704de54a8e09a760f8e993d86360b3891f6f",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 227605,
+          "char_end": 227641,
+          "byte_start": 227605,
+          "byte_end": 227641,
+          "required": true
+        }
+      ]
+    },
+    {
+      "case_id": "probe-wide-metadata",
+      "case_hash": "2c7937de7e8a0f233ae8a2bc4782815f8f8e3b16df759fc86bb56c03bdd593d6",
+      "capture_hashes": [
+        "27c4ec103dcbcee239876c28ec3b396712b28f3b764ffe124e14e03066b740df"
+      ],
+      "claims": [
+        {
+          "claim_hash": "db5ef3a0f2df755f0b6116e53d23bd1ac2b6b33e3f36358d3207b9ce5068dec0",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 0,
+          "char_end": 34,
+          "byte_start": 0,
+          "byte_end": 34,
+          "required": true
+        },
+        {
+          "claim_hash": "0c3f5e9d2376aedc81b0d16d6fa8704de54a8e09a760f8e993d86360b3891f6f",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 106114,
+          "char_end": 106150,
+          "byte_start": 106114,
+          "byte_end": 106150,
+          "required": true
+        }
+      ]
+    },
+    {
+      "case_id": "probe-reordered-metadata",
+      "case_hash": "14afdc1c05681585c53cb790d516b11f2f6e5dcf75edb469f199da2b409d167c",
+      "capture_hashes": [
+        "6214382a5d35d564a770904aef5733a7437c734a7f005b715d1a12b2f76ecd99"
+      ],
+      "claims": [
+        {
+          "claim_hash": "db5ef3a0f2df755f0b6116e53d23bd1ac2b6b33e3f36358d3207b9ce5068dec0",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 0,
+          "char_end": 34,
+          "byte_start": 0,
+          "byte_end": 34,
+          "required": true
+        },
+        {
+          "claim_hash": "0c3f5e9d2376aedc81b0d16d6fa8704de54a8e09a760f8e993d86360b3891f6f",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 121242,
+          "char_end": 121278,
+          "byte_start": 121242,
+          "byte_end": 121278,
+          "required": true
+        }
+      ]
+    },
+    {
+      "case_id": "probe-user-metadata-fact",
+      "case_hash": "064783576b1da78b44da0d718240de00abac9bdae6fe70bb8bfc20347288151b",
+      "capture_hashes": [
+        "f667435867bdf922b54946181a54a0726239192ad2c1f7da52729fea57b59a99"
+      ],
+      "claims": [
+        {
+          "claim_hash": "cad5d1ef0023953da8d63bd2a4d67fcc925fca4c658f0011df19326428162e95",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "2ae7042ed52c4ad71bb40fd7f367976eeff8c95c0f4fd069c2c39acb1bb734ac",
+          "char_start": 0,
+          "char_end": 31,
+          "byte_start": 0,
+          "byte_end": 31,
+          "required": true
+        }
+      ]
+    },
+    {
+      "case_id": "probe-near-repeat-number",
+      "case_hash": "35d4c944f385d14badf5aa9e5fd0ccb2c879aeca3ab19a46901d962326ea07ef",
+      "capture_hashes": [
+        "406854a9ec6b8ec8817de2577d37c5ad65c75b9bc685f0e2ea903026d166faf3"
+      ],
+      "claims": [
+        {
+          "claim_hash": "694df57a7909d9f9edbd3acb4ccfce5fbee156fab749383121f17fef16bbab57",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 63245,
+          "char_end": 63282,
+          "byte_start": 63245,
+          "byte_end": 63282,
+          "required": true
+        },
+        {
+          "claim_hash": "d6d13014ef18d45030eec6ac0a66eab592e7f07e1feda93538935b3b434a8de8",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 0,
+          "char_end": 34,
+          "byte_start": 0,
+          "byte_end": 34,
+          "required": false
+        }
+      ]
+    },
+    {
+      "case_id": "probe-near-repeat-negation",
+      "case_hash": "685716804692fcebae4d5959167296ca4086a3d4470e810f9c880ebc4fe350ce",
+      "capture_hashes": [
+        "578e31a25a381f80500bd11ddc8cad99dcae82c08ab73c488358619cbf9dd295"
+      ],
+      "claims": [
+        {
+          "claim_hash": "694df57a7909d9f9edbd3acb4ccfce5fbee156fab749383121f17fef16bbab57",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 107667,
+          "char_end": 107721,
+          "byte_start": 107667,
+          "byte_end": 107721,
+          "required": true
+        },
+        {
+          "claim_hash": "d6d13014ef18d45030eec6ac0a66eab592e7f07e1feda93538935b3b434a8de8",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 0,
+          "char_end": 62,
+          "byte_start": 0,
+          "byte_end": 62,
+          "required": false
+        }
+      ]
+    },
+    {
+      "case_id": "probe-unicode-crlf",
+      "case_hash": "dce79176f91d1e578ac5fa8c39a1edb64d2a9c74c74a144a0c1a5d0a587d723e",
+      "capture_hashes": [
+        "3a2caf7d708ae08d9ab05a21737fc369ab047320806a135fa74c4de51010dc30"
+      ],
+      "claims": [
+        {
+          "claim_hash": "622f06cbcd2e7e61637e17212e714e6c721d2dd5a9f7bc1aec911b65b34edcf5",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 9737,
+          "char_end": 9749,
+          "byte_start": 25038,
+          "byte_end": 25075,
+          "required": true
+        }
+      ]
+    },
+    {
+      "case_id": "probe-cross-fragment-record",
+      "case_hash": "40584c1a947a4292a272aea8f4a1ea67df029c574045fee903956dc84974a4f1",
+      "capture_hashes": [
+        "ae2d6ddc272a32a17dc6a9890ecb59e77c1afa88d4e435ed636bf5b428b9af89"
+      ],
+      "claims": [
+        {
+          "claim_hash": "54de280ca0b7d23f2967f7761bd8e1cf87ee68f4fc0ab1db5b80130e2e90c64b",
+          "source_hash": "59a56e97bc0c924749081be8364b10d76825954e22b551848e381828522a6443",
+          "field_hash": "86d770c9531a87e4298a5590ef5685a8f91c7791ac333da63421efaec99325e4",
+          "char_start": 493,
+          "char_end": 549,
+          "byte_start": 493,
+          "byte_end": 549,
+          "required": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "evidence-admission.v20.integrity.v1",
+  "parent_v19_state_unchanged": true,
+  "parent_v19_dependency_files_byte_exact": 626,
+  "copied_historical_files_unchanged": 1670,
+  "current_frozen_identity_unchanged": true,
+  "all_new_attempts_exact_remaining_prefix": true,
+  "duplicate_calls": 0,
+  "new_request_body_hashes_matched": 351,
+  "raw_response_and_charge_receipts_verified": 469,
+  "report_regeneration_byte_exact": true,
+  "gzip_and_compact_projection_verified": true,
+  "forbidden_raw_fields_in_report": 0,
+  "allowed_content_named_numeric_metric_counters": 558,
+  "actual_credential_absent_in_public_and_private_files": true,
+  "private_files_scanned": 5375,
+  "public_files_scanned": 21,
+  "sensitive_home_paths_in_public": false,
+  "unknowns_not_inferred_as_zero": 2,
+  "v18_ancestor_state_unchanged": true
+}

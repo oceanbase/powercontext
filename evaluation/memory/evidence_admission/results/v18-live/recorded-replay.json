@@ -1,0 +1,25 @@
+{
+  "provider_requests": 0,
+  "results": [
+    {
+      "call_id": "067108184485bfc8a91219cfb5e5ded44d6ebaa23d3dcb947d981ac08fa4c634",
+      "replay": "matched",
+      "outcome": "returned"
+    },
+    {
+      "call_id": "b871e10177e56f60a7f53c8b1a997a1886e3e9a5193953359e30ba0b87b38c2d",
+      "replay": "matched",
+      "outcome": "returned"
+    },
+    {
+      "call_id": "dee12046c57c88816e1c8e5765553f1e35d82bb7b8b334960e2a3e93efdab911",
+      "replay": "matched",
+      "outcome": "returned"
+    },
+    {
+      "call_id": "af60fe86503f6f6209615dc652a99ed91effe08d485d56c3da1f2d8429a53d4e",
+      "replay": "unavailable_raw_response"
+    }
+  ],
+  "all_available_matched": false
+}

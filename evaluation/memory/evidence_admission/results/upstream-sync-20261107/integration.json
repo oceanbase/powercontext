@@ -1,0 +1,40 @@
+{
+  "schema": "evidence-admission.upstream-integration.v1",
+  "fetched_remote_refs": {
+    "upstream/master": "b8b189091e7a412300cf1292531208a8ead0e325",
+    "origin/master": "b8b189091e7a412300cf1292531208a8ead0e325"
+  },
+  "remote_refs_fetched_during_this_task": true,
+  "remote_master_heads_rechecked_with_ls_remote": true,
+  "remote_head_recheck_local_time": "2026-11-07T13:48:16+08:00",
+  "merge_revision": "313461d42772eb655932aefff47a82ce0bf42c89",
+  "merge_parents": [
+    "18af2e071808c45549a420b2e2e3c6ce8b651898",
+    "b8b189091e7a412300cf1292531208a8ead0e325"
+  ],
+  "compatibility_test_revision": "e5aef7ac18dec215592d1fd724cf8b5699a6cad1",
+  "backup_branch": "codex/2074-before-upstream-20261107",
+  "branch": "evaluation/2074-bounded-evidence-admission",
+  "history_rewritten": false,
+  "resolved_conflict_files": [
+    ".gitattributes",
+    ".gitignore",
+    ".pre-commit-config.yaml",
+    "Makefile",
+    "evaluation/pyproject.toml",
+    "evaluation/uv.lock",
+    "pyproject.toml",
+    "tests/test_ops.py",
+    "tox.ini"
+  ],
+  "unresolved_conflict_entries": 0,
+  "production_source_diff_from_upstream": [],
+  "decision": "insufficient_evidence",
+  "production_follow_up_authorized": false,
+  "new_live_calls": 0,
+  "semantic_reviews_added": 0,
+  "remote_push_performed": false,
+  "pull_request_created": false,
+  "documentation_commit_is_follow_up_to_compatibility_test_revision": true,
+  "documentation_validation_worktree_archived": true
+}

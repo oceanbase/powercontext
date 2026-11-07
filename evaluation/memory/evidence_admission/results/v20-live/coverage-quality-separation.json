@@ -1,0 +1,13 @@
+{
+  "schema": "evidence-admission.v20.coverage-quality-separation.v1",
+  "frozen_report_candidate_known_quality_failure_rows": 185,
+  "candidate_known_usage_nonreturned_calls": 178,
+  "candidate_unknown_usage_calls": 1,
+  "compatibility_field_warning": "frozen_known_quality_failure_rows_also_flags_unavailable_output; not_every_flag_is_a_confirmed_model_error",
+  "known_literal_absence_rows_without_pipeline_failure": 6,
+  "pairs_require_actual_response_coverage_check": true,
+  "missing_response_must_not_be_interpreted_as_semantic_loss": true,
+  "candidate_confirmed_failure_rows_excluding_unavailable": 184,
+  "candidate_reference_rejection_calls": 177,
+  "candidate_output_length_limit_calls": 1
+}

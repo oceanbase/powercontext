@@ -1,0 +1,1643 @@
+{
+  "schema": "evidence-admission.combined-preparation.v3",
+  "experiment_sha256": "828754661c40f8934538360f8074bb74c056e502f6d32bf64ec6223b22a01a83",
+  "required_datasets": [
+    "synthetic-v1",
+    "validation-v2",
+    "validation-v3"
+  ],
+  "offline_preparation_passed": true,
+  "decision": "insufficient_evidence",
+  "provider_requests": 0,
+  "runs": {
+    "synthetic-v1": {
+      "run_manifest_sha256": "904ec9f3427decaeeb36ed6e91d0a4003e1dc7c8aea22fe6464be9ed98f515c5",
+      "artifact_hashes_sha256": "5cc1448392a28ac326940a9e50aa96500716d7243e8fbb01ec328afaebbe6636",
+      "offline_preparation_passed": true,
+      "candidate": {
+        "samples": 180,
+        "statuses": {
+          "prepared": 135,
+          "unavailable": 18,
+          "cancelled": 27
+        },
+        "completeness": {
+          "complete": 45,
+          "bounded": 90,
+          "unavailable": 18,
+          "cancelled": 27
+        },
+        "eligible_required_claims": 216,
+        "retained_eligible_claims": 216,
+        "exact_literals_total": 927,
+        "exact_literals_retained": 270,
+        "prepared_requests": 159,
+        "prepared_tokens_total": 527970,
+        "requests": 0,
+        "generation_calls": 0,
+        "generation_scored_samples": 0,
+        "generation_required_claims": null,
+        "generated_required_claims": null,
+        "generation_retention_rate": null,
+        "candidates": null,
+        "exact_duplicates": null,
+        "near_duplicates": null,
+        "unsupported": null,
+        "false_attribution": null,
+        "invalid_support": null,
+        "unresolved": null,
+        "provider_input_tokens": null,
+        "provider_output_tokens": null,
+        "usage_complete": null,
+        "admitted_bytes": 1139592,
+        "omitted_bytes": 10835907,
+        "materialization_seconds": 56.755019018990424,
+        "admission_seconds": 18.7925753930067,
+        "generation_seconds": 0.0274596009949164,
+        "value_bytes_by_family": {
+          "content": 1035165,
+          "metadata": 65100,
+          "source_metadata": 39327
+        },
+        "input_estimator_units_by_family": {
+          "content": 1081668,
+          "envelope": 550119,
+          "instructions": 372219,
+          "metadata": 66438,
+          "source_metadata": 41199
+        }
+      },
+      "baseline_comparisons": [
+        {
+          "scope": "preparation_only_not_model_quality",
+          "baseline_arm": "bounded-fragments-v1",
+          "candidate_arm": "bounded-fragments-v3",
+          "reference_encoding": "v1-claim-fragments",
+          "paired_samples": 180,
+          "paired_coverage_complete": true,
+          "v1_failing_combinations": [
+            {
+              "label": "many-source-overflow",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 1,
+              "v3_retained": 8,
+              "baseline_retained": 1,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            },
+            {
+              "label": "many-source-overflow",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 2,
+              "v3_retained": 8,
+              "baseline_retained": 2,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            },
+            {
+              "label": "mixed-scaffolding",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "mixed-scaffolding",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "mixed-scaffolding",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "observation-overflow",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "positional-facts",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 1,
+              "v3_retained": 3,
+              "baseline_retained": 1,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "repeated-history",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            }
+          ],
+          "failing_combinations": [
+            {
+              "label": "many-source-overflow",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 1,
+              "v3_retained": 8,
+              "baseline_retained": 1,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            },
+            {
+              "label": "many-source-overflow",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 2,
+              "v3_retained": 8,
+              "baseline_retained": 2,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            },
+            {
+              "label": "mixed-scaffolding",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "mixed-scaffolding",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "mixed-scaffolding",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "observation-overflow",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "positional-facts",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 1,
+              "v3_retained": 3,
+              "baseline_retained": 1,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "repeated-history",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            }
+          ],
+          "fully_fixed_combinations": 8,
+          "regressions": [],
+          "reference_mismatches": [],
+          "no_observed_regression": true
+        },
+        {
+          "scope": "preparation_only_not_model_quality",
+          "baseline_arm": "bounded-fragments-v2",
+          "candidate_arm": "bounded-fragments-v3",
+          "reference_encoding": "v1-claim-fragments",
+          "paired_samples": 180,
+          "paired_coverage_complete": true,
+          "v2_failing_combinations": [],
+          "failing_combinations": [],
+          "fully_fixed_combinations": 0,
+          "regressions": [],
+          "reference_mismatches": [],
+          "no_observed_regression": true
+        }
+      ],
+      "required_retention_failures": [],
+      "critical_failures": [],
+      "preparation_outcome_failures": [],
+      "coverage_complete": true,
+      "decision": "insufficient_evidence"
+    },
+    "validation-v2": {
+      "run_manifest_sha256": "d0601e3408cc038257669a0f39880d1bd4d3739ba6811a6a3799466514468b03",
+      "artifact_hashes_sha256": "5cd7fd5f0c07f0bc894c2c41717b6b39befb0485460cb93072ad8d6fafa59c68",
+      "offline_preparation_passed": true,
+      "candidate": {
+        "samples": 72,
+        "statuses": {
+          "prepared": 72
+        },
+        "completeness": {
+          "complete": 9,
+          "bounded": 63
+        },
+        "eligible_required_claims": 171,
+        "retained_eligible_claims": 171,
+        "exact_literals_total": 36,
+        "exact_literals_retained": 36,
+        "prepared_requests": 96,
+        "prepared_tokens_total": 374025,
+        "requests": 0,
+        "generation_calls": 0,
+        "generation_scored_samples": 0,
+        "generation_required_claims": null,
+        "generated_required_claims": null,
+        "generation_retention_rate": null,
+        "candidates": null,
+        "exact_duplicates": null,
+        "near_duplicates": null,
+        "unsupported": null,
+        "false_attribution": null,
+        "invalid_support": null,
+        "unresolved": null,
+        "provider_input_tokens": null,
+        "provider_output_tokens": null,
+        "usage_complete": null,
+        "admitted_bytes": 827961,
+        "omitted_bytes": 8142420,
+        "materialization_seconds": 26.140080359989952,
+        "admission_seconds": 14.83799922099206,
+        "generation_seconds": 0.0,
+        "value_bytes_by_family": {
+          "content": 732837,
+          "metadata": 61536,
+          "source_metadata": 33588
+        },
+        "input_estimator_units_by_family": {
+          "content": 776115,
+          "envelope": 397122,
+          "instructions": 224736,
+          "metadata": 62982,
+          "source_metadata": 35022
+        }
+      },
+      "baseline_comparisons": [
+        {
+          "scope": "preparation_only_not_model_quality",
+          "baseline_arm": "bounded-fragments-v1",
+          "candidate_arm": "bounded-fragments-v3",
+          "reference_encoding": "v1-claim-fragments",
+          "paired_samples": 72,
+          "paired_coverage_complete": true,
+          "v1_failing_combinations": [
+            {
+              "label": "validation-crlf-scaffolding",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-history-offset",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 1,
+              "v3_retained": 3,
+              "baseline_retained": 1,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-reordered-sources",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 1,
+              "v3_retained": 8,
+              "baseline_retained": 1,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-reordered-sources",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 2,
+              "v3_retained": 8,
+              "baseline_retained": 2,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            }
+          ],
+          "failing_combinations": [
+            {
+              "label": "validation-crlf-scaffolding",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-history-offset",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 1,
+              "v3_retained": 3,
+              "baseline_retained": 1,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-reordered-sources",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 1,
+              "v3_retained": 8,
+              "baseline_retained": 1,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-reordered-sources",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 8,
+              "v1_retained": 2,
+              "v3_retained": 8,
+              "baseline_retained": 2,
+              "candidate_retained": 8,
+              "fully_fixed": true
+            }
+          ],
+          "fully_fixed_combinations": 10,
+          "regressions": [],
+          "reference_mismatches": [],
+          "no_observed_regression": true
+        },
+        {
+          "scope": "preparation_only_not_model_quality",
+          "baseline_arm": "bounded-fragments-v2",
+          "candidate_arm": "bounded-fragments-v3",
+          "reference_encoding": "v1-claim-fragments",
+          "paired_samples": 72,
+          "paired_coverage_complete": true,
+          "v2_failing_combinations": [
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            }
+          ],
+          "failing_combinations": [
+            {
+              "label": "validation-metadata-pressure",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "validation-off-center-facts",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            }
+          ],
+          "fully_fixed_combinations": 4,
+          "regressions": [],
+          "reference_mismatches": [],
+          "no_observed_regression": true
+        }
+      ],
+      "required_retention_failures": [],
+      "critical_failures": [],
+      "preparation_outcome_failures": [],
+      "coverage_complete": true,
+      "decision": "insufficient_evidence"
+    },
+    "validation-v3": {
+      "run_manifest_sha256": "2013ffc7622aee7be49c79c94c609e824add7d98654446a0b6f84bfcfa6cdc4c",
+      "artifact_hashes_sha256": "14c5a7cb284b6a313d20d9a558206e4920430e1e62318495df8425db4f41df01",
+      "offline_preparation_passed": true,
+      "candidate": {
+        "samples": 72,
+        "statuses": {
+          "prepared": 72
+        },
+        "completeness": {
+          "bounded": 72
+        },
+        "eligible_required_claims": 108,
+        "retained_eligible_claims": 108,
+        "exact_literals_total": 36,
+        "exact_literals_retained": 36,
+        "prepared_requests": 72,
+        "prepared_tokens_total": 341958,
+        "requests": 0,
+        "generation_calls": 0,
+        "generation_scored_samples": 0,
+        "generation_required_claims": null,
+        "generated_required_claims": null,
+        "generation_retention_rate": null,
+        "candidates": null,
+        "exact_duplicates": null,
+        "near_duplicates": null,
+        "unsupported": null,
+        "false_attribution": null,
+        "invalid_support": null,
+        "unresolved": null,
+        "provider_input_tokens": null,
+        "provider_output_tokens": null,
+        "usage_complete": null,
+        "admitted_bytes": 705564,
+        "omitted_bytes": 8802675,
+        "materialization_seconds": 24.587845368008857,
+        "admission_seconds": 15.613001415014878,
+        "generation_seconds": 0.0,
+        "value_bytes_by_family": {
+          "content": 695775,
+          "metadata": 4713,
+          "source_metadata": 5076
+        },
+        "input_estimator_units_by_family": {
+          "content": 760332,
+          "envelope": 427932,
+          "instructions": 168552,
+          "metadata": 5235,
+          "source_metadata": 5670
+        }
+      },
+      "baseline_comparisons": [
+        {
+          "scope": "preparation_only_not_model_quality",
+          "baseline_arm": "bounded-fragments-v1",
+          "candidate_arm": "bounded-fragments-v3",
+          "reference_encoding": "v1-claim-fragments",
+          "paired_samples": 72,
+          "paired_coverage_complete": true,
+          "v1_failing_combinations": [
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 1,
+              "v3_retained": 3,
+              "baseline_retained": 1,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            }
+          ],
+          "failing_combinations": [
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 1,
+              "v3_retained": 3,
+              "baseline_retained": 1,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v1_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v1_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 2,
+              "v1_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            }
+          ],
+          "fully_fixed_combinations": 21,
+          "regressions": [],
+          "reference_mismatches": [],
+          "no_observed_regression": true
+        },
+        {
+          "scope": "preparation_only_not_model_quality",
+          "baseline_arm": "bounded-fragments-v2",
+          "candidate_arm": "bounded-fragments-v3",
+          "reference_encoding": "v1-claim-fragments",
+          "paired_samples": 72,
+          "paired_coverage_complete": true,
+          "v2_failing_combinations": [
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            }
+          ],
+          "failing_combinations": [
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-cross-fragment-record",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-negation",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-near-repeat-number",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-reordered-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-shifted-middle",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 3,
+              "v2_retained": 2,
+              "v3_retained": 3,
+              "baseline_retained": 2,
+              "candidate_retained": 3,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-unicode-crlf",
+              "budget": 8192,
+              "repetitions": 3,
+              "required": 1,
+              "v2_retained": 0,
+              "v3_retained": 1,
+              "baseline_retained": 0,
+              "candidate_retained": 1,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 2048,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            },
+            {
+              "label": "probe-wide-metadata",
+              "budget": 4096,
+              "repetitions": 3,
+              "required": 2,
+              "v2_retained": 1,
+              "v3_retained": 2,
+              "baseline_retained": 1,
+              "candidate_retained": 2,
+              "fully_fixed": true
+            }
+          ],
+          "fully_fixed_combinations": 18,
+          "regressions": [],
+          "reference_mismatches": [],
+          "no_observed_regression": true
+        }
+      ],
+      "required_retention_failures": [],
+      "critical_failures": [],
+      "preparation_outcome_failures": [],
+      "coverage_complete": true,
+      "decision": "insufficient_evidence"
+    }
+  },
+  "run_set_hash": "f6cc99db9954155682114ca5743b455fe06d09c63d835b80ef7a3a86f6d3f456",
+  "limitations": [
+    "offline_preparation_only",
+    "synthetic_development_stress_not_blinded",
+    "live_quality_attribution_and_usage_not_run",
+    "uncommitted_freeze_not_production_authorization"
+  ]
+}

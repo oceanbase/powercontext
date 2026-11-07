@@ -1,0 +1,14 @@
+{
+  "schema": "evidence-admission.v18.public-integrity.v1",
+  "full_json_sha256": "5a87d5f8a47d39de6456dc92eabf74d88b0a6a1dec7a82e37ada211ea7681a07",
+  "compact_projection_matches": true,
+  "report_regeneration_byte_equal": true,
+  "credential_material_found": false,
+  "public_private_path_found": false,
+  "unapproved_raw_content_fields_found": false,
+  "gzip_decompressed_content_scanned": true,
+  "source_identity_unchanged_after_live": true,
+  "review_kind": "assistant_diagnostic_not_independent_human",
+  "private_audit_credential_material_found": false,
+  "private_audit_files_scanned": 3361
+}

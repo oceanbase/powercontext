@@ -1,0 +1,8 @@
+{
+  "schema": "evidence-admission.v13.diagnostic-artifact.v1",
+  "result_hash": "872f0d9314e49df83675fc345c0d6b5a7e5fa820093fa61c1a33ef7429736196",
+  "artifact_complete": true,
+  "diagnostic_passed": false,
+  "formal_acceptance": false,
+  "production_authorized": false
+}

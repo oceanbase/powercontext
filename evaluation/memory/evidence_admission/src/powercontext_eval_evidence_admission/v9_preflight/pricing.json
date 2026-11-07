@@ -1,0 +1,20 @@
+{
+  "schema": "evidence-admission.deepseek-pricing-snapshot.v1",
+  "checked_date": "2026-10-27",
+  "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "currency": "CNY",
+  "unit_tokens": 1000000,
+  "flash_peak_input_cache_miss": "2",
+  "flash_peak_output": "8",
+  "flash_off_peak_input_cache_miss": "1",
+  "flash_off_peak_output": "4",
+  "requested_model_preserved": "deepseek-v4-flash",
+  "advertised_route": "DeepSeek-V4.1-Flash-1017",
+  "route_source": "https://api-docs.deepseek.com/",
+  "output_limit_parameter_source": "https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/",
+  "snapshot_pin_verified": false,
+  "actual_provider_requests": 0,
+  "proposed_budget_cny": "5.00",
+  "approved_budget_cny": null,
+  "upper_bound_guaranteed_by_character_estimator": false
+}
