@@ -3,10 +3,11 @@
 Scope: G5-A of [#2464](https://github.com/oceanbase/powercontext/issues/2464), the independent capacity stop-loss stage.
 The implemented boundary is startup-confirmed model input, final rendered-body admission, bounded provider-response
 buffering, and separate model/fallback concurrency permits. The HTTP capability schema is unchanged.
-G5-A acceptance is partial: possible billing is retained only in process-local lifecycle state, and readable
-call-evidence integration with #2506 is still required.
+Readable call-evidence integration with #2506 is validated on the combined implementation; response overflow
+retains possible billing in both lifecycle state and the production JSONL stream.
+See [Gateway evidence validation](EVIDENCE_VALIDATION.md) for the combined commit, platform, commands and limits.
 
-## Source and environment
+## Capacity-only source and environment
 
 - Base: upstream master `24e0017e` (includes the shared managed-call lifecycle from #2499).
 - Implementation: local branch `codex/issue-2464-capacity-budgets`, working tree based on that commit.
@@ -14,7 +15,7 @@ call-evidence integration with #2506 is still required.
 - Related open work inspected: #2457 (protection modes), #2470 (native protocol behavior), #2429 (output defaults),
   and #2506 (bounded call evidence). Their unmerged implementation is not included in this branch.
 
-## Executed checks
+## Capacity-only checks
 
 Run from the repository root with Cargo 1.95.0 available on PATH:
 
@@ -58,9 +59,9 @@ or cryptographic bindings.
 
 The executor regressions check prepared-context replay and the lifecycle observation on response overflow:
 `PossiblySent` plus `Withheld`, with one provider attempt. This preserves possible billing in process-local
-state without claiming complete response receipt. It does not produce a readable `record_call` export in this branch.
-The production `BufferedEvidenceSink` has no operator-facing call stream, and these tests do not satisfy the
-G5-A requirement that possible billing appear in readable call evidence.
+state without claiming complete response receipt. The combined implementation also checks the same facts against
+readable call/attempt records, including degraded passthrough and partial-response status/first-byte timing.
+Production uses the bounded `JsonEvidenceSink`; `BufferedEvidenceSink` is retained for tests/demos.
 The Python suites exercise the real Core runtime and ASGI authorization paths;
 they are not evidence of spawned Core or real-provider acceptance through the new gateway.
 
@@ -70,11 +71,15 @@ isolate transport buffering; they do not establish that real Core accepts such r
 
 ## Remaining issue acceptance
 
-G5-A still requires integration with the bounded call-evidence exporter in #2506. A real gateway-process
-regression must read the exported record for a response-buffer overflow and assert one attempt,
-`Withheld` terminal, `PossiblySent` sending facts and unknown usage, without content or credentials.
-Until that integration is executed, G5-A must not be described as fully accepted. The capacity changes
-can be reviewed independently, with the evidence dependency stated in the PR.
+The combined implementation at `b1f03eb59cc9327e9c1e8ad3df60a2fbcf914713` includes master
+`b8b189091e7a412300cf1292531208a8ead0e325`. On 2026-11-07, the Gateway workspace reported 185 passing
+cases, including the capacity and evidence subprocess tests; four live-Core cases returned early, so 181
+behavior tests exercised their assertions. Fmt, clippy, repository checks and the documentation build passed.
+The real Gateway process regression reads exported JSONL for fixed-length and chunked response-buffer overflow:
+one `buffer_limit_exceeded` attempt, `withheld` terminal, `possibly_sent`, unknown usage, retained observed
+status/first-byte timing, no content or credentials, no delivery prefix and no resend. This satisfies the
+G5-A readable-evidence integration requirement with local controlled Core/provider HTTP fixtures; it does not
+establish real Core, paid provider or native host acceptance.
 
 G5-B remains open: output-capacity discovery where required; global and local retained-byte accounting for request,
 response, replay/SSE and applicable evidence owners; accounting through final owner drop; mixed-size load/RSS

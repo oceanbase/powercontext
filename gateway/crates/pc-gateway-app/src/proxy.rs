@@ -57,7 +57,7 @@ impl ProxyState {
                 let client = Client::builder(TokioExecutor::new()).build(UnixConnector {
                     socket: PathBuf::from(&sock),
                 });
-                tracing::info!(%sock, "proxy: forwarding non-gateway routes to Python UDS");
+                tracing::info!("proxy: forwarding non-gateway routes to Python UDS");
                 Self {
                     inner: Some(Arc::new(ProxyInner {
                         socket: PathBuf::from(sock),

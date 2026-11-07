@@ -192,6 +192,17 @@ Server 使用 UDS 时，通过 `POWERCONTEXT_SERVER_SOURCE_PLUGINS_DIR` 或
 Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私有路由和网关状态表仍需单独实现。设计中的网关负责原有
 公开 TCP 端口，并携带通道认证与用户认证通过 UDS 调用 Core。
 
+### 网关认证边界
+
+`PC_GATEWAY_API_KEY` 仅适用于 `/gateway/v1/chat/completions` 和 `/gateway/v1/responses`。
+非 loopback 网关监听要求配置有效的非空 key，但该启动校验不负责其他路由的认证。
+组合部署（`PC_GATEWAY_CORE_UDS`）转发到 Core 的请求会保留客户端凭据，Core API、MCP 和 Dashboard 请求
+继续遵循 Core 自身的认证与访问控制规则。Gateway key 不授予 Core API 权限，UDS 也不能替代 Core 认证。
+
+组合部署对外开放前，须设置 `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` 并配置有效的 Core 认证凭据，
+如上文的 UDS 示例所示。访问受保护 Core 路由的客户端必须使用 Core 凭据。
+`PC_GATEWAY_CORE_TOKEN` 用于网关主动发起的 Core 调用；反向代理不会用它替换客户端凭据。
+
 ### 网关上下文注入
 
 网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入

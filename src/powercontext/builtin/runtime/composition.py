@@ -42,6 +42,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryGenerationPipeline,
     atomic_memory_extraction_instructions,
     require_atomic_memory_pipeline,
+    validate_extraction_output,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -1697,6 +1698,7 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            output_check=validate_extraction_output,
             input_renderer=memory_send_renderer,
         )
         memory_reconciler = PydanticAIStructuredGenerator(

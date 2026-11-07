@@ -37,8 +37,10 @@ pub struct RawResponse {
     pub body: Bytes,
     /// 响应的 Content-Type（SSE 为 text/event-stream），释放时原样使用。
     pub content_type: String,
-    /// 上游首字节延迟（毫秒）；流式接收时计量，非流式为 None。
-    pub ttft_ms: Option<u64>,
+    /// Send handoff to first nonempty HTTP body chunk, including response-header wait. Not model TTFT.
+    pub response_first_byte_ms: Option<u64>,
+    /// Send handoff to complete buffered response, in monotonic milliseconds.
+    pub response_complete_ms: Option<u64>,
     /// usage 证据（不可用时为 None，标记 unknown，不记零）。
     pub usage: Option<serde_json::Value>,
 }
@@ -52,6 +54,12 @@ pub enum SendOutcome {
     NotSent(NotSentReason),
     /// 可能已到达上游：返回不确定，不自动付费重发，不假设退费。
     Indeterminate(SendIndeterminateReason),
+    /// Headers/partial body observed, but no complete response. Still never retry.
+    IncompleteResponse {
+        reason: SendIndeterminateReason,
+        status: u16,
+        response_first_byte_ms: Option<u64>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -66,6 +74,7 @@ pub enum NotSentReason {
 pub enum SendIndeterminateReason {
     #[error("connection lost after request handed to transport")]
     LostAfterHandoff,
+    /// Timeout waiting for response headers or reading the response body.
     #[error("timeout awaiting response")]
     TimeoutAwaitingResponse,
     /// 流式接收超过缓冲上限：请求已送达且部分计费，不重发。
