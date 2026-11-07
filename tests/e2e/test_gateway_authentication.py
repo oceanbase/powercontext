@@ -276,5 +276,6 @@ def test_model_ingress_authentication_with_real_core_and_provider(
                     assert "gateway accepted" in response.text
                 assert len(provider.received) == 3
                 assert provider.authorizations == [f"Bearer {_PROVIDER_KEY}"] * 3
+                assert client.get("/v1/capabilities").status_code == 401
                 assert client.get("/v1/capabilities", headers={"Authorization": f"Bearer {_KEY}"}).status_code == 401
                 assert client.get("/v1/capabilities", headers={"Authorization": f"Bearer {_TOKEN}"}).status_code == 200
