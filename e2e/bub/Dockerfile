@@ -51,4 +51,4 @@ RUN --mount=type=cache,id=powercontext-bub-e2e-uv,target=/root/.cache/uv \
 
 COPY --chmod=0755 e2e/bub/container-entrypoint.sh /usr/local/bin/powercontext-e2e-container
 
-ENTRYPOINT ["powercontext-e2e-container"]
+ENTRYPOINT ["/usr/local/bin/powercontext-e2e-container"]
