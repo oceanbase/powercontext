@@ -580,3 +580,6 @@ Topic processing may report `invalid_topic_placeholder` for recognizable numbere
 identify recoverable generation rejection, not successful NOOP. Retries use the existing durable Window budget;
 exhaustion retains the pending frontier. Existing worker events and correlation fields carry the diagnostic code.
 Source text, generated bodies and provider responses must not be added to operational logs.
+
+
+LangChain adapter-owned Client spans additionally use content-free GenAI attributes: `gen_ai.provider.name=powercontext`; `gen_ai.operation.name=retrieval` plus logical `gen_ai.data_source.id=powercontext` for prepare-context; bounded custom `powercontext.<operation_id>` operation names for supporting context-service calls. The context is task-local and reset on exit. It changes neither global provider/export configuration nor standalone SDK telemetry. See the LangChain integration guide.

@@ -121,3 +121,31 @@ or the prompt. The token remains in Client configuration and never enters agent 
 Recall and capture are best-effort. Server unavailability, an invalid response, or request validation failure does not
 replace the model response or stop the agent. HTTP 401 and 403 are logged once at error level without content or token
 values; transient and unexpected failures are available at debug level.
+
+
+### Adapter-owned GenAI tracing
+
+The LangChain middleware marks its own scope-resolution, recall and optional completed-turn capture calls as GenAI context-service dependencies. It reuses the application-owned OpenTelemetry provider and current parent context. It does not create an exporter, configure logging or import Langfuse. Applications keep their normal middleware configuration; no span allowlist or private Langfuse export predicate is required for these client spans.
+
+Within that adapter-owned context, client spans carry `gen_ai.provider.name=powercontext`. Recall uses `gen_ai.operation.name=retrieval` and the logical `gen_ai.data_source.id=powercontext`. Supporting calls use bounded custom operation names such as `powercontext.resolve_scope_binding` and `powercontext.capture_content_source`; they are not labeled as LLM inference or model-selected tool calls. These attributes contain no query, scope identifier, source body, result, token count or credentials. Standalone SDK calls outside the scoped adapter retain their existing operational-only semantics.
+
+A configured provider/exporter and server-side telemetry are still application/deployment responsibilities. Semantic visibility does not configure a destination or guarantee export by an arbitrary backend. Success, errors, cancellation and fail-open recall behavior are unchanged.
+
+### Optional recall input/output
+
+Use `PowerContextMiddleware(trace_content=True)` to record the latest recall query and the returned context on the
+`PowerContextMiddleware recall` observation. This is separate from `auto_capture`, which writes completed turns to
+PowerContext storage. The default is `False`: recall text may contain private user and memory content.
+The library owns the observation and parent propagation; applications only configure their existing exporter.
+Input and output use OpenInference `input.value` / `output.value` JSON strings, each bounded to 16 KiB of UTF-8
+content with explicit truncation flags. Empty results record the returned null or empty output and the actual context status.
+Request failures do not fabricate an output. This observation is not a model inference or model-selected tool call.
+Server operational spans remain content-free, and historical spans cannot be backfilled from this setting.
+
+The adapter owns its tracing helpers and imports with the released PowerContext 1.5.0 client alone;
+installing a Server in a separate tool environment does not update the application's core client.
+Adapter-owned optional recall I/O works with that core. SDK dependency-span enrichment requires a core
+implementing the local `powercontext.genai_client` OTel context marker (included with this change).
+A 1.5.0 core ignores the marker and retains its existing operational spans and consumer filtering behavior;
+install matching core/adapter artifacts to obtain the complete default-filter tracing fix.
+The marker is local execution context, not network baggage, credentials, or a provider/exporter configuration.

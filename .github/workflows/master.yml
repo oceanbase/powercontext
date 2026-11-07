@@ -338,6 +338,20 @@ jobs:
           python scripts/ci_installation_roles.py --wheel "$wheel" \
             --python "$(command -v python)" --output-dir "$RUNNER_TEMP/installation-roles"
 
+      - name: Verify standalone LangChain adapter with released core
+        run: |
+          uv venv --python "$(command -v python)" "$RUNNER_TEMP/langchain-standalone"
+          adapter_python="$RUNNER_TEMP/langchain-standalone/bin/python"
+          uv pip install --python "$adapter_python" ./integrations/langchain "powercontext==1.5.0"
+          "$adapter_python" -I - <<'PYCODE'
+          from importlib.metadata import version
+          from powercontext_langchain import PowerContextMiddleware
+          assert version("powercontext") == "1.5.0"
+          PowerContextMiddleware()
+          PowerContextMiddleware(trace_content=True, auto_capture=True)
+          print("Standalone adapter imports with released core 1.5.0")
+          PYCODE
+
       - name: Summarize installation roles
         if: always()
         run: |

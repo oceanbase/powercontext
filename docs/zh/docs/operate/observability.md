@@ -510,3 +510,6 @@ Topic 处理可通过 `invalid_topic_placeholder` 标识可识别的编号占位
 这些不含内容的诊断码表示可恢复的生成拒绝，不表示成功 NOOP。
 重试消耗现有 Window 持久化预算；耗尽后保留待处理前沿。诊断码由现有 Worker 事件及关联字段承载。
 不得将 Source 文本、生成正文或服务商响应写入运维日志。
+
+
+LangChain 适配层范围内的 Client span 另含不携带正文的 GenAI 属性：`gen_ai.provider.name=powercontext`；上下文准备采用 `gen_ai.operation.name=retrieval` 和逻辑来源 `gen_ai.data_source.id=powercontext`，辅助调用使用有界的 `powercontext.<operation_id>` 操作名。该语义范围按任务隔离并在退出时重置，不修改全局 provider/exporter，也不改变独立 SDK 调用的遥测。详见 LangChain 集成指南。
