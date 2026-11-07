@@ -101,7 +101,7 @@ By default, the Server reads `~/.codex/auth.json` in the home directory of the u
 export CODEX_HOME="/path/to/existing/codex-home"
 ```
 
-`CODEX_HOME` names the directory containing `auth.json`. The service does not update the CLI login file. If authentication fails, update the login with the original CLI, then restart the service. See [Pydantic AI's Codex credential configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md).
+`CODEX_HOME` names the directory containing `auth.json`. The CLI owns credential renewal. The Server and workers read the complete login file on every request; they never exchange its refresh token or update the file. This avoids competing with the CLI or each other for a single-use refresh token. If the access token expires or is rejected, inference fails until the original CLI renews the login. The next request picks up that update without a service restart. Unattended renewal is not provided by this integration. See [Pydantic AI's Codex credential configuration](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md).
 
 ### GitHub Copilot credentials
 

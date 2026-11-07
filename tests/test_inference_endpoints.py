@@ -330,7 +330,7 @@ def test_anthropic_custom_endpoint_preserves_gateway_and_upstream_credentials(
 
 
 @pytest.mark.parametrize("protection_mode", ["disabled", "shadow"])
-def test_anthropic_provider_environment_uses_upstream_bearer_authentication(
+def test_anthropic_environment_endpoint_preserves_api_key_authentication(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     protection_mode: str,
@@ -340,7 +340,7 @@ def test_anthropic_provider_environment_uses_upstream_bearer_authentication(
     async def scenario() -> None:
         with _model_server() as (server, base_url):
             monkeypatch.setenv("ANTHROPIC_BASE_URL", base_url.removesuffix("/v1"))
-            server.required_authorization = "Bearer anthropic-standard-key"
+            server.required_api_key = "anthropic-standard-key"
             config = BuiltinConfig(
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
                 inference=InferenceConfig(
@@ -355,8 +355,8 @@ def test_anthropic_provider_environment_uses_upstream_bearer_authentication(
             assert readiness.checks["inference.generation"] == "ready"
             assert server.requests
             request = server.requests[0]
-            assert request["headers"]["authorization"] == "Bearer anthropic-standard-key"
-            assert "x-api-key" not in request["headers"]
+            assert request["headers"]["x-api-key"] == "anthropic-standard-key"
+            assert "authorization" not in request["headers"]
 
     asyncio.run(scenario())
 

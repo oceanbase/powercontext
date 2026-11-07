@@ -47,11 +47,13 @@ class RecordingServer(ThreadingHTTPServer):
         self.content_type = content_type
         self.status = status
         self.received: list[bytes] = []
+        self.authorizations: list[str | None] = []
 
 
 class RecordingHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         server = cast(RecordingServer, self.server)
+        server.authorizations.append(self.headers.get("Authorization"))
         server.received.append(self.rfile.read(int(self.headers["Content-Length"])))
         self.send_response(server.status)
         self.send_header("Content-Type", server.content_type)

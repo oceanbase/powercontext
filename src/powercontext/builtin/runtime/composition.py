@@ -42,6 +42,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryGenerationPipeline,
     atomic_memory_extraction_instructions,
     require_atomic_memory_pipeline,
+    validate_extraction_output,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -240,6 +241,7 @@ from powercontext.sources import AdapterSourceDefinition, Source, SourceDefiniti
 
 if TYPE_CHECKING:
     import httpx2
+    from anthropic import AsyncAnthropic
     from pydantic_ai.models import Model
     from pydantic_ai.models.instrumented import InstrumentationSettings
     from pydantic_ai.providers import Provider
@@ -1698,6 +1700,7 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            output_check=validate_extraction_output,
             input_renderer=memory_send_renderer,
         )
         memory_reconciler = PydanticAIStructuredGenerator(
@@ -2065,24 +2068,16 @@ async def _open_pydantic_ai_model(
 
     if (base_url is not None or headers) and ":" not in model_name:
         raise BuiltinConfigurationError("inference-endpoint-provider")
-    inferred_model = (
-        infer_model(model_name)
-        if base_url is None
-        and not headers
-        and not disable_provider_retries
-        and (protection is None or protection.mode == "disabled")
-        and current_provider_observer() is None
-        else infer_model(
-            model_name,
-            provider_factory=_provider_factory(
-                base_url,
-                headers,
-                workload="generation",
-                resources=resources,
-                disable_retries=disable_provider_retries,
-                protection=protection,
-            ),
-        )
+    inferred_model = infer_model(
+        model_name,
+        provider_factory=_provider_factory(
+            base_url,
+            headers,
+            workload="generation",
+            resources=resources,
+            disable_retries=disable_provider_retries,
+            protection=protection,
+        ),
     )
     provider_model = await resources.enter_async_context(inferred_model)
     model = provider_model
@@ -2141,7 +2136,7 @@ def _provider_factory(
 
             client = getattr(provider, "_own_http_client", None)
             # Explicit SDK clients above are newly owned by this Runtime as well.
-            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic"}:
+            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic", "openai-codex"}:
                 client = getattr(provider.client, "_client", None)
             supported = False
             if isinstance(client, httpx2.AsyncClient):
@@ -2210,23 +2205,9 @@ def _protected_provider_factory(
             resources.push_async_callback(sdk.close)
             return OpenAIProvider(openai_client=sdk)
         if provider_name == "anthropic" and workload == "generation":
-            from anthropic import AsyncAnthropic
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
-            resolved = _resolve_headers(headers)
-            header_api_key = _pop_header(resolved, "x-api-key")
-            api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
-            has_authorization = any(name.casefold() == "authorization" for name in resolved)
-            if api_key and has_authorization:
-                resolved["X-Api-Key"] = api_key
-            if api_key and not has_authorization and (base_url is not None or header_api_key is not None):
-                client.auth = partial(_anthropic_api_key_header, api_key=api_key)
-            sdk = AsyncAnthropic(
-                base_url=None if base_url is None else str(base_url),
-                api_key=api_key or (None if has_authorization else "api-key-not-set"),
-                default_headers=resolved,
-                http_client=client,
-            )
+            sdk = _anthropic_client(base_url, headers, http_client=client)
             if disable_retries:
                 sdk.max_retries = 0
             resources.push_async_callback(sdk.close)
@@ -2245,13 +2226,16 @@ def _unbounded_provider_factory(
 ) -> Callable[[str], Provider[Any]]:
     import httpx2
     from pydantic_ai.providers import infer_provider
-
-    if base_url is None and not headers:
-        return infer_provider
-
     from pydantic_ai.providers.openai import OpenAIProvider
 
     def create_provider(provider_name: str) -> Provider[Any]:
+        if base_url is None and not headers:
+            if provider_name == "openai-codex" and workload == "generation":
+                from powercontext.builtin.inference.codex import codex_cli_provider
+
+                return codex_cli_provider(resources)
+            if provider_name != "anthropic" or not os.getenv("ANTHROPIC_BASE_URL"):
+                return infer_provider(provider_name)
         if provider_name in {"openai", "openai-chat", "openai-responses"}:
             if headers:
                 from openai import AsyncOpenAI
@@ -2271,30 +2255,44 @@ def _unbounded_provider_factory(
                 return OpenAIProvider(base_url=str(base_url), http_client=http_client)
             return OpenAIProvider(base_url=str(base_url))
         if provider_name == "anthropic" and workload == "generation":
-            from anthropic import AsyncAnthropic
             from pydantic_ai.providers.anthropic import AnthropicProvider
 
-            default_headers = _resolve_headers(headers)
-            header_api_key = _pop_header(default_headers, "x-api-key")
-            api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
-            has_authorization = any(name.casefold() == "authorization" for name in default_headers)
-            if api_key and has_authorization:
-                default_headers["X-Api-Key"] = api_key
-            http_client = httpx2.AsyncClient(follow_redirects=False) if base_url is not None else None
-            if api_key and not has_authorization and (base_url is not None or header_api_key is not None):
-                http_client = http_client or httpx2.AsyncClient()
-                http_client.auth = partial(_anthropic_api_key_header, api_key=api_key)
-            client = AsyncAnthropic(
-                base_url=None if base_url is None else str(base_url),
-                api_key=api_key or (None if has_authorization else "api-key-not-set"),
-                default_headers=default_headers,
-                http_client=http_client,
-            )
+            client = _anthropic_client(base_url, headers)
             resources.push_async_callback(client.close)
             return AnthropicProvider(anthropic_client=client)
         raise BuiltinConfigurationError("inference-endpoint-provider")
 
     return create_provider
+
+
+def _anthropic_client(
+    base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
+    *,
+    http_client: httpx2.AsyncClient | None = None,
+) -> AsyncAnthropic:
+    import httpx2
+    from anthropic import AsyncAnthropic
+
+    endpoint = str(base_url) if base_url is not None else os.getenv("ANTHROPIC_BASE_URL")
+    custom_endpoint = endpoint is not None and urlsplit(endpoint).hostname != "api.anthropic.com"
+    resolved = _resolve_headers(headers)
+    header_api_key = _pop_header(resolved, "x-api-key")
+    api_key = header_api_key or os.getenv("ANTHROPIC_API_KEY")
+    has_authorization = any(name.casefold() == "authorization" for name in resolved)
+    if api_key and has_authorization:
+        resolved["X-Api-Key"] = api_key
+    if http_client is None and endpoint is not None:
+        http_client = httpx2.AsyncClient(follow_redirects=False)
+    if api_key and not has_authorization and (base_url is not None or custom_endpoint or header_api_key is not None):
+        http_client = http_client or httpx2.AsyncClient()
+        http_client.auth = partial(_anthropic_api_key_header, api_key=api_key)
+    return AsyncAnthropic(
+        base_url=endpoint,
+        api_key=api_key or (None if has_authorization else "api-key-not-set"),
+        default_headers=resolved,
+        http_client=http_client,
+    )
 
 
 def _anthropic_api_key_header(request: httpx2.Request, *, api_key: str) -> httpx2.Request:

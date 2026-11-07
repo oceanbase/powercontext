@@ -101,7 +101,7 @@ Server 默认读取运行用户的 `~/.codex/auth.json`。凭据保存在其他 
 export CODEX_HOME="/path/to/existing/codex-home"
 ```
 
-`CODEX_HOME` 指向包含 `auth.json` 的目录。服务不会更新 CLI 登录文件。认证失效时，用原有 CLI 更新登录，再重启服务。详见 [Pydantic AI 的 Codex 凭据配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md)。
+`CODEX_HOME` 指向包含 `auth.json` 的目录。凭据续期由 CLI 负责。Server 和 worker 每次请求都会读取完整登录文件，不会兑换其中的刷新令牌或修改文件，避免与 CLI 或其他进程争用一次性刷新令牌。访问令牌过期或被拒绝时，推理会失败，直到原有 CLI 更新登录；下一次请求即可读取更新后的凭据，无需重启服务。此集成不提供无人值守的自动续期。详见 [Pydantic AI 的 Codex 凭据配置](https://github.com/pydantic/pydantic-ai/blob/v2.64.0/docs/models/openai-codex.md)。
 
 ### GitHub Copilot 凭据
 

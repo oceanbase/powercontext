@@ -282,7 +282,8 @@ jobs:
           POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
-          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+          # Allow the five native cases to finish fixture cleanup and write the JUnit report.
+          timeout --signal=TERM --kill-after=10s 900s uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_processing_mode_switch_preserves_revision_and_history \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_atomic_compatibility_command_uses_shared_server_upgrade \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_projection_repair_preserves_authority_and_revision \

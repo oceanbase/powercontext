@@ -37,6 +37,12 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_WORK_BLOCKS_TABLE,
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    ProcessingFailureReason,
+    ProcessingStage,
+    attach_diagnostics,
+)
 
 # Server-owned ceilings, shared by ALL attempts and stages at the same Cursor.
 MAX_TOPIC_MEMORY_WORK_ATTEMPTS = 3
@@ -91,13 +97,61 @@ async def load_topic_memory_work_budget(
     return (await connection.execute(statement)).mappings().one_or_none()
 
 
+def _ceiling_dimension(requests: int, tokens: int) -> bool | None:
+    """Infer a limiting dimension only when committed charges establish it.
+
+    Rejected proposed charges are absent on readback; both counters below
+    their ceilings (or both at their ceilings) leave the dimension unknown.
+    """
+    if requests < MAX_TOPIC_MEMORY_WORK_REQUESTS and tokens >= MAX_TOPIC_MEMORY_WORK_TOKENS:
+        return True  # token ceiling
+    if requests >= MAX_TOPIC_MEMORY_WORK_REQUESTS and tokens < MAX_TOPIC_MEMORY_WORK_TOKENS:
+        return False  # request ceiling
+    return None
+
+
+def _topic_memory_budget_error(
+    reason: str, *, tokens: int | None = None, token_ceiling: bool | None = None
+) -> TopicMemoryGenerationError:
+    error = TopicMemoryGenerationError(reason)
+    if reason == "window_attempt_limit":
+        # The attempt ceiling ended the window; charged tokens are not the limiting budget.
+        attach_diagnostics(
+            error,
+            ProcessingDiagnostics(
+                stage=ProcessingStage.GENERATION,
+                reason=ProcessingFailureReason.USAGE_LIMIT,
+                failure_location=reason,
+            ),
+        )
+    elif reason == "window_provider_budget_exceeded":
+        # None → cannot tell which ceiling was crossed from the persisted state
+        # alone (a rejected reservation's proposed charges are not stored).
+        # True → token ceiling; False → request ceiling.
+        attach_diagnostics(
+            error,
+            ProcessingDiagnostics(
+                stage=ProcessingStage.GENERATION,
+                reason=ProcessingFailureReason.USAGE_LIMIT,
+                estimated_input_tokens=tokens if token_ceiling else None,
+                effective_budget=MAX_TOPIC_MEMORY_WORK_TOKENS if token_ceiling else None,
+                failure_location=reason,
+            ),
+        )
+    return error
+
+
 async def require_topic_memory_work_available(
     connection: AsyncConnection, scope_id: str, binding_name: str, source_after: int
 ) -> None:
     """Worker-side guard before Source materialization and projection."""
     row = await load_topic_memory_work_budget(connection, scope_id, binding_name, source_after)
     if row is not None and (reason := exhausted_reason(row)):
-        raise TopicMemoryGenerationError(reason)
+        raise _topic_memory_budget_error(
+            reason,
+            tokens=int(row["tokens"]),
+            token_ceiling=_ceiling_dimension(int(row["requests"]), int(row["tokens"])),
+        )
 
 
 async def record_topic_memory_work_failure(
@@ -242,7 +296,11 @@ class TopicMemoryWorkBudget:
                     )
                 )
         if reason:
-            raise TopicMemoryGenerationError(reason)
+            raise _topic_memory_budget_error(
+                reason,
+                tokens=None if row is None else int(row["tokens"]),
+                token_ceiling=None if row is None else _ceiling_dimension(int(row["requests"]), int(row["tokens"])),
+            )
 
     async def _current(self, connection: AsyncConnection):
         table = TOPIC_MEMORY_WORK_BUDGETS_TABLE
@@ -260,15 +318,20 @@ class TopicMemoryWorkBudget:
             await self._lock(connection)
             row = await self._current(connection)
             reason = str(row["failure_code"])
+            requests_after = row["requests"] + requests
+            tokens_after = row["tokens"] + tokens
+            diagnostic_requests = row["requests"]
+            diagnostic_tokens = row["tokens"]
             if reason in RECOVERABLE_TOPIC_MEMORY_REJECTIONS:
                 # Diagnosis only: this attempt is still allowed to run and to charge
                 # the reservation, or the frontier could never be retried.
                 reason = ""
             if not reason and (
-                row["requests"] + requests > MAX_TOPIC_MEMORY_WORK_REQUESTS
-                or row["tokens"] + tokens > MAX_TOPIC_MEMORY_WORK_TOKENS
+                requests_after > MAX_TOPIC_MEMORY_WORK_REQUESTS or tokens_after > MAX_TOPIC_MEMORY_WORK_TOKENS
             ):
                 reason = "window_provider_budget_exceeded"
+                diagnostic_requests = requests_after
+                diagnostic_tokens = tokens_after
             values = (
                 {"failure_code": reason}
                 if reason
@@ -277,7 +340,11 @@ class TopicMemoryWorkBudget:
             await connection.execute(update(table).where(*self._key()).values(**values))
         # Raise AFTER committing the terminal marker, never roll it back.
         if reason:
-            raise TopicMemoryGenerationError(reason)
+            raise _topic_memory_budget_error(
+                reason,
+                tokens=diagnostic_tokens,
+                token_ceiling=_ceiling_dimension(diagnostic_requests, diagnostic_tokens),
+            )
 
     async def fail(self, reason: str) -> None:
         """Record a rejection cause on the frontier without storing source text.
@@ -312,5 +379,9 @@ class TopicMemoryWorkBudget:
         row = await self._current(connection)
         code = str(row["failure_code"])
         if code and code not in RECOVERABLE_TOPIC_MEMORY_REJECTIONS:
-            raise TopicMemoryGenerationError(code)
+            raise _topic_memory_budget_error(
+                code,
+                tokens=int(row["tokens"]),
+                token_ceiling=_ceiling_dimension(int(row["requests"]), int(row["tokens"])),
+            )
         await connection.execute(delete(TOPIC_MEMORY_WORK_BUDGETS_TABLE).where(*self._key()))
