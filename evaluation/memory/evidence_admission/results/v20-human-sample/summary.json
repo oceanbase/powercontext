@@ -1,0 +1,21 @@
+{
+  "schema": "evidence-admission.human-sample-summary.v1",
+  "decision": "insufficient_evidence",
+  "basis_result_sha256": "4fbbb41f87296f6c1866a829d47757ed4723b68afb6bf28623b33a11c0f2e43b",
+  "execution_revision": "1515a0d11cc2040d0beb341f6626a33c09cce73b",
+  "reported_sample_entries": 46,
+  "reported_scenarios": 11,
+  "uniquely_bound_entries": 29,
+  "ambiguous_entries": 17,
+  "verified_possible_calls": 76,
+  "human_partial_candidate_judgements": 15,
+  "human_false_attribution_true": 2,
+  "human_atomic_false": 13,
+  "fully_adjudicated_candidates_added": 0,
+  "original_semantic_unresolved_candidates": 533,
+  "original_scores_changed": false,
+  "production_authorized": false,
+  "provider_requests": 0,
+  "current_native_pipeline_or_schema_revalidated": false,
+  "independent_second_reviewer_established": false
+}
