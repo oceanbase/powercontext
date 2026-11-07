@@ -24,6 +24,7 @@
 //! PC_GATEWAY_UPSTREAM_API_KEY、PC_GATEWAY_UPSTREAM_PROFILE、
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
+mod authentication;
 mod evidence_body;
 mod evidence_diagnostics;
 mod ingress;
@@ -38,7 +39,6 @@ use axum::Router;
 use pc_gateway_core::Executor;
 use pc_gateway_evidence::{EvidenceSink, JsonEvidenceSink, NoopEvidenceSink};
 use pc_gateway_transport::ReqwestTransport;
-use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
@@ -83,6 +83,11 @@ async fn main() {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+
+    let (addr, api_key) = authentication::load().unwrap_or_else(|reason| {
+        eprintln!("{reason}");
+        std::process::exit(2);
+    });
 
     let core_link = CoreLink::from_env();
     let proxy_state = proxy::ProxyState::from_env();
@@ -185,9 +190,7 @@ async fn main() {
         upstream_responses_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
-        api_key: std::env::var("PC_GATEWAY_API_KEY")
-            .ok()
-            .filter(|k| !k.is_empty()),
+        api_key,
         degrade,
         injection: injection_mode(
             std::env::var("PC_GATEWAY_INJECTION").ok().as_deref(),
@@ -220,11 +223,6 @@ async fn main() {
         tracing::info!(middleware = mw.name(), "middleware enabled");
     }
     let app = middleware::apply_chain(router, chain);
-
-    let addr: SocketAddr = std::env::var("PC_GATEWAY_LISTEN")
-        .unwrap_or_else(|_| "127.0.0.1:8787".into())
-        .parse()
-        .expect("PC_GATEWAY_LISTEN must be host:port");
 
     tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");

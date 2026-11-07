@@ -165,13 +165,10 @@ async fn ingress_model(
 ) -> Response {
     // 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
     if let Some(expected) = &state.api_key {
-        let provided = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "));
-        if provided != Some(expected.as_str()) {
+        if !crate::authentication::authenticate(expected, &headers) {
             return (
                 StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
                 Json(serde_json::json!({ "error": "invalid_gateway_key" })),
             )
                 .into_response();
