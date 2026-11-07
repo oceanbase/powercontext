@@ -1022,6 +1022,11 @@ jobs:
       - name: Verify Pi guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[pi]"
 
+      - name: Run Pi with the PowerContext extension against a real Server
+        env:
+          POWERCONTEXT_TEST_PI_HOST: "1"
+        run: uv run pytest tests/e2e/test_pi_service_chain.py
+
   opencode-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
