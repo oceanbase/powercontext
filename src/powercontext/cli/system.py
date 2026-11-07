@@ -393,6 +393,8 @@ def server_diagnostics(
     *, server_url: str | None, allow_insecure_http: bool | None, readiness: Diagnostic | None = None
 ) -> dict[str, Diagnostic]:
     """Check the selected Server and its optional local service registration."""
+    from powercontext.cli.memory_protocol import server_memory_protocol
+
     service: dict[str, Diagnostic] = {}
     try:
         server_url, allowed = resolve_client_transport(
@@ -409,7 +411,7 @@ def server_diagnostics(
                 detail="Insecure HTTP explicitly enabled; credentials and content are unencrypted in transit",
             )
         if readiness is not None:
-            return {**service, "server": readiness}
+            return {**service, "server": readiness, "server_memory_protocol": server_memory_protocol(server_url)}
         liveness = _server_liveness_diagnostic(server_url)
     readiness = (
         _server_readiness_diagnostic(server_url)
@@ -423,6 +425,9 @@ def server_diagnostics(
         **service,
         "server_liveness": liveness,
         "server_readiness": readiness,
+        "server_memory_protocol": server_memory_protocol(server_url)
+        if liveness.ok and server_url is not None
+        else Diagnostic(DiagnosticStatus.SKIPPED, "not checked because Server liveness failed"),
     }
 
 

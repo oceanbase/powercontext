@@ -13,6 +13,36 @@ public tables, the legacy entry tables no longer reference them, and the public 
 legacy `memory_citations` columns. It reads neither the archive nor the
 legacy entry tables; complete per-entry verification is the job of `verify`.
 
+
+## Client and Agent host compatibility
+
+A successful database migration and healthy `/health/live` or `/health/ready` do not establish plugin compatibility.
+Legacy collection citations and collection CAS preconditions cannot be replayed against Atomic Memory. HTTP 422
+`legacy_memory_operation_unsupported` is a protocol rejection, not a temporary outage or a request to retry without CAS.
+
+1. Update the CLI/SDK and the affected plugin to releases or source refs compatible with the Server. Updating the Server
+   alone does not replace a host's installed plugin. Plugin package versions can remain unchanged across Server releases.
+2. Run `powercontext setup HOST` with the intended `--source` / `--ref` and existing endpoint settings. For DSH, select
+   the actual profile explicitly: `powercontext setup dsh --profile web` or `powercontext setup dsh --profile desktop`.
+3. Fully restart that host or Gateway, including existing sessions that cache tool schemas. Run `powercontext doctor HOST`
+   with the updated CLI. For DSH also run `/pc doctor` inside the restarted session; Pi and OpenCode have `/pc doctor`,
+   while Hermes exposes the separate Memory protocol check through `/pc status`.
+4. Search or list again to obtain an Atomic Memory artifact reference. For edits, read its current content ETag; for
+   lifecycle changes, use its current `state_version`. Do not remove old CAS conditions, invent new preconditions, or
+   automatically replay an earlier write. If an older SDK rejected a successful write's response, inspect the current
+   inventory before submitting another write.
+
+The updated standalone Doctor reports Server protocol declarations separately from health. Its installed-package check
+covers DSH, Pi, OpenCode, OpenClaw and Hermes: `atomic-artifact-v1` is a package declaration, independent of npm/plugin
+version. Packages with no declaration are **unverified**, not confirmed incompatible; they produce a degraded result and
+update instructions instead of an all-green result. A declaration does not prove that an already running process has
+reloaded. Missing or inaccessible Server discovery also remains unverified. These read-only checks do not execute writes.
+
+Codex, Claude Code, WorkBuddy, ZCode and Kimi Code use the Server's native MCP schemas for Memory operations. Reconnect
+these hosts after updating the Server; their hook preparation/capture checks do not validate a cached MCP tool catalog.
+The Server preserves the legacy error code and recovery instructions on HTTP/MCP responses. Host adapters must not
+collapse that code to a generic `invalid_request` or encourage automatic retries.
+
 ## Run the maintenance task
 
 On a database with `pc_schema_revision` or a Server identity marker, this compatibility command delegates
