@@ -682,6 +682,7 @@ dependencies = [
 name = "pc-gateway-evidence"
 version = "0.1.0"
 dependencies = [
+ "pc-gateway-types",
  "serde",
  "serde_json",
 ]

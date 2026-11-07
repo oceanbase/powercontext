@@ -12,7 +12,7 @@ An optional Rust executor for PowerContext, defined by the gateway design in #21
 - **Privacy enforcement by Core, executed by the gateway**: forbidden content is blocked before any byte leaves the gateway (zero-send on block/withhold, zero-release on refuse, upstream cancel on refusal).
 - **Deterministic-failure-only bounded retry**: connection-refused style failures retry a bounded number of times with a single owner; indeterminate outcomes (timeout after hand-off) are surfaced as `send_indeterminate` and never auto-retried (no paid re-sends).
 - **Degradation policy**: when Core is unreachable, either pause (default) or pass through without memory (`PC_GATEWAY_DEGRADE=passthrough`) — degraded responses are explicitly marked (`x-pc-degraded` header). Blocked verdicts never degrade.
-- **Streaming ingestion** (`stream: true`): upstream SSE is received incrementally (TTFT measured, byte-capped); strict semantics hold — the complete raw response is buffered and must pass `before_release` before anything is released to the client. (The current public carrier in #2264 withholds streaming payloads; the pipeline is ready for when the contract allows it.)
+- **Streaming ingestion** (`stream: true`): upstream SSE is received incrementally with a byte cap; first HTTP body byte latency is measured from before the response-header wait, while model TTFT remains unknown. Strict semantics hold — the complete raw response is buffered and must pass `before_release` before anything is released to the client. (The current public carrier in #2264 withholds streaming payloads; the pipeline is ready for when the contract allows it.)
 - **Status-code fidelity**: upstream errors pass through with their original status code (a provider 402/400 is never masked as 200), and `Content-Type` is preserved.
 
 ### Memory features (#2199 capabilities)
@@ -28,8 +28,9 @@ An optional Rust executor for PowerContext, defined by the gateway design in #21
 - **OpenAI-compatible ingress** at `/gateway/v1/chat/completions` and `/gateway/v1/responses` (same format in and out, no cross-format translation), authenticated by a gateway key that replaces provider keys.
 - **Authentication boundary**: `PC_GATEWAY_API_KEY` protects only the two model routes above. Other paths forwarded to Core retain the client's credentials and follow Core's own authentication and access-control rules. Before exposing a combined deployment, enable Core authentication and enforced access control; neither the Gateway key nor UDS replaces Core authentication. See [deployment authentication](../docs/en/docs/operate/deploy-server.md#gateway-authentication-boundaries) ([中文](../docs/zh/docs/operate/deploy-server.md#网关认证边界)).
 - **Responses fidelity**: on `/gateway/v1/responses`, every input item other than a plain user message (developer messages, tool calls and outputs, reasoning, client-specific items such as Codex's `additional_tools`) is forwarded unchanged, and request fields the ingress does not model (for example `reasoning`, `include`, `prompt_cache_key`) are passed through for Core's request allowlist to decide; only the client-local `client_metadata` is dropped. The upstream request is always non-streaming; a streaming client receives the released (or permitted degraded-passthrough, still marked `x-pc-degraded`) 200 response replayed as Responses SSE events: `response.created`, `response.output_item.added`/`done` per item with each message content part as `response.content_part.added`/`done` around one buffered `response.output_text.delta`/`done` (or `response.refusal.delta`/`done`), and a terminal event chosen from the response status (`response.completed`, `response.incomplete`, or `response.failed` when the status is `failed`/`cancelled` or an `error` is present).
+- **Byte capacity**: startup-confirmed model input is the minimum of deployment, Core input capacity, and the current 1 MiB parser ceiling; final rendered bytes are checked before send. Provider response buffering is capped independently at 1 MiB; overflow withholds content without automatic resend and may already be billed. Model and fallback concurrency budgets are separate. See [deployment capacity and migration behavior](../docs/en/docs/operate/deploy-server.md#gateway-byte-capacity) ([中文](../docs/zh/docs/operate/deploy-server.md#gateway-字节容量)). These limits do not establish a process RSS ceiling. G5-A readable billing evidence remains pending integration with #2506; see [acceptance status](CAPACITY_VALIDATION.md#remaining-issue-acceptance).
 - **Middleware chain**: composable `GatewayMiddleware` trait; ships with resource limits (request-body precheck + concurrency semaphore, health probe exempt) and request-id propagation (`x-powercontext-request-id`, client-supplied or generated, echoed on responses).
-- **Body-free evidence**: usage completeness (known/estimated/unknown), cache tokens, TTFT vs first-release latency, attempt counters — never request/response bodies.
+- **Body-free evidence**: bounded JSONL on stdout (1024 queued records plus one in flight), correlated call/attempt terminals, per-field usage completeness and cache reads, explicit first-byte/release/framework timing and separate first model-content frame observation; model TTFT stays unknown. Operational tracing uses stderr and omits configured Core URLs/socket paths. Common operation/unit/outcome fields align with the Server vocabulary; the managed Server OTLP pipeline does not ingest Gateway JSONL by default. See the [output and deployment contract](../docs/en/docs/operate/gateway-evidence.md) / [中文](../docs/zh/docs/operate/gateway-evidence.md). `PC_GATEWAY_EVIDENCE=off` explicitly disables coverage.
 
 ## PC call sequence over UDS
 
@@ -72,7 +73,7 @@ Everything else (Core's 127 domain operations, MCP, dashboard) is reverse-proxie
 | `pc-gateway-types` | contract DTOs aligned field-by-field with #2264 |
 | `pc-gateway-protocol` | canonical request, chat/responses wire renderers, SSE framing |
 | `pc-gateway-transport` | upstream transport, bounded retry, streaming buffer with caps |
-| `pc-gateway-evidence` | body-free evidence (usage completeness, cache tokens, TTFT) |
+| `pc-gateway-evidence` | bounded body-free JSONL evidence (calls, attempts, usage, delivery boundaries) |
 | `pc-gateway-embedded` | placeholder for the in-process (FFI) executor path |
 
 ## Run
@@ -92,7 +93,8 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 # requests that belong to a conversation (X-PowerContext-Conversation-ID or a recognized client session header)
 # are injected by default; standalone is off by default.
 # PC_GATEWAY_INJECTION=on injects every request, PC_GATEWAY_INJECTION=off disables injection, and
-# PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected.
+# PC_GATEWAY_INJECTION_RESPONSES=off keeps the Responses route uninjected, and PC_GATEWAY_INJECTION_CODE=on adds code
+# evidence from the Scope's code index (off by default).
 # Optional: PC_GATEWAY_STEERING_FILE (a fixed operator instruction added to Responses requests after the client's
 # base prompt; read and validated at startup), PC_GATEWAY_SEDIMENT=on (capture after release),
 # PC_GATEWAY_DEGRADE=passthrough (no-memory passthrough when Core is unreachable; never applies
@@ -104,4 +106,4 @@ Credentials live only in server-side environment variables; they are never accep
 
 ## Tests
 
-`cargo test` — 27 tests covering the failure-semantics table (gate unavailable, withhold terminal, bounded retry, indeterminate no-resend, blocked turns never sediment), renderer fidelity (no timestamps/request ids injected), byte-range declaration, UDS connection-pool correctness over a real Unix socket, and live integration tests against a real PowerContext Server (binding validity, cross-scope rejection, deadlines) that skip gracefully when no server is reachable.
+`cargo test --locked --workspace` exercises executor outcomes and pending-future destruction, actual HTTP transport fixtures, strict release/framework order, queue overflow, slow/failing writers and privacy markers. The `live_context_check` tests return early when no real Core is reachable; a green workspace run alone is not real-Core/provider/host acceptance. No hosted-model calls are required.

@@ -15,6 +15,7 @@
 //! 模型入口：OpenAI 兼容 `/gateway/v1/chat/completions`。
 //! 客户端只改 Base URL 与 API Key 即接入（PR #2199 产品形态）。
 
+use crate::evidence_body::FirstContentOffset;
 use crate::{proxy::SharedProxy, AppState, Injection};
 use axum::body::Bytes;
 use axum::extract::{Request, State};
@@ -22,7 +23,10 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pc_gateway_core::{ManagedCall, ManagedOutcome, RequestControl};
-use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputLimits, Role};
+use pc_gateway_protocol::{
+    first_model_content_offset, CanonicalMessage, CanonicalRequest, OutputLimits, OutputProtocol,
+    Role,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -124,7 +128,29 @@ async fn ingress_common(
     );
     let observation = control.observation();
     let cancellation = control.cancellation();
-    let mut response = ingress_model(state, headers, req, format, control).await;
+    let mut response = ingress_model(state.clone(), headers, req, format, control).await;
+    if matches!(
+        observation.snapshot().execution,
+        pc_gateway_core::ExecutionState::Finished(
+            pc_gateway_core::ExecutionTerminal::ReleaseAuthorized
+                | pc_gateway_core::ExecutionTerminal::Degraded
+        )
+    ) {
+        let first_content = response
+            .extensions()
+            .get::<FirstContentOffset>()
+            .and_then(|offset| offset.0);
+        let (parts, body) = response.into_parts();
+        response = Response::from_parts(
+            parts,
+            crate::evidence_body::EvidenceBody::wrap(
+                body,
+                observation.clone(),
+                state.evidence.clone(),
+                first_content,
+            ),
+        );
+    }
     response.extensions_mut().insert(observation);
     response.extensions_mut().insert(cancellation);
     response
@@ -147,6 +173,16 @@ async fn ingress_model(
             )
                 .into_response();
         }
+    }
+
+    if state.max_body_bytes == 0 {
+        return respond(
+            ManagedOutcome::GatePaused("input_capacity_unconfirmed".into()),
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        );
     }
 
     // Applies the configured limit to the consumed body as well: chunked requests have no Content-Length,
@@ -264,6 +300,7 @@ async fn ingress_model(
             state.inject_responses,
             conversation.is_some(),
         ),
+        include_code: state.inject_code,
         conversation_id: conversation,
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
@@ -276,7 +313,13 @@ async fn ingress_model(
     if client_stream {
         return respond_responses_sse(outcome);
     }
-    respond(outcome)
+    respond(
+        outcome,
+        match format {
+            Format::Chat => OutputProtocol::OpenAiChat,
+            Format::Responses => OutputProtocol::OpenAiResponses,
+        },
+    )
 }
 
 /// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
@@ -290,17 +333,23 @@ fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
         ManagedOutcome::Degraded {
             status: 200, body, ..
         } => (body, true),
-        _ => return respond(outcome),
+        _ => return respond(outcome, OutputProtocol::OpenAiResponses),
     };
     let Ok(resp) = serde_json::from_slice::<serde_json::Value>(body) else {
-        return respond(outcome);
+        return respond(outcome, OutputProtocol::OpenAiResponses);
     };
+    let body = responses_sse(&resp);
+    let first_content =
+        first_model_content_offset(body.as_bytes(), OutputProtocol::OpenAiResponses, true);
     let mut response = (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/event-stream")],
-        responses_sse(&resp),
+        body,
     )
         .into_response();
+    response
+        .extensions_mut()
+        .insert(FirstContentOffset(first_content));
     if degraded {
         response.headers_mut().insert(
             "x-pc-degraded",
@@ -611,8 +660,35 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
 }
 
 /// 结果映射：不存在静默成功；降级直通必须显式标记。
-fn respond(outcome: ManagedOutcome) -> Response {
-    match outcome {
+fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
+    let first_content = match &outcome {
+        ManagedOutcome::Released {
+            status,
+            content_type,
+            body,
+            ..
+        }
+        | ManagedOutcome::Degraded {
+            status,
+            content_type,
+            body,
+        } if (200..300).contains(status) => {
+            let mime = content_type.split(';').next().unwrap_or("").trim();
+            if mime.eq_ignore_ascii_case("application/json")
+                || mime.eq_ignore_ascii_case("text/event-stream")
+            {
+                first_model_content_offset(
+                    body,
+                    protocol,
+                    mime.eq_ignore_ascii_case("text/event-stream"),
+                )
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    let mut response = match outcome {
         ManagedOutcome::Released {
             status,
             content_type,
@@ -675,7 +751,11 @@ fn respond(outcome: ManagedOutcome) -> Response {
             Json(serde_json::json!({ "decision": "gate_paused", "detail": msg })),
         )
             .into_response(),
-    }
+    };
+    response
+        .extensions_mut()
+        .insert(FirstContentOffset(first_content));
+    response
 }
 
 // 抑制未使用导入警告（Bytes 用于类型别名文档场景）。
@@ -688,6 +768,12 @@ mod tests {
     use super::*;
 
     async fn lifecycle_router() -> (axum::Router, tokio::task::JoinHandle<()>) {
+        lifecycle_router_with_evidence(Arc::new(pc_gateway_evidence::NoopEvidenceSink)).await
+    }
+
+    async fn lifecycle_router_with_evidence(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
@@ -713,20 +799,32 @@ mod tests {
             )
             .route(
                 "/v1/chat/completions",
-                post(|| async {
-                    (
-                        StatusCode::CREATED,
-                        Json(serde_json::json!({
-                            "choices": [{"message": {"role": "assistant", "content": "checked"}}]
-                        })),
-                    )
+                post(|Json(request): Json<serde_json::Value>| async move {
+                    let usage = serde_json::json!({"prompt_tokens": 100, "completion_tokens": 12, "prompt_tokens_details": {"cached_tokens": 70}});
+                    if request["stream"] == true {
+                        (
+                            StatusCode::CREATED,
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            format!("data: {{\"choices\":[{{\"delta\":{{\"role\":\"assistant\"}}}}]}}\n\ndata: {{\"choices\":[{{\"delta\":{{\"content\":\"SYNTHETIC_SENSITIVE_RESPONSE\"}}}}]}}\n\ndata: {{\"choices\":[],\"usage\":{usage}}}\n\ndata: [DONE]\n\n"),
+                        ).into_response()
+                    } else {
+                        (
+                            StatusCode::CREATED,
+                            Json(serde_json::json!({
+                                "choices": [{"message": {"role": "assistant", "content": "checked"}}],
+                                "usage": usage,
+                                "provider_debug": "SYNTHETIC_SENSITIVE_RESPONSE"
+                            })),
+                        ).into_response()
+                    }
                 }),
             )
             .route(
                 "/v1/responses",
                 post(|| async {
                     Json(serde_json::json!({
-                        "id": "resp-1", "object": "response", "status": "completed", "output": []
+                        "id": "resp-1", "object": "response", "status": "completed", "output": [{"type":"message", "role":"assistant", "content":[{"type":"output_text", "text":"SYNTHETIC_SENSITIVE_RESPONSE"}]}],
+                        "usage": {"input_tokens": 80, "output_tokens": 11, "input_tokens_details": {"cached_tokens": 30}}
                     }))
                 }),
             );
@@ -739,16 +837,17 @@ mod tests {
                 pc_gateway_transport::ReqwestTransport::new(std::time::Duration::from_secs(120)),
                 std::num::NonZeroU32::new(2).unwrap(),
             )),
-            evidence: Arc::new(pc_gateway_evidence::BufferedEvidenceSink::new()),
+            evidence,
             upstream_profile: "test".into(),
             upstream_chat: format!("{base}/v1/chat/completions"),
             upstream_responses: format!("{base}/v1/responses"),
-            upstream_chat_api_key: String::new(),
+            upstream_chat_api_key: "SYNTHETIC_SENSITIVE_CREDENTIAL".into(),
             upstream_responses_api_key: String::new(),
             api_key: Some("gateway-key".into()),
             degrade: pc_gateway_core::DegradePolicy::Pause,
             injection: Injection::Off,
             inject_responses: false,
+            inject_code: false,
             sediment: false,
             steering: None,
             default_scope: "test".into(),
@@ -758,7 +857,7 @@ mod tests {
         let router = crate::middleware::apply_chain(
             crate::router(state, crate::proxy::ProxyState::from_env()),
             vec![
-                crate::middleware::ResourceLimits::new(1024 * 1024, 2),
+                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 2),
                 Arc::new(crate::middleware::RequestId),
             ],
         );
@@ -1507,5 +1606,147 @@ mod tests {
         let canonical = to_canonical_chat(chat).unwrap();
         assert!(canonical.messages[0].content_null);
         assert!(canonical.messages[0].tool_calls.is_none());
+    }
+
+    #[derive(Clone, Default)]
+    struct EvidenceOutput(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for EvidenceOutput {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn real_ingress_exports_usage_and_content_boundaries_without_sensitive_data() {
+        use pc_gateway_evidence::JsonEvidenceSink;
+        use tower::ServiceExt;
+        let output = EvidenceOutput::default();
+        let sink = Arc::new(
+            JsonEvidenceSink::new(output.clone(), std::num::NonZeroUsize::new(1024).unwrap())
+                .unwrap(),
+        );
+        let (router, server) = lifecycle_router_with_evidence(sink.clone()).await;
+        // Exercise JSON/SSE on both public routes with the real reqwest transport.
+        for i in 0..200 {
+            let chat = i % 4 < 2;
+            let stream = i % 2 == 1;
+            let request = Request::builder().method("POST")
+                .uri(if chat { "/gateway/v1/chat/completions" } else { "/gateway/v1/responses" })
+                .header(header::AUTHORIZATION, "Bearer gateway-key")
+                .header("x-powercontext-request-id", "SYNTHETIC_SENSITIVE_CORRELATION")
+                .body(axum::body::Body::from(if chat {
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "stream":stream}).to_string()
+                } else {
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "input":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "store":false, "stream":stream}).to_string()
+                })).unwrap();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert!(response.status().is_success());
+            axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while sink.stats().written < 1200 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(sink.stats().dropped, 0);
+        let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+        assert!(!text.contains("SYNTHETIC_SENSITIVE"));
+        assert!(!text.contains("gateway-key"));
+        assert!(!text.contains("/v1/"));
+        let mut records = std::collections::BTreeMap::<String, Vec<serde_json::Value>>::new();
+        for line in text.lines() {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            records
+                .entry(value["evidence"]["call_id"].as_str().unwrap().to_owned())
+                .or_default()
+                .push(value);
+        }
+        assert_eq!(records.len(), 200);
+        for events in records.values() {
+            let names: Vec<_> = events
+                .iter()
+                .map(|e| e["event"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                names,
+                ["attempt", "call", "delivery", "delivery", "delivery", "delivery"]
+            );
+            let call = &events[1]["evidence"];
+            let attempt = &events[0]["evidence"];
+            let chat = call["usage_mapping"] == "open_ai_chat";
+            assert_eq!(
+                call["usage"]["input"]["tokens"],
+                if chat { 100 } else { 80 }
+            );
+            assert_eq!(
+                call["usage"]["cache_read"]["tokens"],
+                if chat { 70 } else { 30 }
+            );
+            assert!(call["usage"]["cache_write"]["tokens"].is_null());
+            assert!(call["upstream_ttft_ms"].is_null());
+            assert!(attempt["response_first_byte_ms"].is_u64());
+            assert!(
+                attempt["response_complete_ms"].as_u64()
+                    >= attempt["response_first_byte_ms"].as_u64()
+            );
+            assert_eq!(events[2]["evidence"]["boundary"], "framework_handoff");
+            assert_eq!(events[3]["evidence"]["boundary"], "first_body_frame");
+            assert_eq!(events[4]["evidence"]["boundary"], "first_model_content");
+            assert_eq!(events[5]["evidence"]["boundary"], "body_completed");
+            assert!(
+                events[4]["evidence"]["elapsed_ms"].as_u64()
+                    >= events[3]["evidence"]["elapsed_ms"].as_u64()
+            );
+            assert!(
+                events[2]["evidence"]["elapsed_ms"].as_u64()
+                    >= call["release_authorized_ms"].as_u64()
+            );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn unconsumed_response_reports_drop_without_claiming_content_delivery() {
+        use pc_gateway_evidence::{BufferedEvidenceSink, DeliveryBoundary, EvidenceEvent};
+        use tower::ServiceExt;
+        let evidence = Arc::new(BufferedEvidenceSink::new());
+        let (router, server) = lifecycle_router_with_evidence(evidence.clone()).await;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/gateway/v1/chat/completions")
+            .header(header::AUTHORIZATION, "Bearer gateway-key")
+            .body(axum::body::Body::from(
+                r#"{"model":"test","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+        drop(response);
+        let delivery: Vec<_> = evidence
+            .events()
+            .into_iter()
+            .filter_map(|e| {
+                if let EvidenceEvent::Delivery(d) = e {
+                    Some(d.boundary)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(matches!(
+            delivery.as_slice(),
+            [
+                DeliveryBoundary::FrameworkHandoff,
+                DeliveryBoundary::BodyDropped
+            ]
+        ));
+        server.abort();
     }
 }
