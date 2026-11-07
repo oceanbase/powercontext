@@ -14,7 +14,9 @@ opencode
 For each normal user turn, the plugin recalls bounded project context and independently captures the prompt as Source
 evidence. Recalled content is inserted transiently before model dispatch and is labelled as untrusted history. It is
 not persisted into the OpenCode transcript. Curated `pc_*` tools expose Memory, Handoff, Experience, Skill, and
-read-only Candidate operations. OpenCode asks before a named durable mutation.
+read-only Candidate operations. OpenCode asks before a named durable mutation: the plugin sets OpenCode's
+`powercontext` permission to `ask`, and a `permission` rule you configure that matches it, including `*`, takes
+precedence.
 
 The package also installs a TUI plugin. Run `/pc` in interactive OpenCode to open the PowerContext command prompt,
 then use the same subcommands as the DSH plugin: `doctor`, `search`, `remember`, `flush`, `review`, `stats`,
