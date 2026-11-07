@@ -470,6 +470,7 @@ def test_real_core_uds_staged_shutdown(tmp_path, short_tmp_path, gateway_binary,
                 # Core authentication remains authoritative through the proxy.
                 assert client.get("/v1/capabilities").status_code == 401
                 assert client.get("/v1/capabilities", headers=_HEADERS).status_code == 200
+                request_started = time.monotonic()
                 connection = _pending_shutdown_request(address, mode, process, provider, body, path)
                 bypass = socket.create_connection(address, timeout=2)
                 started = _signal_and_verify_closed_admission(process, address, bypass, body, path)
@@ -484,12 +485,18 @@ def test_real_core_uds_staged_shutdown(tmp_path, short_tmp_path, gateway_binary,
                 # Actual process exit is the evidence; _gateway's final kill is
                 # solely cleanup if an assertion or this bounded wait fails.
                 assert process.wait(timeout=max(0.1, 32 - (time.monotonic() - started))) == 0
-                elapsed = time.monotonic() - started
+                finished = time.monotonic()
+                elapsed = finished - started
                 assert elapsed < 32, "30s total budget plus 2s scheduler/measurement tolerance"
                 if mode in {"expiry", "fallback"}:
                     assert 24.9 <= elapsed <= 27, elapsed
                 elif mode == "earlier_request":
-                    assert 8 <= elapsed <= 13, elapsed
+                    # Body completion, Core admission and scheduling before the
+                    # signal also consume the original 180s request budget.
+                    # Allow 0.1s measurement and 3s scheduling tolerance.
+                    request_elapsed = finished - request_started
+                    assert 179.9 <= request_elapsed <= 183, request_elapsed
+                    assert elapsed < 25, "original request deadline must win over drain"
                 else:
                     assert elapsed < 3, elapsed
                 assert provider.sends == int(mode in {"normal", "expiry", "earlier_request"})

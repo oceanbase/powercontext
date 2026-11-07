@@ -303,11 +303,13 @@ connection without an extra delivery/cleanup window; a response may be truncated
 Framework-observed disconnects stop local work with `request_cancelled`; unobserved network loss is bounded by
 the deadline. A delivery interruption preserves completed execution and model-send facts, including
 `ReleaseAuthorized` and `ResponseReceived`. Cancellation does not prove provider rollback or safe resend.
-The process-local `ExecutionSnapshot::local_delivery` reports `NotStarted`, `InProgress`, `Completed`, or
-`Interrupted(reason)`; it is independent of the execution terminal and does not retain response bytes or permits.
+The process-local `ExecutionSnapshot::local_delivery` reports model content delivery as `NotStarted`, `InProgress`,
+`Completed`, or `Interrupted(reason)`; rejection and lifecycle-error responses do not start model content delivery.
+It is independent of the execution terminal and does not retain response bytes or permits.
 Fallback permits remain attached to their response body until drop. Fallback retains authentication,
-keep-alive and streaming behavior without the model deadline or forced connection closure; provider/Core pools
-remain enabled. Service-level bounded drain and process exit remain separate G3 work.
+keep-alive and streaming behavior without the model deadline or forced connection closure. Provider sends and HTTP
+Core RPCs use fresh HTTP/1 connections with idle pooling disabled; the UDS Core client retains its bounded idle pool.
+Gateway shutdown allows up to 25 seconds to drain and bounds process exit to 30 seconds from the first shutdown signal.
 `/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
 returns 413 before forwarding. Unknown-length overflow produces a body error: a prefix may already have reached
 Core, and the proxy returns 502 if forwarding fails. It is not successful truncation, and the gateway does not

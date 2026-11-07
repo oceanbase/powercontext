@@ -172,9 +172,13 @@ fn malformed_http(error: &reqwest::Error) -> bool {
         if error
             .downcast_ref::<hyper::Error>()
             .is_some_and(hyper::Error::is_parse)
-            || error
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|e| e.kind() == std::io::ErrorKind::InvalidData)
+            || error.downcast_ref::<std::io::Error>().is_some_and(|e| {
+                // Hyper's HTTP/1 chunk decoder uses both kinds for invalid framing.
+                matches!(
+                    e.kind(),
+                    std::io::ErrorKind::InvalidData | std::io::ErrorKind::InvalidInput
+                )
+            })
         {
             return true;
         }

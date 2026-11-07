@@ -366,6 +366,9 @@ async fn read_chunked(
                 ));
             }
         }
+        if &buf[size..needed] != b"\r\n" {
+            return Err(GateError::Malformed("invalid chunk data terminator".into()));
+        }
         out.extend_from_slice(&buf[..size]);
         buf.drain(..needed);
     }

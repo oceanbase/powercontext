@@ -276,10 +276,12 @@ G5-A 的“可能已计费进入调用证据”仍待接入 [#2506](https://gith
 部分响应可能截断，错误 JSON 仅尽力返回。框架实际观察到断连时以 `request_cancelled` 停止本地工作；
 没有观察到断连的网络失联由原期限收束。交付中断保留已完成的执行终态和模型发送事实，
 包括 `ReleaseAuthorized` 与 `ResponseReceived`；取消不证明 provider 回滚，也不代表可以安全重发。
-进程内 `ExecutionSnapshot::local_delivery` 区分 `NotStarted`、`InProgress`、`Completed` 与
-`Interrupted(reason)`；它独立于执行终态，不持有响应字节或并发许可。
+进程内 `ExecutionSnapshot::local_delivery` 用 `NotStarted`、`InProgress`、`Completed` 与
+`Interrupted(reason)` 表示模型内容的交付状态；拒绝和生命周期错误响应不启动模型内容交付。
+它独立于执行终态，不持有响应字节或并发许可。
 fallback 许可仍随响应 body 持有，直到 body drop；fallback 保留认证、keep-alive 与流式行为，
-不继承模型期限或强制关闭连接策略，provider/Core 连接池继续启用。服务级有界排空与进程退出仍属 G3 独立工作。
+不继承模型期限或强制关闭连接策略。provider 发送与 HTTP Core RPC 使用全新 HTTP/1 连接，不复用空闲连接；
+UDS Core 客户端保留有界空闲连接池。Gateway 从首个停机信号起最多排空 25 秒，并将进程退出限制在 30 秒内。
 `/healthz` 豁免两类并发限制。已知 Content-Length 的 fallback 超限请求在转发前返回 413。
 未知长度超限会产生 body error：前缀可能已经到达 Core，转发失败时代理返回 502。
 这不是成功截断，Gateway 不会通过完整缓冲 MCP 流来强制统一错误状态码。

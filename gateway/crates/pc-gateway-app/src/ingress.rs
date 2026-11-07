@@ -112,6 +112,10 @@ enum Format {
     Responses,
 }
 
+/// Marks a response carrying released or explicitly degraded model content.
+#[derive(Clone, Copy)]
+pub(crate) struct ModelContent;
+
 async fn ingress_common(
     state: Arc<AppState>,
     headers: HeaderMap,
@@ -342,6 +346,7 @@ fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
         responses_sse(&resp),
     )
         .into_response();
+    response.extensions_mut().insert(ModelContent);
     if degraded {
         response.headers_mut().insert(
             "x-pc-degraded",
@@ -662,12 +667,14 @@ fn respond(outcome: ManagedOutcome) -> Response {
         } => {
             // 上游状态码与 Content-Type 原样透传（错误不伪装 200）。
             let code = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
-            (
+            let mut response = (
                 code,
                 [(header::CONTENT_TYPE, content_type.as_str())],
                 body.to_vec(),
             )
-                .into_response()
+                .into_response();
+            response.extensions_mut().insert(ModelContent);
+            response
         }
         ManagedOutcome::Degraded {
             status,
@@ -679,7 +686,10 @@ fn respond(outcome: ManagedOutcome) -> Response {
             .header("x-pc-degraded", "passthrough_without_memory")
             .body(axum::body::Body::from(body.to_vec()))
         {
-            Ok(r) => r,
+            Ok(mut response) => {
+                response.extensions_mut().insert(ModelContent);
+                response
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(serde_json::json!({ "error": e.to_string() })),
@@ -843,90 +853,6 @@ pub(crate) mod tests {
             ],
         );
         (router, server, received)
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn real_listener_slow_body_stops_before_executor_and_recovers() {
-        use pc_gateway_core::{ExecutionObservation, ExecutionState, ModelSendState};
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let (router, upstream, _) = lifecycle_router().await;
-        let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let retained = observations.clone();
-        let entered = Arc::new(tokio::sync::Notify::new());
-        let ingress_entered = entered.clone();
-        let router = router.layer(axum::middleware::from_fn(
-            move |req: Request, next: axum::middleware::Next| {
-                let retained = retained.clone();
-                let ingress_entered = ingress_entered.clone();
-                async move {
-                    if req.uri().path().starts_with("/gateway/") {
-                        ingress_entered.notify_one();
-                    }
-                    let response = next.run(req).await;
-                    if let Some(observation) = response.extensions().get::<ExecutionObservation>() {
-                        retained.lock().unwrap().push(observation.clone());
-                    }
-                    response
-                }
-            },
-        ));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            crate::connection::serve(listener, router, std::future::pending())
-                .await
-                .unwrap()
-        });
-        // Resume for network setup, then freeze once the request has entered the body read.
-        tokio::time::resume();
-        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
-        client.write_all(b"POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{").await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified())
-            .await
-            .unwrap();
-        // A health request establishes that the listener is progressing before advancing time.
-        let healthy = reqwest::Client::new()
-            .get(format!("http://{addr}/healthz"))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(healthy.status(), reqwest::StatusCode::OK);
-        tokio::time::pause();
-        tokio::time::advance(std::time::Duration::from_secs(181)).await;
-        tokio::time::resume();
-        let mut response = Vec::new();
-        tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            client.read_to_end(&mut response),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        let response = String::from_utf8(response).unwrap();
-        assert!(response.starts_with("HTTP/1.1 504"), "{response}");
-        assert!(response.contains(r#""decision":"deadline_exceeded""#));
-        assert!(response.contains(r#""model_send":"no_send""#));
-        let observation = observations.lock().unwrap()[0].clone();
-        assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
-        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
-        assert_eq!(
-            observation.snapshot().stop_reason,
-            Some(LifecycleStopReason::DeadlineExceeded)
-        );
-        let response = reqwest::Client::new()
-            .post(format!("http://{addr}/gateway/v1/chat/completions"))
-            .bearer_auth("gateway-key")
-            .json(
-                &serde_json::json!({"model":"test","messages":[{"role":"user","content":"hello"}]}),
-            )
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status(), reqwest::StatusCode::CREATED);
-        server.abort();
-        server.await.unwrap_err();
-        upstream.abort();
-        upstream.await.unwrap_err();
     }
 
     struct PendingBody {

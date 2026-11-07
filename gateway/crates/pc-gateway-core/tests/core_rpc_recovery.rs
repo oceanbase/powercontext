@@ -316,3 +316,14 @@ async fn retry_waits_consume_original_deadline_and_cancellation_then_release_con
         }
     }
 }
+
+#[tokio::test]
+async fn malformed_chunk_framing_is_never_replayed() {
+    for uds in [false, true] {
+        for framing in [&b"Z\r\n"[..], &b"1\r\nx!\n"[..]] {
+            let mut response = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+            response.extend_from_slice(framing);
+            scenario(uds, "capabilities", &response, false).await;
+        }
+    }
+}

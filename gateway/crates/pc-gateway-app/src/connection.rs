@@ -126,8 +126,14 @@ impl Future for RequestOwner {
                         header::CONNECTION,
                         header::HeaderValue::from_static("close"),
                     );
-                    if let Some(lifecycle) = model.lifecycle() {
-                        lifecycle.begin_local_delivery();
+                    if response
+                        .extensions()
+                        .get::<crate::ingress::ModelContent>()
+                        .is_some()
+                    {
+                        if let Some(lifecycle) = model.lifecycle() {
+                            lifecycle.begin_local_delivery();
+                        }
                     }
                 }
                 self.handed_off = true;
@@ -243,14 +249,7 @@ where
         }
         tokio::select! {
             biased;
-            result = &mut connection => {
-                if result.is_err() {
-                    owner.interrupt(LifecycleStopReason::RequestCancelled);
-                } else if let Some(lifecycle) = owner.lifecycle() {
-                    lifecycle.complete_local_delivery();
-                }
-                break;
-            }
+            // A ready stop must prevent Hyper from advancing pending output.
             reason = owner.stopped() => {
                 owner.interrupt(reason);
                 break;
@@ -261,6 +260,14 @@ where
                 else { std::future::pending::<()>().await; }
             } => {
                 owner.interrupt(LifecycleStopReason::GatewayShutdown);
+                break;
+            }
+            result = &mut connection => {
+                if result.is_err() {
+                    owner.interrupt(LifecycleStopReason::RequestCancelled);
+                } else if let Some(lifecycle) = owner.lifecycle() {
+                    lifecycle.complete_local_delivery();
+                }
                 break;
             }
         }
@@ -905,6 +912,327 @@ mod tests {
         );
         shutdown.send(()).unwrap();
         bounded(server).await.unwrap().unwrap();
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    /// Holds all response writes until a stop and writable output can be made
+    /// ready in the same single-threaded runtime turn.
+    struct GatedOutput {
+        io: tokio::io::DuplexStream,
+        writable: Arc<std::sync::atomic::AtomicBool>,
+        blocked: Arc<Notify>,
+        writer: Arc<Mutex<Option<std::task::Waker>>>,
+        written: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl AsyncRead for GatedOutput {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for GatedOutput {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            if !self.writable.load(Ordering::SeqCst) {
+                *self.writer.lock().unwrap() = Some(cx.waker().clone());
+                self.blocked.notify_one();
+                return Poll::Pending;
+            }
+            self.written.fetch_add(bytes.len(), Ordering::SeqCst);
+            Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    async fn ready_stop_prevents_pending_output(reason: LifecycleStopReason) {
+        let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        let retained = Arc::new(Mutex::new(None::<RequestLifecycle>));
+        let captured = retained.clone();
+        let app = app.layer(axum::middleware::from_fn(
+            move |req: Request, next: Next| {
+                let captured = captured.clone();
+                let model = req.extensions().get::<ModelConnection>().unwrap().clone();
+                async move {
+                    let response = next.run(req).await;
+                    *captured.lock().unwrap() = model.lifecycle();
+                    response
+                }
+            },
+        ));
+        let (mut client, io) = tokio::io::duplex(4096);
+        let writable = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let blocked = Arc::new(Notify::new());
+        let writer = Arc::new(Mutex::new(None));
+        let written = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (shutdown, receiver) = watch::channel(None);
+        let connection = tokio::spawn(drive(
+            GatedOutput {
+                io,
+                writable: writable.clone(),
+                blocked: blocked.clone(),
+                writer: writer.clone(),
+                written: written.clone(),
+            },
+            app,
+            receiver,
+        ));
+        bounded(client.write_all(REQUEST)).await.unwrap();
+        bounded(blocked.notified()).await;
+        let lifecycle = retained.lock().unwrap().clone().unwrap();
+        let observation = lifecycle.observation();
+        let terminal = observation.snapshot().execution;
+        assert_eq!(
+            terminal,
+            ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+        );
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::InProgress
+        );
+        match reason {
+            LifecycleStopReason::RequestCancelled => lifecycle.cancellation().cancel(),
+            LifecycleStopReason::DeadlineExceeded => tokio::time::pause(),
+            LifecycleStopReason::GatewayShutdown => {
+                shutdown.send_replace(Some(Deadlines::from_signal(
+                    tokio::time::Instant::now() - Duration::from_secs(26),
+                )));
+            }
+        }
+        writable.store(true, Ordering::SeqCst);
+        if reason == LifecycleStopReason::DeadlineExceeded {
+            tokio::time::advance(Duration::from_secs(181)).await;
+            tokio::time::resume();
+        }
+        if let Some(writer) = writer.lock().unwrap().take() {
+            writer.wake();
+        }
+        bounded(connection).await.unwrap();
+        assert_eq!(
+            written.load(Ordering::SeqCst),
+            0,
+            "output continued after {reason}"
+        );
+        assert_eq!(observation.snapshot().stop_reason, Some(reason));
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::Interrupted(reason)
+        );
+        assert_eq!(observation.snapshot().execution, terminal);
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::ResponseReceived
+        );
+        assert_eq!(received.sends.load(Ordering::SeqCst), 1);
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn ready_cancellation_prevents_pending_model_output() {
+        ready_stop_prevents_pending_output(LifecycleStopReason::RequestCancelled).await;
+    }
+
+    #[tokio::test]
+    async fn ready_deadline_prevents_pending_model_output() {
+        ready_stop_prevents_pending_output(LifecycleStopReason::DeadlineExceeded).await;
+    }
+
+    #[tokio::test]
+    async fn ready_drain_deadline_prevents_pending_model_output() {
+        ready_stop_prevents_pending_output(LifecycleStopReason::GatewayShutdown).await;
+    }
+
+    #[tokio::test]
+    async fn rejected_responses_do_not_report_model_content_delivery() {
+        for (key, body, length, status) in [
+            ("wrong-key", "{}", 2, 401),
+            ("gateway-key", "invalid json", 12, 400),
+            ("gateway-key", "", 1024 * 1024 + 1, 413),
+        ] {
+            let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+            let retained = Arc::new(Mutex::new(None::<ExecutionObservation>));
+            let captured = retained.clone();
+            let app = app.layer(axum::middleware::from_fn(
+                move |req: Request, next: Next| {
+                    let captured = captured.clone();
+                    let model = req.extensions().get::<ModelConnection>().unwrap().clone();
+                    async move {
+                        let response = next.run(req).await;
+                        *captured.lock().unwrap() = Some(model.lifecycle().unwrap().observation());
+                        response
+                    }
+                },
+            ));
+            let (mut client, io) = tokio::io::duplex(4096);
+            let (_shutdown, receiver) = watch::channel(None);
+            let connection = tokio::spawn(drive(io, app, receiver));
+            let request = format!(
+                "POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer {key}\r\nContent-Length: {length}\r\n\r\n{body}"
+            );
+            bounded(client.write_all(request.as_bytes())).await.unwrap();
+            let mut response = Vec::new();
+            bounded(client.read_to_end(&mut response)).await.unwrap();
+            bounded(connection).await.unwrap();
+            assert!(String::from_utf8_lossy(&response).starts_with(&format!("HTTP/1.1 {status}")));
+            let observation = retained.lock().unwrap().clone().unwrap();
+            assert_eq!(
+                observation.snapshot().local_delivery,
+                LocalDeliveryState::NotStarted,
+                "{status}"
+            );
+            assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+            assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+            assert_eq!(observation.snapshot().stop_reason, None);
+            assert_eq!(received.sends.load(Ordering::SeqCst), 0);
+            upstream.abort();
+            upstream.await.unwrap_err();
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn real_listener_slow_body_stops_before_executor_and_recovers() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (router, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let retained = observations.clone();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let ingress_entered = entered.clone();
+        let router = router.layer(axum::middleware::from_fn(
+            move |req: Request, next: axum::middleware::Next| {
+                let retained = retained.clone();
+                let ingress_entered = ingress_entered.clone();
+                async move {
+                    if let Some(model) = req.extensions().get::<ModelConnection>() {
+                        retained
+                            .lock()
+                            .unwrap()
+                            .push(model.lifecycle().unwrap().observation());
+                        ingress_entered.notify_one();
+                    }
+                    next.run(req).await
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            crate::connection::serve(listener, router, std::future::pending())
+                .await
+                .unwrap()
+        });
+        // Resume for network setup, then freeze once the request has entered the body read.
+        tokio::time::resume();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(b"POST /gateway/v1/chat/completions HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{").await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        // A health request establishes that the listener is progressing before advancing time.
+        let healthy = reqwest::Client::new()
+            .get(format!("http://{addr}/healthz"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(healthy.status(), reqwest::StatusCode::OK);
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_secs(181)).await;
+        tokio::time::resume();
+        let mut response = Vec::new();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.read_to_end(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // The absolute deadline ends the connection; it grants no extra error-delivery window.
+        assert!(
+            response.is_empty(),
+            "output continued after the body deadline"
+        );
+        let observation = observations.lock().unwrap()[0].clone();
+        assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+        assert_eq!(
+            observation.snapshot().stop_reason,
+            Some(LifecycleStopReason::DeadlineExceeded)
+        );
+        assert_eq!(
+            observation.snapshot().local_delivery,
+            LocalDeliveryState::NotStarted
+        );
+        assert_eq!(received.sends.load(Ordering::SeqCst), 0);
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/gateway/v1/chat/completions"))
+            .bearer_auth("gateway-key")
+            .json(
+                &serde_json::json!({"model":"test","messages":[{"role":"user","content":"hello"}]}),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+        server.abort();
+        server.await.unwrap_err();
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn responses_sse_content_completes_local_delivery() {
+        let (app, upstream, _) = crate::ingress::tests::lifecycle_router().await;
+        let retained = Arc::new(Mutex::new(None::<ExecutionObservation>));
+        let captured = retained.clone();
+        let app = app.layer(axum::middleware::from_fn(
+            move |req: Request, next: Next| {
+                let captured = captured.clone();
+                async move {
+                    let response = next.run(req).await;
+                    *captured.lock().unwrap() =
+                        response.extensions().get::<ExecutionObservation>().cloned();
+                    response
+                }
+            },
+        ));
+        let (mut client, io) = tokio::io::duplex(4096);
+        let (_shutdown, receiver) = watch::channel(None);
+        let connection = tokio::spawn(drive(io, app, receiver));
+        let body = r#"{"model":"test","input":[{"role":"user","content":"hello"}],"stream":true}"#;
+        let request = format!(
+            "POST /gateway/v1/responses HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer gateway-key\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        bounded(client.write_all(request.as_bytes())).await.unwrap();
+        let mut response = Vec::new();
+        bounded(client.read_to_end(&mut response)).await.unwrap();
+        bounded(connection).await.unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.contains("text/event-stream"));
+        assert!(response.contains("event: response.completed"));
+        let snapshot = retained.lock().unwrap().as_ref().unwrap().snapshot();
+        assert_eq!(snapshot.local_delivery, LocalDeliveryState::Completed);
+        assert_eq!(
+            snapshot.execution,
+            ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+        );
+        assert_eq!(snapshot.model_send, ModelSendState::ResponseReceived);
+        assert_eq!(snapshot.stop_reason, None);
         upstream.abort();
         upstream.await.unwrap_err();
     }
