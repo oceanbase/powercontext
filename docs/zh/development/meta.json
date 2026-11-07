@@ -4,6 +4,7 @@
   "defaultOpen": false,
   "pages": [
     "releasing",
+    "ci-scope",
     "managed-resource-production",
     "core-protocol",
     "memory-layer",
@@ -14,6 +15,7 @@
     "remote-access-implementation",
     "dashboard",
     "desktop-delivery-plan",
-    "desktop-session-observations"
+    "desktop-session-observations",
+    "website-seo"
   ]
 }

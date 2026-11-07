@@ -69,11 +69,11 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
     # Reconstruct the previous registered layout, preserving its real historical evidence.
     with sqlite3.connect(database) as connection:
         connection.execute("DROP TABLE pc_artifact_source_locators")
-        connection.execute("UPDATE pc_schema_revision SET version_num = 'v1_4_1_005'")
+        connection.execute("UPDATE pc_schema_revision SET version_num = 'v1_5_0_003'")
 
     runner = deployment_runner(_settings(database))
     plan = runner.plan()
-    assert plan.revisions == ("v1_4_1_006",)
+    assert plan.revisions == ("v1_5_0_004",)
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     locators = [

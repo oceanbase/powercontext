@@ -1,7 +1,7 @@
 ---
-status: community
 title: Pi Coding Agent
 description: Install the native PowerContext package for Pi and control recall, capture, and durable tool writes.
+status: community
 ---
 
 # Pi Coding Agent

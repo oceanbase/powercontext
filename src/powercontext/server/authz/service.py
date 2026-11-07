@@ -84,6 +84,15 @@ _STATIC_SCOPE_ROLES = (
 )
 
 
+def _static_scope_receipt_keys(
+    deployment_id: str, principal_id: str, scope_id: str, role: AccessRole
+) -> tuple[str, str]:
+    legacy = f"static-preset:{deployment_id}:{principal_id}:{scope_id}:{role.value}"
+    # The relationship schema stores keys in VARCHAR(255), including internal presets.
+    key = legacy if len(legacy) <= 255 else f"static-preset:sha256:{hashlib.sha256(legacy.encode()).hexdigest()}"
+    return key, legacy
+
+
 @dataclass(frozen=True, slots=True)
 class AuthorizedResourceFilter:
     """Complete bounded identities and parent constraints produced before data access."""
@@ -896,6 +905,37 @@ class AccessControlService:
         actions = ROLE_ACTIONS if resource.type is AccessResourceType.SCOPE else ROLE_CHILD_ACTIONS
         return any(action in actions[role] for role in _STATIC_SCOPE_ROLES)
 
+    async def static_scope_bootstrap_would_grant(
+        self, principal: PrincipalRef, action: AccessAction, resource: ResourceRef
+    ) -> bool:
+        """Inspect whether a denied check can gain a new local preset binding.
+
+        An existing preset receipt is final, including after revocation. This
+        preview must not treat that receipt as a grant or recreate its binding.
+        """
+        if not self.can_bootstrap_static_scope(principal, action, resource):
+            return False
+        from powercontext.server.authz.casbin import CasbinAuthorizationProvider
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        repository = self.relationships
+        if type(repository) is not RelationalAccessRepository or type(self.provider) not in {
+            BuiltinAuthorizationProvider,
+            CasbinAuthorizationProvider,
+        }:
+            return False
+        actions = ROLE_ACTIONS if resource.type is AccessResourceType.SCOPE else ROLE_CHILD_ACTIONS
+        for role in _STATIC_SCOPE_ROLES:
+            if action not in actions[role]:
+                continue
+            key, legacy = _static_scope_receipt_keys(self.deployment_id, principal.id, resource.scope_id, role)
+            if await _access_call(repository.static_scope_initialized(principal, (key,))):
+                continue
+            if key != legacy and await _access_call(repository.static_scope_initialized(principal, (legacy,))):
+                continue
+            return True
+        return False
+
     async def bootstrap_static_scope(
         self,
         principal: PrincipalRef | None,
@@ -912,14 +952,20 @@ class AccessControlService:
 
         resource = ResourceRef.scope(scope_id)
         keys = tuple(
-            f"static-preset:{self.deployment_id}:{actor.id}:{scope_id}:{role.value}" for role in _STATIC_SCOPE_ROLES
+            _static_scope_receipt_keys(self.deployment_id, actor.id, scope_id, role)[0] for role in _STATIC_SCOPE_ROLES
         )
         repository = self._relationship_writer()
         if type(repository) is RelationalAccessRepository and await repository.static_scope_initialized(actor, keys):
             return
         now = self._clock()
         for role in _STATIC_SCOPE_ROLES:
-            key = f"static-preset:{self.deployment_id}:{actor.id}:{scope_id}:{role.value}"
+            key, legacy = _static_scope_receipt_keys(self.deployment_id, actor.id, scope_id, role)
+            if (
+                key != legacy
+                and type(repository) is RelationalAccessRepository
+                and await _access_call(repository.static_scope_initialized(actor, (legacy,)))
+            ):
+                continue
             binding = AccessBinding(
                 binding_id=str(uuid4()),
                 subject=actor,
@@ -1404,6 +1450,7 @@ class AccessControlService:
         expected_version: int,
         idempotency_key: str,
         context: AccessAuditContext,
+        prepare_resource: Callable[[ResourceRef], Awaitable[None]] | None = None,
     ) -> AccessBinding:
         _validate_idempotency_key(idempotency_key)
         actor = _required_principal(principal)
@@ -1414,6 +1461,8 @@ class AccessControlService:
             if decision.allowed:
                 raise AccessBindingNotFoundError
             raise AccessDeniedError
+        if prepare_resource is not None:
+            await prepare_resource(binding.resource)
         await self.require_any(
             actor,
             _administrative_checks(binding.resource, deployment_id=self.deployment_id),
@@ -1444,6 +1493,7 @@ class AccessControlService:
         request: ReplaceBinding,
         *,
         context: AccessAuditContext,
+        prepare_resource: Callable[[ResourceRef], Awaitable[None]] | None = None,
     ) -> BindingReplacement:
         actor = _required_principal(principal)
         current = await _access_call(self._relationship_reader().get_binding(request.binding_id))
@@ -1457,6 +1507,8 @@ class AccessControlService:
             if decision.allowed:
                 raise AccessBindingNotFoundError
             raise AccessDeniedError
+        if prepare_resource is not None:
+            await prepare_resource(current.resource)
         validate_binding_subject(current.resource, current.role, request.subject.type)
         if isinstance(request.subject, GroupRef) and not self.provider_capabilities.group_subjects:
             raise AccessInvalidRequestError("group-subjects-unavailable")

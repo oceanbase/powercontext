@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 from datetime import date as date_aliased
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum, StrEnum
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import (
     AwareDatetime,
@@ -582,7 +583,7 @@ class DreamBudget(BaseModel):
     max_depth: Annotated[StrictInt, Field(ge=1, le=8)] = 8
     max_output_tokens: Annotated[StrictInt, Field(ge=1, le=4096)] = 4096
     max_model_calls: Annotated[StrictInt, Field(ge=1, le=2)] = 2
-    timeout_seconds: Annotated[StrictFloat, Field(ge=0.0, gt=1.0, le=120.0)] = 120
+    timeout_seconds: Annotated[StrictFloat, Field(gt=0.0, le=120.0)] = 120
 
 
 class Kind(StrEnum):
@@ -653,6 +654,109 @@ class ArtifactDreamingOperationCapability(BaseModel):
     operation: DreamOperation
     output_kind: OutputKind
     effect: Effect
+
+
+class CustomArtifactFamilySchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: StrictStr
+    schema_version: StrictStr
+    content_schema: dict[str, Any]
+    search_fields: Annotated[
+        list[StrictStr], Field(description="Legacy persisted text fields; new plugins use search.")
+    ]
+    search: Annotated[
+        dict[str, Any] | None, Field(description="Persistent declarative indexes and supported search modes.")
+    ] = None
+
+
+class ReloadArtifactPluginRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_generation: Annotated[StrictInt, Field(ge=0)]
+
+
+class ChangeArtifactPluginStateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_generation: Annotated[StrictInt, Field(ge=1)]
+
+
+class DesiredState(StrEnum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    UNLOADED = "unloaded"
+
+
+class Phase(StrEnum):
+    ACTIVATING = "activating"
+    ENABLED = "enabled"
+    STOPPING = "stopping"
+    DISABLED = "disabled"
+    UNLOADING = "unloading"
+    UNLOADED = "unloaded"
+    FAILED = "failed"
+
+
+class ArtifactPluginState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding_name: StrictStr
+    plugin_id: StrictStr
+    family: StrictStr
+    binding_generation: Annotated[StrictInt, Field(ge=1)]
+    desired_state: DesiredState
+    phase: Phase
+    last_error: Annotated[StrictStr | None, Field(...)]
+
+
+class ArtifactPluginPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[ArtifactPluginState]
+
+
+class Outcome(StrEnum):
+    ACCEPTED = "accepted"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+class ErrorEnum(StrEnum):
+    CONFLICT = "conflict"
+    INVALID_PLUGIN = "invalid_plugin"
+    UNAVAILABLE = "unavailable"
+
+
+class Error(RootModel[ErrorEnum | None]):
+    root: Annotated[
+        ErrorEnum | None, Field(description="Safe per-plugin failure code; null for accepted or skipped entries.")
+    ] = None
+
+
+class EnableArtifactPluginResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding_name: StrictStr
+    outcome: Outcome
+    status_url: Annotated[StrictStr, Field(description="Registration status URL for the asynchronous result.")]
+    state: ArtifactPluginState
+    error: Annotated[
+        Error | None, Field(description="Safe per-plugin failure code; null for accepted or skipped entries.")
+    ]
+
+
+class EnableAllArtifactPluginsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[EnableArtifactPluginResult]
 
 
 class Configuration(StrEnum):
@@ -865,6 +969,90 @@ class RecallTokenDay(BaseModel):
     baseline_tokens: Annotated[StrictInt, Field(ge=0)]
     recalled_tokens: Annotated[StrictInt, Field(ge=0)]
     token_reduction: StrictInt
+
+
+class ProcessingState(StrEnum):
+    IDLE = "idle"
+    DIRTY = "dirty"
+    PENDING = "pending"
+    ACKNOWLEDGED = "acknowledged"
+    QUEUED = "queued"
+    RUNNING = "running"
+    RETRY_WAIT = "retry_wait"
+    BLOCKED = "blocked"
+
+
+class ProcessingReason(StrEnum):
+    UNOBSERVED = "unobserved"
+    WAITING_SCHEDULE = "waiting_schedule"
+    WAITING_DISPATCH = "waiting_dispatch"
+    WAITING_CAPACITY = "waiting_capacity"
+    EXECUTING = "executing"
+    RETRY_BACKOFF = "retry_backoff"
+    POLICY_BLOCK = "policy_block"
+    IDLE = "idle"
+
+
+class ProcessingObservation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: StrictStr
+    family: StrictStr | None = None
+    state: ProcessingState
+    observed_at: AwareDatetime
+    scheduler_observed: StrictBool = False
+    reason: ProcessingReason = ProcessingReason.UNOBSERVED
+    requested_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    handled_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    dirty_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    clean_generation: Annotated[StrictInt, Field(ge=0)] = 0
+    pending_since: Annotated[
+        AwareDatetime | None, Field(description="Local lower bound, not the durable age of all pending work.")
+    ] = None
+    running_seconds: Annotated[StrictFloat | None, Field(ge=0.0)] = None
+    next_check_seconds: Annotated[
+        StrictFloat | None,
+        Field(description="Estimated seconds until a scheduler check, not a promised execution deadline.", ge=0.0),
+    ] = None
+    worker_id: StrictStr | None = None
+    attempt_generation: Annotated[StrictInt | None, Field(ge=0)] = None
+    retry_failures: Annotated[StrictInt | None, Field(ge=0)] = None
+    block_code: StrictStr | None = None
+    last_error_code: Annotated[
+        StrictStr | None,
+        Field(
+            description="Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message."
+        ),
+    ] = None
+    last_error_stage: Annotated[
+        StrictStr | None,
+        Field(
+            description="Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation."
+        ),
+    ] = None
+    last_error_at: Annotated[
+        AwareDatetime | None,
+        Field(
+            description="UTC time the local supervisor observed this failure, not the child event time or a durable history."
+        ),
+    ] = None
+    last_error_worker_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label."
+        ),
+    ] = None
+    last_error_trace_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation."
+        ),
+    ] = None
+
+
+class ActualAdoption(StrEnum):
+    UNOBSERVED = "unobserved"
 
 
 class WorkClaimBasis(StrEnum):
@@ -1174,6 +1362,329 @@ class EditStatus(StrEnum):
 
 class HandoffPromptKey(StrEnum):
     HANDOFF_GENERATE = "handoff.generate"
+
+
+class Schema4(StrEnum):
+    POWERCONTEXT_PREPARED_CONTEXT_RECEIPT_V1 = "powercontext.prepared-context-receipt.v1"
+
+
+class PolicyId(StrEnum):
+    POWERCONTEXT_PREPARED_CONTEXT_RECEIPT_V1 = "powercontext.prepared-context-receipt.v1"
+
+
+class Outcome1(StrEnum):
+    COMPLETED = "completed"
+    EXPANSION_FAILED = "expansion_failed"
+
+
+class PreparedContextRecallRound(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    round: Annotated[StrictInt, Field(ge=0, le=2)]
+    outcome: Outcome1
+    retained: StrictBool
+
+
+class Mode3(StrEnum):
+    FTS = "fts"
+    VECTOR = "vector"
+    HYBRID = "hybrid"
+    SNAPSHOT = "snapshot"
+    CODE = "code"
+    NONE = "none"
+
+
+class Outcome2(StrEnum):
+    COMPLETED = "completed"
+    NOT_RUN = "not_run"
+    FAILED = "failed"
+
+
+class FallbackReason(StrEnum):
+    NONE = "none"
+    INFERENCE_UNAVAILABLE = "inference_unavailable"
+    INFERENCE_TIMEOUT = "inference_timeout"
+    REUSED_FTS_FALLBACK = "reused_fts_fallback"
+
+
+class PreparedContextPromptArtifactAddress(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact: ArtifactReference
+
+
+class Outcome3(StrEnum):
+    SELECTED = "selected"
+    FALLBACK = "fallback"
+    FAILED = "failed"
+
+
+class FallbackReason1(StrEnum):
+    NONE = "none"
+    EMPTY_SELECTION = "empty_selection"
+    INFERENCE_UNAVAILABLE = "inference_unavailable"
+    INFERENCE_TIMEOUT = "inference_timeout"
+    INVALID_OUTPUT = "invalid_output"
+
+
+class PreparedContextRerankGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    round: Annotated[StrictInt, Field(ge=0, le=2)]
+    config_id: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    outcome: Outcome3
+    fallback_reason: FallbackReason1
+    count: Annotated[StrictInt, Field(ge=1)]
+
+
+class PreparedContextFamily(StrEnum):
+    ATOMIC_MEMORY = "atomic-memory"
+    TOPIC_MEMORY = "topic-memory"
+    EXPERIENCE = "experience"
+    PROFILE = "profile"
+    CODE = "code"
+
+
+class PreparedContextCodeEvidence(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    fingerprint: StrictStr
+    path: StrictStr
+    file_sha256: StrictStr
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    end_line: Annotated[StrictInt, Field(ge=1)]
+    snippet_sha256: StrictStr
+
+
+class PreparedContextSelectedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: PreparedContextFamily
+    artifact_address: ArtifactAddress | None = None
+    code_evidence: PreparedContextCodeEvidence | None = None
+    rendered_bytes: Annotated[StrictInt, Field(ge=0)]
+    truncated: StrictBool
+
+
+class Reason(StrEnum):
+    DUPLICATE = "duplicate"
+    BLANK = "blank"
+    FAMILY_LIMIT = "family_limit"
+    ENTRY_LIMIT = "entry_limit"
+    BELOW_MIN_BYTES = "below_min_bytes"
+    NO_FITTING_TRUNCATION = "no_fitting_truncation"
+    RERANK_NOT_SELECTED = "rerank_not_selected"
+    NOT_RETRIEVED = "not_retrieved"
+
+
+class PreparedContextOmittedGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: PreparedContextFamily
+    reason: Reason
+    count: Annotated[StrictInt, Field(ge=1)]
+
+
+class PreparedContextStageTiming(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    stage: StrictStr
+    duration_ms: Annotated[StrictFloat, Field(ge=0.0)]
+    count: Annotated[StrictInt, Field(ge=1)]
+
+
+class Schema5(StrEnum):
+    POWERCONTEXT_PREPARED_CONTEXT_WITH_REUSE_V1 = "powercontext.prepared-context-with-reuse.v1"
+
+
+class Schema6(StrEnum):
+    POWERCONTEXT_CONTEXT_REUSE_V1 = "powercontext.context-reuse.v1"
+
+
+class PreserveEnum(StrEnum):
+    CONTENT = "content"
+    CITATIONS = "citations"
+    TRUST = "trust"
+    ORDER = "order"
+
+
+class RefreshOnEnum(StrEnum):
+    PERMISSION_CHANGE = "permission_change"
+    SOURCE_INELIGIBLE = "source_ineligible"
+    CONTEXT_BOUNDARY = "context_boundary"
+
+
+class ContextReuseConstraints(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preserve: Annotated[list[PreserveEnum], Field(max_length=4, min_length=4)]
+    refresh_on: Annotated[list[RefreshOnEnum], Field(max_length=3, min_length=3)]
+
+
+class Schema7(StrEnum):
+    POWERCONTEXT_MODEL_JSON_PAYLOAD_V1 = "powercontext.model-json-payload.v1"
+
+
+class ModelJsonPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema7, Field(alias="schema")]
+    headers: Annotated[
+        dict[str, StrictStr],
+        Field(
+            description="Content and protocol headers only; credentials and transport override headers are forbidden.",
+            max_length=16,
+            min_length=1,
+        ),
+    ]
+    body: Annotated[
+        StrictStr,
+        Field(
+            description="Complete raw UTF-8 JSON text. Duplicate keys and non-finite numbers are unsupported.",
+            max_length=1048576,
+            min_length=2,
+        ),
+    ]
+
+
+class Schema8(StrEnum):
+    POWERCONTEXT_MODEL_JSON_TEXT_LOCATION_V1 = "powercontext.model-json-text-location.v1"
+
+
+class ModelJsonTextLocation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema8, Field(alias="schema")]
+    pointer: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    start_byte: Annotated[StrictInt, Field(ge=0)]
+    end_byte: Annotated[StrictInt, Field(ge=1)]
+
+
+class PreparedContextLocation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
+    location: ModelJsonTextLocation
+
+
+class Phase1(StrEnum):
+    BEFORE_SEND = "before_send"
+
+
+class CheckContextBeforeSend(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    phase: Literal["before_send"]
+    target_profile: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    payload: ModelJsonPayload
+    prepared_contexts: Annotated[list[PreparedContextLocation], Field(max_length=16)]
+
+
+class Phase2(StrEnum):
+    BEFORE_RELEASE = "before_release"
+
+
+class Completion(StrEnum):
+    COMPLETE = "complete"
+
+
+class CheckContextBeforeRelease(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    phase: Literal["before_release"]
+    target_profile: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    request_binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
+    payload: ModelJsonPayload
+    completion: Completion
+
+
+class CheckContextRequest(RootModel[CheckContextBeforeSend | CheckContextBeforeRelease]):
+    root: Annotated[CheckContextBeforeSend | CheckContextBeforeRelease, Field(discriminator="phase")]
+
+
+class Profile(StrEnum):
+    TEXT_AND_TOOLS_V1 = "text-and-tools.v1"
+
+
+class ContextCheckCoverage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    profile: Profile
+    complete: StrictBool
+
+
+class Schema9(StrEnum):
+    POWERCONTEXT_CONTEXT_CHECK_V1 = "powercontext.context-check.v1"
+
+
+class Phase3(StrEnum):
+    BEFORE_SEND = "before_send"
+    BEFORE_RELEASE = "before_release"
+
+
+class Decision(StrEnum):
+    ALLOW = "allow"
+    BLOCK = "block"
+    WITHHOLD = "withhold"
+
+
+class ReasonCode(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=128)]
+
+
+class ContextCheckResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema9, Field(alias="schema")]
+    phase: Phase3
+    decision: Decision
+    reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
+    coverage: ContextCheckCoverage
+    policy_version: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    valid_until: AwareDatetime
+    correlate_until: Annotated[
+        AwareDatetime | None,
+        Field(description="Present only for a before_send allow; this deadline never permits a new send."),
+    ] = None
+    binding: Annotated[
+        StrictStr | None,
+        Field(
+            description="Present only for allow, bound to this phase, identity, target, policy, and exact payload.",
+            max_length=65536,
+            min_length=1,
+        ),
+    ] = None
+
+
+class ContextProtectionCapabilitiesLimits(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    payload_bytes: Annotated[StrictInt, Field(ge=1)]
+    binding_bytes: Annotated[StrictInt, Field(ge=1)]
+    prepared_contexts: Annotated[StrictInt, Field(ge=1)]
+    dependencies: Annotated[StrictInt, Field(ge=1)]
+    send_seconds: Annotated[StrictInt, Field(ge=1)]
+    correlate_seconds: Annotated[StrictInt, Field(ge=1)]
 
 
 class RepairSurface(StrEnum):
@@ -1605,7 +2116,7 @@ class Validation(StrEnum):
     UNKNOWN = "unknown"
 
 
-class Outcome(StrEnum):
+class Outcome4(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
     UNKNOWN = "unknown"
@@ -2013,7 +2524,7 @@ class CodeQueryRequest(BaseModel):
         return self
 
 
-class Schema4(StrEnum):
+class Schema10(StrEnum):
     POWERCONTEXT_CODE_QUERY_V1 = "powercontext.code-query.v1"
 
 
@@ -2031,7 +2542,7 @@ class CodeQueryResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema4, Field(alias="schema")] = Schema4.POWERCONTEXT_CODE_QUERY_V1
+    schema_: Annotated[Schema10, Field(alias="schema")] = Schema10.POWERCONTEXT_CODE_QUERY_V1
     scope_id: StrictStr
     fingerprint: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
     before_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
@@ -2046,7 +2557,7 @@ class CodeQueryResult(BaseModel):
     limitations: list[StrictStr] | None = None
 
 
-class Schema5(StrEnum):
+class Schema11(StrEnum):
     POWERCONTEXT_CODE_STATUS_V1 = "powercontext.code-status.v1"
 
 
@@ -2069,7 +2580,7 @@ class CodeStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema5, Field(alias="schema")] = Schema5.POWERCONTEXT_CODE_STATUS_V1
+    schema_: Annotated[Schema11, Field(alias="schema")] = Schema11.POWERCONTEXT_CODE_STATUS_V1
     scope_id: StrictStr
     status: Status3
     freshness: Freshness = Freshness.UNKNOWN
@@ -2097,7 +2608,7 @@ class CodeQueryResponse(RootModel[CodeQueryResult | CodeStatus]):
     root: CodeQueryResult | CodeStatus
 
 
-class Outcome1(StrEnum):
+class Outcome5(StrEnum):
     INJECTED = "injected"
     FAILED = "failed"
 
@@ -2108,7 +2619,7 @@ class RecordBootstrapDeliveryRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     receipt_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    outcome: Outcome1
+    outcome: Outcome5
 
 
 class ContextAssemblyFamily(StrEnum):
@@ -2233,11 +2744,57 @@ class ArtifactSearchFusion(BaseModel):
         return value
 
 
+class Distance(StrEnum):
+    L2 = "l2"
+
+
+class Normalization(StrEnum):
+    NONE = "none"
+    UNIT = "unit"
+
+
+class EmbeddingProfile(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    profile_id: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    model: Annotated[StrictStr, Field(min_length=1, pattern=".*\\S.*")]
+    dimension: Annotated[StrictInt, Field(ge=1)]
+    distance: Distance = Distance.L2
+    normalization: Normalization = Normalization.UNIT
+
+
+class QueryVector(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    profile: EmbeddingProfile
+    vector: Annotated[list[StrictFloat], Field(min_length=1)]
+
+
+class TextItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(min_length=1)]
+
+
+class VectorItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(min_length=1)]
+
+
+class Indexes(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    text: Annotated[list[TextItem] | None, Field(min_length=1)] = None
+    vector: Annotated[list[VectorItem] | None, Field(min_length=1)] = None
+
+
 class SearchArtifactsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    query: Annotated[StrictStr | None, Field(max_length=8192, min_length=1, pattern=".*\\S.*")] = None
+    query_vector: QueryVector | None = None
+    indexes: Indexes | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=200)] = 10
     mode: Annotated[StrictStr | None, Field(min_length=1, pattern=".*\\S.*")] = None
     filters: dict[str, Any] | None = None
@@ -2698,7 +3255,7 @@ class SchemaVersion(StrEnum):
     POWERCONTEXT_PROMPT_V1 = "powercontext.prompt.v1"
 
 
-class Mode3(StrEnum):
+class Mode4(StrEnum):
     AUTO = "auto"
     CUSTOM = "custom"
 
@@ -2717,14 +3274,14 @@ class Status4(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
-class ReasonEnum(StrEnum):
+class Reason1Enum(StrEnum):
     OPERATION_DISABLED = "operation_disabled"
     PROVIDER_NOT_CONFIGURED = "provider_not_configured"
     INJECTED_COMPONENT = "injected_component"
 
 
-class Reason(RootModel[ReasonEnum | None]):
-    root: ReasonEnum | None = None
+class Reason1(RootModel[Reason1Enum | None]):
+    root: Reason1Enum | None = None
 
 
 class BuiltinProfileEnum(StrEnum):
@@ -2741,7 +3298,7 @@ class PromptCapability(BaseModel):
         extra="forbid",
     )
     status: Status4
-    reason: Annotated[Reason | None, Field(...)]
+    reason: Annotated[Reason1 | None, Field(...)]
     definition_version: StrictStr
     builtin_version: StrictStr
     builtin_profile: Annotated[BuiltinProfile | None, Field(...)]
@@ -2757,13 +3314,13 @@ class PromptInstructions(BaseModel):
     demonstrations: list[PromptDemonstration]
 
 
-class ProfileEnum(StrEnum):
+class Profile1Enum(StrEnum):
     CODING = "coding"
     CONVERSATION = "conversation"
 
 
-class Profile(RootModel[ProfileEnum | None]):
-    root: ProfileEnum | None = None
+class Profile1(RootModel[Profile1Enum | None]):
+    root: Profile1Enum | None = None
 
 
 class BuiltinPromptInstructions(BaseModel):
@@ -2771,20 +3328,20 @@ class BuiltinPromptInstructions(BaseModel):
         extra="forbid",
     )
     version: StrictStr
-    profile: Annotated[Profile | None, Field(...)]
+    profile: Annotated[Profile1 | None, Field(...)]
     instructions: Annotated[
         StrictStr, Field(description="Exact default instructions from the active Runtime Prompt Definition.")
     ]
 
 
-class Reason1Enum(StrEnum):
+class Reason2Enum(StrEnum):
     OPERATION_DISABLED = "operation_disabled"
     PROVIDER_NOT_CONFIGURED = "provider_not_configured"
     INJECTED_COMPONENT = "injected_component"
 
 
-class Reason1(RootModel[Reason1Enum | None]):
-    root: Reason1Enum | None = None
+class Reason2(RootModel[Reason2Enum | None]):
+    root: Reason2Enum | None = None
 
 
 class PromptConfiguration(BaseModel):
@@ -2794,8 +3351,8 @@ class PromptConfiguration(BaseModel):
     scope_id: StrictStr
     prompt_key: PromptKey
     status: Status4
-    reason: Annotated[Reason1 | None, Field(...)]
-    mode: Mode3
+    reason: Annotated[Reason2 | None, Field(...)]
+    mode: Mode4
     artifact: Annotated[ArtifactReference | None, Field(...)]
     artifact_etag: Annotated[
         StrictStr | None,
@@ -2931,15 +3488,8 @@ class BaseArtifactFamily(StrEnum):
     TOPIC_MEMORY = "topic-memory"
 
 
-class ArtifactReadFamily(StrEnum):
-    MEMORY = "memory"
-    ATOMIC_MEMORY = "atomic-memory"
-    EXPERIENCE = "experience"
-    SKILL = "skill"
-    HANDOFF = "handoff"
-    PROFILE = "profile"
-    PROMPT = "prompt"
-    TOPIC_MEMORY = "topic-memory"
+class ArtifactReadFamily(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
 
 
 class StatsPeriod(StrEnum):
@@ -3017,11 +3567,6 @@ class BootstrapReceiptState(StrEnum):
     INJECTED = "injected"
     SKIPPED = "skipped"
     FAILED = "failed"
-
-
-class PreparedContextReason(StrEnum):
-    INFERENCE_TIMEOUT = "inference_timeout"
-    INFERENCE_UNAVAILABLE = "inference_unavailable"
 
 
 class BootstrapSkipReason(StrEnum):
@@ -3567,6 +4112,371 @@ class CatalogTagResult(BaseModel):
     etag: Annotated[StrictStr, Field(min_length=1)]
 
 
+class SourceCapabilityQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    input: dict[str, Any] | None = None
+
+
+class SourceWritePluginLoadRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")]
+    entry: Annotated[StrictStr, Field(max_length=4096, min_length=1)]
+
+
+class SourceWritePluginState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: StrictStr
+    entry: StrictStr
+    capabilities: list[dict[str, Any]]
+
+
+class SourceAddRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    capability: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    capability_version: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    input: dict[str, Any]
+
+
+class View(StrEnum):
+    RESULT = "result"
+    CONTROL = "control"
+
+
+class SourceStatusRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    view: View = View.RESULT
+
+
+class SourceInstanceSetEnabledRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    enabled: StrictBool
+
+
+class SourceConfigureRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    update: StrictBool = False
+    registration: dict[str, Any]
+
+
+class Management(StrEnum):
+    NOT_CONFIGURED = "not-configured"
+    ONLINE = "online"
+    UNAVAILABLE = "unavailable"
+
+
+class SourceCapabilityResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    capabilities: list[dict[str, Any]]
+    management: Management
+
+
+class SourceInstancesResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instances: list[dict[str, Any]]
+    capabilities: list[dict[str, Any]] | None = None
+    management: Management | None = None
+
+
+class Outcome6(StrEnum):
+    SAVED = "saved"
+    UNCHANGED = "unchanged"
+
+
+class SourceCollectionResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    outcome: Outcome6
+    source_refs: list[SourceTypeReference]
+
+
+class Tracking(StrEnum):
+    ENABLED = "enabled"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+
+
+class Availability(StrEnum):
+    ONLINE = "online"
+    OFFLINE = "offline"
+    UNAVAILABLE = "unavailable"
+
+
+class Kind12(StrEnum):
+    COLLECT = "collect"
+    WRITE = "write"
+
+
+class SourceManagementReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    tracking: Tracking | None = None
+    result: SourceCollectionResult | None = None
+    error: StrictStr | None = None
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capability_version: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    availability: Availability | None = None
+    updated_at: StrictStr | None = None
+    kind: Kind12 | None = None
+    enabled: StrictBool | None = None
+    source_refs: Annotated[
+        list[SourceTypeReference] | None,
+        Field(
+            description="Default collect status only. The single Source reference from the submission report most recently received by the manager, or empty before any report. Omitted from collect add responses; not a batch result or submission history.",
+            max_length=1,
+        ),
+    ] = None
+    last_submitted_at: Annotated[
+        StrictStr | None,
+        Field(
+            description="Default collect status only. Runtime-reported submission time paired with source_refs, or null before any report. Selection follows manager receipt order, not timestamp order. Omitted from collect add responses."
+        ),
+    ] = None
+
+
+class SourceInstanceStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    targets_initialized: StrictBool | None = None
+    target_id: StrictStr | None = None
+    instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    enabled: StrictBool | None = None
+    actual: StrictStr | None = None
+    run_id: StrictStr | None = None
+    availability: StrictStr | None = None
+    reused: StrictBool | None = None
+
+
+class SourceChannelOpen(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    protocol: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    deployment_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    manager_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class SourceChannelRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    response: dict[str, Any] | None = None
+    catalog: dict[str, Any] | None = None
+
+
+class SourceChannelResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    confirmed: StrictBool | None = None
+    messages: list[dict[str, Any]] | None = None
+
+
+class Status6(StrEnum):
+    RUNNING = "running"
+    COMPLETE = "complete"
+    COMPLETED = "completed"
+    PENDING = "pending"
+    FAILED = "failed"
+    STOPPED = "stopped"
+    CLEANUP_FAILED = "cleanup-failed"
+
+
+class SourceInstanceExchangeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    protocol: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    message_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    execution_location: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    configuration_digest: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    run_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    execution: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    target_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capabilities: Annotated[list[dict[str, Any]] | None, Field(max_length=64)] = None
+    response: dict[str, Any] | None = None
+    owner: dict[str, Any] | None = None
+    status: Status6 | None = None
+    source_refs: Annotated[
+        list[SourceTypeReference] | None,
+        Field(
+            description="One confirmed Source submission reported by the Runtime; not a batch or historical reference list.",
+            max_length=1,
+            min_length=1,
+        ),
+    ] = None
+    error: Annotated[StrictStr | None, Field(max_length=1024)] = None
+    targets: Annotated[list[dict[str, Any]] | None, Field(max_length=256)] = None
+    cursor: Annotated[StrictStr | None, Field(max_length=256)] = None
+    owner_exited: StrictBool | None = None
+    previous_owner: dict[str, Any] | None = None
+    submitted_at: StrictStr | None = None
+
+
+class SourceInstanceExchangeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class SourceTargetSetEnabledRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    target_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    enabled: StrictBool
+
+
+class View1(StrEnum):
+    DISCOVERY = "discovery"
+    CONTROL = "control"
+
+
+class SourceInstancesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    capability: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    instance_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    input: dict[str, Any] | None = None
+    view: View1 = View1.DISCOVERY
+
+
+class ScopeId1(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+
+
+class PlanAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to inspect; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    background_principal: Annotated[
+        AccessPrincipal | None,
+        Field(
+            description="Optional background processing Principal, such as ACCESS_BACKGROUND_PRINCIPAL_ID; each selected Scope is checked for scope.contribute and write permission on an existing Profile, including after all ownership gaps have been filled. An available Access store is required."
+        ),
+    ] = None
+
+
+class OwnershipGapKind(StrEnum):
+    ARTIFACT_OWNER = "artifact_owner"
+    CANDIDATE_ATTESTATION = "candidate_attestation"
+
+
+class OwnershipGapItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: OwnershipGapKind
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    artifact_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    entry_id: Annotated[StrictStr | None, Field(max_length=256)] = None
+    candidate_id: Annotated[StrictStr | None, Field(max_length=128)] = None
+    version: Annotated[StrictInt | None, Field(ge=1)] = None
+    conflict_code: Annotated[StrictStr | None, Field(max_length=64)] = None
+
+
+class AccessOwnershipScopePlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    artifact_gaps: list[OwnershipGapItem]
+    candidate_gaps: list[OwnershipGapItem]
+
+
+class Allowed(Enum):
+    BOOLEAN_FALSE = False
+
+
+class BackgroundPermissionGap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    principal_id: Annotated[StrictStr, Field(max_length=255, min_length=1)]
+    allowed: Allowed
+    reason_code: Annotated[StrictStr | None, Field(max_length=64)]
+
+
+class AccessOwnershipPlan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AccessControlMode
+    scopes: list[AccessOwnershipScopePlan]
+    background: list[BackgroundPermissionGap]
+
+
+class ApplyAccessOwnershipRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    owner: AccessPrincipal
+    scope_ids: Annotated[
+        list[ScopeId1] | None,
+        Field(
+            description="Scopes to migrate; every Scope when omitted. Pass Scopes incrementally for large deployments.",
+            min_length=1,
+        ),
+    ] = None
+    dry_run: StrictBool = False
+
+
+class AccessOwnershipApplyResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dry_run: StrictBool
+    applied: list[OwnershipGapItem]
+    conflicts: list[OwnershipGapItem]
+
+
 class RecallManifestRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3851,8 +4761,11 @@ class FlushProfileResponse(BaseModel):
 
 class ArtifactCollectionItem(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    family: ArtifactReadFamily
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    schema_version: Annotated[
+        StrictStr | None, Field(description="Persisted schema version for a custom Artifact family.")
+    ] = None
     revision: Annotated[StrictInt, Field(ge=1)]
     sources: list[SourceTypeReference]
     artifacts: list[ArtifactReference]
@@ -3895,8 +4808,11 @@ class ArtifactRevisionPage(BaseModel):
 
 class ArtifactRevision(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    family: ArtifactReadFamily
+    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[a-z][a-z0-9-]*$")]
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    schema_version: Annotated[
+        StrictStr | None, Field(description="Persisted schema version for a custom Artifact family.")
+    ] = None
     revision: Annotated[StrictInt, Field(ge=1)]
     content: dict[str, Any]
     sources: list[SourceTypeReference]
@@ -4058,6 +4974,35 @@ class RecallTokenStatistics(BaseModel):
     daily: Annotated[list[RecallTokenDay], Field(max_length=30)]
 
 
+class BootstrapDeliveryReading(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integration: StrictStr
+    state: BootstrapReceiptState
+    receipts: Annotated[StrictInt, Field(ge=0)]
+    content_bytes: Annotated[
+        StrictInt,
+        Field(
+            description="Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption.",
+            ge=0,
+        ),
+    ]
+    last_prepared_at: Annotated[
+        AwareDatetime, Field(description="Latest preparation time in this group, not the delivery completion time.")
+    ]
+
+
+class BootstrapDeliveryStatistics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: ResolvedUsagePeriod
+    retention_days: StrictInt
+    actual_adoption: ActualAdoption
+    by_integration: list[BootstrapDeliveryReading]
+
+
 class ScopeStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4067,6 +5012,14 @@ class ScopeStats(BaseModel):
     usage: UsageStatistics
     recall: RecallTokenStatistics
     recurrence: RecurrenceStatistics
+    processing: Annotated[
+        list[ProcessingObservation],
+        Field(
+            description="Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.",
+            validate_default=True,
+        ),
+    ] = []
+    bootstrap_delivery: BootstrapDeliveryStatistics | None = None
 
 
 class ScopedStats(BaseModel):
@@ -4088,6 +5041,12 @@ class GetStatsRequest(BaseModel):
     )
     selection: ScopeSelection
     period: StatsPeriod = StatsPeriod.FIELD_30D
+    include_processing: Annotated[
+        StrictBool,
+        Field(
+            description="Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history."
+        ),
+    ] = False
 
 
 class WorkSourceReceipt(BaseModel):
@@ -4140,20 +5099,52 @@ class HandoffGenerationMetadata(BaseModel):
     edit_status: EditStatus
 
 
-class PreparedContext(BaseModel):
+class PreparedContextSearchGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[PreparedContextSchema, Field(alias="schema")]
-    status: PreparedContextStatus
-    content: Annotated[StrictStr | None, Field(...)]
-    content_bytes: Annotated[StrictInt, Field(ge=0)]
-    reason: Annotated[
-        PreparedContextReason | None,
-        Field(
-            description="Why this preparation lost a retrieval channel it would otherwise have used. Absent unless the request asked with `explain` and a channel was lost, so a response a Host injects keeps its four fields. The values are the two inference failures among RFC 1435's four `SearchGroup.fallback_reason` spellings, so a later Receipt reuses them instead of restating the cause. `none` travels as absence, and `reused_fts_fallback` is not a cause here: a later round reusing a failed round's keyword-only outcome is still explained by that round's `inference_*` value, which outranks it."
-        ),
-    ] = None
+    round: Annotated[StrictInt, Field(ge=0, le=2)]
+    family: PreparedContextFamily
+    mode: Mode3
+    outcome: Outcome2
+    fallback_reason: FallbackReason
+    count: Annotated[StrictInt, Field(ge=1)]
+
+
+class PreparedContextPromptIdentity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    key: StrictStr
+    definition_version: StrictStr
+    builtin_version: StrictStr
+    selection: Selection
+    selected_version: StrictStr
+    compiled_digest: StrictStr
+    artifact_address: PreparedContextPromptArtifactAddress | None
+
+
+class ContextReuse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema6, Field(alias="schema")]
+    constraints: ContextReuseConstraints
+    expires_at: AwareDatetime
+    binding: Annotated[StrictStr, Field(max_length=65536, min_length=1)]
+
+
+class ContextProtectionCapabilities(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    check_versions: list[StrictStr]
+    payload_versions: list[StrictStr]
+    reuse_versions: list[StrictStr]
+    reuse_families: list[StrictStr]
+    enforcing: StrictBool
+    limits: ContextProtectionCapabilitiesLimits
 
 
 class BootstrapContextItem(BaseModel):
@@ -4255,7 +5246,7 @@ class RecordSkillUsageRequest(BaseModel):
     selected: StrictBool
     invoked: Invoked
     validation: Validation
-    outcome: Outcome
+    outcome: Outcome4
     task_source: SourceReference | None = None
     environment_fingerprint: Annotated[StrictStr | None, Field(pattern="^sha256:[0-9a-f]{64}$")] = None
 
@@ -4705,7 +5696,7 @@ class PromptContent(BaseModel):
         extra="forbid",
     )
     schema_version: SchemaVersion
-    mode: Mode3
+    mode: Mode4
     instructions: Annotated[StrictStr, Field(max_length=32768)]
     demonstrations: Annotated[list[PromptDemonstration], Field(max_length=50)]
 
@@ -4743,7 +5734,10 @@ class SourceRecord(BaseModel):
         ),
     ] = None
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    source_type: SourceType
+    source_type: Annotated[
+        StrictStr,
+        Field(description="Built-in content or a registered Source Observation type.", max_length=128, min_length=1),
+    ]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
     position: Annotated[StrictInt, Field(ge=1)]
@@ -4913,6 +5907,21 @@ class PrepareHandoffRequest(BaseModel):
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
 
 
+class PreparedContextRerankConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    config_id: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    policy_id: StrictStr
+    model: Annotated[StrictStr | None, Field(...)]
+    effective_settings: dict[str, StrictStr | StrictInt | StrictFloat | StrictBool]
+    timeout_seconds: Annotated[StrictFloat, Field(gt=0.0)]
+    max_requests: Annotated[StrictInt, Field(ge=1)]
+    config_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    prompt: PreparedContextPromptIdentity | None
+    non_deterministic: StrictBool
+
+
 class ExperienceArtifact(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4970,11 +5979,14 @@ class PrepareContextRequest(BaseModel):
         StrictBool,
         Field(description="Opt into current-Scope native code evidence. No index is built during preparation."),
     ] = False
-    explain: Annotated[
+    include_reuse: Annotated[
         StrictBool,
         Field(
-            description="Opt into reporting which retrieval channel this preparation lost, as `reason` on the response. Off by default, because a response a Host injects keeps its four fields."
+            description="Return a versioned context and reuse envelope. Supported for single-Scope Atomic Memory with complete bounded dependencies; unsupported selected families, code, or references are rejected explicitly."
         ),
+    ] = False
+    include_receipt: Annotated[
+        StrictBool | None, Field(description="Opt into a bounded, content-free PreparedContext Receipt.")
     ] = False
     assembly: ContextAssembly | None = None
     bootstrap_receipt_id: Annotated[
@@ -5037,6 +6049,7 @@ class Capabilities(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    custom_artifact_schemas: Annotated[list[CustomArtifactFamilySchema], Field(validate_default=True)] = []
     prompts: Annotated[dict[str, PromptCapability], Field(validate_default=True)] = {}
     artifact_dreaming: Annotated[
         StrictBool, Field(description="Whether asynchronous Artifact Dream execution is configured.")
@@ -5072,6 +6085,7 @@ class Capabilities(BaseModel):
     ]
     search_modes: list[MemorySearchMode]
     context_versions: list[PreparedContextSchema]
+    context_protection: ContextProtectionCapabilities | None = None
 
 
 class WorkClaim(BaseModel):
@@ -5219,6 +6233,16 @@ class PreparedHandoff(BaseModel):
     scope_id: StrictStr
     base: Annotated[ArtifactReference | None, Field(...)]
     content: HandoffContent
+
+
+class PreparedContextRetrieval(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rounds: Annotated[list[PreparedContextRecallRound], Field(max_length=3)]
+    searches: Annotated[list[PreparedContextSearchGroup], Field(max_length=32)]
+    rerank_configs: Annotated[list[PreparedContextRerankConfig], Field(max_length=8)]
+    reranks: Annotated[list[PreparedContextRerankGroup], Field(max_length=32)]
 
 
 class ReviseCandidateRequest(BaseModel):
@@ -5459,6 +6483,25 @@ class HandoffActivation(BaseModel):
     draft: Annotated[HandoffDraft | None, Field(...)]
 
 
+class PreparedContextReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema4, Field(alias="schema")]
+    receipt_id: UUID
+    policy_id: PolicyId
+    query_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    content_digest: Annotated[StrictStr | None, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    requested_max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)]
+    used_bytes: Annotated[StrictInt, Field(ge=0)]
+    truncated: StrictBool
+    non_deterministic: StrictBool
+    retrieval: PreparedContextRetrieval
+    selected: Annotated[list[PreparedContextSelectedItem], Field(max_length=32)]
+    omitted: Annotated[list[PreparedContextOmittedGroup], Field(max_length=16)]
+    stages: Annotated[list[PreparedContextStageTiming], Field(max_length=8)]
+
+
 class GeneratedCandidateResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5521,3 +6564,29 @@ class CandidateHistory(BaseModel):
         extra="forbid",
     )
     versions: list[Candidate]
+
+
+class PreparedContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Literal["powercontext.prepared-context.v1"], Field(alias="schema")]
+    status: PreparedContextStatus
+    content: Annotated[StrictStr | None, Field(...)]
+    content_bytes: Annotated[StrictInt, Field(ge=0)]
+    receipt: Annotated[
+        PreparedContextReceipt | None, Field(description="Present only when requested and successfully assembled.")
+    ] = None
+
+
+class PreparedContextWithReuse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Literal["powercontext.prepared-context-with-reuse.v1"], Field(alias="schema")]
+    context: PreparedContext
+    reuse: ContextReuse
+
+
+class PrepareContextResult(RootModel[PreparedContext | PreparedContextWithReuse]):
+    root: Annotated[PreparedContext | PreparedContextWithReuse, Field(discriminator="schema_")]

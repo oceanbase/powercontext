@@ -16,6 +16,7 @@
 
 import json
 import os
+import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -49,6 +50,10 @@ def setup_boundary(tmp_path, monkeypatch):
     (plugin / "lib").mkdir(parents=True)
     (plugin / "package.json").write_text('{"name":"powercontext-dsh"}')
     (plugin / "lib/index.js").write_text("export const name = 'powercontext-dsh'\n")
+    shutil.copytree(
+        Path(__file__).parents[1] / "integrations/dsh/plugins/powercontext/skills",
+        plugin / "skills",
+    )
     monkeypatch.setattr(dsh, "dsh_executable", lambda: "npm-dsh")
     inspect = Mock(return_value={})
     monkeypatch.setattr(transport, "read_dsh_settings", inspect)

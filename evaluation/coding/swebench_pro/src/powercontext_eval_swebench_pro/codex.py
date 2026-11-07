@@ -96,6 +96,10 @@ class CodexInvocation:
             self.model,
             "-c",
             f'model_reasoning_effort="{self.reasoning_effort}"',
+            # Provider-side web search reaches the model endpoint like any other request, so no network policy can
+            # stop it; it can find the reference fix.
+            "-c",
+            'web_search="disabled"',
             switch,
             "plugins",
             "-C",
@@ -128,6 +132,8 @@ class CodexOutcome:
 
     last_message: str
     usage: Mapping[str, int] | None
+    # Evaluation-isolation signals seen in the run's events; they mark a run for review, not as invalid.
+    isolation_flags: tuple[str, ...] = ()
 
 
 class CodexProcessRunner(Protocol):
@@ -193,13 +199,13 @@ class CodexRunner:
             self._retain_process_result(store, result, event_stream, output_secrets)
             try:
                 event_stream.seek(0)
-                last_message, usage = _summarize_jsonl_stream(event_stream)
+                last_message, usage, isolation_flags = _summarize_jsonl_stream(event_stream)
             except (ValueError, TypeError) as error:
                 raise CodexInfrastructureError(f"Codex JSONL is malformed: {error}") from None
 
         store.write_text("codex/last-message.txt", last_message)
         store.write_json("codex/usage.json", dict(usage) if usage is not None else {"status": "N/A"})
-        return CodexOutcome(last_message, usage)
+        return CodexOutcome(last_message, usage, isolation_flags)
 
     @staticmethod
     def _append_compat_stdout(event_stream: BinaryIO, stdout: str, secrets: Sequence[str]) -> None:
@@ -269,9 +275,34 @@ def _parse_jsonl(raw: str) -> tuple[dict[str, Any], ...]:
     return tuple(events)
 
 
-def _summarize_jsonl_stream(stream: BinaryIO) -> tuple[str, Mapping[str, int] | None]:
+# Commands that reach the network: download tools, Git remote operations, or any explicit URL. Git global options
+# (`-C <dir>`, `-c <key=value>`, `--git-dir=...` and similar) may precede the subcommand.
+_GIT_GLOBAL_OPTION = (
+    r"(?:-[Cc]\s+\S+|--(?:git-dir|work-tree|namespace|exec-path|config-env)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)"
+)
+_NETWORK_COMMAND = re.compile(
+    r"\b(?:curl|wget|aria2c)\b"
+    rf"|\bgit(?:\s+{_GIT_GLOBAL_OPTION})*\s+(?:clone|fetch|pull|ls-remote|remote\s+update|submodule\s+update)\b"
+    r"|\bhttps?://",
+    re.IGNORECASE,
+)
+
+
+def _isolation_flag(item: Mapping[str, Any]) -> str | None:
+    """Name the isolation signal a completed item carries, if any."""
+
+    if item.get("type") == "web_search":
+        return "web_search"
+    command = item.get("command")
+    if item.get("type") == "command_execution" and isinstance(command, str) and _NETWORK_COMMAND.search(command):
+        return "network_command"
+    return None
+
+
+def _summarize_jsonl_stream(stream: BinaryIO) -> tuple[str, Mapping[str, int] | None, tuple[str, ...]]:
     last_message: str | None = None
     usage: Mapping[str, int] | None = None
+    flags: set[str] = set()
     saw_event = False
     for line_number, raw_line in enumerate(stream, start=1):
         saw_event = True
@@ -298,6 +329,8 @@ def _summarize_jsonl_stream(stream: BinaryIO) -> tuple[str, Mapping[str, int] | 
             and isinstance(item.get("text"), str)
         ):
             last_message = item["text"]
+        if value.get("type") == "item.completed" and isinstance(item, dict) and (flag := _isolation_flag(item)):
+            flags.add(flag)
         if value.get("type") == "turn.completed":
             raw_usage = value.get("usage")
             if raw_usage is None:
@@ -315,7 +348,7 @@ def _summarize_jsonl_stream(stream: BinaryIO) -> tuple[str, Mapping[str, int] | 
         raise ValueError("empty stream")
     if last_message is None:
         raise ValueError("no completed agent message")
-    return last_message, usage
+    return last_message, usage, tuple(sorted(flags))
 
 
 def _contains_secret(data: bytes, secrets: Sequence[str]) -> bool:

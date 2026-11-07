@@ -58,9 +58,9 @@ class ConfigurationSummary:
 
 @dataclass(frozen=True)
 class DatabaseClassification:
-    """A preflight observation, not a whole-database compatibility certificate."""
+    """A passive inventory or an explicit target Server admission result."""
 
-    classification: Literal["new", "existing_unknown", "incompatible", "unknown"]
+    classification: Literal["new", "existing_ready", "existing_unknown", "incompatible", "unknown"]
     allowed_to_start: bool
     fingerprint: str
     reason: str
@@ -141,6 +141,8 @@ def _configuration_summary(
             environment_context({}, clear=_ambient_configuration_names()),
             server_settings_context(environment=values, data_dir=root) as settings,
         ):
+            if settings.http.uds is not None:
+                raise OpsError("configuration_invalid")
             if settings.database.kind != "sqlite":
                 raise OpsError("database_backend_unsupported")
             url = make_url(settings.database.url)
@@ -197,8 +199,8 @@ def classify_database(  # noqa: C901
     """Inventory without SQLite connection, initialization, migration, or WAL side effects.
 
     Existing data remains unknown even when the Ops version matches the target.
-    The current public maintenance checks cover individual domains, not the
-    complete Server schema, indexes, task formats, and configured capabilities.
+    Only explicit admission by the verified target Server can establish full
+    schema, domain, recovery and configuration compatibility.
     Program-only repair binds an existing database's stable file identity,
     allowing normal writes and checkpointing before the service is stopped.
     Startup observations retain file sizes, times, and all recovery sidecars.

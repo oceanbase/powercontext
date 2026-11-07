@@ -1,3 +1,8 @@
+---
+title: "RFC 0081: End-to-end evaluation architecture"
+description: A proposal for public-boundary E2E checks, real-agent scenario replay, and sampled workloads, with explicit evidence and scoring rules.
+---
+
 - Proposal Name: `end_to_end_evaluation_architecture`
 - Start Date: 2026-08-07
 - RFC PR: [oceanbase/powercontext#81](https://github.com/oceanbase/powercontext/pull/81)

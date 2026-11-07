@@ -62,8 +62,11 @@ def error_category(code: str | None, *, status_code: int | None = None, outcome:
     categories = (
         (outcome == "cancelled", "cancelled"),
         ("timeout" in value, "timeout"),
-        (status_code == 401 or "authentication" in value, "authentication"),
-        (status_code == 403 or "authorization" in value or "accessdenied" in value, "authorization"),
+        (status_code == 401 or "authentication" in value or value == "access_identity_required", "authentication"),
+        (
+            status_code == 403 or "authorization" in value or "accessdenied" in value or value == "access_denied",
+            "authorization",
+        ),
         # A diagnostic code that names a vocabulary term describes its boundary more precisely than a
         # catch-all status does, so the naming rules decide before the status-derived fallbacks.
         (

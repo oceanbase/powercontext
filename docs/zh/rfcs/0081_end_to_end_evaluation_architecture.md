@@ -1,3 +1,8 @@
+---
+title: RFC 0081：端到端评测架构
+description: 端到端评测设计提案，区分公开接口验收、真实 Agent 场景回放与抽样任务，并规定证据和评分口径。
+---
+
 - Proposal Name: `end_to_end_evaluation_architecture`
 - Start Date: 2026-08-07
 - RFC PR: [oceanbase/powercontext#81](https://github.com/oceanbase/powercontext/pull/81)

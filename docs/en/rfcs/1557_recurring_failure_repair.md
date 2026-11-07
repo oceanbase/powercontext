@@ -1,3 +1,8 @@
+---
+title: "RFC 1557: Recurring failure repair"
+description: A proposal for evidence-backed failure signatures, repair ownership, and outcome records that measure whether prior lessons helped on recurrence.
+---
+
 - Proposal Name: `recurring_failure_repair`
 - Start Date: 2026-09-10
 - Status: Proposed

@@ -1,6 +1,6 @@
 ---
-title: 易用性与 Agent 工作流
-description: 安装维护、分步配置、场景 Skills 与本地 Client 的共同演进方向。
+title: RFC 1733：易用性与 Agent 工作流
+description: 易用性的设计提案，划分安装器、运维工具、共享 Client 与 Skill 的职责，支持首次配置和后续 Agent 使用。
 ---
 
 - Proposal Name: `usability_and_agent_workflows`

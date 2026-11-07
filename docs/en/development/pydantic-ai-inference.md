@@ -1,3 +1,8 @@
+---
+title: "Configure Pydantic AI inference"
+description: "Set up Pydantic AI generation for structured Memory candidates and configure embedding separately for vector search."
+---
+
 # Configure Pydantic AI inference
 
 PowerContext uses Pydantic AI at the provider boundary while keeping Memory services framework-neutral. Generation

@@ -27,6 +27,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
 from pathlib import Path
 from typing import Literal, cast
 from unittest.mock import Mock
@@ -126,44 +127,19 @@ def _oceanbase_scratch_target(config: OceanBaseConfig, evidence_directory: Path)
                 pytest.fail("OceanBase owned test database cleanup failed", pytrace=False)
 
 
-@contextmanager
-def _seekdb_scenario_lifetime(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    binding = pytest.importorskip("pylibseekdb")
-    open_instance = binding.aopen
-    instances = {}
-
-    async def open_with_scenario_lifetime(path: str):
-        # Keep a real native lease across this scenario's independent
-        # maintenance connections. Rapid last-client exits in seekdb 1.4
-        # can strand a background DDL lock on restart. Engine restart and
-        # cross-process ownership have separate connection acceptance tests.
-        # Acquire lazily so inspecting a missing target still creates nothing.
-        if path not in instances:
-            instances[path] = await open_instance(path)
-        return await open_instance(path)
-
-    monkeypatch.setattr(binding, "aopen", open_with_scenario_lifetime)
-    try:
-        yield
-    finally:
-        for instance in instances.values():
-            instance.close()
-
-
 @pytest.fixture(params=("seekdb", "oceanbase"), ids=("seekdb", "oceanbase"))
 def backend(
     request: pytest.FixtureRequest,
     short_tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[_BackendTarget]:
     if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SQL_LOG") == "1":
         caplog.set_level(logging.INFO, logger="sqlalchemy.engine")
     if request.param == "seekdb":
         if os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1":
             pytest.skip("real seekdb probe not enabled")
-        with _seekdb_scenario_lifetime(monkeypatch):
-            yield _BackendTarget(SeekDBConfig(path=short_tmp_path / "seekdb"), short_tmp_path / "evidence")
+        import_module("pylibseekdb")
+        yield _BackendTarget(SeekDBConfig(path=short_tmp_path / "seekdb"), short_tmp_path / "evidence")
         return
     value = os.environ.get("POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL")
     if not value:
@@ -374,10 +350,10 @@ def test_mysql_initialization_and_shared_evidence_noop(backend: _BackendTarget) 
     assert result.state == "ready"
     assert result.changed
     assert result.backup_state == "not_required"
-    assert result.revision == "p0004"
+    assert result.revision == "p0005"
     replacement = backend.runner()
     assert replacement.plan().state == "ready"
-    assert replacement.verify().revision == "p0004"
+    assert replacement.verify().revision == "p0005"
     assert not replacement.apply().changed
 
 
@@ -397,7 +373,7 @@ def test_mysql_operator_backup_choices_preserve_baseline_data_without_fork(
     result = _apply(runner, policy=policy)
     assert result.backup_state == ("user_confirmed" if policy == "manual" else "skipped")
     state = _read_state(backend)
-    assert state["revision"] == "p0004"
+    assert state["revision"] == "p0005"
     assert state["content"] == [(b'{"content":"preserved"}',)]
     assert state["tags"] == [("Keep",)]
     assert "memory_citations" in state["columns"]["pc_artifacts"]
@@ -461,6 +437,175 @@ def _full_server_runner(
     )
 
 
+def _load_historical_memory(backend, encoding="utf8mb4"):
+    fixture = "oceanbase-first-release.json" if encoding == "gbk" else "seekdb-memory-release.json"
+    capture = json.loads((Path(__file__).parent / "fixtures/historical" / fixture).read_text())
+
+    def load(connection, _identity, _guard):
+        foreign_keys = []
+        for name, table in capture["tables"].items():
+            lines = []
+            # 4.6 SHOW CREATE prints a default option that older supported
+            # servers omit. Let each test server supply its default spelling.
+            ddl = table["ddl"].replace("`test`.", "").replace(" FTS_INDEX_TYPE = PHRASE_MATCH", "")
+            for line in ddl.splitlines():
+                if "FOREIGN KEY" in line:
+                    foreign_keys.append((name, line.strip().rstrip(",")))
+                else:
+                    lines.append(line)
+            connection.exec_driver_sql("\n".join(lines).replace(",\n)", "\n)"))
+        for name, table in capture["tables"].items():
+            for row in table["rows"]:
+                values = {
+                    f"p{i}": bytes.fromhex(value["hex"])
+                    if isinstance(value, dict) and "hex" in value
+                    else datetime.fromisoformat(value["datetime"])
+                    if isinstance(value, dict)
+                    else value
+                    for i, value in enumerate(row)
+                }
+                statement = f"INSERT INTO `{name}` VALUES ("  # noqa: S608 -- checked-in fixture identifier
+                statement += ",".join(":" + key for key in values) + ")"
+                connection.execute(text(statement), values)
+        for name, clause in foreign_keys:
+            connection.exec_driver_sql(f"ALTER TABLE `{name}` ADD {clause}")
+        connection.commit()
+
+    backend.connections().run(load, writable=True)
+
+
+@pytest.mark.parametrize(
+    ("backend", "interrupted", "encoding"),
+    [
+        ("seekdb", False, "utf8mb4"),
+        ("seekdb", True, "utf8mb4"),
+        ("oceanbase", False, "utf8mb4"),
+        ("oceanbase", True, "utf8mb4"),
+        ("oceanbase", True, "gbk"),
+    ],
+    indirect=["backend"],
+)
+def test_historical_memory_upgrades_and_resumes_native_ddl(backend, monkeypatch, interrupted, encoding):
+    _load_historical_memory(backend, encoding)
+    runner = _full_server_runner(backend)
+    before = backend.connections().run(lambda c, *_: mysql_inventory(c))
+    plan = runner.plan(backup_policy="manual")
+    assert "historical_atomic_memory" in plan.compatibility_steps
+    assert backend.connections().run(lambda c, *_: mysql_inventory(c)) == before
+    if interrupted:
+        original = mysql_migrations._Journal.write
+
+        def interrupt_after_commit(journal, evidence):
+            previous = journal.read()
+            if (
+                previous is not None
+                and previous.compatibility_pending
+                and evidence.compatibility_pending is None
+                and (encoding != "gbk" or len(previous.compatibility_pending["changes"]) == 2)
+            ):
+                raise RuntimeError("injected after committed historical DDL")  # noqa: TRY003
+            original(journal, evidence)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(mysql_migrations._Journal, "write", interrupt_after_commit)
+            with pytest.raises(RuntimeError, match="injected after committed"):
+                _apply(runner, policy="manual")
+        plan = runner.plan(backup_policy="manual")
+        runner = _full_server_runner(backend, acknowledge_previous_run=(plan.coordination or {}).get("pending_run_id"))
+    if encoding == "gbk":
+        # A committed registered ADD must also be resumable on the old GBK table.
+        def interrupt_added_column(_connection, _cursor, statement, _parameters, _context, _many):
+            if statement.startswith("ALTER TABLE pc_artifacts ADD COLUMN `created_by`"):
+                raise _InterruptedDDL
+
+        event.listen(Engine, "after_cursor_execute", interrupt_added_column)
+        try:
+            with pytest.raises(_InterruptedDDL):
+                _apply(runner, policy="manual")
+        finally:
+            event.remove(Engine, "after_cursor_execute", interrupt_added_column)
+        plan = runner.plan(backup_policy="manual")
+        runner = _full_server_runner(backend, acknowledge_previous_run=(plan.coordination or {}).get("pending_run_id"))
+    result = _apply(runner, policy="manual")
+    assert result.state == "ready" and runner.verify().state == "ready"
+
+    def verify(connection, _identity, _guard):
+        assert connection.exec_driver_sql("SELECT COUNT(*) FROM pc_atomic_memory_current").scalar_one() == 4
+        assert connection.exec_driver_sql("SELECT COUNT(*) FROM pc_memory_artifact_archive").scalar_one() == 4
+        assert connection.exec_driver_sql("SELECT COUNT(*) FROM pc_artifacts WHERE family='memory'").scalar_one() == 0
+        assert (
+            connection.exec_driver_sql(
+                "SELECT COUNT(*) FROM pc_atomic_memory_current WHERE MATCH(searchable_text) AGAINST ('Upgrade100Alpha' IN NATURAL LANGUAGE MODE)"
+            ).scalar_one()
+            == 1
+        )
+
+        columns = mysql_inventory(connection)["tables"]["pc_artifacts"]["columns"]
+        assert columns["created_by"]["charset"] == columns["rollback_reason"]["charset"] == "utf8mb4"
+        connection.execute(
+            text(
+                "INSERT INTO pc_artifacts (scope_id,family,artifact_id,revision,content,created_by,rollback_reason) "
+                "VALUES ('historical-upgrade','experience','encoding-check',1,:content,:author,:reason)"
+            ),
+            {"content": b"{}", "author": "升级😀", "reason": "原因😀"},
+        )
+        connection.commit()
+        assert connection.exec_driver_sql(
+            "SELECT created_by,rollback_reason FROM pc_artifacts WHERE artifact_id='encoding-check'"
+        ).one() == ("升级😀", "原因😀")
+
+    backend.connections().run(verify, writable=True)
+    # A recovery acknowledgement belongs to the interrupted operation only.
+    # A later invocation must not resend its already-consumed token.
+    assert not _apply(_full_server_runner(backend), policy="manual").changed
+
+
+@pytest.mark.parametrize("point", ["before_add", "after_add", "before_drop", "after_drop"])
+def test_historical_processing_counter_recovers_every_ddl_boundary(backend, point):
+    _load_historical_memory(backend)
+    runner = _full_server_runner(backend)
+    operation = "ADD" if point.endswith("add") else "DROP"
+    prefix = f"ALTER TABLE pc_artifact_processing_intents {operation} COLUMN consecutive_dream_attempts"
+    event_name = "before_cursor_execute" if point.startswith("before") else "after_cursor_execute"
+
+    def interrupt(connection, _cursor, statement, _parameters, _context, _many):
+        if statement.startswith(prefix):
+            if point == "before_drop":
+                # Preserve the completed domain phase while its owned column
+                # still exists, as a separate durable recovery checkpoint.
+                connection.commit()
+                assert (
+                    connection.exec_driver_sql("SELECT phase FROM pc_artifact_processing_schema").scalar_one()
+                    == "complete"
+                )
+            raise _InterruptedDDL
+
+    event.listen(Engine, event_name, interrupt)
+    try:
+        with pytest.raises(_InterruptedDDL):
+            _apply(runner, policy="manual")
+    finally:
+        event.remove(Engine, event_name, interrupt)
+    (evidence_path,) = backend.evidence_directory.rglob("maintenance.json")
+    original = json.loads(evidence_path.read_text())
+    plan = runner.plan(backup_policy="manual")
+    resumed = _full_server_runner(backend, acknowledge_previous_run=(plan.coordination or {}).get("pending_run_id"))
+    assert _apply(resumed, policy="manual").state == "ready"
+    assert resumed.verify().state == "ready"
+    completed = json.loads(evidence_path.read_text())
+    assert completed["maintenance_window_id"] == original["maintenance_window_id"]
+    assert completed["manual_ref"] == original["manual_ref"]
+
+    def verify(connection, _identity, _guard):
+        columns = mysql_inventory(connection)["tables"]["pc_artifact_processing_intents"]["columns"]
+        assert columns["consecutive_dream_attempts"]["type"][0] == "bigint"
+        assert connection.exec_driver_sql("SELECT count(*) FROM pc_atomic_memory_current").scalar_one() == 4
+        assert connection.exec_driver_sql("SELECT count(*) FROM pc_memory_artifact_archive").scalar_one() == 4
+
+    backend.connections().run(verify)
+    assert not _apply(_full_server_runner(backend), policy="manual").changed
+
+
 @pytest.mark.parametrize(
     ("origin", "dimension", "code"),
     [("released", 3, False), ("empty", 4, True)],
@@ -498,7 +643,7 @@ def test_mysql_vector_upgrade_preserves_space_and_registered_indexes(
         def initialize_source(connection, _identity, _guard):
             baseline = runner.schema.recovery(mysql_inventory(connection), None)
             for statement in baseline.pending_statements:
-                runner.schema.execute(connection, statement, runner.configuration)
+                runner.schema.execute(connection, statement, runner.configuration, revision=baseline.revision)
             connection.execute(
                 text("INSERT INTO pc_topic_memory_retrieval_shape VALUES (1,'hybrid',:profile)"),
                 {"profile": topic_memory_embedding_profile_fingerprint(profile)},
@@ -561,7 +706,7 @@ def test_oceanbase_server_upgrade_with_separate_code_cache_preserves_history(
     )
     assert runner.plan(backup_policy="manual").source_revision == "s1300"
     result = _apply(runner, policy="manual")
-    assert result.readiness_scope == "server" and result.revision == "v1_4_1_006"
+    assert result.readiness_scope == "server" and result.revision == "v1_5_0_004"
     assert runner.verify().state == "ready"
     prepare_server_storage(settings)
     assert not _apply(runner, policy="manual").changed
@@ -692,7 +837,7 @@ def test_mysql_registered_processing_mode_switch_preserves_revision_and_history(
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_history) == ("v1_4_1_006", "dedicated", b'{"history":"unchanged"}')
+    assert backend.connections().run(inspect_history) == ("v1_5_0_004", "dedicated", b'{"history":"unchanged"}')
 
     (main_path,) = backend.evidence_directory.glob("*/maintenance.json")
     evidence = json.loads(main_path.read_text())
@@ -702,7 +847,7 @@ def test_mysql_registered_processing_mode_switch_preserves_revision_and_history(
     for inspect in (runner.plan, runner.verify, runner.apply):
         with pytest.raises(MigrationError, match="checksum_conflict"):
             inspect()
-    assert backend.connections().run(inspect_history) == ("v1_4_1_006", "dedicated", b'{"history":"unchanged"}')
+    assert backend.connections().run(inspect_history) == ("v1_5_0_004", "dedicated", b'{"history":"unchanged"}')
     assert {
         path: path.read_bytes() for path in backend.evidence_directory.rglob("maintenance.json")
     } == original_evidence
@@ -769,7 +914,7 @@ def test_mysql_atomic_compatibility_command_uses_shared_server_upgrade(
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_history) == ("v1_4_1_006", b'{"history":"unchanged"}')
+    assert backend.connections().run(inspect_history) == ("v1_5_0_004", b'{"history":"unchanged"}')
 
 
 def test_mysql_registered_projection_repair_preserves_authority_and_revision(backend: _BackendTarget) -> None:
@@ -837,7 +982,7 @@ def test_mysql_registered_projection_repair_preserves_authority_and_revision(bac
             ).scalar_one(),
         )
 
-    assert backend.connections().run(inspect_content) == ("v1_4_1_006", content, "Preserve immutable nebula evidence.")
+    assert backend.connections().run(inspect_content) == ("v1_5_0_004", content, "Preserve immutable nebula evidence.")
 
 
 @pytest.mark.parametrize("origin", ("empty", "released"))
@@ -957,7 +1102,7 @@ def _load_full_server_baseline(backend: _BackendTarget) -> None:
         source = runner.schema.recovery(mysql_inventory(connection), None)
         assert source.revision == "s1300"
         for statement in source.pending_statements:
-            runner.schema.execute(connection, statement, runner.configuration)
+            runner.schema.execute(connection, statement, runner.configuration, revision=source.revision)
         connection.exec_driver_sql(
             "INSERT INTO pc_scopes (scope_id,title,summary,scope_id_search,title_search,summary_search,version) "
             "VALUES ('historical','retained title','retained summary','historical','retained title','retained summary',1)"
@@ -981,8 +1126,17 @@ def _load_full_server_baseline(backend: _BackendTarget) -> None:
         ("ALTER TABLE pc_artifact_candidate_versions RENAME TO pc_candidate_versions", "s1300"),
         ("UPDATE pc_artifact_processing_schema SET config_manifest", "s1300"),
         ("CREATE TABLE pc_memory_artifact_archive", "s1400"),
+        ("CREATE TABLE pc_atomic_memory_evidence_schema", "v1_5_0_001"),
+        ("CREATE TABLE pc_source_evidence_bindings", "v1_5_0_001"),
     ],
-    ids=("retained-copy", "candidate-rename", "domain-processing", "next-revision"),
+    ids=(
+        "retained-copy",
+        "candidate-rename",
+        "domain-processing",
+        "next-revision",
+        "evidence-marker",
+        "evidence-bindings",
+    ),
 )
 def test_mysql_full_server_interruption_preserves_history_and_original_maintenance(
     backend: _BackendTarget, interruption: str, recorded_revision: str
@@ -992,7 +1146,7 @@ def test_mysql_full_server_interruption_preserves_history_and_original_maintenan
     _load_full_server_baseline(backend)
     runner = _full_server_runner(backend)
     original = runner.plan(backup_policy="manual")
-    assert original.source_revision == "s1300" and original.target_revision == "v1_4_1_006"
+    assert original.source_revision == "s1300" and original.target_revision == "v1_5_0_004"
     _interrupt_after_ddl(runner, interruption)
     journals = list(backend.evidence_directory.rglob("maintenance.json"))
     assert len(journals) == 1
@@ -1014,7 +1168,7 @@ def test_mysql_full_server_interruption_preserves_history_and_original_maintenan
 
     result = _apply(resumed, policy="manual")
 
-    assert result.readiness_scope == "server" and result.revision == "v1_4_1_006"
+    assert result.readiness_scope == "server" and result.revision == "v1_5_0_004"
     assert result.backup_state == "user_confirmed"
     assert result.backup_ref == interrupted["manual_ref"]
     assert resumed.verify().state == "ready"
@@ -1094,7 +1248,7 @@ def test_oceanbase_full_server_client_exit_requires_acknowledgement_and_preserve
     # interruption. An arbitrary remote failure cannot be acknowledged blindly.
     resumed = _full_server_runner(backend, acknowledge_previous_run=token)
     result = _apply(resumed, policy="manual")
-    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_4_1_006"
+    assert result.state == "ready" and result.readiness_scope == "server" and result.revision == "v1_5_0_004"
     assert result.backup_state == "user_confirmed" and result.backup_ref == interrupted["manual_ref"]
     assert resumed.verify().state == "ready"
     completed = json.loads(journals[0].read_text(encoding="utf-8"))
@@ -1130,7 +1284,7 @@ def test_mysql_committed_partial_ddl_resumes_from_shared_original_evidence(backe
     replacement = _acknowledge_known_completed_interruption(backend, recovery)
     assert _apply(replacement, policy="manual").state == "ready"
     state = _read_state(backend)
-    assert state["revision"] == "p0004"
+    assert state["revision"] == "p0005"
     assert state["content"] == [(b'{"content":"preserved"}',)]
     assert state["tags"] == [("Keep",)]
     assert replacement.verify().state == "ready"
@@ -1176,7 +1330,7 @@ def test_mysql_empty_source_recovers_baseline_and_citation_ddl_without_probing_b
     )
     result = _apply(replacement)
     assert result.backup_state == "not_required"
-    assert replacement.verify().revision == "p0004"
+    assert replacement.verify().revision == "p0005"
     assert _read_state(backend)["content"] == []
 
 
@@ -1193,7 +1347,7 @@ def test_mysql_baseline_adoption_recovers_an_empty_committed_version_table(backe
     assert recovered.adopt_baseline
     replacement = _acknowledge_known_completed_interruption(backend, recovered)
     assert _apply(replacement, policy="manual").state == "ready"
-    assert replacement.verify().revision == "p0004"
+    assert replacement.verify().revision == "p0005"
     assert _read_state(backend)["tags"] == [("Keep",)]
 
 
@@ -1218,9 +1372,24 @@ def test_mysql_committed_revision_recovers_before_evidence_advance(backend: _Bac
     recovery = replacement.plan(backup_policy="manual")
     assert recovery.source_revision == "p0002"
     replacement = _acknowledge_known_completed_interruption(backend, recovery)
-    assert _apply(replacement, policy="manual").state == "ready"
-    assert replacement.verify().revision == "p0004"
-    assert _read_state(backend)["content"] == [(b'{"content":"preserved"}',)]
+    upgrade = replacement._upgrade
+    recovered_p0003 = False
+
+    def observe_recovery(connection, config, source, target, guard) -> None:
+        nonlocal recovered_p0003
+        upgrade(connection, config, source, target, guard)
+        if target == "p0003":
+            assert connection.exec_driver_sql("SELECT version_num FROM pc_schema_revision").scalar_one() == "p0003"
+            recovered_p0003 = True
+
+    with monkeypatch.context() as patch:
+        patch.setattr(replacement, "_upgrade", observe_recovery)
+        assert _apply(replacement, policy="manual").state == "ready"
+    assert recovered_p0003, "Recovery did not reach p0003"
+    assert replacement.verify().revision == "p0005"
+    state = _read_state(backend)
+    assert state["content"] == [(b'{"content":"preserved"}',)]
+    assert state["tags"] == [("Keep",)]
 
 
 def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledgement(backend: _BackendTarget) -> None:
@@ -1228,7 +1397,7 @@ def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledge
         pytest.skip("embedded seekdb closes its engine and has no remote in-flight run receipt")
     _load_baseline(backend)
     assert _apply(backend.runner(), policy="manual").state == "ready"
-    assert backend.runner().verify().revision == "p0004"
+    assert backend.runner().verify().revision == "p0005"
 
     def committed_write_then_interrupt(
         connection: Connection | None, _identity: BackendIdentity, verify: Callable[[], None]
@@ -1242,12 +1411,12 @@ def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledge
     with pytest.raises(_InterruptedDDL):
         backend.connections().run(committed_write_then_interrupt, writable=True)
     before = _read_state(backend)
-    assert before["revision"] == "p0004"
+    assert before["revision"] == "p0005"
     assert before["tags"] == [("Confirmed",)]
     replacement = backend.runner(backup_factory=_forbidden_automatic_backup)
     recovery = replacement.plan()
     assert recovery.state == "recovery_required"
-    assert recovery.source_revision == "p0004"
+    assert recovery.source_revision == "p0005"
     assert recovery.revisions == ()
     pending = (recovery.coordination or {}).get("pending_run_id")
     assert pending
@@ -1266,6 +1435,33 @@ def test_mysql_completed_head_with_an_interrupted_run_requires_exact_acknowledge
     assert result.state == "ready"
     assert not result.changed
     assert _read_state(backend) == before
-    assert backend.runner().verify().revision == "p0004"
+    assert backend.runner().verify().revision == "p0005"
     assert not backend.runner().apply().changed
     assert "pending_run_id" not in (backend.runner().plan().coordination or {})
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_full_server_upgrade_with_renamed_check(backend, interrupted):
+    _load_full_server_baseline(backend)
+
+    def rename(connection, *_args):
+        connection.exec_driver_sql(
+            "ALTER TABLE pc_artifact_candidate_versions DROP CHECK ck_pc_artifact_candidate_versions_version_positive"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE pc_artifact_candidate_versions ADD CONSTRAINT harmless_version_check CHECK (version > 0)"
+        )
+        connection.commit()
+
+    backend.connections().run(rename, writable=True)
+    runner = _full_server_runner(backend)
+    assert runner.plan(backup_policy="manual").source_revision == "s1300"
+    if interrupted:
+        _interrupt_after_ddl(runner, "ALTER TABLE `pc_candidate_versions` DROP CHECK `harmless_version_check`")
+        recovery = runner.plan(backup_policy="manual")
+        runner = _full_server_runner(
+            backend, acknowledge_previous_run=(recovery.coordination or {}).get("pending_run_id")
+        )
+    assert _apply(runner, policy="manual").changed
+    assert runner.verify().state == "ready"
+    assert not _apply(runner, policy="manual").changed

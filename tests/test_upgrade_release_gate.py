@@ -447,9 +447,46 @@ def test_publishing_jobs_require_upgrade_acceptance_unless_manually_bypassed():
     main = yaml.safe_load((root / ".github/workflows/master.yml").read_text())["jobs"]
     assert main["upgrade-acceptance"]["uses"] == build["uses"]
     verdict = main["upgrade-release-gate"]
-    assert verdict["name"] == "Upgrade release gate" and verdict["if"] == "always()"
-    assert verdict["needs"] == "upgrade-acceptance"
-    assert verdict["steps"][0]["run"] == 'test "$UPGRADE_RESULT" = success'
+    assert verdict["name"] == "Upgrade release gate"
+    assert "!cancelled()" in verdict["if"]
+    dependencies = verdict["needs"]
+    assert {"quality", "upgrade-acceptance"} <= set([dependencies] if isinstance(dependencies, str) else dependencies)
+    assert not verdict.get("continue-on-error")
+    assert all(not step.get("continue-on-error") for step in verdict["steps"])
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the Actions gate runs in Bash")
+@pytest.mark.parametrize(
+    ("scope_result", "selected", "upgrade_result", "passes"),
+    [
+        ("success", "false", "skipped", True),
+        ("success", "false", "failure", False),
+        ("success", "true", "success", True),
+        ("success", "true", "skipped", False),
+        ("success", "true", "failure", False),
+        ("success", "true", "cancelled", False),
+        ("failure", "", "skipped", False),
+        ("success", "", "skipped", False),
+    ],
+)
+def test_upgrade_gate_distinguishes_not_required_from_missing_acceptance(
+    scope_result: str, selected: str, upgrade_result: str, passes: bool
+) -> None:
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/master.yml").read_text())
+    script = workflow["jobs"]["upgrade-release-gate"]["steps"][0]["run"]
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],  # noqa: S607 -- execute the checked-in Actions gate
+        env={
+            **os.environ,
+            "SCOPE_RESULT": scope_result,
+            "UPGRADE_SELECTED": selected,
+            "UPGRADE_RESULT": upgrade_result,
+        },
+        capture_output=True,
+        check=False,
+    )
+    assert (result.returncode == 0) == passes
 
 
 @pytest.mark.parametrize(
@@ -475,6 +512,21 @@ def test_repository_baseline_covers_all_three_databases(configuration, monkeypat
         "seekdb",
         "oceanbase",
     }
+
+
+def test_upgrade_collection_keeps_failure_evidence_without_starting_after_cancellation():
+    root = Path(__file__).parents[1]
+    jobs = yaml.safe_load((root / ".github/workflows/upgrade-release.yml").read_text())["jobs"]
+    collect = jobs["collect"]
+    assert set(collect["needs"]) == {"prepare", "cases"}
+    # Explicit !cancelled() overrides the implicit success() check, so failed
+    # cases still reach evidence collection while superseded runs stop here.
+    assert collect["if"] == (
+        "${{ !cancelled() && needs.prepare.result == 'success' && !inputs.skip_upgrade_acceptance }}"
+    )
+    assert any(step.get("if") == "always()" for step in jobs["cases"]["steps"])
+    verdict = next(step for step in collect["steps"] if "CASE_JOBS_RESULT" in step.get("env", {}))
+    assert verdict["run"] == 'test "$CASE_JOBS_RESULT" = success'
 
 
 def test_upgrade_cases_require_isolated_backends_and_always_clean_up():
@@ -859,14 +911,18 @@ def test_upgrade_command_owner_finishes_cleanup_after_gate_cancellation(tmp_path
     sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     with (report / "owner.log").open("w") as log:
         owner = subprocess.Popen([sys.executable, str(owner_script)], stdout=log, stderr=subprocess.STDOUT)
-        pids = []
+        processes = []
         try:
             deadline = time.monotonic() + 15
             while not (report / "engine.pid").exists():
                 assert owner.poll() is None, (report / "owner.log").read_text()
                 assert time.monotonic() < deadline, "Controlled processes did not become ready"
                 time.sleep(0.02)
-            pids = [int((report / f"{role}.pid").read_text()) for role in ("root", "server", "engine")]
+            for role in ("root", "server", "engine"):
+                pid = int((report / f"{role}.pid").read_text())
+                identity = _process_identity(pid)
+                assert identity is not None, f"{role} exited before cancellation"
+                processes.append((pid, identity))
             work = Path((report / "workspace").read_text())
             owner.send_signal(signal.SIGTERM if cancellation == "parent-term" else signal.SIGINT)
             if cancellation == "repeat-interrupt":
@@ -877,12 +933,12 @@ def test_upgrade_command_owner_finishes_cleanup_after_gate_cancellation(tmp_path
             if cancellation == "parent-term":
                 # The dead gate cannot await its owner; PDEATHSIG initiates cleanup.
                 deadline = time.monotonic() + 10
-                while any(_process_exists(pid) for pid in pids):
+                while any(_process_exists(pid, identity) for pid, identity in processes):
                     assert time.monotonic() < deadline, "Detached descendants survived gate termination"
                     time.sleep(0.02)
             else:
                 # The second interrupt must not delete the workspace early.
-                assert not any(_process_exists(pid) for pid in pids)
+                assert not any(_process_exists(pid, identity) for pid, identity in processes)
                 assert not work.exists()
             assert sentinel.poll() is None
         finally:
@@ -892,16 +948,26 @@ def test_upgrade_command_owner_finishes_cleanup_after_gate_cancellation(tmp_path
                 owner.wait(timeout=5)
             sentinel.terminate()
             sentinel.wait(timeout=5)
-            if cancellation == "parent-term" and pids and not any(_process_exists(pid) for pid in pids):
+            if (
+                cancellation == "parent-term"
+                and processes
+                and not any(_process_exists(pid, identity) for pid, identity in processes)
+            ):
                 shutil.rmtree(Path((report / "workspace").read_text()), ignore_errors=True)
 
 
-def _process_exists(pid):
+def _process_identity(pid: int) -> str | None:
+    # PID reuse during the parallel suite must not look like a surviving descendant.
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except FileNotFoundError:
+        return None
+    fields = stat[stat.rfind(")") + 2 :].split()
+    return fields[19] if len(fields) > 19 else None
+
+
+def _process_exists(pid: int, identity: str) -> bool:
+    return _process_identity(pid) == identity
 
 
 @pytest.fixture

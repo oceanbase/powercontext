@@ -64,11 +64,28 @@ def render_context_text(items: Sequence[ContextTextItem], assembly: ContextAssem
         }[section.family]
         parts.append(f"## {title}")
         for number, item in enumerate(included, start=1):
-            parts.append(f"### {title} {number}")
-            parts.append(_metadata(item, assembly))
-            parts.append("\n".join(f">     {line}" for line in item.content.split("\n")))
+            parts.extend(_item_parts(title, number, item, assembly))
     parts.append(_END_MARKER)
     return "\n\n".join(parts)
+
+
+def rendered_text_fragment_bytes(item: ContextTextItem, assembly: ContextAssembly, number: int) -> int:
+    """Measure the rendered item, excluding the separators between items."""
+    title = {
+        "atomic-memory": "Memory",
+        "experience": "Experience",
+        "profile": "Profile",
+        "topic-memory": "Topic Memory",
+    }[item.artifact.artifact.family]
+    return len("\n\n".join(_item_parts(title, number, item, assembly)).encode("utf-8"))
+
+
+def _item_parts(title: str, number: int, item: ContextTextItem, assembly: ContextAssembly) -> tuple[str, str, str]:
+    return (
+        f"### {title} {number}",
+        _metadata(item, assembly),
+        "\n".join(f">     {line}" for line in item.content.split("\n")),
+    )
 
 
 @dataclass(frozen=True)

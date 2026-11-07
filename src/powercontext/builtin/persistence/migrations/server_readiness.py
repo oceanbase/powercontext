@@ -24,7 +24,7 @@ from .models import MigrationError, digest
 
 
 def check_server_schema(connection, *, _archive_recovery=False, _startup=False):
-    bundle = check_server_layout(connection)
+    bundle = check_server_layout(connection, allow_declared_spaces=_startup)
     if _startup and connection.dialect.name == "sqlite":
         _check_sqlite_startup_history(connection, bundle)
     pending_restore = connection.exec_driver_sql(
@@ -47,7 +47,7 @@ def check_server_schema(connection, *, _archive_recovery=False, _startup=False):
     bundle.domains.validate(connection, bundle.head, backend=backend, configuration=configuration)
 
 
-def check_server_layout(connection):
+def check_server_layout(connection, *, allow_declared_spaces=False):
     """Validate the exact managed layout before a registered domain repair."""
     from .deployment import server_bundle
     from .mysql_schema import MySQLSchema, mysql_inventory
@@ -65,10 +65,19 @@ def check_server_layout(connection):
             objects = [row for row in inventory if row[1] == name or row[2] == name]
             if objects and digest(objects) not in bundle.retained_fingerprints[name]:
                 raise MigrationError("incompatible_schema", "A retained migration object has changed.")
-        bundle.verify(
-            bundle.head,
-            digest(sqlite_inventory(connection, exclude=frozenset({"pc_schema_revision", *bundle.retained_objects}))),
-        )
+        try:
+            bundle.verify(
+                bundle.head,
+                digest(
+                    sqlite_inventory(connection, exclude=frozenset({"pc_schema_revision", *bundle.retained_objects}))
+                ),
+            )
+        except MigrationError as error:
+            if error.code != "incompatible_schema":
+                raise
+            from .sqlite_compatibility import verify
+
+            verify(connection, bundle, bundle.head)
         if connection.exec_driver_sql("PRAGMA foreign_key_check").first():
             raise MigrationError("verification_failed", "A live foreign key is invalid.")
     else:
@@ -76,7 +85,7 @@ def check_server_layout(connection):
         embedded_code = connection.engine.url.drivername == "mysql+aseekdb" and any(
             name.startswith("pc_code_") for name in inventory["tables"]
         )
-        schema = MySQLSchema(bundle, embedded_code=embedded_code)
+        schema = MySQLSchema(bundle, embedded_code=embedded_code, allow_declared_spaces=allow_declared_spaces)
         schema.verify(inventory, bundle.head)
     return bundle
 
@@ -135,16 +144,18 @@ def prepare_server_storage(settings, *, injected_embedding=False, embedding_prof
                 raise MigrationError(
                     "migration_required", "Initialize the remote database with an explicit db-migrate job."
                 )
-            bundle = check_server_layout(connection)
+            bundle = check_server_layout(connection, allow_declared_spaces=True)
             stored = bundle.vector_profile.profile if bundle.vector_profile is not None else None
             if stored != profile:
                 raise MigrationError("embedding_profile_mismatch", "Server configuration differs from managed storage.")
-            check_server_schema(connection)
+            check_server_schema(connection, _startup=True)
 
         MaintenanceConnections(database).run(verify)
         return
     runner = deployment_runner(settings, embedding_profile=profile)
-    plan = runner.plan()
+    from .mysql import MySQLMigrationRunner
+
+    plan = runner.plan(_startup=True) if isinstance(runner, MySQLMigrationRunner) else runner.plan()
     if plan.state == "uninitialized" and database.kind in {"sqlite", "seekdb"}:
         runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
     elif plan.state != "ready":

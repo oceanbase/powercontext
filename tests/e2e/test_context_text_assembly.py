@@ -50,10 +50,10 @@ from powercontext.server.settings import McpConfig, MetricsConfig, ServerSetting
 
 
 @asynccontextmanager
-async def _server(tmp_path):
+async def _server(tmp_path, *, database=None):
     app = create_server_app(
         settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}"),
+            database=database or SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}"),
             mcp=McpConfig(enabled=False),
             metrics=MetricsConfig(enabled=False),
         ),
@@ -74,8 +74,8 @@ async def _server(tmp_path):
         )
 
 
-async def _seed_topics(database, scope_ids, embedding_model=None):
-    async with open_builtin_contexts(BuiltinConfig(database=database), embedding_model=embedding_model) as contexts:
+async def _seed_topics(config: BuiltinConfig, scope_ids, embedding_model=None):
+    async with open_builtin_contexts(config, embedding_model=embedding_model) as contexts:
         for scope_id in scope_ids:
             content = TopicMemoryContent(
                 title=f"OpenAPI client topic in {scope_id}",
@@ -160,7 +160,7 @@ def test_multibyte_query_stays_within_the_contract_bound_for_search_and_prepared
 
 def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(tmp_path, monkeypatch):
     async def scenario():
-        async with _server(tmp_path) as (_, transport, client):
+        async with _server(tmp_path) as (runtime, transport, client):
             scope = await client.create_scope(
                 CreateScopeRequest(
                     title="Assembly",
@@ -169,7 +169,9 @@ def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(
                 )
             )
             scope_id = scope.scope_id
-            await _seed_topics(SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}"), [scope_id])
+            await _seed_topics(
+                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}")), [scope_id]
+            )
             profile = await transport.post(
                 f"/v1/scopes/{scope_id}/artifacts",
                 json={"family": "profile", "content": {"content": "Prefers concise Chinese explanations."}},
@@ -226,8 +228,17 @@ def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(
                     expected_version=candidate.version,
                 )
             )
-            prepared = await client.prepare_context(request)
+            prepared = await client.prepare_context(request.model_copy(update={"include_receipt": True}))
             assert prepared.content is not None
+            assert prepared.receipt is not None
+            assert [item.kind.value for item in prepared.receipt.selected] == [
+                "profile",
+                "topic-memory",
+                "experience",
+                "atomic-memory",
+            ]
+            assert all(item.artifact_address.scope_id == scope_id for item in prepared.receipt.selected)
+            assert all(item.rendered_bytes > 0 for item in prepared.receipt.selected)
             assert prepared.content.index("## Profile") < prepared.content.index("## Topic Memory")
             assert prepared.content.index("## Topic Memory") < prepared.content.index("## Experience")
             assert 'Artifact: family="topic-memory", id="assembly-topic", revision=1' in prepared.content
@@ -281,6 +292,31 @@ def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(
                 "content": None,
                 "content_bytes": 0,
             }
+            with_receipt = await transport.post(
+                "/v1/context/prepare",
+                json={
+                    "scope_id": scope_id,
+                    "query": "OpenAPI",
+                    "assembly": {"sections": []},
+                    "include_receipt": True,
+                },
+            )
+            assert with_receipt.status_code == 200
+            assert {key: value for key, value in with_receipt.json().items() if key != "receipt"} == empty.json()
+            assert with_receipt.json()["receipt"]["retrieval"]["searches"] == []
+
+            async def reject_referenced_scopes(_scope_ids):
+                raise PermissionError
+
+            isolated = await runtime.context.for_scope(scope_id).prepare(
+                RuntimePrepareContextRequest.model_validate({
+                    "query": "OpenAPI",
+                    "assembly": {"sections": []},
+                    "include_receipt": True,
+                }),
+                authorize_scopes=reject_referenced_scopes,
+            )
+            assert isolated.status == "empty" and isolated.receipt is not None
 
             async def unavailable_memory(*args, **kwargs):
                 raise RuntimeError("Excluded Memory backend is unavailable")  # noqa: TRY003
@@ -311,7 +347,7 @@ def test_topic_only_assembly_searches_current_scope_and_skips_other_families(tmp
                 )
             )
             await _seed_topics(
-                SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}"),
+                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'assembly.db'}")),
                 [shared.scope_id, current.scope_id],
             )
 

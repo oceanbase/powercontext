@@ -17,8 +17,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { HomePage } from '@/components/home-page';
-import { defaultLanguage, isLanguage } from '@/lib/i18n';
-import { absoluteSiteUrl } from '@/lib/urls';
+import { isLanguage } from '@/lib/i18n';
+import { pageMetadata } from '@/lib/metadata';
 
 type PageProps = { params: Promise<{ lang: string }> };
 
@@ -33,10 +33,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { lang } = await params;
   if (!isLanguage(lang)) notFound();
 
-  return {
-    alternates: {
-      canonical: absoluteSiteUrl(lang === defaultLanguage ? '/' : `/${lang}/`),
-      languages: { en: absoluteSiteUrl('/'), zh: absoluteSiteUrl('/zh/'), 'x-default': absoluteSiteUrl('/') },
-    },
-  };
+  return pageMetadata({
+    path: `/${lang}/`, lang, translations: { en: '/', zh: '/zh/' },
+  });
 }

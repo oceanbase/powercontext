@@ -15,7 +15,7 @@
  */
 
 //! Native-owned connection and Scope context. Viewing a profile never activates it.
-use super::discovery::DiscoveryResult;
+use super::discovery::{DiscoveryResult, DiscoveryStatus};
 use super::profiles::{ProfileInput, ProfileRepository, ProfileView};
 use crate::{
     error::SafeError,
@@ -32,6 +32,9 @@ use std::{
 };
 use tokio::sync::watch;
 use ts_rs::TS;
+
+mod runtime;
+pub use runtime::{RuntimeCapabilities, RuntimeFact};
 
 #[derive(Clone, Serialize, TS)]
 pub struct Fact<T> {
@@ -103,6 +106,7 @@ pub struct DesktopState {
 pub struct MemoryContext {
     pub connection_id: String,
     pub endpoint: String,
+    pub server_id: Option<String>,
     pub principal: Option<AccessPrincipal>,
     pub generation: u32,
     pub scope_id: String,
@@ -146,6 +150,7 @@ impl Drop for WriteGuard<'_> {
 }
 struct ReadSnapshot {
     api: Arc<ServerApi>,
+    server_id: Option<String>,
     identity: Option<AccessMeResponse>,
     cancelled: watch::Receiver<u32>,
 }
@@ -169,6 +174,10 @@ pub struct ConnectionManager {
     probes: tokio::sync::Semaphore,
     writes: tokio::sync::Semaphore,
     memory_reads: watch::Sender<u32>,
+    stats_reads: watch::Sender<u32>,
+    runtime_reads: watch::Sender<u32>,
+    runtime_slot: tokio::sync::Semaphore,
+    runtime_liveness_slot: tokio::sync::Semaphore,
 }
 impl ConnectionManager {
     pub fn new(profiles: ProfileRepository) -> Self {
@@ -212,6 +221,10 @@ impl ConnectionManager {
             probes: tokio::sync::Semaphore::new(1),
             writes: tokio::sync::Semaphore::new(1),
             memory_reads: watch::channel(0).0,
+            stats_reads: watch::channel(0).0,
+            runtime_reads: watch::channel(0).0,
+            runtime_slot: tokio::sync::Semaphore::new(1),
+            runtime_liveness_slot: tokio::sync::Semaphore::new(1),
         }
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Inner>, SafeError> {
@@ -310,6 +323,8 @@ impl ConnectionManager {
                     .active
                     .as_ref()
                     .is_some_and(|a| a.view.connection_id == id);
+            // A failed recheck must not expose a previously verified report.
+            inner.reports.remove(id);
             if use_as_active {
                 inner.active = None;
                 self.invalidate(&mut inner)?;
@@ -359,6 +374,17 @@ impl ConnectionManager {
             });
             let discovery = DiscoveryResult::assess(discovery, compatible);
             let supported_operations = discovery.supported_operations();
+            if !supported_operations.is_empty() {
+                // Do not activate a Principal observed across a deployment replacement.
+                Self::deployment_unchanged(
+                    &api,
+                    discovery
+                        .server
+                        .as_ref()
+                        .map(|server| server.server_id.as_str()),
+                )
+                .await?;
+            }
             Ok(CheckReport {
                 anonymous_access,
                 connection_id: id.into(),
@@ -419,14 +445,46 @@ impl ConnectionManager {
         }
         Ok(ReadSnapshot {
             api: active.api.clone(),
+            server_id: active
+                .view
+                .report
+                .discovery
+                .as_ref()
+                .and_then(|discovery| discovery.server.as_ref())
+                .map(|server| server.server_id.clone()),
             identity: principal,
             cancelled: self.changed.subscribe(),
         })
+    }
+    async fn deployment_unchanged(
+        api: &ServerApi,
+        original: Option<&str>,
+    ) -> Result<(), ApiFailure> {
+        // Re-observation never creates qualification or silently upgrades a legacy session.
+        let current = DiscoveryResult::assess(api.server_info().await, None);
+        let unchanged = match current.status {
+            DiscoveryStatus::Supported => original.is_some_and(|id| {
+                current
+                    .server
+                    .as_ref()
+                    .is_some_and(|server| server.server_id == id)
+            }),
+            DiscoveryStatus::Missing => original.is_none(),
+            _ => false,
+        };
+        if unchanged {
+            Ok(())
+        } else {
+            Err(current
+                .error
+                .unwrap_or_else(|| SafeError::StaleContext.into()))
+        }
     }
     async fn identity_unchanged(
         &self,
         api: &ServerApi,
         original: &Option<AccessMeResponse>,
+        server_id: Option<&str>,
         generation: u32,
     ) -> Result<(), ApiFailure> {
         let current = api.principal().await;
@@ -441,8 +499,16 @@ impl ConnectionManager {
                     .await
                     .is_ok_and(|r| r.checks.get("access_mode").is_some_and(|v| v == "disabled"))
         };
-        if unchanged {
-            return Ok(());
+        let result = if unchanged {
+            Self::deployment_unchanged(api, server_id).await
+        } else {
+            match current {
+                Err(error) => Err(error),
+                Ok(_) => Err(SafeError::StaleContext.into()),
+            }
+        };
+        if result.is_ok() {
+            return result;
         }
         let mut inner = self.lock()?;
         if inner.generation == generation {
@@ -451,10 +517,7 @@ impl ConnectionManager {
             }
             self.invalidate(&mut inner)?;
         }
-        match current {
-            Err(error) => Err(error),
-            Ok(_) => Err(SafeError::StaleContext.into()),
-        }
+        result
     }
     fn begin_scope_query(&self, generation: u32) -> Result<watch::Receiver<u32>, SafeError> {
         let inner = self.lock()?;
@@ -485,6 +548,7 @@ impl ConnectionManager {
             .user_operation(ObservedOperation::ListScopes, async {
                 let ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 } = self.snapshot(generation, "list_scopes")?;
@@ -492,8 +556,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.scopes(query, cursor).await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.scopes(query, cursor).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -505,6 +573,7 @@ impl ConnectionManager {
             .user_operation(ObservedOperation::GetDefaultScope, async {
                 let ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 } = self.snapshot(generation, "get_default_scope")?;
@@ -512,8 +581,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.default_scope().await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.default_scope().await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -529,12 +602,17 @@ impl ConnectionManager {
             .user_operation(ObservedOperation::GetScope, async {
                 let ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 } = self.snapshot(generation, "get_scope")?;
                 let scope = Self::cancellable(&mut cancelled, async {
-                    self.identity_unchanged(&api, &identity, generation).await?;
-                    api.scope(id).await
+                    self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                        .await?;
+                    let result = api.scope(id).await;
+                    self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                        .await?;
+                    result
                 })
                 .await?;
                 let mut inner = self.lock()?;
@@ -576,10 +654,12 @@ impl ConnectionManager {
             .identity
             .as_ref()
             .map(|value| value.principal.clone());
+        let server_id = snapshot.server_id.clone();
         Ok((
             snapshot,
             MemoryContext {
                 endpoint,
+                server_id,
                 principal,
                 connection_id: active.view.connection_id.clone(),
                 generation,
@@ -603,6 +683,54 @@ impl ConnectionManager {
     pub fn cancel_memory_reads(&self, generation: u32) -> Result<(), SafeError> {
         self.begin_memory_read(generation).map(|_| ())
     }
+    fn begin_stats_read(&self, generation: u32) -> Result<watch::Receiver<u32>, SafeError> {
+        let inner = self.lock()?;
+        if inner.generation != generation {
+            return Err(SafeError::StaleContext);
+        }
+        let next = self
+            .stats_reads
+            .borrow()
+            .checked_add(1)
+            .ok_or(SafeError::Storage)?;
+        self.stats_reads.send_replace(next);
+        Ok(self.stats_reads.subscribe())
+    }
+    pub fn cancel_stats_reads(&self, generation: u32) -> Result<(), SafeError> {
+        self.begin_stats_read(generation).map(|_| ())
+    }
+    pub async fn stats(
+        &self,
+        generation: u32,
+        period: crate::transport::wire::StatsPeriod,
+    ) -> Result<crate::transport::ExactScopeStatistics, ApiFailure> {
+        self.observations
+            .user_operation(ObservedOperation::GetStats, async {
+                let (
+                    ReadSnapshot {
+                        api,
+                        server_id,
+                        identity,
+                        mut cancelled,
+                    },
+                    context,
+                ) = self.memory_snapshot(generation, "get_stats")?;
+                let mut query_cancelled = self.begin_stats_read(generation)?;
+                Self::cancellable(
+                    &mut cancelled,
+                    Self::cancellable(&mut query_cancelled, async {
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.stats(&context.scope_id, period).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
+                    }),
+                )
+                .await
+            })
+            .await
+    }
     pub async fn search_memory(
         &self,
         generation: u32,
@@ -613,6 +741,7 @@ impl ConnectionManager {
                 let (
                     ReadSnapshot {
                         api,
+                        server_id,
                         identity,
                         mut cancelled,
                     },
@@ -622,8 +751,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.search(&context.scope_id, query).await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.search(&context.scope_id, query).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -640,6 +773,7 @@ impl ConnectionManager {
                 let (
                     ReadSnapshot {
                         api,
+                        server_id,
                         identity,
                         mut cancelled,
                     },
@@ -649,8 +783,12 @@ impl ConnectionManager {
                 Self::cancellable(
                     &mut cancelled,
                     Self::cancellable(&mut query_cancelled, async {
-                        self.identity_unchanged(&api, &identity, generation).await?;
-                        api.atomic_entry(&context.scope_id, artifact).await
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        let result = api.atomic_entry(&context.scope_id, artifact).await;
+                        self.identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                            .await?;
+                        result
                     }),
                 )
                 .await
@@ -668,6 +806,7 @@ impl ConnectionManager {
             let (
                 ReadSnapshot {
                     api,
+                    server_id,
                     identity,
                     mut cancelled,
                 },
@@ -675,7 +814,7 @@ impl ConnectionManager {
             ) = self.memory_snapshot(generation, "remember_memory")?;
             Self::cancellable(
                 &mut cancelled,
-                self.identity_unchanged(&api, &identity, generation),
+                self.identity_unchanged(&api, &identity, server_id.as_deref(), generation),
             )
             .await?;
             let mut record = WriteRecord {
@@ -699,15 +838,25 @@ impl ConnectionManager {
             };
             observation.write_dispatched();
             let response = api.remember(&record.context.scope_id, text).await;
+            let identity_result = self
+                .identity_unchanged(&api, &identity, server_id.as_deref(), generation)
+                .await;
             let result = match response {
                 Ok(value) => {
-                    record.status = WriteStatus::Succeeded;
-                    record.references = value
-                        .records
-                        .iter()
-                        .map(|record| record.artifact.clone())
-                        .collect();
-                    Some(value)
+                    if let Err(error) = identity_result {
+                        // A successful HTTP reply cannot establish which deployment accepted the write.
+                        record.status = WriteStatus::Unknown;
+                        record.error = Some(error);
+                        None
+                    } else {
+                        record.status = WriteStatus::Succeeded;
+                        record.references = value
+                            .records
+                            .iter()
+                            .map(|record| record.artifact.clone())
+                            .collect();
+                        Some(value)
+                    }
                 }
                 Err(error) => {
                     record.status = if error.dispatched

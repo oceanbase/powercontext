@@ -23,7 +23,8 @@ from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
-from bub.hooks.interception import LlmCallRequest
+import republic
+from bub.hooks.interception import LLMCallRequest
 from powercontext_bub import plugin as plugin_module
 from powercontext_bub.plugin import PowerContextPlugin, PowerContextSettings
 
@@ -64,10 +65,10 @@ def test_recall_query_keeps_the_end_of_the_prompt(monkeypatch, tmp_path: Path, c
     monkeypatch.setattr(plugin_module, "PowerContextClient", RecordingClient)
     plugin = PowerContextPlugin(SimpleNamespace(workspace=tmp_path))
     state = plugin.load_state(message=None, session_id="session-1")
-    request = LlmCallRequest(
+    request = LLMCallRequest(
         run_id="run-1",
         model="test-model",
-        messages=[{"role": "user", "content": _expand(case["prompt"])}],
+        messages=[republic.user(_expand(case["prompt"]))],
     )
 
     result = asyncio.run(plugin.before_llm_call(request, state))

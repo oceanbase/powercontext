@@ -48,12 +48,20 @@ async def open_builtin_access_control(
     database: DatabaseConfig,
     *,
     bootstrap_administrators: Sequence[PrincipalRef] = (),
+    server_administrators: Sequence[PrincipalRef] = (),
     deployment_id: str = DEFAULT_DEPLOYMENT_ID,
+    static_scope_principal: PrincipalRef | None = None,
 ) -> AsyncIterator[AccessControlService]:
-    """Open a Server-owned Access schema without coupling it to Runtime domains."""
+    """Open Access with the configured static Scope preset.
+
+    Maintenance can declare the preset without bootstrapping administrator roles.
+    Declaring it does not materialize Scope bindings.
+    """
 
     async with _open_access_repository(database) as repository:
-        await _bootstrap_server_roles(repository, bootstrap_administrators, deployment_id=deployment_id)
+        await _bootstrap_server_roles(
+            repository, (*bootstrap_administrators, *server_administrators), deployment_id=deployment_id
+        )
         provider = BuiltinAuthorizationProvider(
             repository,
             deployment_id=deployment_id,
@@ -69,7 +77,13 @@ async def open_builtin_access_control(
                 relationship_management=True,
                 group_subjects=False,
             ),
-            static_scope_principal=bootstrap_administrators[0] if len(bootstrap_administrators) == 1 else None,
+            static_scope_principal=(
+                static_scope_principal
+                if static_scope_principal is not None
+                else bootstrap_administrators[0]
+                if len(bootstrap_administrators) == 1
+                else None
+            ),
         )
 
 

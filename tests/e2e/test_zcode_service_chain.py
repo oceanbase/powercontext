@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -44,6 +45,42 @@ from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"
 
 
+@pytest.fixture
+def hook_timeline(request: pytest.FixtureRequest):
+    """Expose content-free HTTP and child-process timings when the chain fails."""
+    events: list[dict[str, Any]] = []
+    started = time.monotonic()
+    reported = 0
+
+    def record(event: str, **details: Any) -> None:
+        nonlocal reported
+        events.append({"event": event, "elapsed_ms": round((time.monotonic() - started) * 1_000, 2), **details})
+        if event in {"hook_end", "test_end"}:
+            snapshot = list(events)
+            request.node.add_report_section("call", "ZCode timings", json.dumps(snapshot[reported:], indent=2))
+            reported = len(snapshot)
+
+    return record
+
+
+def _http_timing(record):
+    async def middleware(request, call_next):
+        operation = {
+            "/v1/scope-bindings/resolve": "scope_resolve",
+            "/v1/context/prepare": "prepare",
+            "/v1/sources/content": "capture",
+            "/v1/memory/flush": "flush",
+        }.get(request.url.path)
+        if operation:
+            record("http_start", operation=operation)
+        response = await call_next(request)
+        if operation:
+            record("http_headers", operation=operation, status=response.status_code)
+        return response
+
+    return middleware
+
+
 class DeterministicSourcePipeline:
     async def generate(self, request: AtomicMemoryExtractionInput, /) -> GenerationResult[AtomicMemoryExtractionOutput]:
         return GenerationResult(
@@ -63,7 +100,15 @@ class DeterministicSourcePipeline:
 
 
 def _invoke_hook(
-    *, node: str, base_url: str, scope_id: str | None, session_id: str, turn_id: str, prompt: str
+    *,
+    node: str,
+    base_url: str,
+    scope_id: str | None,
+    session_id: str,
+    turn_id: str,
+    prompt: str,
+    record,
+    allowed_timeout_stages: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     environment = dict(os.environ)
     environment.pop("POWERCONTEXT_ZCODE_SCOPE_ID", None)
@@ -71,6 +116,7 @@ def _invoke_hook(
     environment.update(POWERCONTEXT_ZCODE_SERVER_URL=base_url, ZCODE_PLUGIN_DATA=os.environ["ZCODE_PLUGIN_DATA"])
     if scope_id is not None:
         environment["POWERCONTEXT_ZCODE_SCOPE_ID"] = scope_id
+    record("hook_start", session=session_id)
     result = subprocess.run(
         [node, str(HOOK)],
         input=json.dumps({
@@ -86,12 +132,78 @@ def _invoke_hook(
         timeout=10,
         env=environment,
     )
+    record("hook_end", session=session_id, returncode=result.returncode)
     assert result.returncode == 0, result.stderr
-    assert result.stderr == ""
+    diagnostics = [json.loads(line) for line in result.stderr.splitlines()]
+    allowed_diagnostics = [
+        {"component": "powercontext.zcode", "stage": stage, "code": "timeout"} for stage in allowed_timeout_stages
+    ]
+    assert all(diagnostic in allowed_diagnostics for diagnostic in diagnostics), result.stderr
     return json.loads(result.stdout)
 
 
-def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path, monkeypatch) -> None:
+def _wait_for_processed_memory(client: httpx.Client, scope_id: str, text: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        response = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+        response.raise_for_status()
+        items = response.json()["entries"]
+        assert all(entry["artifact"]["family"] == "atomic-memory" for entry in items)
+        generated = next((entry for entry in items if text in entry["text"]), None)
+        if generated is not None:
+            return generated
+        time.sleep(0.05)
+    pytest.fail("The original flush must commit the captured source")
+
+
+def _delay_first_capture_response():
+    delayed = False
+
+    async def middleware(request, call_next):
+        nonlocal delayed
+        response = await call_next(request)
+        if request.url.path == "/v1/sources/content" and not delayed:
+            # The source commits before this delay. The Hook must report an
+            # unknown receipt, and the caller must verify the committed source.
+            delayed = True
+            await asyncio.sleep(1.2)
+        return response
+
+    return middleware
+
+
+class _HookBoundaryFaults:
+    def __init__(self, slow_flush_receipt: bool, slow_initial_prepare: bool = False) -> None:
+        self.slow_flush_receipt = slow_flush_receipt
+        self.slow_initial_prepare = slow_initial_prepare
+        self.delay_retry_resolution = False
+        self.flush_requests = 0
+
+    async def __call__(self, request, call_next):
+        delay_prepare = self.slow_initial_prepare and request.url.path == "/v1/context/prepare"
+        if delay_prepare:
+            self.slow_initial_prepare = False
+        is_flush = request.url.path == "/v1/memory/flush"
+        if is_flush:
+            self.flush_requests += 1
+        if self.delay_retry_resolution and request.url.path == "/v1/scope-bindings/resolve":
+            await asyncio.sleep(1.2)
+        response = await call_next(request)
+        if delay_prepare:
+            await asyncio.sleep(1.2)
+        if is_flush and self.slow_flush_receipt:
+            # The real Server commits before the response exceeds Stop's 800 ms budget.
+            await asyncio.sleep(1.2)
+        return response
+
+
+@pytest.mark.parametrize(
+    ("slow_flush_receipt", "slow_retry_resolution", "slow_initial_prepare"),
+    [(False, False, False), (True, False, False), (True, True, False), (False, False, True)],
+)
+def test_zcode_source_is_processed_and_recalled_in_a_new_session(
+    tmp_path: Path, monkeypatch, slow_flush_receipt, slow_retry_resolution, slow_initial_prepare, hook_timeline
+) -> None:
     monkeypatch.setenv("ZCODE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
     node = shutil.which("node")
     if node is None:
@@ -102,6 +214,13 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
         ),
         candidate_pipeline=atomic_memory_pipeline(DeterministicSourcePipeline()),
     )
+    boundary = _HookBoundaryFaults(slow_flush_receipt, slow_initial_prepare)
+    app.middleware("http")(boundary)
+
+    if not slow_initial_prepare:
+        app.middleware("http")(_delay_first_capture_response())
+    app.middleware("http")(_http_timing(hook_timeline))
+
     with socket.socket() as socket_probe:
         socket_probe.bind(("127.0.0.1", 0))
         port = socket_probe.getsockname()[1]
@@ -179,11 +298,36 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
                 session_id="binding-probe",
                 turn_id="probe-1",
                 prompt="Scope binding synthetic probe.",
+                record=hook_timeline,
+                # Initial capture commits before its delayed response; empty recall may also time out.
+                allowed_timeout_stages=("capture", "prepare"),
             )
             assert session_scope in probe["hookSpecificOutput"]["additionalContext"]
             probe_sources = client.get(f"/v1/scopes/{session_scope}/sources")
             probe_sources.raise_for_status()
             assert len(probe_sources.json()["items"]) == 1
+            if slow_initial_prepare:
+                probe_status = subprocess.run(
+                    [
+                        node,
+                        str(HOOK.parent.parent / "scripts/status.mjs"),
+                        "--cwd",
+                        str(HOOK.parents[5]),
+                        "--session-id",
+                        "binding-probe",
+                    ],
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                assert probe_status.returncode == 0, probe_status.stdout + probe_status.stderr
+                stages = json.loads(probe_status.stdout)["observation"]["stages"]
+                assert stages["prepare"]["state"] == "failed"
+                assert stages["prepare"]["code"] == "timeout"
+                assert stages["capture"]["state"] == "accepted"
+                assert stages["capture"]["source_position"] == probe_sources.json()["items"][0]["position"]
             assert run_scope("unbind")["scope_id"] == session_scope
             first = _invoke_hook(
                 node=node,
@@ -192,25 +336,28 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
                 session_id="old-session",
                 turn_id="turn-1",
                 prompt="The staging deployment color is teal-731.",
+                record=hook_timeline,
             )
             assert scope_id in first["hookSpecificOutput"]["additionalContext"]
             assert "teal-731" not in first["hookSpecificOutput"]["additionalContext"]
             remaining = 5 - time.time() % 5
             if remaining < 1.5:
                 time.sleep(remaining + 0.05)
+            stop_input = json.dumps({
+                "hookEventName": "Stop",
+                "cwd": str(HOOK.parents[5]),
+                "sessionId": "old-session",
+                "stopHookActive": False,
+            })
+            stop_environment = {
+                **environment,
+                "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
+                "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
+            }
             stopped = subprocess.run(
                 [node, str(HOOK.parent / "stop.mjs")],
-                input=json.dumps({
-                    "hookEventName": "Stop",
-                    "cwd": str(HOOK.parents[5]),
-                    "sessionId": "old-session",
-                    "stopHookActive": False,
-                }),
-                env={
-                    **environment,
-                    "POWERCONTEXT_ZCODE_SCOPE_ID": scope_id,
-                    "POWERCONTEXT_ZCODE_BOUNDARY_FLUSH": "true",
-                },
+                input=stop_input,
+                env=stop_environment,
                 text=True,
                 capture_output=True,
                 check=False,
@@ -239,13 +386,51 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
             )
             assert status.returncode == 0, status.stdout + status.stderr
             result = json.loads(status.stdout)
-            assert result["observation"]["stages"]["flush"]["state"] == "cursor_reached", result
-            assert result["pending"]["scopes"] == []
-            entries = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
-            entries.raise_for_status()
-            assert entries.json()["entries"]
-            assert all(entry["artifact"]["family"] == "atomic-memory" for entry in entries.json()["entries"])
-            generated = next(entry for entry in entries.json()["entries"] if "teal-731" in entry["text"])
+            flush = result["observation"]["stages"]["flush"]
+            assert flush["state"] in {"cursor_reached", "unknown"}, result
+            if slow_flush_receipt:
+                assert flush["state"] == "unknown", result
+            if flush["state"] == "unknown":
+                assert flush["code"] == "timeout", result
+                pending = result["pending"]["scopes"]
+                assert len(pending) == 1 and pending[0]["scope_id"] == scope_id, result
+                assert pending[0]["unknown_flush_paused"] is True, result
+                assert pending[0]["receipt_count"] == 1, result
+                assert pending[0]["target_position"] == flush["source_position"], result
+                boundary.delay_retry_resolution = slow_retry_resolution
+                retried = subprocess.run(
+                    stopped.args,
+                    input=stop_input,
+                    env=stop_environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=2,
+                )
+                boundary.delay_retry_resolution = False
+                assert retried.returncode == 0 and json.loads(retried.stdout) == {}, retried.stderr
+                # Scope resolution shares Stop's network budget and can time out before
+                # the local pause is read. The durable pause and no replay are the contract.
+                retried_status = subprocess.run(
+                    status.args,
+                    env=stop_environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                assert retried_status.returncode == 0, retried_status.stderr
+                retained = json.loads(retried_status.stdout)["pending"]["scopes"]
+                assert len(retained) == 1 and retained[0]["scope_id"] == scope_id, retained
+                assert retained[0]["unknown_flush_paused"] is True, retained
+                assert retained[0]["receipt_count"] == 1, retained
+                assert retained[0]["target_position"] == flush["source_position"], retained
+            else:
+                assert result["pending"]["scopes"] == []
+            # Stop is time-bounded, not a guarantee of completed processing.
+            # Verify committed memory independently, without replaying the flush.
+            generated = _wait_for_processed_memory(client, scope_id, "teal-731")
+            assert boundary.flush_requests == 1, "An unknown Stop must never replay its mutation automatically"
             captured = client.get(f"/v1/scopes/{scope_id}/sources").json()["items"]
             reference = generated["artifact"]
             revision = client.get(
@@ -268,6 +453,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
                 session_id="new-session",
                 turn_id="turn-1",
                 prompt="What is the staging deployment color?",
+                record=hook_timeline,
             )
             assert "teal-731" in second["hookSpecificOutput"]["additionalContext"]
             status = subprocess.run(
@@ -301,6 +487,7 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
                 session_id="old-session",
                 turn_id="turn-1",
                 prompt="The staging deployment color is teal-731.",
+                record=hook_timeline,
             )
             sources = client.get(f"/v1/scopes/{scope_id}/sources")
             sources.raise_for_status()
@@ -308,4 +495,5 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(tmp_path: Path,
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+        hook_timeline("test_end")
         assert not thread.is_alive()

@@ -1,0 +1,50 @@
+name: Gateway
+
+on:
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gateway-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: gateway.yml
+
+  check:
+    needs: changes
+    if: >-
+      ${{ !cancelled() &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').gateway) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.95.0-x86_64-unknown-linux-gnu --profile minimal --component rustfmt --component clippy
+      - name: Cache Rust dependencies and compilation
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          cache-bin: false
+      - name: Format check
+        run: cargo fmt --manifest-path gateway/Cargo.toml --all --check
+      - name: Clippy
+        run: cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --locked --manifest-path gateway/Cargo.toml --workspace

@@ -28,6 +28,7 @@ RUN --mount=type=cache,id=powercontext-uv,target=/root/.cache/uv \
     --no-editable \
     --extra cli \
     --extra server \
+    --extra tracing-otlp \
     --refresh-package powercontext \
     && test "$(.venv/bin/python -c 'from importlib.metadata import version; print(version("powercontext"))')" \
     = "${POWERCONTEXT_VERSION}"

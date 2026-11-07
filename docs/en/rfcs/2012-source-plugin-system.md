@@ -1,6 +1,6 @@
 ---
-title: Source plugin framework
-description: Develop and use custom Source plugins to extend data types, Projections, and collection logic with a common PowerContext integration.
+title: "RFC 2012: Source plugin framework"
+description: A proposal for trusted Source plugins that validate synchronous writes or collect external data through shared loading and persistence contracts.
 ---
 
 - Proposal Name: `source_plugin_framework`

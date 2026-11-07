@@ -182,6 +182,29 @@ class NoOpGenerator:
         return None
 
 
+def test_remember_memory_preserves_preference_kind_through_mcp() -> None:
+    preference = {"kind": "preference", "text": "The user prefers uv for Python."}
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            app = create_app(application=cast(ServerApplication, runtime))
+            async with Client(create_mcp_server(app)) as client:
+                scope = await client.call_tool(
+                    "create_scope",
+                    {"title": "Preference", "summary": "Explicit preference", "idempotency_key": "mcp-preference"},
+                )
+                scope_id = scope.structured_content["scope_id"]
+                saved = await client.call_tool("remember_memory", {**preference, "scope_id": scope_id})
+                assert not saved.is_error
+                record = saved.structured_content["records"][0]
+                assert record["kind"] == "preference"
+                entries = await client.call_tool("list_memory_entries", {"scope_id": scope_id})
+                assert entries.structured_content["entries"][0]["kind"] == "preference"
+                assert entries.structured_content["entries"][0]["text"] == preference["text"]
+
+    asyncio.run(scenario())
+
+
 def test_native_current_work_handoff_transfers_only_its_nested_prepared_carrier() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:

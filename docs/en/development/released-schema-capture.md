@@ -1,3 +1,8 @@
+---
+title: "Released Server schema capture"
+description: "Capture database schemas and sample records from an installed Server release to register a migration baseline."
+---
+
 # Released Server schema capture
 
 `scripts/capture_release_schema.py` collects evidence for registering a supported

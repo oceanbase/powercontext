@@ -1,5 +1,6 @@
 ---
 title: Migrate to Atomic Memory
+description: "Convert legacy Memory collections to Atomic Memory offline, back up the database, and verify identities and version chains."
 ---
 
 Existing Memory collections require an offline conversion to independent `atomic-memory` artifacts.

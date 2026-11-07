@@ -34,6 +34,7 @@ from sqlalchemy.pool import QueuePool
 from sqlalchemy.util import await_only
 
 from powercontext.builtin.inference import InferenceUsage
+from powercontext.builtin.inference.models import InputEncodingReport
 from powercontext.builtin.persistence.database import AsyncDatabase, ModelUsageAttemptExpired
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.statistics import StatisticsRepository, StoredModelUsage
@@ -97,12 +98,36 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
         async with _database(config) as database:
             recorder = _ModelUsageRecorder(database, StatisticsRepository())
             try:
-                usage = InferenceUsage(requests=2, input_tokens=None, output_tokens=4)
+                usage = InferenceUsage(
+                    requests=2,
+                    input_tokens=None,
+                    output_tokens=4,
+                    input_encodings=(
+                        InputEncodingReport(
+                            mode="active",
+                            stage="atomic_memory.extract",
+                            codec="shared-json-v1",
+                            reason="selected",
+                            original_bytes=400_000,
+                            original_estimated_tokens=100_000,
+                            candidate_bytes=200_000,
+                            candidate_estimated_tokens=50_000,
+                            selected_bytes=200_000,
+                            selected_estimated_tokens=50_000,
+                            estimator_id="fixture",
+                            estimator_version="1",
+                        ),
+                    ),
+                )
                 _offer(recorder, usage)
                 usage.requests = 900
                 usage.output_tokens = 900
                 _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
-                await recorder.flush()
+                # flush is best-effort; wait for this prefix before reading its usage.
+                target = recorder.checkpoint()
+                async with asyncio.timeout(5.0):
+                    while recorder._settled < target:
+                        await recorder.flush(target)
                 rows = await _rows(database)
                 assert len(rows) == 1
                 assert rows[0].usage_date == _DAY
@@ -808,7 +833,10 @@ def test_native_deadline_before_commit_retries_usage_without_double_counting(tmp
             else SQLiteConfig()
         )
         async with _database(config) as database:
-            recorder = _ModelUsageRecorder(database, InterruptedOnceRepository(), write_timeout_seconds=0.4)
+            # Leave scheduling and cleanup margin for the native interruption and retry.
+            recorder = _ModelUsageRecorder(
+                database, InterruptedOnceRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
+            )
             try:
                 _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
                 await recorder.flush()

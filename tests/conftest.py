@@ -27,6 +27,13 @@ _DATABASE_MIGRATION_ENV = Path(__file__).parent / "fixtures" / "database_migrati
 
 
 @pytest.fixture
+def otlp_exporter():
+    """Run exporter-dependent configuration cases in the tracing-otlp CI job."""
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http._log_exporter")
+
+
+@pytest.fixture
 def short_tmp_path() -> Iterator[Path]:
     """Leave room for nested checkout caches and backup names on Windows."""
     # pytest's user/session/test-name directories can exhaust MAX_PATH before
@@ -35,6 +42,19 @@ def short_tmp_path() -> Iterator[Path]:
     # preallocated engine logs across a complete CI session.
     with TemporaryDirectory(prefix="pc-") as directory:
         yield Path(directory)
+
+
+@pytest.fixture(autouse=True)
+def isolated_artifact_family_profiles():
+    """Plugin registration in one test must not change another Server's readiness."""
+    from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES
+
+    original = dict(ARTIFACT_FAMILY_PROFILES)
+    try:
+        yield
+    finally:
+        ARTIFACT_FAMILY_PROFILES.clear()
+        ARTIFACT_FAMILY_PROFILES.update(original)
 
 
 @pytest.fixture(autouse=True)

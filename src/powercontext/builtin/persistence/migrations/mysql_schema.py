@@ -37,6 +37,7 @@ from .models import MigrationError, digest
 _LEXEME = re.compile(
     r"\s+|`(?:``|[^`])*`|'(?:''|\\.|[^'\\])*'|[A-Za-z_][A-Za-z_0-9$]*|[0-9]+|>=|<=|<>|!=|[(),.=<>+*/%\^&|~!?:@-]"
 )
+
 _CONTROL_TABLE = "pc_schema_revision"
 _PHYSICAL_VALUES = frozenset({
     "row_format",
@@ -93,6 +94,19 @@ def mysql_inventory(connection: Connection, *, exclude: frozenset[str] = frozens
             key=lambda row: str(row.get("Trigger", "")),
         )
         inventory["views"].sort()
+        if "pc_artifact_vector_spaces" in inventory["tables"]:
+            from sqlalchemy import select
+
+            from powercontext.builtin.persistence.tables import ARTIFACT_VECTOR_SPACES_TABLE
+
+            declarations = (
+                connection
+                .execute(select(ARTIFACT_VECTOR_SPACES_TABLE).order_by(ARTIFACT_VECTOR_SPACES_TABLE.c.space_id))
+                .mappings()
+                .all()
+            )
+            if declarations:
+                inventory["artifact_spaces"] = [dict(space) for space in declarations]
     except DBAPIError as error:
         raise MigrationError(
             "schema_reflection_failed", "Complete database schema reflection is unavailable."
@@ -141,7 +155,10 @@ def read_revision(
 class MySQLSchema:
     """Validate source, intermediate and post-DDL shapes from frozen resources."""
 
-    def __init__(self, bundle: MigrationBundle, *, embedded_code: bool = False) -> None:  # noqa: C901 -- Keep ordered admission checks with their operation.
+    def __init__(  # noqa: C901 -- Keep ordered admission checks with their operation.
+        self, bundle: MigrationBundle, *, embedded_code: bool = False, allow_declared_spaces: bool = False
+    ) -> None:
+        self.allow_declared_spaces = allow_declared_spaces
         self.bundle = bundle
         self.revisions = bundle.revisions
         manifest = json.loads((bundle.snapshot_directory / "manifest.json").read_text())
@@ -248,7 +265,7 @@ class MySQLSchema:
             self._prefixes[revision] = prefixes
             self._schemas[revision] = copy.deepcopy(inventory)
 
-    def execute(self, connection: Connection, statement: str, configuration: dict[str, Any]) -> None:
+    def execute(self, connection: Connection, statement: str, configuration: dict[str, Any], *, revision: str) -> None:
         if statement.startswith("@"):
             import runpy
 
@@ -258,7 +275,50 @@ class MySQLSchema:
             operation = runpy.run_path(str(self.bundle.snapshot_directory / resource))["execute"]
             operation(connection, "@" + name, configuration)
         else:
-            connection.exec_driver_sql(statement, execution_options={"no_parameters": True})
+            connection.exec_driver_sql(
+                self._constraint_name(connection, self._column_encoding(statement, revision), revision),
+                execution_options={"no_parameters": True},
+            )
+
+    def _constraint_name(self, connection: Connection, statement: str, revision: str) -> str:
+        """Resolve semantic CHECK matches to the name required by native DDL."""
+        tokens = _tokens(statement)
+        if len(tokens) != 6 or tokens[:2] != ["alter", "table"] or tokens[3:5] != ["drop", "check"]:
+            return statement
+        position = self._statements[revision].index(statement)
+        required = self._prefixes[revision][position]["tables"][tokens[2]]["checks"][tokens[5]]
+        ddl = connection.exec_driver_sql("SHOW CREATE TABLE " + _quote(tokens[2])).one()[1]
+        _, table = _parse_table(ddl)
+        matches = [name for name, check in table["checks"].items() if check == required]
+        if tokens[5] in matches:
+            return statement
+        if len(matches) != 1:
+            raise MigrationError("incompatible_schema", "The CHECK selected for removal is missing or ambiguous.")
+        return "ALTER TABLE " + _quote(tokens[2]) + " DROP CHECK " + _quote(matches[0])
+
+    def _column_encoding(self, statement: str, revision: str) -> str:
+        """Apply declared column encodings independently of historical table defaults."""
+        tokens = _tokens(statement)
+        if tokens[:2] != ["alter", "table"] or tokens[3:5] not in (["add", "column"], ["modify", "column"]):
+            return statement
+        if len(_parts(tokens[5:])) != 1:
+            return statement
+        position = self._statements[revision].index(statement) + 1
+        expected = self._prefixes[revision][position]["tables"][tokens[2]]["columns"][tokens[5]]
+        declared = _column(tokens[5:], {"charset": None, "collation": None})
+        options = ""
+        for option, keyword in (("charset", "CHARACTER SET"), ("collation", "COLLATE")):
+            if declared[option] is None and expected[option] is not None:
+                options += " " + keyword + " " + _quote(expected[option])
+        if not options:
+            return statement
+        # Insert after the type, preserving literal defaults and all other SQL.
+        end = 7
+        if tokens[end : end + 1] == ["("]:
+            _, end = _group(tokens, end)
+        lexemes = [match for match in _LEXEME.finditer(statement) if not match.group().isspace()]
+        offset = lexemes[end - 1].end()
+        return statement[:offset] + options + statement[offset:]
 
     def _extend_embedded_code(self, manifest: dict[str, Any]) -> None:
         resource = manifest.get("mysql_schema_extensions", {}).get("seekdb_code")
@@ -338,13 +398,29 @@ class MySQLSchema:
         self.affected_objects = tuple(dict.fromkeys([*self.affected_objects, *tables, declaration_name]))
 
     def _matches(self, inventory: dict[str, Any], expected: dict[str, Any]) -> bool:
-        # Most DDL recovery prefixes have different table sets. Reject them
-        # before normalizing backend defaults for every table.
-        if inventory.keys() != expected.keys() or inventory["tables"].keys() != expected["tables"].keys():
-            return False
-        # Captured backends may expose an explicit default that another backend
-        # omits. Only registered values may be absent; retain it in fingerprints.
         actual = {**inventory, "tables": dict(inventory["tables"])}
+        declarations = actual.pop("artifact_spaces", [])
+        if declarations:
+            from powercontext.builtin.persistence.artifact_vector_space import registered_native_layouts
+
+            if "pc_artifact_vector_spaces" not in expected["tables"]:
+                return False
+            try:
+                layouts = registered_native_layouts(
+                    declarations, actual["tables"], allow_declared=self.allow_declared_spaces
+                )
+            except (ValueError, TypeError, KeyError) as error:
+                raise MigrationError(
+                    "incompatible_schema", "A registered native vector space is incomplete or incompatible."
+                ) from error
+            expected = {**expected, "tables": dict(expected["tables"])}
+            expected["tables"].update(layouts)
+            self.affected_objects = tuple(dict.fromkeys((*self.affected_objects, *sorted(layouts))))
+        # Compare table sets after adding the exactly validated registered spaces.
+        if actual.keys() != expected.keys() or (
+            self.bundle.readiness_scope != "server" and actual["tables"].keys() != expected["tables"].keys()
+        ):
+            return False
         for name, options in self.optional_table_options.items():
             table = actual["tables"].get(name)
             target = expected["tables"].get(name)
@@ -355,14 +431,23 @@ class MySQLSchema:
                     table = dict(table)
                     actual["tables"][name] = table
                     del table[option]
+        if self.bundle.readiness_scope == "server":
+            return compatible_inventory(actual, expected)
         return _matches(actual, expected)
+
+    def required(self, revision: str) -> dict[str, Any]:
+        """Return the immutable revision's semantic storage requirements."""
+        return copy.deepcopy(self._schemas[revision])
+
+    def statements(self, revision: str) -> tuple[str, ...]:
+        return self._statements[revision]
 
     def identify(self, inventory: dict[str, Any]) -> str | None:
         """Only complete known shapes may be adopted as an unversioned source."""
         inventory = _business_inventory(inventory)
         if inventory == _empty_inventory():
             return None
-        for revision, expected in self._schemas.items():
+        for revision, expected in reversed(self._schemas.items()):
             if self._matches(inventory, expected):
                 return revision
         raise MigrationError("incompatible_schema", "Actual MySQL schema is not a registered complete layout.")
@@ -385,8 +470,11 @@ class MySQLSchema:
         if not pending:
             raise MigrationError("incompatible_schema", "There is no registered next MySQL revision to recover.")
         target = pending[0]
-        for position, expected in enumerate(self._prefixes[target]):
+        for position in reversed(range(len(self._prefixes[target]))):
+            expected = self._prefixes[target][position]
             if self._matches(inventory, expected):
+                while position > 0 and self._prefixes[target][position] == self._prefixes[target][position - 1]:
+                    position -= 1
                 return MySQLRecovery(target, self._statements[target][position:])
         raise MigrationError("incompatible_schema", "Actual MySQL schema is not a controlled next-revision DDL state.")
 
@@ -921,6 +1009,32 @@ def _table_matches(table: dict[str, Any], expected: dict[str, Any]) -> bool:
             del normalized["indexes"][index_name]
             automatic_keys.add(columns)
     return normalized == expected
+
+
+def compatible_inventory(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
+    """Require managed semantics while allowing independently owned objects."""
+    required = copy.deepcopy(expected)
+    observed = copy.deepcopy(actual)
+    names = set(required["tables"])
+    if not names <= observed["tables"].keys():
+        return False
+    observed["tables"] = {name: observed["tables"][name] for name in names}
+    observed["views"] = [view for view in observed["views"] if view in required["views"]]
+    observed["triggers"] = [trigger for trigger in observed["triggers"] if trigger.get("Table") in names]
+    for name, target in required["tables"].items():
+        table = observed["tables"][name]
+        for column in set(table["columns"]) - target["columns"].keys():
+            definition = table["columns"][column]
+            if not definition["nullable"] and definition["default"] is None:
+                return False
+            del table["columns"][column]
+        for index in set(table["indexes"]) - target["indexes"].keys():
+            if not table["indexes"][index]["unique"]:
+                del table["indexes"][index]
+        # Constraint labels do not affect enforcement; expression trees do.
+        for definition in (table, target):
+            definition["checks"] = {digest(value): value for value in definition["checks"].values()}
+    return _matches(observed, required)
 
 
 def _literal(lexeme: str) -> str:

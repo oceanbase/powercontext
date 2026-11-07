@@ -82,6 +82,12 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
     tool_names, resource_count, prompt_count = run_async(inspect_components)
 
     assert set(tool_names) == {
+        "pc_source_add",
+        "pc_source_capabilities",
+        "pc_source_instance_set_enabled",
+        "pc_source_instances",
+        "pc_source_status",
+        "pc_source_target_set_enabled",
         "generate_experience",
         "get_experience",
         "propose_experience",

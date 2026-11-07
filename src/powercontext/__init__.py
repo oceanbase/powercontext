@@ -14,6 +14,10 @@
 
 """Stable public exports for PowerContext clients."""
 
+from importlib import import_module
+from types import ModuleType
+from typing import TYPE_CHECKING
+
 from powercontext.artifacts import (
     Artifact,
     ArtifactAddress,
@@ -28,6 +32,7 @@ from powercontext.errors import (
     ArtifactError,
     ArtifactFamilyMismatchError,
     ArtifactNotFoundError,
+    AtomicMemoryEvidenceError,
     ConnectorError,
     ConnectorSubmissionRejectedError,
     InvalidArtifactReferenceError,
@@ -51,12 +56,14 @@ from powercontext.errors import (
 )
 from powercontext.sources import (
     AdapterSourceDefinition,
+    MemoryEvidenceDeclaration,
     Source,
     SourceAdapter,
     SourceCatalog,
     SourceCatalogBackend,
     SourceDefinition,
     SourceDefinitionRegistry,
+    SourceEvidence,
     SourceLineRangeLocator,
     SourceLocator,
     SourceMaterialization,
@@ -81,6 +88,7 @@ __all__ = [
     "ArtifactRef",
     "ArtifactStore",
     "Artifacts",
+    "AtomicMemoryEvidenceError",
     "ConnectorError",
     "ConnectorSubmissionRejectedError",
     "InvalidArtifactReferenceError",
@@ -93,6 +101,7 @@ __all__ = [
     "InvalidSourceProjectionError",
     "InvalidSourceReferenceError",
     "InvalidSourceResultError",
+    "MemoryEvidenceDeclaration",
     "PolicyTransition",
     "PowerContext",
     "PowerContextError",
@@ -107,6 +116,7 @@ __all__ = [
     "SourceDefinitionNotFoundError",
     "SourceDefinitionRegistry",
     "SourceError",
+    "SourceEvidence",
     "SourceLineRangeLocator",
     "SourceLocator",
     "SourceMaterialization",
@@ -119,4 +129,17 @@ __all__ = [
     "SourceStore",
     "Sources",
     "Trigger",
+    "artifact_plugins",
 ]
+
+
+if TYPE_CHECKING:
+    from powercontext import artifact_plugins
+
+
+def __getattr__(name: str) -> ModuleType:
+    if name == "artifact_plugins":
+        module = import_module("powercontext.artifact_plugins")
+        globals()[name] = module
+        return module
+    raise AttributeError(name)

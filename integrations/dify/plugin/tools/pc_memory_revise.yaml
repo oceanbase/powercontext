@@ -58,41 +58,19 @@ parameters:
   llm_description: Real content ETag returned by pc_memory_get for this exact current
     revision.
 - name: kind
-  type: select
+  type: string
   required: true
   form: llm
   label:
     en_US: kind
     zh_Hans: 记忆类型
   human_description:
-    en_US: One of the six supported curated Memory kinds.
+    en_US: 'Open application-defined Memory kind: nonblank and at most 128 characters.
+      Use preference for an explicit preference; preserve a kind supplied by the user.'
     zh_Hans: 记忆类型；按工具契约保留完整值。
-  llm_description: One of the six supported curated Memory kinds.
-  options:
-  - value: decision
-    label:
-      en_US: decision
-      zh_Hans: decision
-  - value: constraint
-    label:
-      en_US: constraint
-      zh_Hans: constraint
-  - value: current-state
-    label:
-      en_US: current-state
-      zh_Hans: current-state
-  - value: task-outcome
-    label:
-      en_US: task-outcome
-      zh_Hans: task-outcome
-  - value: next-step
-    label:
-      en_US: next-step
-      zh_Hans: next-step
-  - value: agent-note
-    label:
-      en_US: agent-note
-      zh_Hans: agent-note
+  llm_description: 'Open application-defined Memory kind: nonblank and at most 128
+    characters. Use preference for an explicit preference; preserve a kind supplied
+    by the user.'
 - name: text
   type: string
   required: true
@@ -137,18 +115,13 @@ output_schema:
         family:
           $ref: '#/definitions/Result/properties/family'
           type: string
-          enum: &id001
-          - memory
-          - atomic-memory
-          - experience
-          - skill
-          - handoff
-          - profile
-          - prompt
-          - topic-memory
         artifact_id:
           $ref: '#/definitions/Result/properties/artifact_id'
           type: string
+        schema_version:
+          $ref: '#/definitions/Result/properties/schema_version'
+          type: string
+          description: Persisted schema version for a custom Artifact family.
         revision:
           $ref: '#/definitions/Result/properties/revision'
           type: number
@@ -232,12 +205,19 @@ output_schema:
           pattern: .*\S.*
         family:
           type: string
-          enum: *id001
+          minLength: 1
+          maxLength: 128
+          pattern: ^[a-z][a-z0-9-]*$
         artifact_id:
           type: string
           minLength: 1
           maxLength: 128
           pattern: ^[\x21-\x7E]+$
+        schema_version:
+          anyOf:
+          - type: string
+            description: Persisted schema version for a custom Artifact family.
+          - type: 'null'
         revision:
           type: integer
           minimum: 1

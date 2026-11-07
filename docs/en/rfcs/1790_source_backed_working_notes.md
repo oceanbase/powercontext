@@ -1,3 +1,8 @@
+---
+title: "RFC 1790: Source-backed Working Notes"
+description: A design decision to capture short-lived Working Notes as Sources, with exact identity, expiry, and exclusion from automatic Memory generation.
+---
+
 # Source-backed Working Notes
 
 - Proposal Name: `source_backed_working_notes`

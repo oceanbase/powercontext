@@ -337,14 +337,19 @@ def configure_agents(
             options["dsh_target"] = resolve_dsh_target(
                 DshProfile(profile) if profile is not None else None, dsh_command
             )
+        installer = installers()[host](**options) if host == "minimax" else None
+        native = {"native_endpoint": installer.native_endpoint()} if installer is not None else {}
         connection = prepare_setup_transport(
             host,
             server_url=server_url,
             allow_insecure_http=allow_insecure_http,
             json_output=json_output,
             dsh_target=options.get("dsh_target"),
+            **native,
         )
-        result = installers()[host](**options).configure(connection)
+        if installer is None:
+            installer = installers()[host](**options)
+        result = installer.configure(connection)
         return {"status": "configured", "result": result}
 
     report_agents(selected, configure, json_output=json_output)
@@ -373,10 +378,19 @@ def init_command(
         run_wizard(output, language=None if language is None else language.value, advanced=advanced)
         return
 
+    from powercontext.server.configuration import ServerConfigurationError, has_uds_configuration
+
     if output.exists() and not force:
         _fail(f"{output} already exists; use --force")
     try:
         existing = output.read_text(encoding="utf-8") if output.exists() else ""
+        values = parse_environment(existing, source=str(output))
+        if has_uds_configuration(values) or has_uds_configuration(values, os.environ):
+            raise ConfigError(  # noqa: TRY003, TRY301
+                "The template supports TCP listeners; edit UDS configuration directly in the environment file "
+                "and clear process UDS overrides before using the template. "
+                "/ 模板目前仅支持 TCP 监听。UDS 配置请直接编辑环境文件。请在使用模板前清除进程中的 UDS 配置。"
+            )
         configuration = collect_configuration(advanced=advanced)
         _validate_operational_configuration(configuration)
         _print_summary(configuration)
@@ -385,7 +399,14 @@ def init_command(
             typer.echo("No changes written.")
             return
         backup = write_environment(output, content, backup=output.exists())
-    except (ConfigError, EnvironmentFileError, OSError, UnicodeError, ValidationError) as error:
+    except (
+        ConfigError,
+        EnvironmentFileError,
+        OSError,
+        UnicodeError,
+        ValidationError,
+        ServerConfigurationError,
+    ) as error:
         _fail(str(error))
     _report_written(output, backup)
     _print_next_steps(output)
