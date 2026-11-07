@@ -28,41 +28,19 @@ description:
     task; ordinary questions do not require retrieval.
 parameters:
 - name: kind
-  type: select
+  type: string
   required: true
   form: llm
   label:
     en_US: kind
     zh_Hans: 记忆类型
   human_description:
-    en_US: One of the six supported curated Memory kinds.
+    en_US: 'Open application-defined Memory kind: nonblank and at most 128 characters.
+      Use preference for an explicit preference; preserve a kind supplied by the user.'
     zh_Hans: 记忆类型；按工具契约保留完整值。
-  llm_description: One of the six supported curated Memory kinds.
-  options:
-  - value: decision
-    label:
-      en_US: decision
-      zh_Hans: decision
-  - value: constraint
-    label:
-      en_US: constraint
-      zh_Hans: constraint
-  - value: current-state
-    label:
-      en_US: current-state
-      zh_Hans: current-state
-  - value: task-outcome
-    label:
-      en_US: task-outcome
-      zh_Hans: task-outcome
-  - value: next-step
-    label:
-      en_US: next-step
-      zh_Hans: next-step
-  - value: agent-note
-    label:
-      en_US: agent-note
-      zh_Hans: agent-note
+  llm_description: 'Open application-defined Memory kind: nonblank and at most 128
+    characters. Use preference for an explicit preference; preserve a kind supplied
+    by the user.'
 - name: text
   type: string
   required: true
@@ -91,6 +69,28 @@ parameters:
     Pass one JSON-encoded value as text, never a native object/array/null. Encode
     strings with JSON quotes; use the text null for null; omit optional inputs when
     unused. Decode exactly once and preserve every field. Decoded JSON Schema: {"anyOf":[{"type":"string","maxLength":512},{"type":"null"}]}'
+- name: description
+  type: string
+  required: false
+  form: llm
+  label:
+    en_US: description
+    zh_Hans: 记忆简介
+  human_description:
+    en_US: Optional single-line Memory description of at most 200 characters. When
+      omitted, the Server stores a bounded text preview without calling a generation
+      model. Supply one JSON-encoded text value. Strings include JSON quotes; null
+      is the text null. Omit unused optional inputs and preserve every field.
+    zh_Hans: 记忆简介；填写一次 JSON 序列化后的文本；字符串须带 JSON 双引号，空值填 null；可选参数不用时省略，保留所有字段。
+  llm_description: 'Optional single-line Memory description of at most 200 characters.
+    When omitted, the Server stores a bounded text preview without calling a generation
+    model. Pass one JSON-encoded value as text, never a native object/array/null.
+    Encode strings with JSON quotes; use the text null for null; omit optional inputs
+    when unused. Decode exactly once and preserve every field. Decoded JSON Schema:
+    {"anyOf":[{"type":"string","minLength":1,"maxLength":200,"pattern":"^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$","description":"Optional
+    supplied single-line summary. When omitted, the Server stores a whitespace-collapsed
+    text prefix of at most 200 Unicode characters, including a trailing ellipsis when
+    truncated. Explicit writes do not invoke a generation model."},{"type":"null"}]}'
 output_schema:
   type: object
   properties:

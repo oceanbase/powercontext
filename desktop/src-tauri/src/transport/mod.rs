@@ -17,8 +17,9 @@
 mod api;
 pub mod wire;
 pub use api::{
-    ApiFailure, AtomicMemoryDetail, MemorySaveResponse, MemorySearchHit, MemorySearchResponse,
-    ServerApi, validate_text,
+    ApiFailure, AtomicMemoryDetail, DiscoveryDocument, ExactRecallTokenStatistics,
+    ExactScopeStatistics, ExactScopeStatisticsItem, MemorySaveResponse, MemorySearchHit,
+    MemorySearchResponse, ServerApi, validate_text,
 };
 
 // Only native adapters use this transport; it is not an IPC fetch primitive.

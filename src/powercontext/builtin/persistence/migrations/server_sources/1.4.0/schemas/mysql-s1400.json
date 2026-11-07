@@ -1,0 +1,3297 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "s1400": {
+      "statements": [
+        "CREATE TABLE pc_retained_dream_candidate_versions (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tproposal MEDIUMBLOB NOT NULL, \n\tsource_refs MEDIUMBLOB NOT NULL, \n\tartifact_refs MEDIUMBLOB NOT NULL, \n\ttarget_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\ttarget_revision INTEGER, \n\treason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id, version), \n\tCONSTRAINT ck_pc_retained_dream_versions_version_positive CHECK (version > 0), \n\tCONSTRAINT ck_pc_retained_dream_versions_target_complete CHECK ((target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR (target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0))\n)",
+        "CREATE TABLE pc_retained_dream_candidate_heads (\n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcandidate_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tfamily VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tversion INTEGER NOT NULL, \n\tstatus VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tresult_family VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_artifact_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin, \n\tresult_revision INTEGER, \n\tdecision_reason MEDIUMTEXT, \n\tPRIMARY KEY (scope_id, candidate_id), \n\tCONSTRAINT ck_pc_retained_dream_heads_status CHECK (status IN ('pending', 'approved', 'rejected')), \n\tCONSTRAINT ck_pc_retained_dream_heads_terminal_result CHECK ((status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR (status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NOT NULL) OR (status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL AND decision_reason IS NULL))\n)",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD COLUMN `attempt_source_through` bigint(20) DEFAULT NULL",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD COLUMN `started_at` datetime DEFAULT NULL",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD COLUMN `finished_at` datetime DEFAULT NULL",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD COLUMN `supervisor_group` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD COLUMN `supervisor_generation` bigint(20) DEFAULT NULL",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD COLUMN `holder_id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD COLUMN `last_error_code` varchar(64) DEFAULT NULL",
+        "ALTER TABLE pc_topic_memory_work_budgets ADD CONSTRAINT `ck_pc_topic_budget_attempt_range` CHECK (((`attempt_source_through` is null) or ((`attempt_source_through` > `source_after`) and (`attempt_source_through` <= `source_through`))))",
+        "CREATE TABLE `pc_topic_memory_work_blocks` (\n  `block_id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `attempt_id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `scope_id` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `binding_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `source_after` bigint(20) NOT NULL,\n  `source_through` bigint(20) DEFAULT NULL,\n  `budget_source_through` bigint(20) DEFAULT NULL,\n  `legacy_source_through` bigint(20) DEFAULT NULL,\n  `target_source_through` bigint(20) NOT NULL,\n  `attempts` int(11) NOT NULL,\n  `requests` bigint(20) NOT NULL,\n  `tokens` bigint(20) NOT NULL,\n  `last_error_code` varchar(64) DEFAULT NULL,\n  `error_code` varchar(64) NOT NULL,\n  `blocked_at` datetime NOT NULL,\n  `retried_at` datetime DEFAULT NULL,\n  `retry_request_generation` bigint(20) DEFAULT NULL,\n  PRIMARY KEY (`block_id`),\n  UNIQUE KEY `uq_pc_topic_block_identity` (`scope_id`, `binding_name`, `source_after`, `attempt_id`) BLOCK_SIZE 16384 LOCAL,\n  CONSTRAINT `ck_pc_topic_block_window` CHECK (((`source_after` >= 0) and (`target_source_through` > `source_after`) and ((`source_through` is null) or ((`source_through` > `source_after`) and (`source_through` <= `target_source_through`))) and ((`budget_source_through` is null) or ((`budget_source_through` > `source_after`) and (`budget_source_through` <= `target_source_through`))) and ((`source_through` is null) or (`budget_source_through` is null) or (`source_through` <= `budget_source_through`)) and ((`legacy_source_through` is null) or ((`legacy_source_through` > `source_after`) and (`legacy_source_through` <= `target_source_through`))))),\n  CONSTRAINT `ck_pc_topic_block_usage` CHECK (((`attempts` > 0) and (`requests` >= 0) and (`tokens` >= 0))),\n  CONSTRAINT `ck_pc_topic_block_acceptance` CHECK ((((`retried_at` is null) and (`retry_request_generation` is null)) or ((`retried_at` is not null) and (`retry_request_generation` is not null) and (`retry_request_generation` > 0))))\n) ORGANIZATION INDEX DEFAULT CHARSET = utf8mb4 ROW_FORMAT = DYNAMIC COMPRESSION = 'zstd_1.3.8' BLOCK_SIZE = 16384 TABLET_SIZE = 134217728 PCTFREE = 0",
+        "UPDATE pc_artifact_processing_leases SET supervisor_generation=supervisor_generation+1, holder_id='migration-s1400', lease_expires_at='1970-01-01 00:00:00' WHERE holder_id <> 'migration-s1400' OR lease_expires_at IS NULL OR lease_expires_at <> '1970-01-01 00:00:00'"
+      ],
+      "changes": [
+        {
+          "pc_retained_dream_candidate_versions": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "candidate_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "version": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "proposal": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_refs": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "artifact_refs": {
+                "type": [
+                  "mediumblob",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "target_family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "target_revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "reason": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "candidate_id",
+                null,
+                "asc"
+              ],
+              [
+                "version",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_retained_dream_versions_version_positive": {
+                "expression": [
+                  "binary",
+                  ">",
+                  [
+                    "column",
+                    "version"
+                  ],
+                  [
+                    "number",
+                    0
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_retained_dream_versions_target_complete": {
+                "expression": [
+                  "binary",
+                  "or",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "is_null",
+                        [
+                          "column",
+                          "target_family"
+                        ]
+                      ],
+                      [
+                        "is_null",
+                        [
+                          "column",
+                          "target_artifact_id"
+                        ]
+                      ]
+                    ],
+                    [
+                      "is_null",
+                      [
+                        "column",
+                        "target_revision"
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "target_family"
+                        ]
+                      ],
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "target_artifact_id"
+                        ]
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "target_revision"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_retained_dream_candidate_heads": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "candidate_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "version": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "status": {
+                "type": [
+                  "varchar",
+                  [
+                    "16"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "result_family": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "result_artifact_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "result_revision": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "decision_reason": {
+                "type": [
+                  "mediumtext",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "candidate_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_retained_dream_heads_status": {
+                "expression": [
+                  "in",
+                  [
+                    "column",
+                    "status"
+                  ],
+                  [
+                    [
+                      "literal",
+                      "pending"
+                    ],
+                    [
+                      "literal",
+                      "approved"
+                    ],
+                    [
+                      "literal",
+                      "rejected"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_retained_dream_heads_terminal_result": {
+                "expression": [
+                  "binary",
+                  "or",
+                  [
+                    "binary",
+                    "or",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "binary",
+                        "and",
+                        [
+                          "binary",
+                          "and",
+                          [
+                            "binary",
+                            "and",
+                            [
+                              "binary",
+                              "=",
+                              [
+                                "column",
+                                "status"
+                              ],
+                              [
+                                "literal",
+                                "approved"
+                              ]
+                            ],
+                            [
+                              "is_not_null",
+                              [
+                                "column",
+                                "result_family"
+                              ]
+                            ]
+                          ],
+                          [
+                            "is_not_null",
+                            [
+                              "column",
+                              "result_artifact_id"
+                            ]
+                          ]
+                        ],
+                        [
+                          "binary",
+                          ">",
+                          [
+                            "column",
+                            "result_revision"
+                          ],
+                          [
+                            "number",
+                            0
+                          ]
+                        ]
+                      ],
+                      [
+                        "is_null",
+                        [
+                          "column",
+                          "decision_reason"
+                        ]
+                      ]
+                    ],
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "binary",
+                        "and",
+                        [
+                          "binary",
+                          "and",
+                          [
+                            "binary",
+                            "and",
+                            [
+                              "binary",
+                              "=",
+                              [
+                                "column",
+                                "status"
+                              ],
+                              [
+                                "literal",
+                                "rejected"
+                              ]
+                            ],
+                            [
+                              "is_null",
+                              [
+                                "column",
+                                "result_family"
+                              ]
+                            ]
+                          ],
+                          [
+                            "is_null",
+                            [
+                              "column",
+                              "result_artifact_id"
+                            ]
+                          ]
+                        ],
+                        [
+                          "is_null",
+                          [
+                            "column",
+                            "result_revision"
+                          ]
+                        ]
+                      ],
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "decision_reason"
+                        ]
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "binary",
+                        "and",
+                        [
+                          "binary",
+                          "and",
+                          [
+                            "binary",
+                            "=",
+                            [
+                              "column",
+                              "status"
+                            ],
+                            [
+                              "literal",
+                              "pending"
+                            ]
+                          ],
+                          [
+                            "is_null",
+                            [
+                              "column",
+                              "result_family"
+                            ]
+                          ]
+                        ],
+                        [
+                          "is_null",
+                          [
+                            "column",
+                            "result_artifact_id"
+                          ]
+                        ]
+                      ],
+                      [
+                        "is_null",
+                        [
+                          "column",
+                          "result_revision"
+                        ]
+                      ]
+                    ],
+                    [
+                      "is_null",
+                      [
+                        "column",
+                        "decision_reason"
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "started_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "started_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "finished_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "started_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "finished_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "supervisor_group": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "started_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "finished_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "supervisor_group": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "supervisor_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "started_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "finished_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "supervisor_group": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "supervisor_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "holder_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "started_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "finished_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "supervisor_group": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "supervisor_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "holder_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_error_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_budgets": {
+            "columns": {
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "failure_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "attempt_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "started_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "finished_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "supervisor_group": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "supervisor_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "holder_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "last_error_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "scope_id",
+                null,
+                "asc"
+              ],
+              [
+                "binding_name",
+                null,
+                "asc"
+              ],
+              [
+                "source_after",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_budget_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "source_after"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">",
+                    [
+                      "column",
+                      "source_through"
+                    ],
+                    [
+                      "column",
+                      "source_after"
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_budget_attempt_range": {
+                "expression": [
+                  "binary",
+                  "or",
+                  [
+                    "is_null",
+                    [
+                      "column",
+                      "attempt_source_through"
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempt_source_through"
+                      ],
+                      [
+                        "column",
+                        "source_after"
+                      ]
+                    ],
+                    [
+                      "binary",
+                      "<=",
+                      [
+                        "column",
+                        "attempt_source_through"
+                      ],
+                      [
+                        "column",
+                        "source_through"
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {}
+          }
+        },
+        {
+          "pc_topic_memory_work_blocks": {
+            "columns": {
+              "block_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "attempt_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "36"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "binding_name": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "source_after": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "budget_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "legacy_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "target_source_through": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "attempts": {
+                "type": [
+                  "int",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "requests": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "tokens": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "last_error_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "error_code": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": null,
+                "extra": []
+              },
+              "blocked_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "retried_at": {
+                "type": [
+                  "datetime",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "retry_request_generation": {
+                "type": [
+                  "bigint",
+                  []
+                ],
+                "nullable": true,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "block_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {
+              "ck_pc_topic_block_window": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "binary",
+                        "and",
+                        [
+                          "binary",
+                          "and",
+                          [
+                            "binary",
+                            ">=",
+                            [
+                              "column",
+                              "source_after"
+                            ],
+                            [
+                              "number",
+                              0
+                            ]
+                          ],
+                          [
+                            "binary",
+                            ">",
+                            [
+                              "column",
+                              "target_source_through"
+                            ],
+                            [
+                              "column",
+                              "source_after"
+                            ]
+                          ]
+                        ],
+                        [
+                          "binary",
+                          "or",
+                          [
+                            "is_null",
+                            [
+                              "column",
+                              "source_through"
+                            ]
+                          ],
+                          [
+                            "binary",
+                            "and",
+                            [
+                              "binary",
+                              ">",
+                              [
+                                "column",
+                                "source_through"
+                              ],
+                              [
+                                "column",
+                                "source_after"
+                              ]
+                            ],
+                            [
+                              "binary",
+                              "<=",
+                              [
+                                "column",
+                                "source_through"
+                              ],
+                              [
+                                "column",
+                                "target_source_through"
+                              ]
+                            ]
+                          ]
+                        ]
+                      ],
+                      [
+                        "binary",
+                        "or",
+                        [
+                          "is_null",
+                          [
+                            "column",
+                            "budget_source_through"
+                          ]
+                        ],
+                        [
+                          "binary",
+                          "and",
+                          [
+                            "binary",
+                            ">",
+                            [
+                              "column",
+                              "budget_source_through"
+                            ],
+                            [
+                              "column",
+                              "source_after"
+                            ]
+                          ],
+                          [
+                            "binary",
+                            "<=",
+                            [
+                              "column",
+                              "budget_source_through"
+                            ],
+                            [
+                              "column",
+                              "target_source_through"
+                            ]
+                          ]
+                        ]
+                      ]
+                    ],
+                    [
+                      "binary",
+                      "or",
+                      [
+                        "binary",
+                        "or",
+                        [
+                          "is_null",
+                          [
+                            "column",
+                            "source_through"
+                          ]
+                        ],
+                        [
+                          "is_null",
+                          [
+                            "column",
+                            "budget_source_through"
+                          ]
+                        ]
+                      ],
+                      [
+                        "binary",
+                        "<=",
+                        [
+                          "column",
+                          "source_through"
+                        ],
+                        [
+                          "column",
+                          "budget_source_through"
+                        ]
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "or",
+                    [
+                      "is_null",
+                      [
+                        "column",
+                        "legacy_source_through"
+                      ]
+                    ],
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "binary",
+                        ">",
+                        [
+                          "column",
+                          "legacy_source_through"
+                        ],
+                        [
+                          "column",
+                          "source_after"
+                        ]
+                      ],
+                      [
+                        "binary",
+                        "<=",
+                        [
+                          "column",
+                          "legacy_source_through"
+                        ],
+                        [
+                          "column",
+                          "target_source_through"
+                        ]
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_block_usage": {
+                "expression": [
+                  "binary",
+                  "and",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "attempts"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">=",
+                      [
+                        "column",
+                        "requests"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    ">=",
+                    [
+                      "column",
+                      "tokens"
+                    ],
+                    [
+                      "number",
+                      0
+                    ]
+                  ]
+                ],
+                "enforced": true
+              },
+              "ck_pc_topic_block_acceptance": {
+                "expression": [
+                  "binary",
+                  "or",
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "is_null",
+                      [
+                        "column",
+                        "retried_at"
+                      ]
+                    ],
+                    [
+                      "is_null",
+                      [
+                        "column",
+                        "retry_request_generation"
+                      ]
+                    ]
+                  ],
+                  [
+                    "binary",
+                    "and",
+                    [
+                      "binary",
+                      "and",
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "retried_at"
+                        ]
+                      ],
+                      [
+                        "is_not_null",
+                        [
+                          "column",
+                          "retry_request_generation"
+                        ]
+                      ]
+                    ],
+                    [
+                      "binary",
+                      ">",
+                      [
+                        "column",
+                        "retry_request_generation"
+                      ],
+                      [
+                        "number",
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "enforced": true
+              }
+            },
+            "indexes": {
+              "uq_pc_topic_block_identity": {
+                "columns": [
+                  [
+                    "scope_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "binding_name",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "source_after",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "attempt_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": true
+              }
+            }
+          }
+        },
+        {}
+      ]
+    }
+  }
+}

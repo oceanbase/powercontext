@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, update
@@ -25,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
+from powercontext.builtin.records import BaseArtifactFamily
 from powercontext.errors import PowerContextError
 
 
@@ -66,6 +68,30 @@ class ArtifactGovernance(BaseModel):
 
 class ArtifactGovernanceRepository:
     """Read and transition governance state without changing the head Revision."""
+
+    def __init__(self, *, prepared_indexes=None):
+        self.prepared_indexes = prepared_indexes or {}
+
+    async def _prepare_custom_transition(self, connection, scope_id, family, artifact_id, lifecycle_state):
+        if family in get_args(BaseArtifactFamily):
+            return None
+        from powercontext.builtin.persistence.artifact_indexes import ArtifactProjectionPublisher, lock_state
+        from powercontext.builtin.persistence.custom_artifacts import custom_artifact_repository
+
+        await lock_state(connection, scope_id, family)
+        artifact = await custom_artifact_repository(family).latest(connection, scope_id, family, artifact_id)
+        publisher = ArtifactProjectionPublisher(None)
+        prepared = self.prepared_indexes.get((scope_id, family, artifact_id))
+        if lifecycle_state is ArtifactLifecycleState.ACTIVE:
+            await publisher.validate_prepared(
+                connection, scope_id, family, artifact.content.schema_version, artifact.content.content, prepared
+            )
+        return publisher, artifact, prepared
+
+    async def _publish_custom_transition(self, connection, scope_id, custom):
+        if custom is not None:
+            publisher, artifact, prepared = custom
+            await publisher.publish(connection, scope_id, artifact, prepared)
 
     async def get(
         self,
@@ -115,6 +141,7 @@ class ArtifactGovernanceRepository:
     ) -> ArtifactGovernance:
         """Apply a service-validated group transition while retaining unchanged state generations."""
 
+        custom = await self._prepare_custom_transition(connection, scope_id, family, artifact_id, lifecycle_state)
         _validate_transition(expected.lifecycle_state, lifecycle_state)
         current = await self.require_summary(connection, scope_id, family, artifact_id, expected)
         if (
@@ -147,6 +174,7 @@ class ArtifactGovernanceRepository:
         )
         if result.rowcount != 1:
             raise StoredPayloadConflictError("artifact-governance", (scope_id, family, artifact_id))
+        await self._publish_custom_transition(connection, scope_id, custom)
         return requested
 
     async def transition(
@@ -160,6 +188,7 @@ class ArtifactGovernanceRepository:
         replacement_artifact_id: str | None,
         /,
     ) -> ArtifactGovernance:
+        custom = await self._prepare_custom_transition(connection, scope_id, family, artifact_id, lifecycle_state)
         current = await self.get(connection, scope_id, family, artifact_id)
         if current.merged_into_id is not None:
             raise InvalidArtifactLifecycleError("frozen merge inputs require whole-group restoration")  # noqa: TRY003
@@ -206,6 +235,7 @@ class ArtifactGovernanceRepository:
             raise StoredPayloadConflictError(
                 "artifact-governance", (scope_id, family, artifact_id, expected_generation)
             )
+        await self._publish_custom_transition(connection, scope_id, custom)
         return requested
 
 

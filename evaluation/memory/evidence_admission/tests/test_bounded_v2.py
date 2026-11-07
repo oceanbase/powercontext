@@ -48,7 +48,7 @@ def v2_suite():
         ("observation-overflow", 2048),
     ],
 )
-def test_v2_retains_all_jointly_feasible_facts_in_v1_regressions(v2_suite, case_id, budget):
+def test_v2_retains_all_jointly_feasible_facts_in_v1_regressions(v2_suite, case_id, budget, historical_budget_context):
     case = next(c for c in v2_suite.cases if c.case_id == case_id)
     result = asyncio.run(run_sample(v2_suite, case, "bounded-fragments-v2", budget, 0))
     assert result.status == "prepared" and result.preparation.required_content_fits
@@ -127,7 +127,10 @@ def test_bundle_citations_cover_only_admitted_ranges_and_replay_deterministicall
                     if isinstance(original, str):
                         assert original.encode()[fragment.byte_start : fragment.byte_end] == fragment.value.encode()
                 candidate = AtomicMemoryCandidate(
-                    kind="fact", text=case.required[0].text, evidence_ids=(evidence.evidence_id,)
+                    kind="fact",
+                    text=case.required[0].text,
+                    description=(case.required[0].text)[:200],
+                    evidence_ids=(evidence.evidence_id,),
                 )
                 score = score_generation(case, replay.value, admission, (candidate,))
                 assert score.retained_claim_hashes == (digest(case.required[0].claim_id),)
@@ -147,7 +150,9 @@ def test_bundle_citation_and_human_review_cannot_supply_omitted_content(v2_suite
             preparation = score_preparation(case, replay.value, admission, 2048, INSTRUCTIONS)
             missing = next(c for c in case.required if digest(c.claim_id) in preparation.missing_claim_hashes)
             evidence_id = admission.inputs[0].evidence[0].evidence_id
-            candidate = AtomicMemoryCandidate(kind="fact", text=missing.text, evidence_ids=(evidence_id,))
+            candidate = AtomicMemoryCandidate(
+                kind="fact", text=missing.text, description=(missing.text)[:200], evidence_ids=(evidence_id,)
+            )
             assert score_generation(case, replay.value, admission, (candidate,)).unsupported == 1
             paraphrase = candidate.model_copy(update={"text": "Human-reviewed unprovided statement."})
             review = {
@@ -182,6 +187,7 @@ def test_v2_pipeline_scores_real_bundle_ids(v2_suite):
                         AtomicMemoryCandidate(
                             kind="fact",
                             text=case.required[0].text,
+                            description=(case.required[0].text)[:200],
                             evidence_ids=(value.evidence[0].evidence_id,),
                         ),
                     )

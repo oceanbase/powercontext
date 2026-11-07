@@ -21,6 +21,8 @@ import gzip
 import json
 import logging
 import logging.config
+import logging.handlers
+import os
 import shutil
 import socket
 import sys
@@ -29,6 +31,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from pathlib import Path
 from queue import Full, Queue
@@ -37,6 +40,9 @@ from typing import TYPE_CHECKING, Any, TextIO
 
 from filelock import FileLock
 from opentelemetry import trace
+from opentelemetry._logs import LogRecord, SeverityNumber
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from typing_extensions import override
 
 from powercontext._logging import current_log_context, error_category
@@ -57,6 +63,7 @@ _PROCESSING_FIELDS = (
     "scope",
     "worker_id",
     "request_generation",
+    "queue_wait_ms",
     "supervisor_group",
     "supervisor_generation",
     "trigger",
@@ -68,16 +75,40 @@ _PROCESSING_FIELDS = (
     "attempts",
     "requests",
     "tokens",
+    "processing_stage",
+    "failure_reason",
+    "input_item_count",
+    "estimated_input_tokens",
+    "token_estimator_id",
+    "effective_budget",
+    "provider_request_id",
+    "finish_reason",
+    "failure_location",
+    "cause_exception_type",
+    "last_error_code",
+    "last_error_stage",
+    "last_error_at",
+    "last_error_worker_id",
+    "last_error_trace_id",
 )
 _OPERATIONAL_FIELDS = (
     "event",
     "operation",
     "outcome",
     "request_id",
+    "receipt_id",
     "transport",
     "unit",
     "duration_ms",
     "status_code",
+    "provider",
+    "model_capability",
+    "provider_retry",
+    "provider_error_code",
+    "retrieval_family",
+    "retrieval_outcome",
+    "read_outcome",
+    "result_count",
     "error_code",
     "error_category",
     "code",
@@ -94,6 +125,7 @@ _OPERATIONAL_FIELDS = (
     "verdict",
     "final_action",
     "fallback_reason",
+    "reason",
     "candidate_count",
     "evidence_count",
     "trace_id",
@@ -102,6 +134,8 @@ _OPERATIONAL_FIELDS = (
     "service_version",
     "service_role",
     "service_instance_id",
+    "service_target",
+    "service_owner_role",
     *_PROCESSING_FIELDS,
 )
 _CODE_FIELDS = (
@@ -117,17 +151,39 @@ _CODE_FIELDS = (
     "limitations",
     "reason",
 )
+_MISSING_OTLP_LOG_EXPORTER = (
+    "OpenTelemetry log export requires the 'tracing-otlp' extra; "
+    "install 'powercontext[server,tracing-otlp]' before enabling OTLP logs"
+)
+_SEVERITY_NUMBERS = {
+    logging.DEBUG: SeverityNumber.DEBUG,
+    logging.INFO: SeverityNumber.INFO,
+    logging.WARNING: SeverityNumber.WARN,
+    logging.ERROR: SeverityNumber.ERROR,
+    logging.CRITICAL: SeverityNumber.FATAL,
+}
+
+
+def _operational_payload(record: logging.LogRecord) -> dict[str, Any]:
+    """Return only the documented structured fields, never arbitrary record extras."""
+
+    payload = {field: value for field in _OPERATIONAL_FIELDS if (value := getattr(record, field, None)) is not None}
+    if str(getattr(record, "event", "")).startswith("code."):
+        payload.update((field, value) for field in _CODE_FIELDS if (value := getattr(record, field, None)) is not None)
+    return payload
 
 
 class OperationalContextFilter(logging.Filter):
-    def __init__(self, *, role: str = "server") -> None:
+    def __init__(self, *, role: str = "server", target: str | None = None, owner_role: str | None = None) -> None:
         super().__init__()
-        resource = service_resource(role).attributes
+        resource = service_resource(role, target=target, owner_role=owner_role).attributes
         self._identity = {
             "service_name": resource.get("service.name"),
             "service_version": resource.get("service.version"),
             "service_instance_id": resource.get("service.instance.id"),
             "service_role": resource.get("powercontext.service.role"),
+            "service_target": resource.get("powercontext.service.target"),
+            "service_owner_role": resource.get("powercontext.service.owner_role"),
         }
 
     @override
@@ -166,13 +222,7 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        payload.update(
-            (field, value) for field in _OPERATIONAL_FIELDS if (value := getattr(record, field, None)) is not None
-        )
-        if str(getattr(record, "event", "")).startswith("code."):
-            payload.update(
-                (field, value) for field in _CODE_FIELDS if (value := getattr(record, field, None)) is not None
-            )
+        payload.update(_operational_payload(record))
         if record.exc_info is not None:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -197,7 +247,7 @@ class _HumanContextFilter(OperationalContextFilter):
             if field not in self._identity and field not in {"request_id", "trace_id", "span_id"}
         )
         if isinstance(event, str) and event.startswith("code."):
-            fields += _CODE_FIELDS
+            fields = tuple(dict.fromkeys((*fields, *_CODE_FIELDS)))
         record.processing_context = "".join(
             f" {field}={json.dumps(value, ensure_ascii=False)}"
             for field in fields
@@ -378,6 +428,85 @@ class _OperationalQueueHandler(_FailureIsolatedHandler, QueueHandler):
             super().close()
 
 
+class _OperationalFileHandler(logging.handlers.RotatingFileHandler):
+    """Bound per-process JSON files; isolate writes and reopen after generation pruning."""
+
+    def __init__(self, directory: str, role: str) -> None:
+        root = Path(directory)
+        with suppress(OSError):
+            root.mkdir(parents=True, exist_ok=True)
+        path = root / f"{role}-{os.getpid()}.jsonl"
+        # Keep at most 64 process generations. A pruned live handler reopens on its next event.
+        with suppress(OSError):
+            generations = sorted(root.glob("*.jsonl"), key=lambda item: item.stat().st_mtime, reverse=True)
+            for obsolete in generations[63:]:
+                if obsolete != path:
+                    for candidate in (obsolete, *root.glob(obsolete.name + ".*")):
+                        with suppress(OSError):
+                            candidate.unlink()
+        super().__init__(path, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8", delay=True)
+        self._failure_reported = False
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.stream is not None and not Path(self.baseFilename).exists():
+            self.stream.close()
+            self.stream = None
+        super().emit(record)
+
+    @override
+    def handle(self, record: logging.LogRecord) -> bool:
+        try:
+            return super().handle(record)
+        except Exception:
+            self.handleError(record)
+            return False
+
+    @override
+    def handleError(self, record: logging.LogRecord) -> None:
+        if not self._failure_reported:
+            self._failure_reported = True
+            with suppress(Exception):
+                sys.stderr.write('{"event":"observability.log_failed","outcome":"failure"}\n')
+
+
+class _OperationalOtelLogHandler(logging.Handler):
+    """Export only the operational allowlist through OTLP and isolate exporter failures."""
+
+    def __init__(self, provider: LoggerProvider) -> None:
+        super().__init__()
+        self._provider = provider
+        self._failure_reported = False
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            payload = _operational_payload(record)
+            event = payload.get("event")
+            if not isinstance(event, str):
+                event = "log.record"
+                payload["event"] = event
+            logger = self._provider.get_logger(record.name)
+            logger.emit(
+                LogRecord(
+                    timestamp=int(record.created * 1_000_000_000),
+                    severity_text=record.levelname,
+                    severity_number=_SEVERITY_NUMBERS.get(record.levelno, SeverityNumber.INFO),
+                    body=payload,
+                    event_name=event,
+                )
+            )
+        except Exception:
+            self.handleError(record)
+
+    @override
+    def handleError(self, record: logging.LogRecord) -> None:
+        if not self._failure_reported:
+            self._failure_reported = True
+            with suppress(Exception):
+                sys.stderr.write('{"event":"observability.log_failed","outcome":"failure"}\n')
+
+
 class _UvicornDisplayNameFilter(logging.Filter):
     """Rewrite uvicorn's logger name for downstream display.
 
@@ -396,7 +525,12 @@ class _UvicornDisplayNameFilter(logging.Filter):
 
 
 def configure_server_logging(
-    config: ServerLoggingConfig, *, role: str = "server", channel: socket.socket | None = None
+    config: ServerLoggingConfig,
+    *,
+    role: str = "server",
+    channel: socket.socket | None = None,
+    target: str | None = None,
+    owner_role: str | None = None,
 ) -> None:
     """Configure process logging for the foreground Server command."""
 
@@ -424,11 +558,11 @@ def configure_server_logging(
     )
     if channel is not None:
         handler = {"()": _OperationalSocketHandler, "channel": channel}
-    logging.config.dictConfig({
+    configuration: dict[str, Any] = {
         "version": 1,
         "disable_existing_loggers": False,
         "filters": {
-            "operational": {"()": _HumanContextFilter, "role": role},
+            "operational": {"()": _HumanContextFilter, "role": role, "target": target, "owner_role": owner_role},
             "uvicorn_display_name": {"()": _UvicornDisplayNameFilter},
         },
         "formatters": {"server": formatter},
@@ -452,7 +586,49 @@ def configure_server_logging(
                 "filters": ["uvicorn_display_name"],
             },
         },
-    })
+    }
+    _configure_file_output(configuration, config, role=role)
+    if config.otlp_enabled:
+        _configure_otlp_output(configuration, role=role, target=target, owner_role=owner_role)
+    logging.config.dictConfig(configuration)
+
+
+def _configure_file_output(configuration: dict[str, Any], config: ServerLoggingConfig, *, role: str) -> None:
+    # The managed receiver owns file mode. An explicit directory can add JSON
+    # copies to stdout mode; the default directory must not enable file output.
+    if not config.file and "directory" in config.model_fields_set:
+        configuration["formatters"]["json_file"] = {"()": JsonFormatter}
+        configuration["handlers"]["json_file"] = {
+            "()": _OperationalFileHandler,
+            "directory": str(config.directory),
+            "role": role,
+            "formatter": "json_file",
+            "filters": ["operational"],
+        }
+        for logger in configuration["loggers"].values():
+            logger["handlers"].append("json_file")
+
+
+def _configure_otlp_output(
+    configuration: dict[str, Any], *, role: str, target: str | None, owner_role: str | None
+) -> None:
+    try:
+        exporter_type = import_module("opentelemetry.exporter.otlp.proto.http._log_exporter").OTLPLogExporter
+    except ImportError as error:
+        raise RuntimeError(_MISSING_OTLP_LOG_EXPORTER) from error
+    provider = LoggerProvider(
+        resource=service_resource(role, target=target, owner_role=owner_role),
+        shutdown_on_exit=False,
+    )
+    provider.add_log_record_processor(BatchLogRecordProcessor(exporter_type()))
+    atexit.register(provider.shutdown)
+    configuration["handlers"]["otlp"] = {
+        "()": _OperationalOtelLogHandler,
+        "provider": provider,
+        "filters": ["operational"],
+    }
+    for logger in configuration["loggers"].values():
+        logger["handlers"].append("otlp")
 
 
 @dataclass(frozen=True)
@@ -461,9 +637,13 @@ class WorkerLogging:
 
     config: ServerLoggingConfig
     channel: socket.socket | None = None
+    target: str | None = None
+    owner_role: str | None = None
 
     def __call__(self) -> None:
-        configure_server_logging(self.config, role="worker", channel=self.channel)
+        configure_server_logging(
+            self.config, role="worker", channel=self.channel, target=self.target, owner_role=self.owner_role
+        )
 
 
 @dataclass(frozen=True)
@@ -472,6 +652,8 @@ class _WorkerLoggingPreparation:
 
     config: ServerLoggingConfig
     sink: _OperationalQueueHandler
+    target: str | None = None
+    owner_role: str | None = None
 
     @contextmanager
     def prepare(self) -> Iterator[WorkerLogging]:
@@ -482,23 +664,25 @@ class _WorkerLoggingPreparation:
                 # Channel admission cannot change the task's business result.
                 self.sink._notify_failure()
                 channel = None
-            yield WorkerLogging(self.config, channel)
+            yield WorkerLogging(self.config, channel, target=self.target, owner_role=self.owner_role)
 
 
 @contextmanager
-def worker_logging(config: ServerLoggingConfig, *, role: str) -> Iterator[WorkerLogging | _WorkerLoggingPreparation]:
+def worker_logging(
+    config: ServerLoggingConfig, *, role: str, target: str | None = None, owner_role: str | None = None
+) -> Iterator[WorkerLogging | _WorkerLoggingPreparation]:
     """Reuse the process sink, or own a worker-only sink in an embedded Server."""
 
     if not config.file:
-        yield WorkerLogging(config)
+        yield WorkerLogging(config, target=target, owner_role=owner_role)
         return
     for handler in logging.getLogger("powercontext").handlers:
         if isinstance(handler, _OperationalQueueHandler) and handler.config == config and handler._listener is not None:
-            yield _WorkerLoggingPreparation(config, handler)
+            yield _WorkerLoggingPreparation(config, handler, target=target, owner_role=owner_role)
             return
     handler = _OperationalQueueHandler(config, role=role)
     try:
-        yield _WorkerLoggingPreparation(config, handler)
+        yield _WorkerLoggingPreparation(config, handler, target=target, owner_role=owner_role)
     finally:
         handler.close()
 

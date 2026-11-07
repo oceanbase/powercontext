@@ -14,8 +14,9 @@
 
 """Shared plugin sources must stay identical across hosts until they move to one package.
 
-Several hosts ship byte-identical copies of the client configuration and the prepared-context
-helper. Nothing detected drift, and one copy had already diverged.
+Several hosts ship byte-identical copies of the client configuration, the prepared-context,
+prompt-privacy, and bootstrap-context helpers, the JavaScript prompt-privacy module, and the
+TypeScript transport. Nothing detected drift, and one copy had already diverged.
 """
 
 from pathlib import Path
@@ -23,19 +24,27 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[1]
-PLUGINS = "plugins/powercontext"
-SHARED_SOURCES = ("powercontext_client_config.py", "hooks/prepared_context.py")
+PLUGINS = "integrations/*/plugins/*"
+SHARED_SOURCES = (
+    "powercontext_client_config.py",
+    "hooks/prepared_context.py",
+    "hooks/prompt_privacy.py",
+    "hooks/bootstrap_context.py",
+    "shared/prompt-privacy.mjs",
+    "src/transport.ts",
+)
+# Installed dependencies are not plugin sources, even when one ships a file with the same name.
+_DEPENDENCY_DIRECTORIES = frozenset({"node_modules", ".venv"})
 
 
 def _copies(name: str) -> list[Path]:
-    return sorted(ROOT.glob(f"integrations/*/{PLUGINS}/{name}")) + sorted(
-        ROOT.glob(f"integrations/*/{PLUGINS}/**/{Path(name).name}")
-    )
+    found = {*ROOT.glob(f"{PLUGINS}/{name}"), *ROOT.glob(f"{PLUGINS}/**/{Path(name).name}")}
+    return sorted(path for path in found if _DEPENDENCY_DIRECTORIES.isdisjoint(path.relative_to(ROOT).parts))
 
 
 @pytest.mark.parametrize("name", SHARED_SOURCES)
 def test_shared_plugin_source_is_identical_in_every_host(name: str) -> None:
-    copies = sorted(set(_copies(name)))
+    copies = _copies(name)
     assert len(copies) > 1, f"{name} is no longer shared; drop it from SHARED_SOURCES"
 
     expected = copies[0].read_bytes().replace(b"\r\n", b"\n")

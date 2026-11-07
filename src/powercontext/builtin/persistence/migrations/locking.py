@@ -16,6 +16,9 @@
 
 from __future__ import annotations
 
+import errno
+import os
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -56,3 +59,38 @@ def local_migration_lock(target: Path) -> Iterator[None]:
         raise
     else:
         lock.release()
+
+
+def assert_no_local_migration(target: Path) -> None:
+    """Probe an existing migration lock without creating or changing its file.
+
+    This observes active maintenance, not future migration attempts or existing
+    writers. Deployment orchestration must still prevent restarts during maintenance.
+    """
+    target = target.resolve()
+    path = target.with_name(target.name + ".pc-migration.lock")
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise MigrationError("migration_lock_unsupported", "Cannot inspect the maintenance lock.") from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise MigrationError("migration_lock_unsupported", "The maintenance lock is not a regular file.")
+        if os.name == "posix":
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        elif os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(descriptor, msvcrt.LK_NBRLCK, 1)
+        else:
+            raise MigrationError("migration_lock_unsupported", "This platform has no supported lock inspection.")
+    except OSError as error:
+        if error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+            raise MigrationError("migration_locked", "Another process holds the migration lock.") from error
+        raise MigrationError("migration_lock_unsupported", "Cannot inspect the maintenance lock.") from error
+    finally:
+        os.close(descriptor)

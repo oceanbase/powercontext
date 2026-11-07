@@ -153,7 +153,15 @@ class TopicMemorySearcher:
         plan: TopicSearchPlan | None = None,
         execution_context: ArtifactSearchExecutionContext | None = None,
     ) -> tuple[TopicMemorySearchResult, str | None]:
-        embedding = embedding_model if allow_embedding and (plan is None or plan.mode != "fts") else None
+        embedding = embedding_model if plan is None or plan.mode != "fts" else None
+        reusable = (
+            embedding is not None
+            and query_embedding is not None
+            and query_embedding.embedding_profile == embedding.profile
+        )
+        # Disallowing embedding stops new provider requests; a matching cached vector needs none.
+        if not allow_embedding and not reusable:
+            embedding = None
         keywords: dict[str, Any] = {"limit": limit}
         if admission is not None:
             keywords["admission"] = admission
@@ -165,7 +173,7 @@ class TopicMemorySearcher:
             result = await self._search(scope_id, query, mode="fts", **keywords)
             return result.model_copy(update={"embedding_calls": 0}), None
         mode = "hybrid" if plan is None else plan.mode
-        if query_embedding is not None and query_embedding.embedding_profile == embedding.profile:
+        if query_embedding is not None and reusable:
             result = await self._search(
                 scope_id,
                 query,
@@ -175,16 +183,20 @@ class TopicMemorySearcher:
                 **keywords,
             )
             return result.model_copy(update={"query_embedding": query_embedding, "embedding_calls": 0}), None
+        started = asyncio.get_running_loop().time()
         embedded, fallback = await self._embed_for_search(
             embedding,
             query,
             timeout_seconds=embedding_timeout_seconds,
             allow_fallback=plan is None or plan.fallback_allowed,
         )
+        waited = asyncio.get_running_loop().time() - started
         if embedded is None:
             result = await self._search(scope_id, query, mode="fts", **keywords)
             return (
-                result.model_copy(update={"embedding_calls": 1, "embedding_fallback": fallback}),
+                result.model_copy(
+                    update={"embedding_calls": 1, "embedding_fallback": fallback, "embedding_wait_seconds": waited}
+                ),
                 fallback,
             )
         result = await self._search(
@@ -201,6 +213,7 @@ class TopicMemorySearcher:
                     query_vector=tuple(embedded.vectors[0]), embedding_profile=embedding.profile
                 ),
                 "embedding_calls": 1,
+                "embedding_wait_seconds": waited,
             }
         ), None
 
@@ -231,7 +244,7 @@ class TopicMemorySearcher:
         """Why an abandoned embedding gave way to FTS.
 
         The same value is the ``topic_memory.search.embedding_fallback`` ``error_code`` and, when a
-        preparation asked for it, ``PreparedContext.reason``. RFC 1435 spells this vocabulary
+        preparation asks for a Receipt, its search ``fallback_reason``. RFC 1435 spells this vocabulary
         ``inference_*`` because the failure belongs to the inference provider, not to the channel it
         was going to feed.
         """

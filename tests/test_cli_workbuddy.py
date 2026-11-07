@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
+import shutil
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -274,6 +276,52 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
     assert mcp["mcpServers"]["powercontext"]["disabled"] is False
 
 
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the manual installation steps are bash commands")
+@pytest.mark.parametrize(
+    "document",
+    [
+        "docs/en/docs/integrations/workbuddy.md",
+        "docs/zh/docs/integrations/workbuddy.md",
+        "integrations/workbuddy/README.md",
+    ],
+)
+def test_manual_workbuddy_copy_installs_the_same_hook_files_as_setup(
+    document: str, tmp_path: Path, monkeypatch, installed_agent_checks
+) -> None:
+    repository = Path(__file__).parents[1]
+    home = tmp_path / "workbuddy"
+    monkeypatch.setenv("WORKBUDDY_HOME", str(home))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    env_file = tmp_path / "setup.env"
+    env_file.write_text("", encoding="utf-8")
+    result = CliRunner().invoke(
+        create_cli([setup_app]),
+        ["setup", "--env-file", str(env_file), "workbuddy", "--source", str(repository), "--json"],
+    )
+    assert result.exit_code == 0, result.output
+
+    text = (repository / document).read_text(encoding="utf-8")
+    copy_steps = next(
+        block
+        for block in re.findall(r"```bash\n(.*?)```", text, re.DOTALL)
+        if 'mkdir -p "$WORKBUDDY_HOOKS_DIR"' in block
+    )
+    manual_hooks = tmp_path / "manual hooks"
+    completed = subprocess.run(
+        ["bash", "-euc", copy_steps],  # noqa: S607
+        cwd=repository,
+        env={**os.environ, "WORKBUDDY_HOOKS_DIR": str(manual_hooks)},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    assert sorted(path.name for path in manual_hooks.iterdir()) == sorted(
+        path.name for path in (home / "hooks").iterdir()
+    )
+
+
 def test_setup_workbuddy_preserves_existing_settings_and_mcp(
     tmp_path: Path, monkeypatch, installed_agent_checks
 ) -> None:
@@ -425,19 +473,12 @@ def test_setup_workbuddy_refuses_an_unowned_skill(tmp_path: Path, monkeypatch, i
 
 
 def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch, installed_agent_checks) -> None:
-    from powercontext.cli.guidance import END, RESOURCE_MANIFEST, START
+    from powercontext.cli.guidance import END, START
 
     checkout = tmp_path / "powercontext"
     plugin = _write_plugin(checkout)
     source = plugin / "skills/powercontext-project-context/SKILL.md"
     source.write_text(f"{START}\n{source.read_text(encoding='utf-8')}{END}\n", encoding="utf-8")
-    (source.parent / RESOURCE_MANIFEST).write_text(
-        json.dumps({
-            "schema_version": 1,
-            "resources": ["SKILL.md", "references/scope-memory.md"],
-        }),
-        encoding="utf-8",
-    )
     home = tmp_path / "workbuddy"
     monkeypatch.setenv("WORKBUDDY_HOME", str(home))
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))

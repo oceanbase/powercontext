@@ -51,6 +51,7 @@ class Generator:
                     AtomicMemoryCandidate(
                         kind="constraint",
                         text=self.text,
+                        description=(self.text)[:200],
                         evidence_ids=(self.citation or value.evidence[0].evidence_id,),
                     ),
                 )
@@ -72,7 +73,8 @@ def test_recorded_range_citations_stay_failed_and_returned_usage_is_independent(
     ranges = generator.inputs[0].evidence[0].content["ranges"]
     assert all(("id" not in item) == (version != "v3") for item in ranges)
     if version == "v3":
-        assert generator.citation in {item["id"] for item in ranges}
+        # The recorded range ID is immutable; current projection hashes may differ.
+        assert generator.citation not in {item.evidence_id for item in generator.inputs[0].evidence}
         assert not sample.usage_complete
     else:
         assert sample.usage_complete
@@ -81,6 +83,25 @@ def test_recorded_range_citations_stay_failed_and_returned_usage_is_independent(
         report = aggregate(suite, (sample,), cli.manifest_for(suite, "live"))
         assert sample.sample_id in report["critical_failures"]
         assert report["generation_failures"][0]["kind"] == "invalid_evidence_reference"
+
+
+@pytest.mark.parametrize("arm", RECORDED_RANGE_IDS)
+def test_current_range_id_cannot_replace_the_top_level_evidence_id(arm):
+    suite = load_suite(experiment_version="v3")
+    case = next(c for c in suite.cases if c.case_id == "single-source-overflow")
+
+    class RangeGenerator(Generator):
+        async def generate(self, value, /):
+            self.citation = value.evidence[0].content["ranges"][0]["id"]
+            return await super().generate(value)
+
+    generator = RangeGenerator()
+    sample = asyncio.run(run_sample(suite, case, arm, 4096, 0, generator=generator))
+    supplied = {item.evidence_id for item in generator.inputs[0].evidence}
+    assert generator.citation not in supplied
+    assert sample.status == "failed" and sample.generation is None
+    assert sample.requests == sample.generation_calls == 1
+    assert sample.memory_mutations == sample.published_cursor == 0
 
 
 @pytest.mark.parametrize("arm", RECORDED_RANGE_IDS)
@@ -338,7 +359,7 @@ def test_audit_rejects_reviews_for_failed_generation(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("arm", RECORDED_RANGE_IDS)
-def test_v5_fixes_v4_control_regression_by_preserving_original_selected_ranges(arm):
+def test_v5_fixes_v4_control_regression_by_preserving_original_selected_ranges(arm, historical_budget_context):
     original = load_suite(experiment_version="v3", dataset="validation-v3")
     revised = load_suite(experiment_version="v5", dataset="validation-v3")
     case = next(c for c in original.cases if c.case_id == "probe-shifted-middle")

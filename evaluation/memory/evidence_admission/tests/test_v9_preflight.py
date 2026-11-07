@@ -40,6 +40,7 @@ VALID = {
     "candidates": [
         {
             "kind": "fact",
+            "description": "Synthetic protocol candidate",
             "evidence_ids": ["e0"],
             "parts": [{"type": "copy", "quote_id": "q0", "byte_start": 0, "byte_end": 4}],
         }
@@ -302,7 +303,11 @@ def test_request_capture_tampering_is_detected(tmp_path):
 
 def test_v5_baseline_keeps_its_original_schema_and_citation_contract(tmp_path):
     seen = []
-    output = {"candidates": [{"kind": "fact", "text": "text", "evidence_ids": ["source:full-id"]}]}
+    output = {
+        "candidates": [
+            {"kind": "fact", "description": ("text")[:200], "text": "text", "evidence_ids": ["source:full-id"]}
+        ]
+    }
 
     def handler(request):
         seen.append(json.loads(request.content))

@@ -27,6 +27,13 @@ _DATABASE_MIGRATION_ENV = Path(__file__).parent / "fixtures" / "database_migrati
 
 
 @pytest.fixture
+def otlp_exporter():
+    """Run exporter-dependent configuration cases in the tracing-otlp CI job."""
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+    pytest.importorskip("opentelemetry.exporter.otlp.proto.http._log_exporter")
+
+
+@pytest.fixture
 def short_tmp_path() -> Iterator[Path]:
     """Leave room for nested checkout caches and backup names on Windows."""
     # pytest's user/session/test-name directories can exhaust MAX_PATH before
@@ -35,6 +42,19 @@ def short_tmp_path() -> Iterator[Path]:
     # preallocated engine logs across a complete CI session.
     with TemporaryDirectory(prefix="pc-") as directory:
         yield Path(directory)
+
+
+@pytest.fixture(autouse=True)
+def isolated_artifact_family_profiles():
+    """Plugin registration in one test must not change another Server's readiness."""
+    from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES
+
+    original = dict(ARTIFACT_FAMILY_PROFILES)
+    try:
+        yield
+    finally:
+        ARTIFACT_FAMILY_PROFILES.clear()
+        ARTIFACT_FAMILY_PROFILES.update(original)
 
 
 @pytest.fixture(autouse=True)
@@ -77,6 +97,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Require native DSH configuration APIs without requiring the DSH CLI.",
+    )
+    claude_code = parser.getgroup("powercontext-claude-code")
+    claude_code.addoption(
+        "--require-claude-code-python-floor",
+        action="store_true",
+        default=False,
+        help="Require Python 3.9 for the Claude Code plugin entry point test instead of skipping it.",
     )
     zcode = parser.getgroup("zcode-host-acceptance")
     zcode.addoption("--run-zcode-acceptance", action="store_true", help="Run real ZCode CLI acceptance.")
@@ -161,6 +188,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    # Installed-release suites run only through the mandatory artifact gate.
+    # The gate uses --confcutdir to exclude this repository conftest entirely.
+    if collection_path.resolve() == (Path(__file__).parent / "release_upgrades").resolve():
+        return True
     # Alembic executes env.py as migration configuration; doctest collection
     # must not import it as a test module.
     if collection_path.resolve() == _DATABASE_MIGRATION_ENV.resolve():

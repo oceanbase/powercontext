@@ -246,7 +246,8 @@
 }
 
 .pc-kv {
-  background: color-mix(in srgb, var(--color-fd-primary) 3%, var(--color-fd-background));
+  --home-hero-background: color-mix(in srgb, var(--color-fd-primary) 3%, var(--color-fd-background));
+  background: var(--home-hero-background);
 }
 
 .pc-spiral {

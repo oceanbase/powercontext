@@ -1,0 +1,507 @@
+{
+  "format": "powercontext.mysql-schema-extension.v1",
+  "source_release": "1.3.0",
+  "source_revision": "r1400",
+  "backend": "seekdb",
+  "statements": [
+    "CREATE TABLE `pc_code_generations` (\n  `id` char(32) COLLATE utf8mb4_bin NOT NULL,\n  `binding` char(64) COLLATE utf8mb4_bin NOT NULL,\n  `content_hash` char(64) COLLATE utf8mb4_bin NOT NULL,\n  `node_count` bigint(20) NOT NULL,\n  `edge_count` bigint(20) NOT NULL,\n  `payload_bytes` bigint(20) NOT NULL,\n  PRIMARY KEY (`id`),\n  KEY `ix_code_binding` (`binding`) BLOCK_SIZE 16384 LOCAL\n) ORGANIZATION INDEX DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'zstd_1.3.8' BLOCK_SIZE = 16384 TABLET_SIZE = 134217728 PCTFREE = 0",
+    "CREATE TABLE `pc_code_nodes` (\n  `generation_id` char(32) COLLATE utf8mb4_bin NOT NULL,\n  `id` char(64) COLLATE utf8mb4_bin NOT NULL,\n  `kind` varchar(32) COLLATE utf8mb4_bin NOT NULL,\n  `path` text COLLATE utf8mb4_bin NOT NULL,\n  `file_id` char(64) COLLATE utf8mb4_bin DEFAULT NULL,\n  `parent_id` char(64) COLLATE utf8mb4_bin DEFAULT NULL,\n  `name` text COLLATE utf8mb4_bin NOT NULL,\n  `qualified_name` text COLLATE utf8mb4_bin NOT NULL,\n  `start_line` bigint(20) NOT NULL,\n  `end_line` bigint(20) NOT NULL,\n  `payload` longtext COLLATE utf8mb4_bin NOT NULL,\n  `searchable_text` longtext COLLATE utf8mb4_bin NOT NULL,\n  PRIMARY KEY (`generation_id`, `id`),\n  KEY `ix_code_path` (`generation_id`, `path`(190), `start_line`) BLOCK_SIZE 16384 LOCAL,\n  KEY `ix_code_name` (`generation_id`, `name`(190)) BLOCK_SIZE 16384 LOCAL,\n  KEY `ix_code_qualified` (`generation_id`, `qualified_name`(190)) BLOCK_SIZE 16384 LOCAL,\n  KEY `ix_code_parent` (`generation_id`, `parent_id`) BLOCK_SIZE 16384 LOCAL,\n  FULLTEXT KEY `ix_code_search` (`searchable_text`) WITH PARSER space PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) BLOCK_SIZE 16384\n) ORGANIZATION INDEX DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'zstd_1.3.8' BLOCK_SIZE = 16384 TABLET_SIZE = 134217728 PCTFREE = 0",
+    "CREATE TABLE `pc_code_edges` (\n  `generation_id` char(32) COLLATE utf8mb4_bin NOT NULL,\n  `ordinal` bigint(20) NOT NULL,\n  `source_id` char(64) COLLATE utf8mb4_bin NOT NULL,\n  `target_id` char(64) COLLATE utf8mb4_bin NOT NULL,\n  `kind` varchar(32) COLLATE utf8mb4_bin NOT NULL,\n  `resolution` varchar(32) COLLATE utf8mb4_bin NOT NULL,\n  `payload` longtext COLLATE utf8mb4_bin NOT NULL,\n  PRIMARY KEY (`generation_id`, `ordinal`),\n  KEY `ix_code_source` (`generation_id`, `source_id`, `kind`) BLOCK_SIZE 16384 LOCAL,\n  KEY `ix_code_target` (`generation_id`, `target_id`, `kind`) BLOCK_SIZE 16384 LOCAL\n) ORGANIZATION INDEX DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_bin ROW_FORMAT = DYNAMIC COMPRESSION = 'zstd_1.3.8' BLOCK_SIZE = 16384 TABLET_SIZE = 134217728 PCTFREE = 0"
+  ],
+  "tables": {
+    "pc_code_generations": {
+      "columns": {
+        "id": {
+          "type": [
+            "char",
+            [
+              "32"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "binding": {
+          "type": [
+            "char",
+            [
+              "64"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "content_hash": {
+          "type": [
+            "char",
+            [
+              "64"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "node_count": {
+          "type": [
+            "bigint",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": null,
+          "collation": null,
+          "extra": []
+        },
+        "edge_count": {
+          "type": [
+            "bigint",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": null,
+          "collation": null,
+          "extra": []
+        },
+        "payload_bytes": {
+          "type": [
+            "bigint",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": null,
+          "collation": null,
+          "extra": []
+        }
+      },
+      "primary_key": [
+        [
+          "id",
+          null,
+          "asc"
+        ]
+      ],
+      "foreign_keys": [],
+      "checks": {},
+      "indexes": {
+        "ix_code_binding": {
+          "columns": [
+            [
+              "binding",
+              null,
+              "asc"
+            ]
+          ],
+          "unique": false
+        }
+      }
+    },
+    "pc_code_nodes": {
+      "columns": {
+        "generation_id": {
+          "type": [
+            "char",
+            [
+              "32"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "id": {
+          "type": [
+            "char",
+            [
+              "64"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "kind": {
+          "type": [
+            "varchar",
+            [
+              "32"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "path": {
+          "type": [
+            "text",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "file_id": {
+          "type": [
+            "char",
+            [
+              "64"
+            ]
+          ],
+          "nullable": true,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "parent_id": {
+          "type": [
+            "char",
+            [
+              "64"
+            ]
+          ],
+          "nullable": true,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "name": {
+          "type": [
+            "text",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "qualified_name": {
+          "type": [
+            "text",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "start_line": {
+          "type": [
+            "bigint",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": null,
+          "collation": null,
+          "extra": []
+        },
+        "end_line": {
+          "type": [
+            "bigint",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": null,
+          "collation": null,
+          "extra": []
+        },
+        "payload": {
+          "type": [
+            "longtext",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "searchable_text": {
+          "type": [
+            "longtext",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        }
+      },
+      "primary_key": [
+        [
+          "generation_id",
+          null,
+          "asc"
+        ],
+        [
+          "id",
+          null,
+          "asc"
+        ]
+      ],
+      "foreign_keys": [],
+      "checks": {},
+      "indexes": {
+        "ix_code_path": {
+          "columns": [
+            [
+              "generation_id",
+              null,
+              "asc"
+            ],
+            [
+              "path",
+              190,
+              "asc"
+            ],
+            [
+              "start_line",
+              null,
+              "asc"
+            ]
+          ],
+          "unique": false
+        },
+        "ix_code_name": {
+          "columns": [
+            [
+              "generation_id",
+              null,
+              "asc"
+            ],
+            [
+              "name",
+              190,
+              "asc"
+            ]
+          ],
+          "unique": false
+        },
+        "ix_code_qualified": {
+          "columns": [
+            [
+              "generation_id",
+              null,
+              "asc"
+            ],
+            [
+              "qualified_name",
+              190,
+              "asc"
+            ]
+          ],
+          "unique": false
+        },
+        "ix_code_parent": {
+          "columns": [
+            [
+              "generation_id",
+              null,
+              "asc"
+            ],
+            [
+              "parent_id",
+              null,
+              "asc"
+            ]
+          ],
+          "unique": false
+        },
+        "ix_code_search": {
+          "columns": [
+            [
+              "searchable_text",
+              null,
+              "asc"
+            ]
+          ],
+          "unique": false,
+          "kind": "fulltext",
+          "parser": "space",
+          "parser_properties": {
+            "min_token_size": 3,
+            "max_token_size": 84
+          }
+        }
+      }
+    },
+    "pc_code_edges": {
+      "columns": {
+        "generation_id": {
+          "type": [
+            "char",
+            [
+              "32"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "ordinal": {
+          "type": [
+            "bigint",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": null,
+          "collation": null,
+          "extra": []
+        },
+        "source_id": {
+          "type": [
+            "char",
+            [
+              "64"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "target_id": {
+          "type": [
+            "char",
+            [
+              "64"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "kind": {
+          "type": [
+            "varchar",
+            [
+              "32"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "resolution": {
+          "type": [
+            "varchar",
+            [
+              "32"
+            ]
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        },
+        "payload": {
+          "type": [
+            "longtext",
+            []
+          ],
+          "nullable": false,
+          "default": null,
+          "charset": "utf8mb4",
+          "collation": "utf8mb4_bin",
+          "extra": []
+        }
+      },
+      "primary_key": [
+        [
+          "generation_id",
+          null,
+          "asc"
+        ],
+        [
+          "ordinal",
+          null,
+          "asc"
+        ]
+      ],
+      "foreign_keys": [],
+      "checks": {},
+      "indexes": {
+        "ix_code_source": {
+          "columns": [
+            [
+              "generation_id",
+              null,
+              "asc"
+            ],
+            [
+              "source_id",
+              null,
+              "asc"
+            ],
+            [
+              "kind",
+              null,
+              "asc"
+            ]
+          ],
+          "unique": false
+        },
+        "ix_code_target": {
+          "columns": [
+            [
+              "generation_id",
+              null,
+              "asc"
+            ],
+            [
+              "target_id",
+              null,
+              "asc"
+            ],
+            [
+              "kind",
+              null,
+              "asc"
+            ]
+          ],
+          "unique": false
+        }
+      }
+    }
+  },
+  "provenance": {
+    "source_capture_sha256": "c7a2e0896b701a51e7a4998f69fb8fc53f0f33691150fb4d7cfa2bb66f214ffc",
+    "source_engine": "5.7.25-OceanBase seekdb-v1.4.0.0",
+    "source_wheel_sha256": "8da7983763f3a6ab80b413c770a4973a46c557a54e1a1fa675099e58d47305e5",
+    "source_module": "/tmp/pc2084-release-130/lib/python3.11/site-packages/powercontext/__init__.py",
+    "scope": "schema captured from installed 1.3.0; upgrade and populated Code reuse require separate acceptance"
+  }
+}

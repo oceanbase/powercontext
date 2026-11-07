@@ -10,9 +10,11 @@ current-user service controller used by `powercontext service`; it does not need
 Its own Python and dependencies must be distributed separately from the Server runtime it manages. A missing Server
 interpreter therefore does not prevent the tool itself from starting or inspecting the registered service.
 
-This boundary supports prepared Server runtimes. Downloading and repairing the managed runtime, the Desktop native
-bridge, and the installation UI are separate capabilities. Existing human-facing CLI commands remain available.
+This service boundary supports prepared Server runtimes. For fixed managed resources and the install/repair policy,
+see [Managed local Server installation](managed-local-server.md). The constrained Desktop native bridge is described below; installation UI is a separate capability. Existing human-facing CLI commands remain available.
 Ops is not an HTTP API and does not add a daemon.
+Managed registrations carrying `isolated_runtime=true` require the bundled Ops or a matching-version service tool;
+an older CLI that does not support this definition field rejects it instead of managing the registration.
 
 ## Operator binding and invocation
 
@@ -167,10 +169,108 @@ launch arguments, requirements digest, installed file bytes, and file digests. I
 make an untrusted runtime or wheel trustworthy. Existing output trees are never overwritten; inspect a partial build
 before removing it or building at a new location.
 
-The release resource producer (#2112) supplies fixed input versions, hashes, platform/architecture identity,
-redistribution licenses, and provenance. Windows/macOS packaging (#2108/#2109) must publish Ops to a stable,
+The [candidate resource producer](../../development/managed-resource-production.md) supplies fixed input versions,
+hashes, platform/architecture identity, retained license notices, and provenance for all three Windows/macOS targets.
+Its output is always unqualified. Windows/macOS packaging (#2108/#2109) must publish Ops to a stable,
 user-protected location independent of both the Desktop installation and the managed Server. Desktop removal must not
 silently remove the maintenance tool or user data. Signing, macOS notarization, clean-machine execution, and native
 service/login/reboot acceptance are separate release checks; a successful bundle build does not establish them.
 
 See [Deploy the Server](deploy-server.md) for the existing service behavior and platform restrictions.
+
+## Desktop native bridge
+
+Desktop exposes typed `ops_inspect`, `ops_config_validate`, `ops_preflight`, `ops_apply`,
+`ops_operation_status`, `ops_cancel`, `ops_resume`, and `ops_references` commands only to its packaged main window.
+`desktop/ui/src/shared/ops.ts` provides the typed client and `subscribeOpsProgress` subscription. Subscribe before
+applying a plan. Validated `accepted` and `progress` JSONL messages arrive while the helper runs; each event includes
+the native request ID, operation ID, attempt, and validated stage/sequence. Inspection does not depend on the target
+Server Python being present. Linux returns `unsupported_platform`.
+
+The renderer selects an operation and its supported options. It cannot supply a command, executable, service name,
+configuration path, download URL, catalog, or complete plan. Native preflight retains the exact Ops plan and returns
+its display summary, `planId`, and opaque `approvalId`. An approval expires after ten minutes and is consumed once.
+Apply requires that exact approval and plan ID. Resume requires a fresh preflight with `resume: { operationId,
+expectedAttempt }`, followed by `ops_resume` with the resulting approval. Binding changes invalidate approval and
+prevent querying or resuming a reference against a different target.
+
+Before dispatch, native code atomically saves the operation ID and binding fingerprint in private
+`PowerContext/Ops/bridge-operations.json`. `ops_references` reads these references after the window or Desktop reopens;
+`ops_operation_status` then queries the original Ops journal. The reference file contains no plans, results, credentials,
+or second recovery state machine. Its failure prevents new mutations; it is never silently reset. References are retained
+without automatic eviction, with a 4096-reference limit. Ops remains the authority for attempts, locks, cancellation,
+reconciliation, and native service effects. Changing a target file is not a supported operation-journal migration.
+
+A valid structured nonzero helper exit retains its rejected or unhealthy result. A timeout, malformed output, lost
+response, or shutdown reports an unknown bridge result with the retained operation ID. Query that operation before
+requesting a fresh recovery plan; never infer rollback or automatically replay a write. Status and cancellation use
+separate helpers and two reserved admission slots; four other helpers may run concurrently. A timed-out helper keeps
+its admission slot until it exits. Native code does not signal Ops, Server, or service-manager processes. On normal Quit,
+Desktop closes admission and waits at most two seconds. Closing its pipes can make Ops record a progress failure at a
+safe boundary; already accepted native work may continue and save its result. Cancellation is an Ops request, not a
+process kill or a rollback promise.
+
+Each helper receives one bounded stdin request, an isolated environment, and fixed `-I -S -B <absolute entry.py>`
+arguments. Passive reads have a 30-second process deadline, preflight has a 180-second deadline to accommodate bounded target
+database admission, and mutations have a 30-minute deadline. Each JSONL message is limited
+to 64 KiB, aggregate stdout/stderr to 1 MiB, and a request to 128 messages. Both streams are drained without forwarding
+raw text. Completion follows the helper's exit rather than waiting indefinitely for inherited pipe handles held by a
+descendant. Protocol version, request/operation identity, attempt, stage sequence, outcome, and allowlisted fields are
+validated before exposure. No raw stderr, provider exception, configuration contents, or credentials are rendered.
+
+### Provisioning the bridge
+
+A trusted native installer/packager publishes the independent Ops bundle at the fixed current-user location:
+
+- Windows: `%LOCALAPPDATA%\PowerContext\Ops\bundle`.
+- macOS: `~/Library/Application Support/PowerContext/Ops/bundle`.
+
+Keep this directory separate from Desktop and Server; Desktop removal must preserve it and the Ops reference/journal
+files. The existing `scripts/build_ops_bundle.py` output is used unchanged: `runtime/`, `packages/`, `entry.py`, and
+`bundle.json`. Every launch verifies the exact manifest digest, platform/architecture, complete file inventory, and
+file contents. Original-builder relative runtime file aliases are allowed only when they resolve to a separately
+inventoried digest-matching regular file inside the runtime. External/absolute links, directory aliases, reparse points,
+extra files, and damaged dependencies are rejected. Producer-normalized bundles may contain only regular files.
+These checks read the complete bundle on each launch; no performance improvement or release budget is claimed.
+
+The packaged resource directory supplies `ops-provision.json`:
+
+```json
+{
+  "format_version": 1,
+  "bundle_manifest_sha256": "<SHA-256 of the exact approved bundle.json bytes>",
+  "binding_mode": "managed_catalog",
+  "catalog_sha256": "<SHA-256 of the exact approved server/catalog.json bytes>"
+}
+```
+
+Replace both placeholders with lowercase 64-digit digests fixed by the trusted producer and packager. Candidate bundle
+metadata and checksum sidecars cannot grant themselves trust. The packaged Desktop resource pins are the trust anchor;
+production authenticity still requires qualified distribution and signing. Native code verifies packaged
+`server/catalog.json` and atomically copies it into private `PowerContext/Ops/catalog-<digest>.json`. The immutable copy
+and catalog digest are passed to the independent Ops entry; the renderer cannot replace either. Managed locations remain
+those selected by `ManagedLayout.current_user()` in Ops.
+
+The optional real Tauri merge configuration `desktop/src-tauri/tauri.ops.conf.json` packages those two files from
+`desktop/.artifacts/ops-resource/`. A packager places the approved producer's `ops-provision.json` and
+`server/catalog.json` there, independently provisions the exact Ops bundle at the fixed location, and builds from
+`desktop/` with:
+
+```sh
+pnpm tauri build --config src-tauri/tauri.ops.conf.json --ci -- --locked
+```
+
+This hook does not download resources, install the independent helper, or qualify a candidate. Default builds omit the
+optional metadata and report `unavailable` instead of starting a system Python. Invalid pins or changed files report
+`integrity_failure`; there is no fallback to a target Server environment.
+
+For an operator-prepared Server, package `binding_mode: "target_file"` and omit `catalog_sha256`. Provision the private
+`PowerContext/Ops/target.json` described above; native code passes a verified digest-named private snapshot plus fixed
+`PowerContext/Ops/state`. The supplied merge configuration is for managed catalogs; target-file packagers include only
+`ops-provision.json` in their Tauri resource mapping. Native paths come from the OS, with an explicit home directory;
+ambient Python/Server configuration variables are not inherited.
+
+This bridge supplies no installation wizard or automatic connection/Scope handoff. Actual Windows Task Scheduler and
+macOS LaunchAgent changes, published resources, signing/notarization, clean-machine installation, and release acceptance
+remain separate. Native synthetic helpers and real read-only repository Ops subprocesses establish their respective
+protocol/process boundaries, not those platform or release results.

@@ -6,11 +6,12 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
+        exclude: ^deploy/helm/powercontext/templates/
       - id: check-json
         exclude: ^.devcontainer/devcontainer.json
       - id: pretty-format-json
-        # The historical contract is byte-frozen and checked by frozen-evaluation-contracts below.
-        exclude: ^(?:\.devcontainer/devcontainer\.json|evaluation/memory/locomo/dataset/locomo10\.json|evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v14/contract\.json)$
+        # Historical v14 bytes are checked by frozen-evaluation-contracts below.
+        exclude: ^(?:\.devcontainer/devcontainer\.json|evaluation/memory/atomic_extraction/cases/atomic-extraction-v1\.json|evaluation/memory/locomo/dataset/locomo10\.json|evaluation/memory/evidence_admission/src/powercontext_eval_evidence_admission/v14/contract\.json)$
         args: [--autofix, --no-sort-keys, --no-ensure-ascii]
       - id: end-of-file-fixer
         exclude: ^evaluation/memory/locomo/dataset/locomo10\.json$

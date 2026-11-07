@@ -16,12 +16,16 @@
 
 //! Operation-specific adapters. No renderer-supplied route, method or header is accepted.
 use super::{Endpoint, MAX_RESPONSE_BYTES, Transport, safe_network_error, wire::*};
-use crate::{credentials::Secret, error::SafeError};
+use crate::{
+    credentials::Secret,
+    error::SafeError,
+    session_observations::{ObservationUnit, ObservedOperation, SessionObservations},
+};
 use reqwest::{
     Method,
     header::{AUTHORIZATION, HeaderValue},
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -71,10 +75,102 @@ pub struct AtomicMemoryDetail {
     pub source_refs: Vec<SourceTypeReference>,
 }
 
+/// Desktop accepts one exact Scope, never an all-Scopes or subtree selection.
+/// Use the concrete generated selection so this IPC boundary cannot widen it.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactScopeStatistics {
+    pub selection: ExactScopeSelection,
+    pub scope_ids: Vec<String>,
+    pub as_of: String,
+    pub inventory: InventoryStatistics,
+    pub usage: UsageStatistics,
+    pub recall: ExactRecallTokenStatistics,
+    pub by_scope: Vec<ExactScopeStatisticsItem>,
+}
+
+// The public contract permits a null estimator at both aggregation levels.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactRecallTokenStatistics {
+    pub period: ResolvedUsagePeriod,
+    pub estimator: Option<TokenEstimatorProfile>,
+    pub totals: RecallTokenValue,
+    pub daily: Vec<RecallTokenDay>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ExactScopeStatisticsItem {
+    pub scope_id: String,
+    pub inventory: InventoryStatistics,
+    pub usage: UsageStatistics,
+    pub recall: ExactRecallTokenStatistics,
+    pub recurrence: RecurrenceStatistics,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing: Option<Vec<ProcessingObservation>>,
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bootstrap_delivery: Option<BootstrapDeliveryStatistics>,
+}
+
+#[derive(Serialize)]
+struct ExactStatsRequest {
+    selection: ExactScopeSelection,
+    period: StatsPeriod,
+}
+
 pub struct ServerApi {
     transport: Transport,
     endpoint: Endpoint,
     credential: Option<Secret>,
+    observations: SessionObservations,
+}
+
+/// A foreign product is a recognizable incompatibility, rather than malformed JSON.
+pub enum DiscoveryDocument {
+    Server(ServerInfo),
+    UnsupportedProduct,
+}
+impl<'de> Deserialize<'de> for DiscoveryDocument {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Document {
+            Server(ServerInfo),
+            OtherProduct { product: String },
+        }
+        let server = match Document::deserialize(deserializer)? {
+            Document::Server(server) => server,
+            Document::OtherProduct { product } if product != "powercontext" => {
+                return Ok(Self::UnsupportedProduct);
+            }
+            _ => return Err(serde::de::Error::custom("invalid discovery document")),
+        };
+        if server.server_id.is_empty()
+            || server.server_id.chars().count() > 128
+            || server.package_version.is_empty()
+            || server.schema_version.major < 1
+            || server.schema_version.minor < 0
+            || server.api_contract_version.major < 1
+            || server.api_contract_version.minor < 0
+            || server.feature_contracts.values().any(|feature| {
+                feature.version.major < 1
+                    || feature.version.minor < 0
+                    || feature.operations.is_empty()
+                    || feature
+                        .operations
+                        .iter()
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        != feature.operations.len()
+            })
+        {
+            return Err(serde::de::Error::custom("invalid discovery document"));
+        }
+        Ok(Self::Server(server))
+    }
 }
 impl ServerApi {
     pub fn new(
@@ -86,11 +182,16 @@ impl ServerApi {
             transport: Transport::new(ca_pem)?,
             endpoint,
             credential,
+            observations: SessionObservations::default(),
         })
+    }
+    pub fn with_observations(mut self, observations: SessionObservations) -> Self {
+        self.observations = observations;
+        self
     }
     async fn execute<T: DeserializeOwned>(
         &self,
-        operation: &str,
+        operation: ObservedOperation,
         scope: Option<&str>,
         query: &[(String, String)],
         body: Option<serde_json::Value>,
@@ -101,7 +202,7 @@ impl ServerApi {
     }
     async fn execute_path<T: DeserializeOwned>(
         &self,
-        operation: &str,
+        operation: ObservedOperation,
         scope: Option<&str>,
         query: &[(String, String)],
         body: Option<serde_json::Value>,
@@ -115,15 +216,15 @@ impl ServerApi {
             .map_err(|_| ApiFailure::before(SafeError::Busy))?;
         let manifest: serde_json::Value = serde_json::from_str(include_str!("operations.json"))
             .map_err(|_| ApiFailure::before(SafeError::InvalidResponse))?;
-        let descriptor = &manifest["operations"][operation];
+        let descriptor = &manifest["operations"][operation.id()];
         let method = descriptor["method"]
             .as_str()
             .ok_or(SafeError::InvalidResponse)?;
         let method =
             Method::from_bytes(method.as_bytes()).map_err(|_| SafeError::InvalidResponse)?;
-        let mut url = self.endpoint.operation_url(operation)?;
+        let mut url = self.endpoint.operation_url(operation.id())?;
         if let Some(artifact) = artifact {
-            if operation != "get_artifact_revision"
+            if operation != ObservedOperation::GetArtifactRevision
                 || !descriptor["path"].as_str().is_some_and(|p| {
                     p.ends_with(
                         "/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
@@ -177,76 +278,99 @@ impl ServerApi {
             request = request.json(&body);
         }
         let request = request.build().map_err(|_| SafeError::InvalidInput)?;
-        let failure = |code, request_id| ApiFailure {
-            code,
-            request_id,
-            dispatched: true,
-        };
-        let mut response = self
-            .transport
-            .client
-            .execute(request)
-            .await
-            .map_err(|e| failure(safe_network_error(e), None))?;
-        let request_id = response
-            .headers()
-            .get("X-PowerContext-Request-ID")
-            .and_then(|v| v.to_str().ok())
-            .filter(|v| {
-                !v.is_empty()
-                    && v.len() <= 128
-                    && v.bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-            })
-            .map(str::to_owned);
-        let status = response.status().as_u16();
-        if status != 200 && !(allow_not_ready && status == 503) {
-            let code = match status {
-                300..=399 => SafeError::Redirect,
-                401 => SafeError::Unauthorized,
-                403 => SafeError::Forbidden,
-                404 => SafeError::NotFound,
-                409 => SafeError::Conflict,
-                410 => SafeError::CursorExpired,
-                400 | 422 => SafeError::InvalidInput,
-                503 => server_error_code(&mut response).await,
-                500..=599 => SafeError::Server,
-                _ => SafeError::InvalidResponse,
+        let mut observation = self
+            .observations
+            .begin(ObservationUnit::HttpRequest, operation);
+        let result = async {
+            let failure = |code, request_id| ApiFailure {
+                code,
+                request_id,
+                dispatched: true,
             };
-            return Err(failure(code, request_id));
-        }
-        if response
-            .content_length()
-            .is_some_and(|n| n > MAX_RESPONSE_BYTES as u64)
-        {
-            return Err(failure(SafeError::ResponseTooLarge, request_id));
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|e| failure(safe_network_error(e), request_id.clone()))?
-        {
-            if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            let mut response = self
+                .transport
+                .client
+                .execute(request)
+                .await
+                .map_err(|e| failure(safe_network_error(e), None))?;
+            let request_id = response
+                .headers()
+                .get("X-PowerContext-Request-ID")
+                .and_then(|v| v.to_str().ok())
+                .filter(|v| {
+                    !v.is_empty()
+                        && v.len() <= 128
+                        && v.bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                })
+                .map(str::to_owned);
+            let status = response.status().as_u16();
+            observation.http_status(status);
+            if status != 200 && !(allow_not_ready && status == 503) {
+                let code = match status {
+                    300..=399 => SafeError::Redirect,
+                    401 => SafeError::Unauthorized,
+                    403 => SafeError::Forbidden,
+                    404 => SafeError::NotFound,
+                    409 => SafeError::Conflict,
+                    410 => SafeError::CursorExpired,
+                    400 | 422 => SafeError::InvalidInput,
+                    503 => server_error_code(&mut response).await,
+                    500..=599 => SafeError::Server,
+                    _ => SafeError::InvalidResponse,
+                };
+                return Err(failure(code, request_id));
+            }
+            if response
+                .content_length()
+                .is_some_and(|n| n > MAX_RESPONSE_BYTES as u64)
+            {
                 return Err(failure(SafeError::ResponseTooLarge, request_id));
             }
-            bytes.extend_from_slice(&chunk);
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|e| failure(safe_network_error(e), request_id.clone()))?
+            {
+                if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+                    return Err(failure(SafeError::ResponseTooLarge, request_id));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            serde_json::from_slice(&bytes)
+                .map_err(|_| failure(SafeError::InvalidResponse, request_id))
         }
-        serde_json::from_slice(&bytes).map_err(|_| failure(SafeError::InvalidResponse, request_id))
+        .await;
+        observation.finish(&result);
+        result
     }
     pub async fn live(&self) -> Result<HealthResponse, ApiFailure> {
-        let result: HealthResponse = self.execute("get_liveness", None, &[], None, false).await?;
+        let result: HealthResponse = self
+            .execute(ObservedOperation::GetLiveness, None, &[], None, false)
+            .await?;
         if result.status != "ok" {
             return Err(SafeError::InvalidResponse.into());
         }
         Ok(result)
     }
+    pub async fn server_info(&self) -> Result<DiscoveryDocument, ApiFailure> {
+        self.execute(ObservedOperation::GetServerInfo, None, &[], None, false)
+            .await
+    }
     pub async fn readiness(&self) -> Result<ReadinessResponse, ApiFailure> {
-        self.execute("get_readiness", None, &[], None, true).await
+        self.execute(ObservedOperation::GetReadiness, None, &[], None, true)
+            .await
     }
     pub async fn principal(&self) -> Result<AccessMeResponse, ApiFailure> {
         let result: AccessMeResponse = self
-            .execute("get_access_principal", None, &[], None, false)
+            .execute(
+                ObservedOperation::GetAccessPrincipal,
+                None,
+                &[],
+                None,
+                false,
+            )
             .await?;
         if result.principal.id.is_empty()
             || result.principal.id.chars().count() > 255
@@ -259,8 +383,35 @@ impl ServerApi {
         }
         Ok(result)
     }
+    pub async fn connection_identity(&self) -> Result<ConnectionIdentity, ApiFailure> {
+        let result: ConnectionIdentity = self
+            .execute(
+                ObservedOperation::GetConnectionIdentity,
+                None,
+                &[],
+                None,
+                false,
+            )
+            .await?;
+        let valid = match result.authentication {
+            ConnectionAuthentication::Disabled => {
+                result.access_mode == AccessControlMode::Disabled && result.principal.is_none()
+            }
+            ConnectionAuthentication::Authenticated => {
+                result.principal.as_ref().is_some_and(|principal| {
+                    !principal.id.is_empty()
+                        && principal.id.chars().count() <= 255
+                        && matches!(principal.r#type, Type::User | Type::Service)
+                })
+            }
+        };
+        if result.server_id.is_empty() || result.server_id.chars().count() > 128 || !valid {
+            return Err(SafeError::InvalidResponse.into());
+        }
+        Ok(result)
+    }
     pub async fn capabilities(&self) -> Result<Capabilities, ApiFailure> {
-        self.execute("get_capabilities", None, &[], None, false)
+        self.execute(ObservedOperation::GetCapabilities, None, &[], None, false)
             .await
     }
     pub async fn scopes(
@@ -282,7 +433,7 @@ impl ServerApi {
             query.push(("cursor".into(), cursor.into()));
         }
         let result: ScopePage = self
-            .execute("list_scopes", None, &query, None, false)
+            .execute(ObservedOperation::ListScopes, None, &query, None, false)
             .await?;
         if result.items.len() > 50
             || result
@@ -300,7 +451,7 @@ impl ServerApi {
     }
     pub async fn scope(&self, id: &str) -> Result<ScopeDescriptor, ApiFailure> {
         let result: ScopeDescriptor = self
-            .execute("get_scope", Some(id), &[], None, false)
+            .execute(ObservedOperation::GetScope, Some(id), &[], None, false)
             .await?;
         if result.scope_id != id {
             return Err(SafeError::InvalidResponse.into());
@@ -308,8 +459,38 @@ impl ServerApi {
         Ok(result)
     }
     pub async fn default_scope(&self) -> Result<ScopeDescriptor, ApiFailure> {
-        self.execute("get_default_scope", None, &[], None, false)
+        self.execute(ObservedOperation::GetDefaultScope, None, &[], None, false)
             .await
+    }
+    pub async fn stats(
+        &self,
+        scope: &str,
+        period: StatsPeriod,
+    ) -> Result<ExactScopeStatistics, ApiFailure> {
+        validate_scope(scope)?;
+        let selection =
+            ExactScopeSelection::new(ExactScopeSelectionMode::Exact, vec![scope.into()]);
+        let request = ExactStatsRequest {
+            selection: selection.clone(),
+            period,
+        };
+        let body = serde_json::to_value(request).map_err(|_| SafeError::InvalidInput)?;
+        let result: ExactScopeStatistics = self
+            .execute(ObservedOperation::GetStats, None, &[], Some(body), false)
+            .await?;
+        if result.selection != selection
+            || result.scope_ids != [scope]
+            || result.by_scope.len() != 1
+            || result.by_scope[0].scope_id != scope
+            || result.usage.period.preset != period
+            || result.recall.period != result.usage.period
+            || result.usage.daily.len() > 30
+            || result.recall.daily.len() > 30
+            || result.usage.by_purpose.len() > 16
+        {
+            return Err(SafeError::InvalidResponse.into());
+        }
+        Ok(result)
     }
     pub async fn remember(
         &self,
@@ -324,11 +505,18 @@ impl ServerApi {
             text: text.to_owned(),
             reason: None,
             expected_revision: None,
+            description: None,
         };
         let body = serde_json::to_value(request)
             .map_err(|_| ApiFailure::before(SafeError::InvalidInput))?;
         let result: MemoryMutationResponse = self
-            .execute("remember_memory", None, &[], Some(body), false)
+            .execute(
+                ObservedOperation::RememberMemory,
+                None,
+                &[],
+                Some(body),
+                false,
+            )
             .await?;
         if result
             .records
@@ -360,7 +548,13 @@ impl ServerApi {
         let body = serde_json::to_value(request)
             .map_err(|_| ApiFailure::before(SafeError::InvalidInput))?;
         let result: SearchMemoryResponse = self
-            .execute("search_memory", None, &[], Some(body), false)
+            .execute(
+                ObservedOperation::SearchMemory,
+                None,
+                &[],
+                Some(body),
+                false,
+            )
             .await?;
         if result.mode != AtomicMemorySearchMode::Text
             || result.hits.len() > 10
@@ -409,7 +603,7 @@ impl ServerApi {
         }
         let result: ArtifactRevision = self
             .execute_path(
-                "get_artifact_revision",
+                ObservedOperation::GetArtifactRevision,
                 Some(scope),
                 &[],
                 None,
@@ -418,7 +612,7 @@ impl ServerApi {
             )
             .await?;
         if result.scope_id != scope
-            || result.family != ArtifactReadFamily::AtomicMemory
+            || result.family != "atomic-memory"
             || result.artifact_id != artifact.artifact_id
             || result.revision != artifact.revision
             || result.content.get("schema").and_then(|v| v.as_str())

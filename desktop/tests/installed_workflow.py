@@ -30,6 +30,7 @@ from installed_fixture import (
     saved_reference,
     search_reference,
 )
+from installed_statistics import exercise_statistics
 from real_server import HarnessFailure
 
 ELEMENT = "element-6066-11e4-a52e-4f735466cecf"
@@ -129,10 +130,13 @@ class InstalledPage:
 
     def activate(self, name: str) -> None:
         self.button("使用此连接")
-        self.element(
-            f"//ul[@class='profile-list']/li[.//span[@class='profile-name'][normalize-space(.)='{name}']]//span[contains(@class,'badge')]"
+        self.wait(
+            """return [...document.querySelectorAll('.profile-list li')].some(item =>
+          item.querySelector('.profile-name')?.textContent.trim() === arguments[0] &&
+          [...item.querySelectorAll('.badge')].some(badge => badge.textContent.trim() === '当前连接'));""",
+            [name],
         )
-        self.button("记忆")
+        self.element("//div[@role='dialog' and @aria-label='选择精确范围']")
 
     def connect(self, name: str, endpoint: str) -> None:
         self.button("连接")
@@ -144,7 +148,8 @@ class InstalledPage:
         self.activate(name)
 
     def select_scope(self, scope_id: str) -> None:
-        self.click("//div[@class='topbar-group']/button")
+        if not self.observe("return !!document.querySelector('[role=dialog]');"):
+            self.click("//div[@class='topbar-group']/button")
         self.type("按范围标题查找", "Desktop installed CI")
         self.button("查找范围")
         self.click(f"//ul[@class='scope-list']/li[code[normalize-space(.)='{scope_id}']]/button")
@@ -205,9 +210,13 @@ class InstalledPage:
 
 def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
     page = InstalledPage(client, prefix)
-    with isolated_server() as (server, scope_id, wheel_digest):
+    with (
+        tempfile.TemporaryDirectory(prefix="desktop-statistics-ui-") as directory,
+        isolated_server(statistics_usage_control=Path(directory) / "seed-usage") as (server, scope_id, wheel_digest),
+    ):
         page.connect("Desktop CI synthetic", str(server.base_url).rstrip("/"))
         page.select_scope(scope_id)
+        statistics = exercise_statistics(page, server, scope_id, Path(directory) / "seed-usage")
         exercise_note_budget(page, server, scope_id)
         page.type("记忆内容", NOTE, "textarea")
         before_submit = server.post(
@@ -236,6 +245,7 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
         exercise_unknown_write(page)
         return {
             "serverWheelSha256": wheel_digest,
+            "statistics": statistics,
             "mode": "anonymous loopback SQLite, no model",
             "explicitConnectionAndScope": True,
             "saveSearchExactRead": True,
@@ -249,6 +259,7 @@ def exercise_memory(client: httpx.Client, prefix: str) -> dict[str, object]:
             "rawUtf8BudgetBoundary": True,
             "emptyAndCappedSearchPresentation": True,
             "committedLostResponseUnknownWithoutReplay": True,
+            "unknownDraftNavigationDiscardConfirmed": True,
             "lateSavePreservesNewScopeDraft": True,
         }
 
@@ -281,8 +292,8 @@ def exercise_connection_isolation(
         seeded.raise_for_status()
         reference_b = saved_reference(seeded.json())
         page.connect("Desktop CI B", str(server_b.base_url).rstrip("/"))
-        page.expect_empty_context()
         page.select_scope(scope_b)
+        page.expect_empty_context()
         if page.search_read(text_b) != reference_b:
             raise HarnessFailure("installed_second_server_reference_mismatch")
         draft = "desktopunsavedci 不应写入的草稿"
@@ -302,8 +313,8 @@ def exercise_connection_isolation(
         page.button("连接")
         page.profile("Desktop CI synthetic")
         page.activate("Desktop CI synthetic")
-        page.expect_empty_context()
         page.select_scope(scope_a)
+        page.expect_empty_context()
         if page.search_read(NOTE) != current_reference_a:
             raise HarnessFailure("installed_reconnected_reference_mismatch")
         page.button("连接")
@@ -351,6 +362,16 @@ def exercise_unknown_write(page: InstalledPage) -> None:
             if len(hits) != 1 or search_reference(hits[0]) != reference or counter.read_text(encoding="utf-8") != "1":
                 raise HarnessFailure("installed_unknown_write_replayed_or_missing")
             page.clear_note()
+            # Clearing the editable form does not discard the retained submitted
+            # input. Finish recovery explicitly before the next Server scenario.
+            page.button("连接")
+            page.confirm("丢弃尚未保存的输入？", accept=False)  # noqa: RUF001 - exact localized UI
+            page.element("//main//h1[normalize-space(.)='记忆']")
+            page.button("连接")
+            page.confirm("丢弃尚未保存的输入？", accept=True)  # noqa: RUF001 - exact localized UI
+            page.field("连接名称")
+            if counter.read_text(encoding="utf-8") != "1":
+                raise HarnessFailure("installed_unknown_navigation_replayed_write")
 
 
 def exercise_late_save(page: InstalledPage) -> None:

@@ -1,6 +1,6 @@
 ---
 title: Observability 开发规范
-description: 使用稳定字段、正确的 correlation 和 failure isolation 添加 operational events。
+description: 为日志、指标和 Trace 添加运行事件，保持字段一致、请求关联与日志失败隔离。
 ---
 
 # Observability 开发规范
@@ -9,6 +9,9 @@ description: 使用稳定字段、正确的 correlation 和 failure isolation �
 字段名称、单位、outcome、error category 和 correlation 语义遵循
 [operational field contract](../docs/operate/observability.md)。
 [RFC 0046](../rfcs/0046_observability_foundations.md) 定义 privacy 与 signal ownership。
+
+Desktop 宿主的进程内测量与原生安全导出遵循独立的 [Desktop 会话观察契约](desktop-session-observations.md)，
+不会配置 Server 日志或 tracing。
 
 ## 新增 operational event
 
@@ -75,7 +78,14 @@ JSON formatter 会忽略未登记的 extras。确需新增字段时：
 4. 更新中英文 operational field contract，并补充针对可观察输出的 regression test。
    重命名或删除已发布字段、event name 前，必须检查 compatibility。
 
+共享失败词汇与各 Family 覆盖矩阵见 [处理失败诊断](processing-failures.md)。
+
 Service identity 来自 `src/powercontext/server/telemetry.py`，logs 和 traces 共用同一 resource identity。
+可选的 `service_target` / `powercontext.service.target` 是配置的抓取端点，不是进程 ID。
+API/background profile 分别选择所属端点，Server 创建的 Worker 显式继承该值。新增 launcher 时保持此映射。
+含凭据或 URL 路径的值会被排除，未知目标保持缺失。
+Worker 同时继承 `service_owner_role` / `powercontext.service.owner_role`，用于按父角色筛选；
+实际 `service_role` 仍为 `worker`。这些字段不增加执行身份指标标签。
 Error classification 来自 `powercontext._logging.error_category`；`blocked` 等 domain-owned category
 由所属 boundary 明确设置。各 adapter 不应自行定义不同词汇。
 
@@ -122,22 +132,28 @@ Observation timestamp 与 scrape time 要明确区分，并记录
 cache、reset 以及覆盖不完整的语义。
 
 通过默认 `uv sync` 新建的开发环境不包含 `tracing-otlp`。在该环境中，`make test` 会跳过 OTLP worker tests
-和 worker model-usage tests 中的 tracing 用例。`make check` 不执行这些测试。
+和 worker model-usage tests 中的 tracing 用例，以及需要 exporter 的配置用例。
+缺少 exporter 时的拒绝用例仍会运行。`make check` 不执行这些测试。
 `Main` workflow 的 `worker-observability` job 安装该 extra，
 并要求所选测试全部通过，不允许 skip：
 
 ```bash
 uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
-  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py -q
+  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py \
+  tests/test_observability_cli.py tests/test_observability_connect.py -q
 ```
 
 这些检查覆盖真实 spawn、OTLP/HTTP、本地 model fixture、Pydantic AI propagation 和 metrics HTTP surface。
 这些证据证明本地 reception，不能代替外部 backend 的存储与查询验收。
 
 Background CLI listener 生命周期测试需要可丢弃的 OceanBase 实例及
-`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`。`E2E harness` workflow 的 `atomic-memory-clean-oceanbase` job
-通过 clean migration acceptance runner 执行 `tests/e2e/test_background_metrics.py`，不允许测试 skip。
-该测试先初始化新建数据库，再启动真实 background CLI，检查 listener 启动、metrics 授权、business routes
-不可用，以及 SIGTERM 后正常退出。Listener 启动预算不包含首次建表与索引创建。
-CI 在 migration reports 中保留 `background-metrics/background.log`；启动失败时输出 child return code
-和有界 log tail。此步骤通过后，才能认定 backend 验收通过。未设置 backend 变量时，默认测试会跳过此用例。
+`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`。`E2E harness` workflow 的
+`atomic-memory-clean-oceanbase-shards` 矩阵在三个 runner 上通过 clean migration
+acceptance runner 执行 `tests/e2e/test_background_metrics.py`，不允许测试 skip。
+沿用旧名称的 `atomic-memory-clean-oceanbase` job 只负责下载三个分片的 artifact，
+并校验完整且恰好一次的覆盖。该测试先初始化新建数据库，再启动真实 background CLI，
+检查 listener 启动、metrics 授权、business routes 不可用，以及 SIGTERM 后正常退出。
+Listener 启动预算不包含首次建表与索引创建。CI 在分片 artifact 的
+`background-metrics/background.log` 中保留日志；该组只有一个 node，因此日志位于
+shard `0`。启动失败时输出 child return code 和有界 log tail。此步骤通过后，才能认定
+backend 验收通过。未设置 backend 变量时，默认测试会跳过此用例。

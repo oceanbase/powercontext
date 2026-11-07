@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 from pydantic import SecretStr
 
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.observations import DurationObservations
 from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingModelUsageDelta
@@ -185,7 +186,9 @@ def test_background_composition_retains_worker_reports_and_both_attempt_observat
 
         monkeypatch.setattr("powercontext.server.cli.open_builtin_runtime", open_runtime)
         monkeypatch.setattr("powercontext.server.cli.serve_background_metrics", serve)
-        await _run_background_async(ServerSettings(), ServerTracing.context_only(role="background"))
+        await _run_background_async(
+            ServerSettings(database=SQLiteConfig()), ServerTracing.context_only(role="background")
+        )
         assert len(rendered) == 2
         for samples in rendered:
             assert _value(samples, "service_role_info", role="background") == 1

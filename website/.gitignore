@@ -9,5 +9,8 @@ content/docs
 public/powercontext-color.png
 public/powercontext-reverse.png
 public/docs-assets/
+public/contributors/
 next-env.d.ts
 *.tsbuildinfo
+
+content/blog

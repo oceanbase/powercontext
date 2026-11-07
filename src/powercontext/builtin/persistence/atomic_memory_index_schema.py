@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The single rebuildable current Atomic Memory projection."""
+"""Rebuildable current and exact-version Atomic Memory index projections."""
 
 from typing import Any
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, LargeBinary, MetaData, Table, Text
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from sqlalchemy import BigInteger, CheckConstraint, Column, LargeBinary, MetaData, String, Table, Text
+from sqlalchemy.dialects.mysql import LONGBLOB, MEDIUMTEXT
 from sqlalchemy.types import TypeEngine
 
 from powercontext.builtin.persistence.tables import identity_string
@@ -25,6 +25,17 @@ from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 ATOMIC_MEMORY_CURRENT_TABLE_NAME = "pc_atomic_memory_current"
 ATOMIC_MEMORY_PROJECTION_FORMAT = "powercontext.atomic-memory.current.v1"
+
+# This table is disposable index state, never retained archive authority.
+ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE = Table(
+    "pc_atomic_memory_evidence",
+    MetaData(),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", BigInteger, primary_key=True),
+    Column("sources", LargeBinary().with_variant(LONGBLOB(), "mysql"), nullable=False),
+    CheckConstraint("revision > 0", name="ck_pc_atomic_memory_evidence_revision"),
+)
 
 
 def atomic_memory_current_table(embedding_type: TypeEngine[Any] | None = None, /) -> Table:
@@ -46,6 +57,7 @@ def atomic_memory_current_table(embedding_type: TypeEngine[Any] | None = None, /
         Column("projection_format", identity_string(64), nullable=False),
         Column("kind", body_type, nullable=False),
         Column("text", body_type, nullable=False),
+        Column("description", String(200), nullable=True),
         Column("searchable_text", body_type, nullable=False),
         Column("tag_keys", body_type, nullable=False),
         Column("embedding", LargeBinary() if embedding_type is None else embedding_type),
@@ -61,4 +73,9 @@ def atomic_memory_current_table(embedding_type: TypeEngine[Any] | None = None, /
     )
 
 
-__all__ = ["ATOMIC_MEMORY_CURRENT_TABLE_NAME", "ATOMIC_MEMORY_PROJECTION_FORMAT", "atomic_memory_current_table"]
+__all__ = [
+    "ATOMIC_MEMORY_CURRENT_TABLE_NAME",
+    "ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE",
+    "ATOMIC_MEMORY_PROJECTION_FORMAT",
+    "atomic_memory_current_table",
+]

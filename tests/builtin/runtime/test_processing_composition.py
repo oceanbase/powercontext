@@ -18,7 +18,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -72,13 +72,6 @@ _PRE_HANDOFF_PROMPT_MANIFEST = {
 _OCEANBASE = OceanBaseConfig(
     url=SecretStr("mysql+aoceanbase://root%40test@127.0.0.1:2881/composition_unused?charset=utf8mb4")
 )
-
-
-class _InjectedGate:
-    policy_id = "test.injected.memory.write-gate.v1"
-
-    async def assess(self, request, /):
-        raise AssertionError
 
 
 def _sqlite(path: Path) -> SQLiteConfig:
@@ -188,8 +181,8 @@ def test_partial_migration_refuses_split_role_startup(
         # Exercise the OceanBase role's real startup gate against a real SQLite
         # transaction. A failed gate must run before dialect-specific indexes.
         @asynccontextmanager
-        async def local_profile(_config, *, tables):
-            async with SQLiteProfile.open(database, tables=tables) as profile:
+        async def local_profile(_config, *, tables, _archive_recovery=False):
+            async with SQLiteProfile.open(database, tables=tables, _archive_recovery=_archive_recovery) as profile:
                 yield profile
 
         monkeypatch.setattr(composition.OceanBaseProfile, "open", local_profile)
@@ -285,12 +278,6 @@ def test_dream_injection_requires_a_reconstructible_worker(tmp_path: Path, famil
     asyncio.run(scenario())
 
 
-def test_injected_memory_write_gate_is_preserved_for_atomic_memory_composition() -> None:
-    gate = _InjectedGate()
-
-    assert composition._configured_memory_write_gate(gate, None, RuntimeConfig()) is gate
-
-
 @pytest.mark.parametrize("role", ["all", "api"])
 @pytest.mark.parametrize("duplicate", ["binding_name", "artifact_family", "config_prefix"])
 def test_duplicate_custom_registration_is_rejected_for_every_role(role: Literal["all", "api"], duplicate: str) -> None:
@@ -357,3 +344,48 @@ def test_composition_opens_one_global_or_four_dedicated_controllers(
         launch.assert_not_called()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("missing_profile", [False, True])
+def test_injected_components_skip_unneeded_provider_initialization(tmp_path, monkeypatch, missing_profile):
+    from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryGenerationPipeline
+    from powercontext.builtin.inference import character_token_estimator
+    from tests.builtin.runtime.test_decision_composition import _FakeDecisionModel
+
+    async def open_provider(*args, **kwargs):
+        raise RuntimeError("default provider initialization requested")  # noqa: TRY003
+
+    monkeypatch.setattr(composition, "_open_pydantic_ai_model", open_provider)
+    component = cast(Any, SimpleNamespace(supports_atomic_memory=True))
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=component, reconciler=component, estimator=character_token_estimator()
+    )
+    config = BuiltinConfig(
+        database=_sqlite(tmp_path / "injected.db"),
+        inference=InferenceConfig(generation_model="openai:unused"),
+        runtime=RuntimeConfig(
+            artifact_processing_families=(), memory_rerank_enabled=True, decision_assistance_enabled=True
+        ),
+    )
+
+    async def scenario():
+        async with open_builtin_runtime(
+            config,
+            candidate_pipeline=pipeline,
+            profile_generator=None if missing_profile else component,
+            experience_pipeline=component,
+            experience_generator=component,
+            skill_generator=component,
+            handoff_pipeline=component,
+            memory_reranker=component,
+            decision_model=_FakeDecisionModel(),
+            scheduler_path=tmp_path / "injected.scheduler.db",
+        ) as runtime:
+            assert runtime.decision_model is not None
+            assert await runtime.readiness()
+
+    if missing_profile:
+        with pytest.raises(RuntimeError, match="default provider initialization requested"):
+            asyncio.run(scenario())
+    else:
+        asyncio.run(scenario())

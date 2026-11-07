@@ -1,0 +1,270 @@
+{
+  "format": "powercontext.server-vector-profile.v1",
+  "source_release": "1.3.0",
+  "source_capture_sha256": {
+    "optional-release130-sqlite-vec3-20261023": "069f2153ac095fd00bfadbbb02b055d9bac54e4a8fd0f1c51dfa2ff88abccb92",
+    "optional-release130-oceanbase-vec3-e942bce93f": "b62b07ce28537fbdfcaeea9711bb6de1e3131794d0b76984c771527972ca876d"
+  },
+  "sqlite": {
+    "source": [
+      [
+        "table",
+        "pc_topic_memory_chunk_vec",
+        "pc_topic_memory_chunk_vec",
+        "CREATE VIRTUAL TABLE pc_topic_memory_chunk_vec USING vec0(scope_id TEXT partition key, embedding float[__DIMENSION__])"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_chunks",
+        "pc_topic_memory_chunk_vec_chunks",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_chunks\"(chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,size INTEGER NOT NULL,sequence_id integer,partition00,validity BLOB NOT NULL, rowids BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_info",
+        "pc_topic_memory_chunk_vec_info",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_info\" (key text primary key, value any)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_rowids",
+        "pc_topic_memory_chunk_vec_rowids",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_rowids\"(rowid INTEGER PRIMARY KEY AUTOINCREMENT,id,chunk_id INTEGER,chunk_offset INTEGER)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_vector_chunks00",
+        "pc_topic_memory_chunk_vec_vector_chunks00",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_vector_chunks00\"(rowid PRIMARY KEY,vectors BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec",
+        "pc_topic_memory_topic_vec",
+        "CREATE VIRTUAL TABLE pc_topic_memory_topic_vec USING vec0(scope_id TEXT partition key, embedding float[__DIMENSION__])"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_chunks",
+        "pc_topic_memory_topic_vec_chunks",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_chunks\"(chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,size INTEGER NOT NULL,sequence_id integer,partition00,validity BLOB NOT NULL, rowids BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_info",
+        "pc_topic_memory_topic_vec_info",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_info\" (key text primary key, value any)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_rowids",
+        "pc_topic_memory_topic_vec_rowids",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_rowids\"(rowid INTEGER PRIMARY KEY AUTOINCREMENT,id,chunk_id INTEGER,chunk_offset INTEGER)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_vector_chunks00",
+        "pc_topic_memory_topic_vec_vector_chunks00",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_vector_chunks00\"(rowid PRIMARY KEY,vectors BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_vector_chunks",
+        "pc_topic_memory_vector_chunks",
+        "CREATE TABLE pc_topic_memory_vector_chunks (\n\tvector_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, \n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tchunk_ordinal INTEGER NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tCONSTRAINT uq_pc_topic_memory_vector_chunks_active UNIQUE (scope_id, artifact_id, chunk_ordinal)\n)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_vector_topics",
+        "pc_topic_memory_vector_topics",
+        "CREATE TABLE pc_topic_memory_vector_topics (\n\tvector_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, \n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tCONSTRAINT uq_pc_topic_memory_vector_topics_active UNIQUE (scope_id, artifact_id)\n)"
+      ]
+    ],
+    "target": [
+      [
+        "table",
+        "pc_topic_memory_chunk_vec",
+        "pc_topic_memory_chunk_vec",
+        "CREATE VIRTUAL TABLE pc_topic_memory_chunk_vec USING vec0(scope_id TEXT partition key, embedding float[__DIMENSION__])"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_chunks",
+        "pc_topic_memory_chunk_vec_chunks",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_chunks\"(chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,size INTEGER NOT NULL,sequence_id integer,partition00,validity BLOB NOT NULL, rowids BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_info",
+        "pc_topic_memory_chunk_vec_info",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_info\" (key text primary key, value any)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_rowids",
+        "pc_topic_memory_chunk_vec_rowids",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_rowids\"(rowid INTEGER PRIMARY KEY AUTOINCREMENT,id,chunk_id INTEGER,chunk_offset INTEGER)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_chunk_vec_vector_chunks00",
+        "pc_topic_memory_chunk_vec_vector_chunks00",
+        "CREATE TABLE \"pc_topic_memory_chunk_vec_vector_chunks00\"(rowid PRIMARY KEY,vectors BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec",
+        "pc_topic_memory_topic_vec",
+        "CREATE VIRTUAL TABLE pc_topic_memory_topic_vec USING vec0(scope_id TEXT partition key, embedding float[__DIMENSION__])"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_chunks",
+        "pc_topic_memory_topic_vec_chunks",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_chunks\"(chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,size INTEGER NOT NULL,sequence_id integer,partition00,validity BLOB NOT NULL, rowids BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_info",
+        "pc_topic_memory_topic_vec_info",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_info\" (key text primary key, value any)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_rowids",
+        "pc_topic_memory_topic_vec_rowids",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_rowids\"(rowid INTEGER PRIMARY KEY AUTOINCREMENT,id,chunk_id INTEGER,chunk_offset INTEGER)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_topic_vec_vector_chunks00",
+        "pc_topic_memory_topic_vec_vector_chunks00",
+        "CREATE TABLE \"pc_topic_memory_topic_vec_vector_chunks00\"(rowid PRIMARY KEY,vectors BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_vector_chunks",
+        "pc_topic_memory_vector_chunks",
+        "CREATE TABLE pc_topic_memory_vector_chunks (\n\tvector_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, \n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tchunk_ordinal INTEGER NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tCONSTRAINT uq_pc_topic_memory_vector_chunks_active UNIQUE (scope_id, artifact_id, chunk_ordinal)\n)"
+      ],
+      [
+        "table",
+        "pc_topic_memory_vector_topics",
+        "pc_topic_memory_vector_topics",
+        "CREATE TABLE pc_topic_memory_vector_topics (\n\tvector_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, \n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tCONSTRAINT uq_pc_topic_memory_vector_topics_active UNIQUE (scope_id, artifact_id)\n)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec",
+        "pc_atomic_memory_current_vec",
+        "CREATE VIRTUAL TABLE pc_atomic_memory_current_vec USING vec0(identity TEXT PRIMARY KEY, scope_id TEXT PARTITION KEY, kind TEXT, embedding float[__DIMENSION__], +artifact_id TEXT, +revision INTEGER, +state_version INTEGER, +text TEXT, chunk_size=128 /* __ATOMIC_FINGERPRINT__ */)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec_auxiliary",
+        "pc_atomic_memory_current_vec_auxiliary",
+        "CREATE TABLE \"pc_atomic_memory_current_vec_auxiliary\"( rowid integer PRIMARY KEY , value00, value01, value02, value03)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec_chunks",
+        "pc_atomic_memory_current_vec_chunks",
+        "CREATE TABLE \"pc_atomic_memory_current_vec_chunks\"(chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,size INTEGER NOT NULL,sequence_id integer,partition00,validity BLOB NOT NULL, rowids BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec_info",
+        "pc_atomic_memory_current_vec_info",
+        "CREATE TABLE \"pc_atomic_memory_current_vec_info\" (key text primary key, value any)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec_metadatachunks00",
+        "pc_atomic_memory_current_vec_metadatachunks00",
+        "CREATE TABLE \"pc_atomic_memory_current_vec_metadatachunks00\"(rowid PRIMARY KEY, data BLOB NOT NULL)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec_metadatatext00",
+        "pc_atomic_memory_current_vec_metadatatext00",
+        "CREATE TABLE \"pc_atomic_memory_current_vec_metadatatext00\"(rowid PRIMARY KEY, data TEXT)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec_rowids",
+        "pc_atomic_memory_current_vec_rowids",
+        "CREATE TABLE \"pc_atomic_memory_current_vec_rowids\"(rowid INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,chunk_id INTEGER,chunk_offset INTEGER)"
+      ],
+      [
+        "table",
+        "pc_atomic_memory_current_vec_vector_chunks00",
+        "pc_atomic_memory_current_vec_vector_chunks00",
+        "CREATE TABLE \"pc_atomic_memory_current_vec_vector_chunks00\"(rowid PRIMARY KEY,vectors BLOB NOT NULL)"
+      ],
+      [
+        "trigger",
+        "pc_atomic_memory_vec_delete",
+        "pc_atomic_memory_current",
+        "CREATE TRIGGER pc_atomic_memory_vec_delete AFTER DELETE ON pc_atomic_memory_current BEGIN DELETE FROM pc_atomic_memory_current_vec WHERE identity = ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); END"
+      ],
+      [
+        "trigger",
+        "pc_atomic_memory_vec_insert",
+        "pc_atomic_memory_current",
+        "CREATE TRIGGER pc_atomic_memory_vec_insert AFTER INSERT ON pc_atomic_memory_current BEGIN INSERT INTO pc_atomic_memory_current_vec (identity, scope_id, kind, embedding, artifact_id, revision, state_version, text) SELECT 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id)), new.scope_id, new.kind, new.embedding, new.artifact_id, new.revision, new.state_version, new.text WHERE NOT (new.embedding IS NULL OR new.embedding_input_hash IS NULL OR new.profile_fingerprint IS NULL OR new.profile_fingerprint <> '__ATOMIC_FINGERPRINT__' OR new.projection_format <> 'powercontext.atomic-memory.current.v1' OR LENGTH(new.embedding) <> __VECTOR_BYTES__); END"
+      ],
+      [
+        "trigger",
+        "pc_atomic_memory_vec_update",
+        "pc_atomic_memory_current",
+        "CREATE TRIGGER pc_atomic_memory_vec_update AFTER UPDATE OF scope_id, artifact_id, kind, embedding, revision, state_version, text, embedding_input_hash, profile_fingerprint, projection_format ON pc_atomic_memory_current WHEN old.scope_id IS NOT new.scope_id OR old.artifact_id IS NOT new.artifact_id OR old.kind IS NOT new.kind OR old.embedding IS NOT new.embedding OR old.revision IS NOT new.revision OR old.state_version IS NOT new.state_version OR old.text IS NOT new.text OR old.embedding_input_hash IS NOT new.embedding_input_hash OR old.profile_fingerprint IS NOT new.profile_fingerprint OR old.projection_format IS NOT new.projection_format BEGIN DELETE FROM pc_atomic_memory_current_vec WHERE identity = ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); INSERT INTO pc_atomic_memory_current_vec (identity, scope_id, kind, embedding, artifact_id, revision, state_version, text) SELECT 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id)), new.scope_id, new.kind, new.embedding, new.artifact_id, new.revision, new.state_version, new.text WHERE NOT (new.embedding IS NULL OR new.embedding_input_hash IS NULL OR new.profile_fingerprint IS NULL OR new.profile_fingerprint <> '__ATOMIC_FINGERPRINT__' OR new.projection_format <> 'powercontext.atomic-memory.current.v1' OR LENGTH(new.embedding) <> __VECTOR_BYTES__); END"
+      ],
+      [
+        "table",
+        "pc_server_storage_profile",
+        "pc_server_storage_profile",
+        "CREATE TABLE pc_server_storage_profile (singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton=1), embedding_profile TEXT NOT NULL)"
+      ]
+    ],
+    "initialize": [
+      "CREATE VIRTUAL TABLE pc_topic_memory_chunk_vec USING vec0(scope_id TEXT partition key, embedding float[__DIMENSION__])",
+      "CREATE VIRTUAL TABLE pc_topic_memory_topic_vec USING vec0(scope_id TEXT partition key, embedding float[__DIMENSION__])",
+      "CREATE TABLE pc_topic_memory_vector_chunks (\n\tvector_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, \n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tchunk_ordinal INTEGER NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tCONSTRAINT uq_pc_topic_memory_vector_chunks_active UNIQUE (scope_id, artifact_id, chunk_ordinal)\n)",
+      "CREATE TABLE pc_topic_memory_vector_topics (\n\tvector_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, \n\tscope_id VARCHAR(256) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tprofile_fingerprint VARCHAR(64) NOT NULL, \n\tCONSTRAINT uq_pc_topic_memory_vector_topics_active UNIQUE (scope_id, artifact_id)\n)"
+    ],
+    "upgrade": [
+      "CREATE VIRTUAL TABLE pc_atomic_memory_current_vec USING vec0(identity TEXT PRIMARY KEY, scope_id TEXT PARTITION KEY, kind TEXT, embedding float[__DIMENSION__], +artifact_id TEXT, +revision INTEGER, +state_version INTEGER, +text TEXT, chunk_size=128 /* __ATOMIC_FINGERPRINT__ */)",
+      "CREATE TRIGGER pc_atomic_memory_vec_delete AFTER DELETE ON pc_atomic_memory_current BEGIN DELETE FROM pc_atomic_memory_current_vec WHERE identity = ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); END",
+      "CREATE TRIGGER pc_atomic_memory_vec_insert AFTER INSERT ON pc_atomic_memory_current BEGIN INSERT INTO pc_atomic_memory_current_vec (identity, scope_id, kind, embedding, artifact_id, revision, state_version, text) SELECT 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id)), new.scope_id, new.kind, new.embedding, new.artifact_id, new.revision, new.state_version, new.text WHERE NOT (new.embedding IS NULL OR new.embedding_input_hash IS NULL OR new.profile_fingerprint IS NULL OR new.profile_fingerprint <> '__ATOMIC_FINGERPRINT__' OR new.projection_format <> 'powercontext.atomic-memory.current.v1' OR LENGTH(new.embedding) <> __VECTOR_BYTES__); END",
+      "CREATE TRIGGER pc_atomic_memory_vec_update AFTER UPDATE OF scope_id, artifact_id, kind, embedding, revision, state_version, text, embedding_input_hash, profile_fingerprint, projection_format ON pc_atomic_memory_current WHEN old.scope_id IS NOT new.scope_id OR old.artifact_id IS NOT new.artifact_id OR old.kind IS NOT new.kind OR old.embedding IS NOT new.embedding OR old.revision IS NOT new.revision OR old.state_version IS NOT new.state_version OR old.text IS NOT new.text OR old.embedding_input_hash IS NOT new.embedding_input_hash OR old.profile_fingerprint IS NOT new.profile_fingerprint OR old.projection_format IS NOT new.projection_format BEGIN DELETE FROM pc_atomic_memory_current_vec WHERE identity = ('i' || lower(hex(old.scope_id)) || 'x' || lower(hex(old.artifact_id))); INSERT INTO pc_atomic_memory_current_vec (identity, scope_id, kind, embedding, artifact_id, revision, state_version, text) SELECT 'i' || lower(hex(new.scope_id)) || 'x' || lower(hex(new.artifact_id)), new.scope_id, new.kind, new.embedding, new.artifact_id, new.revision, new.state_version, new.text WHERE NOT (new.embedding IS NULL OR new.embedding_input_hash IS NULL OR new.profile_fingerprint IS NULL OR new.profile_fingerprint <> '__ATOMIC_FINGERPRINT__' OR new.projection_format <> 'powercontext.atomic-memory.current.v1' OR LENGTH(new.embedding) <> __VECTOR_BYTES__); END",
+      "CREATE TABLE pc_server_storage_profile (singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton=1), embedding_profile TEXT NOT NULL)"
+    ],
+    "rebuilt_tables": [
+      "pc_candidate_heads",
+      "pc_candidate_versions",
+      "pc_profile_policies",
+      "pc_artifacts",
+      "pc_artifact_processing_intents",
+      "pc_dream_runs",
+      "pc_topic_memory_work_budgets"
+    ]
+  },
+  "mysql": {
+    "pc_atomic_memory_current": "CREATE TABLE `pc_atomic_memory_current` (\n  `scope_id` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `artifact_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `revision` bigint(20) NOT NULL,\n  `state_version` bigint(20) NOT NULL,\n  `content_hash` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `projection_format` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `kind` mediumtext NOT NULL,\n  `text` mediumtext NOT NULL,\n  `searchable_text` mediumtext NOT NULL,\n  `tag_keys` mediumtext NOT NULL,\n  `embedding` VECTOR(__DIMENSION__) DEFAULT NULL,\n  `profile_fingerprint` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,\n  `embedding_input_hash` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,\n  PRIMARY KEY (`scope_id`, `artifact_id`),\n  FULLTEXT KEY `ix_pc_atomic_memory_current_fts` (`searchable_text`) WITH PARSER space PARSER_PROPERTIES=(min_token_size=3,max_token_size=84) BLOCK_SIZE 16384,\n  VECTOR KEY `ix_pc_atomic_memory_current_embedding` (`embedding`) WITH (DISTANCE=L2,TYPE=HNSW, LIB=VSAG, M=16, EF_CONSTRUCTION=200, EF_SEARCH=64) BLOCK_SIZE 16384,\n  CONSTRAINT `ck_pc_atomic_memory_current_revision` CHECK ((`revision` > 0)),\n  CONSTRAINT `ck_pc_atomic_memory_current_state_version` CHECK ((`state_version` >= 0)),\n  CONSTRAINT `ck_pc_atomic_memory_current_embedding_metadata` CHECK ((((`embedding` is null) and (`profile_fingerprint` is null) and (`embedding_input_hash` is null)) or ((`embedding` is not null) and (`profile_fingerprint` is not null) and (`embedding_input_hash` is not null))))\n) DEFAULT CHARSET=utf8mb4",
+    "pc_topic_memory_vector_chunks": "CREATE TABLE `pc_topic_memory_vector_chunks` (\n  `vector_id` bigint(20) NOT NULL AUTO_INCREMENT,\n  `scope_id` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `artifact_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `revision` bigint(20) NOT NULL,\n  `chunk_ordinal` bigint(20) NOT NULL,\n  `profile_fingerprint` varchar(64) NOT NULL,\n  `embedding` VECTOR(__DIMENSION__) NOT NULL,\n  PRIMARY KEY (`vector_id`),\n  UNIQUE KEY `uq_pc_topic_memory_vector_chunks_active` (`scope_id`, `artifact_id`, `chunk_ordinal`) BLOCK_SIZE 16384 LOCAL,\n  VECTOR KEY `ix_pc_topic_memory_vector_chunks_embedding` (`embedding`) WITH (DISTANCE=L2,TYPE=HNSW, LIB=VSAG, M=16, EF_CONSTRUCTION=200, EF_SEARCH=64) BLOCK_SIZE 16384\n) DEFAULT CHARSET=utf8mb4",
+    "pc_topic_memory_vector_topics": "CREATE TABLE `pc_topic_memory_vector_topics` (\n  `vector_id` bigint(20) NOT NULL AUTO_INCREMENT,\n  `scope_id` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `artifact_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,\n  `revision` bigint(20) NOT NULL,\n  `profile_fingerprint` varchar(64) NOT NULL,\n  `embedding` VECTOR(__DIMENSION__) NOT NULL,\n  PRIMARY KEY (`vector_id`),\n  UNIQUE KEY `uq_pc_topic_memory_vector_topics_active` (`scope_id`, `artifact_id`) BLOCK_SIZE 16384 LOCAL,\n  VECTOR KEY `ix_pc_topic_memory_vector_topics_embedding` (`embedding`) WITH (DISTANCE=L2,TYPE=HNSW, LIB=VSAG, M=16, EF_CONSTRUCTION=200, EF_SEARCH=64) BLOCK_SIZE 16384\n) DEFAULT CHARSET=utf8mb4"
+  },
+  "mysql_profile_table": "CREATE TABLE pc_server_storage_profile (singleton BIGINT NOT NULL, embedding_profile MEDIUMTEXT NOT NULL, PRIMARY KEY (singleton), CONSTRAINT ck_pc_server_storage_profile_singleton CHECK (singleton=1))",
+  "mysql_optional_table_options": {
+    "pc_topic_memory_vector_topics": {
+      "auto_increment_mode": [
+        "order"
+      ]
+    },
+    "pc_topic_memory_vector_chunks": {
+      "auto_increment_mode": [
+        "order"
+      ]
+    }
+  }
+}

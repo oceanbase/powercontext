@@ -40,7 +40,16 @@ from .test_v14_codec import supplied
 
 def response(parts, evidence_ids=("e0",)):
     return TemplateOutput.model_validate(
-        {"candidates": [{"kind": "fact", "evidence_ids": evidence_ids, "parts": parts}]}
+        {
+            "candidates": [
+                {
+                    "kind": "fact",
+                    "description": "Synthetic protocol candidate",
+                    "evidence_ids": evidence_ids,
+                    "parts": parts,
+                }
+            ]
+        }
     )
 
 
@@ -265,7 +274,7 @@ def test_original_unicode_manifest_rejects_multiple_requests_without_changing_ev
     asyncio.run(scenario())
 
 
-def test_many_source_2k_keeps_existing_call_and_input_budget():
+def test_many_source_2k_keeps_existing_call_and_input_budget(historical_cell_context):
     async def scenario():
         from powercontext_eval_evidence_admission.manifests import load_suite
         from powercontext_eval_evidence_admission.v16.admission import pack

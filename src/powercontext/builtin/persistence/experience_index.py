@@ -544,6 +544,7 @@ def experience_search_hits(
             break
     return ExperienceSearchOutcome(
         hits=tuple(hits),
+        mode="fts",
         admission=AdmissionCounts(
             family=Experience.family,
             scope_id=scope_id,

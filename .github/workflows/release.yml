@@ -3,89 +3,227 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing published Release tag to build and publish
+        required: true
+        type: string
+      skip_upgrade_acceptance:
+        description: Publish for new databases only, without database upgrade acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.release.tag_name || github.ref }}
+  group: release-${{ inputs.release_tag || github.event.release.tag_name || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release-build:
+  resolve-release:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up the environment
-        uses: ./.github/actions/setup-python-env
-
-      - name: Verify package version from Release tag
+      - name: Resolve the published Release and pin its source
+        id: release
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+          SKIP_UPGRADE_ACCEPTANCE: ${{ inputs.skip_upgrade_acceptance || false }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           python - <<'PY'
+          import json
           import os
           import re
-          import subprocess
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
 
-          release_tag = os.environ["RELEASE_TAG"]
-          if release_tag.startswith("powercontext-v"):
-              release_version = release_tag.removeprefix("powercontext-v")
-          else:
-              release_version = release_tag.removeprefix("v")
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", release_version):
-              raise SystemExit(
-                  "Release tag must use X.Y.Z with optional aN, bN, or rcN suffix and "
-                  "optional v or powercontext-v prefix (for example, powercontext-v1.1.0)"
-              )
+          tag = os.environ["RELEASE_TAG"]
+          if not re.fullmatch(r"(?:powercontext-v|v)?\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?", tag):
+              raise SystemExit("Invalid PowerContext Release tag")
+          manual = os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
+          skip = os.environ["SKIP_UPGRADE_ACCEPTANCE"] == "true"
+          if manual and os.environ["GITHUB_REF"] != "refs/heads/" + os.environ["DEFAULT_BRANCH"]:
+              raise SystemExit("Run manual publication from the default branch; select the target with release_tag")
+          if skip and not manual:
+              raise SystemExit("Skipping upgrade acceptance requires explicit manual dispatch")
 
-          package_version = subprocess.check_output(
-              ["uvx", "--from", "hatchling", "--with", "hatch-vcs", "hatchling", "version"],
-              text=True,
-          ).strip()
-          if package_version != release_version:
-              raise SystemExit(
-                  f"Release tag version {release_version!r} does not match VCS version {package_version!r}"
+          def get(path):
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/{path}",
+                  headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                           "Accept": "application/vnd.github+json"},
               )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+
+          quoted_tag = urllib.parse.quote(tag, safe="")
+          release = get(f"releases/tags/{quoted_tag}")
+          if release["tag_name"] != tag or release["draft"] or not release["published_at"]:
+              raise SystemExit("Select an existing published GitHub Release")
+          notice = (
+              "Upgrade acceptance was skipped for this release. "
+              "Use only new databases; upgrades of existing databases are not supported."
+          )
+          if skip and notice not in (release["body"] or ""):
+              raise SystemExit("Add this exact notice to the GitHub Release before skipping upgrades: " + notice)
+          commit = get(f"commits/{urllib.parse.quote('refs/tags/' + tag, safe='')}")["sha"]
+          if not re.fullmatch(r"[0-9a-f]{40}", commit):
+              raise SystemExit("Release tag did not resolve to a commit")
+          if not manual and commit != os.environ["GITHUB_SHA"]:
+              raise SystemExit("Release tag changed since the published event")
+          event = Path(os.environ["RUNNER_TEMP"]) / "release-metadata" / "event.json"
+          event.parent.mkdir()
+          event.write_text(json.dumps({"release": release}, ensure_ascii=False), encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"tag={tag}\nsource_sha={commit}\n")
+              output.write(f"prerelease={str(release['prerelease']).lower()}\n")
           PY
-
-      - name: Set up website tools
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
-
-      - name: Cache website dependencies
-        uses: ./.github/actions/cache-pnpm
-        with:
-          working-directory: website
-          cache-dependency-glob: website/pnpm-lock.yaml
-
-      - name: Verify synchronized release references and release notes
-        env:
-          VERSION: ${{ github.event.release.tag_name }}
-        run: make release-check
-
-      - name: Build release distributions
-        run: |
-          uv build --out-dir dist
-          uvx --from twine twine check dist/*
-
-      - name: Upload release distributions
+      - name: Preserve the Release notes used for validation
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: release-dists
-          path: dist/*
+          name: release-metadata
+          path: ${{ runner.temp }}/release-metadata/event.json
           if-no-files-found: error
+          overwrite: true
           retention-days: 30
+
+  release-build:
+    needs: resolve-release
+    uses: ./.github/workflows/upgrade-release.yml
+    with:
+      release: true
+      selection: full
+      source_ref: ${{ needs.resolve-release.outputs.source_sha }}
+      release_tag: ${{ needs.resolve-release.outputs.tag }}
+      skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
+      internal_runner: false
+
+  dsh-release-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: resolve-release
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      tag: ${{ steps.package.outputs.tag }}
+    steps:
+      - name: Check out pinned release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up project tools
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+
+      - name: Cache DSH dependencies
+        uses: ./.github/actions/cache-pnpm
+        with:
+          working-directory: integrations/dsh/plugins/powercontext
+          cache-dependency-glob: integrations/dsh/plugins/powercontext/pnpm-lock.yaml
+
+      - name: Resolve npm version and channel
+        id: package
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+          PRERELEASE: ${{ needs.resolve-release.outputs.prerelease }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          import { releaseMetadata } from './integrations/dsh/plugins/powercontext/scripts/stamp-version.mjs';
+          const { version, tag } = releaseMetadata(process.env.RELEASE_TAG, process.env.PRERELEASE === 'true');
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ntag=${tag}\n`);
+          JS
+
+      - name: Test and build DSH plugin
+        working-directory: integrations/dsh/plugins/powercontext
+        run: |
+          pnpm install --frozen-lockfile --config.auto-install-peers=false
+          pnpm test
+          pnpm build
+
+      - name: Pack and install the release archive
+        env:
+          POWERCONTEXT_DSH_PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+          DIST_TAG: ${{ steps.package.outputs.tag }}
+        run: |
+          package_dir=integrations/dsh/plugins/powercontext
+          node "$package_dir/scripts/pack-release.mjs" "$POWERCONTEXT_DSH_PACKAGE_VERSION" "$PWD/dist/dsh"
+          export POWERCONTEXT_DSH_TARBALL="$PWD/dist/dsh/powercontext-dsh-$POWERCONTEXT_DSH_PACKAGE_VERSION.tgz"
+          node --test "$package_dir/tests/pack-release.test.mjs"
+          npm publish "$POWERCONTEXT_DSH_TARBALL" --dry-run --ignore-scripts --access public --tag "$DIST_TAG"
+
+      - name: Preserve verified npm archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dsh-release-package
+          path: dist/dsh/*.tgz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
+  npm-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: [resolve-release, release-build, dsh-release-build, pypi-publish]
+    if: github.repository == 'oceanbase/powercontext'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out pinned release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Node for npm trusted publishing
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Download verified npm archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dsh-release-package
+          path: dist/dsh/
+
+      - name: Check whether the exact artifact is already published
+        id: registry
+        env:
+          PACKAGE_VERSION: ${{ needs.dsh-release-build.outputs.version }}
+        run: |
+          node integrations/dsh/plugins/powercontext/scripts/check-registry.mjs \
+            "dist/dsh/powercontext-dsh-$PACKAGE_VERSION.tgz" "$PACKAGE_VERSION"
+
+      - name: Publish with npm trusted publishing
+        if: steps.registry.outputs.published != 'true'
+        env:
+          PACKAGE_VERSION: ${{ needs.dsh-release-build.outputs.version }}
+          DIST_TAG: ${{ needs.dsh-release-build.outputs.tag }}
+        run: |
+          npm publish "dist/dsh/powercontext-dsh-$PACKAGE_VERSION.tgz" \
+            --ignore-scripts --access public --tag "$DIST_TAG" --registry=https://registry.npmjs.org/
+
+      - name: Verify published archive integrity
+        env:
+          PACKAGE_VERSION: ${{ needs.dsh-release-build.outputs.version }}
+        run: |
+          node integrations/dsh/plugins/powercontext/scripts/check-registry.mjs \
+            "dist/dsh/powercontext-dsh-$PACKAGE_VERSION.tgz" "$PACKAGE_VERSION" --required
 
   pypi-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: release-build
+    needs: [release-build, dsh-release-build]
     permissions:
       id-token: write
     steps:
@@ -96,12 +234,12 @@ jobs:
           path: dist/
 
       - name: Publish release distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
 
   release-assets:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: release-build
+    needs: [resolve-release, release-build, dsh-release-build]
     permissions:
       contents: write
     steps:
@@ -114,21 +252,34 @@ jobs:
       - name: Upload GitHub Release assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ needs.resolve-release.outputs.tag }}
           files: dist/*
           fail_on_unmatched_files: true
 
+      - name: Download verified npm archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dsh-release-package
+          path: dist/dsh/
+
+      - name: Upload npm archive to GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          tag_name: ${{ needs.resolve-release.outputs.tag }}
+          files: dist/dsh/*.tgz
+          fail_on_unmatched_files: true
+
   release-verify:
-    needs: [pypi-publish, release-assets]
+    needs: [resolve-release, pypi-publish, release-assets]
     permissions:
       contents: read
     uses: ./.github/workflows/release-verify.yml
     with:
-      release_tag: ${{ github.event.release.tag_name }}
+      release_tag: ${{ needs.resolve-release.outputs.tag }}
       release_package: powercontext
 
   deploy-website:
-    needs: pypi-publish
+    needs: [resolve-release, pypi-publish]
     permissions:
       contents: read
       pages: write
@@ -142,13 +293,15 @@ jobs:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ needs.resolve-release.outputs.source_sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
       - name: Set up website tools
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm

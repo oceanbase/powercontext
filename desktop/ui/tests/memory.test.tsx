@@ -22,6 +22,7 @@ import {
   fireEvent,
   act,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -35,6 +36,7 @@ import { Overview } from "../src/app/Overview";
 import { desktopApi } from "../src/shared/ipc";
 import type {
   ArtifactReference,
+  CompatibilityReason,
   DesktopState,
   MemorySearchResponse,
   WriteOutcome,
@@ -84,7 +86,13 @@ const state: DesktopState = {
       capabilities: fact,
       compatibilityVerified: true,
       anonymousAccess: true,
-      supportedOperations: [],
+      supportedOperations: [
+        "remember_memory",
+        "search_memory",
+        "get_artifact_revision",
+        "list_scopes",
+        "get_scope",
+      ],
     },
   },
   compatibilityProfiles: [],
@@ -96,6 +104,241 @@ const artifact: ArtifactReference = {
   artifact_id: "atomic-a",
   revision: 7,
 };
+function restrictedState(
+  operation: string,
+  reason: CompatibilityReason,
+): DesktopState {
+  const active = state.active!;
+  return {
+    ...state,
+    active: {
+      ...active,
+      report: {
+        ...active.report,
+        supportedOperations: active.report.supportedOperations.filter(
+          (item) => item !== operation,
+        ),
+        discovery: {
+          status: "supported",
+          server: null,
+          error: null,
+          reason: null,
+          operations: {
+            [operation]: {
+              status:
+                reason === "qualification_required"
+                  ? "unverified"
+                  : "unsupported",
+              reason,
+              qualificationId: null,
+            },
+          },
+        },
+      },
+    },
+  };
+}
+test.each(["en", "zh"] as const)(
+  "unsupported saving preserves independently supported search and exact reads (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const restricted = restrictedState("remember_memory", "operation_missing");
+    vi.mocked(desktopApi.search).mockResolvedValue({
+      hits: [
+        { artifact, text: "supported search", score: 1, matched_by: ["text"] },
+      ],
+    });
+    vi.mocked(desktopApi.atomicEntry).mockResolvedValue({
+      artifact,
+      kind: "note",
+      text: "exact content",
+      source_refs: [],
+    });
+    render(
+      <MemoryWorkspace
+        state={restricted}
+        language={language}
+        onState={vi.fn()}
+        onDirty={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText(
+      language === "en" ? "Memory text" : "记忆内容",
+    ) as HTMLTextAreaElement;
+    expect(input.disabled).toBe(true);
+    const save = screen.getByRole("button", {
+      name: language === "en" ? "Save" : "保存",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(
+      screen.getByText(
+        language === "en"
+          ? /Server does not declare support for this operation/
+          : /Server 未声明支持此操作/,
+      ),
+    ).toBeTruthy();
+    await user.click(save);
+    expect(desktopApi.remember).not.toHaveBeenCalled();
+    await user.type(
+      screen.getByLabelText(
+        language === "en" ? "Keyword search" : "关键词搜索",
+      ),
+      "supported",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Search" : "搜索",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Read exact version" : "阅读精确版本",
+      }),
+    );
+    expect(desktopApi.search).toHaveBeenCalledWith(1, "supported");
+    expect(desktopApi.atomicEntry).toHaveBeenCalledWith(1, artifact);
+    expect(screen.getByText("exact content")).toBeTruthy();
+  },
+);
+test("unqualified exact reads leave search results and saving usable", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.search).mockResolvedValue({
+    hits: [{ artifact, text: "searchable", score: 1, matched_by: ["text"] }],
+  });
+  render(
+    <MemoryWorkspace
+      state={restrictedState("get_artifact_revision", "qualification_required")}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  expect(
+    (screen.getByLabelText("Memory text") as HTMLTextAreaElement).disabled,
+  ).toBe(false);
+  await user.type(screen.getByLabelText("Keyword search"), "query");
+  await user.click(screen.getByRole("button", { name: "Search" }));
+  expect(screen.getAllByText("searchable").length).toBeGreaterThan(0);
+  const read = screen.getByRole("button", {
+    name: "Read exact version",
+  }) as HTMLButtonElement;
+  expect(read.disabled).toBe(true);
+  expect(
+    screen.getByText(
+      /selected profile has no independent qualification for this operation/,
+    ),
+  ).toBeTruthy();
+  await user.click(read);
+  expect(desktopApi.atomicEntry).not.toHaveBeenCalled();
+});
+test("an unavailable search does not disable saving", async () => {
+  const user = userEvent.setup();
+  const restricted = restrictedState("search_memory", "feature_missing");
+  vi.mocked(desktopApi.state).mockResolvedValue(restricted);
+  vi.mocked(desktopApi.remember).mockResolvedValue(outcome("succeeded"));
+  render(
+    <MemoryWorkspace
+      state={restricted}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  expect(
+    (screen.getByLabelText("Keyword search") as HTMLInputElement).disabled,
+  ).toBe(true);
+  expect(
+    screen.getByText(
+      /Server does not declare the feature required for this operation/,
+    ),
+  ).toBeTruthy();
+  await user.type(screen.getByLabelText("Memory text"), "supported save");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(desktopApi.remember).toHaveBeenCalledWith(1, "supported save");
+  expect(desktopApi.search).not.toHaveBeenCalled();
+});
+test("an aggregate compatibility verdict cannot enable an unlisted save operation", () => {
+  const active = state.active!;
+  render(
+    <NoteForm
+      state={{
+        ...state,
+        active: {
+          ...active,
+          report: { ...active.report, supportedOperations: [] },
+        },
+      }}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+      onReadSaved={vi.fn()}
+      invalidateSaved={0}
+    />,
+  );
+  expect(
+    (screen.getByLabelText("Memory text") as HTMLTextAreaElement).disabled,
+  ).toBe(true);
+  expect(
+    screen.getByText(/This operation is unverified for this connection/),
+  ).toBeTruthy();
+});
+
+test("saved records cannot open an unqualified exact read while saving remains available", async () => {
+  const user = userEvent.setup();
+  const restricted = restrictedState(
+    "get_artifact_revision",
+    "qualification_required",
+  );
+  const saved = makeSaved(1);
+  vi.mocked(desktopApi.remember).mockResolvedValue(saved.outcome);
+  vi.mocked(desktopApi.state).mockResolvedValue(restricted);
+  render(
+    <MemoryWorkspace
+      state={restricted}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.type(screen.getByLabelText("Memory text"), "supported save");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(desktopApi.remember).toHaveBeenCalledWith(1, "supported save");
+  const open = screen.getByRole("button", {
+    name: "Open saved record",
+  }) as HTMLButtonElement;
+  expect(open.disabled).toBe(true);
+  expect(
+    screen.getAllByText(
+      /selected profile has no independent qualification for this operation/,
+    ).length,
+  ).toBeGreaterThan(0);
+  await user.click(open);
+  expect(desktopApi.atomicEntry).not.toHaveBeenCalled();
+});
+test("Overview shows availability and restriction for each feature", () => {
+  render(
+    <Overview
+      state={restrictedState("remember_memory", "operation_missing")}
+      language="en"
+      onNavigate={vi.fn()}
+    />,
+  );
+  const save = within(screen.getByRole("group", { name: "Save memories" }));
+  expect(save.getByText("Unavailable")).toBeTruthy();
+  expect(
+    save.getByText(/Server does not declare support for this operation/),
+  ).toBeTruthy();
+  expect(
+    within(screen.getByRole("group", { name: "Full-text search" })).getByText(
+      "Available",
+    ),
+  ).toBeTruthy();
+  expect(
+    within(screen.getByRole("group", { name: "Exact details" })).getByText(
+      "Available",
+    ),
+  ).toBeTruthy();
+});
 function outcome(status: "succeeded" | "unknown" | "failed"): WriteOutcome {
   return {
     record: {
@@ -103,6 +346,7 @@ function outcome(status: "succeeded" | "unknown" | "failed"): WriteOutcome {
       context: {
         connectionId: "connection-a",
         endpoint: "http://127.0.0.1:8000",
+        serverId: "server-a",
         principal: null,
         generation: 1,
         scopeId: "scope-a",
@@ -114,12 +358,356 @@ function outcome(status: "succeeded" | "unknown" | "failed"): WriteOutcome {
     result: status === "succeeded" ? { changed: false, records: [] } : null,
   };
 }
-function form() {
+
+test.each(["en", "zh"] as const)(
+  "%s keeps submitted text after post-write verification disconnects and refreshes native state",
+  async (language) => {
+    const user = userEvent.setup();
+    vi.mocked(desktopApi.state).mockResolvedValue(state);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "设置与诊断" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Memories" : "记忆",
+      }),
+    );
+    const unknown = outcome("unknown");
+    unknown.record.error = {
+      code: "runtime_not_ready",
+      requestId: null,
+      dispatched: true,
+    };
+    vi.mocked(desktopApi.remember).mockResolvedValueOnce(unknown);
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      generation: 2,
+      active: null,
+      reports: [],
+      lastWrite: unknown.record,
+    });
+    await user.type(
+      screen.getByRole("textbox", {
+        name: language === "en" ? "Memory text" : "记忆内容",
+      }),
+      "preserve me",
+    );
+    await user.click(
+      screen.getByRole("button", { name: language === "en" ? "Save" : "保存" }),
+    );
+    const original = (await screen.findByRole("textbox", {
+      name: language === "en" ? "Original submitted text" : "原始提交文本",
+    })) as HTMLTextAreaElement;
+    expect(original.value).toBe("preserve me");
+    expect(original.readOnly).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: language === "en" ? "Save" : "保存" })
+        .matches(":disabled"),
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: language === "en" ? "Memory text" : "记忆内容",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe("");
+    const clipboard = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+    const region = screen.getByRole("region", {
+      name: language === "en" ? "Submitted draft recovery" : "提交草稿恢复",
+    });
+    expect(region.textContent).toContain("server-a");
+    expect(region.textContent).toContain("scope-a");
+    await user.click(
+      within(region).getByRole("button", {
+        name: language === "en" ? "Copy text" : "复制正文",
+      }),
+    );
+    expect(clipboard).toHaveBeenCalledWith("preserve me");
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Connections" : "连接",
+      }),
+    );
+    await answerConfirmation(user, false);
+    expect(original.value).toBe("preserve me");
+    await user.click(
+      within(region).getByRole("button", {
+        name: language === "en" ? "Discard submitted text" : "丢弃提交文本",
+      }),
+    );
+    await answerConfirmation(user, true);
+    expect(
+      screen.queryByRole("textbox", {
+        name: language === "en" ? "Original submitted text" : "原始提交文本",
+      }),
+    ).toBeNull();
+    expect(desktopApi.remember).toHaveBeenCalledTimes(1);
+  },
+);
+test.each(["en", "zh"] as const)(
+  "%s preserves the original uncertain input when a retry disconnects before dispatch",
+  async (language) => {
+    const user = userEvent.setup();
+    vi.mocked(desktopApi.state).mockResolvedValue(state);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "设置与诊断" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Memories" : "记忆",
+      }),
+    );
+    const original = outcome("unknown");
+    vi.mocked(desktopApi.remember).mockResolvedValueOnce(original);
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      lastWrite: original.record,
+    });
+    const input = screen.getByLabelText(
+      language === "en" ? "Memory text" : "记忆内容",
+    );
+    await user.type(input, "original uncertain submission");
+    await user.click(
+      screen.getByRole("button", { name: language === "en" ? "Save" : "保存" }),
+    );
+    await user.clear(input);
+    await user.type(input, "edited retry input");
+    vi.mocked(desktopApi.remember).mockRejectedValueOnce({
+      code: "runtime_not_ready",
+      requestId: null,
+      dispatched: true,
+    });
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      generation: 2,
+      active: null,
+      lastWrite: original.record,
+    });
+    await user.click(
+      screen.getByRole("button", { name: language === "en" ? "Save" : "保存" }),
+    );
+    await answerConfirmation(user, true);
+    const copies = await screen.findAllByRole("textbox", {
+      name: language === "en" ? "Original submitted text" : "原始提交文本",
+    });
+    expect(
+      copies.map((input) => (input as HTMLTextAreaElement).value),
+    ).toContain("original uncertain submission");
+    expect(
+      copies.map((input) => (input as HTMLTextAreaElement).value),
+    ).toContain("edited retry input");
+    expect(
+      copies.every((input) => (input as HTMLTextAreaElement).readOnly),
+    ).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: language === "en" ? "Save" : "保存" })
+        .matches(":disabled"),
+    ).toBe(true);
+    expect(desktopApi.remember).toHaveBeenCalledTimes(2);
+    const retryRegion = copies
+      .find(
+        (input) =>
+          (input as HTMLTextAreaElement).value === "edited retry input",
+      )!
+      .closest("section")!;
+    await user.click(
+      within(retryRegion).getByRole("button", {
+        name: language === "en" ? "Discard submitted text" : "丢弃提交文本",
+      }),
+    );
+    await answerConfirmation(user, true);
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: language === "en" ? "Original submitted text" : "原始提交文本",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe("original uncertain submission");
+  },
+);
+
+test.each([
+  ["en", "keep"],
+  ["zh", "keep"],
+  ["en", "discard"],
+  ["zh", "discard"],
+  ["en", "success"],
+  ["zh", "success"],
+  ["en", "failed"],
+  ["zh", "failed"],
+] as const)(
+  "%s retains an in-flight submission across read disconnection and honors %s",
+  async (language, action) => {
+    const user = userEvent.setup();
+    vi.mocked(desktopApi.state).mockResolvedValue(state);
+    let finish!: (result: WriteOutcome) => void;
+    vi.mocked(desktopApi.remember).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "设置与诊断" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Memories" : "记忆",
+      }),
+    );
+    await user.type(
+      screen.getByLabelText(language === "en" ? "Memory text" : "记忆内容"),
+      "in-flight original input",
+    );
+    await user.click(
+      screen.getByRole("button", { name: language === "en" ? "Save" : "保存" }),
+    );
+    const unknown = outcome("unknown");
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      generation: 2,
+      active: null,
+      lastWrite: { ...unknown.record, status: "pending" },
+    });
+    vi.mocked(desktopApi.search).mockRejectedValueOnce({
+      code: "runtime_not_ready",
+      requestId: null,
+      dispatched: true,
+    });
+    await user.type(
+      screen.getByLabelText(
+        language === "en" ? "Keyword search" : "关键词搜索",
+      ),
+      "query",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Search" : "搜索",
+      }),
+    );
+    const label =
+      language === "en" ? "Original submitted text" : "原始提交文本";
+    expect(
+      (
+        (await screen.findByRole("textbox", {
+          name: label,
+        })) as HTMLTextAreaElement
+      ).value,
+    ).toBe("in-flight original input");
+    if (action === "discard") {
+      await user.click(
+        screen.getByRole("button", {
+          name: language === "en" ? "Discard submitted text" : "丢弃提交文本",
+        }),
+      );
+      await answerConfirmation(user, true);
+    }
+    const result =
+      action === "success"
+        ? makeSaved(1).outcome
+        : action === "failed"
+          ? outcome("failed")
+          : unknown;
+    if (action === "failed")
+      result.record.error = {
+        code: "forbidden",
+        requestId: null,
+        dispatched: true,
+      };
+    vi.mocked(desktopApi.state).mockResolvedValue({
+      ...state,
+      generation: 2,
+      active: null,
+      lastWrite: result.record,
+    });
+    await act(async () => {
+      finish(result);
+    });
+    if (action === "keep" || action === "failed") {
+      const copy = screen.getByRole("textbox", {
+        name: label,
+      }) as HTMLTextAreaElement;
+      expect(copy.value).toBe("in-flight original input");
+      expect(copy.readOnly).toBe(true);
+      expect(
+        screen.getByRole("region", {
+          name: language === "en" ? "Submitted draft recovery" : "提交草稿恢复",
+        }).textContent,
+      ).toContain("server-a");
+      if (action === "failed") {
+        const discard = screen.getByRole("button", {
+          name: language === "en" ? "Discard submitted text" : "丢弃提交文本",
+        });
+        await user.click(discard);
+        await answerConfirmation(user, false);
+        expect(copy.value).toBe("in-flight original input");
+        const clipboard = vi
+          .spyOn(navigator.clipboard, "writeText")
+          .mockResolvedValue();
+        await user.click(
+          screen.getByRole("button", {
+            name: language === "en" ? "Copy text" : "复制正文",
+          }),
+        );
+        expect(clipboard).toHaveBeenCalledWith("in-flight original input");
+        await user.click(discard);
+        await answerConfirmation(user, true);
+        expect(screen.queryByRole("textbox", { name: label })).toBeNull();
+      }
+    } else {
+      expect(screen.queryByRole("textbox", { name: label })).toBeNull();
+    }
+    expect(screen.queryByText("private result")).toBeNull();
+    expect(screen.queryByText("Atomic note 0")).toBeNull();
+    expect(desktopApi.remember).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("leaving a cleared unknown-write form explicitly discards retained input without clearing the receipt", async () => {
+  const user = userEvent.setup();
+  vi.mocked(desktopApi.state).mockResolvedValue(state);
+  render(<App />);
+  await user.click(screen.getByRole("button", { name: "记忆" }));
+  const unknown = outcome("unknown");
+  vi.mocked(desktopApi.remember).mockResolvedValueOnce(unknown);
+  vi.mocked(desktopApi.state).mockResolvedValue({
+    ...state,
+    lastWrite: unknown.record,
+  });
+  await user.type(
+    screen.getByLabelText("记忆内容"),
+    "uncertain submitted input",
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await screen.findAllByText(/提交结果未知。/);
+  await user.clear(screen.getByLabelText("记忆内容"));
+  await user.click(screen.getByRole("button", { name: "连接" }));
+  await answerConfirmation(user, false);
+  expect(screen.getByRole("heading", { level: 1, name: "记忆" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "连接" }));
+  await answerConfirmation(user, true);
+  expect(await screen.findByLabelText("连接名称")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "记忆" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await user.type(screen.getByLabelText("记忆内容"), "next explicit write");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  expect(screen.getByRole("alertdialog").textContent).toContain(
+    "再次保存可能产生重复记录",
+  );
+  await answerConfirmation(user, false);
+  expect(desktopApi.remember).toHaveBeenCalledTimes(1);
+});
+
+function form(language: "en" | "zh" = "en") {
   vi.mocked(desktopApi.state).mockResolvedValue(state);
   render(
     <NoteForm
       state={state}
-      language="en"
+      language={language}
       onState={vi.fn()}
       onDirty={vi.fn()}
       onReadSaved={vi.fn()}
@@ -509,31 +1097,38 @@ test.each(["en", "zh"] as const)(
   },
 );
 
-test("unknown save retains the draft, names its original target, and does not replay automatically", async () => {
-  const user = userEvent.setup();
-  form();
-  vi.mocked(desktopApi.remember).mockResolvedValue(outcome("unknown"));
-  await user.type(screen.getByLabelText("Memory text"), "preserve me");
-  await user.click(screen.getByRole("button", { name: "Save" }));
-  expect(screen.getByRole("alert").textContent).toContain("outcome is unknown");
-  expect(screen.getByRole("alert").textContent).toContain(
-    "http://127.0.0.1:8000 · scope-a",
-  );
-  expect(
-    (screen.getByLabelText("Memory text") as HTMLTextAreaElement).value,
-  ).toBe("preserve me");
-  expect(desktopApi.remember).toHaveBeenCalledTimes(1);
+test.each(["en", "zh"] as const)(
+  "%s unknown save retains its draft and original deployment without replay",
+  async (language) => {
+    const user = userEvent.setup();
+    form(language);
+    const label = language === "en" ? "Memory text" : "记忆内容";
+    const save = language === "en" ? "Save" : "保存";
+    vi.mocked(desktopApi.remember).mockResolvedValue(outcome("unknown"));
+    await user.type(screen.getByLabelText(label), "preserve me");
+    await user.click(screen.getByRole("button", { name: save }));
+    expect(screen.getByRole("alert").textContent).toContain(
+      language === "en" ? "outcome is unknown" : "未知",
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "http://127.0.0.1:8000 · server-a · scope-a",
+    );
+    expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe(
+      "preserve me",
+    );
+    expect(desktopApi.remember).toHaveBeenCalledTimes(1);
 
-  await user.click(screen.getByRole("button", { name: "Save" }));
-  await answerConfirmation(user, false);
-  expect(desktopApi.remember).toHaveBeenCalledTimes(1);
-  expect(
-    (screen.getByLabelText("Memory text") as HTMLTextAreaElement).value,
-  ).toBe("preserve me");
-  await user.click(screen.getByRole("button", { name: "Save" }));
-  await answerConfirmation(user, true);
-  expect(desktopApi.remember).toHaveBeenCalledTimes(2);
-});
+    await user.click(screen.getByRole("button", { name: save }));
+    await answerConfirmation(user, false);
+    expect(desktopApi.remember).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe(
+      "preserve me",
+    );
+    await user.click(screen.getByRole("button", { name: save }));
+    await answerConfirmation(user, true);
+    expect(desktopApi.remember).toHaveBeenCalledTimes(2);
+  },
+);
 test.each(["forbidden", "network"])(
   "a save completing after a %s search failure keeps its receipt without restoring private bodies",
   async (code) => {
@@ -738,9 +1333,14 @@ test("overview refresh shows the latest readiness instead of the activation snap
   expect(screen.queryByText("Service ready")).toBeNull();
 });
 
-test.each(["scope", "page"])(
-  "late save after a %s switch preserves the new draft's navigation guard",
-  async (switchKind) => {
+test.each([
+  ["scope", "succeeded"],
+  ["page", "succeeded"],
+  ["scope", "unknown"],
+  ["page", "unknown"],
+] as const)(
+  "late %s-switch save with %s outcome preserves the new draft's navigation guard",
+  async (switchKind, status) => {
     const user = userEvent.setup();
     let finish!: (value: WriteOutcome) => void;
     vi.mocked(desktopApi.remember).mockImplementationOnce(
@@ -794,7 +1394,9 @@ test.each(["scope", "page"])(
     }
     await user.type(screen.getByLabelText("记忆内容"), "draft B");
     await act(async () => {
-      finish(makeSaved(2).outcome);
+      finish(
+        status === "succeeded" ? makeSaved(2).outcome : outcome("unknown"),
+      );
     });
     await user.click(screen.getByRole("button", { name: "总览" }));
     await answerConfirmation(user, false);
@@ -802,6 +1404,7 @@ test.each(["scope", "page"])(
       (screen.getByLabelText("记忆内容") as HTMLTextAreaElement).value,
     ).toBe("draft B");
     expect(screen.queryAllByText("Atomic note 0")).toHaveLength(0);
+    expect(screen.queryByRole("textbox", { name: "原始提交文本" })).toBeNull();
     expect(
       screen.queryAllByRole("button", { name: "打开保存的记录" }),
     ).toHaveLength(0);

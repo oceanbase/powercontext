@@ -1,0 +1,112 @@
+{
+  "format": "powercontext.mysql-state-layouts.v1",
+  "revisions": {
+    "v1_4_1_004": {
+      "statements": [
+        "CREATE TABLE pc_access_owner_recovery (\n\toperation_id VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tdeployment_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tscope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tcompleted TINYINT(1) NOT NULL, \n\tpayload TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, \n\tPRIMARY KEY (operation_id), \n\tCONSTRAINT uq_pc_access_owner_recovery_pending UNIQUE (deployment_id, completed, operation_id)\n)"
+      ],
+      "changes": [
+        {
+          "pc_access_owner_recovery": {
+            "columns": {
+              "operation_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "64"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "deployment_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "128"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "scope_id": {
+                "type": [
+                  "varchar",
+                  [
+                    "256"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              },
+              "completed": {
+                "type": [
+                  "tinyint",
+                  [
+                    "1"
+                  ]
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": null,
+                "collation": null,
+                "extra": []
+              },
+              "payload": {
+                "type": [
+                  "text",
+                  []
+                ],
+                "nullable": false,
+                "default": null,
+                "charset": "utf8mb4",
+                "collation": "utf8mb4_bin",
+                "extra": []
+              }
+            },
+            "primary_key": [
+              [
+                "operation_id",
+                null,
+                "asc"
+              ]
+            ],
+            "foreign_keys": [],
+            "checks": {},
+            "indexes": {
+              "uq_pc_access_owner_recovery_pending": {
+                "columns": [
+                  [
+                    "deployment_id",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "completed",
+                    null,
+                    "asc"
+                  ],
+                  [
+                    "operation_id",
+                    null,
+                    "asc"
+                  ]
+                ],
+                "unique": true
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

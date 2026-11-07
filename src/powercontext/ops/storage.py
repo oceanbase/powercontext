@@ -140,7 +140,7 @@ def _validate_revision(value: object) -> None:
         raise OpsError("record_invalid")
 
 
-def _validate_attempt(value: object, index: int) -> None:
+def _validate_attempt(value: object, index: int) -> None:  # noqa: C901
     if not isinstance(value, dict):
         raise OpsError("record_invalid")
     attempt = cast(dict[str, Any], value)
@@ -155,12 +155,15 @@ def _validate_attempt(value: object, index: int) -> None:
             "executor",
             "coordination_previous_operation_id",
             "coordination_previous_attempt",
+            "installation",
         }
     ):
         raise OpsError("record_invalid")
     if type(attempt["attempt"]) is not int or attempt["attempt"] != index:
         raise OpsError("record_invalid")
-    plan(attempt["plan"])
+    validated_plan = plan(attempt["plan"])
+    if validated_plan["operation"] in {"install", "repair"} and "installation" not in attempt:
+        raise OpsError("record_invalid")
     if not isinstance(attempt["phase"], str) or attempt["phase"] not in {"accepted", "executing", "finished"}:
         raise OpsError("record_invalid")
     _validate_result(attempt["result"])
@@ -188,9 +191,59 @@ def _validate_attempt(value: object, index: int) -> None:
         ("executor", _validate_executor),
         ("coordination_previous_operation_id", _validate_predecessor),
         ("coordination_previous_attempt", _validate_predecessor_attempt),
+        ("installation", _validate_installation),
     ):
         if field in attempt:
             validate(attempt[field])
+
+
+def _validate_installation(value: object) -> None:
+    if not isinstance(value, dict):
+        raise OpsError("record_invalid")
+    state = cast(dict[str, Any], value)
+    if set(state) != {
+        "installation_id",
+        "stage",
+        "prepared",
+        "configuration",
+        "resource_identity",
+        "backup_identity",
+        "repair_owner",
+    }:
+        raise OpsError("record_invalid")
+    identifier(state["installation_id"])
+    if state["repair_owner"] is not None:
+        identifier(state["repair_owner"])
+    if state["stage"] not in (
+        "accepted",
+        "preparing",
+        "prepared",
+        "publishing",
+        "resources_published",
+        "configuration_prepared",
+        "configured",
+        "registering",
+        "registration_dispatching",
+        "complete",
+    ):
+        raise OpsError("record_invalid")
+    for field in ("prepared", "configuration"):
+        item = state[field]
+        if item is not None and (
+            not isinstance(item, dict)
+            or set(item) != {"directory", "identity"}
+            or not isinstance(item["directory"], str)
+            or not isinstance(item["identity"], dict)
+        ):
+            raise OpsError("record_invalid")
+    for field in ("resource_identity", "backup_identity"):
+        item = state[field]
+        if item is not None and (
+            not isinstance(item, dict)
+            or set(item) != {"device", "inode"}
+            or any(type(part) is not int or part < 0 for part in item.values())
+        ):
+            raise OpsError("record_invalid")
 
 
 def _validate_executor(value: object) -> None:

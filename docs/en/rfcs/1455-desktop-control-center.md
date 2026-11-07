@@ -1,6 +1,6 @@
 ---
-title: "RFC 1455: Desktop Control Center"
-description: "A Tauri desktop client with explicit API, identity, installation, and delivery boundaries."
+title: "RFC 1455: Desktop control center"
+description: "A proposal for a Tauri desktop client that manages connections, Scopes, context, and reviews through public Server contracts."
 ---
 
 - Proposal Name: `desktop_control_center`
@@ -358,11 +358,12 @@ identity resolution; `multi_principal` alone does not prove a supported login fl
 Generic `401 unauthorized` means valid credentials are needed, not necessarily expired. Show expiry only when a supported
 contract supplies it; distinguish `403` denial and `503 authentication_unavailable`. Stop protected loops on rejection.
 
-New managed local setup enables enforced authentication by default; unauthenticated attachment remains an explicit
-existing-installation mode. The configuration producer generates the credential in a protected Server environment. After
-explicit setup approval, a secure machine interface provisions the desktop OS-store entry and selected hosts through
-existing URL-bound authorization adapters, without returning secrets through page data. Server/Agents must work without
-the desktop or its unlocked vault.
+New managed personal setup explicitly binds loopback, enables Dashboard, and uses `access.mode=disabled` with
+`auth.enabled=false`; HTTP and MCP share this local tokenless mode. It does not generate a token or background Principal
+and does not configure models. This policy applies to new configuration only: existing and remote authentication choices
+remain authoritative, and repair preserves their protected configuration. Authenticated installations continue to use
+the OS credential store and existing URL-bound authorization adapters without returning secrets through page data.
+Server/Agents must work without the desktop or its unlocked vault.
 
 Rotation is a producer plan: check ownership/consumers, stage protected configuration, reconcile the service, replace
 desktop and selected-host credentials, then verify each consumer. Static Bearer has no assumed old/new overlap;

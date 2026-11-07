@@ -1,0 +1,7 @@
+{
+  "remove_resources": [
+    "versions/s1300_server_baseline.py",
+    "mysql/versions/s1300.py",
+    "schemas/mysql-s1300.json"
+  ]
+}

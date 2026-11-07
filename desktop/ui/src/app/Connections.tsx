@@ -21,22 +21,34 @@ import type {
   ProfileView,
   StorageChoice,
   Fact,
+  CompatibilityProfile,
 } from "../generated/ipc";
 import { contractSha256 } from "../generated/operations";
 import { desktopApi } from "../shared/ipc";
-import { connectionMessages, connectionError } from "./connection-messages";
+import {
+  connectionMessages,
+  connectionError,
+  discoveryMessage,
+} from "./connection-messages";
 import { messages, type Language } from "./messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
 import { useConfirmation } from "./useConfirmation";
 import connectionsIcon from "../assets/connections.svg";
+import {
+  connectionAccessMode,
+  connectionPrincipal,
+  identityVerified,
+} from "./context";
 
 type Props = {
   state: DesktopState | null;
   language: Language;
-  onState: (value: DesktopState) => void;
+  onState: (value: DesktopState) => boolean | void;
   onDirty: (value: boolean) => void;
   onPendingChange?: (pending: boolean) => void;
   initialProfileId?: string;
+  onActivated?: (trigger: HTMLElement) => void;
+  discardDraft?: number;
 };
 export function Connections({
   state,
@@ -45,6 +57,8 @@ export function Connections({
   onDirty,
   onPendingChange,
   initialProfileId,
+  onActivated,
+  discardDraft = 0,
 }: Props) {
   const t = connectionMessages[language];
   const { confirm, confirmation } = useConfirmation(language);
@@ -64,7 +78,21 @@ export function Connections({
   const [ca, setCa] = useState("");
   const [compatibility, setCompatibility] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<
+    "save" | "check" | "activate" | "remove" | null
+  >(null);
+  const pending = useRef(false);
+  const probePending = useRef(false);
+  const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState<{
+    id: string;
+    revision: number;
+    error: unknown;
+  } | null>(null);
+  const [notice, setNotice] = useState<{
+    id: string;
+    kind: "saved" | "checkedComplete" | "activationBlocked";
+  } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const invalidated = useRef(false);
   const lifetime = useRef(0);
@@ -87,6 +115,7 @@ export function Connections({
     setDirty(false);
     onDirty(false);
     setError(null);
+    setProbeError(null);
     invalidated.current = false;
   }
   useEffect(() => {
@@ -94,7 +123,12 @@ export function Connections({
     // Only refresh a clean form; newer input keeps its discard guard.
     if (!dirty) reset(profile);
   }, [selected, profile?.revision]);
+  useEffect(() => {
+    // A confirmed global Scope switch also discards an open connection draft.
+    if (dirty) reset(profile);
+  }, [discardDraft]);
   function change(target = false) {
+    setNotice(null);
     setDirty(true);
     onDirty(true);
     if (target) {
@@ -114,18 +148,27 @@ export function Connections({
   async function select(id: string | null) {
     if (dirty && !(await confirm(t.discard))) return;
     setSecret("");
+    setNotice(null);
     setSelected(id);
     reset(state?.profiles.find((p) => p.id === id));
   }
-  async function action(work: () => Promise<DesktopState>) {
+  async function action(
+    kind: NonNullable<typeof busy>,
+    work: () => Promise<DesktopState>,
+  ) {
+    if (pending.current) return;
+    pending.current = true;
     const ticket = lifetime.current;
-    setBusy(true);
+    setBusy(kind);
+    setNotice(null);
     setError(null);
     onPendingChange?.(true);
     try {
       const next = await work();
-      onState(next);
-      if (ticket === lifetime.current) return next;
+      const accepted = onState(next);
+      if (ticket === lifetime.current && accepted !== false) return next;
+      if (ticket === lifetime.current && accepted === false)
+        setError({ code: "stale_context" });
     } catch (e) {
       if (ticket === lifetime.current) setError(e);
       try {
@@ -135,7 +178,29 @@ export function Connections({
       }
     } finally {
       onPendingChange?.(false);
-      if (ticket === lifetime.current) setBusy(false);
+      if (ticket === lifetime.current) {
+        pending.current = false;
+        setBusy(null);
+      }
+    }
+  }
+  async function probeReadiness() {
+    if (!profile || dirty || pending.current || probePending.current) return;
+    const target = { id: profile.id, revision: profile.revision };
+    const ticket = lifetime.current;
+    probePending.current = true;
+    setProbing(true);
+    setProbeError(null);
+    try {
+      const next = await desktopApi.probeReadiness(target.id, target.revision);
+      const accepted = onState(next);
+      if (ticket === lifetime.current && accepted === false)
+        setProbeError({ ...target, error: { code: "stale_context" } });
+    } catch (error) {
+      if (ticket === lifetime.current) setProbeError({ ...target, error });
+    } finally {
+      probePending.current = false;
+      if (ticket === lifetime.current) setProbing(false);
     }
   }
   async function save() {
@@ -151,7 +216,7 @@ export function Connections({
       credential: secret ? { secret, storage } : null,
     };
     setSecret("");
-    const next = await action(() => desktopApi.save(input));
+    const next = await action("save", () => desktopApi.save(input));
     if (next) {
       const saved = next.profiles.find(
         (p) => p.id === selected || p.name === name.trim(),
@@ -159,7 +224,30 @@ export function Connections({
       if (saved) {
         setSelected(saved.id);
         reset(saved);
+        setNotice({ id: saved.id, kind: "saved" });
       }
+    }
+  }
+  async function check(activate: boolean, trigger: HTMLElement) {
+    if (!profile || dirty) return;
+    const next = await action(activate ? "activate" : "check", () =>
+      desktopApi.check(profile.id, activate),
+    );
+    if (!next) return;
+    if (!activate) {
+      setNotice({ id: profile.id, kind: "checkedComplete" });
+      return;
+    }
+    const active = next.active;
+    if (
+      active?.connectionId === profile.id &&
+      active.report.revision === profile.revision &&
+      active.report.compatibilityVerified &&
+      (active.report.anonymousAccess || identityVerified(active.report))
+    ) {
+      onActivated?.(trigger);
+    } else {
+      setNotice({ id: profile.id, kind: "activationBlocked" });
     }
   }
   function fact<T>(
@@ -179,18 +267,19 @@ export function Connections({
     (profile.credentialState === "stored" ||
       profile.credentialState === "session_only") &&
     !invalidated.current;
-  const availableProfiles = state?.compatibilityProfiles.filter(
-    (p) => p.contractSha256 === contractSha256,
-  );
+  const available = (p: CompatibilityProfile) =>
+    p.contractSha256 === contractSha256 ||
+    (authentication === "bearer" && !!p.authenticatedClients?.[contractSha256]);
+  const availableProfiles = state?.compatibilityProfiles.filter(available);
   const historicalProfiles = state?.compatibilityProfiles.filter(
-    (p) => p.contractSha256 !== contractSha256,
+    (p) => !available(p),
   );
   const selectedCompatibility = state?.compatibilityProfiles.find(
     (p) => p.id === compatibility,
   );
   const unavailableCompatibility =
     compatibility !== "" &&
-    selectedCompatibility?.contractSha256 !== contractSha256;
+    (!selectedCompatibility || !available(selectedCompatibility));
   return (
     <div className="connection-grid">
       {confirmation}
@@ -199,7 +288,7 @@ export function Connections({
           <h2>{t.savedConnections}</h2>
           <button
             className="primary"
-            disabled={busy}
+            disabled={!!busy}
             onClick={() => select(null)}
           >
             <span aria-hidden="true">+ </span>
@@ -222,7 +311,7 @@ export function Connections({
                 className="profile-item"
                 aria-pressed={selected === p.id}
                 onClick={() => select(p.id)}
-                disabled={busy}
+                disabled={!!busy}
               >
                 <img src={connectionsIcon} alt="" />
                 <span className="profile-main">
@@ -249,15 +338,24 @@ export function Connections({
           {isActive && <span className="badge success">{t.activeBadge}</span>}
         </div>
         {dirty && <p role="status">{t.dirty}</p>}
+        {notice?.id === selected && <p role="status">{t[notice.kind]}</p>}
         {busy && (
           <PageFeedback
             compact
             kind="loading"
-            title={messages[language].operationPending}
+            title={
+              busy === "save"
+                ? t.saving
+                : busy === "activate"
+                  ? t.activating
+                  : busy === "remove"
+                    ? t.removing
+                    : t.wait
+            }
           />
         )}
         {error != null && <ErrorFeedback error={error} language={language} />}
-        <fieldset disabled={busy || !state} className="profile-form">
+        <fieldset disabled={!!busy || !state} className="profile-form">
           <label>
             {t.name}
             <input
@@ -425,7 +523,7 @@ export function Connections({
               onClick={() => void save()}
               disabled={!name.trim() || !endpoint}
             >
-              {t.save}
+              {busy === "save" ? t.saving : t.save}
             </button>
             <button
               onClick={async () => {
@@ -457,9 +555,14 @@ export function Connections({
                 <dd>
                   {report?.anonymousAccess
                     ? t.noIdentity
-                    : fact(
-                        report?.identity,
-                        (v) => `${v.principal.type}: ${v.principal.id}`,
+                    : fact<unknown>(
+                        report?.connectionIdentity ?? report?.identity,
+                        () => {
+                          const principal = connectionPrincipal(report);
+                          return principal
+                            ? `${principal.type}: ${principal.id}`
+                            : t.unverified;
+                        },
                       )}
                 </dd>
               </div>
@@ -477,11 +580,7 @@ export function Connections({
               </div>
               <div>
                 <dt>{t.access}</dt>
-                <dd>
-                  {report?.anonymousAccess
-                    ? "disabled"
-                    : fact(report?.identity, (v) => v.mode)}
-                </dd>
+                <dd>{fact(connectionAccessMode(report), (mode) => mode)}</dd>
               </div>
               <div>
                 <dt>{t.compatibility}</dt>
@@ -489,6 +588,14 @@ export function Connections({
                   {report?.compatibilityVerified ? t.verified : t.unverified}
                 </dd>
               </div>
+              {report?.discovery && (
+                <div>
+                  <dt>{t.discovery}</dt>
+                  <dd aria-live="polite">
+                    {discoveryMessage(report.discovery, language)}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>{t.capabilities}</dt>
                 <dd>
@@ -509,32 +616,52 @@ export function Connections({
               </div>
             </dl>
             <p className="note-line">{t.noPermissionClaim}</p>
+            <p id="readiness-explanation" className="note-line">
+              {t.readinessExplanation}
+            </p>
+            {report?.readinessCheckedAt && (
+              <p>
+                {t.readinessTime}:{" "}
+                {new Date(report.readinessCheckedAt * 1000).toLocaleString(
+                  language === "zh" ? "zh-CN" : "en-US",
+                )}
+              </p>
+            )}
+            {!dirty &&
+              probeError?.id === profile.id &&
+              probeError.revision === profile.revision && (
+                <ErrorFeedback error={probeError.error} language={language} />
+              )}
             <div className="actions">
               <button
-                disabled={dirty || busy}
-                onClick={() =>
-                  void action(() => desktopApi.check(profile.id, false))
-                }
+                disabled={dirty || !!busy || probing || !report}
+                aria-describedby="readiness-explanation"
+                aria-busy={probing}
+                onClick={() => void probeReadiness()}
               >
-                {busy ? t.wait : t.check}
+                {probing ? t.wait : t.probeReadiness}
+              </button>
+              <button
+                disabled={dirty || !!busy}
+                onClick={(event) => void check(false, event.currentTarget)}
+              >
+                {busy === "check" ? t.wait : t.check}
               </button>
               <button
                 className="primary"
-                disabled={dirty || busy}
-                onClick={() =>
-                  void action(() => desktopApi.check(profile.id, true))
-                }
+                disabled={dirty || !!busy}
+                onClick={(event) => void check(true, event.currentTarget)}
               >
-                {t.activate}
+                {busy === "activate" ? t.activating : t.activate}
               </button>
               <span className="spacer" />
               <button
                 className="link-danger"
-                disabled={busy}
+                disabled={!!busy}
                 onClick={async () => {
                   if (dirty && !(await confirm(t.discard))) return;
                   if (await confirm(t.removeConfirm))
-                    void action(() =>
+                    void action("remove", () =>
                       desktopApi.remove(profile.id, profile.revision),
                     ).then((next) => {
                       if (next) {
@@ -544,7 +671,7 @@ export function Connections({
                     });
                 }}
               >
-                {t.remove}
+                {busy === "remove" ? t.removing : t.remove}
               </button>
             </div>
             <p className="field-hint">{t.removeNote}</p>

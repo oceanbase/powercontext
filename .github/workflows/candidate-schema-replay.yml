@@ -1,0 +1,74 @@
+name: Candidate schema replay
+
+on:
+  workflow_call:
+    inputs:
+      suites:
+        description: Scope already selected by the Main orchestrator
+        required: true
+        type: string
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: candidate-replay-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    if: ${{ inputs.suites == '' }}
+    uses: ./.github/workflows/ci-changes.yml
+    with:
+      baseline-workflow: candidate-schema-replay.yml
+
+  replay:
+    needs: changes
+    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').candidate_replay) }}
+    name: Candidate replay (${{ matrix.backend }})
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        backend: [sqlite, seekdb, oceanbase]
+    env:
+      POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
+      POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_candidate_replay?charset=utf8mb4
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: ./.github/actions/setup-python-env
+      - name: Start isolated OceanBase
+        if: matrix.backend == 'oceanbase'
+        uses: ./.github/actions/setup-upgrade-oceanbase
+      - name: Create the scratch database namespace
+        if: matrix.backend == 'oceanbase'
+        run: >-
+          docker exec upgrade-oceanbase
+          obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e
+          -e 'CREATE DATABASE pc_migration_probe_candidate_replay'
+      - name: Replay and recover the frozen Candidate conversion without skips
+        run: >-
+          uv run --locked --extra seekdb python scripts/replay_candidate_migration.py
+          ${{ matrix.backend }} --output "$RUNNER_TEMP/candidate-replay"
+      - name: Preserve OceanBase diagnostics
+        if: always() && matrix.backend == 'oceanbase'
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate-replay"
+          docker logs upgrade-oceanbase > "$RUNNER_TEMP/candidate-replay/oceanbase.log" 2>&1 || true
+          docker stop --timeout 30 upgrade-oceanbase || true
+      - name: Save generated inventories and comparisons
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: candidate-replay-${{ matrix.backend }}-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate-replay/
+          if-no-files-found: error
+          retention-days: 14

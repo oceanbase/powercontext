@@ -61,6 +61,22 @@ async def _expiring(deadline: float) -> AsyncIterator[None]:
         raise ModelUsageAttemptExpired from error
 
 
+async def begin_mysql_read_snapshot(connection: AsyncConnection) -> None:
+    """Start an owned read snapshot without changing the session default.
+
+    The caller owns a fresh connection and must close or roll it back afterward.
+    Never use this inside a transaction that has already read business data.
+    """
+    try:
+        await connection.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        await connection.exec_driver_sql("START TRANSACTION WITH CONSISTENT SNAPSHOT")
+    except BaseException:
+        # A one-shot setting may have applied before START failed or was
+        # cancelled. Pool rollback alone does not consume that setting.
+        await connection.invalidate()
+        raise
+
+
 class AsyncDatabase:
     """Own or attach to one SQLAlchemy async engine.
 
@@ -172,14 +188,7 @@ class AsyncDatabase:
                     # The MySQL dialect's begin hook is a no-op. Explicitly start
                     # the owned transaction even when the server session uses autocommit.
                     if consistent_snapshot:
-                        try:
-                            await connection.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-                            await connection.exec_driver_sql("START TRANSACTION WITH CONSISTENT SNAPSHOT")
-                        except BaseException:
-                            # SET may have succeeded before START failed or was
-                            # cancelled. Do not pool its unconsumed next-transaction setting.
-                            await connection.invalidate()
-                            raise
+                        await begin_mysql_read_snapshot(connection)
                     else:
                         await connection.exec_driver_sql("START TRANSACTION")
                 snapshot = nullcontext()

@@ -21,10 +21,13 @@ import type {
   ArtifactReference,
   AtomicMemoryRecord,
   MemorySearchHit,
+  MemoryContext,
   WriteOutcome,
+  WriteRecord,
 } from "../generated/ipc";
 import { desktopApi } from "../shared/ipc";
-import { connectionError } from "./connection-messages";
+import { connectionError, operationRestriction } from "./connection-messages";
+import { operationSupported } from "./context";
 import { memoryMessages } from "./memory-messages";
 import { messages, type Language } from "./messages";
 import { PageFeedback, ErrorFeedback } from "./PageFeedback";
@@ -39,9 +42,78 @@ type Props = {
   onOpenScopes?: (trigger: HTMLElement) => void;
   onOpenLocalServer?: () => void;
   contextPending?: boolean;
+  onSubmission?: (
+    text: string,
+    target: SubmittedTarget,
+  ) => (record: WriteRecord | null) => void;
+};
+type SubmittedTarget = Pick<MemoryContext, "generation" | "scopeId"> &
+  Partial<Pick<MemoryContext, "endpoint" | "serverId">>;
+export type SubmittedDraft = {
+  id: number;
+  text: string;
+  target: SubmittedTarget;
+  phase: "pending" | "unknown" | "unconfirmed" | "failed";
 };
 export const textBytes = (value: string) =>
   new TextEncoder().encode(value).length;
+function WriteTarget({ context }: { context: SubmittedTarget }) {
+  return (
+    <code>
+      {context.endpoint} · {context.serverId && <>{context.serverId} · </>}
+      {context.scopeId}
+    </code>
+  );
+}
+
+export function SubmittedDraftRecovery({
+  draft,
+  language,
+  onDiscard,
+}: {
+  draft: SubmittedDraft;
+  language: Language;
+  onDiscard: () => void;
+}) {
+  const t = memoryMessages[language];
+  const { confirm, confirmation } = useConfirmation(language);
+  const [feedback, setFeedback] = useState("");
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(draft.text);
+      setFeedback(t.copied);
+    } catch {
+      setFeedback(t.copyFailed);
+    }
+  }
+  return (
+    <section className="card stack" role="region" aria-label={t.recovery}>
+      {confirmation}
+      <h2>{t.recovery}</h2>
+      <p>{t[draft.phase]}</p>
+      <p>{t.recoveryHint}</p>
+      <p>
+        {t.original}: <WriteTarget context={draft.target} />
+      </p>
+      <label>
+        {t.submittedText}
+        <textarea readOnly value={draft.text} rows={3} />
+      </label>
+      <div className="actions">
+        <button onClick={() => void copy()}>{t.copyText}</button>
+        <button
+          onClick={async () => {
+            if (await confirm(t.discardSubmittedConfirm)) onDiscard();
+          }}
+        >
+          {t.discardSubmitted}
+        </button>
+      </div>
+      {feedback && <p role="status">{feedback}</p>}
+    </section>
+  );
+}
+
 type NoteFormProps = Props & {
   onReadSaved: (
     artifact: ArtifactReference,
@@ -57,6 +129,7 @@ export function NoteForm({
   contextPending = false,
   onReadSaved,
   invalidateSaved,
+  onSubmission,
 }: NoteFormProps) {
   const t = memoryMessages[language];
   const { confirm, confirmation } = useConfirmation(language);
@@ -78,7 +151,13 @@ export function NoteForm({
   const contentInvalidation = useRef(invalidateSaved);
   contentInvalidation.current = invalidateSaved;
   const enabled =
-    !contextPending && !!active?.scope && active.report.compatibilityVerified;
+    !contextPending &&
+    !!active?.scope &&
+    operationSupported(active.report, "remember_memory");
+  const savedReadEnabled =
+    !contextPending &&
+    !!active?.scope &&
+    operationSupported(active.report, "get_artifact_revision");
   const bytes = textBytes(text);
   useEffect(() => {
     setText("");
@@ -123,8 +202,17 @@ export function NoteForm({
     setOutcome(null);
     setSaved([]);
     setReturnedCount(null);
+    // Retain intent before IPC. A concurrent read can disconnect and unmount
+    // this form while the native write is still awaiting its response.
+    const finishSubmission = onSubmission?.(text, {
+      generation: original,
+      scopeId: active.scope.scope_id,
+      endpoint: profile?.endpoint,
+      serverId: active.report.discovery?.server?.server_id ?? null,
+    });
     try {
       const result = await desktopApi.remember(original, text);
+      finishSubmission?.(result.record);
       if (isCurrent()) {
         setOutcome(result);
         if (result.record.status === "succeeded") {
@@ -139,6 +227,7 @@ export function NoteForm({
         }
       }
     } catch (e) {
+      finishSubmission?.(null);
       if (isCurrent()) setError(e);
     } finally {
       if (isCurrent()) {
@@ -195,6 +284,8 @@ export function NoteForm({
           </>
         ) : contextPending ? (
           messages[language].contextUpdating
+        ) : active?.scope ? (
+          operationRestriction(active.report, "remember_memory", language)
         ) : (
           t.noScope
         )}
@@ -213,11 +304,7 @@ export function NoteForm({
           title={t.failed}
         >
           <p className="small">
-            {t.original}:{" "}
-            <code>
-              {outcome.record.context.endpoint} ·{" "}
-              {outcome.record.context.scopeId}
-            </code>
+            {t.original}: <WriteTarget context={outcome.record.context} />
           </p>
         </ErrorFeedback>
       ) : (
@@ -235,7 +322,9 @@ export function NoteForm({
               outcome.record.status === "succeeded"
                 ? returnedCount
                   ? t.savedReturned(returnedCount) +
-                    (saved.length > 0 ? ` ${t.savedOpen}` : "")
+                    (saved.length > 0 && savedReadEnabled
+                      ? ` ${t.savedOpen}`
+                      : "")
                   : t.noEntry
                 : outcome.record.status === "unknown"
                   ? t.unknown
@@ -244,11 +333,7 @@ export function NoteForm({
           >
             {outcome.record.status === "unknown" && (
               <p className="small">
-                {t.original}:{" "}
-                <code>
-                  {outcome.record.context.endpoint} ·{" "}
-                  {outcome.record.context.scopeId}
-                </code>
+                {t.original}: <WriteTarget context={outcome.record.context} />
               </p>
             )}
           </PageFeedback>
@@ -270,6 +355,7 @@ export function NoteForm({
                     </div>
                     <div className="hit-actions">
                       <button
+                        disabled={!savedReadEnabled}
                         onClick={(event) =>
                           onReadSaved(record.artifact, event.currentTarget)
                         }
@@ -282,6 +368,17 @@ export function NoteForm({
               );
             })}
           </ul>
+          {!savedReadEnabled && (
+            <p>
+              {contextPending
+                ? messages[language].contextUpdating
+                : operationRestriction(
+                    active?.report,
+                    "get_artifact_revision",
+                    language,
+                  )}
+            </p>
+          )}
         </div>
       )}
     </section>
@@ -309,6 +406,10 @@ export function MemoryWorkspace(props: Props) {
   current.current = active?.generation;
   const enabled =
     !contextPending && !!active?.scope && active.report.compatibilityVerified;
+  const searchEnabled =
+    enabled && operationSupported(active?.report, "search_memory");
+  const readEnabled =
+    enabled && operationSupported(active?.report, "get_artifact_revision");
   function clearRead() {
     failedReference.current = undefined;
     sequence.current++;
@@ -338,7 +439,7 @@ export function MemoryWorkspace(props: Props) {
     };
   }, [active?.generation]);
   async function read(reference?: ArtifactReference, fromSave = false) {
-    if (!enabled || !active?.scope) return;
+    if (!(reference ? readEnabled : searchEnabled) || !active?.scope) return;
     const generation = active.generation;
     const ticket = ++sequence.current;
     failedReference.current = reference;
@@ -447,10 +548,7 @@ export function MemoryWorkspace(props: Props) {
           record.context.generation !== active?.generation) && (
           <section className="card" role="status">
             <p>
-              {t.original}:{" "}
-              <code>
-                {record.context.endpoint} · {record.context.scopeId}
-              </code>
+              {t.original}: <WriteTarget context={record.context} />
             </p>
             <p>
               {record.status === "unknown"
@@ -469,6 +567,7 @@ export function MemoryWorkspace(props: Props) {
         onReadSaved={(artifact, trigger) => void readSaved(artifact, trigger)}
         invalidateSaved={invalidateSaved}
         contextPending={contextPending}
+        onSubmission={props.onSubmission}
       />
       <section className="card stack">
         <h2>{t.query}</h2>
@@ -477,7 +576,7 @@ export function MemoryWorkspace(props: Props) {
             <input
               ref={queryInput}
               aria-label={t.query}
-              disabled={!enabled}
+              disabled={!searchEnabled}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -488,7 +587,7 @@ export function MemoryWorkspace(props: Props) {
               <button
                 className="clear-query"
                 aria-label={t.clearQuery}
-                disabled={!enabled}
+                disabled={!searchEnabled}
                 onClick={() => {
                   setQuery("");
                   cancel();
@@ -500,7 +599,10 @@ export function MemoryWorkspace(props: Props) {
           </span>
           <button
             disabled={
-              !enabled || !!busy || !query.trim() || textBytes(query) > 8192
+              !searchEnabled ||
+              !!busy ||
+              !query.trim() ||
+              textBytes(query) > 8192
             }
             onClick={() => void read()}
           >
@@ -508,8 +610,14 @@ export function MemoryWorkspace(props: Props) {
           </button>
         </div>
         <p className="small search-meta">{t.searchSummary}</p>
-        {!enabled && (
-          <p>{contextPending ? common.contextUpdating : t.noScope}</p>
+        {!searchEnabled && (
+          <p>
+            {contextPending
+              ? common.contextUpdating
+              : active?.scope
+                ? operationRestriction(active.report, "search_memory", language)
+                : t.noScope}
+          </p>
         )}
         {busy && (
           <PageFeedback
@@ -526,7 +634,7 @@ export function MemoryWorkspace(props: Props) {
             error={error}
             language={language}
             action={
-              enabled && (
+              (failedReference.current ? readEnabled : searchEnabled) && (
                 <button
                   disabled={!!busy}
                   onClick={() => void read(failedReference.current)}
@@ -580,7 +688,7 @@ export function MemoryWorkspace(props: Props) {
                             <span className="badge">{t.hitVector}</span>
                           )}
                         <button
-                          disabled={!enabled || !!busy}
+                          disabled={!readEnabled || !!busy}
                           aria-pressed={selected === key}
                           onClick={(event) => {
                             readButton.current = event.currentTarget;
@@ -599,6 +707,16 @@ export function MemoryWorkspace(props: Props) {
             </ul>
           )}
           <p className="note-line">{t.browseNote}</p>
+          {active?.scope && !contextPending && !readEnabled && (
+            <p>
+              {t.read}:{" "}
+              {operationRestriction(
+                active.report,
+                "get_artifact_revision",
+                language,
+              )}
+            </p>
+          )}
         </section>
         {entry && (
           <ReaderPane

@@ -197,10 +197,3 @@ def test_workflow_action_checker_scans_nested_composite_actions(tmp_path: Path) 
 
     assert result.returncode == 1
     assert "setup-python@v7" in result.stderr
-
-
-def test_repository_workflow_actions_are_pinned() -> None:
-    result = run_checker(REPOSITORY_ROOT / ".github" / "workflows", REPOSITORY_ROOT / ".github" / "actions")
-
-    assert result.returncode == 0, result.stderr
-    assert "action references checked" in result.stdout

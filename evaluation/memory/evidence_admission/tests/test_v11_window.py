@@ -35,6 +35,8 @@ from powercontext_eval_evidence_admission.v8.workflow import coverage
 from powercontext_eval_evidence_admission.v10.protocol import pipeline
 from powercontext_eval_evidence_admission.v11.window import prepare
 
+pytestmark = pytest.mark.usefixtures("historical_window_context")
+
 
 def policy(*, calls=16, multiplier=8):
     return SimpleNamespace(max_calls_per_sample=calls, total_input_budget_multiplier=multiplier)

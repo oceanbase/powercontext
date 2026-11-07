@@ -67,8 +67,8 @@ INSTRUCTIONS = (
     BASE_INSTRUCTIONS.replace(
         "Split facts that can change independently.", ATOMICITY_RULES + "\n" + ATOMICITY_EXAMPLES
     ).replace(
-        "Each candidate must cite one or more supplied evidence_ids and contain self-contained kind/text.",
-        "Each candidate must cite supplied evidence_id aliases and render self-contained kind/text from its parts.",
+        "Each candidate must cite one or more supplied evidence_ids and contain kind, text and description.",
+        "Each candidate must cite supplied evidence_id aliases and render self-contained text from its parts; provide a separate description.",
     )
     + "\n"
     + COPY_RULES
@@ -92,6 +92,7 @@ class CopyRef(BaseModel):
 class TemplateCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     kind: Literal["fact", "preference", "decision", "constraint", "working_note"]
+    description: str = Field(min_length=1, max_length=200)
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=16)
     parts: tuple[Annotated[LiteralText | CopyRef, Field(discriminator="type")], ...] = Field(
         min_length=1, max_length=MAX_PARTS
@@ -231,8 +232,12 @@ def render(
         text = "".join(parts)
         if len(text.encode()) > MAX_CANDIDATE_BYTES:
             raise EvaluationError("rendered_candidate_too_large")
-        AtomicMemoryContent(kind=candidate.kind, text=text)
-        candidates.append(AtomicMemoryCandidate(kind=candidate.kind, text=text, evidence_ids=original_ids))
+        AtomicMemoryContent(kind=candidate.kind, text=text, description=candidate.description)
+        candidates.append(
+            AtomicMemoryCandidate(
+                kind=candidate.kind, text=text, description=candidate.description, evidence_ids=original_ids
+            )
+        )
     return AtomicMemoryExtractionOutput(candidates=tuple(candidates))
 
 

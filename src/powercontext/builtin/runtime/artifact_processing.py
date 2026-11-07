@@ -47,6 +47,11 @@ else:
     from multiprocessing.popen_spawn_posix import Popen as SpawnPopen
 
 from powercontext._logging import error_category, is_inference_failure_code, log_context, log_safely
+from powercontext.builtin.inference.observability import (
+    ProviderObservationCollector,
+    ProviderObservationReport,
+    bind_provider_observer,
+)
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
@@ -58,6 +63,7 @@ from powercontext.builtin.persistence.supervision import (
     database_utc_now,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
+from powercontext.builtin.processing_diagnostics import safe_classify_processing_error, safe_log_fields
 from powercontext.builtin.runtime.observations import DurationObservations, DurationObservationSnapshot
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlock,
@@ -78,6 +84,7 @@ from powercontext.builtin.runtime.worker_observability import (
     WorkerModelUsageCollector,
     worker_model_usage_collector,
 )
+from powercontext.builtin.statistics.models import ProcessingObservation
 
 logger = logging.getLogger(__name__)
 _OCEANBASE_TICK_SECONDS = 1.0
@@ -132,10 +139,13 @@ class ArtifactProcessingBinding:
     # Applies to every invocation, including explicit requests and retries.
     # Domains inspect durable metadata here; they retain their Worker guards.
     work_block: Callable[[AsyncConnection, str, str], Awaitable[ArtifactProcessingBlock | None]] | None = None
+    # Hot-managed definitions can revoke a Scope even for an older accepted request.
+    invocation_scope_filter: Callable[[AsyncConnection, tuple[str, ...]], Awaitable[frozenset[str]]] | None = None
     # Receives one fixed telemetry summary after every worker execution attempt.
     # It must not affect domain scheduling or completion semantics.
     worker_model_usage_observer: Callable[[ArtifactProcessingModelUsageDelta | None], None] | None = None
     work_failure: Callable[[AsyncConnection, str, str, str], Awaitable[None]] | None = None
+    worker_provider_observer: Callable[[ProviderObservationReport | None], None] | None = None
 
     def __post_init__(self) -> None:
         if not self.binding_name or self.binding_name != self.binding_name.strip():
@@ -222,11 +232,13 @@ class SpawnArtifactProcessingWorkerLauncher:
         initializer: Callable[[], None] | WorkerInitializerPreparation | None = None,
         entrypoint_wrapper: Callable[[WorkerEntrypoint], WorkerEntrypoint] | None = None,
         collect_model_usage: bool = False,
+        collect_provider_observations: bool = False,
     ) -> None:
         self._entrypoint = entrypoint
         self._initializer = initializer
         self._entrypoint_wrapper = entrypoint_wrapper
         self._collect_model_usage = collect_model_usage
+        self._collect_provider_observations = collect_provider_observations
 
     async def start(self, assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerHandle:
         with ExitStack() as launch_resources:
@@ -241,7 +253,14 @@ class SpawnArtifactProcessingWorkerLauncher:
                     entrypoint = self._entrypoint_wrapper(entrypoint)
             process = _OwnedSpawnProcess(
                 target=_run_spawned_worker,
-                args=(sender, entrypoint, assignment, initializer, self._collect_model_usage),
+                args=(
+                    sender,
+                    entrypoint,
+                    assignment,
+                    initializer,
+                    self._collect_model_usage,
+                    self._collect_provider_observations,
+                ),
                 name=f"powercontext-artifact-worker-{assignment.worker_id}",
                 daemon=False,
             )
@@ -340,17 +359,13 @@ class _SpawnedWorkerHandle:
         self._join_task: asyncio.Task[None] | None = None
 
     async def wait(self) -> ArtifactProcessingWorkerCompletion:
-        await self._join()
+        # Start reaping immediately, but drain the report while join is pending.
+        # Cancellation must retain the join owner through exit-status publication.
+        if self._join_task is None:
+            self._join_task = asyncio.create_task(asyncio.to_thread(self._process.join))
         try:
-            if self._receiver.poll():
-                result = self._receiver.recv()
-            else:
-                result = ArtifactProcessingWorkerFailure(
-                    stage="worker_process",
-                    error_code="worker_crash",
-                    exception_type="WorkerProcessExit",
-                    traceback="",
-                )
+            # Drain the bounded report before joining: send() can block on a full pipe.
+            result = await asyncio.to_thread(self._receiver.recv)
         except EOFError:
             result = ArtifactProcessingWorkerFailure(
                 stage="worker_process",
@@ -358,8 +373,8 @@ class _SpawnedWorkerHandle:
                 exception_type="WorkerProcessExit",
                 traceback="",
             )
-        finally:
-            await self._close()
+        await self._join()
+        await self._close()
         if isinstance(result, ArtifactProcessingWorkerFailure):
             raise _WorkerExecutionError(result)
         if not isinstance(result, ArtifactProcessingWorkerCompletion):
@@ -426,13 +441,20 @@ class _RetryState:
     block: ArtifactProcessingBlock | None = None
     request_generation: int = 0
     probe_error: tuple[str, str] | None = None
+    last_error_code: str | None = None
+    last_error_stage: str | None = None
+    last_error_at: datetime | None = None
+    last_error_worker_id: str | None = None
+    last_error_trace_id: str | None = None
 
 
 @dataclass(slots=True)
 class _RunningWorker:
     assignment: ArtifactProcessingWorkAssignment
-    task: asyncio.Task[ArtifactProcessingWorkerCompletion]
     started_at: float
+    task: asyncio.Task[ArtifactProcessingWorkerCompletion] = field(init=False)
+    trace_id: str | None = None
+    queue_wait_ms: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,6 +473,7 @@ class _FamilyState:
     binding: ArtifactProcessingBinding
     ready: deque[str] = field(default_factory=deque)
     queued: set[str] = field(default_factory=set)
+    queued_at: dict[str, float] = field(default_factory=dict)
     retry_queued: set[str] = field(default_factory=set)
     running: dict[str, _RunningWorker] = field(default_factory=dict)
     retries: dict[str, _RetryState] = field(default_factory=dict)
@@ -556,9 +579,14 @@ class ArtifactProcessingSupervisor:
         self._rotation = 0
         self._lease_lost = False
         self._unreaped: list[ArtifactProcessingWorkerHandle] = []
+        self._binding_changes: asyncio.Queue[tuple[str, ArtifactProcessingBinding | None, asyncio.Future[None]]] = (
+            asyncio.Queue()
+        )
 
     @property
     def status(self) -> ArtifactProcessingSupervisorStatus:
+        if not self._families:
+            return ArtifactProcessingSupervisorStatus.DISABLED
         if self._fence is not None and any(state.degraded for state in self._families.values()):
             return ArtifactProcessingSupervisorStatus.DEGRADED
         return self._status
@@ -636,10 +664,66 @@ class ArtifactProcessingSupervisor:
     async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         await self.close()
 
+    def observe_scope(self, scope_id: str) -> tuple[ProcessingObservation, ...]:
+        """Sample local scheduling state without inspecting another Scope's work."""
+        if self._fence is None or self._lease_lost or self._task is None or self._task.done():
+            return ()
+        now = asyncio.get_running_loop().time()
+        observed_at = datetime.now(UTC)
+        observations = []
+        for state in self._families.values():
+            running = state.running.get(scope_id)
+            retry = state.retries.get(scope_id)
+            queued = scope_id in state.queued
+            status = "idle"
+            reason = "waiting_schedule" if state.next_schedule_at is not None else "idle"
+            next_check = state.next_schedule_at
+            if running is not None:
+                status, reason, next_check = "running", "executing", None
+            elif queued:
+                status, reason = (
+                    "queued",
+                    "waiting_capacity" if len(state.running) >= state.binding.max_workers else "waiting_dispatch",
+                )
+                next_check = None
+            elif retry is not None:
+                status, reason = (
+                    ("blocked", "policy_block") if retry.block is not None else ("retry_wait", "retry_backoff")
+                )
+                next_check = retry.deadline
+            pending = state.pending_since.get(scope_id)
+            block_code = None if retry is None or retry.block is None else retry.block.error_code
+            # Custom adapters must not expose arbitrary provider messages through this field.
+            if block_code is not None and re.fullmatch(r"[a-z][a-z0-9_]{0,127}", block_code) is None:
+                block_code = None
+            observations.append(
+                ProcessingObservation(
+                    binding=state.binding.binding_name,
+                    family=state.binding.artifact_family,
+                    state=status,
+                    reason=reason,
+                    observed_at=observed_at,
+                    scheduler_observed=True,
+                    pending_since=None if pending is None else datetime.fromtimestamp(pending, UTC),
+                    running_seconds=None if running is None else max(0, now - running.started_at),
+                    next_check_seconds=None if next_check is None else max(0, next_check - now),
+                    worker_id=None if running is None else running.assignment.worker_id,
+                    attempt_generation=None if running is None else running.assignment.claimed_request_generation,
+                    retry_failures=None if retry is None else retry.failures,
+                    block_code=block_code,
+                    last_error_code=None if retry is None else retry.last_error_code,
+                    last_error_stage=None if retry is None else retry.last_error_stage,
+                    last_error_at=None if retry is None else retry.last_error_at,
+                    last_error_worker_id=None if retry is None else retry.last_error_worker_id,
+                    last_error_trace_id=None if retry is None else retry.last_error_trace_id,
+                )
+            )
+        return tuple(observations)
+
     async def start(self) -> None:
         if self._task is None:
             # Control tasks inherit this context too, including lease renewal and reaping.
-            with log_context({"request_id": None}):
+            with log_context({"request_id": None, "scope": None}):
                 self._task = asyncio.create_task(self._run(), name=f"artifact-supervisor-{self._supervisor_group}")
             await self._started.wait()
 
@@ -649,6 +733,42 @@ class ArtifactProcessingSupervisor:
             if binding_name is None or binding_name == name:
                 state.discovery_pending = True
         self._wake.set()
+
+    async def replace_binding(self, name: str, binding: ArtifactProcessingBinding | None) -> None:
+        """Change one global binding at a scheduling boundary and reap its old children."""
+
+        if self._supervisor_group != "global" or self._task is None or self._stop.is_set():
+            raise ValueError("hot registration requires a running global Supervisor")  # noqa: TRY003
+        if binding is not None and binding.binding_name != name:
+            raise ValueError("replacement binding identity must match")  # noqa: TRY003
+        done = asyncio.get_running_loop().create_future()
+        self._binding_changes.put_nowait((name, binding, done))
+        self._wake.set()
+        await asyncio.shield(done)
+
+    async def _apply_binding_changes(self) -> None:
+        while not self._binding_changes.empty():
+            name, binding, done = self._binding_changes.get_nowait()
+            try:
+                state = self._families.get(name)
+                if state is not None:
+                    tasks = [worker.task for worker in state.running.values()]
+                    for task in tasks:
+                        task.cancel()
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, _WorkerTerminationError):
+                            raise result  # noqa: TRY301 - propagate failed child reaping to leadership revocation
+                    del self._families[name]
+                if binding is not None:
+                    if any(item.binding.artifact_family == binding.artifact_family for item in self._families.values()):
+                        raise ValueError("an Artifact family already has a binding")  # noqa: TRY003, TRY301
+                    self._families[name] = _FamilyState(binding)
+                done.set_result(None)
+            except BaseException as error:
+                done.set_exception(error)
+                if isinstance(error, (asyncio.CancelledError, _WorkerTerminationError)):
+                    raise
 
     async def close(self) -> None:
         self._stop.set()
@@ -665,6 +785,7 @@ class ArtifactProcessingSupervisor:
             while not self._stop.is_set():
                 self._wake.clear()
                 try:
+                    await self._apply_binding_changes()
                     if self._lease_lost:
                         await self._lose_leadership()
                     if self._fence is None:
@@ -693,6 +814,9 @@ class ArtifactProcessingSupervisor:
                 except TimeoutError:
                     pass
         finally:
+            while not self._binding_changes.empty():
+                _, _, done = self._binding_changes.get_nowait()
+                done.set_exception(RuntimeError("Supervisor stopped before applying the binding"))
             cleanup = asyncio.create_task(
                 self._lose_leadership(), name=f"artifact-supervisor-cleanup-{self._supervisor_group}"
             )
@@ -986,10 +1110,26 @@ class ArtifactProcessingSupervisor:
     def _enqueue(self, state: _FamilyState, scope: str, *, retry: bool = False) -> None:
         if scope not in state.queued and scope not in state.running:
             state.pending_since.setdefault(scope, time.time())
+            state.queued_at[scope] = asyncio.get_running_loop().time()
             state.ready.append(scope)
             state.queued.add(scope)
             if retry:
                 state.retry_queued.add(scope)
+            with log_context({"request_id": None}):
+                log_safely(
+                    logger,
+                    logging.INFO,
+                    "Artifact processing Scope queued",
+                    extra={
+                        "event": "artifact_processing.queued",
+                        "operation": "process_artifact_scope",
+                        "unit": "background",
+                        "stage": "queued",
+                        "scope": scope,
+                        "family": state.binding.artifact_family,
+                        "binding": state.binding.binding_name,
+                    },
+                )
 
     def _defer(
         self,
@@ -1002,6 +1142,10 @@ class ArtifactProcessingSupervisor:
         request_generation: int = 0,
         probe_error: tuple[str, str] | None = None,
         reason: Literal["failure", "conflict", "blocked"] = "failure",
+        error: BaseException | None = None,
+        stage: str = "worker",
+        worker_id: str | None = None,
+        trace_id: str | None = None,
     ) -> None:
         state.retry_counts[reason] = state.retry_counts.get(reason, 0) + 1
         if scope not in state.retries and len(state.retries) >= _RETRY_STATE_LIMIT:
@@ -1043,15 +1187,37 @@ class ArtifactProcessingSupervisor:
                 state.pending_since.pop(scope, None)
                 return
         state.pending_since.setdefault(scope, time.time())
-        state.retries[scope] = _RetryState(failures, deadline, block, request_generation, probe_error)
+        code, failure_stage = (None, None) if error is None else _processing_failure(error, stage)
+        failure_at = None if error is None else datetime.now(UTC)
+        if error is None and (previous := state.retries.get(scope)) is not None:
+            # A policy block or control conflict does not acknowledge recovery.
+            code, failure_stage, failure_at = (
+                previous.last_error_code,
+                previous.last_error_stage,
+                previous.last_error_at,
+            )
+            worker_id, trace_id = previous.last_error_worker_id, previous.last_error_trace_id
+        state.retries[scope] = _RetryState(
+            failures,
+            deadline,
+            block,
+            request_generation,
+            probe_error,
+            last_error_code=code,
+            last_error_stage=failure_stage,
+            last_error_at=failure_at,
+            last_error_worker_id=worker_id if error is not None or code is not None else None,
+            last_error_trace_id=trace_id if error is not None or code is not None else None,
+        )
 
-    async def _dispatch(self, state: _FamilyState) -> None:
+    async def _dispatch(self, state: _FamilyState) -> None:  # noqa: C901 - ordered admission and worker scheduling
         # Rejections do not occupy slots. Bound their admission work so a page
         # of slow metadata probes cannot monopolize the shared control loop.
         loop = asyncio.get_running_loop()
         admission_deadline = loop.time() + _DISCOVERY_TIMEOUT_SECONDS
         while state.ready and len(state.running) < state.binding.max_workers and loop.time() < admission_deadline:
             scope = state.ready.popleft()
+            queued_at = state.queued_at.pop(scope, None)
             state.queued.discard(scope)
             state.retry_queued.discard(scope)
             retry = state.retries.get(scope)
@@ -1060,6 +1226,10 @@ class ArtifactProcessingSupervisor:
             async with self._database.transaction() as connection:
                 fence = self._require_current_fence()
                 await self._leases.require_fence(connection, fence)
+                allowed = state.binding.invocation_scope_filter
+                if allowed is not None and scope not in await allowed(connection, (scope,)):
+                    state.retries.pop(scope, None)
+                    continue
                 row = await self._intents.load(connection, scope, state.binding.binding_name, for_update=True)
             if row is None or row.requested_generation <= row.handled_generation:
                 state.retries.pop(scope, None)
@@ -1095,12 +1265,16 @@ class ArtifactProcessingSupervisor:
                     self._wait_for_block(state, assignment, block)
                     continue
             if retry is not None and retry.block is not None:
-                state.retries[scope] = _RetryState(retry.failures, asyncio.get_running_loop().time())
-            task = asyncio.create_task(
-                self._execute(state.binding, assignment), name=f"artifact-worker-{assignment.worker_id}"
+                state.retries[scope] = replace(
+                    retry, deadline=asyncio.get_running_loop().time(), block=None, probe_error=None
+                )
+            running = _RunningWorker(assignment, asyncio.get_running_loop().time())
+            running.queue_wait_ms = None if queued_at is None else max(0, running.started_at - queued_at) * 1000
+            running.task = asyncio.create_task(
+                self._execute(state.binding, running), name=f"artifact-worker-{assignment.worker_id}"
             )
-            task.add_done_callback(lambda _: self._wake.set())
-            state.running[scope] = _RunningWorker(assignment, task, asyncio.get_running_loop().time())
+            running.task.add_done_callback(lambda _: self._wake.set())
+            state.running[scope] = running
         if state.ready and len(state.running) < state.binding.max_workers:
             self._wake.set()
 
@@ -1137,18 +1311,26 @@ class ArtifactProcessingSupervisor:
                 request_generation=assignment.claimed_request_generation,
                 probe_error=probe_error,
                 reason="blocked",
+                error=error,
+                stage="work_admission",
             )
             return
         failures = 1 if retry is None else retry.failures + 1
         delay = self._retry_delay(failures)
-        self._defer(state, assignment.scope_id, failures, now + delay)
+        self._defer(state, assignment.scope_id, failures, now + delay, error=error, stage="work_admission")
         self._log_failure(state, assignment, error, "work_admission", failures, delay)
 
     def _wait_for_block(
-        self, state: _FamilyState, assignment: ArtifactProcessingWorkAssignment, block: ArtifactProcessingBlock
+        self,
+        state: _FamilyState,
+        assignment: ArtifactProcessingWorkAssignment,
+        block: ArtifactProcessingBlock,
+        *,
+        trace_id: str | None = None,
     ) -> None:
         previous = state.retries.get(assignment.scope_id)
         if previous is None or previous.block != block:
+            last_error_trace_id = None if previous is None else previous.last_error_trace_id
             log_safely(
                 logger,
                 logging.WARNING,
@@ -1163,6 +1345,16 @@ class ArtifactProcessingSupervisor:
                     "scope": assignment.scope_id,
                     "request_generation": assignment.claimed_request_generation,
                     "worker_id": assignment.worker_id,
+                    "trace_id": trace_id,
+                    "last_error_code": None if previous is None else previous.last_error_code,
+                    "last_error_stage": None if previous is None else previous.last_error_stage,
+                    "last_error_at": (
+                        None
+                        if previous is None or previous.last_error_at is None
+                        else previous.last_error_at.isoformat()
+                    ),
+                    "last_error_worker_id": None if previous is None else previous.last_error_worker_id,
+                    "last_error_trace_id": last_error_trace_id,
                     "supervisor_group": self._supervisor_group,
                     "supervisor_generation": assignment.fence.supervisor_generation,
                     "retry_delay_seconds": self._blocked_check_seconds,
@@ -1185,13 +1377,17 @@ class ArtifactProcessingSupervisor:
     def _retry_delay(self, failures: int) -> float:
         return min(self._retry_cap, self._retry_base * 2 ** min(failures - 1, 20) * self._jitter())
 
-    async def _execute(  # noqa: C901 - worker lifecycle and observation boundaries
-        self, binding: ArtifactProcessingBinding, assignment: ArtifactProcessingWorkAssignment
+    async def _execute(  # noqa: C901 - worker lifecycle owns setup, result and cleanup boundaries
+        self, binding: ArtifactProcessingBinding, running: _RunningWorker
     ) -> ArtifactProcessingWorkerCompletion:
+        assignment = running.assignment
         state = self._families[binding.binding_name]
         started_at = time.perf_counter()
         attempt_outcome = "failure"
-        attributes = {"powercontext.artifact_processing.family": binding.artifact_family}
+        attributes = {
+            "powercontext.artifact_processing.family": binding.artifact_family,
+            "powercontext.scope.id": assignment.scope_id,
+        }
         background = (
             nullcontext()
             if self._tracing is None
@@ -1200,7 +1396,23 @@ class ArtifactProcessingSupervisor:
             )
         )
         model_usage: ArtifactProcessingModelUsageDelta | None = None
+        provider_observations: ProviderObservationReport | None = None
         with log_context(_worker_log_fields(assignment)), background as span, _observe_worker_error(span):
+            # Optional adapter capability; unconfigured/custom SDK tracing stays valid.
+            with suppress(Exception):
+                trace_id = getattr(span, "trace_id", None)
+                if isinstance(trace_id, str) and re.fullmatch(r"[0-9a-f]{32}", trace_id) and int(trace_id, 16):
+                    running.trace_id = trace_id
+            log_safely(
+                logger,
+                logging.INFO,
+                "Artifact processing invocation dispatched",
+                extra={
+                    "event": "artifact_processing.dispatched",
+                    "stage": "dispatched",
+                    "queue_wait_ms": running.queue_wait_ms,
+                },
+            )
             handle: ArtifactProcessingWorkerHandle | None = None
             try:
                 async with asyncio.timeout(binding.worker_timeout_seconds):
@@ -1220,6 +1432,7 @@ class ArtifactProcessingSupervisor:
                     ):
                         completion = await handle.wait()
                     model_usage = completion.model_usage
+                    provider_observations = completion.provider_observations
                     if completion.outcome is ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST:
                         raise ArtifactProcessingLeadershipLostError(  # noqa: TRY301
                             self._supervisor_group, self.holder_id, 0
@@ -1268,6 +1481,8 @@ class ArtifactProcessingSupervisor:
                     state.error_counts[category] = state.error_counts.get(category, 0) + 1
                 if isinstance(error, _WorkerExecutionError) and error.failure.model_usage is not None:
                     model_usage = error.failure.model_usage
+                if isinstance(error, _WorkerExecutionError):
+                    provider_observations = error.failure.provider_observations
                 if isinstance(error, (asyncio.CancelledError, TimeoutError)):
                     log_safely(
                         logger,
@@ -1275,6 +1490,9 @@ class ArtifactProcessingSupervisor:
                         "Artifact processing invocation interrupted",
                         extra={
                             "event": "artifact_processing.worker.interrupted",
+                            "stage": "interrupted",
+                            "duration_ms": max(asyncio.get_running_loop().time() - running.started_at, 0) * 1000,
+                            "queue_wait_ms": running.queue_wait_ms,
                             "outcome": "cancelled" if isinstance(error, asyncio.CancelledError) else "failure",
                             "error_code": "worker_cancelled"
                             if isinstance(error, asyncio.CancelledError)
@@ -1293,6 +1511,9 @@ class ArtifactProcessingSupervisor:
                 if binding.worker_model_usage_observer is not None:
                     with suppress(Exception):
                         binding.worker_model_usage_observer(model_usage)
+                if binding.worker_provider_observer is not None:
+                    with suppress(Exception):
+                        binding.worker_provider_observer(provider_observations)
 
     def _log_completion_hold(
         self,
@@ -1340,6 +1561,7 @@ class ArtifactProcessingSupervisor:
             state.invocation_seconds = asyncio.get_running_loop().time() - running.started_at
             retain_slot = False
             observed_outcome = "failure"
+            diagnostic_code = None
             try:
                 completion = running.task.result()
                 if completion.outcome is ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST:
@@ -1397,7 +1619,8 @@ class ArtifactProcessingSupervisor:
                 )
                 if block is not None:
                     observed_outcome = "blocked"
-                    self._wait_for_block(state, running.assignment, block)
+                    diagnostic_code = block.error_code
+                    self._wait_for_block(state, running.assignment, block, trace_id=running.trace_id)
                     continue
                 if isinstance(error, TimeoutError):
                     observed_outcome = "timeout"
@@ -1430,13 +1653,38 @@ class ArtifactProcessingSupervisor:
                 previous = state.retries.get(scope)
                 failures = 1 if previous is None else previous.failures + 1
                 delay = self._retry_delay(failures)
-                self._defer(state, scope, failures, asyncio.get_running_loop().time() + delay)
+                self._defer(
+                    state,
+                    scope,
+                    failures,
+                    asyncio.get_running_loop().time() + delay,
+                    error=error,
+                    worker_id=running.assignment.worker_id,
+                    trace_id=running.trace_id,
+                )
                 state.failed += 1
                 if isinstance(error, TimeoutError):
                     state.timeouts += 1
                 self._record_failure(state, error, "worker", count_error=running.task.exception() is not error)
                 self._log_failure(state, running.assignment, error, "worker", failures, delay)
+                diagnostic_code, _ = _processing_failure(error, "worker")
             finally:
+                if not retain_slot:
+                    log_safely(
+                        logger,
+                        logging.INFO,
+                        "Artifact processing attempt finalized",
+                        extra={
+                            **_worker_log_fields(running.assignment),
+                            "event": "artifact_processing.attempt.completed",
+                            "stage": "completion",
+                            "outcome": observed_outcome,
+                            "duration_ms": state.invocation_seconds * 1000,
+                            "queue_wait_ms": running.queue_wait_ms,
+                            "trace_id": running.trace_id,
+                            "error_code": diagnostic_code,
+                        },
+                    )
                 if not retain_slot and self._processing_observer is not None:
                     with suppress(Exception):
                         self._processing_observer(
@@ -1487,6 +1735,7 @@ class ArtifactProcessingSupervisor:
             state.discovered_at = 0
             state.ready.clear()
             state.queued.clear()
+            state.queued_at.clear()
             state.retry_queued.clear()
             state.overflow_not_before = 0.0
             state.blocked_rescan_at = None
@@ -1537,11 +1786,7 @@ class ArtifactProcessingSupervisor:
     def _record_failure(
         self, state: _FamilyState | None, error: BaseException, stage: str, *, count_error: bool = True
     ) -> None:
-        error_code = _worker_error_code(error)
-        if stage in {"supervisor", "lease_renewal", "scope_discovery"}:
-            error_code = f"{stage}_failed"
-        elif is_inference_failure_code(error_code):
-            stage = "inference"
+        error_code, stage = _processing_failure(error, stage)
         occurred_at = datetime.now(UTC).isoformat()
         _, category = _attempt_failure_observation(error)
         for affected in self._families.values() if state is None else (state,):
@@ -1563,12 +1808,18 @@ class ArtifactProcessingSupervisor:
         cancelled = isinstance(error, asyncio.CancelledError) or (
             isinstance(error, _WorkerExecutionError) and error.failure.cancelled
         )
+        diagnostics = (
+            error.failure.diagnostics
+            if isinstance(error, _WorkerExecutionError) and error.failure.diagnostics is not None
+            else safe_classify_processing_error(error)
+        )
         log_safely(
             logger,
             logging.INFO if cancelled else logging.ERROR,
             "Artifact processing cancelled" if cancelled else "Artifact processing failed",
             extra={
                 "event": "artifact_processing.failed",
+                **safe_log_fields(diagnostics),
                 "stage": error.failure.stage
                 if isinstance(error, _WorkerExecutionError)
                 else _safe_error_attribute(error, "stage", stage),
@@ -1642,6 +1893,8 @@ class ArtifactProcessingSupervisors:
     @property
     def status(self) -> ArtifactProcessingSupervisorStatus:
         states = [item.status for item in self.supervisors]
+        if all(state is ArtifactProcessingSupervisorStatus.DISABLED for state in states):
+            return ArtifactProcessingSupervisorStatus.DISABLED
         if ArtifactProcessingSupervisorStatus.DEGRADED in states:
             return ArtifactProcessingSupervisorStatus.DEGRADED
         if ArtifactProcessingSupervisorStatus.LEADER in states:
@@ -1658,9 +1911,17 @@ class ArtifactProcessingSupervisors:
             family: snapshot for item in self.supervisors for family, snapshot in item.processing_observations.items()
         }
 
+    def observe_scope(self, scope_id: str) -> tuple[ProcessingObservation, ...]:
+        return tuple(row for supervisor in self.supervisors for row in supervisor.observe_scope(scope_id))
+
     def wake(self, binding_name: str | None = None) -> None:
         for supervisor in self.supervisors:
             supervisor.wake(binding_name)
+
+    async def replace_binding(self, name: str, binding: ArtifactProcessingBinding | None) -> None:
+        if len(self.supervisors) != 1:
+            raise ValueError("hot registration requires one global Supervisor")  # noqa: TRY003
+        await self.supervisors[0].replace_binding(name, binding)
 
     async def close(self) -> None:
         await asyncio.gather(*(item.close() for item in self.supervisors))
@@ -1672,6 +1933,7 @@ def _run_spawned_worker(
     assignment: ArtifactProcessingWorkAssignment,
     initializer: Callable[[], None] | None = None,
     collect_model_usage: bool = False,
+    collect_provider_observations: bool = False,
 ) -> None:
     with log_context(_worker_log_fields(assignment)):
         if initializer is not None:
@@ -1695,12 +1957,18 @@ def _run_spawned_worker(
             extra={"event": "artifact_processing.worker.started"},
         )
         collector = WorkerModelUsageCollector() if collect_model_usage else None
+        provider_collector = ProviderObservationCollector() if collect_provider_observations else None
         token = None if collector is None else worker_model_usage_collector.set(collector)
         try:
-            completion = entrypoint(assignment)
+            with (
+                bind_provider_observer(provider_collector.observe) if provider_collector is not None else nullcontext()
+            ):
+                completion = entrypoint(assignment)
             completed = ArtifactProcessingWorkerCompletion() if completion is None else completion
             if collector is not None and isinstance(completed, ArtifactProcessingWorkerCompletion):
                 completed = replace(completed, model_usage=collector.snapshot())
+            if provider_collector is not None and isinstance(completed, ArtifactProcessingWorkerCompletion):
+                completed = replace(completed, provider_observations=provider_collector.snapshot())
             sender.send(completed)
             log_safely(
                 logger,
@@ -1719,7 +1987,8 @@ def _run_spawned_worker(
                 },
             )
         except BaseException as error:
-            error_code = processing_error_code(type(error), _safe_error_attribute(error, "error_code", ""))
+            error_code = _worker_error_code(error)
+            diagnostics = safe_classify_processing_error(error)
             block = error.block if isinstance(error, ArtifactProcessingBlockedError) else None
             level = logging.ERROR
             outcome = "failure"
@@ -1745,6 +2014,7 @@ def _run_spawned_worker(
                     "stage": None if block is None else block.stage,
                     "exception_type": type(error).__name__,
                     "duration_ms": max(time.perf_counter() - started_at, 0) * 1000,
+                    **safe_log_fields(diagnostics),
                 },
             )
             sender.send(
@@ -1760,6 +2030,8 @@ def _run_spawned_worker(
                     block=error.block if isinstance(error, ArtifactProcessingBlockedError) else None,
                     cancelled=isinstance(error, asyncio.CancelledError),
                     model_usage=None if collector is None else collector.snapshot(),
+                    diagnostics=diagnostics,
+                    provider_observations=None if provider_collector is None else provider_collector.snapshot(),
                 )
             )
         finally:
@@ -1834,11 +2106,29 @@ def _attempt_failure_observation(error: BaseException) -> tuple[str, str]:
 def _worker_error_code(error: BaseException) -> str:
     """Keep live and retained Worker diagnostics in the same controlled category."""
     if isinstance(error, _WorkerExecutionError):
+        if error.failure.exception_type == "TimeoutError":
+            return "worker_timeout"
         return processing_error_code(error.failure.exception_type, error.failure.error_code)
     code = processing_error_code(type(error), _safe_error_attribute(error, "error_code", ""))
     if code == "processing_failed" and isinstance(error, TimeoutError):
         return "worker_timeout"
     return code
+
+
+def _processing_failure(error: BaseException, stage: str) -> tuple[str, str]:
+    """Classify local/serialized failures without exposing child messages or stages."""
+    code = _worker_error_code(error)
+    if stage in {"supervisor", "lease_renewal", "scope_discovery"}:
+        return f"{stage}_failed", stage
+    if code in {"access_denied", "access_identity_required", "access_unavailable"}:
+        return code, "authorization"
+    if is_inference_failure_code(code):
+        return code, "inference"
+    if code == "missing_durable_acknowledgement":
+        return code, "completion"
+    if isinstance(error, _WorkerExecutionError) and error.failure.cancelled:
+        return "worker_cancelled", "worker"
+    return code, "work_admission" if stage == "work_admission" else "worker"
 
 
 def _worker_failure_category(error: BaseException) -> str:

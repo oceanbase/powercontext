@@ -21,7 +21,6 @@ an existing database. Recreate the scratch database before running it again.
 
 from __future__ import annotations
 
-import asyncio
 import importlib.metadata
 import json
 import os
@@ -35,9 +34,8 @@ from sqlalchemy.engine import make_url
 
 from powercontext.builtin.persistence.migrations import MigrationBundle
 from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
-from powercontext.builtin.persistence.migrations.locking import local_migration_lock
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
-from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.seekdb import SeekDBConfig
 
 FIXTURE = Path(__file__).resolve().parents[2] / "fixtures/database_migrations"
 
@@ -90,15 +88,15 @@ def exercise_revisions(connection: Connection, bundle: MigrationBundle) -> None:
 
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekDB probe not enabled")
 def test_real_seekdb_revision_operations(short_tmp_path: Path) -> None:
-    async def scenario() -> None:
-        path = short_tmp_path / "seekdb"
-        # The OS lock precedes engine startup and outlives engine shutdown.
-        with local_migration_lock(path):
-            async with SeekDBProfile.open(SeekDBConfig(path=path), tables=()) as profile:
-                async with profile.database.engine.connect() as connection:
-                    await connection.run_sync(lambda sync: exercise_revisions(sync, MigrationBundle(FIXTURE)))
+    adapter = MaintenanceConnections(SeekDBConfig(path=short_tmp_path / "seekdb"))
 
-    asyncio.run(scenario())
+    def exercise(connection, _identity, verify):
+        assert connection is not None
+        verify()
+        exercise_revisions(connection, MigrationBundle(FIXTURE))
+        verify()
+
+    adapter.run(exercise, writable=True)
 
 
 @pytest.mark.skipif(

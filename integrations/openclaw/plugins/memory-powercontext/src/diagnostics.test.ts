@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { failureEvent } from './diagnostics.js'
+import { createDiagnosticEmitter, failureEvent } from './diagnostics.js'
 import { PowerContextRequestError } from './http.js'
 
 describe('host-visible diagnostic classification', () => {
@@ -86,5 +86,32 @@ describe('host-visible diagnostic classification', () => {
       http_status: 404,
       error_code: 'invalid_request',
     })
+  })
+})
+
+describe('diagnostic cooldown', () => {
+  it('suppresses only the same event, lifecycle boundary, and Scope correlation', () => {
+    const lines: string[] = []
+    const emit = createDiagnosticEmitter((line) => lines.push(line), () => 1)
+
+    emit({ event: 'capture_source', outcome: 'invalid_response', host: 'openclaw' })
+    emit({
+      event: 'session_end_flush', outcome: 'deadline_exceeded', host: 'openclaw', lifecycle_event: 'session_end',
+      scope_correlation: 'a',
+    })
+    emit({
+      event: 'session_end_flush', outcome: 'deadline_exceeded', host: 'openclaw', lifecycle_event: 'gateway_stop',
+      scope_correlation: 'a',
+    })
+    emit({
+      event: 'session_end_flush', outcome: 'deadline_exceeded', host: 'openclaw', lifecycle_event: 'gateway_stop',
+      scope_correlation: 'b',
+    })
+    emit({
+      event: 'session_end_flush', outcome: 'deadline_exceeded', host: 'openclaw', lifecycle_event: 'gateway_stop',
+      scope_correlation: 'a',
+    })
+
+    expect(lines).toHaveLength(4)
   })
 })

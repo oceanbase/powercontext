@@ -1,0 +1,37 @@
+{
+  "format_version": 1,
+  "upstream": "https://github.com/astral-sh/python-build-standalone/tree/20261026",
+  "license": "https://github.com/astral-sh/python-build-standalone/blob/20261026/LICENSE",
+  "targets": {
+    "macos-arm64": {
+      "platform": "macos",
+      "architecture": "arm64",
+      "python_version": "3.12.16",
+      "python_relative": "bin/python3",
+      "server_python_relative": "bin/python3",
+      "site_relative": "lib/python3.12/site-packages",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-aarch64-apple-darwin-install_only.tar.gz",
+      "sha256": "fbf4afef53c2a6b72bb741bc06d5671a9dfaf87bd84e5aa73ac9b3d0d589f14e"
+    },
+    "macos-x86_64": {
+      "platform": "macos",
+      "architecture": "x86_64",
+      "python_version": "3.12.16",
+      "python_relative": "bin/python3",
+      "server_python_relative": "bin/python3",
+      "site_relative": "lib/python3.12/site-packages",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-apple-darwin-install_only.tar.gz",
+      "sha256": "a962e47df522889eaa7ff0d6a56203f1079f68aabb65ffdbe8455f362bc769f3"
+    },
+    "windows-x86_64": {
+      "platform": "windows",
+      "architecture": "x86_64",
+      "python_version": "3.12.16",
+      "python_relative": "python.exe",
+      "server_python_relative": "pythonw.exe",
+      "site_relative": "Lib/site-packages",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only.tar.gz",
+      "sha256": "590dfcbe3a34c07301e6332e13e2188b98655cd072b08afa45a7998dc4c22bc5"
+    }
+  }
+}

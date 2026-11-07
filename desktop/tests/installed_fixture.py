@@ -33,7 +33,7 @@ from urllib.parse import quote
 
 import httpx
 from fixture_qualification import fixture_profile
-from real_server import HarnessFailure, control_pipe
+from real_server import HarnessFailure, retained_fixture_server
 
 
 def fixture_compatibility_profile() -> str:
@@ -82,13 +82,16 @@ def wait_ready(client: httpx.Client, process: subprocess.Popen[bytes]) -> None:
 
 @contextmanager
 def isolated_server(
-    response_loss_counter: Path | None = None, response_gate: Path | None = None
+    response_loss_counter: Path | None = None,
+    response_gate: Path | None = None,
+    statistics_usage_control: Path | None = None,
 ) -> Iterator[tuple[httpx.Client, str, str]]:
     desktop = Path(__file__).resolve().parents[1]
     wheels = list((desktop / ".artifacts/server-wheel").glob("*.whl"))
     if len(wheels) != 1:
         raise HarnessFailure("installed_server_wheel_count")
     wheel = wheels[0]
+    wheel_digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
     with tempfile.TemporaryDirectory(prefix="desktop-installed-server-") as directory:
         temp = Path(directory)
         wheel_root = temp / "wheel"
@@ -105,8 +108,10 @@ def isolated_server(
             "prefix": "",
             "port": port,
             "tls": False,
+            "uvicorn_log_level": "warning",
             "response_gate_path": str(response_gate) if response_gate else None,
             "response_loss_path": str(response_loss_counter) if response_loss_counter else None,
+            "statistics_usage_path": str(statistics_usage_control) if statistics_usage_control else None,
         }
         config_path = temp / "server.json"
         config_path.write_text(json.dumps(config), encoding="utf-8")
@@ -125,27 +130,26 @@ def isolated_server(
                 env=environment,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
-            control = control_pipe(process)
-            try:
-                with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=10) as client:
-                    wait_ready(client, process)
-                    response = client.post(
-                        "/v1/scopes",
-                        json={
-                            "title": "Desktop installed CI",
-                            "summary": "Synthetic installed UI acceptance",
-                            "idempotency_key": "desktop-installed-ui-scope",
-                        },
-                    )
-                    response.raise_for_status()
-                    yield client, response.json()["scope_id"], hashlib.sha256(wheel.read_bytes()).hexdigest()
-            finally:
-                if process.poll() is None:
-                    control.write(b"stop\n")
-                    control.flush()
-                    try:
-                        process.wait(timeout=30)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=10)
-                control.close()
+            with (
+                retained_fixture_server(
+                    process,
+                    log,
+                    temp / "server.log",
+                    desktop / ".artifacts",
+                    label="installed-ui-server",
+                    port=port,
+                    wheel_sha256=wheel_digest,
+                ),
+                httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=10) as client,
+            ):
+                wait_ready(client, process)
+                response = client.post(
+                    "/v1/scopes",
+                    json={
+                        "title": "Desktop installed CI",
+                        "summary": "Synthetic installed UI acceptance",
+                        "idempotency_key": "desktop-installed-ui-scope",
+                    },
+                )
+                response.raise_for_status()
+                yield client, response.json()["scope_id"], wheel_digest

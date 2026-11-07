@@ -104,6 +104,7 @@ class TextEvidenceExtractor:
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
                     AtomicMemoryCandidate(
+                        description="Retained remote source fact",
                         kind="decision",
                         text=TextEvidence.model_validate(evidence.content).content,
                         evidence_ids=(evidence.evidence_id,),
@@ -122,7 +123,9 @@ class IndependentMemoryReconciler:
             output=AtomicMemoryReconciliationOutput(
                 action="create",
                 compared_ids=tuple(item.item_id for item in request.related),
-                content=AtomicMemoryReconciliationContent(kind=request.proposal.kind, text=request.proposal.text),
+                content=AtomicMemoryReconciliationContent(
+                    kind=request.proposal.kind, text=request.proposal.text, description="Retained remote source fact"
+                ),
                 evidence_ids=request.proposal.evidence_ids,
                 reason="Preserve each independent file snapshot with its exact Source evidence.",
             )

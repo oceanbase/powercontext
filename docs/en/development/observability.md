@@ -9,6 +9,9 @@ Before adding a log, metric, or span, identify the question it answers and the b
 Use the [operational field contract](../docs/operate/observability.md) for names, units, outcomes, error categories,
 and correlation semantics. [RFC 0046](../rfcs/0046_observability_foundations.md) defines privacy and signal ownership.
 
+For the Desktop host's process-local measurements and native safe export, use the separate
+[Desktop session observation contract](desktop-session-observations.md). It does not configure Server logging or tracing.
+
 ## Add an operational event
 
 Use a module logger and `powercontext._logging.log_safely`. Keep the message fixed and put approved diagnostic values
@@ -74,7 +77,15 @@ JSON formatting deliberately ignores unknown extras. When a new field is require
 4. Update the operational field contract in both locales and add a focused observable-output regression test.
    Review compatibility before renaming or removing published fields or event names.
 
+See [Processing failure diagnostics](processing-failures.md) for the shared failure vocabulary and the
+per-Family coverage matrix.
+
 Service identity comes from `src/powercontext/server/telemetry.py`; logs and traces use the same resource identity.
+The optional `service_target` / `powercontext.service.target` is the configured scrape endpoint, not a process ID.
+API/background profiles select the owning endpoint; Server-created workers inherit it explicitly. Preserve this
+mapping when adding a launcher. Credentials and URL paths are rejected, and an unknown target remains absent.
+Workers also inherit `service_owner_role` / `powercontext.service.owner_role` for parent-role filtering;
+their actual `service_role` remains `worker`. These roles do not add execution identities to metrics.
 Error classification comes from `powercontext._logging.error_category`, with domain-owned categories such as `blocked`
 set at their owning boundary. Do not create independent vocabularies in each adapter.
 
@@ -120,23 +131,31 @@ Queue gauges describe the parent recorder only; child loss counters are added wi
 Keep observation timestamps distinct from scrape time, and document cache, reset and incomplete-coverage semantics.
 
 A fresh development environment installed with `uv sync` does not include `tracing-otlp`. In that environment,
-`make test` skips OTLP worker tests and the tracing cases in worker model-usage tests. `make check` does not execute
+`make test` skips OTLP worker tests, the tracing cases in worker model-usage tests, and configuration cases
+that require the exporter. The missing-exporter rejection still runs. `make check` does not execute
 these tests. The `Main` workflow's
 `worker-observability` job installs the extra and requires all selected tests to pass without skips:
 
 ```bash
 uv run --locked --extra tracing-otlp pytest tests/e2e/test_worker_otlp.py \
-  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py -q
+  tests/e2e/test_worker_model_usage.py tests/test_observability_health.py \
+  tests/test_observability_cli.py tests/test_observability_connect.py -q
 ```
 
 These checks exercise real spawn, OTLP/HTTP, a local model fixture, Pydantic AI propagation and the metrics HTTP
 surface. They prove local reception, not storage/query acceptance by an external backend.
 
 The background CLI listener lifecycle requires a disposable OceanBase instance and
-`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`. The `E2E harness` workflow's `atomic-memory-clean-oceanbase` job runs
-`tests/e2e/test_background_metrics.py` through the clean migration acceptance runner, which rejects skipped tests.
-The test initializes its fresh database before starting the real background CLI, then checks listener startup,
-authorized metrics, absence of business routes and clean SIGTERM shutdown. The listener startup budget excludes
-first-run schema and index creation. CI retains `background-metrics/background.log` with the migration reports;
-startup failures include the child return code and a bounded log tail. Backend acceptance requires this step to pass.
-Without the backend setting, default test runs skip that lifecycle test.
+`POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL`. The `E2E harness` workflow's
+`atomic-memory-clean-oceanbase-shards` matrix runs
+`tests/e2e/test_background_metrics.py` through the clean migration acceptance runner
+on three runners, and rejects skipped tests. The legacy-named
+`atomic-memory-clean-oceanbase` job only downloads the three shard artifacts and
+checks their complete, exactly-once coverage. The test initializes its fresh database
+before starting the real background CLI, then checks listener startup, authorized
+metrics, absence of business routes and clean SIGTERM shutdown. The listener startup
+budget excludes first-run schema and index creation. CI retains
+`background-metrics/background.log` in the shard artifact; this group has one node,
+so the log is in shard `0`. Startup failures include the child return code and a
+bounded log tail. Backend acceptance requires this step to pass. Without the backend
+setting, default test runs skip that lifecycle test.

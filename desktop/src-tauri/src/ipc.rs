@@ -16,6 +16,7 @@
 
 use crate::error::SafeError;
 use serde::Serialize;
+use tauri::Manager;
 use ts_rs::TS;
 
 #[derive(Serialize, TS)]
@@ -41,18 +42,20 @@ pub fn foundation_info<R: tauri::Runtime>(
 ) -> Result<FoundationInfo, SafeError> {
     authorize_window(window.label())?;
     Ok(FoundationInfo {
-        version: env!("CARGO_PKG_VERSION").into(),
+        version: window.package_info().version.to_string(),
         phase: "S3".into(),
-        credential_backend: if cfg!(windows) {
-            "windows_credential_manager"
-        } else if cfg!(target_os = "macos") {
-            "macos_keychain"
-        } else {
-            "unavailable"
-        }
-        .into(),
+        credential_backend: credential_backend(current_target_os()).into(),
         server_connected: false,
     })
+}
+
+fn credential_backend(target_os: &str) -> &'static str {
+    match target_os {
+        "windows" => "windows_credential_manager",
+        "macos" => "macos_keychain",
+        "linux" => "linux_secret_service",
+        _ => "unavailable",
+    }
 }
 
 fn packaged_origin(target_os: &str) -> Option<(&'static str, &'static str)> {
@@ -94,7 +97,15 @@ pub fn allowed_navigation(url: &url::Url) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::packaged_navigation_allowed;
+    use super::{credential_backend, packaged_navigation_allowed};
+
+    #[test]
+    fn credential_backend_is_explicit_for_supported_targets() {
+        assert_eq!(credential_backend("windows"), "windows_credential_manager");
+        assert_eq!(credential_backend("macos"), "macos_keychain");
+        assert_eq!(credential_backend("linux"), "linux_secret_service");
+        assert_eq!(credential_backend("other"), "unavailable");
+    }
 
     #[test]
     fn packaged_origins_are_explicit_for_each_supported_target() {

@@ -1,3 +1,8 @@
+---
+title: RFC 0082：Handoff 交接报告
+description: Handoff Report 的设计提案，按 Scope 选择已提交交接，让 Markdown 与 Agent JSON 保留相同的精确版本和证据。
+---
+
 - Proposal Name: `handoff_report`
 - Start Date: 2026-08-04
 - Status: Draft

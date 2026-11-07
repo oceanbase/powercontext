@@ -42,6 +42,7 @@ from powercontext.server.authz import (
 from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 ADMIN = PrincipalRef(type="service", id="admin")
 AUDIT = AccessAuditContext(transport="http", operation="test")
@@ -73,17 +74,19 @@ class _Authentication:
 @asynccontextmanager
 async def _server(tmp_path: Path, backend="builtin", *, inference: InferenceConfig | None = None):
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'regressions.db'}")
+    settings = ServerSettings(
+        database=database,
+        inference=inference or InferenceConfig(),
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        access=AccessControlConfig(mode="enforced", deployment_id="regressions"),
+        mcp=McpConfig(enabled=False),
+        metrics=MetricsConfig(enabled=False),
+    )
+    await asyncio.to_thread(prepare_server_database, settings)
     opener = open_builtin_access_control if backend == "builtin" else open_casbin_access_control
     async with opener(database, bootstrap_administrators=(ADMIN,), deployment_id="regressions") as access:
         app = create_server_app(
-            settings=ServerSettings(
-                database=database,
-                inference=inference or InferenceConfig(),
-                runtime=RuntimeConfig(artifact_processing_families=()),
-                access=AccessControlConfig(mode="enforced", deployment_id="regressions"),
-                mcp=McpConfig(enabled=False),
-                metrics=MetricsConfig(enabled=False),
-            ),
+            settings=settings,
             authentication_provider=_Authentication(),
             access_control=access,
             scheduler_path=tmp_path / "scheduler.db",
@@ -102,6 +105,39 @@ async def _scope(client):
     )
     assert result.status_code == 201, result.text
     return result.json()["scope_id"]
+
+
+def test_connection_identity_and_owned_memory_survive_denied_server_observation(tmp_path: Path, monkeypatch) -> None:
+    async def scenario() -> None:
+        async with _server(tmp_path) as (app, client, _access):
+
+            async def forbidden_probe():
+                pytest.fail("Ordinary connection and Memory operations must not probe readiness")
+
+            app.state.readiness_probe = forbidden_probe
+            monkeypatch.setattr(app.state.authentication_provider, "readiness", forbidden_probe)
+            monkeypatch.setattr(_access, "readiness", forbidden_probe)
+            scope_id = await _scope(client)
+            await _grant(client, scope_id, "alice", "scope.contributor")
+            client.headers["Authorization"] = "Bearer alice"
+            denied = await client.get("/v1/capabilities")
+            assert denied.status_code == 403
+            identity = await client.get("/v1/connection/identity")
+            assert identity.status_code == 200, identity.text
+            assert identity.json()["principal"] == {"type": "user", "id": "alice", "description": None}
+            assert identity.json()["authentication"] == "authenticated"
+            assert identity.json()["access_mode"] == "enforced"
+            saved = await client.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "note", "text": "Owned memory"}
+            )
+            assert saved.status_code == 200, saved.text
+            reference = saved.json()["records"][0]["artifact"]
+            read = await client.get(
+                f"/v1/scopes/{scope_id}/artifacts/atomic-memory/{reference['artifact_id']}/revisions/{reference['revision']}"
+            )
+            assert read.status_code == 200, read.text
+
+    asyncio.run(scenario())
 
 
 def test_remember_memory_survives_concurrent_write_after_authorization(tmp_path: Path, monkeypatch) -> None:
@@ -328,19 +364,43 @@ def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assemb
             response = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
             assert response.status_code == 403
             assert "PRIVATE" not in response.text
+            opted_denied = await client.post(
+                "/v1/context/prepare",
+                headers={"Authorization": "Bearer bob"},
+                json={**payload, "include_receipt": True},
+            )
+            assert opted_denied.status_code == 403 and "PRIVATE" not in opted_denied.text
             disabled = await client.post(
                 "/v1/context/prepare",
                 headers={"Authorization": "Bearer bob"},
                 json={
                     **payload,
                     "assembly": {"sections": []},
+                    "include_receipt": True,
                 },
             )
             assert disabled.status_code == 200 and disabled.json()["status"] == "empty"
+            assert disabled.json()["receipt"]["selected"] == []
             grant = await _grant(client, shared, "bob", "scope.viewer")
             allowed = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
             assert allowed.status_code == 200
             assert "PRIVATE shared deployment contract." in allowed.json()["content"]
+            opted_allowed = await client.post(
+                "/v1/context/prepare",
+                headers={"Authorization": "Bearer bob"},
+                json={**payload, "include_receipt": True},
+            )
+            assert opted_allowed.status_code == 200
+            selected = opted_allowed.json()["receipt"]["selected"]
+            assert selected and all(item["artifact_address"]["scope_id"] == shared for item in selected)
+            artifact = selected[0]["artifact_address"]["artifact"]
+            exact_path = (
+                f"/v1/scopes/{shared}/artifacts/{artifact['family']}/"
+                f"{artifact['artifact_id']}/revisions/{artifact['revision']}"
+            )
+            exact = await client.get(exact_path, headers={"Authorization": "Bearer bob"})
+            assert exact.status_code == 200
+            assert exact.json()["revision"] == artifact["revision"]
             revoked = await client.post(
                 "/v1/access/bindings/revoke",
                 json={
@@ -352,6 +412,8 @@ def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assemb
             assert revoked.status_code == 200, revoked.text
             denied = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
             assert denied.status_code == 403 and "PRIVATE" not in denied.text
+            revoked_exact = await client.get(exact_path, headers={"Authorization": "Bearer bob"})
+            assert revoked_exact.status_code == 403
 
     asyncio.run(scenario())
 
@@ -2119,5 +2181,65 @@ def test_atomic_scope_search_and_list_keep_exact_artifact_shares_separate(tmp_pa
             denied = await client.get("/dashboard/notes", headers=reader, params=query)
             assert denied.status_code == 403, denied.text
             assert "Alpha scope fact." not in denied.text
+
+    asyncio.run(scenario())
+
+
+def test_static_preset_preserves_revoked_legacy_long_scope_receipts(tmp_path):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+    from powercontext.server.authz import AccessBinding, AccessBindingState, AccessControlService, AccessRole
+    from powercontext.server.authz.repository import RelationalAccessRepository
+
+    async def scenario():
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'legacy-preset.db'}"))
+        async with open_builtin_contexts(config) as contexts:
+            scope_id = "s" * 256
+            await contexts.get(scope_id)
+            actor = PrincipalRef(type="service", id="server-token")
+            repository = RelationalAccessRepository(contexts.database)
+            access = AccessControlService(
+                BuiltinAuthorizationProvider(repository),
+                relationships=repository,
+                audit=repository,
+                static_scope_principal=actor,
+            )
+            resource = ResourceRef.scope(scope_id)
+            for role in (
+                AccessRole.SCOPE_VIEWER,
+                AccessRole.SCOPE_CONTRIBUTOR,
+                AccessRole.SCOPE_REVIEWER,
+                AccessRole.SCOPE_DELEGATOR,
+            ):
+                binding = await repository.create_binding(
+                    AccessBinding(
+                        binding_id=str(uuid4()),
+                        subject=actor,
+                        resource=resource,
+                        role=role,
+                        granted_by=actor,
+                        reason="static bearer preset",
+                        created_at=datetime.now(UTC),
+                        expires_at=None,
+                        state=AccessBindingState.ACTIVE,
+                        version=1,
+                        policy_revision="pending",
+                        idempotency_key=f"static-preset:{access.deployment_id}:{actor.id}:{scope_id}:{role.value}",
+                    )
+                )
+                if role is AccessRole.SCOPE_CONTRIBUTOR:
+                    await repository.revoke_binding(
+                        binding.binding_id,
+                        expected_version=1,
+                        idempotency_key="revoke-legacy",
+                        revoked_at=datetime.now(UTC),
+                        revoked_by=actor,
+                    )
+            assert not await access.static_scope_bootstrap_would_grant(actor, AccessAction.SCOPE_CONTRIBUTE, resource)
+            await access.bootstrap_static_scope(actor, scope_id, context=AUDIT)
+            assert not (await access.check(actor, AccessAction.SCOPE_CONTRIBUTE, resource, context=AUDIT)).allowed
+            assert (await access.check(actor, AccessAction.SCOPE_READ, resource, context=AUDIT)).allowed
 
     asyncio.run(scenario())

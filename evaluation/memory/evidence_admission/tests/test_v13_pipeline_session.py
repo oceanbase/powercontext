@@ -22,6 +22,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryCandidate
 from powercontext.builtin.inference import InferenceError
 
 from powercontext_eval_evidence_admission.manifests import EvaluationError, read_json
@@ -36,6 +37,8 @@ BASELINE = Path(__file__).parents[1] / "results/v11-offline"
 
 
 async def session(tmp_path):
+    if "description" in AtomicMemoryCandidate.model_fields:
+        pytest.skip("frozen v11 baseline requires its recorded runtime; current description schema rejects it")
     directory = tmp_path / "session"
     await prepare_session(BASELINE, directory)
     public, data, private = load_session(directory)
@@ -47,6 +50,15 @@ async def session(tmp_path):
         accept_current_model_alias_route=True,
     )
     return directory, public, data, private, approval
+
+
+def test_current_runtime_rejects_archived_baseline_before_session_publication(tmp_path):
+    async def scenario():
+        with pytest.raises(EvaluationError, match="baseline_not_verified"):
+            await prepare_session(BASELINE, tmp_path / "rejected-session")
+        assert not (tmp_path / "rejected-session").exists()
+
+    asyncio.run(scenario())
 
 
 def response_for(call, *, no_copy=False, compound=False):
@@ -66,6 +78,7 @@ def response_for(call, *, no_copy=False, compound=False):
         output["candidates"] = [
             {
                 "kind": "fact",
+                "description": "Synthetic protocol candidate",
                 "evidence_ids": ["e0"],
                 "parts": [part for c in output["candidates"] for part in c["parts"]],
             }

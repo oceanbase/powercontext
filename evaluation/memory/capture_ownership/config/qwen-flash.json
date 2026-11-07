@@ -1,0 +1,22 @@
+{
+  "schema_version": "capture-ownership.config.v1",
+  "profile": "coding",
+  "model": "openai-chat:qwen-flash-2025-07-28",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "model_settings": {
+    "temperature": 0,
+    "max_tokens": 1024,
+    "extra_body": {
+      "enable_thinking": false
+    }
+  },
+  "repetitions": 2,
+  "timeout_seconds": 60,
+  "max_requests": 1,
+  "max_input_tokens": 24000,
+  "max_cost_cny": 0.8,
+  "input_cny_per_million": 0.15,
+  "output_cny_per_million": 1.5,
+  "policy_version": "capture-ownership.decision.v1",
+  "request_interval_seconds": 8
+}

@@ -59,7 +59,7 @@ from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream import DreamRepository
-from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.errors import RepositoryError, RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.family_management import HandoffManagementWriter, PromptManagementWriter
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
@@ -1345,8 +1345,12 @@ async def _has_resolved_failure_evidence(
             )
             try:
                 await sources.require_for_generation(connection, scope_id, source_refs)
-                for artifact_ref in artifact_refs:
-                    await artifacts.get(connection, scope_id, artifact_ref)
+                try:
+                    await artifacts.get_many(connection, scope_id, artifact_refs)
+                except RepositoryError:
+                    # Batch validation can reorder errors; preserve the original first failure.
+                    for artifact_ref in artifact_refs:
+                        await artifacts.get(connection, scope_id, artifact_ref)
             except (EvidenceResolutionError, RepositoryNotFoundError):
                 continue
             return True

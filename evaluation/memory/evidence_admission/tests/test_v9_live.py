@@ -164,12 +164,14 @@ def handler_for(seen, mode=None):
         candidate = (
             {
                 "kind": "fact",
+                "description": "Synthetic protocol candidate",
                 "evidence_ids": ["e0"],
                 "parts": [{"type": "copy", "quote_id": "q0", "byte_start": 0, "byte_end": 46}],
             }
             if is_v9
             else {
                 "kind": "fact",
+                "description": ("The release approval requires two maintainers.")[:200],
                 "evidence_ids": ["full-source-id"],
                 "text": "The release approval requires two maintainers.",
             }
@@ -430,7 +432,10 @@ def literal_review(case_id, *, transform=None, composite=False):
         if transform and call["protocol"] == "v9":
             texts = [transform(text) for text in texts]
         outputs[call["call_id"]] = {
-            "candidates": [{"kind": "fact", "text": text, "evidence_ids": ["full-source-id"]} for text in texts]
+            "candidates": [
+                {"kind": "fact", "description": (text)[:200], "text": text, "evidence_ids": ["full-source-id"]}
+                for text in texts
+            ]
         }
     packet = review_packet(pair, outputs)
     review = {
@@ -568,7 +573,9 @@ def test_review_cannot_approve_atom_without_request_local_support(session):
 
     pair = session[2]["pairs"][0]
     atom = atoms(Case.model_validate(pair["case"]))[0]
-    candidate = AtomicMemoryCandidate(kind="fact", text=atom["text"], evidence_ids=("full-source-id",))
+    candidate = AtomicMemoryCandidate(
+        kind="fact", text=atom["text"], description=(atom["text"])[:200], evidence_ids=("full-source-id",)
+    )
     support = Support.model_validate(pair["calls"][0]["supports"][0])
     midpoint = atom["byte_end"] // 2
     left = support.model_copy(update={"byte_end": midpoint})

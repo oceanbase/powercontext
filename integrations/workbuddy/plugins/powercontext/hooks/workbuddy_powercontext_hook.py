@@ -25,6 +25,7 @@ import sys
 from collections.abc import Mapping
 from contextlib import suppress
 from hashlib import sha256
+from http.client import HTTPException
 from pathlib import Path
 from time import monotonic
 from typing import Any, Protocol, cast
@@ -78,11 +79,6 @@ _HOST_BLOCK_OPEN_PREFIXES = (
     "<system-reminder",
     "<task-notification",
 )
-# The request contract bounds a query in characters. The byte bound is the hook's own
-# margin, so a query stays acceptable to a server that still measures the storage layer's
-# limit as well.
-_MAX_QUERY_CHARACTERS = 8192
-_MAX_QUERY_BYTES = 8192
 _REQUEST_HEADERS = {
     "X-PowerContext-Dream-Contract": "2",
     "Accept": "application/json",
@@ -92,18 +88,13 @@ _REQUEST_HEADERS = {
 
 
 class _Response(Protocol):
-    status: int
-
-    def __enter__(self) -> _Response: ...
-
-    def __exit__(self, *args: object) -> object: ...
-
-    def read(self, amount: int = -1) -> bytes: ...
+    def read(self, amount: int = -1, /) -> bytes: ...
 
 
 class _HttpStatusError(RuntimeError):
-    def __init__(self, status: int) -> None:
+    def __init__(self, status: int, code: str | None = None) -> None:
         self.status = status
+        self.code = code
         super().__init__(f"PowerContext returned HTTP {status}")
 
 
@@ -204,8 +195,13 @@ def _resolve_scope(
     except ScopeBindingUnavailableError:
         _emit_context_event("server_unavailable")
     except ScopeBindingStatusError as error:
-        outcome = "version_mismatch" if error.status == 404 else "invalid_response"
-        _emit_context_event(outcome, http_status=error.status)
+        # ty resolves workspace_scope to the Claude Code plugin's module of the same name, so the code that
+        # WorkBuddy's own resolver keeps on the error is read by name.
+        code: str | None = getattr(error, "code", None)
+        # Only a Server without the route answers 404 without an error code. A coded 404, such as
+        # scope_not_found for a configured Scope that does not exist, comes from a Server that has it.
+        outcome = "version_mismatch" if error.status == 404 and code is None else "invalid_response"
+        _emit_context_event(outcome, http_status=error.status, error_code=code)
     except ScopeBindingError:
         _emit_context_event("invalid_response")
     except Exception:
@@ -232,13 +228,15 @@ def _recall_query(prompt: str) -> str:
 
     The element is only trusted where its boundaries match the host's wrapper, because the
     same tags appear verbatim wherever a user or a host-written summary quotes this code. A
-    prompt no verified element can be read from falls back to the joined text, trimmed to the
-    bounds above so the request stays acceptable to any server version.
+    prompt no verified element can be read from falls back to the joined text. Either query is
+    bounded the way the other prompt hooks bound theirs, so the request stays acceptable to any
+    server version.
     """
 
     extracted = _last_user_query(prompt)
-    query = prompt if extracted is None else extracted
-    bounded, truncated = _query_within_bounds(query.strip())
+    query = (prompt if extracted is None else extracted).strip()
+    bounded = _prepared_context.bounded_recall_query(query)
+    truncated = bounded != query
     if extracted is not None or truncated:
         _emit_query_event(
             source="user_query" if extracted is not None else "joined_prompt",
@@ -357,18 +355,6 @@ def _ends_at_host_boundary(prompt: str, closed: int) -> bool:
     if prompt.startswith(_CLOSING_TAG_PREFIX, index):
         return False
     return any(prompt.startswith(prefix, index) for prefix in _HOST_BLOCK_OPEN_PREFIXES)
-
-
-def _query_within_bounds(query: str) -> tuple[str, bool]:
-    """Trim a query to the request bounds, keeping the most recent text."""
-
-    if len(query) <= _MAX_QUERY_CHARACTERS and len(query.encode("utf-8")) <= _MAX_QUERY_BYTES:
-        return query, False
-    retained = query[-_MAX_QUERY_CHARACTERS:]
-    encoded = retained.encode("utf-8")
-    if len(encoded) > _MAX_QUERY_BYTES:
-        retained = encoded[-_MAX_QUERY_BYTES:].decode("utf-8", errors="ignore")
-    return retained, True
 
 
 def _emit_query_event(*, source: str, truncated: bool, characters: int, utf8_bytes: int) -> None:
@@ -502,7 +488,7 @@ def _post_json(
                 raise _HttpStatusError(response.status)
             result = json.loads(_read_response(response, deadline=request_deadline))
     except HTTPError as error:
-        raise _HttpStatusError(error.code) from error
+        raise _HttpStatusError(error.code, _read_error_code(error, deadline=request_deadline)) from error
     except OSError as error:
         raise _ServerUnavailableError from error
     except ValueError as error:
@@ -510,6 +496,28 @@ def _post_json(
     if not isinstance(result, dict):
         raise _InvalidResponseError
     return cast(dict[str, object], result)
+
+
+def _read_error_code(error: HTTPError, *, deadline: float) -> str | None:
+    try:
+        raw = _read_response(error, deadline=deadline)
+    except (OSError, HTTPException) as failure:
+        # A stalled, reset, or truncated error body is a transport failure.
+        raise _ServerUnavailableError from failure
+    except ValueError as failure:
+        raise _InvalidResponseError from failure
+    return _decode_error_code(raw)
+
+
+def _decode_error_code(raw: bytes) -> str | None:
+    try:
+        body: Any = json.loads(raw)
+    except (ValueError, RecursionError):
+        # Besides JSONDecodeError, json raises ValueError for an over-long integer and RecursionError for deep nesting.
+        return None
+    detail = body.get("error") if isinstance(body, dict) else None
+    code = detail.get("code") if isinstance(detail, dict) else None
+    return code if isinstance(code, str) else None
 
 
 def _request_headers(settings: WorkBuddyPluginSettings) -> dict[str, str]:
@@ -564,13 +572,13 @@ def _recall_context(
     except _HttpStatusError as error:
         if error.status == 401:
             outcome = "authentication_failed"
-        elif error.status == 404:
+        elif error.status == 404 and error.code is None:
             outcome = "version_mismatch"
         elif error.status == 503:
             outcome = "server_unavailable"
         else:
             outcome = "invalid_response"
-        _emit_context_event(outcome, http_status=error.status)
+        _emit_context_event(outcome, http_status=error.status, error_code=error.code)
         return None
     except (_ServerUnavailableError, TimeoutError):
         _emit_context_event("server_unavailable")
@@ -593,6 +601,7 @@ def _emit_context_event(
     event_name: str = "context_prepare",
     reason: str | None = None,
     http_status: int | None = None,
+    error_code: str | None = None,
     context_status: str | None = None,
     content_bytes: int | None = None,
 ) -> None:
@@ -603,6 +612,8 @@ def _emit_context_event(
     }
     if http_status is not None:
         event["http_status"] = http_status
+    if error_code is not None:
+        event["error_code"] = error_code
     if context_status is not None:
         event["context_status"] = context_status
     if content_bytes is not None:

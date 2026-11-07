@@ -6,11 +6,13 @@ the shared `evaluation/` environment.
 
 | Suite | Purpose |
 | --- | --- |
+| [Atomic extraction](atomic_extraction/README.md) | Subject-bound fact retention and instruction-leakage evaluation. |
 | [LoCoMo](locomo/README.md) | End-to-end Source ingestion, Memory retrieval, answer generation, and judging on LoCoMo. |
 | [LongMemEval-V2](longmemeval_v2/README.md) | Long-horizon memory retrieval, prepared context, reader answers, and official scoring. |
 | [Evidence admission](evidence_admission/README.md) | Persisted Source replay, bounded evidence admission, exact provenance, cancellation, and production decision gates. |
 | [LoCoMo-Plus](locomo_plus/README.md) | Factual and cognitive memory evaluation with bounded smoke and full profiles. |
 | [Memory write gate](write_gate/README.md) | Offline evidence-sufficiency calibration, held-out checks, and promotion decision. |
+| [Capture ownership](capture_ownership/README.md) | WorkBuddy joined-prompt evidence ownership, candidate contamination and current-fact retention. |
 | [Source poisoning observation](source_poisoning/README.md) | Versioned synthetic inputs, immutable citations, and actual host answers from a bounded live-model run. |
 
 For issue #2074, the [evidence admission review handoff](evidence_admission/REVIEW_HANDOFF.zh.md) separates the

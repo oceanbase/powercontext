@@ -283,6 +283,17 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             f"INSERT INTO {_FTS_TABLE} ({names}) SELECT {values} FROM pc_atomic_memory_current"  # noqa: S608
         )
 
+    async def fts_matches_current(self, connection: AsyncConnection, /) -> bool:
+        """Compare all helper values and multiplicities, including stable identity tokens."""
+        names = ", ".join(_FTS_COLUMNS)
+        values = ", ".join(_FTS_IDENTITY_SQL if name == "identity_token" else name for name in _FTS_COLUMNS)
+        expected = f"SELECT {values}, COUNT(*) FROM pc_atomic_memory_current GROUP BY {values}"  # noqa: S608
+        actual = f"SELECT {names}, COUNT(*) FROM {_FTS_TABLE} GROUP BY {names}"  # noqa: S608
+        for left, right in ((expected, actual), (actual, expected)):
+            if (await connection.exec_driver_sql(f"SELECT 1 FROM ({left} EXCEPT {right}) LIMIT 1")).first():  # noqa: S608
+                return False
+        return True
+
     async def search(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemorySearchRequest, /
     ) -> AtomicMemorySearchChannels:

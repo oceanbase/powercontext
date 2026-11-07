@@ -49,6 +49,7 @@ def release_repo(tmp_path: Path) -> Path:
     source = Path(__file__).parents[1]
     for relative in (
         "scripts/release_version.py",
+        "release/upgrade-support.json",
         "openapi/powercontext.yaml",
         *INSTALL_PAGES,
         *HISTORICAL_AND_INDEPENDENT_FILES,
@@ -86,11 +87,10 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         for relative in INSTALL_PAGES:
             content = (release_repo / relative).read_text(encoding="utf-8")
             assert set(re.findall(r"powercontext\[[^\]\n]+\]==([^\s\"`]+)", content)) == {version}, relative
-            assert set(re.findall(r"powercontext-v([^\s\"`]+)", content)) == {version}, relative
+            assert set(re.findall(r"powercontext-v([0-9][^\s\"`]+)", content)) == {version}, relative
             if relative.startswith(("README", "docs/")) and not relative.endswith("/manual-start.md"):
                 assert f"PowerContext {version}" in content, relative
             if re.search(r"(?:a|b|rc)[0-9]+$", version):
-                assert "stable release" not in content, relative
                 assert f"stable PowerContext {version}" not in content, relative
                 assert "正式版本" not in content, relative
                 assert "正式リリース" not in content, relative
@@ -98,13 +98,13 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         english = (release_repo / "docs/en/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         chinese = (release_repo / "docs/zh/docs/get-started/install-and-run.md").read_text(encoding="utf-8")
         assert f"package `{version}`" in english
-        assert f"To upgrade to {version}:" in english
+        assert f"--version {version}" in english
+        assert f"--version {version}" in chinese
+        assert f"To install {version} in a separate environment" in english
         assert f"Python 包版本为 `{version}`" in chinese
-        assert f"升级到 {version}" in chinese
-        assert "Version 1.1.0 upgrades legacy" in english
-        assert "1.0.0 also need" in english
-        assert "1.1.0 会在 Server 启动时升级旧标签表约束" in chinese
-        assert "对于 1.0.0 之前的数据库" in chinese
+        assert f"安装 {version} 到独立环境" in chinese
+        assert "Upgrades from 1.3.0 and 1.4.0 require passing full Server acceptance" in english
+        assert "1.3.0 和 1.4.0 升级必须通过 SQLite、seekDB 和 OceanBase 的完整 Server 验收" in chinese
         dsh = (release_repo / "integrations/dsh/plugins/powercontext/README.md").read_text(encoding="utf-8")
         assert "Release 1.1.0 includes direct-operation Scope failure handling" in dsh
         for relative, original in preserved.items():

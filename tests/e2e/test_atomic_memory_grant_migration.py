@@ -64,6 +64,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, MetricsConfig, ServerSettings
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
+from tests.e2e.server_storage import prepare_server_database
 
 ACTOR = PrincipalRef(type="service", id="server-token", description="PowerContext static bearer")
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -289,6 +290,17 @@ async def _apply(migration_backend: MigrationBackend):
 
 
 def _prepare(migration_backend: MigrationBackend, **options):
+    prepare_server_database(
+        ServerSettings(
+            database=migration_backend.config,
+            runtime=RuntimeConfig(artifact_processing_families=()),
+            access=AccessControlConfig(mode="enforced"),
+            auth=BearerAuthConfig(enabled=True, token=SecretStr("migration-test-token")),
+            mcp=McpConfig(enabled=False),
+            metrics=MetricsConfig(enabled=False),
+        ),
+        evidence_dir=migration_backend.directory / "server-migration-evidence",
+    )
     with _client(migration_backend) as client:
         scope_id = client.get("/v1/scopes/default").json()["scope_id"]
     return asyncio.run(_seed_legacy(migration_backend, scope_id, **options))

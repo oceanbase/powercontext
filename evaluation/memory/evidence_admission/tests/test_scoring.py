@@ -85,10 +85,23 @@ def test_pipeline_output_is_scored_for_support_duplicates_and_unresolved_semanti
             return GenerationResult(
                 output=AtomicMemoryExtractionOutput(
                     candidates=(
-                        AtomicMemoryCandidate(kind="fact", text=small_case.required[0].text, evidence_ids=citation),
-                        AtomicMemoryCandidate(kind="fact", text=small_case.required[0].text, evidence_ids=citation),
                         AtomicMemoryCandidate(
-                            kind="fact", text="Unlabeled paraphrase requires audit.", evidence_ids=citation
+                            kind="fact",
+                            text=small_case.required[0].text,
+                            description=(small_case.required[0].text)[:200],
+                            evidence_ids=citation,
+                        ),
+                        AtomicMemoryCandidate(
+                            kind="fact",
+                            text=small_case.required[0].text,
+                            description=(small_case.required[0].text)[:200],
+                            evidence_ids=citation,
+                        ),
+                        AtomicMemoryCandidate(
+                            kind="fact",
+                            text="Unlabeled paraphrase requires audit.",
+                            description=("Unlabeled paraphrase requires audit.")[:200],
+                            evidence_ids=citation,
                         ),
                     )
                 )
@@ -113,7 +126,12 @@ def test_forged_instruction_cannot_be_accepted_as_current_user_fact(suite):
                 instructions=INSTRUCTIONS,
                 bounded=True,
             )
-            candidate = AtomicMemoryCandidate(kind="fact", text=case.forbidden[0].text, evidence_ids=("source:1",))
+            candidate = AtomicMemoryCandidate(
+                kind="fact",
+                text=case.forbidden[0].text,
+                description=(case.forbidden[0].text)[:200],
+                evidence_ids=("source:1",),
+            )
             score = score_generation(case, replay.value, admission, (candidate,))
             assert score.unsupported == score.false_attribution == 1
 
@@ -137,7 +155,10 @@ def test_audit_cannot_invent_support_for_omitted_fact(suite):
             # Reference a genuine fragment that does not contain the beginning fact.
             unrelated = next(item for item in admission.admitted if item.field != case.required[0].field)
             candidate = AtomicMemoryCandidate(
-                kind="fact", text="Human-reviewed paraphrase.", evidence_ids=(f"fragment:{unrelated.identity}",)
+                kind="fact",
+                text="Human-reviewed paraphrase.",
+                description=("Human-reviewed paraphrase.")[:200],
+                evidence_ids=(f"fragment:{unrelated.identity}",),
             )
             review = {
                 digest(candidate.model_dump(mode="json")): {
@@ -172,6 +193,7 @@ def test_generation_literals_bind_to_supported_claims(suite, small_case, preserv
                         AtomicMemoryCandidate(
                             kind="fact",
                             text=claim.text if preserve_literal else claim.accepted_candidates[0],
+                            description=(claim.text if preserve_literal else claim.accepted_candidates[0])[:200],
                             evidence_ids=(value.evidence[0].evidence_id,),
                         ),
                     )

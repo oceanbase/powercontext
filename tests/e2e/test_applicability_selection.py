@@ -71,6 +71,7 @@ from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 
 class Authentication:
@@ -85,20 +86,22 @@ class Authentication:
 @asynccontextmanager
 async def server(directory: Path) -> AsyncIterator[tuple[PowerContextClient, httpx.AsyncClient]]:
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{directory / 'selection.db'}")
+    settings = ServerSettings(
+        database=database,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        external_skills=ExternalSkillsConfig(),
+        access=AccessControlConfig(mode="enforced", deployment_id="selection"),
+        mcp=McpConfig(enabled=False),
+        metrics=MetricsConfig(enabled=False),
+    )
+    await asyncio.to_thread(prepare_server_database, settings)
     async with open_builtin_access_control(
         database,
         bootstrap_administrators=(PrincipalRef(type="service", id="admin"),),
         deployment_id="selection",
     ) as access:
         app = create_server_app(
-            settings=ServerSettings(
-                database=database,
-                runtime=RuntimeConfig(artifact_processing_families=()),
-                external_skills=ExternalSkillsConfig(),
-                access=AccessControlConfig(mode="enforced", deployment_id="selection"),
-                mcp=McpConfig(enabled=False),
-                metrics=MetricsConfig(enabled=False),
-            ),
+            settings=settings,
             authentication_provider=Authentication(),
             access_control=access,
             scheduler_path=directory / "scheduler.db",

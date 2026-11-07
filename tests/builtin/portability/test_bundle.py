@@ -23,12 +23,14 @@ import os
 import sqlite3
 import tracemalloc
 import zipfile
+from dataclasses import replace
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
-from sqlalchemy import insert, select
+from sqlalchemy import MetaData, UniqueConstraint, event, insert, select, update
 
 from powercontext.builtin.artifacts.skill import capture_skill_directory
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -85,6 +87,294 @@ async def _insert_scope(connection, scope_id: str = "project:one") -> None:
             version=1,
         )
     )
+
+
+async def _source_archive(tmp_path: Path, count: int = 205) -> Path:
+    archive = tmp_path / "sources.pcb"
+    async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as source:
+        async with source.database.transaction() as connection:
+            await _insert_scope(connection)
+            await connection.execute(insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project:one", position=count))
+            await connection.execute(insert(SOURCES_TABLE), [_source_row(number) for number in range(1, count + 1)])
+        await PortableBundleService(source.database).export(["project:one"], archive, authorize=_authorize_export)
+    return archive
+
+
+def _source_row(number: int) -> dict[str, Any]:
+    source_id = f"source-{number:05}"
+    return {
+        "scope_id": "project:one",
+        "source_type": "content",
+        "source_id": source_id,
+        "payload": _content_payload(source_id, "x" * 256),
+        "journal_position": number,
+    }
+
+
+@pytest.mark.parametrize("count", [100, 1_000])
+@pytest.mark.parametrize("state", ["absent", "empty", "identical", "partial", "conflicts"])
+def test_validation_batches_target_queries_without_changing_classification(
+    tmp_path: Path, count: int, state: str
+) -> None:
+    async def scenario() -> None:
+        archive = await _source_archive(tmp_path, count)
+        tables = () if state == "absent" else BUILTIN_TABLES
+        async with SQLiteProfile.open(SQLiteConfig(), tables=tables) as target:
+            service = PortableBundleService(target.database, source_decoder=_SOURCES.decode_source)
+            present = conflicts = 0
+            if state == "identical":
+                await service.restore(archive)
+                present = count + 2
+            elif state in {"partial", "conflicts"}:
+                async with target.database.transaction() as connection:
+                    await _insert_scope(connection)
+                    await connection.execute(
+                        insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project:one", position=count)
+                    )
+                    rows = [_source_row(number) for number in range(1, count // 2 + 1)]
+                    if state == "conflicts":
+                        # A primary match and an alternate match may be different
+                        # rows. Each archive record still contributes one conflict.
+                        rows[0]["journal_position"], rows[-1]["journal_position"] = (
+                            rows[-1]["journal_position"],
+                            rows[0]["journal_position"],
+                        )
+                        rows[1]["payload"] = _content_payload(rows[1]["source_id"], "changed")
+                        rows[2]["source_id"] = "another-source"
+                        rows[2]["payload"] = _content_payload("another-source", "different identity")
+                        conflicts = 4
+                    await connection.execute(insert(SOURCES_TABLE), rows)
+                present = count // 2 + 2 - conflicts
+            statements = []
+
+            def observe(_connection, _cursor, statement, parameters, _context, _many):
+                if statement.startswith("SELECT") and any(
+                    f"FROM {table.name}" in statement
+                    for table in (SCOPES_TABLE, SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE)
+                ):
+                    statements.append(len(parameters))
+
+            event.listen(target.database.engine.sync_engine, "before_cursor_execute", observe)
+            validation = await service.validate(archive)
+            assert validation.already_present == present
+            assert validation.conflicts == conflicts
+            assert validation.compatible is (conflicts == 0)
+            assert len(statements) <= (0 if state == "absent" else (count + 99) // 100 + 2)
+            assert max(statements, default=0) <= 900
+            if conflicts:
+                with pytest.raises(BundleConflictError):
+                    await service.restore(archive)
+                async with target.database.transaction() as connection:
+                    assert len((await connection.execute(select(SOURCES_TABLE))).all()) == count // 2
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("state", ["absent", "empty", "identical"])
+def test_validation_reports_intermediate_target_progress(tmp_path: Path, state: str) -> None:
+    async def scenario() -> None:
+        count = 2_000
+        archive = await _source_archive(tmp_path, count)
+        tables = () if state == "absent" else BUILTIN_TABLES
+        async with SQLiteProfile.open(SQLiteConfig(), tables=tables) as target:
+            service = PortableBundleService(target.database, source_decoder=_SOURCES.decode_source)
+            if state == "identical":
+                await service.restore(archive)
+            progress = []
+            validation = await service.validate(archive, progress=progress.append)
+            assert validation.compatible
+            target_progress = [event for event in progress if event.phase == "target"]
+            assert target_progress[0].processed == 1
+            assert target_progress[-1].processed == count + 2
+            assert all(event.total == count + 2 for event in target_progress)
+            # Batches can cross reporting thresholds without landing on them.
+            assert all(
+                0 < current.processed - previous.processed <= 1_000 for previous, current in pairwise(target_progress)
+            )
+
+    asyncio.run(scenario())
+
+
+def test_restore_rechecks_target_after_dry_run_across_batch_boundaries(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = await _source_archive(tmp_path)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as target:
+            service = PortableBundleService(target.database, source_decoder=_SOURCES.decode_source)
+            assert (await service.validate(archive)).compatible
+            async with target.database.transaction() as connection:
+                left, right = _source_row(100), _source_row(101)
+                left["journal_position"], right["journal_position"] = 101, 100
+                await connection.execute(insert(SOURCES_TABLE), [left, right])
+            validation = await service.validate(archive)
+            assert validation.conflicts == 2
+            assert validation.already_present == 0
+            with pytest.raises(BundleConflictError):
+                await service.restore(archive)
+            async with target.database.transaction() as connection:
+                assert (await connection.execute(select(SCOPES_TABLE))).all() == []
+                assert len((await connection.execute(select(SOURCES_TABLE))).all()) == 2
+
+    asyncio.run(scenario())
+
+
+def test_batch_matching_retains_database_collation_semantics(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = await _source_archive(tmp_path, 1)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=()) as target:
+            async with target.database.transaction() as connection:
+                # Compatibility checks must respect the existing target's SQL
+                # equality, even if its identity spelling differs from the archive.
+                await connection.exec_driver_sql(
+                    "CREATE TABLE pc_sources (scope_id TEXT, source_type TEXT, source_id TEXT COLLATE NOCASE, "
+                    "payload BLOB, journal_position INTEGER, PRIMARY KEY(scope_id, source_type, source_id), "
+                    "UNIQUE(scope_id, journal_position))"
+                )
+                row = _source_row(1)
+                row.update(source_id="SOURCE-00001", journal_position=10)
+                await connection.execute(insert(SOURCES_TABLE), row)
+            validation = await PortableBundleService(target.database, source_decoder=_SOURCES.decode_source).validate(
+                archive
+            )
+            assert validation.conflicts == 1
+            assert not validation.compatible
+
+    asyncio.run(scenario())
+
+
+def test_batch_validation_streams_large_target_payloads(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = await _source_archive(tmp_path, 100)
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'large-target.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as target:
+            service = PortableBundleService(target.database, source_decoder=_SOURCES.decode_source)
+            await service.restore(archive)
+            async with target.database.transaction() as connection:
+                for number in range(1, 101):
+                    row = _source_row(number)
+                    await connection.execute(
+                        update(SOURCES_TABLE)
+                        .where(SOURCES_TABLE.c.source_id == row["source_id"])
+                        .values(payload=_content_payload(row["source_id"], "x" * (512 * 1024)))
+                    )
+            tracemalloc.start()
+            try:
+                validation = await service.validate(archive)
+                _, peak = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+            assert validation.conflicts == 100
+            assert validation.already_present == 2
+            # The target has 50 MiB of payload; a batch must not buffer it all.
+            assert peak < 16 * 1024 * 1024
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_target_stream_can_be_retried(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = await _source_archive(tmp_path)
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cancelled.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as target:
+            service = PortableBundleService(target.database, source_decoder=_SOURCES.decode_source)
+            await service.restore(archive)
+
+            def cancel_read(_connection, _cursor, statement, _parameters, _context, _many):
+                if statement.startswith("SELECT") and "FROM pc_sources" in statement:
+                    task = asyncio.current_task()
+                    assert task is not None
+                    asyncio.get_running_loop().call_soon(task.cancel)
+
+            event.listen(target.database.engine.sync_engine, "after_cursor_execute", cancel_read)
+            try:
+                with pytest.raises(asyncio.CancelledError):
+                    await service.validate(archive)
+            finally:
+                event.remove(target.database.engine.sync_engine, "after_cursor_execute", cancel_read)
+            validation = await service.validate(archive)
+            assert validation.compatible and validation.already_present == 207
+            assert (await service.restore(archive)).inserted == 0
+
+    asyncio.run(scenario())
+
+
+def test_validation_bounds_parameters_for_wide_tag_identities(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = tmp_path / "wide.pcb"
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as source:
+            async with source.database.transaction() as connection:
+                await _insert_scope(connection)
+                for number in range(100):
+                    identity = {"scope_id": "project:one", "family": "profile", "artifact_id": f"profile-{number}"}
+                    await connection.execute(insert(ARTIFACTS_TABLE).values(**identity, revision=1, content=b"{}"))
+                    await connection.execute(insert(ARTIFACT_HEADS_TABLE).values(**identity, revision=1))
+                    await connection.execute(
+                        insert(ARTIFACT_TAGS_TABLE).values(
+                            **identity,
+                            target_type="artifact",
+                            target_id=identity["artifact_id"],
+                            tag_key="portable",
+                            tag_key_hash=hashlib.sha256(b"portable").digest(),
+                            tag="portable",
+                            assigned_at=datetime(2026, 1, 1, tzinfo=UTC),
+                        )
+                    )
+            await PortableBundleService(source.database).export(["project:one"], archive, authorize=_authorize_export)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as target:
+            parameter_counts = []
+
+            def observe(_connection, _cursor, statement, parameters, _context, _many):
+                if statement.startswith("SELECT") and "FROM pc_artifact_tags" in statement:
+                    parameter_counts.append(len(parameters))
+
+            event.listen(target.database.engine.sync_engine, "before_cursor_execute", observe)
+            service = PortableBundleService(target.database)
+            assert (await service.validate(archive)).compatible
+            assert parameter_counts and max(parameter_counts) <= 900
+            # Includes the separate tag-set integrity lookup.
+            assert len(parameter_counts) <= 4
+            event.remove(target.database.engine.sync_engine, "before_cursor_execute", observe)
+            assert (await service.restore(archive)).inserted == 301
+            validation = await service.validate(archive)
+            assert validation.compatible and validation.already_present == 301
+
+    asyncio.run(scenario())
+
+
+def test_validation_does_not_match_null_alternate_unique_keys(tmp_path: Path, monkeypatch) -> None:
+    # Exercise the generic nullable-key contract with a nullable unique column.
+    # Current built-in alternate keys are non-nullable; this does not change
+    # the production schema or claim qualification of a new supported schema.
+    spec = bundle_module._SPECS["artifact_revision"]
+    table = spec.table.to_metadata(MetaData())
+    table.append_constraint(UniqueConstraint("created_by"))
+    monkeypatch.setitem(bundle_module._SPECS, "artifact_revision", replace(spec, table=table))
+
+    async def scenario() -> None:
+        archive = tmp_path / "nullable.pcb"
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as source:
+            async with source.database.transaction() as connection:
+                await _insert_scope(connection)
+                for artifact_id in ("first", "second"):
+                    await connection.execute(
+                        insert(ARTIFACTS_TABLE).values(
+                            scope_id="project:one", family="profile", artifact_id=artifact_id, revision=1, content=b"{}"
+                        )
+                    )
+            await PortableBundleService(source.database).export(["project:one"], archive, authorize=_authorize_export)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as target:
+            async with target.database.transaction() as connection:
+                await connection.execute(
+                    insert(ARTIFACTS_TABLE).values(
+                        scope_id="project:one", family="profile", artifact_id="unrelated", revision=1, content=b"{}"
+                    )
+                )
+            service = PortableBundleService(target.database)
+            validation = await service.validate(archive)
+            assert validation.compatible and validation.already_present == 0
+            assert (await service.restore(archive)).inserted == 3
+            assert (await service.validate(archive)).already_present == 3
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("suffix", ["", "-wal", "-shm", "-journal"])

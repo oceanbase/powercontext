@@ -51,7 +51,9 @@ def data(*, compound=False, missing=False):
     value = inputs[0]
     output = AtomicMemoryExtractionOutput(
         candidates=tuple(
-            AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(value.evidence[0].evidence_id,))
+            AtomicMemoryCandidate(
+                kind="fact", text=text, description=(text)[:200], evidence_ids=(value.evidence[0].evidence_id,)
+            )
             for text in texts
         )
     )
@@ -138,6 +140,7 @@ def test_unreviewed_negative_control_is_not_treated_as_supported():
             AtomicMemoryCandidate(
                 kind="fact",
                 text="Invented durable user fact.",
+                description=("Invented durable user fact.")[:200],
                 evidence_ids=(value.evidence[0].evidence_id,),
             ),
         )

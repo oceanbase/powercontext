@@ -45,7 +45,10 @@ def decision_run(suite):
                 output=AtomicMemoryExtractionOutput(
                     candidates=(
                         AtomicMemoryCandidate(
-                            kind="fact", text=claim, evidence_ids=tuple(item.evidence_id for item in value.evidence)
+                            kind="fact",
+                            text=claim,
+                            description=(claim)[:200],
+                            evidence_ids=tuple(item.evidence_id for item in value.evidence),
                         ),
                     )
                 )

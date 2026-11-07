@@ -27,10 +27,17 @@ import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
 import { Connections } from "../src/app/Connections";
+import { TopBar } from "../src/app/TopBar";
 import { desktopApi } from "../src/shared/ipc";
-import type { DesktopState, ProfileView } from "../src/generated/ipc";
+import type {
+  DesktopState,
+  DiscoveryResult,
+  ProfileView,
+  CompatibilityProfile,
+} from "../src/generated/ipc";
 import { contractSha256 } from "../src/generated/operations";
-import qualifications from "../../src-tauri/src/connections/compatibility.json";
+import bundledQualifications from "../../src-tauri/src/connections/compatibility.json";
+const qualifications = bundledQualifications as CompatibilityProfile[];
 vi.mock("../src/shared/ipc", () => ({
   getFoundationInfo: vi.fn().mockResolvedValue(null),
   desktopApi: {
@@ -39,6 +46,7 @@ vi.mock("../src/shared/ipc", () => ({
     state: vi.fn(),
     save: vi.fn(),
     check: vi.fn(),
+    probeReadiness: vi.fn(),
   },
 }));
 const profile: ProfileView = {
@@ -91,12 +99,286 @@ function qualifiedState(p = profile): DesktopState {
     compatibilityProfiles: [historicalCompatibility, currentCompatibility],
   };
 }
+function discoveryState(discovery: DiscoveryResult): DesktopState {
+  const next = qualifiedState({
+    ...profile,
+    compatibility: currentCompatibility.id,
+  });
+  next.reports = [
+    {
+      connectionId: profile.id,
+      revision: 1,
+      checkedAt: 1,
+      liveness: { value: null, error: null },
+      readiness: { value: null, error: null },
+      identity: { value: null, error: null },
+      capabilities: { value: null, error: null },
+      compatibilityVerified: discovery.status === "supported",
+      supportedOperations:
+        discovery.status === "supported" ? ["list_scopes"] : [],
+      anonymousAccess: false,
+      discovery,
+    },
+  ];
+  return next;
+}
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+test.each(["en", "zh"] as const)(
+  "readiness is explained and requested only by explicit action (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const current = discoveryState({
+      status: "supported",
+      server: null,
+      error: null,
+      reason: null,
+      operations: {},
+    });
+    const onState = vi.fn();
+    vi.mocked(desktopApi.probeReadiness).mockResolvedValue(current);
+    render(
+      <Connections
+        state={current}
+        language={language}
+        initialProfileId={profile.id}
+        onState={onState}
+        onDirty={vi.fn()}
+      />,
+    );
+    expect(desktopApi.probeReadiness).not.toHaveBeenCalled();
+    const button = screen.getByRole("button", {
+      name: language === "en" ? "Probe readiness" : "探测就绪状态",
+    });
+    expect(
+      document.getElementById(button.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toMatch(
+      language === "en"
+        ? /configured models and dependencies/
+        : /已配置的模型和依赖/,
+    );
+    await user.click(button);
+    await waitFor(() => expect(onState).toHaveBeenCalledWith(current));
+    expect(desktopApi.probeReadiness).toHaveBeenCalledExactlyOnceWith(
+      profile.id,
+      profile.revision,
+    );
+    expect(desktopApi.check).not.toHaveBeenCalled();
+  },
+);
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+test.each(["en", "zh"] as const)(
+  "identity menu and connection card agree when legacy identity fails (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const current = discoveryState({
+      status: "supported",
+      server: null,
+      error: null,
+      reason: null,
+      operations: {},
+    });
+    const report = current.reports[0];
+    report.connectionIdentity = {
+      value: {
+        server_id: "qualified-server",
+        authentication: "authenticated",
+        access_mode: "enforced",
+        principal: { type: "service", id: "scoped-user" },
+      },
+      error: null,
+    };
+    report.identity = {
+      value: null,
+      error: { code: "runtime_not_ready", requestId: null, dispatched: true },
+    };
+    current.active = {
+      connectionId: profile.id,
+      generation: current.generation,
+      scope: null,
+      report,
+    };
+    render(
+      <>
+        <TopBar
+          state={current}
+          language={language}
+          onManageConnections={vi.fn()}
+          onOpenScopes={vi.fn()}
+          onDisconnect={vi.fn()}
+        />
+        <Connections
+          state={current}
+          language={language}
+          initialProfileId={profile.id}
+          onState={vi.fn()}
+          onDirty={vi.fn()}
+        />
+      </>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: /service: scoped-user/ }),
+    );
+    expect(
+      within(screen.getByRole("region")).getByText(/enforced/),
+    ).toBeTruthy();
+    expect(screen.getByText("enforced", { selector: "dd" })).toBeTruthy();
+  },
+);
+
+test("a delayed readiness diagnostic permits activating a different connection", async () => {
+  const user = userEvent.setup();
+  const current = discoveryState({
+    status: "supported",
+    server: null,
+    error: null,
+    reason: null,
+    operations: {},
+  });
+  current.profiles.push({ ...profile, id: "working", name: "Working Server" });
+  let finish!: (state: DesktopState) => void;
+  vi.mocked(desktopApi.probeReadiness).mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  vi.mocked(desktopApi.check).mockResolvedValue(current);
+  render(
+    <Connections
+      state={current}
+      language="en"
+      initialProfileId={profile.id}
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Probe readiness" }));
+  await user.click(screen.getByRole("button", { name: /Working Server/ }));
+  const activate = screen.getByRole("button", { name: "Use this connection" });
+  expect((activate as HTMLButtonElement).disabled).toBe(false);
+  await user.click(activate);
+  expect(desktopApi.check).toHaveBeenCalledWith("working", true);
+  await act(async () => finish(current));
+});
+const discoveryCases: Array<{
+  language: "en" | "zh";
+  status: DiscoveryResult["status"];
+  reason: DiscoveryResult["reason"];
+  expected: string;
+}> = [
+  {
+    language: "en",
+    status: "supported",
+    reason: null,
+    expected: "The discovery contract is supported",
+  },
+  {
+    language: "en",
+    status: "missing",
+    reason: "discovery_missing",
+    expected: "The Server has no discovery endpoint",
+  },
+  {
+    language: "en",
+    status: "denied",
+    reason: "discovery_denied",
+    expected: "Server discovery access was denied",
+  },
+  {
+    language: "en",
+    status: "unavailable",
+    reason: "discovery_unavailable",
+    expected: "Server discovery is temporarily unavailable",
+  },
+  {
+    language: "en",
+    status: "invalid",
+    reason: "invalid_discovery",
+    expected: "The Server discovery response is invalid",
+  },
+  {
+    language: "en",
+    status: "incompatible",
+    reason: "api_version",
+    expected: "The Server API major version is unsupported",
+  },
+  {
+    language: "zh",
+    status: "unavailable",
+    reason: "discovery_unavailable",
+    expected: "Server 发现暂时不可用。请检查服务和网络，然后重新检查连接",
+  },
+  {
+    language: "zh",
+    status: "denied",
+    reason: "discovery_denied",
+    expected: "Server 拒绝访问发现接口。请核对凭据与访问权限",
+  },
+];
+test.each(discoveryCases)(
+  "discovery $status has a distinct diagnostic in $language",
+  ({ language, status, reason, expected }) => {
+    render(
+      <Connections
+        state={discoveryState({
+          status,
+          reason,
+          error: null,
+          server: null,
+          operations: {},
+        })}
+        language={language}
+        onState={vi.fn()}
+        onDirty={vi.fn()}
+        initialProfileId={profile.id}
+      />,
+    );
+    expect(screen.getByText(expected, { exact: false })).toBeTruthy();
+  },
+);
+test("a successful recheck replaces the temporary discovery failure diagnostic", async () => {
+  const user = userEvent.setup();
+  const unavailable = discoveryState({
+    status: "unavailable",
+    reason: "discovery_unavailable",
+    error: { code: "timeout", requestId: null, dispatched: true },
+    server: null,
+    operations: {},
+  });
+  const recovered = discoveryState({
+    status: "supported",
+    reason: null,
+    error: null,
+    server: null,
+    operations: {},
+  });
+  const onState = vi.fn();
+  const props = {
+    language: "en" as const,
+    onState,
+    onDirty: vi.fn(),
+    initialProfileId: profile.id,
+  };
+  vi.mocked(desktopApi.check).mockResolvedValue(recovered);
+  const view = render(<Connections {...props} state={unavailable} />);
+  expect(
+    screen.getByText(/Server discovery is temporarily unavailable/).textContent,
+  ).toContain("The request timed out.");
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  expect(desktopApi.check).toHaveBeenCalledWith(profile.id, false);
+  expect(onState).toHaveBeenCalledWith(recovered);
+  view.rerender(<Connections {...props} state={recovered} />);
+  expect(
+    screen.queryByText(/Server discovery is temporarily unavailable/),
+  ).toBeNull();
+  expect(screen.getByText(/The discovery contract is supported/)).toBeTruthy();
+  expect(screen.getByText("Verified")).toBeTruthy();
 });
 test("new connections offer only current-contract profiles and keep no selection by default", async () => {
   const user = userEvent.setup();
@@ -128,6 +410,47 @@ test("new connections offer only current-contract profiles and keep no selection
   );
   await user.selectOptions(selector, current);
   expect(selector.value).toBe(currentCompatibility.id);
+  expect(desktopApi.save).not.toHaveBeenCalled();
+  expect(desktopApi.check).not.toHaveBeenCalled();
+});
+test("a saved authenticated legacy profile remains selectable only in its qualified authentication mode", async () => {
+  const user = userEvent.setup();
+  const legacy = qualifications.find(
+    (p) => p.id === "sqlite-atomic-112db11e-v1",
+  )!;
+  const saved = { ...profile, compatibility: legacy.id };
+  vi.mocked(desktopApi.invalidate).mockResolvedValue(state(saved));
+  render(
+    <Connections
+      state={{ ...state(saved), compatibilityProfiles: [legacy] }}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: /Original/ }));
+  const selector = screen.getByLabelText(
+    "Verified compatibility profile",
+  ) as HTMLSelectElement;
+  const option = within(selector).getByRole("option", {
+    name: legacy.id,
+  }) as HTMLOptionElement;
+  expect(selector.value).toBe(legacy.id);
+  expect(option.disabled).toBe(false);
+  expect(screen.queryByRole("alert")).toBeNull();
+  await user.selectOptions(
+    screen.getByLabelText("Authentication"),
+    "unauthenticated_loopback",
+  );
+  expect(
+    (
+      within(selector).getByRole("option", {
+        name: (text) => text.includes(legacy.id),
+      }) as HTMLOptionElement
+    ).disabled,
+  ).toBe(true);
+  expect(screen.getByRole("alert")).toBeTruthy();
+  expect(selector.value).toBe(legacy.id);
   expect(desktopApi.save).not.toHaveBeenCalled();
   expect(desktopApi.check).not.toHaveBeenCalled();
 });

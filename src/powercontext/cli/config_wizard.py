@@ -115,6 +115,7 @@ def run_wizard(output: Path, *, language: str | None = None, advanced: bool = Fa
     """Collect answers and write files only after explicit final confirmation."""
 
     from powercontext.cli.config import ConfigError
+    from powercontext.server.configuration import has_uds_configuration
 
     output = output.expanduser().absolute()
     state: Wizard | None = None
@@ -122,6 +123,12 @@ def run_wizard(output: Path, *, language: str | None = None, advanced: bool = Fa
         _check_output(output)
         content = output.read_text(encoding="utf-8") if output.exists() else ""
         original = parse_environment(content, source=str(output))
+        if has_uds_configuration(original) or has_uds_configuration(original, os.environ):
+            raise WizardInputError(  # noqa: TRY003
+                "The wizard supports TCP listeners; edit UDS configuration directly in the environment file "
+                "and clear process UDS overrides before using the wizard. "
+                "/ 向导目前仅支持 TCP 监听；UDS 配置请直接编辑环境文件，并在使用向导前清除进程中的 UDS 配置。"
+            )
         match = re.search(r"(?m)^# powercontext-wizard-language=(en|zh)\s*$", content)
         chosen = choose_language(language, None if match is None else match.group(1))
         ui = WizardUI(chosen)
@@ -201,6 +208,8 @@ def _storage(state: Wizard) -> None:
         _existing_server(state)
         return
     state.patch({f"{SERVER}DATABASE_KIND": kind})
+    if kind != "seekdb":
+        state.patch({f"{SERVER}DATABASE_DATABASE": None})
     if kind == "sqlite":
         previous = state.values.get(f"{SERVER}DATABASE_URL")
         default_path = str(default_database_path())
@@ -242,7 +251,21 @@ def _storage(state: Wizard) -> None:
             .expanduser()
             .absolute()
         )
-        state.patch({f"{SERVER}DATABASE_PATH": str(path), f"{SERVER}DATABASE_URL": None})
+        ui.say(
+            "The default database is powercontext. Existing seekdb users: enter test to retain old data.",
+            "默认数据库为 powercontext。已有 seekdb 用户：输入 test 以继续使用旧数据。",
+        )
+        database = ui.ask(
+            "Database name",
+            "数据库名称",
+            default=state.values.get(f"{SERVER}DATABASE_DATABASE", "powercontext"),
+            required=True,
+        )
+        state.patch({
+            f"{SERVER}DATABASE_PATH": str(path),
+            f"{SERVER}DATABASE_DATABASE": database,
+            f"{SERVER}DATABASE_URL": None,
+        })
         _prepare_seekdb_dependency(state)
     else:
         previous = state.values.get(f"{SERVER}DATABASE_URL", "")

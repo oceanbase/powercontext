@@ -1,0 +1,3 @@
+{
+  "create": "CREATE TABLE pc_memory_artifact_archive (\n\tscope_id VARCHAR(256) NOT NULL, \n\tfamily VARCHAR(128) NOT NULL, \n\tartifact_id VARCHAR(128) NOT NULL, \n\trevision INTEGER NOT NULL, \n\tcontent BLOB NOT NULL, \n\tmemory_citations BLOB, \n\tmetadata BLOB NOT NULL, \n\tPRIMARY KEY (scope_id, family, artifact_id, revision)\n)"
+}

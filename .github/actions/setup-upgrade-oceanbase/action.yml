@@ -1,0 +1,82 @@
+name: Setup upgrade OceanBase
+description: Start the disposable MySQL tenant used by installed-release upgrade checks
+runs:
+  using: composite
+  steps:
+    - name: Start and verify OceanBase
+      shell: bash
+      env:
+        OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
+      run: |
+        docker run --detach --name upgrade-oceanbase \
+          --publish 127.0.0.1:2881:2881 \
+          --ulimit nofile=65536:65536 \
+          --env MODE=slim \
+          --env OB_DATABASE=pc_upgrade_test \
+          --env OB_TENANT_PASSWORD=powercontext-e2e \
+          "$OCEANBASE_IMAGE"
+        for attempt in $(seq 1 120); do
+          if docker exec upgrade-oceanbase \
+            obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
+            -Dpc_upgrade_test -e 'SELECT 1' >/dev/null 2>&1; then
+            # The slim image's default 1 GB maximum is too small for the
+            # indexes created across the clean migration acceptance cases.
+            docker exec upgrade-oceanbase \
+              obclient -h127.0.0.1 -P2881 -uroot@sys \
+              -e "ALTER SYSTEM SET datafile_maxsize='8G'; ALTER SYSTEM SET datafile_next='512M'; ALTER SYSTEM SET datafile_size='4G';"
+            datafile_ready=false
+            for config_attempt in $(seq 1 30); do
+              docker exec upgrade-oceanbase \
+                obclient -h127.0.0.1 -P2881 -uroot@sys --batch --skip-column-names \
+                -e "SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_maxsize', 'datafile_next');" \
+                > "$RUNNER_TEMP/upgrade-datafile.tsv"
+              if awk '
+                $5 == "datafile_size" && $7 == "4G" { size = 1 }
+                $5 == "datafile_maxsize" && $7 == "8G" { maximum = 1 }
+                $5 == "datafile_next" && $7 == "512M" { increment = 1 }
+                END { exit !(size && maximum && increment) }
+              ' "$RUNNER_TEMP/upgrade-datafile.tsv"; then
+                datafile_ready=true
+                break
+              fi
+              sleep 2
+            done
+            cat "$RUNNER_TEMP/upgrade-datafile.tsv"
+            if [ "$datafile_ready" != true ]; then
+              echo 'OceanBase datafile configuration did not become effective within one minute.' >&2
+              exit 1
+            fi
+            docker exec upgrade-oceanbase \
+              obclient -h127.0.0.1 -P2881 -uroot@test -ppowercontext-e2e \
+              -Dpc_upgrade_test \
+              -e "
+                CREATE DATABASE pc_upgrade_fresh;
+                CREATE DATABASE pc_upgrade_code_test;
+                CREATE DATABASE pc_upgrade_code_fresh;
+                CREATE DATABASE pc_upgrade_vector_test;
+                CREATE DATABASE pc_upgrade_vector_fresh;
+                CREATE DATABASE pc_upgrade_vector_code_test;
+                CREATE DATABASE pc_upgrade_vector_code_fresh;
+                CREATE DATABASE pc_upgrade_140_test;
+                CREATE DATABASE pc_upgrade_140_fresh;
+                CREATE DATABASE pc_upgrade_140_code_test;
+                CREATE DATABASE pc_upgrade_140_code_fresh;
+                CREATE DATABASE pc_upgrade_140_vector_test;
+                CREATE DATABASE pc_upgrade_140_vector_fresh;
+                CREATE DATABASE pc_upgrade_140_vector_code_test;
+                CREATE DATABASE pc_upgrade_140_vector_code_fresh;
+                SET GLOBAL recyclebin=OFF;
+                SELECT VERSION();
+                SHOW VARIABLES LIKE 'ob_compatibility_mode';
+                SHOW VARIABLES LIKE 'recyclebin';
+              "
+            exit 0
+          fi
+          if [ "$(docker inspect --format '{{.State.Running}}' upgrade-oceanbase)" != true ]; then
+            echo 'OceanBase exited before becoming ready.' >&2
+            exit 1
+          fi
+          sleep 5
+        done
+        echo 'OceanBase did not become ready within 10 minutes.' >&2
+        exit 1

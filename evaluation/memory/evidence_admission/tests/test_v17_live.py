@@ -33,8 +33,9 @@ from powercontext_eval_evidence_admission.v17.freeze import inherited
 from .test_v14_codec import supplied
 
 
-def test_historical_policy_files_remain_exactly_unchanged():
-    assert inherited()["production_authorized"] is False
+def test_historical_policy_rejects_the_changed_runtime_without_rewriting_its_identity():
+    with pytest.raises(EvaluationError, match="inherited_dependency_changed"):
+        inherited()
 
 
 def test_per_request_full_context_reservation_and_cumulative_boundary():
@@ -82,7 +83,12 @@ def test_real_sdk_pipeline_preserves_copy_bytes_and_captures_request_settings(tm
         response["choices"][0]["message"]["content"] = json.dumps(
             {
                 "candidates": [
-                    {"kind": "fact", "evidence_ids": ["e0"], "parts": [{"type": "copy", "quote_id": cell.cell_id}]}
+                    {
+                        "kind": "fact",
+                        "description": "Synthetic protocol candidate",
+                        "evidence_ids": ["e0"],
+                        "parts": [{"type": "copy", "quote_id": cell.cell_id}],
+                    }
                 ]
             },
             ensure_ascii=False,
@@ -140,7 +146,16 @@ def test_failed_request_is_audited_billed_when_known_and_never_resent(tmp_path, 
     response = mock_response()
     if fault == "invalid_copy":
         response["choices"][0]["message"]["content"] = json.dumps(
-            {"candidates": [{"kind": "fact", "evidence_ids": ["e0"], "parts": [{"type": "copy", "quote_id": "c999"}]}]}
+            {
+                "candidates": [
+                    {
+                        "kind": "fact",
+                        "description": "Synthetic protocol candidate",
+                        "evidence_ids": ["e0"],
+                        "parts": [{"type": "copy", "quote_id": "c999"}],
+                    }
+                ]
+            }
         )
     elif fault == "unknown_usage":
         response.pop("usage")

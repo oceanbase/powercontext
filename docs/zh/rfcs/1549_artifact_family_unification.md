@@ -1,5 +1,6 @@
 ---
-title: Artifact Family 统一读取与注册机制
+title: RFC 1549：统一 Artifact 家族读取与注册
+description: Artifact 家族注册的设计提案，以统一注册表驱动通用读取和 Topic Memory 接入，并单独声明各家族的写入能力。
 ---
 
 # Artifact Family 统一读取与注册机制

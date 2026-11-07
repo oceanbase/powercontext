@@ -60,6 +60,7 @@ def test_persisted_source_compact_sdk_pipeline_preserves_unicode_and_copy_bytes(
             "candidates": [
                 {
                     "kind": "constraint",
+                    "description": "Synthetic protocol candidate",
                     "evidence_ids": [alias],
                     "parts": [
                         {
@@ -205,6 +206,7 @@ def test_recorded_compound_output_is_not_split_by_pipeline():
                             "candidates": [
                                 {
                                     "kind": "fact",
+                                    "description": "Synthetic protocol candidate",
                                     "evidence_ids": ["e0"],
                                     "parts": [
                                         {

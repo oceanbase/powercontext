@@ -43,9 +43,19 @@ from powercontext.builtin.artifacts.search import (
     lexical_search_score,
 )
 from powercontext.builtin.inference import EmbeddingModel
-from powercontext.builtin.persistence.atomic_memory_index_schema import ATOMIC_MEMORY_PROJECTION_FORMAT
+from powercontext.builtin.persistence.atomic_memory_evidence import (
+    AtomicMemoryEvidenceAnnotation,
+    AtomicMemoryEvidenceRepository,
+)
+from powercontext.builtin.persistence.atomic_memory_evidence_schema import ATOMIC_MEMORY_EVIDENCE_TABLES
+from powercontext.builtin.persistence.atomic_memory_index_schema import (
+    ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
+    ATOMIC_MEMORY_PROJECTION_FORMAT,
+)
+from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_TAGS_TABLE
 from powercontext.builtin.tags import TagFilter
+from powercontext.sources.evidence import SourceEvidence
 
 AtomicMemorySearchMode = Literal["fts", "vector", "hybrid"]
 ATOMIC_MEMORY_RRF_CONSTANT = 60
@@ -116,6 +126,7 @@ class PreparedAtomicMemoryProjection:
     text: str
     searchable_text: str
     content_hash: str
+    description: str | None = None
     embedding: tuple[float, ...] | None = None
     embedding_profile: EmbeddingProfile | None = None
     profile_fingerprint: str | None = None
@@ -189,6 +200,27 @@ class AtomicMemoryIndex(Protocol):
 
     async def delete(self, connection: AsyncConnection, scope_id: str, artifact_id: str, /) -> None: ...
 
+    async def save_evidence(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        sources: Sequence[SourceEvidence],
+        /,
+    ) -> AtomicMemoryEvidenceAnnotation: ...
+
+    async def read_evidence(
+        self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
+    ) -> AtomicMemoryEvidenceAnnotation | None: ...
+
+    async def project_evidence(
+        self, connection: AsyncConnection, annotation: AtomicMemoryEvidenceAnnotation, /
+    ) -> None: ...
+
+    async def read_evidence_projection(
+        self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
+    ) -> AtomicMemoryEvidenceAnnotation | None: ...
+
     async def search(
         self, connection: AsyncConnection, scope_id: str, request: AtomicMemorySearchRequest, /
     ) -> AtomicMemorySearchChannels: ...
@@ -214,11 +246,13 @@ class AtomicMemoryProjectionPublisher:
         index: AtomicMemoryIndex,
         *,
         embedding_model: EmbeddingModel | None = None,
+        sources: SourceRepository | None = None,
     ) -> None:
         if not callable(getattr(index, "replace_many", None)):
             raise AtomicMemoryIndexError("publication", "Atomic Memory index must publish complete projection sets")
         self.index = index
         self._embedding_model = embedding_model
+        self._sources = sources
 
     @property
     def profile_fingerprint(self) -> str | None:
@@ -260,6 +294,7 @@ class AtomicMemoryProjectionPublisher:
         return PreparedAtomicMemoryProjection(
             kind=kind,
             text=body,
+            description=payload.get("description"),
             searchable_text=analyze_text(input_text),
             content_hash=sha256(canonical_json(payload)).hexdigest(),
             embedding=vector,
@@ -267,6 +302,18 @@ class AtomicMemoryProjectionPublisher:
             profile_fingerprint=None if profile is None else atomic_memory_profile_fingerprint(profile),
             embedding_input_hash=None if vector is None else atomic_memory_embedding_input_hash(kind, body),
         )
+
+    async def capture_evidence(self, connection: AsyncConnection, scope_id: str, record: Any) -> None:
+        """Accept history only for a committed body write, never state-only republishing."""
+
+        artifact = record.artifact
+        if (
+            self._sources is not None
+            and await self.index.read_evidence(connection, scope_id, artifact.as_ref()) is None
+        ):
+            evidence = await self._sources.evidence(connection, scope_id, artifact.lineage.sources)
+            annotation = await self.index.save_evidence(connection, scope_id, artifact.as_ref(), evidence)
+            await self.index.project_evidence(connection, annotation)
 
     async def publish(
         self,
@@ -561,11 +608,41 @@ class RelationalAtomicMemoryIndex:
         if profile is not None and (profile.dimension < 1 or profile.distance != "l2"):
             raise AtomicMemoryIndexError("embedding-profile", "Atomic Memory requires a positive L2 embedding profile")
         self.table = table
-        self.tables: tuple[Table, ...] = (table,)
+        self.tables: tuple[Table, ...] = (
+            table,
+            ATOMIC_MEMORY_EVIDENCE_PROJECTION_TABLE,
+            *ATOMIC_MEMORY_EVIDENCE_TABLES,
+        )
+        self._evidence = AtomicMemoryEvidenceRepository()
         self.profile = profile
         self.capabilities = AtomicMemoryIndexCapabilities(
             vector=profile is not None, hybrid=profile is not None, embedding_profile=profile
         )
+
+    async def save_evidence(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        sources: Sequence[SourceEvidence],
+        /,
+    ) -> AtomicMemoryEvidenceAnnotation:
+        return await self._evidence.save(connection, scope_id, artifact_ref, sources)
+
+    async def read_evidence(
+        self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
+    ) -> AtomicMemoryEvidenceAnnotation | None:
+        return await self._evidence.read(connection, scope_id, artifact_ref)
+
+    async def project_evidence(
+        self, connection: AsyncConnection, annotation: AtomicMemoryEvidenceAnnotation, /
+    ) -> None:
+        await self._evidence.replace_projection(connection, annotation)
+
+    async def read_evidence_projection(
+        self, connection: AsyncConnection, scope_id: str, artifact_ref: ArtifactRef, /
+    ) -> AtomicMemoryEvidenceAnnotation | None:
+        return await self._evidence.read_projection(connection, scope_id, artifact_ref)
 
     async def validate_current(self, connection: AsyncConnection, /) -> None:
         """Audit vector deployment readiness at startup, outside ordinary bounded search."""
@@ -593,6 +670,12 @@ class RelationalAtomicMemoryIndex:
         return vector
 
     async def require_current_schema(self, connection: AsyncConnection) -> None:
+        # Add only the new nullable projection metadata. Never read bodies or call inference at startup.
+        columns = await _projection_columns(connection, self.table)
+        if columns and "description" not in columns:
+            await connection.exec_driver_sql(
+                "ALTER TABLE pc_atomic_memory_current ADD COLUMN description VARCHAR(200) NULL"
+            )
         if await _projection_columns(connection, self.table) & _OBSOLETE_PROJECTION_COLUMNS:
             raise AtomicMemoryIndexError(
                 "current-schema",
@@ -659,6 +742,7 @@ class RelationalAtomicMemoryIndex:
             "projection_format": ATOMIC_MEMORY_PROJECTION_FORMAT,
             "kind": prepared.kind,
             "text": prepared.text,
+            "description": prepared.description,
             "searchable_text": prepared.searchable_text,
             "tag_keys": json.dumps(sorted(set(projection.tag_keys)), ensure_ascii=False),
             "embedding": embedding,

@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.server.authz import AccessAction
 from powercontext.server.authz.errors import AccessDeniedError, AccessUnavailableError
@@ -95,17 +96,26 @@ def test_background_metrics_disabled_has_no_route():
         assert client.get("/metrics").status_code == 404
 
 
-def test_failed_scrape_does_not_poison_listener():
+@pytest.mark.parametrize("accept", ["text/plain", "application/openmetrics-text; version=1.0.0"])
+def test_failed_scrape_does_not_poison_listener(accept):
+    class FailingCollector:
+        def describe(self):
+            return ()
+
+        def collect(self):
+            raise RuntimeError("private-provider-value")
+
     app, _ = _app()
     endpoint = next(route.endpoint for route in app.routes if route.path == "/metrics")
-    render = endpoint._metrics.render
-    endpoint._metrics.render = lambda: (_ for _ in ()).throw(RuntimeError("private-provider-value"))
+    collector = FailingCollector()
+    endpoint._metrics.registry.register(collector)
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/metrics")
+        headers = {"Accept": accept}
+        response = client.get("/metrics", headers=headers)
         assert response.status_code == 500
         assert "private-provider-value" not in response.text
-        endpoint._metrics.render = render
-        assert client.get("/metrics").status_code == 200
+        endpoint._metrics.registry.unregister(collector)
+        assert client.get("/metrics", headers=headers).status_code == 200
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -166,6 +176,7 @@ def test_background_runner_closes_runtime_and_removes_signal_handlers(monkeypatc
 
     async def scenario():
         _, settings = _app(enabled=outcome != "disabled")
+        settings = settings.model_copy(update={"database": SQLiteConfig()})
         events = []
         signals = []
         loop = asyncio.get_running_loop()

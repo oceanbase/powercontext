@@ -98,6 +98,11 @@ fn explicit_session_works_without_vault_and_expires_on_restart() {
         Err(SafeError::CredentialUnavailable)
     ));
     assert!(repo.views().is_empty());
+    let stored_after_failure = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !stored_after_failure.contains("synthetic-private-marker"),
+        "a failed persistent write must never downgrade the secret into profiles.json"
+    );
     let session = repo.save(input("Session", "session_only")).unwrap();
     assert!(matches!(
         session.credential_state,

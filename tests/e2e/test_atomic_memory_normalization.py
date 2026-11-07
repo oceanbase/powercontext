@@ -42,6 +42,7 @@ from powercontext.http import (
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 
 @pytest.mark.parametrize(
@@ -140,9 +141,12 @@ def test_atomic_memory_history_read_rebuild_and_restore_preserve_original_conten
     tmp_path: Path, historical_text: str
 ) -> None:
     async def scenario() -> None:
-        async with open_builtin_contexts(
-            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'history.db'}"))
-        ) as contexts:
+        settings = ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'history.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+        await asyncio.to_thread(prepare_server_database, settings)
+        async with open_builtin_contexts(BuiltinConfig(database=settings.database)) as contexts:
             scope_id = (
                 await contexts.scopes.create(
                     ScopeDraft(title="History", summary="Historical text compatibility", idempotency_key="history")
@@ -205,12 +209,7 @@ def test_atomic_memory_history_read_rebuild_and_restore_preserve_original_conten
             historical = await contexts.records.get_artifact_revision(scope_id, "atomic-memory", created.artifact_id, 1)
             assert historical == record
 
-        app = create_server_app(
-            settings=ServerSettings(
-                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'history.db'}"),
-                mcp=McpConfig(enabled=False),
-            )
-        )
+        app = create_server_app(settings=settings)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(

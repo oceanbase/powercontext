@@ -35,9 +35,12 @@ def _emit(message: dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Explicitly authorized local PowerContext service operations")
-    parser.add_argument("--target-file", required=True, type=Path, help="Private operator-owned target binding")
+    binding = parser.add_mutually_exclusive_group(required=True)
+    binding.add_argument("--target-file", type=Path, help="Private operator-owned target binding")
+    binding.add_argument("--catalog-file", type=Path, help="Private producer catalog for fixed managed installation")
+    parser.add_argument("--catalog-sha256", help="Catalog digest pinned by the trusted distribution")
     parser.add_argument(
-        "--state-dir", required=True, type=Path, help="Stable private operation directory for this user"
+        "--state-dir", type=Path, help="Stable private operation directory for an operator-owned target"
     )
     args = parser.parse_args()
     request_id = None
@@ -49,8 +52,20 @@ def main() -> int:
         request_id = request["request_id"]
         from powercontext.ops.runtime import Ops, TargetBinding
 
-        target = TargetBinding.read(args.target_file)
-        result = Ops(target, args.state_dir).handle(request, emit=_emit)
+        if args.catalog_file is not None:
+            if args.catalog_sha256 is None or args.state_dir is not None:
+                raise OpsError("invalid_managed_binding")  # noqa: TRY301
+            from powercontext.ops.installer import ManagedInstaller, ManagedLayout
+            from powercontext.ops.resources import ResourceCatalog
+
+            catalog = ResourceCatalog.read(args.catalog_file, args.catalog_sha256)
+            installer = ManagedInstaller(catalog, catalog.select_current(), ManagedLayout.current_user())
+            ops = Ops(installer.target(), installer.layout.state, installer=installer)
+        else:
+            if args.state_dir is None or args.catalog_sha256 is not None:
+                raise OpsError("invalid_target_binding")  # noqa: TRY301
+            ops = Ops(TargetBinding.read(args.target_file), args.state_dir)
+        result = ops.handle(request, emit=_emit)
     except OpsError as error:
         result = {
             "protocol_version": 1,

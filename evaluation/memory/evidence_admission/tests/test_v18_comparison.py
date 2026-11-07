@@ -121,7 +121,10 @@ def test_exact_full_fact_is_proven_but_paraphrase_remains_unresolved():
         row, values = await core.prepare_one("synthetic-v1", case, core.ARMS[0], 4096, 0)
         supports = tuple(Support.model_validate(s) for s in row["sample"]["supports"])
         exact = AtomicMemoryCandidate(
-            kind="fact", text=case.required[0].text, evidence_ids=(values[0].evidence[0].evidence_id,)
+            kind="fact",
+            text=case.required[0].text,
+            description=(case.required[0].text)[:200],
+            evidence_ids=(values[0].evidence[0].evidence_id,),
         )
         result, _ = score_output(case, values[0], supports, AtomicMemoryExtractionOutput(candidates=(exact,)))
         assert result["retained_atoms"] == 1 and result["unresolved_candidates"] == 0
@@ -288,6 +291,7 @@ def test_invalid_citation_response_is_captured_and_does_not_force_a_retry(tmp_pa
                 "candidates": [
                     {
                         "kind": "fact",
+                        "description": ("A candidate with a citation never supplied.")[:200],
                         "text": "A candidate with a citation never supplied.",
                         "evidence_ids": ["not-supplied"],
                     }
@@ -375,7 +379,12 @@ def test_unresolved_semantics_does_not_hide_proven_literal_absence(tmp_path, mon
         response["choices"][0]["message"]["content"] = json.dumps(
             {
                 "candidates": [
-                    {"kind": "fact", "text": "The deployment settings were recorded.", "evidence_ids": [evidence_id]}
+                    {
+                        "kind": "fact",
+                        "description": ("The deployment settings were recorded.")[:200],
+                        "text": "The deployment settings were recorded.",
+                        "evidence_ids": [evidence_id],
+                    }
                 ]
             }
         )

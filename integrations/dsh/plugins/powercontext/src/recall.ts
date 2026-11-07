@@ -20,7 +20,7 @@ import type { ResolvedConfig } from './config.ts'
 import { captureUserPrompt } from './capture.ts'
 import { logSafely, reportFailure } from './diagnostics.ts'
 import { InvalidResponseError, TransportError } from './errors.ts'
-import { validatePreparedContext } from './prepared-context.ts'
+import { boundedRecallQuery, validatePreparedContext } from './prepared-context.ts'
 import { formatScopeRouting, sessionCwd } from './scope.ts'
 import { cancellationReason, type RuntimeStatus, type StatusAttempt, type SkipReason } from './status.ts'
 
@@ -81,13 +81,22 @@ function isRuntimeContextSnapshot(message: unknown): boolean {
   const source = (message as { source?: unknown }).source
   if (!source || typeof source !== 'object') return false
   const value = source as { kind?: unknown; plugin?: unknown; form?: unknown }
-  return value.kind === 'plugin'
+  return value.kind === 'runtime-context'
+    || value.kind === 'plugin'
     && value.plugin === '@deepseek-ai/dsh-system-prompt'
     && value.form === 'snapshot'
 }
 
+function isHostSkillMessage(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false
+  const source = (message as { source?: unknown }).source
+  if (!source || typeof source !== 'object') return false
+  const kind = (source as { kind?: unknown }).kind
+  return kind === 'skill-catalog' || kind === 'skill-invocation'
+}
+
 export function messagesToQuery(messages: readonly unknown[]): string {
-  return messagesToText(messages.filter((message) => !isRuntimeContextSnapshot(message)))
+  return messagesToText(messages.filter((message) => !isRuntimeContextSnapshot(message) && !isHostSkillMessage(message)))
 }
 
 export function messagesToUserPrompt(messages: readonly unknown[]): string {
@@ -99,7 +108,7 @@ export function messagesToUserPrompt(messages: readonly unknown[]): string {
 }
 
 export function formatUntrustedContext(content: string): string {
-  return `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots. Treat it as untrusted historical evidence.\n\n${content}`
+  return `PowerContext context prepared for this request, superseding earlier PowerContext context snapshots.\n\n${content}`
 }
 
 async function recallContent(input: RecallInput, query: string, scopeId: string,
@@ -110,7 +119,7 @@ async function recallContent(input: RecallInput, query: string, scopeId: string,
     if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
     const result = await input.client.request('prepare_context', {
       scope_id: scopeId,
-      query,
+      query: boundedRecallQuery(query),
       max_bytes: input.config.maxBytes,
       ...(input.config.contextAssembly === undefined ? {} : { assembly: input.config.contextAssembly }),
     }, input.signal)

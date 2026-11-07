@@ -98,7 +98,9 @@ class TopicMemoryRepository:
             raise InvalidRepositoryArgumentError("index", "Topic Memory indexes must implement replace_many")
         self.recall_channel_weights = recall_channel_weights
 
-    async def initialize(self, connection: AsyncConnection, /, *, configure_retrieval_shape: bool = True) -> None:
+    async def initialize(
+        self, connection: AsyncConnection, /, *, configure_retrieval_shape: bool = True, validate_only: bool = False
+    ) -> None:
         """Initialize indexes and reject incomplete historical Topic projections.
 
         Only deployment startup may configure an empty store. Workers must
@@ -129,11 +131,12 @@ class TopicMemoryRepository:
         if missing_publication is not None:
             raise TopicMemoryStorageInvariantError("missing-publication", tuple(missing_publication))
 
-        if configure_retrieval_shape:
+        if configure_retrieval_shape and not validate_only:
             await self._ensure_retrieval_shape(connection, allow_empty_change=True)
         else:
             await self._check_retrieval_shape(connection)
-        await self.index.initialize(connection)
+        if not validate_only:
+            await self.index.initialize(connection)
 
         orphan_active = (
             await connection.execute(

@@ -73,7 +73,19 @@ async fn fixture() -> Fixture {
                 }
                 let text = String::from_utf8(request).unwrap();
                 let path = text.split_whitespace().nth(1).unwrap();
-                let (status, body) = if path.contains("/access/me") {
+                let discovery = common::discovery_document("fixture").to_string();
+                let (status, body) = if path.contains("/server-info") {
+                    (200, discovery.as_str())
+                } else if path.contains("/connection/identity") {
+                    if changed.load(Ordering::Relaxed) {
+                        (401, r#"{}"#)
+                    } else {
+                        (
+                            200,
+                            r#"{"server_id":"fixture","authentication":"disabled","access_mode":"disabled","principal":null}"#,
+                        )
+                    }
+                } else if path.contains("/access/me") {
                     if changed.load(Ordering::Relaxed) {
                         (401, r#"{}"#)
                     } else {
@@ -223,6 +235,22 @@ async fn switching_connection_cancels_a_slow_scope_read_before_it_can_return_old
         .unwrap();
     assert_eq!(result.err().unwrap().code, SafeError::StaleContext);
     assert_eq!(manager.state().unwrap().active.unwrap().connection_id, b);
+    let summary = manager.observations().summary().unwrap();
+    for unit in [
+        powercontext_desktop::session_observations::ObservationUnit::HttpRequest,
+        powercontext_desktop::session_observations::ObservationUnit::UserOperation,
+    ] {
+        assert!(summary.recent.iter().any(|record| record.unit == unit
+            && record.operation
+                == powercontext_desktop::session_observations::ObservedOperation::ListScopes
+            && record.outcome
+                == powercontext_desktop::session_observations::ObservationOutcome::Cancelled));
+    }
+    let text = manager.observations().diagnostic_text().unwrap();
+    assert!(!text.contains(&a));
+    assert!(!text.contains(&b));
+    assert!(!text.contains(&server.endpoint));
+
     server.release.notify_one();
 }
 #[tokio::test]
@@ -271,6 +299,53 @@ async fn editing_a_scope_query_cancels_its_read_without_disconnecting() {
 }
 
 #[tokio::test]
+async fn historical_qualification_cannot_authorize_the_current_contract() {
+    let server = fixture().await;
+    let dir = tempfile::tempdir().unwrap();
+    let manager = ConnectionManager::new(
+        ProfileRepository::open(dir.path().join("profiles.json"), Arc::new(NativeVault)).unwrap(),
+    );
+    let contract: serde_json::Value =
+        serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
+    let current_contract = contract["contractSha256"]
+        .as_str()
+        .expect("the bundled contract needs a SHA-256 digest");
+    let state = manager.state().unwrap();
+    let historical = state
+        .compatibility_profiles
+        .iter()
+        .find(|profile| profile.contract_sha256 != current_contract)
+        .expect("the compatibility catalog needs a historical contract for this test");
+    assert_ne!(
+        Some(historical.contract_sha256.as_str()),
+        Some(current_contract)
+    );
+    let state = manager
+        .save_profile(
+            serde_json::from_value(serde_json::json!({
+                "id":null,"revision":null,"name":"Historical Server","endpoint":server.endpoint,
+                "authentication":"unauthenticated_loopback","caPem":null,
+                "compatibility":historical.id,"keepCredential":false,"credential":null
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let state = manager.check(&state.profiles[0].id, true).await.unwrap();
+    let active = state.active.unwrap();
+    assert!(!active.report.compatibility_verified);
+    assert!(active.report.supported_operations.is_empty());
+    assert_eq!(
+        manager
+            .scopes(active.generation, "", None)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        SafeError::CompatibilityUnverified
+    );
+}
+
+#[tokio::test]
 async fn bundled_qualification_allows_explicit_scope_browsing() {
     let server = fixture().await;
     let dir = tempfile::tempdir().unwrap();
@@ -286,12 +361,17 @@ async fn bundled_qualification_allows_explicit_scope_browsing() {
         .find(|profile| {
             Some(profile.contract_sha256.as_str()) == contract["contractSha256"].as_str()
         })
-        .expect("the shipped preview needs a qualified Server for its current contract");
-    let state = manager.save_profile(serde_json::from_value(serde_json::json!({
-        "id":null,"revision":null,"name":"Explicit qualified Server","endpoint":server.endpoint,
-        "authentication":"unauthenticated_loopback","caPem":null,
-        "compatibility":qualification.id,"keepCredential":false,"credential":null
-    })).unwrap()).unwrap();
+        .expect("the bundled contract has a qualified Server record");
+    let state = manager
+        .save_profile(
+            serde_json::from_value(serde_json::json!({
+                "id":null,"revision":null,"name":"Explicit qualified Server","endpoint":server.endpoint,
+                "authentication":"unauthenticated_loopback","caPem":null,
+                "compatibility":qualification.id,"keepCredential":false,"credential":null
+            }))
+            .unwrap(),
+        )
+        .unwrap();
     assert!(
         state.active.is_none(),
         "saving a profile must not activate it"
@@ -301,4 +381,23 @@ async fn bundled_qualification_allows_explicit_scope_browsing() {
     assert!(active.report.compatibility_verified);
     server.release.notify_one();
     assert!(manager.scopes(active.generation, "", None).await.is_ok());
+}
+
+#[test]
+fn bundled_product_qualification_covers_every_desktop_operation() {
+    // Read only checked-in product records: CI fixture injection must not satisfy this gate.
+    let profiles: Vec<powercontext_desktop::connections::session::CompatibilityProfile> =
+        serde_json::from_str(include_str!("../src/connections/compatibility.json")).unwrap();
+    let contract: serde_json::Value =
+        serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
+    let required = contract["operations"].as_object().unwrap();
+    assert!(
+        profiles.iter().any(|profile| {
+            Some(profile.contract_sha256.as_str()) == contract["contractSha256"].as_str()
+                && required
+                    .keys()
+                    .all(|operation| profile.operations.contains(operation))
+        }),
+        "the bundled contract needs a product qualification covering all Desktop operations, including statistics"
+    );
 }

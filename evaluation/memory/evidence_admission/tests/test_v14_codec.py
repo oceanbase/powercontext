@@ -60,6 +60,7 @@ def copy_template(cell, evidence_id="e0"):
             "candidates": [
                 {
                     "kind": "fact",
+                    "description": "Synthetic protocol candidate",
                     "evidence_ids": [evidence_id],
                     "parts": [{"type": "copy", "quote_id": cell.cell_id}],
                 }
@@ -120,7 +121,16 @@ def test_plain_text_candidate_without_cells_is_valid():
     cells = build_cells(value, supports)
     assert cells == ()
     output = TemplateOutput.model_validate(
-        {"candidates": [{"kind": "fact", "evidence_ids": ["e0"], "parts": [{"type": "text", "text": "plain fact"}]}]}
+        {
+            "candidates": [
+                {
+                    "kind": "fact",
+                    "description": "Synthetic protocol candidate",
+                    "evidence_ids": ["e0"],
+                    "parts": [{"type": "text", "text": "plain fact"}],
+                }
+            ]
+        }
     )
     rendered = render(output, cells, ALIASES)
     assert rendered.candidates[0].text == "plain fact"
@@ -130,7 +140,16 @@ def test_unknown_cell_id_rejected():
     value, supports = supplied("`known` `other`")
     cells = build_cells(value, supports)
     bad = TemplateOutput.model_validate(
-        {"candidates": [{"kind": "fact", "evidence_ids": ["e0"], "parts": [{"type": "copy", "quote_id": "c999"}]}]}
+        {
+            "candidates": [
+                {
+                    "kind": "fact",
+                    "description": "Synthetic protocol candidate",
+                    "evidence_ids": ["e0"],
+                    "parts": [{"type": "copy", "quote_id": "c999"}],
+                }
+            ]
+        }
     )
     with pytest.raises(EvaluationError, match="copy_without_candidate_support"):
         render(bad, cells, ALIASES)
@@ -156,6 +175,7 @@ def test_copy_ref_rejects_byte_offsets():
                 "candidates": [
                     {
                         "kind": "fact",
+                        "description": "Synthetic protocol candidate",
                         "evidence_ids": ["e0"],
                         "parts": [{"type": "copy", "quote_id": "c0", "byte_start": 0, "byte_end": 1}],
                     }

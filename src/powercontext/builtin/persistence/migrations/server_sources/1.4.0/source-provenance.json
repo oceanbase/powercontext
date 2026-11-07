@@ -1,0 +1,273 @@
+{
+  "format": "powercontext.released-source-provenance.v1",
+  "source_release": "1.4.0",
+  "source_revision": "r1400",
+  "source_wheel": {
+    "name": "powercontext",
+    "version": "1.4.0",
+    "filename": "powercontext-1.4.0-py3-none-any.whl",
+    "sha256": "f700209c85470ddb3825c6ab9d51d747c75c69401697f22999ed08e1a3bbc3ec",
+    "url": "https://files.pythonhosted.org/packages/c6/b6/5ec591d57fd87c1176908d9b80661bca7a1623e7cf27bd507a285eba627b/powercontext-1.4.0-py3-none-any.whl",
+    "uploaded_at": "2026-10-19T05:59:50.214919Z",
+    "metadata_url": "https://pypi.org/pypi/powercontext/1.4.0/json",
+    "metadata_origin": "live-pypi"
+  },
+  "workflow_run": "https://github.com/oceanbase/powercontext/actions/runs/40207916624",
+  "head_commit": "6d055f03a0d99b2843bbaf8f6ecf506451a0b0e3",
+  "tested_merge_commit": "4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+  "capture_method": "Independently installed official wheel; real Server startup and writes; Server stopped before reflection; no target migration executed.",
+  "captures": [
+    {
+      "backend": "oceanbase",
+      "configuration": "full-server-code",
+      "captured_at": "2026-10-25T15:39:57.113515+00:00",
+      "schema_sha256": "abeb9100f85118c9ac36478db23e40627d8cef1ef392b4a21111944e02e738ba",
+      "canonical_sha256": "630b72acf4f665f3f920878e12ccca651a7a42b2091531d0d4e225154b843cc8",
+      "engine_version": "5.7.25-OceanBase_CE-v4.3.5.6",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": true,
+        "vector_dimension": 0,
+        "embedding_normalization": null
+      },
+      "embedding_profile": {},
+      "artifact_name": "release-1.4.0-oceanbase-full-server-code-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": null
+    },
+    {
+      "backend": "oceanbase",
+      "configuration": "full-server-no-vector",
+      "captured_at": "2026-10-25T15:39:57.593867+00:00",
+      "schema_sha256": "0467fd04d2e192a210684325f9639989dacda0deec3fec8df80ac75895644807",
+      "canonical_sha256": "630b72acf4f665f3f920878e12ccca651a7a42b2091531d0d4e225154b843cc8",
+      "engine_version": "5.7.25-OceanBase_CE-v4.3.5.6",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": false,
+        "vector_dimension": 0,
+        "embedding_normalization": null
+      },
+      "embedding_profile": {},
+      "artifact_name": "release-1.4.0-oceanbase-full-server-no-vector-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": null
+    },
+    {
+      "backend": "oceanbase",
+      "configuration": "full-server-vector",
+      "captured_at": "2026-10-25T15:39:53.611582+00:00",
+      "schema_sha256": "8bf6ba6c0c77f0b85c0feb4fddebad601bead1fbb4a1794b7bb80b88bee835c0",
+      "canonical_sha256": "9cbe42c3f0a24c747a56629a8c2cca740002c3f8d42820a386fba68b6c308724",
+      "engine_version": "5.7.25-OceanBase_CE-v4.3.5.6",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": false,
+        "vector_dimension": 3,
+        "embedding_normalization": "unit"
+      },
+      "embedding_profile": {
+        "model": "openai:upgrade-vector-3",
+        "profile_id": "upgrade-vector-3-unit",
+        "dimension": "3",
+        "normalization": "unit"
+      },
+      "artifact_name": "release-1.4.0-oceanbase-full-server-vector-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": null
+    },
+    {
+      "backend": "oceanbase",
+      "configuration": "full-server-vector-code",
+      "captured_at": "2026-10-25T15:39:52.700905+00:00",
+      "schema_sha256": "7e9589e01fbcd6e69691a67bd8844f0945956d9084c5ad899088b90f8a5a2e30",
+      "canonical_sha256": "febced49a80ce87cd03b586816488bcedd108afef682aaba77c0d68a6f5e5df7",
+      "engine_version": "5.7.25-OceanBase_CE-v4.3.5.6",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": true,
+        "vector_dimension": 4,
+        "embedding_normalization": "unit"
+      },
+      "embedding_profile": {
+        "model": "openai:upgrade-vector-4",
+        "profile_id": "upgrade-vector-4-unit",
+        "dimension": "4",
+        "normalization": "unit"
+      },
+      "artifact_name": "release-1.4.0-oceanbase-full-server-vector-code-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": null
+    },
+    {
+      "backend": "seekdb",
+      "configuration": "full-server-code",
+      "captured_at": "2026-10-25T15:38:59.097834+00:00",
+      "schema_sha256": "ff7781f40dfd0746cd99175b2698840e8652193532b75fff4bde7e1c5188d11d",
+      "canonical_sha256": "250eeaea4bdc5b224b794aaa27b9dbee9dcddaac719065897c23764a2069ed28",
+      "engine_version": "5.7.25-OceanBase seekdb-v1.4.0.0",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": true,
+        "vector_dimension": 0,
+        "embedding_normalization": null
+      },
+      "embedding_profile": {},
+      "artifact_name": "release-1.4.0-seekdb-full-server-code-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": "1.4.0.post1"
+    },
+    {
+      "backend": "seekdb",
+      "configuration": "full-server-no-vector",
+      "captured_at": "2026-10-25T15:39:03.075746+00:00",
+      "schema_sha256": "a16258f7ccbf7b60d5f0c22296f3399190d97f5963e03ddf4a2c1413095f59e4",
+      "canonical_sha256": "5a6d885d2cbbb3c41e420f6ea5277722d568992a8ef5c89b521975118e15be95",
+      "engine_version": "5.7.25-OceanBase seekdb-v1.4.0.0",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": false,
+        "vector_dimension": 0,
+        "embedding_normalization": null
+      },
+      "embedding_profile": {},
+      "artifact_name": "release-1.4.0-seekdb-full-server-no-vector-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": "1.4.0.post1"
+    },
+    {
+      "backend": "seekdb",
+      "configuration": "full-server-vector",
+      "captured_at": "2026-10-25T15:39:03.449384+00:00",
+      "schema_sha256": "dd30076cea6912a71583ea593c2cf56ebf131f858f0b73f42ecb48a4abd15bbb",
+      "canonical_sha256": "9d335410d4bc9c26d27171cb88f9e5320fa934db488706ff986acf6cb82096e7",
+      "engine_version": "5.7.25-OceanBase seekdb-v1.4.0.0",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": false,
+        "vector_dimension": 3,
+        "embedding_normalization": "unit"
+      },
+      "embedding_profile": {
+        "model": "openai:upgrade-vector-3",
+        "profile_id": "upgrade-vector-3-unit",
+        "dimension": "3",
+        "normalization": "unit"
+      },
+      "artifact_name": "release-1.4.0-seekdb-full-server-vector-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": "1.4.0.post1"
+    },
+    {
+      "backend": "seekdb",
+      "configuration": "full-server-vector-code",
+      "captured_at": "2026-10-25T15:39:00.112440+00:00",
+      "schema_sha256": "ce1e892d319dc0f01df44114addeb2a40e5d091481f57ed1198ae1dc2cd1fd6c",
+      "canonical_sha256": "d8e7cb7d00874694f5d817f0f707910fe42d37db006faa8c3d46caaaf5c6e33a",
+      "engine_version": "5.7.25-OceanBase seekdb-v1.4.0.0",
+      "driver_version": "1.2.0",
+      "profile": {
+        "code_enabled": true,
+        "vector_dimension": 4,
+        "embedding_normalization": "unit"
+      },
+      "embedding_profile": {
+        "model": "openai:upgrade-vector-4",
+        "profile_id": "upgrade-vector-4-unit",
+        "dimension": "4",
+        "normalization": "unit"
+      },
+      "artifact_name": "release-1.4.0-seekdb-full-server-vector-code-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": "4d770a089e4f270e813702f43a8a5cbe76144ba3f8d673c3aa454e845b7b0e00",
+      "embedded_binding_version": "1.4.0.post1"
+    },
+    {
+      "backend": "sqlite",
+      "configuration": "full-server-code",
+      "captured_at": "2026-10-25T15:38:59.263298+00:00",
+      "schema_sha256": "8c0513052c80b0bdc0a0051d3016b496df60fdeb292874f100b949022892978a",
+      "canonical_sha256": "374ad3217e4dc286c3942708da52cc8262e30581e2b836bedd0c4e693f1b75bc",
+      "engine_version": "3.45.1",
+      "driver_version": "0.22.1",
+      "profile": {
+        "code_enabled": true,
+        "vector_dimension": 0,
+        "embedding_normalization": null
+      },
+      "embedding_profile": {},
+      "artifact_name": "release-1.4.0-sqlite-full-server-code-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": null,
+      "embedded_binding_version": null
+    },
+    {
+      "backend": "sqlite",
+      "configuration": "full-server-no-vector",
+      "captured_at": "2026-10-25T15:38:59.909168+00:00",
+      "schema_sha256": "313dc3bf280d5d28f4692a35434e19750e1d70c3e373777e4cacaee2332630e2",
+      "canonical_sha256": "374ad3217e4dc286c3942708da52cc8262e30581e2b836bedd0c4e693f1b75bc",
+      "engine_version": "3.45.1",
+      "driver_version": "0.22.1",
+      "profile": {
+        "code_enabled": false,
+        "vector_dimension": 0,
+        "embedding_normalization": null
+      },
+      "embedding_profile": {},
+      "artifact_name": "release-1.4.0-sqlite-full-server-no-vector-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": null,
+      "embedded_binding_version": null
+    },
+    {
+      "backend": "sqlite",
+      "configuration": "full-server-vector",
+      "captured_at": "2026-10-25T15:39:48.283922+00:00",
+      "schema_sha256": "ad11f9117a10549a8ea8866c06457cd6adbc20b3b326a0365beeaf06c0c42a69",
+      "canonical_sha256": "ca12a9f4af49fc3da90c8ebacc4d1cba4a6853e9bc201d7b4bdaa0d672b771d3",
+      "engine_version": "3.45.1",
+      "driver_version": "0.22.1",
+      "profile": {
+        "code_enabled": false,
+        "vector_dimension": 3,
+        "embedding_normalization": "unit"
+      },
+      "embedding_profile": {
+        "model": "openai:upgrade-vector-3",
+        "profile_id": "upgrade-vector-3-unit",
+        "dimension": "3",
+        "normalization": "unit"
+      },
+      "artifact_name": "release-1.4.0-sqlite-full-server-vector-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": null,
+      "embedded_binding_version": null
+    },
+    {
+      "backend": "sqlite",
+      "configuration": "full-server-vector-code",
+      "captured_at": "2026-10-25T15:38:59.726121+00:00",
+      "schema_sha256": "5a5f2c51eb7b08fb0ecdf5ad1d64d1fc05476968a5ccc710b2c780cdcefa9fd5",
+      "canonical_sha256": "1896624bd1abb545a5dbdf51058d036b921f948590fab5e5f59bbf38952c323f",
+      "engine_version": "3.45.1",
+      "driver_version": "0.22.1",
+      "profile": {
+        "code_enabled": true,
+        "vector_dimension": 4,
+        "embedding_normalization": "unit"
+      },
+      "embedding_profile": {
+        "model": "openai:upgrade-vector-4",
+        "profile_id": "upgrade-vector-4-unit",
+        "dimension": "4",
+        "normalization": "unit"
+      },
+      "artifact_name": "release-1.4.0-sqlite-full-server-vector-code-4632f4f5c4f83b4f1040b6261b480b4da6b76168",
+      "parser_sha256": null,
+      "embedded_binding_version": null
+    }
+  ],
+  "registration_notes": [
+    "SQLite source rows are frozen from the released no-vector schema; vector rows exactly match the existing frozen profile.",
+    "Native initialization statements come from real released seekDB reflection; local database qualifiers and AUTO_INCREMENT runtime counters are removed without changing logical schema.",
+    "OceanBase differs only by the registered optional access-audit auto_increment_mode=order.",
+    "The bridge preserves current Candidate rows and creates empty retained tables solely to join the shared schema; no old Candidate history is invented."
+  ]
+}

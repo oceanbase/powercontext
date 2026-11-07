@@ -13,9 +13,7 @@
 
 ## What is PowerContext?
 
-**PowerContext is an open-source context service for AI agents.** It keeps the durable part of your work — decisions,
-constraints, evidence, progress — outside any single conversation, so the next session, the next agent, or the next
-person can pick up from the current state instead of rereading the transcript.
+**PowerContext is an open-source context service for AI agents.** It keeps the durable part of your work — decisions, constraints, evidence, progress — outside any single conversation, so the next session, the next agent, or the next person can pick up from the current state instead of rereading the transcript.
 
 You can use it as a ready-to-run Server or embed the same contracts in another application:
 
@@ -25,14 +23,11 @@ You can use it as a ready-to-run Server or embed the same contracts in another a
 | Builtin runtime | Memory, Handoff, Experience, and Skill services, scheduling, inference, and supported storage backends | Running the standard local Server |
 | Server and integrations | HTTP/MCP, Python Client, CLI, Dashboard, and Agent plugins | Connecting an Agent or application |
 
-Work rarely ends with whoever starts it. You hand a task to an agent, the agent gets part of the way, and later you or
-someone else takes over. The reasoning and current state often stay behind in that conversation. PowerContext moves them
-out of the conversation and into revisioned artifacts you can inspect:
+Work rarely ends with whoever starts it. You hand a task to an agent, the agent gets part of the way, and later you or someone else takes over. The reasoning and current state often stay behind in that conversation. PowerContext moves them out of the conversation and into revisioned artifacts you can inspect:
 
 ![You and agents hand work off and continue with stored context](docs/assets/readme-workflow.svg)
 
-Everything belongs to a **Scope** — one isolated Source journal, Memory lifecycle, review inbox, and Handoff history.
-A Scope ID selects data; it does not prove user identity, grant tool access, or authorize execution.
+Everything belongs to a **Scope** — one isolated Source journal, Memory lifecycle, review inbox, and Handoff history. A Scope ID selects data; it does not prove user identity, grant tool access, or authorize execution.
 
 ```text
 Scope
@@ -43,19 +38,18 @@ Scope
 └── Topic Memory      # extracted in the background from eligible Sources
 ```
 
-*The Dashboard screenshots below use synthetic demonstration records.*
+For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
+
+*Recordings show the running Dashboard and native Desktop preview in their dark themes, using synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
 
-Memory is a revisioned Artifact family for reusable decisions, constraints, facts, state, and next steps. An entry is
-`active`, `forgotten`, `merged`, or `retired`. Forgetting one through `POST /v1/atomic-memory/lifecycle` takes it out of
-active recall while its content and history stay available and restorable, without advancing the content revision.
-Explicit Memory writes need no model at all; extraction from captured Sources needs a configured generation pipeline.
+Memory is a revisioned Artifact family for reusable decisions, constraints, facts, state, and next steps. An entry is `active`, `forgotten`, `merged`, or `retired`. Forgetting one through `POST /v1/atomic-memory/lifecycle` takes it out of active recall while its content and history stay available and restorable, without advancing the content revision. Explicit Memory writes need no model at all; extraction from captured Sources needs a configured generation pipeline.
 
 > "Don't refactor the old auth module — mobile is still using it."
 > Context this expensive shouldn't depend on someone repeating it in every session.
 
-![Dashboard showing active decisions and constraints for one Scope with their Artifact and Source references](docs/assets/readme-dashboard-memories.png)
+![Dashboard in dark mode: search project memories and inspect a saved revision](docs/assets/readme-dashboard-demo.gif)
 
 ### Handoff — the current state, not the whole transcript
 
@@ -65,52 +59,34 @@ Handoff records work continuity as a four-step loop:
 Work Contract → Prepared Handoff → Acknowledgement → Task Outcome
 ```
 
-`handoff_current_work` captures an inspected boundary and returns a temporary Prepared Handoff. Committing it creates a
-durable Revision only when the user wants a milestone. The receiver resolves the Handoff and records an Acknowledgement;
-a Task Outcome preserves the final status and checks as Source evidence. The
-[Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) projects the latest Revision in
-each selected Scope — read-only, and it never rewrites Memory.
+`handoff_current_work` captures an inspected boundary and returns a temporary Prepared Handoff. Committing it creates a durable Revision only when the user wants a milestone. The receiver resolves the Handoff and records an Acknowledgement; a Task Outcome preserves the final status and checks as Source evidence. The [Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) projects the latest Revision in each selected Scope — read-only, and it never rewrites Memory.
 
-![Dashboard showing a committed Handoff Revision with recorded progress, next action, and linked source evidence](docs/assets/readme-dashboard-handoff.png)
+![Dashboard in dark mode: open a Handoff and inspect its saved revision](docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — what worked, reviewed before it is reused
 
-An Experience records a situation, an action, an observed outcome, and a reusable lesson. It enters a scope-local Review
-Inbox as a pending Candidate. Review writes use `expected_version`, so a decision cannot silently apply after another
-writer changes the proposal. Approval writes an immutable Revision; rejection records a reason. Both are terminal, and
-only the approved current head takes part in recall — pending, rejected, and historical Revisions are excluded.
+An Experience records a situation, an action, an observed outcome, and a reusable lesson. It enters a scope-local Review Inbox as a pending Candidate. Review writes use `expected_version`, so a decision cannot silently apply after another writer changes the proposal. Approval writes an immutable Revision; rejection records a reason. Both are terminal, and only the approved current head takes part in recall — pending, rejected, and historical Revisions are excluded.
 
 ### Skill — a reviewed procedure, exported on purpose
 
-A managed Skill holds a name, a discovery description, instructions, validation checks, and lineage. Approval does not
-install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the
-host-local projection.
+A managed Skill holds a name, a discovery description, instructions, validation checks, and lineage. Approval does not install or execute it: an exact approved Revision must be exported explicitly before an Agent host can discover the host-local projection.
+
+### Desktop — inspect project memory from a connected workspace
+
+Connect to a Server, select an exact Scope, and search its memories. Open a result to read its saved revision, or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation; signed distribution and platform release qualification remain separate work.
+
+![Native Desktop in dark mode: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 
 ## Why PowerContext?
 
-- **Context lives outside the conversation.** Memory, Handoff, Experience, and Skill are server-side artifacts, not
-  files inside one agent's home directory. Switch from Codex to Claude Code — or hand the work to a teammate — and the
-  work travels with you.
-- **Everything is revisioned and traceable.** Each Artifact is addressed as `FAMILY/ARTIFACT_ID@REVISION`. The Artifact
-  ID stays stable while approved replacements create later Revisions, and reading an exact reference returns that
-  historical snapshot even after the family head advances.
-- **Generation, review, and execution are separate steps.** A model proposes content, review approves a Revision, and
-  export creates a host-local copy. None of those steps grants an Agent permission to execute instructions. See
-  [Interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) for what each surface exposes today.
-- **Recall is bounded, not dumped.** `PreparedContext` selects configured sections from active Memory and approved
-  Experience, with optional Profile snapshots and Topic Memory, then applies a shared byte budget and returns `ready`
-  content or `empty`. Recalled content is history, not an instruction authority: the receiving Agent still follows
-  current instructions and checks live workspace state.
-- **Review before reuse.** Experience and Skill pass through a review decision that is terminal either way, and
-  approval writes an immutable Revision. With access control enforced, approval requires `scope.review`. An
-  authorized Agent can approve its own Candidate;
-  [separate submission and review](https://powercontext.oceanbase.io/en/docs/workflows/review-candidates/#separate-agent-submission-from-review)
-  with distinct identities and permissions when a person must decide.
-- **One Server, several views of the same contract.** HTTP is the complete remote application contract. The Python Client
-  gives typed access, MCP is a curated Agent-facing projection, and Core protocols let an application assemble its own
-  Source, Artifact, and Trigger implementations.
+- **Context lives outside the conversation.** Memory, Handoff, Experience, and Skill are server-side artifacts, not files inside one agent's home directory. Switch from Codex to Claude Code — or hand the work to a teammate — and the work travels with you.
+- **Everything is revisioned and traceable.** Each Artifact is addressed as `FAMILY/ARTIFACT_ID@REVISION`. The Artifact ID stays stable while approved replacements create later Revisions, and reading an exact reference returns that historical snapshot even after the family head advances.
+- **Generation, review, and execution are separate steps.** A model proposes content, review approves a Revision, and export creates a host-local copy. None of those steps grants an Agent permission to execute instructions. See [Interfaces](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) for what each surface exposes today.
+- **Recall is bounded, not dumped.** `PreparedContext` selects configured sections from active Memory and approved Experience, with optional Profile snapshots and Topic Memory, then applies a shared byte budget and returns `ready` content or `empty`. Recalled content is history, not an instruction authority: the receiving Agent still follows current instructions and checks live workspace state.
+- **Review before reuse.** Experience and Skill pass through a review decision that is terminal either way, and approval writes an immutable Revision. With access control enforced, approval requires `scope.review`. An authorized Agent can approve its own Candidate; [separate submission and review](https://powercontext.oceanbase.io/en/docs/workflows/review-candidates/#separate-agent-submission-from-review) with distinct identities and permissions when a person must decide.
+- **One Server, several views of the same contract.** HTTP is the complete remote application contract. The Python Client gives typed access, MCP is a curated Agent-facing projection, and Core protocols let an application assemble its own Source, Artifact, and Trigger implementations.
 
 ### How it compares
 
@@ -129,15 +105,11 @@ The comparison assumes typical single-agent or host-local setups; exact behavior
 
 ## Proof it works
 
-![Compact comparison of PowerContext results on LoCoMo and SWE-bench Pro](docs/assets/readme-benchmark-summary.svg)
+![LoCoMo accuracy and SWE-bench Pro input tokens per 100 tasks, comparing PowerContext with baselines](docs/assets/readme-benchmark-summary.svg)
 
-- **Long-conversation memory (LoCoMo; 1,540 scored questions across categories 1–4): 90.78% accuracy**, against 87.79%
-  for PowerMem and 52.9% for full-context replay — **+37.88 points** over full context.
-- **Coding tasks (SWE-bench Pro; a paired project run on all 731 public v2 tasks, not an official submission): 86.73%
-  task resolution with PowerContext on, 82.35% with it off** — **+4.38 points** and 32 more tasks resolved.
-- **Retrieval quality (LoCoMo Plus)**, native PowerContext against PowerContext with Jev candidate filtering after
-  retrieval. Each model is used for both Memory extraction and answering; embeddings use `qwen3.7-text-embedding`
-  (1024 dimensions):
+- **Long-conversation memory (LoCoMo; 1,540 scored questions across categories 1–4): 90.78% accuracy**, against 52.9% for full-context replay — **+37.88 points** over full context.
+- **Coding tasks (SWE-bench Pro paired comparison): approximately 225.32 million input tokens per 100 tasks with PowerContext on, versus 302.18 million with it off** — approximately **25.4% fewer input tokens**, or 76.86 million fewer per 100 tasks.
+- **Retrieval quality (LoCoMo Plus)**, native PowerContext against PowerContext with Jev candidate filtering after retrieval. Each model is used for both Memory extraction and answering; embeddings use `qwen3.7-text-embedding` (1024 dimensions):
 
   | Model | PowerContext | PowerContext + Jev | Difference |
   |---|---|---|---|
@@ -145,10 +117,7 @@ The comparison assumes typical single-agent or host-local setups; exact behavior
   | Qwen3.7-plus | 60.37% | 68.947% | +8.577 points |
   | GPT-4o | 65.082% | 69.28% | +4.198 points |
 
-Full methods, results, and limitations: [benchmarks](https://powercontext.oceanbase.io/en/benchmarks/). Two caveats we
-would rather state than bury: the six LoCoMo Plus scores above were supplied by the project owner, and their run
-artifacts are not publicly available for verification — the published instructions reproduce the harness, not those
-scores. Windows support is `experimental`.
+Full methods, results, and limitations: [benchmarks](https://powercontext.oceanbase.io/en/benchmarks/). Two caveats we would rather state than bury: the six LoCoMo Plus scores above were supplied by the project owner, and their run artifacts are not publicly available for verification — the published instructions reproduce the harness, not those scores. Windows support is `experimental`.
 
 ## Quick start
 
@@ -160,12 +129,7 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.4.0 includes an interactive setup wizard. You need Python 3.11+, Git, and
-[uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent,
-also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory
-requires separate Generation and Embedding API credentials. For a local Server without model APIs, see
-[Install and run](docs/en/docs/get-started/install-and-run.md).
-macOS and Linux are supported; Windows support is `experimental`.
+PowerContext 1.5.0 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](docs/en/docs/get-started/install-and-run.md). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](docs/en/docs/get-started/install-and-run.md#install-with-the-recommended-script).
 
 Choose the path that matches your goal:
 
@@ -178,18 +142,24 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.4.0"
+uv tool install --force "powercontext[cli,server]==1.5.0"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
-powercontext config validate --env-file .env
-powercontext server run --env-file .env      # keep this terminal open
 ```
 
 The wizard asks about storage, local or remote usage, memory capabilities, Dashboard/access, and Agent connections. SQLite is the simplest first storage choice; choose embedded seekdb only when you need it and can approve its dependency install.
 
-The wizard writes one `.env` environment file and `.env.next-steps.md`. These files can contain credentials; do not
-commit them. Keep Server running; in another terminal, return to `powercontext-config`, reload the generated environment
-file, and check the connection:
+The wizard writes `.env` and `.env.next-steps.md`. These files can contain credentials; do not commit them. Linux needs an available `systemd --user` manager for the personal service.
+
+After saving `.env`, validate it and register the personal service:
+
+```bash
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+```
+
+The service keeps the Server running after you close the terminal. Load the generated environment file and check the connection:
 
 ```bash
 set -a
@@ -199,28 +169,18 @@ powercontext ready
 powercontext capabilities
 ```
 
-Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the
-creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the
-same Server and Scope in the Dashboard and Agent. Then install the matching plugins and launch a new Agent session.
-The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude
-Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching
-Codex installation is:
+Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the same Server and Scope in the Dashboard and Agent. After editing `.env`, rerun `powercontext service install --env-file .env` to apply the updated settings. Then install the matching plugins and launch a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.4.0
+powercontext setup codex --ref powercontext-v1.5.0
 powercontext doctor codex
 ```
 
-Before sending the first message in a new Codex session, open `/hooks` and, when prompted, trust the PowerContext
-hooks. Without an enabled `UserPromptSubmit` hook, automatic prompt capture and recall do not run, even if MCP connects.
-See [first-session checks and recovery](docs/en/docs/integrations/codex.md#first-session-hook-trust).
-After the first check below, use the [capability and trigger guide](docs/en/docs/get-started/quickstart.md#5-choose-your-next-workflow)
-to try all seven Artifact families, Source, and Tag. Basic memory needs no separate Server model API; the Agent still uses its own model.
+Before sending the first message in a new Codex session, open `/hooks` and, when prompted, trust the PowerContext hooks. Without an enabled `UserPromptSubmit` hook, automatic prompt capture and recall do not run, even if MCP connects. See [first-session checks and recovery](docs/en/docs/integrations/codex.md#first-session-hook-trust). After the first check below, use the [capability and trigger guide](docs/en/docs/get-started/quickstart.md#5-choose-your-next-workflow) to try all seven Artifact families, Source, and Tag. Basic memory needs no separate Server model API; the Agent still uses its own model.
 
 ### 2. Verify the first end-to-end result
 
-This checks the path that makes PowerContext useful: Source capture → background processing → cross-session recall. In
-the new Agent session bound to the same Scope, send a concrete decision such as:
+This checks the path that makes PowerContext useful: Source capture → background processing → cross-session recall. In the new Agent session bound to the same Scope, send a concrete decision such as:
 
 ```text
 We are designing the Aurora acceptance project. Use uv for Python dependencies and .env for configuration.
@@ -235,49 +195,31 @@ If you enabled Dashboard, open the URL printed by the wizard; an empty Dashboard
 3. Send a related update and confirm that the new Source arrives and the topic content or revision history reflects it.
 4. Start a new Agent session with the same Scope and ask for the Aurora decisions with citations.
 
-`doctor codex` checks installation and connectivity only. Source capture does not by itself create Memory or Topic
-Memory, and processing can wait for configured schedules and model work. In Basic memory mode, explicitly ask the Agent
-to save a decision, then search for it in a new session; that does not test automatic extraction.
+`doctor codex` checks installation and connectivity only. Source capture does not by itself create Memory or Topic Memory, and processing can wait for configured schedules and model work. In Basic memory mode, explicitly ask the Agent to save a decision, then search for it in a new session; that does not test automatic extraction.
 
 ### 3. Explore Python first — no API key
 
-The tutorials run from a repository checkout and take their dependencies from a `uv` dependency group, so they are not
-part of the `powercontext` package. From the repository root:
+The tutorials run from a repository checkout and take their dependencies from a `uv` dependency group, so they are not part of the `powercontext` package. From the repository root:
 
 ```bash
 uv sync --locked --group notebooks
 uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
 ```
 
-Start with [01 · Memory across sessions](examples/jupyter/01_memory_across_sessions.ipynb), then work through the
-[22 Chinese Jupyter tutorials and a complete team workflow](examples/jupyter/README.md) to run Memory, context
-preparation, Handoff, Experience, Skill, and a real Agent step by step. The first seven tutorials need no model or API
-key.
+Start with [01 · Memory across sessions](examples/jupyter/01_memory_across_sessions.ipynb), then work through the [22 Chinese Jupyter tutorials and a complete team workflow](examples/jupyter/README.md) to run Memory, context preparation, Handoff, Experience, Skill, and a real Agent step by step. The first seven tutorials need no model or API key.
 
 ### Common issues
 
-- `doctor codex` verifies Codex installation and connectivity. To verify automatic memory, check that a real prompt
-  becomes a Source, produces a Topic, evolves after a related prompt, and can be recalled in a new session using the
-  same Scope.
-- If Python dependency downloads are slow or fail, configure a package index for
-  [uv](https://docs.astral.sh/uv/configuration/indexes/) and retry.
-- Choose **Full memory capabilities** to test automatic Memory and Topic Memory; this requires separate Generation and
-  Embedding API credentials. An Agent subscription does not provide those Server credentials. Choose **Basic memory** to
-  save and retrieve memories explicitly without additional model APIs.
+- `doctor codex` verifies Codex installation and connectivity. To verify automatic memory, check that a real prompt becomes a Source, produces a Topic, evolves after a related prompt, and can be recalled in a new session using the same Scope.
+- If Python dependency downloads are slow or fail, configure a package index for [uv](https://docs.astral.sh/uv/configuration/indexes/) and retry.
+- Choose **Full memory capabilities** to test automatic Memory and Topic Memory; this requires separate Generation and Embedding API credentials. An Agent subscription does not provide those Server credentials. Choose **Basic memory** to save and retrieve memories explicitly without additional model APIs.
 - If seekdb needs installing, the wizard asks once and installs the dependency in the background.
-- The optional recall-sufficiency gate records scope-local daily search effort and budget omissions for later policy
-  evaluation. See the [configuration reference](docs/en/docs/operate/configuration.md) for its recording and failure
-  behavior.
-- For a Server on another machine, use HTTPS or follow the
-  [remote connection guide](docs/en/docs/operate/connect-remote-server.md). Setup recognizes remote HTTP URLs from flags
-  or environment variables and asks for explicit consent; automated setup uses `--allow-insecure-http`.
+- The optional recall-sufficiency gate records scope-local daily search effort and budget omissions for later policy evaluation. See the [configuration reference](docs/en/docs/operate/configuration.md) for its recording and failure behavior.
+- For a Server on another machine, use HTTPS or follow the [remote connection guide](docs/en/docs/operate/connect-remote-server.md). Setup recognizes remote HTTP URLs from flags or environment variables and asks for explicit consent; automated setup uses `--allow-insecure-http`.
 
 ## Connect your Agent
 
-Codex is `official`; other maintained hosts and Python Agent frameworks are `community`; Bub is `evaluation` only.
-These tags describe PowerContext integration maintenance and use. The
-[capability matrix](https://powercontext.oceanbase.io/en/docs/integrations/capabilities/) records which hosts are
-qualified, along with their supported features and availability.
+Codex is `official`; other maintained hosts and Python Agent frameworks are `community`; Bub is `evaluation` only. These tags describe PowerContext integration maintenance and use. The [capability matrix](https://powercontext.oceanbase.io/en/docs/integrations/capabilities/) records which hosts are qualified, along with their supported features and availability.
 
 <table>
 <tr>
@@ -301,8 +243,7 @@ qualified, along with their supported features and availability.
 </tr>
 </table>
 
-Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the
-[interface reference](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) to choose an entry point.
+Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](https://powercontext.oceanbase.io/en/docs/develop/interfaces/) to choose an entry point.
 
 ## Build PowerContext
 
@@ -312,12 +253,11 @@ make check
 make test
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
-Coding and memory evaluations, performance benchmarks, and Skill regressions live under
-[`evaluation/`](evaluation/README.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow. Coding and memory evaluations, performance benchmarks, and Skill regressions live under [`evaluation/`](evaluation/README.md).
 
 ## Learn more
 
+- [Desktop preview: exact-Scope inventory and usage](desktop/README.md#current-scope-inventory-and-usage)
 - [Get started](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)
 - [Connect Agents](https://powercontext.oceanbase.io/en/docs/integrations/)
 - [Manage context](https://powercontext.oceanbase.io/en/docs/workflows/)
@@ -334,8 +274,7 @@ Thank you to everyone who contributes to PowerContext. ❤️
   <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext contributors" />
 </a>
 
-[See all contributors](https://github.com/oceanbase/powercontext/graphs/contributors) ·
-[Start contributing](CONTRIBUTING.md)
+[See all contributors](https://github.com/oceanbase/powercontext/graphs/contributors) · [Start contributing](CONTRIBUTING.md)
 
 ## License
 

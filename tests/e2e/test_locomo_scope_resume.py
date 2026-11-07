@@ -55,7 +55,11 @@ def test_locomo_ingestion_registers_and_resumes_its_scope_after_restart(
     )
 
     async def respond(messages, info):
-        prompt = next(part.content for part in messages[-1].parts if part.part_kind == "user-prompt")
+        prompt = next(
+            part.content for message in reversed(messages) for part in message.parts if part.part_kind == "user-prompt"
+        )
+        if prompt == "Reply with one token.":
+            return ModelResponse(parts=[TextPart("OK")])
         value = json.loads(prompt)
         if "evidence" in value and "proposal" not in value:
             output = {
@@ -63,6 +67,7 @@ def test_locomo_ingestion_registers_and_resumes_its_scope_after_restart(
                     {
                         "kind": "fact",
                         "text": "Caroline went to the LGBTQ support group on 7 May 2023.",
+                        "description": "Caroline's support group visit",
                         "evidence_ids": [value["evidence"][0]["evidence_id"]],
                     }
                 ]
@@ -72,7 +77,11 @@ def test_locomo_ingestion_registers_and_resumes_its_scope_after_restart(
             output = {
                 "action": "create",
                 "compared_ids": [item["item_id"] for item in value["related"]],
-                "content": {"kind": proposal["kind"], "text": proposal["text"]},
+                "content": {
+                    "kind": proposal["kind"],
+                    "text": proposal["text"],
+                    "description": "Caroline's support group visit",
+                },
                 "evidence_ids": proposal["evidence_ids"],
                 "reason": "Preserve the supplied session evidence.",
             }

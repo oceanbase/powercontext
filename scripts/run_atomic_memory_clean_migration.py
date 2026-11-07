@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -29,13 +30,25 @@ SUITES = (
 )
 
 
-def run_pytest(arguments: list[str], log: Path) -> int:
+def parse_shard(value: str) -> tuple[int, int]:
+    """Parse a zero-based INDEX/COUNT shard before collection or execution."""
+    try:
+        index, count = map(int, value.split("/"))
+        if count > 0 and 0 <= index < count:
+            return index, count
+    except ValueError:
+        pass
+    message = "shard must be INDEX/COUNT with COUNT > 0 and 0 <= INDEX < COUNT"
+    raise argparse.ArgumentTypeError(message)
+
+
+def run_pytest(arguments: list[str], log: Path, *, timeout_seconds: int = 180) -> int:
     # GNU timeout also terminates native child processes; never retry a failed node.
     command = [
         "timeout",
         "--signal=TERM",
         "--kill-after=10s",
-        "180s",
+        f"{timeout_seconds}s",
         sys.executable,
         "-m",
         "pytest",
@@ -46,7 +59,7 @@ def run_pytest(arguments: list[str], log: Path) -> int:
         return subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, check=False).returncode  # noqa: S603
 
 
-def run_node(node: str, directory: Path) -> bool:
+def run_node(node: str, directory: Path, *, timeout_seconds: int) -> bool:
     directory.mkdir()
     (directory / "node.txt").write_text(node + "\n")
     report = directory / "junit.xml"
@@ -57,7 +70,10 @@ def run_node(node: str, directory: Path) -> bool:
             "-vv",
             "-ra",
             "-o",
-            "faulthandler_timeout=120",
+            # The CPython watchdog walks other threads without the GIL and can
+            # itself segfault (python/cpython#116008). Keep native fault dumps;
+            # GNU timeout above enforces the per-process deadline independently.
+            "faulthandler_timeout=0",
             "--durations=20",
             "-o",
             f"cache_dir={directory / 'pytest-cache'}",
@@ -65,6 +81,7 @@ def run_node(node: str, directory: Path) -> bool:
             node,
         ],
         log,
+        timeout_seconds=timeout_seconds,
     )
     passed = False
     try:
@@ -89,10 +106,33 @@ def main() -> int:
     parser.add_argument("backend", choices=("seekdb", "oceanbase"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--collect-only", action="store_true")
+    parser.add_argument(
+        "--test-timeout",
+        type=int,
+        default=180,
+        help="Positive per-test process deadline in seconds, including setup and cleanup (default: 180)",
+    )
+    parser.add_argument(
+        "--shard", type=parse_shard, default=(0, 1), help="Run zero-based shard INDEX/COUNT (default: 0/1)"
+    )
     parser.add_argument("--tests", nargs="+", default=SUITES, help="Pytest files to run instead of clean migration")
     args = parser.parse_args()
+    if args.test_timeout <= 0:
+        parser.error("--test-timeout must be a positive number of seconds")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    shard_index, shard_count = args.shard
+    passed_nodes: list[str] = []
+    summary = {
+        "backend": args.backend,
+        "shard_index": shard_index,
+        "shard_count": shard_count,
+        "collected_nodes": [],
+        "passed_nodes": passed_nodes,
+        "complete": False,
+    }
+    summary_path = output / "summary.json"
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     collection = output / "collection.log"
     if run_pytest(["--collect-only", "-q", *args.tests, "-k", args.backend], collection):
         print(collection.read_text(errors="replace"), flush=True)
@@ -100,6 +140,8 @@ def main() -> int:
     nodes = [
         line for line in collection.read_text().splitlines() if line.startswith(tuple(f"{s}::" for s in args.tests))
     ]
+    summary["collected_nodes"] = nodes
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if (
         not nodes
         or len(set(nodes)) != len(nodes)
@@ -111,12 +153,21 @@ def main() -> int:
     print(f"Collected {len(nodes)} {args.backend} cases.", flush=True)
     if args.collect_only:
         return 0
+    selected = nodes[shard_index::shard_count]
+    print(f"Shard {shard_index}/{shard_count}: running {len(selected)} cases.", flush=True)
     # SeekDB must exit between cases. OceanBase cases share one tenant, so keep
     # their schema creation and cleanup separate from other test cases.
-    for index, node in enumerate(nodes, 1):
-        if not run_node(node, output / f"{index:03d}"):
-            return 1
-    print(f"All {len(nodes)} {args.backend} cases passed without skips.", flush=True)
+    try:
+        for index, node in enumerate(selected, 1):
+            if not run_node(node, output / f"{index:03d}", timeout_seconds=args.test_timeout):
+                return 1
+            passed_nodes.append(node)
+        summary["complete"] = True
+    finally:
+        # Only record passes after run_node has checked the exit code and JUnit.
+        # A killed process leaves the initial, incomplete report behind.
+        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"All {len(selected)} {args.backend} cases passed without skips.", flush=True)
     return 0
 
 

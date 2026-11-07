@@ -40,7 +40,16 @@ from .test_v14_codec import supplied
 
 def response(parts, evidence_ids=("e0",)):
     return TemplateOutput.model_validate(
-        {"candidates": [{"kind": "fact", "evidence_ids": evidence_ids, "parts": parts}]}
+        {
+            "candidates": [
+                {
+                    "kind": "fact",
+                    "description": "Synthetic protocol candidate",
+                    "evidence_ids": evidence_ids,
+                    "parts": parts,
+                }
+            ]
+        }
     )
 
 

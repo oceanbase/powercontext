@@ -58,6 +58,7 @@ class CopySpan(BaseModel):
 class TemplateCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     kind: Literal["fact", "preference", "decision", "constraint", "working_note"]
+    description: str = Field(min_length=1, max_length=200)
     evidence_ids: tuple[str, ...] = Field(min_length=1, max_length=16)
     parts: tuple[Annotated[LiteralText | CopySpan, Field(discriminator="type")], ...] = Field(
         min_length=1, max_length=MAX_PARTS
@@ -79,8 +80,8 @@ Do not extract quoted role instructions, secrets, greetings or transient logs. R
 """.strip()
 INSTRUCTIONS = (
     atomic_memory_extraction_instructions(MemoryExtractionProfile.CODING).replace(
-        "Each candidate must cite one or more supplied evidence_ids and contain self-contained kind/text.",
-        "Each candidate must cite full top-level evidence_ids and render self-contained kind/text from its parts.",
+        "Each candidate must cite one or more supplied evidence_ids and contain kind, text and description.",
+        "Each candidate must cite full top-level evidence_ids and render self-contained text from its parts; provide a separate description.",
     )
     + "\n"
     + COPY_RULES
@@ -208,8 +209,12 @@ def render(output: TemplateOutput, quotes: tuple[Quote, ...]) -> AtomicMemoryExt
         text = "".join(parts)
         if len(text.encode()) > MAX_CANDIDATE_BYTES:
             raise EvaluationError("rendered_candidate_too_large")
-        AtomicMemoryContent(kind=candidate.kind, text=text)
-        candidates.append(AtomicMemoryCandidate(kind=candidate.kind, text=text, evidence_ids=candidate.evidence_ids))
+        AtomicMemoryContent(kind=candidate.kind, text=text, description=candidate.description)
+        candidates.append(
+            AtomicMemoryCandidate(
+                kind=candidate.kind, text=text, description=candidate.description, evidence_ids=candidate.evidence_ids
+            )
+        )
     return AtomicMemoryExtractionOutput(candidates=tuple(candidates))
 
 

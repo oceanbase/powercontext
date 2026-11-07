@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -32,6 +34,8 @@ from sqlalchemy import Connection, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from powercontext.builtin.persistence import dream_schema
+from powercontext.builtin.persistence.bootstrap import MissingDatabaseError
 from powercontext.builtin.persistence.migrations import connections
 from powercontext.builtin.persistence.migrations.connections import BackendIdentity, MaintenanceConnections
 from powercontext.builtin.persistence.migrations.locking import local_migration_lock
@@ -46,7 +50,7 @@ def test_missing_seekdb_inspection_creates_no_directory_or_database(tmp_path: Pa
     def inspect(connection: Connection | None, identity: BackendIdentity, verify: Callable[[], None]):
         assert connection is None
         assert identity.product == "seekdb"
-        assert identity.database_name == "test"
+        assert identity.database_name == "powercontext"
         verify()
         return identity
 
@@ -109,7 +113,7 @@ def _fake_seekdb(tmp_path: Path, monkeypatch):
 
     @event.listens_for(engine.sync_engine, "connect")
     def configure_database(connection, _record) -> None:
-        connection.create_function("DATABASE", 0, lambda: "test")
+        connection.create_function("DATABASE", 0, lambda: "powercontext")
 
     @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
     def translate_transaction(_connection, _cursor, statement, parameters, _context, _many):
@@ -137,7 +141,7 @@ def _fake_seekdb(tmp_path: Path, monkeypatch):
         await dispose()
         disposed = True
 
-    maintained_engine = SimpleNamespace(connect=engine.connect, dispose=dispose_engine)
+    maintained_engine = SimpleNamespace(connect=engine.connect, dispose=dispose_engine, dialect=engine.dialect)
     monkeypatch.setattr(connections.seekdb_profile, "_load_binding", lambda: SimpleNamespace(aopen=open_instance))
     monkeypatch.setattr(connections.seekdb_profile, "_create_engine", lambda _config, _options: maintained_engine)
     return path, assert_locked
@@ -153,7 +157,7 @@ def test_seekdb_lock_outlives_callback_failure_and_engine_shutdown(tmp_path: Pat
         raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        MaintenanceConnections(SeekDBConfig(path=path)).run(fail, writable=True)
+        MaintenanceConnections(SeekDBConfig(path=path, database="powercontext")).run(fail, writable=True)
     with local_migration_lock(path):
         pass
 
@@ -168,7 +172,7 @@ def test_seekdb_directory_replacement_is_rejected_before_success(tmp_path: Path,
         path.mkdir()
 
     with pytest.raises(MigrationError) as error:
-        MaintenanceConnections(SeekDBConfig(path=path)).run(replace, writable=True)
+        MaintenanceConnections(SeekDBConfig(path=path, database="powercontext")).run(replace, writable=True)
     assert error.value.code == "migration_lock_lost"
     with local_migration_lock(path):
         pass
@@ -408,3 +412,173 @@ def test_real_oceanbase_single_host_coordinator_excludes_other_maintenance_and_s
         return target
 
     assert adapter.run(reacquire, writable=True) == identity
+
+
+def test_seekdb_legacy_database_refusal_is_a_maintenance_error(tmp_path: Path, monkeypatch) -> None:
+    path, _assert_locked = _fake_seekdb(tmp_path, monkeypatch)
+
+    async def refuse(_config, _options) -> None:
+        from powercontext.builtin.persistence.seekdb import LegacySeekDBDatabaseError
+
+        raise LegacySeekDBDatabaseError(path)
+
+    monkeypatch.setattr(connections.seekdb_profile, "_require_explicit_legacy_database", refuse)
+
+    def unexpected(connection: Connection | None, _identity: BackendIdentity, verify: Callable[[], None]):
+        pytest.fail("An expected legacy refusal must not run the maintenance operation")
+
+    with pytest.raises(MigrationError) as error:
+        MaintenanceConnections(SeekDBConfig(path=path)).run(unexpected, writable=True)
+    assert error.value.code == "explicit_database_required"
+    assert "POWERCONTEXT_SERVER_DATABASE_DATABASE" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("error_factory", "code"),
+    [
+        (
+            lambda: connections.DatabaseAccessError("custom-db", "CREATE DATABASE IF NOT EXISTS `custom-db`"),
+            "database_access_denied",
+        ),
+        (
+            lambda: connections.DatabaseCreationError("custom-db", "CREATE DATABASE IF NOT EXISTS `custom-db`"),
+            "database_creation_required",
+        ),
+    ],
+)
+def test_seekdb_provisioning_failure_is_a_maintenance_error(tmp_path: Path, monkeypatch, error_factory, code) -> None:
+    path, _assert_locked = _fake_seekdb(tmp_path, monkeypatch)
+
+    async def refuse(*_args, **_options):
+        raise error_factory()
+
+    monkeypatch.setattr(connections, "ensure_database", refuse)
+
+    def unexpected(connection: Connection | None, _identity: BackendIdentity, verify: Callable[[], None]):
+        pytest.fail("a provisioning failure must not run the maintenance operation")
+
+    with pytest.raises(MigrationError) as error:
+        MaintenanceConnections(SeekDBConfig(path=path, database="custom-db")).run(unexpected, writable=True)
+    assert error.value.code == code
+    assert "administrator" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("error_factory", "code"),
+    [
+        (lambda: MissingDatabaseError("custom-db"), "database_missing"),
+        (
+            lambda: connections.DatabaseAccessError("custom-db", "CREATE DATABASE IF NOT EXISTS `custom-db`"),
+            "database_access_denied",
+        ),
+    ],
+)
+def test_seekdb_read_only_inspection_reports_selected_database_error(
+    tmp_path: Path, monkeypatch, error_factory, code
+) -> None:
+    path, _assert_locked = _fake_seekdb(tmp_path, monkeypatch)
+    path.mkdir()
+    (path / "fixture").touch()
+    monkeypatch.setattr(connections.seekdb_profile, "has_native_storage", lambda _path: True)
+
+    async def refuse(_engine, *, name: str) -> None:
+        assert name == "custom-db"
+        raise error_factory()
+
+    monkeypatch.setattr(connections, "require_existing_database", refuse)
+    operation = Mock()
+    with pytest.raises(MigrationError) as error:
+        MaintenanceConnections(SeekDBConfig(path=path, database="custom-db")).run(operation)
+    assert error.value.code == code
+    assert "custom-db" in str(error.value)
+    operation.assert_not_called()
+
+
+def _statement_snapshot_adapter(target):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{target}")
+
+    class NativeReadConnection:
+        dialect = SimpleNamespace(name="mysql")
+
+        def __init__(self):
+            self.connection = engine.connect()
+
+        async def __aenter__(self):
+            await self.connection.__aenter__()
+            return self
+
+        async def __aexit__(self, *args):
+            return await self.connection.__aexit__(*args)
+
+        async def exec_driver_sql(self, statement):
+            translated = {
+                "START TRANSACTION WITH CONSISTENT SNAPSHOT": "BEGIN",
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ": "SELECT 1",
+                "START TRANSACTION": "SELECT 1",
+            }.get(statement, statement)
+            return await self.connection.exec_driver_sql(translated)
+
+        async def run_sync(self, operation, *args, **kwargs):
+            return await self.connection.run_sync(operation, *args, **kwargs)
+
+        async def invalidate(self):
+            await self.connection.invalidate()
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def database_name(connection, _record):
+        connection.create_function("DATABASE", 0, lambda: "test")
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+    def ordinary_transaction(_connection, _cursor, statement, parameters, _context, _many):
+        # An ordinary READ COMMITTED transaction does not pin a snapshot.
+        return ("SELECT 1" if statement == "START TRANSACTION" else statement), parameters
+
+    return SimpleNamespace(connect=NativeReadConnection, dispose=engine.dispose)
+
+
+@pytest.mark.parametrize("entry", ["profile", "oceanbase", "seekdb"])
+def test_native_read_admission_keeps_one_snapshot(tmp_path, monkeypatch, entry):
+    # A real SQLite WAL file models MySQL READ COMMITTED's statement snapshots.
+    # Only the connection/protocol boundary is substituted; the native E2E
+    # suite proves these semantics on OceanBase and embedded seekDB themselves.
+    target = tmp_path / "read-consistency.db"
+    with sqlite3.connect(target) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("CREATE TABLE snapshot_values (value INTEGER NOT NULL)")
+        writer.execute("INSERT INTO snapshot_values VALUES (1)")
+    adapter = _statement_snapshot_adapter(target)
+
+    def read_twice(connection, *_args, **_kwargs):
+        first = connection.exec_driver_sql("SELECT value FROM snapshot_values").scalar_one()
+        with sqlite3.connect(target) as writer:
+            writer.execute("UPDATE snapshot_values SET value=2")
+        second = connection.exec_driver_sql("SELECT value FROM snapshot_values").scalar_one()
+        assert (first, second) == (1, 1)
+
+    if entry == "profile":
+        monkeypatch.setattr(dream_schema, "check_dream_schema", read_twice)
+        try:
+            asyncio.run(dream_schema.assert_dream_schema_ready(adapter))
+        finally:
+            asyncio.run(adapter.dispose())
+    elif entry == "oceanbase":
+        monkeypatch.setattr(connections, "create_async_engine", lambda *_args, **_kwargs: adapter)
+        monkeypatch.setattr(
+            connections, "_oceanbase_identity", lambda _connection: BackendIdentity("oceanbase", "isolated", "test")
+        )
+        config = OceanBaseConfig.model_validate({"url": "mysql+aoceanbase://test@localhost:2881/test?charset=utf8mb4"})
+        MaintenanceConnections(config).run(read_twice)
+    else:
+        path = tmp_path / "seekdb"
+        path.mkdir()
+        (path / "fixture").touch()
+
+        async def open_instance(_path):
+            return SimpleNamespace(connection_options=lambda: {}, close=lambda: None)
+
+        monkeypatch.setattr(connections.seekdb_profile, "has_native_storage", lambda _path: True)
+        monkeypatch.setattr(connections.seekdb_profile, "_load_binding", lambda: SimpleNamespace(aopen=open_instance))
+        monkeypatch.setattr(connections.seekdb_profile, "_create_engine", lambda *_args: adapter)
+        MaintenanceConnections(SeekDBConfig(path=path, database="test")).run(read_twice)
+    with sqlite3.connect(target) as writer:
+        assert writer.execute("SELECT value FROM snapshot_values").fetchone() == (2,)

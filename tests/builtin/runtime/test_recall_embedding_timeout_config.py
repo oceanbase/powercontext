@@ -26,7 +26,7 @@ from powercontext.server.settings import ServerSettings
 
 
 def test_recall_embedding_timeout_defaults_to_the_hook_sized_budget() -> None:
-    assert RuntimeConfig().recall_embedding_timeout_seconds == 0.25
+    assert RuntimeConfig().recall_embedding_timeout_seconds == 0.5
 
 
 @pytest.mark.parametrize("value", [0, -1, 61, float("nan"), True])

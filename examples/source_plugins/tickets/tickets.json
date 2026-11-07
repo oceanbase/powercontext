@@ -1,0 +1,13 @@
+[
+  {
+    "id": "A",
+    "title": "Example ticket",
+    "body": "First document",
+    "labels": [
+      "example"
+    ],
+    "metadata": {
+      "priority": 1
+    }
+  }
+]

@@ -13,6 +13,6 @@
 # limitations under the License.
 
 interface:
-  display_name: "Project Context"
-  short_description: "Restore and maintain PowerContext project memory."
-  default_prompt: "Use PowerContext to restore project context or prepare a handoff."
+  display_name: "Project context"
+  short_description: "Restore and maintain durable project memory"
+  default_prompt: "Restore relevant PowerContext memory for this task."

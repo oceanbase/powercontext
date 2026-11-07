@@ -40,6 +40,7 @@ from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, McpConfig, MetricsConfig, ServerSettings
+from tests.e2e.server_storage import prepare_server_database
 
 ADMIN = PrincipalRef(type="service", id="admin")
 AGENT = PrincipalRef(type="service", id="coding-agent")
@@ -92,15 +93,17 @@ def _mcp_client(app: FastAPI, token: str) -> Client[StreamableHttpTransport]:
 @asynccontextmanager
 async def _review_server(tmp_path: Path) -> AsyncIterator[tuple[FastAPI, str]]:
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'review.db'}")
+    settings = ServerSettings(
+        database=database,
+        runtime=RuntimeConfig(artifact_processing_families=()),
+        access=AccessControlConfig(mode="enforced"),
+        mcp=McpConfig(enabled=True),
+        metrics=MetricsConfig(enabled=False),
+    )
+    await asyncio.to_thread(prepare_server_database, settings)
     async with open_builtin_access_control(database, bootstrap_administrators=(ADMIN,)) as access:
         app = create_server_app(
-            settings=ServerSettings(
-                database=database,
-                runtime=RuntimeConfig(artifact_processing_families=()),
-                access=AccessControlConfig(mode="enforced"),
-                mcp=McpConfig(enabled=True),
-                metrics=MetricsConfig(enabled=False),
-            ),
+            settings=settings,
             authentication_provider=_Authentication(),
             access_control=access,
             scheduler_path=tmp_path / "scheduler.db",

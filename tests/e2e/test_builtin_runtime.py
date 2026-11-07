@@ -38,6 +38,7 @@ from powercontext.builtin.runtime import (
     CommitConnectorCheckpoint,
     InvalidRuntimeRequestError,
     PrepareContextRequest,
+    PreparedContext,
     SubmitSourceObservation,
     WorkingNoteKind,
     open_builtin_contexts,
@@ -55,7 +56,12 @@ class _ContentCandidatePipeline:
         return GenerationResult(
             output=AtomicMemoryExtractionOutput(
                 candidates=tuple(
-                    AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=(evidence.evidence_id,))
+                    AtomicMemoryCandidate(
+                        kind="fact",
+                        text=text,
+                        evidence_ids=(evidence.evidence_id,),
+                        description="Extracted fixture fact",
+                    )
                     for evidence in request.evidence
                     if (text := memory_source_text(evidence)) is not None
                 )
@@ -102,7 +108,9 @@ def test_atomic_memory_create_many_returns_exact_current_records() -> None:
             memories = runtime.atomic_memory.for_scope(scope.scope_id)
             contents = tuple(AtomicMemoryContent(kind="fact", text=f"Fact {index}") for index in range(3))
             created = await memories.create(contents)
-            assert tuple(record.artifact.content for record in created.records) == contents
+            assert tuple(record.artifact.content for record in created.records) == tuple(
+                content.model_copy(update={"description": content.text}) for content in contents
+            )
             assert tuple(record.artifact.revision for record in created.records) == (1, 1, 1)
             assert all(len(record.artifact.lineage.sources) == 1 for record in created.records)
             for record in created.records:
@@ -140,6 +148,7 @@ def test_builtin_runtime_rejects_unregistered_scope_without_persisting_data(tmp_
             prepared = await runtime.context.for_scope(registered.scope_id).prepare(
                 PrepareContextRequest(query="registered")
             )
+            assert isinstance(prepared, PreparedContext)
 
             assert captured.sequence == 1
             assert prepared.status == "empty"
@@ -200,10 +209,13 @@ def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monk
             prepared = await runtime.context.for_scope(project.scope_id).prepare(
                 PrepareContextRequest(query="atomic SQL provider")
             )
+            assert isinstance(prepared, PreparedContext)
             no_memory = await runtime.context.for_scope(empty.scope_id).prepare(PrepareContextRequest(query="anything"))
+            assert isinstance(no_memory, PreparedContext)
             no_match = await runtime.context.for_scope(project.scope_id).prepare(
                 PrepareContextRequest(query="unrelated-zebra-phrase")
             )
+            assert isinstance(no_match, PreparedContext)
 
             assert captured.sequence == 1
             assert flushed.current_cursor == captured.sequence
@@ -353,24 +365,32 @@ def test_prepare_context_reads_only_direct_context_references() -> None:
             )
             assert runtime.atomic_memory is not None
             shared_memory = await runtime.atomic_memory.for_scope(shared.scope_id).create((
-                AtomicMemoryContent(kind="fact", text="Shared direct context evidence."),
+                AtomicMemoryContent(
+                    kind="fact", text="Shared direct context evidence.", description="Explicit fixture memory"
+                ),
             ))
             await runtime.atomic_memory.for_scope(middle.scope_id).create((
-                AtomicMemoryContent(kind="fact", text="Middle reverse-only evidence."),
+                AtomicMemoryContent(
+                    kind="fact", text="Middle reverse-only evidence.", description="Explicit fixture memory"
+                ),
             ))
 
             direct = await runtime.context.for_scope(middle.scope_id).prepare(
                 PrepareContextRequest(query="direct context evidence")
             )
+            assert isinstance(direct, PreparedContext)
             transitive = await runtime.context.for_scope(reader.scope_id).prepare(
                 PrepareContextRequest(query="direct context evidence")
             )
+            assert isinstance(transitive, PreparedContext)
             reverse = await runtime.context.for_scope(shared.scope_id).prepare(
                 PrepareContextRequest(query="middle reverse-only evidence")
             )
+            assert isinstance(reverse, PreparedContext)
             parent_only = await runtime.context.for_scope(child.scope_id).prepare(
                 PrepareContextRequest(query="direct context evidence")
             )
+            assert isinstance(parent_only, PreparedContext)
 
             assert direct.status == "ready"
             assert direct.content is not None
@@ -394,6 +414,7 @@ def test_prepare_context_reads_only_direct_context_references() -> None:
             now_direct = await runtime.context.for_scope(reader.scope_id).prepare(
                 PrepareContextRequest(query="direct context evidence")
             )
+            assert isinstance(now_direct, PreparedContext)
             assert now_direct.status == "ready"
 
     asyncio.run(scenario())
@@ -417,17 +438,24 @@ def test_prepare_context_keeps_referenced_scope_eligible_when_local_recall_is_fu
             assert runtime.atomic_memory is not None
             await runtime.atomic_memory.for_scope(reader.scope_id).create(
                 tuple(
-                    AtomicMemoryContent(kind="fact", text=f"Candidate saturation local evidence {index}.")
+                    AtomicMemoryContent(
+                        kind="fact",
+                        text=f"Candidate saturation local evidence {index}.",
+                        description="Explicit fixture memory",
+                    )
                     for index in range(16)
                 )
             )
             shared_memory = await runtime.atomic_memory.for_scope(shared.scope_id).create((
-                AtomicMemoryContent(kind="fact", text="Candidate saturation shared evidence."),
+                AtomicMemoryContent(
+                    kind="fact", text="Candidate saturation shared evidence.", description="Explicit fixture memory"
+                ),
             ))
 
             prepared = await runtime.context.for_scope(reader.scope_id).prepare(
                 PrepareContextRequest(query="candidate saturation evidence")
             )
+            assert isinstance(prepared, PreparedContext)
 
             assert prepared.status == "ready"
             assert prepared.content is not None
@@ -469,13 +497,14 @@ def test_prepare_build_reports_no_recall_effort_while_the_gate_is_disabled() -> 
             )
             assert runtime.atomic_memory is not None
             await runtime.atomic_memory.for_scope(scope.scope_id).create((
-                AtomicMemoryContent(kind="fact", text="Disabled gate evidence."),
+                AtomicMemoryContent(kind="fact", text="Disabled gate evidence.", description="Explicit fixture memory"),
             ))
             request = PrepareContextRequest(query="disabled gate evidence")
             application = runtime.context.for_scope(scope.scope_id)
             async with runtime._scope_operation(scope.scope_id) as descriptor:
                 build, effort = await application._prepare_build(request, descriptor)
             prepared = await runtime.context.for_scope(scope.scope_id).prepare(request)
+            assert isinstance(prepared, PreparedContext)
 
             assert effort is None
             assert build.context.status == "ready"
@@ -494,7 +523,9 @@ def test_same_scope_read_only_searches_do_not_serialize_reranking() -> None:
             )
             assert runtime.atomic_memory is not None
             memory = runtime.atomic_memory.for_scope(scope.scope_id)
-            await memory.create((AtomicMemoryContent(kind="fact", text="Parallel search fact."),))
+            await memory.create((
+                AtomicMemoryContent(kind="fact", text="Parallel search fact.", description="Explicit fixture memory"),
+            ))
 
             first = asyncio.create_task(memory.search("parallel", mode="text", limit=1))
             second = asyncio.create_task(memory.search("parallel", mode="text", limit=1))
@@ -511,7 +542,15 @@ def test_atomic_get_inside_in_memory_write_keeps_the_outer_rollback() -> None:
             with pytest.raises(RuntimeError, match="abort outer write"):
                 async with contexts.database.transaction():
                     created = await contexts.records.create_artifact(
-                        "project", "atomic-memory", ArtifactWrite(content={"kind": "fact", "text": "Uncommitted fact"})
+                        "project",
+                        "atomic-memory",
+                        ArtifactWrite(
+                            content={
+                                "kind": "fact",
+                                "text": "Uncommitted fact",
+                                "description": "Explicit fixture memory",
+                            }
+                        ),
                     )
                     loaded = await contexts.atomic_memory.for_scope("project").get(created.artifact_id)
                     assert loaded.artifact.content.text == "Uncommitted fact"

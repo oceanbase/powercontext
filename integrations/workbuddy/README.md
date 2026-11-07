@@ -74,6 +74,7 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
    "$PLUGIN"/hooks/powercontext_client_config.py \
    "$PLUGIN"/hooks/prepared_context.py \
+   "$PLUGIN"/hooks/prompt_privacy.py \
    "$WORKBUDDY_HOOKS_DIR"/
 cp "$PLUGIN/scripts/workspace_scope.py" \
    "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
@@ -87,6 +88,7 @@ The resulting layout is:
   workbuddy_settings.py
   powercontext_client_config.py
   prepared_context.py
+  prompt_privacy.py
   powercontext_scope_binding.py
 ```
 
@@ -235,9 +237,11 @@ HTTPS certificate verification remains enabled.
   blocks normal WorkBuddy work.
 - For an empty result, authentication failure, version mismatch, unavailable
   Server, or invalid response, the hook writes one diagnostic JSON line to
-  stderr. Diagnostics carry status codes, byte and character counts, and which
-  query source produced them—never the query, scope, content, citation, response
-  body, or authorization value.
+  stderr. Diagnostics carry status codes, the Server's error code, byte and
+  character counts, and which query source produced them—never the query, scope,
+  content, citation, response body, or authorization value. Only an HTTP 404
+  without an error code is a version mismatch; a coded 404 such as
+  `scope_not_found` is reported as an invalid response.
 
 ## Authentication
 

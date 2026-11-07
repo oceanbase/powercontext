@@ -304,7 +304,7 @@ class Adapter:
             output = render(result.output, value, request_hash=input_hash) if protocol == "v9" else result.output
             supplied = {e.evidence_id for e in (value.value.evidence if protocol == "v9" else value.evidence)}
             for candidate in output.candidates:
-                AtomicMemoryContent(kind=candidate.kind, text=candidate.text)
+                AtomicMemoryContent(kind=candidate.kind, text=candidate.text, description=candidate.description)
                 if not set(candidate.evidence_ids) <= supplied:
                     raise InvalidInferenceOutputError(
                         "atomic-memory-extract", "candidate cites unavailable Source evidence"

@@ -1,17 +1,35 @@
 ---
-status: community
 title: DeepSeek Harness
-description: Install the PowerContext DeepSeek Harness plugin and control its local behavior.
+description: Install the PowerContext DeepSeek Harness plugin, configure scoped recall and prompt capture, and verify its native tools.
+status: community
 ---
 
 # DeepSeek Harness
 
 `community`
 
+## Install a published npm package
+
+For a version available on npm, open **Plugins → Add plugin** in DSH Web or Desktop, enter `powercontext-dsh`,
+and click **Install**. To pin a version, enter `powercontext-dsh@<version>`. Select the official npm registry if
+the Mainland China mirror has not synchronized the version. The npm archive includes built code and its bundle
+patch; no checkout or TypeScript build is needed.
+
+The plugin connects to a separately running PowerContext Server. Install a matching Server and configure its
+connection using the instructions below; npm installation does not start or configure the Server. The default
+endpoint is `http://127.0.0.1:8000`, and saved `powercontext setup dsh` connection settings are recognized.
+After installation, restart DSH if requested and run `/pc doctor` in a session. Check both Server readiness and
+native MCP discovery before validating capture and recall.
+
+The npm version follows the PowerContext Release: `1.6.0rc1` maps to `1.6.0-rc.1`, with equivalent `alpha` and
+`beta` suffixes. Stable releases use `latest`; prereleases use `next`. Verify the selected npm version exists
+before installation. Local `.tgz` installation verifies the archive path, not npm or mirror availability.
+
 ## Install matching Server and plugin versions
 
-Install DeepSeek Harness Web or Desktop. The real-host acceptance suite pins DSH
-0.1.2-rc.1. Choose one PowerContext installation path and keep the Server and plugin together.
+Install DeepSeek Harness Web or Desktop. The automated real-host suite pins DSH `0.1.2-rc.1`;
+manual macOS Desktop acceptance also covers `0.2.1-rc.5`, including native MCP writes and fresh-session recall.
+Choose one PowerContext installation path and keep the Server and plugin together.
 
 For this guided-setup build:
 
@@ -33,8 +51,11 @@ powercontext setup dsh --source ./powercontext-dsh-dev
 
 To update, run `git -C powercontext-dsh-dev pull --ff-only`, record the new commit, and repeat both installation
 commands. A local source must contain the checked-in built `lib/index.js`.
-`setup dsh --source oceanbase/powercontext --ref master` reuses a valid cached checkout without fetching:
-repeating that command does not update a moving branch. A broken checkout is replaced.
+`setup dsh --source oceanbase/powercontext --ref master` creates a new checkout and clones the requested ref on each
+installation. Repeating it resolves the current moving branch again; it does not reuse an earlier checkout. Update
+the Server from the same ref as well, and restart DSH after reinstalling the plugin. With `--json`, read
+`hosts.dsh.result.plugin_path` and run `git -C <plugin_path> rev-parse HEAD` to record the plugin commit;
+record the Server checkout commit separately.
 
 `powercontext setup dsh` asks for `web` or `desktop` in an interactive terminal. Without a terminal, or with
 `--json`, an omitted profile defaults to `web`. Explicit selection never prompts:
@@ -84,6 +105,16 @@ spaces. These rules apply to configuration inspection, stored credentials, and p
 
 Setup does not start the Server. Restart DSH after installation.
 The model-facing PowerContext surface is registered through DSH's native `@deepseek-ai/dsh-mcp-client`.
+
+Recall queries exclude current DSH `runtime-context` messages (including cleared-context markers) and legacy
+`@deepseek-ai/dsh-system-prompt` plugin snapshots, so host catalogs cannot displace the user request.
+
+With `powercontext setup dsh --json`, `hosts.dsh.setup: "complete"` records completed installation/configuration.
+Registration is reported separately at `hosts.dsh.checks.plugin.checks.registration: "present"`. The same report
+includes Server diagnostics, so its top-level `ok` can be `false` and its exit code 1 even after installation
+completed. Inspect the failed entries under `hosts.dsh.checks`, start or correct the selected Server, and rerun
+`powercontext doctor dsh --json`. This command includes separate Server probes; registration itself does not prove
+running-session connectivity. Restart DSH and use `/pc doctor` to verify the active session.
 
 ## Start the Server and the host
 
@@ -335,8 +366,9 @@ the existing per-request behavior.
 A non-empty PreparedContext is appended once as a plugin message with `source.form=snapshot` and a `PowerContext`
 section. In DSH 0.1.2-rc.1 Web, expand a completed turn's process details, then its **Context injection — powercontext-dsh**
 row. Other host versions may expose this in a context browser. The section
-contains the same text sent to the model and saved in the session log, including the untrusted-history label and
-request-specific replacement wording. Reopening session history retains this metadata.
+contains the same text sent to the model and saved in the session log: the plugin's request-specific replacement
+wording, then the Server's prepared context, where the Server's trust policy precedes the recalled items. Reopening
+session history retains this metadata.
 
 Empty responses and automatic failures do not create a snapshot or a model-visible error notice. Presentation uses
 the host's existing snapshot support; it does not add a separate PowerContext panel or claim receipt/source details

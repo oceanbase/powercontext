@@ -156,17 +156,17 @@ def score_generation(
         )
         matched = [claim for claim in case.required if candidate.text in (claim.text, *claim.accepted_candidates)]
         forbidden = [claim for claim in case.forbidden if candidate.text in (claim.text, *claim.accepted_candidates)]
+        supported_matches = [claim for claim in matched if supported_claim(claim, items, full)]
         if forbidden:
             unsupported += 1
             false_attribution += int(any(claim.current_user for claim in forbidden))
-        elif matched:
-            supported_matches = [claim for claim in matched if supported_claim(claim, items, full)]
-            if supported_matches and all(
-                literal in candidate.text for claim in supported_matches for literal in claim.exact_literals
-            ):
-                supported.update(digest(claim.claim_id) for claim in supported_matches)
-            else:
-                unsupported += 1
+        elif matched and (
+            not supported_matches
+            or any(literal not in candidate.text for claim in supported_matches for literal in claim.exact_literals)
+        ):
+            unsupported += 1
+        elif matched and candidate.description == candidate.text:
+            supported.update(digest(claim.claim_id) for claim in supported_matches)
         elif audit and candidate_hash in audit:
             review = audit[candidate_hash]
             if set(review) != {"verdict", "claim_hashes"}:

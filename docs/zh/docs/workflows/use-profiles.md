@@ -1,6 +1,6 @@
 ---
 title: 生成和审核 Scope 画像
-description: 通过普通 Scope、主体双写与现有 Artifact/Candidate API 管理画像。
+description: 根据 Scope 内的 Source 证据生成画像，审核候选变更、编辑当前内容并恢复历史版本。
 ---
 
 # 生成和审核 Scope 画像

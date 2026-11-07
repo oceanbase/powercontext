@@ -6,12 +6,26 @@ See [中文说明](README.zh.md), [security boundary](SECURITY.md), and [validat
 
 ## Observation
 
-The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Their data views are explicitly unavailable until integrated; opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
+The sidebar provides Overview, Connections, Memories, and Observation, with Settings & diagnostics at the bottom. Overview is the initial page. Observation contains Runtime state, Current-Scope inventory & usage, and This session tabs. Inventory & usage hosts the qualified Statistics view; This session reads native session observations. Opening the page or switching tabs does not run connection checks or local diagnostics. English/Chinese and existing theme settings apply to Observation.
 
+**Observation → Runtime state** shows the selected Server's liveness and available capabilities, with separate UTC
+snapshots and process-level Memory extraction history. Refresh does not probe models. **Probe readiness** is a separate,
+explicit action for a qualified connection with current observation access; it may contact configured dependencies.
+Local Ops inspection and registered CLI diagnostics describe this computer and work independently of the remote Server.
+Installation, recovery and service changes belong in **Local Server settings**. Local states are shown only when the
+native service manager or helper reports them; an unreachable HTTP endpoint does not establish that a service is stopped
+or starting.
+
+The native host collects a bounded, in-memory window of HTTP requests and Memory/Scope user operations independently of page navigation. Trusted typed IPC provides an allowlisted summary, reset and safe JSON preview. The window retains at most 512 terminal records; it preserves cancellation and unknown-write outcomes and contains no content or target identities. See the [session observation contract](../docs/en/development/desktop-session-observations.md) for measurement units, coverage, reset and failure isolation. This session shows separate request/action counts, outcomes and millisecond latency, UTC snapshot/retention coverage, manual refresh and confirmed reset. **Preview safe diagnostic summary** opens the exact native text; copying is a separate explicit action with feedback and selectable text for manual recovery. Leaving the view or changing context closes its preview and discards late UI responses.
+
+
+Local setup and operations have a separate bounded diagnostic table with safe phases, unchanged Ops outcomes,
+error codes and supported opaque operation references. These snapshots are included in explicit safe preview/copy,
+with independent retention/loss coverage, and contribute no HTTP or Memory/Scope action latency.
 
 ## Shared feedback and current context
 
-Every page uses the same loading, empty, unavailable and error presentation. Loading local state is distinct from being disconnected; a local-state failure offers **Reload local state**, without probing Server readiness. Empty search results mean no matches for that query, not an empty Scope inventory. Unimplemented Observation views remain unavailable.
+Every page uses the same loading, empty, unavailable and error presentation. Loading local state is distinct from being disconnected; a local-state failure offers **Reload local state**, without probing Server readiness. Empty search results mean no matches for that query, not an empty Scope inventory.
 
 Errors explain the affected operation and recovery. Read failures offer an explicit retry; exact reads retain the original Artifact revision. An expired Scope cursor restarts from the first page. Credential, permission and compatibility failures explain the required configuration or authorization change. Save failures keep the draft; unknown writes retain their original target and require the existing confirmation before another submission. Writes are never replayed automatically. Local diagnostic failures offer a retry of the same selected local check and do not indicate remote unavailability.
 
@@ -26,6 +40,14 @@ While a connection operation is pending, a global message remains visible across
 Selecting a saved profile in the global connection menu opens that exact configuration in the editor, including when Connections is already open. Leaving an unsaved editor or Memory draft requires the existing discard confirmation; cancelling preserves the current editor and text. Selecting a configuration never checks or activates it. Explicitly reselecting the same profile after confirming discard reloads its saved values.
 
 Scope selection also keeps an application-wide pending state. Escape, the close button and the backdrop can close the dialog, but do not cancel an accepted native selection. Memory editing and further Scope switching stay paused until it finishes. Closing a dialog whose trigger is disabled returns focus to the page heading. A late result still updates authoritative native state, while it cannot clear a new connection editor's draft guard. Failures after the dialog has closed appear in the shared error feedback.
+
+## Existing Server connection journey
+
+Saving, checking and activating a profile are separate actions with distinct progress and completion feedback. Saving does not activate a connection; a completed check asks users to review its individual facts. A compatible activation with a verified identity opens the shared exact-Scope picker. Lookup and selection retain their individual operation restrictions. Select the intended Server-returned Scope, using its complete ID to distinguish duplicate titles; the ID also supplies the button's accessible description. The activation guide then opens Memory and focuses its page heading. Closing the guide restores the activation button without choosing a Scope.
+
+Opening the global Scope picker elsewhere keeps the current page after selection and restores focus to its selector. Cancelling draft confirmation preserves the current input. Confirming a successful Scope switch discards the old Memory or connection-editor draft. Native states rejected as stale cannot open the activation guide or finish Scope navigation. Empty results offer another title, an access request or another connection; loading, permission, authentication and compatibility failures remain separate.
+
+Reopening Desktop loads saved profiles without activating a private session. The local setup entry continues to point to Local Server guidance; approved installer results and default-Scope handoff remain owned with #2117.
 
 ## Local Server preparation
 
@@ -81,7 +103,7 @@ The unsigned installer is for internal verification. If WebView2 is absent, its 
 ## Connect an existing Server
 
 1. Open Connections and add a named profile. HTTP is restricted to literal loopback hosts; other addresses require HTTPS. A reverse-proxy path prefix is preserved.
-2. Explicitly choose unauthenticated loopback access or Bearer authentication. Bearer storage is either Windows Credential Manager or this session only. Trust/address changes require credential reconfiguration. An optional CA augments system trust without disabling certificate checks.
+2. Explicitly choose unauthenticated loopback access or Bearer authentication. Bearer storage uses Windows Credential Manager, macOS Keychain, or Linux Secret Service (GNOME Keyring/KWallet); session-only storage is also available only when explicitly selected. If the native credential store is unavailable or locked, saving fails without writing the secret to profile JSON; choose session-only storage or cancel. Trust/address changes require credential reconfiguration. An optional CA augments system trust without disabling certificate checks.
 3. Select a qualified compatibility profile after comparing its tested build with your deployment. The selection does not prove the remote binary identity. See [validation guide](VALIDATION.md) for the exact fixture and supported combinations.
 4. Save, then explicitly use the connection. Merely selecting a saved profile does not activate it. Review liveness, readiness, identity and capabilities separately; none implies resource authorization.
 5. Open the Scope dropdown and find an authorized Scope by title (50 per page). Selecting a result updates the active Scope and closes the dialog. Selection never creates a Scope or changes Agent bindings. Editing a query cancels its old read; connection and identity changes invalidate old results.
@@ -96,9 +118,59 @@ Search uses FTS in the selected Scope and returns at most 10 matches. This is no
 
 A successful save that returns no memory record is reported as an operation success without inventing a reference. A timeout or interrupted dispatched write is **unknown**, not a safe invitation to retry: inspect the original Server/Scope before deciding whether to submit again. Identical text alone cannot identify that operation. Desktop does not automatically replay writes or keep an offline queue. Switching context hides old results while retaining minimal original-operation metadata for this session. See [validation guide](VALIDATION.md) for tested behavior and qualification gaps.
 
+## Explicit readiness and connection identity
+
+Saving, checking, activating, refreshing and ordinary Scope/Memory operations do not probe model or dependency readiness.
+After checking a saved profile, **Probe readiness** explains and performs the optional diagnostic explicitly. Its timestamp
+is separate from the connection check. A failed probe does not grant or revoke business permissions, activate a profile,
+change the Scope, or discard input. While a probe is pending, independently authorized Scope and Memory operations remain
+available, including after leaving Connections. Its diagnostic error stays associated with the probed profile revision.
+Opening a page and reopening Desktop do not run this action.
+
+The public `get_connection_identity` operation reports the actual deployment, request Principal, authentication state
+and Access mode without readiness probes or `server.observe`. Anonymous loopback profiles require matching qualification
+for that operation and explicit disabled authentication/Access with no Principal. A generic 503, selected no-token profile,
+or previous readiness result cannot establish anonymous identity. Older Servers without this qualified operation require
+an upgrade for anonymous use; independently qualified authenticated legacy profiles retain Principal revalidation.
+Identity/authentication failures do not fall back. Changes to deployment, Principal, authentication or Access mode invalidate
+the active context. Denied capability observations remain independent of qualified, individually authorized Memory operations.
+
+## Current-Scope inventory and usage
+
+In **Observation → Current-Scope inventory & usage**, explicitly activate a qualified connection, select an exact Scope,
+choose **Today**, **Last 7 days** or **Last 30 days**, then press **Load statistics**.
+The view displays the Server timestamp, Scope coverage, inventory snapshot,
+recorded UTC model usage and recall token estimates. Missing token counts remain
+**Unknown**; estimates are not billing savings or quality scores. Every chart has
+an equivalent table and keyboard-scrollable region. A statistics error does not
+disable independent Memory actions. See the [developer contract](../docs/en/development/desktop-statistics.md)
+and [qualification evidence](VALIDATION.md#current-scope-statistics-qualification).
+
+For Server source `7d89a97a`, select `sqlite-identity-stats-7d89a97a-v1` to qualify identity,
+Memory and statistics together against the same pinned wheel. See the
+[combined evidence](VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification).
+
+## Native discovery results
+
+Connection checks call the public `get_server_info` operation through the existing native transport. `CheckReport.discovery` reports `supported`, `missing`, `denied`, `unavailable`, `invalid`, or `incompatible`, the observed Server metadata, safe errors, and per-operation `qualified`/`unsupported`/`unverified` results with reasons. Compatible discovery minor versions accept additional optional fields in the response and its nested version/feature objects.
+
+Qualification requires an explicitly selected native record matching the bundled contract, or separate authenticated-client evidence for that exact Desktop contract. The latter requires Bearer mode and a valid Principal and preserves the record's original operation set. A discovery 404 permits that record's independently qualified legacy operations; 401, 403, 503, malformed responses and incompatible products/required majors do not select a legacy fallback. Missing feature groups, unsupported feature versions and absent operation IDs restrict the affected operations. Exact Artifact reads require their own qualification; the `memory.explicit` group does not establish that support. Discovery metadata never grants authorization or attests a remote binary.
+
+Current profiles require `get_connection_identity`; a missing advertised identity operation cannot downgrade them to legacy Principal checks. A qualified observation-only 403 preserves independently authorized operations once that identity succeeds. Scope listing/default lookup/selection, Memory operations and statistics revalidate deployment, Principal, authentication and Access mode through that identity endpoint before dispatch and before returning private results. Changed or failed identity clears the active context, invalidating Scope selections, cursors and pending reads. Legacy profiles retain their discovery and Principal fences. Reconnect explicitly to establish a new context. Package version changes alone do not change deployment identity.
+
+Submitted writes retain their original endpoint, `serverId` (null for qualified legacy Servers), Principal, Scope and generation. If the post-write identity check fails, a successful HTTP reply is treated as an unknown outcome: private bodies/references are withheld and the write is never automatically replayed. The original deployment is shown in write recovery feedback. The submitted input survives that disconnection as a read-only recovery draft in the current window, with explicit copy/discard actions; it is never inserted into a new target's form or persisted. Closing the window loses it. Confirmed navigation discards it, and a late response cannot restore an explicitly discarded draft. A late write cannot invalidate a newly activated context. Qualified legacy sessions require discovery to remain 404; discovery appearing requires explicit rechecking rather than silently acquiring a deployment identity. A failed connection recheck removes the previous cached report instead of leaving old verification visible.
+
+Desktop retains each submitted input in application memory from the start of the native call, independently of the form. An automatic disconnection during a concurrent read therefore leaves a read-only copy even while the write is pending. Recovery distinguishes pending, unknown, rejected and attempts without a receipt. A retry does not discard earlier uncertain input, including when that retry fails before its mutation reaches the Server. Each attempt has its own local identity: only a successful receipt clears its input, rejected saves keep their text for explicit recovery, and explicit discard removes only the selected copy (or all copies when confirming navigation). Late receipts cannot restore discarded inputs or clear another attempt. Inputs are limited to 8192 UTF-8 bytes per attempt; copies remain for pending, uncertain or rejected attempts until success, explicit discard or window close. They contain user input and observed original-target metadata, not returned private Server bodies, and are never replayed or persisted.
+
+These checks observe identity around requests; the public mutation contract has no conditional Server-identity precondition. They cannot atomically prevent an endpoint from changing between identity verification and dispatch, or detect a replacement that changes back between observations. Legacy Servers have no durable deployment fence. Discovery does not attest binary identity. Connection checks and ordinary identity revalidation do not probe readiness; the separate diagnostic action is explicit.
+
+Connections displays discovery separately from the compatibility verdict, including qualified observation denial and the reason for an incompatible product or major version. Other failed discovery checks keep business operations unavailable without removing the selected qualification record. Correct the connection or service and explicitly recheck. Only a discovery 404 permits the qualified legacy policy described above. A pending readiness probe does not block checking or activating another connection; switching context invalidates the old diagnostic result without promising to stop work already running on the Server.
+
+Save, search, exact revision reads, Scope lookup and Scope selection each require their own entry in `supportedOperations`; the aggregate compatibility verdict does not enable other operations. An unavailable action explains missing features, unsupported feature versions, missing operation support or missing independent qualification. Independently supported actions remain usable, and Overview shows availability for each Memory feature. Native request-time authorization and compatibility checks remain authoritative.
+
 ## Contracts and resources
 
-`pnpm --dir desktop generate` derives TypeScript schemas, the reviewed ten-operation manifest, and the Rust wire models from `openapi/powercontext.yaml`; `generate:check` detects drift, including a normalized contract SHA-256. The OpenAPI Generator CLI version is pinned in `desktop/openapitools.json`, and the limited Rust customization lives in `desktop/scripts/openapi-generator/rust/`. Generated `src-tauri/src/transport/wire.rs` must not be edited by hand: after changing the contract or generator template, run `pnpm --dir desktop generate`, then run `pnpm --dir desktop generate:check` in CI. Typed Rust adapters consume that generated manifest and generated wire schemas. No public route is independently handwritten in the application. The manifest is not an IPC permission grant.
+`pnpm --dir desktop generate` derives TypeScript schemas, the reviewed thirteen-operation manifest, and the Rust wire models from `openapi/powercontext.yaml`; `generate:check` detects drift, including a normalized contract SHA-256. The OpenAPI Generator CLI version is pinned in `desktop/openapitools.json`, and the limited Rust customization lives in `desktop/scripts/openapi-generator/rust/`. Generated `src-tauri/src/transport/wire.rs` must not be edited by hand: after changing the contract or generator template, run `pnpm --dir desktop generate`, then run `pnpm --dir desktop generate:check` in CI. Typed Rust adapters consume that generated manifest and generated wire schemas. No public route is independently handwritten in the application. The manifest is not an IPC permission grant.
 
 `cargo run --locked --manifest-path desktop/src-tauri/Cargo.toml --example export_ipc` derives the TypeScript IPC request/receipt/error types from Rust. `ipc:check` verifies them. IPC exposes typed connection, Scope, memory and diagnostic operations to the main window only; no generic fetch, shell, file, database or secret-read command is granted.
 
@@ -110,7 +182,7 @@ The canonical brand source is `website/assets/powercontext-color.png`, which is 
 cargo run --locked --manifest-path desktop/src-tauri/Cargo.toml --example credential_probe
 ```
 
-This explicit probe creates a uniquely named synthetic credential in the preview namespace, loads it in another process and deletes it. It never reads another application's credential or prints a secret. Normal tests simulate unavailable storage and require an explicit session-only choice. Do not treat the probe as end-to-end S2 credential-form verification.
+This explicit probe creates a uniquely named synthetic credential in the preview namespace, loads it in another process and deletes it. It never reads another application's credential or prints a secret. Normal tests simulate unavailable storage and require an explicit session-only choice; a native-store failure never downgrades a persistent request or writes the secret to profile JSON. Do not treat the probe as end-to-end S2 credential-form verification.
 
 The Windows CI workflow runs on PRs and the preview branch, verifies native vault persistence, builds an unsigned internal installer, and tests Chinese-path installation/uninstallation on its disposable runner. It uploads the installer and a JSON smoke report. CI and mocked IPC tests do not prove clean-machine installation, notification activation, independent service login or Agent capture/recall.
 
@@ -128,9 +200,11 @@ Register an explicitly trusted local installation in `%APPDATA%/com.powercontext
 }
 ```
 
+On Linux, put the same file at `$XDG_DATA_HOME/com.powercontext.desktop.preview/diagnostic-cli.json`; when `XDG_DATA_HOME` is unset, this resolves to `~/.local/share/com.powercontext.desktop.preview/diagnostic-cli.json`. The registered executable must be the absolute path to the `powercontext` file (not `powercontext.exe`), and the `sha256` value must be the verified 64-character digest. The `source` must be `explicit_local_installation`.
+
 The native adapter verifies the absolute executable path and pinned digest before running either `service status --json` or `doctor codex claude-code dsh openclaw opencode pi hermes workbuddy kimi-code zcode --json`. Registration does not require a version; legacy `version` fields are ignored. Compatibility is determined by the diagnostic response matching the adapter's supported output schema. The observed CLI version is collected for display after a valid diagnostic response; an unavailable version is shown as unknown and does not reject the response. This is a local installation pin, not publisher-signature verification; the Python environment and dependencies must also be trusted. Update the registered digest if the executable changes. No PATH-first CLI selection or renderer-provided commands are accepted.
 
-The optional version query has a 15-second deadline, service status 20 seconds, and integration diagnostics 60 seconds. Each invocation limits combined stdout/stderr to 256 KiB. Helpers run hidden in an owned Windows Job; completion, timeout and cancellation clean up their descendants. Only allowlisted status fields reach the UI. Valid unhealthy JSON remains useful even with exit code 1. Isolated real-CLI checks pass; installed-application qualification remains open in [validation guide](VALIDATION.md).
+The optional version query has a 15-second deadline, service status 20 seconds, and integration diagnostics 60 seconds. Each invocation limits combined stdout/stderr to 256 KiB. Windows helpers run hidden in an owned Windows Job; Linux and macOS helpers run in a private POSIX process group. Completion, timeout and cancellation clean up the helper and its descendants without affecting unrelated processes. Only allowlisted status fields reach the UI. Valid unhealthy JSON remains useful even with exit code 1. Isolated real-CLI checks pass; installed-application qualification remains open in [validation guide](VALIDATION.md).
 
 [Validation guide](VALIDATION.md) describes reproducible checks and outstanding platform and product gates.
 
@@ -148,9 +222,9 @@ The CI-only lifecycle scenario forcibly ends its own installed Desktop process a
 
 Installed boundary checks exercise an 8192-byte Unicode note, reject over-budget input, display zero and capped-ten search results, and verify cancel/confirm behavior when disconnecting with an unsaved draft. Each result requires its matching remote report.
 
-After upgrading from an earlier preview, open Connections and select your saved connection. Profiles matching the bundled API contract appear under “Available for this Desktop build”; compare their tested Server builds with your deployment before selecting one, saving, checking and explicitly using the connection again. New connections start with no compatibility selection.
+After upgrading from an earlier preview, open Connections and select your saved connection. Profiles matching the bundled API contract, or separately qualified for this authenticated client, appear under “Available for this Desktop build”; compare their tested Server builds with your deployment before selecting one, saving, checking and explicitly using the connection again. New connections start with no compatibility selection.
 
-Historical profiles appear as disabled records. A saved incompatible or unavailable selection remains visible with an explanation until explicitly replaced; it is never silently upgraded. For the qualified current Server sources, explicitly choose `sqlite-atomic-98275dbb-v1` and check the connection before selecting a Scope; that record's contract digest matches this build's bundled contract, while `sqlite-atomic-1da99747-v1`, `sqlite-atomic-d9a78567-v1`, `sqlite-atomic-caf2a35a-v1`, `sqlite-atomic-683e2db0-v1` and `sqlite-atomic-cab054db-v1` qualify their corresponding Server source deployments and do not match it. The recorded Server source and wheel identities must match the deployment you intend to use. The independently qualified `ci-fixtures` build is for disposable acceptance tests. Historical qualification evidence and remaining requirements are documented in the [validation guide](VALIDATION.md).
+Historical profiles remain disabled unless separate current-client evidence qualifies their recorded operations for the selected authentication mode. `sqlite-atomic-112db11e-v1` and `sqlite-atomic-3cefa45a-v1` remain available in Bearer mode under that evidence, preserving saved selections and Principal revalidation; anonymous use still requires an upgrade. A saved incompatible selection remains visible until explicitly replaced; it is never silently upgraded. For Server source `7d89a97a`, choose `sqlite-identity-stats-7d89a97a-v1`, whose recorded source, wheel and contract must match the actual deployment, then check and explicitly activate the connection. Other source-specific records retain their identities and evidence. The separate `ci-fixtures` qualification is only for disposable tests. See the [validation guide](VALIDATION.md#server-7d89a97a-identity-runtime-and-statistics-qualification) for the qualified operation set and platform limits.
 
 ## Build on macOS
 

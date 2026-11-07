@@ -32,7 +32,7 @@ def automatic_review(case, value, supports, output):
         matches = [a for a in atoms if candidate.text == a["text"] and supported_atom(a, local)]
         # Only exact complete ground-truth assertions are automatically established.
         # Paraphrases/substrings and all extra assertions require a bound review.
-        if len(matches) == 1:
+        if len(matches) == 1 and candidate.description == candidate.text:
             judgements[candidate_key(candidate, index)] = {
                 "supported": True,
                 "atomic": True,

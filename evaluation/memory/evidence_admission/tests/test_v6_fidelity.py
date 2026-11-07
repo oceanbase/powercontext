@@ -63,6 +63,7 @@ def template(quote, start=0, end=None):
             "candidates": [
                 {
                     "kind": "fact",
+                    "description": "Synthetic protocol candidate",
                     "evidence_ids": [quote.evidence_id],
                     "parts": [
                         {"type": "text", "text": "Exact value: "},

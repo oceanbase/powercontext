@@ -59,6 +59,7 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureWorkingNoteRequest,
+    CheckContextRequest,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CodeQueryRequest,
@@ -66,7 +67,9 @@ from powercontext.http import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionIdentity,
     ConnectorCheckpointState,
+    ContextCheckResult,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
@@ -137,6 +140,7 @@ from powercontext.http import (
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
+    PreparedContextWithReuse,
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffHintRequest,
@@ -229,6 +233,7 @@ from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     CAPTURE_WORKING_NOTE,
     CHECK_ACCESS,
+    CHECK_CONTEXT,
     CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
@@ -258,6 +263,7 @@ from powercontext.http._generated.operations import (
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
+    GET_CONNECTION_IDENTITY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -590,6 +596,10 @@ class PowerContextClient:
         """Capture explicit session-local work state as Source evidence."""
 
         return await self._request(CAPTURE_WORKING_NOTE, request)
+
+    async def get_connection_identity(self) -> ConnectionIdentity:
+        """Observe deployment and request identity without readiness probes."""
+        return await self._request(GET_CONNECTION_IDENTITY)
 
     async def get_access_principal(self) -> AccessMeResponse:
         """Return the authenticated Principal and enforceable Access capabilities."""
@@ -995,6 +1005,12 @@ class PowerContextClient:
             path_parameters={"scope_id": scope_id, "artifact_id": artifact_id},
         )
 
+    async def get_recall_manifest(
+        self, request: atomic_models.RecallManifestRequest
+    ) -> atomic_models.RecallManifestResponse:
+        """Read bounded Atomic Memory metadata before fetching selected exact revisions."""
+        return await self._request(atomic_operations.GET_RECALL_MANIFEST, request)
+
     async def list_atomic_memories(
         self, request: atomic_models.ListAtomicMemoryRequest
     ) -> atomic_models.ListAtomicMemoryResponse:
@@ -1058,10 +1074,22 @@ class PowerContextClient:
         """Read bounded native code evidence for an explicitly authorized Scope."""
         return await self._request(QUERY_CODE, request, path_parameters={"scope_id": scope_id})
 
-    async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
+    async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext | PreparedContextWithReuse:
         """Prepare final bounded context for one Agent turn."""
 
-        return await self._request(PREPARE_CONTEXT, request)
+        result = await self._request(PREPARE_CONTEXT, request)
+        if isinstance(result.root, PreparedContextWithReuse) != request.include_reuse:
+            raise InvalidResponseError(PREPARE_CONTEXT.path, request_id=None)
+        return result.root
+
+    async def check_context(self, request: CheckContextRequest) -> ContextCheckResult:
+        """Check final bytes; only a complete allow permits the requested phase."""
+        result = await self._request(CHECK_CONTEXT, request)
+        if result.phase != request.root.phase or (
+            result.decision == "allow" and (not result.coverage.complete or not result.binding)
+        ):
+            raise InvalidResponseError(CHECK_CONTEXT.path, request_id=None)
+        return result
 
     async def prepare_bootstrap_context(self, request: BootstrapContextRequest) -> BootstrapContext:
         """Prepare curated bounded context for one Agent lifecycle boundary."""
@@ -1415,14 +1443,16 @@ def _prepare_request(
         if (
             operation is PREPARE_CONTEXT
             and isinstance(request, PrepareContextRequest)
-            and not payload.get("explain", False)
+            and not payload.get("include_receipt", False)
         ):
             # ``PREPARE_CONTEXT`` serializes its defaults because an older Server needs the fields
-            # it already knows about. ``explain`` is not one of them: a Server that predates it
+            # it already knows about. ``include_receipt`` is not one of them: an older Server
             # rejects the key with ``422 invalid_request``, so a client upgraded ahead of its
             # Server must not volunteer a flag whose default means "say nothing extra". ``false``
             # and absence are the same request.
-            payload.pop("explain", None)
+            payload.pop("include_receipt", None)
+        if operation is PREPARE_CONTEXT and not payload.get("include_reuse", False):
+            payload.pop("include_reuse", None)
         if operation.request_location == "query":
             request_query.update({key: value for key, value in payload.items() if value is not None})
         else:

@@ -49,7 +49,10 @@ def example():
 
 
 def reviewed(case, texts):
-    candidates = tuple(AtomicMemoryCandidate(kind="fact", text=text, evidence_ids=("source:1",)) for text in texts)
+    candidates = tuple(
+        AtomicMemoryCandidate(kind="fact", text=text, description=(text)[:200], evidence_ids=("source:1",))
+        for text in texts
+    )
     reviews = {digest({"case": case.case_id, "kind": "fact", "text": text}): [i] for i, text in enumerate(texts)}
     return candidates, reviews
 
@@ -75,7 +78,10 @@ def test_independent_facts_keep_full_command_context_and_own_support():
 def test_substring_in_wrong_or_negated_fact_is_never_automatically_approved():
     case, sample = example()
     candidate = AtomicMemoryCandidate(
-        kind="fact", text="Other deployment must not use `/srv/synthetic/app.toml`.", evidence_ids=("source:1",)
+        kind="fact",
+        text="Other deployment must not use `/srv/synthetic/app.toml`.",
+        description=("Other deployment must not use `/srv/synthetic/app.toml`.")[:200],
+        evidence_ids=("source:1",),
     )
     score = score_literal_atoms(case, sample, (candidate,), {})
     assert score["retained_atom_ids"] == [] and score["unresolved_candidates"] == 1
@@ -84,7 +90,10 @@ def test_substring_in_wrong_or_negated_fact_is_never_automatically_approved():
 def test_duplicate_values_and_normalized_numbers_do_not_replace_missing_identities():
     case, sample = example()
     candidate = AtomicMemoryCandidate(
-        kind="fact", text="Deployment command is `deployctl --region cn-2 --retries 3`.", evidence_ids=("source:1",)
+        kind="fact",
+        text="Deployment command is `deployctl --region cn-2 --retries 3`.",
+        description=("Deployment command is `deployctl --region cn-2 --retries 3`.")[:200],
+        evidence_ids=("source:1",),
     )
     review = {digest({"case": case.case_id, "kind": candidate.kind, "text": candidate.text}): [0]}
     result = score_literal_atoms(case, sample, (candidate, candidate), review)
@@ -93,6 +102,8 @@ def test_duplicate_values_and_normalized_numbers_do_not_replace_missing_identiti
 
 def test_combined_candidate_is_reported_as_combined_without_changing_v5_contract():
     case, sample = example()
-    candidate = AtomicMemoryCandidate(kind="fact", text=case.required[0].text, evidence_ids=("source:1",))
+    candidate = AtomicMemoryCandidate(
+        kind="fact", text=case.required[0].text, description=(case.required[0].text)[:200], evidence_ids=("source:1",)
+    )
     result = score_literal_atoms(case, sample, (candidate,), {})
     assert len(result["retained_atom_ids"]) == 4 and result["composite_candidates"] == 1

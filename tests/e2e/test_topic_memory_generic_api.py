@@ -751,23 +751,26 @@ def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path
     class InterruptedUpgrade(Exception):
         pass
 
-    async def interrupted_upgrade():
+    async def upgrade(*, interrupt=False):
         engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
         try:
-            with pytest.raises(InterruptedUpgrade):
-                async with engine.begin() as connection:
-                    await ensure_topic_memory_tag_schema(connection)
+            async with engine.begin() as connection:
+                await ensure_topic_memory_tag_schema(connection)
+                if interrupt:
                     raise InterruptedUpgrade
         finally:
             await engine.dispose()
 
-    asyncio.run(interrupted_upgrade())
+    with pytest.raises(InterruptedUpgrade):
+        asyncio.run(upgrade(interrupt=True))
     with sqlite3.connect(database) as connection:
         assert (
             "ck_pc_artifact_tags_family"
             in connection.execute("SELECT sql FROM sqlite_master WHERE name = 'pc_artifact_tags'").fetchone()[0]
         )
         assert connection.execute("SELECT * FROM pc_artifact_tags").fetchall() == rows
+    # Repair the isolated legacy constraint before normal Server admission.
+    asyncio.run(upgrade())
     configuration_tags = {}
     for restart in range(2):
         with TestClient(_app(tmp_path)) as client:

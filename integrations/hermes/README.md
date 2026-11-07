@@ -2,83 +2,38 @@
 
 `community`
 
-This directory contains a standard Hermes `MemoryProvider` backed by a running
-PowerContext server. It keeps Hermes responsible for memory lifecycle and Agent
-orchestration while PowerContext provides external storage, retrieval, context
-preparation, and memory lifecycle operations.
+Use PowerContext as the Hermes memory provider to recall project history, save Memory, and hand off work. Hermes manages the Agent and conversation; a separate PowerContext Server stores and retrieves the data.
 
-The integration requires Hermes Agent v0.20.4 or newer.
+## Prerequisites
 
-## Install with the PowerContext CLI
+Install Hermes Agent v0.20.4 or newer and the PowerContext CLI, with both commands available on `PATH`. The examples use a local Server at `http://127.0.0.1:8000`; an existing remote Server can be selected during configuration.
 
-With Hermes installed and available on `PATH`, install or refresh the provider
-from the matching PowerContext `master` revision:
+## Install and verify
+
+Install or refresh the integration from the PowerContext revision matching your Server:
 
 ```bash
 powercontext setup hermes --source oceanbase/powercontext --ref master
 ```
 
-The command copies the exclusive memory provider to
-`$HERMES_HOME/plugins/powercontext` and enables its standalone `/pc` command
-companion at `$HERMES_HOME/plugins/powercontext-command`. Verify the
-installation with:
+Setup installs the memory provider under `$HERMES_HOME/plugins/powercontext`, the `/pc` command companion under `$HERMES_HOME/plugins/powercontext-command`, and the `powercontext-project-context` Skill under `$HERMES_HOME/skills`. Hermes discovers the Skill through that standard directory.
 
-```bash
-powercontext doctor hermes
-```
-
-Then run `hermes memory setup` and select `PowerContext` to configure the
-provider. Hermes v0.20.4 or newer is required.
-
-<details>
-<summary>Manual directory installation (alternative)</summary>
-
-### Manual directory installation
-
-`powercontext setup hermes` performs this copy automatically for a user-level
-installation. Use the manual method only for a project-local provider or when
-the PowerContext CLI is not available.
-
-Copy both Hermes plugins into the user plugin directory:
-
-```bash
-cp -R integrations/hermes/plugins/powercontext \
-  "$HERMES_HOME/plugins/powercontext"
-cp -R integrations/hermes/plugins/powercontext-command \
-  "$HERMES_HOME/plugins/powercontext-command"
-```
-
-For project-local installation, copy both directories to `.hermes/plugins/`
-and enable project plugins with `HERMES_ENABLE_PROJECT_PLUGINS=1`. Then enable
-the standalone companion:
-
-```bash
-hermes plugins enable powercontext-command --no-allow-tool-override
-```
-
-</details>
-
-Start PowerContext separately:
+For a local deployment, start the Server in another terminal:
 
 ```bash
 powercontext server run
 ```
 
-## Configuration
-
-The provider uses `http://127.0.0.1:8000` by default. Run the generic Hermes
-memory setup wizard and select `PowerContext` to configure and activate it
-interactively; the wizard writes non-sensitive values to
-`$HERMES_HOME/powercontext/config.json`, stores the authorization header in
-Hermes' `.env` file, and sets `memory.provider`:
+Activate the provider through Hermes' memory wizard, select `PowerContext`, then check the installation:
 
 ```bash
 hermes memory setup
+powercontext doctor hermes
 ```
 
-On Hermes v0.20.4, use the generic command above instead of
-`hermes memory setup powercontext`; the provider-specific shortcut does not
-open the configuration wizard.
+The wizard writes nonsecret settings to `$HERMES_HOME/powercontext/config.json`, stores the authorization header in Hermes' `.env`, and sets `memory.provider`. On Hermes v0.20.4, use `hermes memory setup`; the provider-specific `hermes memory setup powercontext` shortcut does not open the wizard.
+
+## Configuration
 
 Configuration can also be stored manually in `$HERMES_HOME/powercontext/config.json`:
 
@@ -104,7 +59,7 @@ Environment variables override file values:
 | `POWERCONTEXT_HERMES_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
 | `POWERCONTEXT_HERMES_TOKEN` | Token shorthand; used when `AUTHORIZATION` is absent |
 | `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit server-owned Scope ID |
-| `POWERCONTEXT_HERMES_MAX_BYTES` | Maximum prepared context size, 512–32768 |
+| `POWERCONTEXT_HERMES_MAX_BYTES` | Maximum prepared context size, 512 to 32768 |
 | `POWERCONTEXT_HERMES_TIMEOUT` | HTTP request timeout in seconds |
 | `POWERCONTEXT_HERMES_CAPTURE_TURNS` | Capture completed turns as PowerContext Sources |
 | `POWERCONTEXT_HERMES_FLUSH_ON_SESSION_END` | Run memory extraction at session end |
@@ -112,109 +67,37 @@ Environment variables override file values:
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE` | Record recalled context in per-session local JSONL files; disabled by default |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE_PATH` | Override the evaluation trace directory |
 
-The client accepts HTTPS and loopback HTTP by default. To configure a
-non-loopback HTTP endpoint explicitly:
+The client accepts HTTPS and loopback HTTP by default. To configure a non-loopback HTTP endpoint explicitly:
 
 ```bash
 powercontext setup hermes --server-url http://memory.example:8000 --allow-insecure-http
 ```
 
-Setup stores nonsecret settings under `hosts.hermes` in
-`~/.config/powercontext/clients.json` (`POWERCONTEXT_CLIENT_CONFIG_FILE` overrides
-the path). Hermes' native `base_url` configuration remains supported; when it
-is absent, the provider also checks `POWERCONTEXT_CLIENT_SERVER_URL` and saved
-client settings before the loopback default. The host URL environment overrides
-native configuration.
+Setup stores nonsecret settings under `hosts.hermes` in `~/.config/powercontext/clients.json` (`POWERCONTEXT_CLIENT_CONFIG_FILE` overrides the path). `POWERCONTEXT_HERMES_BASE_URL` overrides the native `base_url` configuration. When neither is set, the provider checks `POWERCONTEXT_CLIENT_SERVER_URL`, saved client settings, and then the loopback default.
 
-A direct client `allow_insecure_http` argument overrides
-`POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP`, then
-`POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then saved consent. Native Hermes
-configuration can store `allow_insecure_http` with `base_url`; this pair takes
-precedence over shared saved settings. Saved consent belongs only to the
-matching endpoint after stripping trailing slashes and `/mcp`. Changing an
-endpoint through the setup wizard or a session override clears inherited
-consent. Invalid boolean values are rejected.
+`POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP` overrides `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then saved consent. Native Hermes configuration can store `allow_insecure_http` with `base_url`; this pair takes precedence over shared saved settings. Saved consent belongs only to the matching endpoint after stripping trailing slashes and `/mcp`. Changing an endpoint through the setup wizard or a session override clears inherited consent. Invalid boolean values are rejected.
 
-HTTP sends request content and authorization headers without encryption. This
-opt-in does not change HTTPS certificate verification.
+HTTP sends request content and authorization headers without encryption. This opt-in does not change HTTPS certificate verification.
 
-Hermes asks the Server to resolve an explicit Scope, durable session and
-workspace bindings, or the Server default, in that order. Workspace paths are
-hashed only as external binding keys. Hermes does not generate Scope IDs from
-profiles, users, repositories, or directories.
+Hermes asks the Server to resolve an explicit Scope, durable session and workspace bindings, or the Server default, in that order. Workspace paths are hashed only as external binding keys. Hermes does not generate Scope IDs from profiles, users, repositories, or directories.
 
-## Runtime behavior
+## Automatic memory behavior
 
-- `prefetch()` calls `/v1/context/prepare` and injects bounded context as
-  untrusted historical evidence.
-- `queue_prefetch()` performs the same preparation in the background and caches
-  the exact query for the next turn.
-- `sync_turn()` captures the completed turn through `/v1/sources/content` in a
-  non-blocking single-worker queue.
-- `on_session_end()` waits for queued writes and calls `/v1/memory/flush`.
-- `on_pre_compress()` optionally persists only filtered new user/assistant turns
-  and flushes them before Hermes discards old messages. It is disabled by
-  default and uses stable source IDs for overlapping compression windows. The
-  provider advertises the pre-compress checkpoint API v2 contract: it captures
-  the host-normalized evidence list when Hermes supplies one, and a checkpoint
-  that cannot be committed raises, so `compression.checkpoint_required` keeps the
-  uncompressed transcript instead of discarding it behind a failed capture.
-- `on_memory_write()` mirrors built-in Hermes memory additions as explicit
-  Atomic records. Replacements revise the same identity with the actual content ETag; removals perform reversible
-  forgetting with the captured Artifact reference and `state_version`. Its local map retains real versioned
-  snapshots, so a later conflict is reported instead of silently refreshing the write basis.
-  Existing maps containing only legacy entry IDs are read-only. To resume mirroring an old item, inspect its migrated
-  Atomic record and explicitly replace that item's value in `$HERMES_HOME/powercontext-memory-map.json` with the
-  actual `{ "artifact": ..., "state_version": ... }` snapshot. Keep the existing item key and verify its text and Scope;
-  the adapter cannot infer an Atomic identity from an entry ID.
-- Automatic writes stay off outside a primary agent context: an `agent_context` of
-  `cron`, `flush` or `subagent`, or a `cron`/`subagent` session platform, disables
-  turn capture and memory mirroring so scheduled runs and delegated children do
-  not write into the user's own memory. Recall is unaffected.
-- Agent tools expose the complete PowerContext operation groups: Memory
-  search/list/read/write/change tracking, Work Contract and Handoff flows,
-  Experience/Skill proposal and generation, External Skills discovery/import,
-  Artifact Candidate review, context/source operations, and statistics.
-- Mutating operations are described as explicit user-authorized actions. Artifact
-  approval and rejection should only be used after the candidate has been
-  reviewed.
-- `/pc scope bind SCOPE_ID` stores a durable workspace binding in PowerContext.
-  `/pc scope clear` removes it and resolves the current Scope again.
-- When evaluation tracing is enabled, each session gets its own JSONL file under
-  `powercontext/evaluation-trace/sessions/`. Events include the session ID,
-  parent session ID, scope, turn number, and a unique event ID.
-- Session-end and pre-compression flushes first check the server's
-  `memory_extraction` capability. If extraction is disabled, captured Sources
-  remain available and the flush is skipped without interrupting Hermes.
+| Event | PowerContext behavior |
+| --- | --- |
+| Context recall | Prepares bounded context and presents it as untrusted historical evidence. Background preparation caches the exact query for the next turn. |
+| Completed primary-Agent turn | Queues Source capture without blocking the conversation. |
+| Session end | Waits for queued writes and requests Memory extraction when the Server supports it. |
+| Transcript compression | When enabled, captures filtered new user/assistant turns before compression and requests extraction. Overlapping captures use stable Source identities. |
+| Built-in Hermes memory change | Mirrors additions, replacements, and removals to PowerContext. Conflicting updates stop for review. |
 
-All backend failures fail open: they are logged without request content and do
-not interrupt the Hermes conversation.
+Turn capture and memory mirroring are disabled for `cron`, `flush`, and `subagent` Agent contexts and for `cron` or `subagent` session platforms. Recall remains available. Source capture and Memory generation are separate: accepted Sources can remain stored even when extraction is disabled or fails.
 
-Automatic Source-to-Memory extraction requires a PowerContext generation model.
-Configure `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` together with the
-provider credentials, then restart the server. Verify the result with:
+Tools expose Memory, Topic Memory, Work Contract, Handoff, Experience/Skills, external Skills, candidate review, context/source operations, and statistics. Writes require the user's corresponding authorization. Review a candidate before authorizing approval or rejection.
 
-```bash
-powercontext capabilities
-```
+## Session commands
 
-The output must report `Memory extraction: enabled` before
-`hermes powercontext flush` or automatic session-end extraction can create
-Memory entries.
-
-## Session slash command
-
-The standalone companion registers `/pc` and `/powercontext` during normal
-Hermes plugin discovery, before the first Agent is created. Both aliases are
-forwarded to the PowerContext Memory Provider for the current interactive
-Hermes Agent once it is active. Type `/pc ` or `/powercontext ` and press
-Tab/Down to see the available first-level commands:
-
-Hermes v0.20.4 does not pass gateway session, user, workspace, or scope
-context to plugin slash-command handlers. The companion therefore fails closed
-for gateway invocations instead of routing a command to another session's
-PowerContext scope. Use the provider's Hermes tools for gateway sessions until
-Hermes exposes that invocation context.
+Use `/pc` or `/powercontext` in an interactive Hermes session with the PowerContext provider active. Type either alias followed by a space and press Tab/Down to see the available commands:
 
 ```text
 /pc trace status
@@ -243,9 +126,7 @@ Hermes exposes that invocation context.
 
 ### Read, revise, or retire a memory entry
 
-Atomic search returns `hits[].memory` records. Copy the actual `artifact` and `state_version` values; do not invent
-entry IDs or a collection revision. `score` is the fused RRF rank score, not confidence or similarity.
-Response `matched_by` channels are `text` and `vector`; search request modes remain `auto`, `fts`, `vector`, or `hybrid`.
+Atomic search returns `hits[].memory` records. Copy the actual `artifact` and `state_version` values; do not invent entry IDs or a collection revision. `score` is the fused RRF rank score, not confidence or similarity. Response `matched_by` channels are `text` and `vector`; search request modes remain `auto`, `fts`, `vector`, or `hybrid`.
 
 ```text
 /pc remember preference "Prefers uv for Python project management"
@@ -280,22 +161,13 @@ Use the captured reference for exact reads and conditional changes:
 /pc retire {"artifact":{"family":"atomic-memory","artifact_id":"am_example","revision":1},"state_version":0}
 ```
 
-Run each mutation with the current returned reference; these example commands are alternatives. Revision reads the
-current content ETag and submits `If-Match`. Public manual content edits compare content revision only; they do not
-compare lifecycle state versions. Active and forgotten records can be edited; merged and retired records cannot.
-`retire` is the retained host command name for reversible forgetting, checked against both the actual Artifact
-reference and its captured `state_version`. Refresh and inspect after a conflict before retrying.
+Use the latest returned reference for each change; these example commands are alternatives. You can revise active or forgotten records. Merged and retired records cannot be edited. `/pc retire` forgets a record reversibly. After a conflict, read and inspect the current record before retrying.
 
-Get also accepts a plain exact Atomic ArtifactRef
-(`{"family":"atomic-memory","artifact_id":...,"revision":...}`). `MemoryCitation` objects with `memory_ref`,
-`entry_id`, and `entry_version_id` are rejected locally for reads, revisions, and retirement. `/pc changes` explicitly
-reports unsupported collection history; use precise Artifact revision reads. The `powercontext_get_memory` and `powercontext_retire_memory` tools take a `reference` object, while
-`powercontext_revise_memory_entry` takes that object in `citation`.
+`/pc get` also accepts an exact Atomic ArtifactRef (`{"family":"atomic-memory","artifact_id":...,"revision":...}`). Use the returned Atomic references for reads and changes; legacy Memory citations are unsupported. `/pc changes` does not provide collection history. Use exact Artifact revision reads instead.
 
-Trace enable/disable changes the current Hermes process only. Configure
-`evaluation_trace` or `POWERCONTEXT_HERMES_EVALUATION_TRACE` when tracing should
-be enabled for future sessions. Trace files may contain prompts and recalled
-context, so keep them local and review them as sensitive data.
+### Evaluation tracing
+
+Trace enable/disable changes the current Hermes process only. Configure `evaluation_trace` or `POWERCONTEXT_HERMES_EVALUATION_TRACE` when tracing should be enabled for future sessions. Trace files may contain prompts and recalled context, so keep them local and review them as sensitive data.
 
 ## CLI commands
 
@@ -317,11 +189,59 @@ Use `--scope-id` when inspecting a scope explicitly:
 hermes powercontext search "deployment decision" --scope-id hermes-smoke-test
 ```
 
+## Troubleshooting
+
+Use `powercontext doctor hermes` to inspect the installed plugins and connection. Recall and automatic capture failures are logged without request content and normally allow the conversation to continue. Direct operation failures must still be reported to the user.
+
+### Sources are captured but Memory is missing
+
+Automatic extraction needs a PowerContext generation model. Configure `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` and the provider credentials, restart the Server, then check:
+
+```bash
+powercontext capabilities
+```
+
+The output must report `Memory extraction: enabled` before `hermes powercontext flush` or automatic extraction can create Memory. If extraction is disabled, the integration retains captured Sources and skips the flush.
+
+### Compression checkpoint failed
+
+Pre-compression capture is disabled by default. Enable `capture_pre_compress` when a transcript must be stored before compression. When Hermes requires a checkpoint through `compression.checkpoint_required`, a checkpoint failure keeps the uncompressed transcript. A later Memory extraction failure does not invalidate an already stored checkpoint.
+
+### Gateway session commands are unavailable
+
+Hermes v0.20.4 does not pass gateway session, user, workspace, or scope context to plugin slash-command handlers. The companion therefore fails closed for gateway invocations instead of routing a command to another session's PowerContext scope. Use the provider's Hermes tools for gateway sessions until Hermes exposes that invocation context.
+
+### Memory mirroring reports a conflict
+
+Mirroring retains versioned references in `$HERMES_HOME/powercontext-memory-map.json`. Inspect the conflicting Atomic record before retrying; the integration does not silently replace a stale write basis.
+
+Existing map entries containing only legacy entry IDs are read-only. To resume mirroring an old item, inspect its migrated Atomic record and explicitly replace that item's value with the actual `{ "artifact": ..., "state_version": ... }` snapshot. Keep the item key and verify its text and Scope. An entry ID alone cannot identify the Atomic record.
+
+## Manual directory installation
+
+`powercontext setup hermes` performs this copy automatically for a user-level installation. Use the manual method only for a project-local provider or when the PowerContext CLI is not available.
+
+Copy both Hermes plugins and the standard Skill:
+
+```bash
+mkdir -p "$HERMES_HOME/plugins" "$HERMES_HOME/skills"
+cp -R integrations/hermes/plugins/powercontext \
+  "$HERMES_HOME/plugins/powercontext"
+cp -R integrations/hermes/plugins/powercontext-command \
+  "$HERMES_HOME/plugins/powercontext-command"
+cp -R integrations/hermes/plugins/powercontext/skills/powercontext-project-context \
+  "$HERMES_HOME/skills/powercontext-project-context"
+```
+
+For project-local installation, copy both directories to `.hermes/plugins/` and enable project plugins with `HERMES_ENABLE_PROJECT_PLUGINS=1`. Keep the Skill in the standard user directory above, then enable the standalone companion:
+
+```bash
+hermes plugins enable powercontext-command --no-allow-tool-override
+```
+
 ## Package provider option
 
-Hermes also supports `hermes_agent.memory_providers` entry points. If this
-integration is distributed as a package, point the entry point at the provider
-package's `register` function:
+Hermes also supports `hermes_agent.memory_providers` entry points. If this integration is distributed as a package, point the entry point at the provider package's `register` function:
 
 ```toml
 [project.entry-points."hermes_agent.memory_providers"]

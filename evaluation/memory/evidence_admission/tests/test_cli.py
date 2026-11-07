@@ -55,6 +55,7 @@ def test_controlled_live_command_round_trips_private_outputs_audit_and_report(
                         AtomicMemoryCandidate(
                             kind="fact",
                             text="Two maintainers must approve a release.",
+                            description=("Two maintainers must approve a release.")[:200],
                             evidence_ids=tuple(item.evidence_id for item in value.evidence),
                         ),
                     )

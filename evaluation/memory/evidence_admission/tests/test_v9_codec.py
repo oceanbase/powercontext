@@ -65,6 +65,7 @@ def template(quote="q0", evidence="e0", start=0, end=4):
             "candidates": [
                 {
                     "kind": "fact",
+                    "description": "Synthetic protocol candidate",
                     "evidence_ids": [evidence],
                     "parts": [{"type": "copy", "quote_id": quote, "byte_start": start, "byte_end": end}],
                 }
@@ -184,7 +185,16 @@ def test_scalar_only_evidence_remains_citable_without_a_string_copy():
     request = prepare(value, supports)
     assert request.quotes == ()
     output = TemplateOutput.model_validate(
-        {"candidates": [{"kind": "fact", "evidence_ids": ["e0"], "parts": [{"type": "text", "text": "Count is 17."}]}]}
+        {
+            "candidates": [
+                {
+                    "kind": "fact",
+                    "description": "Synthetic protocol candidate",
+                    "evidence_ids": ["e0"],
+                    "parts": [{"type": "text", "text": "Count is 17."}],
+                }
+            ]
+        }
     )
     assert render(output, request, request_hash=request.binding_hash).candidates[0].evidence_ids == ("source:1",)
 

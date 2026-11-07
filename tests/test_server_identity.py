@@ -24,12 +24,34 @@ from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateTable
 
+from powercontext.builtin.persistence.migrations.deployment import deployment_runner
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.server.identity import (
     SERVER_IDENTITY_TABLE,
     ServerIdentityRepository,
     open_server_identity_repository,
 )
+from powercontext.server.settings import ServerSettings
+
+
+def test_managed_server_identity_initialization_requires_no_ddl(tmp_path) -> None:
+    config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'managed.db'}")
+    runner = deployment_runner(ServerSettings(database=config))
+    plan = runner.plan()
+    runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open_readonly(config) as profile:
+
+            @event.listens_for(profile.database.engine.sync_engine, "before_cursor_execute")
+            def reject_ddl(_connection, _cursor, statement, _parameters, _context, _executemany):
+                assert not statement.lstrip().upper().startswith(("CREATE ", "ALTER ", "DROP ")), (
+                    "Managed identity initialization must not issue DDL"
+                )
+
+            await ServerIdentityRepository(profile.database).initialize()
+
+    asyncio.run(scenario())
 
 
 def test_server_identity_singleton_key_is_not_auto_incremented_by_mysql_profiles() -> None:

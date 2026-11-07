@@ -63,6 +63,7 @@ def live_runs(tmp_path_factory):
                         AtomicMemoryCandidate(
                             kind="fact",
                             text=cases[0].required[0].text,
+                            description=(cases[0].required[0].text)[:200],
                             evidence_ids=tuple(item.evidence_id for item in value.evidence),
                         ),
                     )
@@ -278,6 +279,7 @@ def test_smoke_scope_uses_real_pipeline_journal_and_never_counts_as_formal(tmp_p
                         AtomicMemoryCandidate(
                             kind="fact",
                             text=suite.cases[0].required[0].text,
+                            description=(suite.cases[0].required[0].text)[:200],
                             evidence_ids=tuple(e.evidence_id for e in value.evidence),
                         ),
                     )

@@ -21,6 +21,7 @@ use crate::{
     },
     error::SafeError,
     ipc::authorize_window,
+    session_observations::{SessionObservations, SessionSummary},
     transport::{
         ApiFailure,
         wire::{ScopeDescriptor, ScopePage},
@@ -28,6 +29,33 @@ use crate::{
 };
 pub struct HostState {
     pub manager: Result<ConnectionManager, SafeError>,
+}
+
+#[tauri::command]
+pub fn session_summary<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, SessionObservations>,
+) -> Result<SessionSummary, SafeError> {
+    authorize_window(window.label())?;
+    state.summary()
+}
+
+#[tauri::command]
+pub fn reset_session_observations<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, SessionObservations>,
+) -> Result<(), SafeError> {
+    authorize_window(window.label())?;
+    state.reset()
+}
+
+#[tauri::command]
+pub fn preview_session_diagnostics<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, SessionObservations>,
+) -> Result<String, SafeError> {
+    authorize_window(window.label())?;
+    state.diagnostic_text()
 }
 fn manager<'a, R: tauri::Runtime>(
     window: &tauri::WebviewWindow<R>,
@@ -76,6 +104,18 @@ pub async fn check_connection<R: tauri::Runtime>(
     activate: bool,
 ) -> Result<DesktopState, ApiFailure> {
     manager(&window, &state)?.check(&id, activate).await
+}
+
+#[tauri::command]
+pub async fn probe_readiness<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    id: String,
+    revision: u32,
+) -> Result<DesktopState, ApiFailure> {
+    manager(&window, &state)?
+        .probe_readiness(&id, revision)
+        .await
 }
 
 #[tauri::command]
@@ -149,7 +189,7 @@ pub async fn local_diagnostics<R: tauri::Runtime>(
     kind: crate::diagnostics::DiagnosticKind,
 ) -> Result<crate::diagnostics::DiagnosticReport, SafeError> {
     authorize_window(window.label())?;
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     {
         state
             .local
@@ -158,13 +198,81 @@ pub async fn local_diagnostics<R: tauri::Runtime>(
             .run(kind)
             .await
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = (state, kind);
         Err(SafeError::NotFound)
     }
 }
 
+#[tauri::command]
+pub async fn observe_runtime_liveness<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<
+    crate::connections::session::RuntimeFact<crate::transport::wire::HealthResponse>,
+    ApiFailure,
+> {
+    manager(&window, &state)?
+        .observe_runtime_liveness(generation)
+        .await
+}
+#[tauri::command]
+pub async fn observe_runtime_capabilities<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<
+    crate::connections::session::RuntimeFact<crate::connections::session::RuntimeCapabilities>,
+    ApiFailure,
+> {
+    manager(&window, &state)?
+        .observe_runtime_capabilities(generation)
+        .await
+}
+#[tauri::command]
+pub async fn probe_runtime_readiness<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<
+    crate::connections::session::RuntimeFact<crate::transport::wire::ReadinessStatus>,
+    ApiFailure,
+> {
+    manager(&window, &state)?
+        .probe_runtime_readiness(generation)
+        .await
+}
+#[tauri::command]
+pub fn cancel_runtime_reads<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<(), ApiFailure> {
+    manager(&window, &state)?
+        .cancel_runtime_reads(generation)
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn get_stats<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+    period: crate::transport::wire::StatsPeriod,
+) -> Result<crate::transport::ExactScopeStatistics, ApiFailure> {
+    manager(&window, &state)?.stats(generation, period).await
+}
+#[tauri::command]
+pub fn cancel_stats_reads<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, HostState>,
+    generation: u32,
+) -> Result<(), ApiFailure> {
+    manager(&window, &state)?
+        .cancel_stats_reads(generation)
+        .map_err(Into::into)
+}
 #[tauri::command]
 pub async fn remember_memory<R: tauri::Runtime>(
     window: tauri::WebviewWindow<R>,
@@ -205,4 +313,116 @@ pub fn cancel_memory_reads<R: tauri::Runtime>(
     manager(&window, &state)?
         .cancel_memory_reads(generation)
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn ops_references<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+) -> Result<crate::ops_bridge::OpsReferences, crate::ops_bridge::OpsBridgeError> {
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || host.references())
+        .await
+        .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)?
+}
+#[tauri::command]
+pub async fn ops_inspect<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+) -> Result<crate::ops_bridge::OpsInspectionReply, crate::ops_bridge::OpsBridgeError> {
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || host.inspect())
+        .await
+        .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)
+}
+#[tauri::command]
+pub async fn ops_config_validate<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+) -> Result<crate::ops_bridge::OpsValidationReply, crate::ops_bridge::OpsBridgeError> {
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || host.config_validate())
+        .await
+        .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)
+}
+#[tauri::command]
+pub async fn ops_preflight<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+    input: crate::ops_bridge::OpsPreflightInput,
+) -> Result<crate::ops_bridge::OpsPreflightReply, crate::ops_bridge::OpsBridgeError> {
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || host.preflight(input))
+        .await
+        .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)?
+}
+#[tauri::command]
+pub async fn ops_apply<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+    input: crate::ops_bridge::OpsApprovalInput,
+) -> Result<crate::ops_bridge::OpsOperationReply, crate::ops_bridge::OpsBridgeError> {
+    use tauri::Emitter;
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        host.apply(input, move |event| {
+            let _ = window.emit_to(
+                tauri::EventTarget::webview_window("main"),
+                crate::ops_bridge::PROGRESS_EVENT,
+                event,
+            );
+        })
+    })
+    .await
+    .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)?
+}
+#[tauri::command]
+pub async fn ops_resume<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+    input: crate::ops_bridge::OpsApprovalInput,
+) -> Result<crate::ops_bridge::OpsOperationReply, crate::ops_bridge::OpsBridgeError> {
+    use tauri::Emitter;
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        host.resume(input, move |event| {
+            let _ = window.emit_to(
+                tauri::EventTarget::webview_window("main"),
+                crate::ops_bridge::PROGRESS_EVENT,
+                event,
+            );
+        })
+    })
+    .await
+    .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)?
+}
+#[tauri::command]
+pub async fn ops_operation_status<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+    input: crate::ops_bridge::OpsStatusInput,
+) -> Result<crate::ops_bridge::OpsOperationReply, crate::ops_bridge::OpsBridgeError> {
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || host.operation_status(input))
+        .await
+        .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)?
+}
+#[tauri::command]
+pub async fn ops_cancel<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    state: tauri::State<'_, crate::ops_bridge::OpsHost>,
+    input: crate::ops_bridge::OpsCancelInput,
+) -> Result<crate::ops_bridge::OpsOperationReply, crate::ops_bridge::OpsBridgeError> {
+    authorize_window(window.label()).map_err(|_| crate::ops_bridge::OpsBridgeError::Forbidden)?;
+    let host = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || host.cancel(input))
+        .await
+        .map_err(|_| crate::ops_bridge::OpsBridgeError::ProcessFailure)?
 }

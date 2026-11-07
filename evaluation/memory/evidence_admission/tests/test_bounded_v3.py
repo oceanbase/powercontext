@@ -124,7 +124,10 @@ def test_v3_duplicate_representative_cannot_cite_other_occurrences(v3_suite):
                 if isinstance(original, str):
                     assert original.encode()[fragment.byte_start : fragment.byte_end] == fragment.value.encode()
             candidate = AtomicMemoryCandidate(
-                kind="fact", text=case.required[0].text, evidence_ids=(admission.inputs[0].evidence[0].evidence_id,)
+                kind="fact",
+                text=case.required[0].text,
+                description=(case.required[0].text)[:200],
+                evidence_ids=(admission.inputs[0].evidence[0].evidence_id,),
             )
             score = score_generation(case, replay.value, admission, (candidate,))
             assert score.retained_claim_hashes == (digest(case.required[0].claim_id),)
@@ -148,7 +151,10 @@ def test_v3_labels_do_not_change_input_and_missing_spans_cannot_be_audited_into_
             preparation = score_preparation(case, replay.value, admission, 2048, INSTRUCTIONS)
             missing = next(c for c in case.required if digest(c.claim_id) in preparation.missing_claim_hashes)
             candidate = AtomicMemoryCandidate(
-                kind="fact", text=missing.text, evidence_ids=(admission.inputs[0].evidence[0].evidence_id,)
+                kind="fact",
+                text=missing.text,
+                description=(missing.text)[:200],
+                evidence_ids=(admission.inputs[0].evidence[0].evidence_id,),
             )
             assert score_generation(case, replay.value, admission, (candidate,)).unsupported == 1
             paraphrase = candidate.model_copy(update={"text": "An unprovided claim."})

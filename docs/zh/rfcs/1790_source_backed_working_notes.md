@@ -1,3 +1,8 @@
+---
+title: RFC 1790：基于 Source 的 Working Note
+description: Working Note 的设计决策，将短期工作记录保存为 Source，规定精确身份、过期与自动记忆生成的排除规则。
+---
+
 # 基于 Source 的 Working Note
 
 - 提案名称：`source_backed_working_notes`

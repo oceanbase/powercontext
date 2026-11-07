@@ -247,7 +247,7 @@ class AuditedExtractor:
             if isinstance(result.output, AtomicMemoryExtractionOutput):
                 supplied = {e.evidence_id for e in value.evidence}
                 for candidate in result.output.candidates:
-                    AtomicMemoryContent(kind=candidate.kind, text=candidate.text)
+                    AtomicMemoryContent(kind=candidate.kind, text=candidate.text, description=candidate.description)
                     if not set(candidate.evidence_ids) <= supplied:
                         raise InvalidInferenceOutputError(
                             "atomic-memory-extract", "candidate cites unavailable Source evidence"

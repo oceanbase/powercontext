@@ -1,0 +1,3 @@
+{
+  "create": "CREATE TABLE pc_portable_restore_receipts (\n\tbundle_id VARCHAR(36) NOT NULL, \n\tformat_version INTEGER NOT NULL, \n\ttotal_digest VARCHAR(71) NOT NULL, \n\trecord_count BIGINT NOT NULL, \n\tstatus VARCHAR(32) NOT NULL, \n\tinserted BIGINT NOT NULL, \n\talready_present BIGINT NOT NULL, \n\tprojections_ready BOOLEAN NOT NULL, \n\tupdated_at DATETIME NOT NULL, \n\tPRIMARY KEY (bundle_id), \n\tCONSTRAINT ck_pc_portable_restore_receipts_status CHECK (status IN ('authoritative_restored', 'ready')), \n\tCONSTRAINT ck_pc_portable_restore_receipts_record_count CHECK (record_count >= 0), \n\tCONSTRAINT ck_pc_portable_restore_receipts_inserted CHECK (inserted >= 0), \n\tCONSTRAINT ck_pc_portable_restore_receipts_existing CHECK (already_present >= 0)\n)"
+}

@@ -19,15 +19,24 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
-from contextlib import AsyncExitStack, nullcontext
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import AsyncExitStack, ExitStack, contextmanager, nullcontext
 from pathlib import Path
 from sqlite3 import SQLITE_CANTOPEN
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Never, cast
 
 import typer
 from pydantic import ValidationError
+from sqlalchemy import inspect
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
+from typing_extensions import override
 
+from powercontext.builtin.persistence.bootstrap import (
+    DatabaseAccessError,
+    DatabaseCreationError,
+    MissingDatabaseError,
+)
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.processing_migration import (
@@ -35,7 +44,12 @@ from powercontext.builtin.persistence.processing_migration import (
     plan_processing_migration,
     verify_processing_migration,
 )
-from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.seekdb import (
+    LegacySeekDBDatabaseError,
+    SeekDBConfig,
+    SeekDBInspectionError,
+    SeekDBProfile,
+)
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.atomic_memory_index import SQLiteAtomicMemoryIndex
 from powercontext.builtin.runtime.atomic_memory_rebuild import rebuild_atomic_memory_projection
@@ -44,9 +58,12 @@ from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.cli.env_file import environment_context
 from powercontext.cli.inference_notice import write_inference_capability_notice
+from powercontext.cli.observability_notice import write_observability_notice
+from powercontext.server import database_migration
 from powercontext.server.app import access_readiness_checks
 from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.authz.owner_recovery import OwnerRecovery
 from powercontext.server.background_metrics import serve_background_metrics
 from powercontext.server.configuration import (
     ServerConfigurationError,
@@ -58,6 +75,11 @@ from powercontext.server.factory import _ServerReadinessProbe, create_background
 from powercontext.server.identity import open_server_identity_repository
 from powercontext.server.logging import configure_server_logging, shutdown_server_logging, worker_logging
 from powercontext.server.metrics import ServerMetrics
+from powercontext.server.ownership import (
+    apply_ownership_migration,
+    ownership_report,
+    plan_ownership_migration,
+)
 from powercontext.server.processing_security import build_worker_security
 from powercontext.server.settings import (
     MissingAuthenticationProviderError,
@@ -69,6 +91,8 @@ from powercontext.server.tracing import configure_server_tracing
 from powercontext.server.worker_tracing import WorkerTracing
 
 if TYPE_CHECKING:
+    from socket import socket
+
     from powercontext.builtin.persistence.migrations.atomic_memory_references import CandidateDecision
     from powercontext.builtin.persistence.migrations.atomic_memory_v1 import OwnerDecision
 
@@ -117,15 +141,138 @@ def processing_migrate(
         str, typer.Option(help="Stable resume ID; use a new ID for an offline mode switch.")
     ] = "rfc1515",
     batch_size: Annotated[int, typer.Option(min=1, max=10000, help="Maximum rows committed per migration step.")] = 100,
+    evidence_dir: database_migration.EvidenceDir = None,
+    lock_coordination: database_migration.LockCoordination = None,
+    backup: Annotated[
+        database_migration.BackupPolicy | None, typer.Option(help="Managed storage backup policy.")
+    ] = None,
+    plan_id: Annotated[str | None, typer.Option(help="Exact managed Processing plan to accept.")] = None,
+    yes: Annotated[bool, typer.Option("--yes", help="Accept the managed Processing plan.")] = False,
+    backup_confirmed: Annotated[bool, typer.Option(help="Declare a manual backup exists.")] = False,
+    accept_no_backup: Annotated[bool, typer.Option(help="Accept the no-backup risk.")] = False,
+    backup_ref: Annotated[str | None, typer.Option(help="Operator manual backup reference.")] = None,
+    acknowledge_previous_run: Annotated[
+        str | None, typer.Option(help="OceanBase token confirming the previous remote maintenance ended.")
+    ] = None,
 ) -> None:
     """Plan, apply or verify the resumable artifact-processing schema migration."""
 
     if action == "apply" and not maintenance_confirmed:
         raise typer.BadParameter("apply requires --maintenance-confirmed after stopping old workers and writes")  # noqa: TRY003
+    env_file = resolve_server_environment_file(env_file, discover=True)
+    with database_migration._operator_errors(), server_settings_context(env_file=env_file) as settings:
+        managed = _managed_storage(settings.database)
+    if managed:
+        if action == "plan":
+            database_migration.plan(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                backup=backup or "auto",
+                bundle="processing",
+                migration_id=migration_id,
+                batch_size=batch_size,
+            )
+        elif action == "verify":
+            database_migration.verify(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                bundle="processing",
+                migration_id=migration_id,
+                batch_size=batch_size,
+            )
+        else:
+            database_migration.apply(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                bundle="processing",
+                migration_id=migration_id,
+                batch_size=batch_size,
+                backup=backup,
+                plan_id=plan_id,
+                yes=yes,
+                maintenance_confirmed=maintenance_confirmed,
+                backup_confirmed=backup_confirmed,
+                accept_no_backup=accept_no_backup,
+                backup_ref=backup_ref,
+                acknowledge_previous_run=acknowledge_previous_run,
+            )
+        return
     with server_settings_context(env_file=env_file) as settings:
-        ready = asyncio.run(_processing_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size))
+        try:
+            ready = asyncio.run(
+                _processing_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size)
+            )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     if not ready:
         raise typer.Exit(code=1)
+
+
+def _report_database_guidance(error: DatabaseAccessError | DatabaseCreationError) -> Never:
+    """Print provisioning guidance verbatim; the rich error panel truncates long statements."""
+    typer.echo(str(error), err=True)
+    raise typer.Exit(code=2)
+
+
+def _missing_read_only_database(error: MissingDatabaseError) -> str:
+    return (
+        f"plan and verify require an existing database: {error.database_name!r} is missing. "
+        "Provision it first, or start the Server once to create the configured database"
+    )
+
+
+def _managed_storage(
+    database: SQLiteConfig | SeekDBConfig | OceanBaseConfig, *, allow_historical: bool = False
+) -> bool:
+    """Inspect ownership before a compatibility command may open a writable profile."""
+    from powercontext.builtin.persistence.migrations.connections import MaintenanceConnections
+    from powercontext.server.identity import SERVER_IDENTITY_TABLE
+
+    def owned(connection):
+        if connection is None:
+            return False
+        tables = inspect(connection).get_table_names()
+        if "pc_schema_revision" in tables:
+            return True
+        # Ownership is independent of release and optional configuration. The
+        # shared runner must validate the complete source before any writes;
+        # an unknown or misconfigured Server must not fall back to SDK upkeep.
+        server_owned = SERVER_IDENTITY_TABLE.name in tables
+        if server_owned and not allow_historical:
+            raise database_migration.MigrationError(
+                "migration_required",
+                "Complete the registered full Server upgrade before partial maintenance.",
+            )
+        return server_owned
+
+    if isinstance(database, SQLiteConfig) and not database.is_persistent:
+        return False
+    if not isinstance(database, SQLiteConfig) or not make_url(database.url).query:
+        return MaintenanceConnections(database).run(lambda connection, identity, guard: owned(connection))
+
+    async def inspect_sqlite():
+        try:
+            async with (
+                SQLiteProfile.open_readonly(database) as profile,
+                profile.database.transaction() as connection,
+            ):
+                return await connection.run_sync(owned)
+        except OperationalError as error:
+            code = getattr(error.orig, "sqlite_errorcode", None)
+            if isinstance(code, int) and code & 0xFF == SQLITE_CANTOPEN:
+                return False
+            raise
+
+    return asyncio.run(inspect_sqlite())
 
 
 async def _processing_maintenance(
@@ -145,17 +292,24 @@ async def _processing_maintenance(
     )
     manifest = canonical_processing_manifest(config)
     database = settings.database
-    # A plan only inspects an existing database: opening it read-only keeps the
-    # command from creating the directory, the file or a journal mode it reports on.
-    read_only = action == "plan"
+    # A plan or verify only inspects the configured database: opening it read-only
+    # keeps the command from creating the directory, the file or a journal mode it
+    # reports on.
+    read_only = action in {"plan", "verify"}
     if isinstance(database, SQLiteConfig):
         if not database.is_persistent:
             raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
         opened = SQLiteProfile.open_readonly(database) if read_only else SQLiteProfile.open(database, tables=())
     elif isinstance(database, OceanBaseConfig):
-        opened = OceanBaseProfile.open(database, tables=())
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if read_only
+            else OceanBaseProfile.open(database, tables=())
+        )
     elif isinstance(database, SeekDBConfig):
-        opened = SeekDBProfile.open(database, tables=())
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if read_only else SeekDBProfile.open(database, tables=())
+        )
     else:
         raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
     async with opened as profile:
@@ -198,7 +352,12 @@ def identity_reset(
     with server_settings_context(env_file=env_file) as settings:
         if isinstance(settings.database, SQLiteConfig) and not settings.database.is_persistent:
             raise typer.BadParameter("identity reset requires a persistent database")  # noqa: TRY003
-        server_id = asyncio.run(_reset_server_identity(settings))
+        try:
+            server_id = asyncio.run(_reset_server_identity(settings))
+        except LegacySeekDBDatabaseError as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
     typer.echo(server_id)
 
 
@@ -208,7 +367,7 @@ async def _reset_server_identity(settings: ServerSettings) -> str:
 
 
 @app.command("atomic-memory-migrate")
-def atomic_memory_migrate(
+def atomic_memory_migrate(  # noqa: C901
     action: Annotated[
         Literal["plan", "apply", "verify"], typer.Option(help="Offline domain migration action.")
     ] = "plan",
@@ -230,6 +389,19 @@ def atomic_memory_migrate(
         Path | None,
         typer.Option(help="JSON attestations establishing Owners for ownerless legacy Memory entries."),
     ] = None,
+    evidence_dir: database_migration.EvidenceDir = None,
+    lock_coordination: database_migration.LockCoordination = None,
+    backup: Annotated[
+        database_migration.BackupPolicy | None, typer.Option(help="Managed storage backup policy.")
+    ] = None,
+    plan_id: Annotated[str | None, typer.Option(help="Exact managed Server plan to accept.")] = None,
+    yes: Annotated[bool, typer.Option("--yes", help="Accept the managed Server plan.")] = False,
+    backup_confirmed: Annotated[bool, typer.Option(help="Declare a manual backup exists.")] = False,
+    accept_no_backup: Annotated[bool, typer.Option(help="Accept the no-backup risk.")] = False,
+    backup_ref: Annotated[str | None, typer.Option(help="Operator manual backup reference.")] = None,
+    acknowledge_previous_run: Annotated[
+        str | None, typer.Option(help="OceanBase token confirming the previous remote maintenance ended.")
+    ] = None,
 ) -> None:
     """Archive Memory v1, convert its history and references to Atomic Memory, and remove it from public tables."""
 
@@ -247,6 +419,45 @@ def atomic_memory_migrate(
         )
     except (OSError, ValueError, TypeError, KeyError) as error:
         raise typer.BadParameter(f"invalid decision file: {error}") from error  # noqa: TRY003
+    env_file = resolve_server_environment_file(env_file, discover=True)
+    with database_migration._operator_errors(), server_settings_context(env_file=env_file) as settings:
+        managed = _managed_storage(settings.database, allow_historical=True)
+    if managed:
+        if decisions is not None or owner_decisions is not None:
+            raise typer.BadParameter(  # noqa: TRY003
+                "decision files apply only to the unmanaged legacy Memory conversion, not the registered Server chain"
+            )
+        if action == "plan":
+            database_migration.plan(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                backup=backup or "auto",
+                bundle="server",
+            )
+        elif action == "verify":
+            database_migration.verify(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                bundle="server",
+            )
+        else:
+            database_migration.apply(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                bundle="server",
+                backup=backup,
+                plan_id=plan_id,
+                yes=yes,
+                maintenance_confirmed=maintenance_confirmed,
+                backup_confirmed=backup_confirmed,
+                accept_no_backup=accept_no_backup,
+                backup_ref=backup_ref,
+                acknowledge_previous_run=acknowledge_previous_run,
+            )
+        return
     with server_settings_context(env_file=env_file) as settings:
         try:
             ready = asyncio.run(
@@ -259,6 +470,14 @@ def atomic_memory_migrate(
                     owner_decisions=loaded_owners,
                 )
             )
+        except MissingDatabaseError as error:
+            if action == "apply":
+                raise
+            raise typer.BadParameter(_missing_read_only_database(error)) from error
+        except (SeekDBInspectionError, LegacySeekDBDatabaseError) as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
         except OperationalError as error:
             sqlite_code = getattr(error.orig, "sqlite_errorcode", None)
             if (
@@ -276,23 +495,201 @@ def atomic_memory_migrate(
 @app.command("atomic-memory-rebuild-projection")
 def atomic_memory_rebuild_projection(
     env_file: Annotated[Path | None, typer.Option(help="Load the deployment's settings.")] = None,
+    action: Annotated[
+        Literal["plan", "apply", "verify"], typer.Option(help="Managed projection maintenance action.")
+    ] = "apply",
     maintenance_confirmed: Annotated[
         bool, typer.Option(help="Confirm every API, host and Worker is stopped and input writes are paused.")
     ] = False,
     batch_size: Annotated[int, typer.Option(min=1, max=1000, help="Identities read per maintenance batch.")] = 100,
+    evidence_dir: database_migration.EvidenceDir = None,
+    lock_coordination: database_migration.LockCoordination = None,
+    backup: Annotated[
+        database_migration.BackupPolicy | None, typer.Option(help="Managed storage backup policy.")
+    ] = None,
+    plan_id: Annotated[str | None, typer.Option(help="Exact managed projection plan to accept.")] = None,
+    yes: Annotated[bool, typer.Option("--yes", help="Accept the managed projection plan.")] = False,
+    backup_confirmed: Annotated[bool, typer.Option(help="Declare a manual backup exists.")] = False,
+    accept_no_backup: Annotated[bool, typer.Option(help="Accept the no-backup risk.")] = False,
+    backup_ref: Annotated[str | None, typer.Option(help="Operator manual backup reference.")] = None,
+    acknowledge_previous_run: Annotated[
+        str | None, typer.Option(help="OceanBase token confirming the previous remote maintenance ended.")
+    ] = None,
 ) -> None:
     """Rebuild active Atomic Memory search rows from existing authority."""
 
+    env_file = resolve_server_environment_file(env_file, discover=True)
+    with database_migration._operator_errors(), server_settings_context(env_file=env_file) as settings:
+        managed = _managed_storage(settings.database)
+    if managed:
+        if action == "plan":
+            database_migration.plan(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                backup=backup or "auto",
+                bundle="atomic-projection",
+                batch_size=batch_size,
+            )
+        elif action == "verify":
+            database_migration.verify(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                bundle="atomic-projection",
+                batch_size=batch_size,
+            )
+        else:
+            database_migration.apply(
+                env_file=env_file,
+                evidence_dir=evidence_dir,
+                lock_coordination=lock_coordination,
+                bundle="atomic-projection",
+                batch_size=batch_size,
+                backup=backup,
+                plan_id=plan_id,
+                yes=yes,
+                maintenance_confirmed=maintenance_confirmed,
+                backup_confirmed=backup_confirmed,
+                accept_no_backup=accept_no_backup,
+                backup_ref=backup_ref,
+                acknowledge_previous_run=acknowledge_previous_run,
+            )
+        return
+    if action != "apply":
+        raise typer.BadParameter("plan and verify require managed Server storage")  # noqa: TRY003
     if not maintenance_confirmed:
         raise typer.BadParameter("projection rebuild requires --maintenance-confirmed after stopping every writer")  # noqa: TRY003
     with server_settings_context(env_file=env_file) as settings:
+        try:
+            ready = asyncio.run(
+                _atomic_memory_maintenance(
+                    settings, "rebuild-projection", maintenance_confirmed=maintenance_confirmed, batch_size=batch_size
+                )
+            )
+        except LegacySeekDBDatabaseError as error:
+            raise typer.BadParameter(str(error)) from error
+        except (DatabaseAccessError, DatabaseCreationError) as error:
+            _report_database_guidance(error)
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+@app.command("access-ownership-migrate")
+def access_ownership_migrate(
+    action: Annotated[Literal["plan", "apply"], typer.Option(help="Ownership migration action.")] = "plan",
+    env_file: Annotated[Path | None, typer.Option(help="Load deployment settings from this environment file.")] = None,
+    owner: Annotated[
+        str | None,
+        typer.Option(help="Owning Principal as TYPE:ID, e.g. service:server-token. Required for apply."),
+    ] = None,
+    scope_id: Annotated[
+        list[str] | None,
+        typer.Option(help="Scope to migrate; repeat the option for several Scopes. Every Scope when omitted."),
+    ] = None,
+    background_principal: Annotated[
+        str | None,
+        typer.Option(help="Background Principal as TYPE:ID to check while planning."),
+    ] = None,
+    maintenance_confirmed: Annotated[
+        bool,
+        typer.Option(help="Confirm every Server process using the deployment database is stopped."),
+    ] = False,
+) -> None:
+    """Inventory or backfill ownership data written before Access enforcement.
+
+    Works while ACCESS_MODE is disabled, before switching to enforced mode, and against a database whose
+    Server ran either mode. Apply names one owning Principal explicitly; the Server never derives ownership.
+    """
+
+    if action == "apply":
+        if owner is None or ":" not in owner:
+            raise typer.BadParameter("apply requires --owner TYPE:ID, e.g. --owner service:server-token")  # noqa: TRY003
+        if not maintenance_confirmed:
+            raise typer.BadParameter(  # noqa: TRY003
+                "apply requires --maintenance-confirmed after stopping every Server process"
+            )
+    background_ref = None
+    if background_principal is not None:
+        principal_type, separator, principal_id = background_principal.partition(":")
+        if (
+            not separator
+            or principal_type not in {"user", "service"}
+            or not principal_id
+            or principal_id != principal_id.strip()
+            or len(principal_id) > 255
+        ):
+            raise typer.BadParameter("background Principal must use TYPE:ID")  # noqa: TRY003
+        background_ref = PrincipalRef(type=principal_type, id=principal_id)
+    env_file = resolve_server_environment_file(env_file, discover=True)
+    with server_settings_context(env_file=env_file) as settings:
         ready = asyncio.run(
-            _atomic_memory_maintenance(
-                settings, "rebuild-projection", maintenance_confirmed=maintenance_confirmed, batch_size=batch_size
+            _access_ownership_maintenance(
+                settings,
+                action,
+                owner=owner,
+                scope_ids=scope_id or (),
+                background_principal=background_ref,
             )
         )
     if not ready:
         raise typer.Exit(code=1)
+
+
+async def _access_ownership_maintenance(
+    settings: ServerSettings,
+    action: Literal["plan", "apply"],
+    *,
+    owner: str | None,
+    scope_ids: Sequence[str],
+    background_principal: PrincipalRef | None = None,
+) -> bool:
+    config = BuiltinConfig(
+        code=settings.code,
+        runtime=settings.runtime,
+        database=settings.database,
+        handoff_report=settings.handoff_report,
+        inference=settings.inference,
+        external_skills=settings.external_skills,
+    )
+    async with AsyncExitStack() as resources:
+        access = await resources.enter_async_context(
+            open_builtin_access_control(
+                settings.database,
+                deployment_id=settings.access.deployment_id,
+                static_scope_principal=(
+                    PrincipalRef(type="service", id="server-token") if settings.auth.token is not None else None
+                ),
+            )
+        )
+        runtime = await resources.enter_async_context(open_builtin_runtime(config, dispatch_processing=False))
+        if runtime.scopes is None:
+            raise typer.BadParameter("ownership migration requires a runtime with Scope support")  # noqa: TRY003
+        recovery = OwnerRecovery(runtime.primary_database, access)
+        await recovery.initialize()
+        scopes = list(scope_ids) or [scope.scope_id for scope in await runtime.scopes.list()]
+        if action == "plan":
+            plan = await plan_ownership_migration(
+                runtime,
+                access,
+                scopes,
+                background_principal=background_principal,
+                transport="background",
+            )
+            typer.echo(json.dumps(ownership_report(plan)))
+            return True
+        owner_type, _, owner_id = cast(str, owner).partition(":")
+        result = await apply_ownership_migration(
+            runtime,
+            access,
+            scopes,
+            owner=PrincipalRef(type=owner_type, id=owner_id),
+            transport="background",
+            owner_recovery=recovery,
+        )
+        report = ownership_report(result)
+        typer.echo(json.dumps(report))
+        return not report["conflicts"]
 
 
 async def _sqlite_snapshot_budget_preflight(database: SQLiteConfig, snapshot_budget_bytes: int) -> bool:
@@ -359,10 +756,16 @@ async def _atomic_memory_maintenance(
         )
         index = SQLiteAtomicMemoryIndex(embedding_profile)
     elif isinstance(database, OceanBaseConfig):
-        opened = OceanBaseProfile.open(database, tables=())
+        opened = (
+            OceanBaseProfile.open_existing(database, tables=())
+            if read_only
+            else OceanBaseProfile.open(database, tables=())
+        )
         index = OceanBaseAtomicMemoryIndex(embedding_profile)
     elif isinstance(database, SeekDBConfig):
-        opened = SeekDBProfile.open(database, tables=())
+        opened = (
+            SeekDBProfile.open_existing(database, tables=()) if read_only else SeekDBProfile.open(database, tables=())
+        )
         index = OceanBaseAtomicMemoryIndex(embedding_profile)
     else:
         raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
@@ -371,6 +774,9 @@ async def _atomic_memory_maintenance(
         if action in {"apply", "rebuild-projection"}:
             embedding_model, _readiness = await _embedding_models(inference, resources, None)
             if action == "rebuild-projection":
+                # This command reads deployment configuration, not host code, so
+                # evidence admission uses BUILTIN_SOURCE_REGISTRY. Hosts with native
+                # Definitions pass the runtime registry to the Python API instead.
                 report = await rebuild_atomic_memory_projection(
                     profile.database,
                     index,
@@ -424,6 +830,9 @@ async def _atomic_memory_maintenance(
 def run(
     host: Annotated[str | None, typer.Option(help="Address to bind.")] = None,
     port: Annotated[int | None, typer.Option(min=1, max=65535, help="Port to bind.")] = None,
+    uds: Annotated[
+        Path | None, typer.Option(help="Listen only on this absolute Unix socket path (Linux/macOS).")
+    ] = None,
     env_file: Annotated[
         Path | None,
         typer.Option(help="Load Server and provider settings from this environment file."),
@@ -431,6 +840,9 @@ def run(
     no_env_file: Annotated[
         bool,
         typer.Option("--no-env-file", help="Do not discover or load an environment file."),
+    ] = False,
+    observability: Annotated[
+        bool, typer.Option(help="Load the installed local observability profile without changing business settings.")
     ] = False,
     role: Annotated[
         Literal["all", "api", "background"] | None,
@@ -456,12 +868,21 @@ def run(
             server_settings_context(
                 host=host,
                 port=port,
+                uds=uds,
                 env_file=selected_env_file,
                 process_environment_overrides=True,
+                observability=observability,
             ) as settings,
         ):
             if selected_env_file is not None:
                 typer.echo(f"Loaded environment file: {selected_env_file}")
+            write_observability_notice(
+                enabled=observability,
+                server_env=None if selected_env_file is None else str(selected_env_file),
+                host=settings.http.host,
+                port=settings.http.port,
+                role=settings.runtime.artifact_processing_role,
+            )
             _run_configured_server(settings)
     except ServerConfigurationError as error:
         if isinstance(error.cause, ValidationError):
@@ -492,8 +913,24 @@ def _run_configured_server(settings: ServerSettings) -> None:
             if settings.runtime.artifact_processing_role == "background":
                 _run_background(settings, tracing)
                 return
-            application = create_server_app(settings=settings, tracing=tracing)
-            _run_server(application, host=settings.http.host, port=settings.http.port)
+            if settings.http.uds is None:
+                application = create_server_app(settings=settings, tracing=tracing)
+                _run_server(application, host=settings.http.host, port=settings.http.port)
+            else:
+                from powercontext.server.uds import UnixSocketError, UnixSocketExternalScheme, unix_socket_listener
+
+                try:
+                    with ExitStack() as resources:
+                        listener = resources.enter_context(unix_socket_listener(settings.http.uds))
+                        application = create_server_app(settings=settings, tracing=tracing)
+                        uds_application = (
+                            UnixSocketExternalScheme(application, settings.http.uds_external_scheme)
+                            if settings.http.uds_external_scheme is not None
+                            else application
+                        )
+                        _run_unix_server(uds_application, listener=listener, cleanup=resources.close)
+                except UnixSocketError as error:
+                    raise typer.BadParameter(str(error), param_hint="--uds / POWERCONTEXT_SERVER_HTTP_UDS") from error
         finally:
             tracing.shutdown()
     finally:
@@ -525,6 +962,27 @@ def _run_server(application: Any, *, host: str, port: int) -> None:
     uvicorn.run(application, host=host, port=port, access_log=False, log_config=None)
 
 
+def _run_unix_server(application: Any, *, listener: socket, cleanup: Callable[[], None]) -> None:
+    import uvicorn
+
+    class UnixServer(uvicorn.Server):
+        @contextmanager
+        @override
+        def capture_signals(self) -> Iterator[None]:
+            with super().capture_signals():
+                try:
+                    yield
+                finally:
+                    # Uvicorn replays SIGTERM after draining the app. Release the
+                    # socket and lock before that signal can terminate the process.
+                    cleanup()
+
+    server = UnixServer(uvicorn.Config(application, access_log=False, log_config=None, proxy_headers=False))
+    server.run(sockets=[listener])
+    if not server.started:
+        raise typer.Exit(code=3)
+
+
 def _run_background(settings: ServerSettings, tracing: Any) -> None:
     """Run a Supervisor and optional metrics listener until SIGINT or SIGTERM."""
 
@@ -540,6 +998,9 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
         inference=settings.inference,
         external_skills=settings.external_skills,
     )
+    from powercontext.builtin.persistence.migrations.server_readiness import prepare_server_storage
+
+    await asyncio.to_thread(prepare_server_storage, settings)
     metrics = ServerMetrics(role="background") if settings.metrics.enabled else None
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -552,7 +1013,11 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
         installed.append(signum)
     try:
         async with AsyncExitStack() as resources:
-            logging_bootstrap = resources.enter_context(worker_logging(settings.logging, role="background"))
+            configured_target = tracing.provider.resource.attributes.get("powercontext.service.target")
+            worker_target = configured_target if isinstance(configured_target, str) else None
+            logging_bootstrap = resources.enter_context(
+                worker_logging(settings.logging, role="background", target=worker_target, owner_role="background")
+            )
             principal = (
                 PrincipalRef(type="service", id="server-token", description="PowerContext static bearer")
                 if settings.auth.token is not None
@@ -576,9 +1041,13 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
                     worker_security=worker_security,
                     model_usage_observer=None if metrics is None else metrics.observe_model_usage,
                     worker_model_usage_observer=None if metrics is None else metrics.observe_worker_model_usage,
+                    provider_observer=None if metrics is None else metrics.observe_provider,
+                    worker_provider_observer=None if metrics is None else metrics.observe_worker_provider,
                     processing_observer=None if metrics is None else metrics.observe_processing,
                     worker_initializer=logging_bootstrap,
-                    worker_entrypoint_wrapper=WorkerTracing(settings.tracing).wrap,
+                    worker_entrypoint_wrapper=WorkerTracing(
+                        settings.tracing, target=worker_target, owner_role="background"
+                    ).wrap,
                 )
             )
             if metrics is None or stopped.is_set():

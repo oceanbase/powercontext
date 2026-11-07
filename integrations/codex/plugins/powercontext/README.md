@@ -141,6 +141,10 @@ overrides the saved credential. On Windows, setup also maintains the user enviro
 for Desktop compatibility. Restart Codex after setup. Missing credentials preserve the default unauthenticated
 flow. Never put the token in `.mcp.json`, the Server URL, or a static MCP header.
 
+Prompt-time recall is enabled by default. Set `POWERCONTEXT_CODEX_PROMPT_RECALL=false`
+when Codex's model traffic goes through the PowerContext gateway, which prepares and
+injects context for each turn; the hook then sends no preparation request.
+
 Prompt capture is enabled by default. Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false`
 when prompts must not be persisted. Captured Sources are normally processed by
 the Server's Memory extraction job. They remain ordinary prompt evidence: the
