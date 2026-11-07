@@ -56,7 +56,14 @@ async fn nonstreaming_response_over_buffer_limit_is_rejected() {
     };
     let outcome = transport.send(send).await;
     match outcome {
-        SendOutcome::Indeterminate(SendIndeterminateReason::BufferLimitExceeded) => {}
+        SendOutcome::IncompleteResponse {
+            reason: SendIndeterminateReason::BufferLimitExceeded,
+            status,
+            response_first_byte_ms,
+        } => {
+            assert_eq!(status, 200);
+            assert!(response_first_byte_ms.is_some());
+        }
         other => panic!("expected Indeterminate(BufferLimitExceeded), got {other:?}"),
     }
 }
