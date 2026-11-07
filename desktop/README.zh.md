@@ -138,6 +138,16 @@ pnpm --dir desktop desktop:dev
 
 [安全边界](SECURITY.md)记录具体约束；[验证说明](VALIDATION.md)列出测试范围和仍未满足的 P0 门槛。构建成功、Mock 测试和当前用户机器上的运行都不能代替标准用户、签名、通知冷启动激活、独立服务和 Agent 宿主验收。
 
+## 本地服务状态
+
+在 Linux 上，「本地 Server」设置页可以通过可信的 Ops Bridge 检查 PowerContext 的用户服务。这个检查是只读的：它只显示是否支持、是否注册、管理归属、管理器状态、存活状态、就绪状态和维护状态，不会把路径、命令、环境值或原始进程输出显示给界面。
+
+Ops Bridge 只处理已登记的 PowerContext 服务目标，并拒绝不可信窗口、远程来源和渲染器传入的任意输入。本地服务缺失或暂时不可用时，远程 Server 连接仍然可以使用。本工作流不增加安装、启动、停止或重启按钮；这些修改操作仍由服务管理边界负责，并且必须继续遵守归属和审批规则。
+
+服务单元写入当前用户的 `$XDG_CONFIG_HOME/systemd/user/`；未设置 `XDG_CONFIG_HOME` 时使用 `~/.config/systemd/user/`，所有管理器调用都使用 `systemctl --user`。正常安装和恢复不需要 `sudo`，不会写入 `/etc/systemd/system/` 之类的系统级 unit，也不会调用 `loginctl enable-linger`。用户登录时，已有的用户级 systemd manager 可以通过 `default.target` 激活已启用的服务；用户注销时，服务遵循该用户 manager 的正常生命周期。如果账户本来已经由用户或管理员启用了 linger，PowerContext 不会修改它，也不会默默创建系统级持久化。
+
+Linux 验收由 Desktop Rust IPC/Ops Bridge 测试和真实 systemd `--user` 生命周期测试共同覆盖，后者位于 [native personal service workflow](../.github/workflows/native-service.yml)。生命周期测试覆盖安装、重启、卸载、外部登记、无关用户服务、外部停止后的恢复、用户服务管理器不可用，以及用户会话边界。测试验证登录激活使用当前用户的 `default.target`，显式停止不会取消该激活，已有 linger 状态保持不变，也不会创建系统级 unit。测试不会强制注销 CI 账户；真实 GNOME 会话的注销/重新登录资格由 Ubuntu Desktop 打包验收覆盖。managed-resource candidate workflow 还会使用固定 SHA-256 的独立 Python runtime 生成真实 Linux Ops bundle，并通过原生 manifest/摘要信任边界验收；该 candidate 检查不等同于已签名发布包资格。
+
 ## 本机 CLI 诊断
 
 设置中的诊断只检查当前电脑，与远程连接状态分开。程序不从 PATH 自动选择 CLI，也不安装或启动 Server。集成检查可能运行临时 Agent 辅助进程；结果不代表实际 capture/recall 已验证。

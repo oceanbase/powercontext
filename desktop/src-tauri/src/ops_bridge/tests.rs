@@ -22,9 +22,15 @@ use std::{
 };
 
 fn fixture_dir() -> tempfile::TempDir {
-    tempfile::Builder::new()
+    #[cfg(target_os = "macos")]
+    return tempfile::Builder::new()
         .prefix("ops-bridge-")
         .tempdir_in("/private/tmp")
+        .unwrap();
+    #[cfg(not(target_os = "macos"))]
+    tempfile::Builder::new()
+        .prefix("ops-bridge-")
+        .tempdir()
         .unwrap()
 }
 #[cfg(unix)]
@@ -78,7 +84,14 @@ impl Fixture {
             .keys()
             .map(|p| fs::metadata(support.join("bundle").join(p)).unwrap().len())
             .sum::<u64>();
-        let manifest = json!({"format_version":1,"python_version":"3.12.15","platform":if cfg!(windows){"win32"}else{"darwin"},"architecture":std::env::consts::ARCH,"python_relative":"runtime/helper","arguments":["-I","-S","-B","entry.py"],"requirements_sha256":"a".repeat(64),"installed_bytes":size,"files_sha256":files});
+        let platform = if cfg!(windows) {
+            "win32"
+        } else if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            "linux"
+        };
+        let manifest = json!({"format_version":1,"python_version":"3.12.15","platform":platform,"architecture":std::env::consts::ARCH,"python_relative":"runtime/helper","arguments":["-I","-S","-B","entry.py"],"requirements_sha256":"a".repeat(64),"installed_bytes":size,"files_sha256":files});
         let bytes = serde_json::to_vec(&manifest).unwrap();
         fs::write(support.join("bundle/bundle.json"), &bytes).unwrap();
         fs::write(resources.join("ops-provision.json"),serde_json::to_vec(&json!({"format_version":1,"bundle_manifest_sha256":trust::sha256(&bytes),"binding_mode":"target_file"})).unwrap()).unwrap();
@@ -168,6 +181,7 @@ else:
 "#;
 
 #[test]
+#[cfg(target_os = "macos")]
 fn session_diagnostics_project_real_helper_failure_without_reading_its_journal() {
     let f = Fixture::new();
     let observations = SessionObservations::default();
@@ -208,7 +222,7 @@ fn session_diagnostics_project_real_helper_failure_without_reading_its_journal()
 }
 
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn independent_missing_target_inspection_and_unhealthy_result_are_preserved() {
     let f = Fixture::new();
     let host = f.host();
@@ -256,7 +270,7 @@ fn non_utf8_native_path_returns_unavailable_without_panicking() {
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn approvals_are_one_shot_expiring_and_bound_to_exact_plan_and_target() {
     let f = Fixture::new();
     let host = f.host();
@@ -299,7 +313,7 @@ fn approvals_are_one_shot_expiring_and_bound_to_exact_plan_and_target() {
     assert!(host.references().unwrap().operations.is_empty());
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn progress_arrives_during_apply_and_status_cancel_use_independent_children() {
     let f = Fixture::new();
     f.behavior("await_cancel");
@@ -345,7 +359,7 @@ fn progress_arrives_during_apply_and_status_cancel_use_independent_children() {
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn lost_response_keeps_reference_and_helper_finishes_without_replay() {
     let f = Fixture::new();
     let host = f.host();
@@ -416,7 +430,7 @@ fn await_terminal_status(host: &OpsHost, operation_id: &str) -> OpsOperationRepl
     }
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn malformed_reference_store_fails_before_dispatch_and_foreign_binding_cannot_resume() {
     let f = Fixture::new();
     let host = f.host();
@@ -449,7 +463,7 @@ fn malformed_reference_store_fails_before_dispatch_and_foreign_binding_cannot_re
     );
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn bundle_and_packaged_pins_reject_tampering_and_extra_files() {
     let f = Fixture::new();
     fs::write(f.support.join("bundle/entry.py"), b"tampered").unwrap();
@@ -505,7 +519,7 @@ fn child(
     )
 }
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn real_children_bound_streams_deadlines_and_inherited_pipe_descendants() {
     for stream in ["stdout", "stderr"] {
         let script = format!(
@@ -643,7 +657,7 @@ fn control_admission_remains_available_when_ordinary_helpers_are_reserved() {
 
 #[test]
 #[ignore = "requires a prepared local Python environment with Ops dependencies; read-only real subprocess"]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn real_current_ops_inspect_and_preflight_with_missing_server_runtime() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -863,6 +877,63 @@ fn managed_catalog_copy_is_private_immutable_and_pinned_across_launches() {
         h.0.trust.binding(),
         Err(OpsBridgeError::IntegrityFailure)
     ));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_runtime_environment_is_preserved_only_for_a_private_owned_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = fixture_dir();
+    private(dir.path());
+    assert_eq!(
+        trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).as_deref(),
+        dir.path().to_str()
+    );
+    assert_eq!(
+        trust::trusted_linux_runtime_dir_from(Some(PathBuf::new())),
+        trust::trusted_linux_runtime_dir_from(None)
+    );
+
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(trust::trusted_linux_runtime_dir_from(Some(dir.path().to_path_buf())).is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_xdg_home_environment_preserves_a_non_default_layout() {
+    let dir = fixture_dir();
+    let values = [
+        ("XDG_CONFIG_HOME", dir.path().join("config")),
+        ("XDG_DATA_HOME", dir.path().join("data")),
+        ("XDG_STATE_HOME", dir.path().join("state")),
+        ("XDG_CACHE_HOME", dir.path().join("cache")),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    let environment =
+        trust::trusted_linux_xdg_environment_from(|name| values.get(name).cloned()).unwrap();
+    for (name, path) in values {
+        assert_eq!(environment.get(name).map(String::as_str), path.to_str());
+    }
+
+    let invalid =
+        std::collections::BTreeMap::from([("XDG_CONFIG_HOME", PathBuf::from("relative/config"))]);
+    assert!(trust::trusted_linux_xdg_environment_from(|name| invalid.get(name).cloned()).is_err());
+
+    let empty = [
+        ("XDG_CONFIG_HOME", PathBuf::new()),
+        ("XDG_DATA_HOME", PathBuf::new()),
+        ("XDG_STATE_HOME", PathBuf::new()),
+        ("XDG_CACHE_HOME", PathBuf::new()),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeMap<_, _>>();
+    assert!(
+        trust::trusted_linux_xdg_environment_from(|name| empty.get(name).cloned())
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

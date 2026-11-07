@@ -14,9 +14,15 @@
  * limitations under the License.
  */
 
-import type { Ref } from "react";
+import { useState, type Ref } from "react";
 import { messages, type Language } from "./messages";
 import { PageFeedback } from "./PageFeedback";
+import { opsApi } from "../shared/ops";
+import type { OpsComponents, OpsInspectionReply } from "../generated/ipc";
+
+function statusValue(value: string | undefined, unknownLabel: string) {
+  return value?.replaceAll("_", " ") ?? unknownLabel;
+}
 
 export function LocalServerSettings({
   language,
@@ -28,6 +34,31 @@ export function LocalServerSettings({
   onManageConnections: () => void;
 }) {
   const t = messages[language];
+  const [inspection, setInspection] = useState<OpsInspectionReply | null>(null);
+  const [inspectionPending, setInspectionPending] = useState(false);
+
+  async function inspectLocalServer() {
+    setInspectionPending(true);
+    try {
+      setInspection(await opsApi.inspect());
+    } catch {
+      setInspection({ outcome: "unknown", bridgeError: "process_failure" });
+    } finally {
+      setInspectionPending(false);
+    }
+  }
+
+  const components: OpsComponents | undefined = inspection?.components;
+  const facts = [
+    [t.serviceSupport, components?.support],
+    [t.serviceRegistration, components?.registration],
+    [t.serviceDefinition, components?.definition],
+    [t.serviceOwnership, components?.managerOwnership],
+    [t.serviceManager, components?.manager],
+    [t.serviceLiveness, components?.liveness],
+    [t.serviceReadiness, components?.readiness],
+    [t.serviceMaintenance, components?.maintenance],
+  ] as const;
   return (
     <section
       id="local-server"
@@ -54,7 +85,45 @@ export function LocalServerSettings({
       </ol>
       <div className="actions">
         <button onClick={onManageConnections}>{t.connectExisting}</button>
+        <button
+          onClick={() => void inspectLocalServer()}
+          disabled={inspectionPending}
+        >
+          {inspectionPending ? t.localServerInspecting : t.localServerInspect}
+        </button>
       </div>
+      {inspection && (
+        <PageFeedback
+          compact
+          headingLevel={3}
+          kind={
+            inspection.bridgeError || inspection.error ? "warning" : "success"
+          }
+          title={
+            inspection.bridgeError === "unavailable"
+              ? t.localServerInspectionUnavailable
+              : inspection.bridgeError || inspection.error
+                ? t.localServerInspectionFailed
+                : t.localServerInspectionTitle
+          }
+        >
+          <p>
+            {inspection.bridgeError === "unavailable" || inspection.bridgeError
+              ? t.localServerInspectionUnavailable
+              : t.localServerInspectionComplete}
+          </p>
+          {components && (
+            <dl>
+              {facts.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{statusValue(value, t.unknown)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </PageFeedback>
+      )}
       <p className="small">{t.localServerDiagnostics}</p>
     </section>
   );

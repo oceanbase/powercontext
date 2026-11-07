@@ -94,6 +94,28 @@ class ManagedLayout:
                 Path.home() / "Library/Caches/PowerContextManaged",
                 default_data_dir(),
             )
+        if sys.platform == "linux":
+            home = Path.home()
+
+            def xdg_home(name: str, fallback: Path) -> Path:
+                value = os.environ.get(name)
+                candidate = Path(value) if value else fallback
+                if not candidate.is_absolute() or ".." in candidate.parts:
+                    raise OpsError("layout_invalid")
+                return candidate
+
+            data = xdg_home("XDG_DATA_HOME", home / ".local/share")
+            config = xdg_home("XDG_CONFIG_HOME", home / ".config")
+            state = xdg_home("XDG_STATE_HOME", home / ".local/state")
+            cache = xdg_home("XDG_CACHE_HOME", home / ".cache")
+            root = data / "PowerContextManaged"
+            return cls(
+                root / "programs",
+                config / "PowerContextManaged",
+                state / "PowerContextManaged",
+                cache / "PowerContextManaged",
+                default_data_dir(),
+            )
         raise OpsError("unsupported_platform")
 
     def as_dict(self) -> dict[str, str]:
