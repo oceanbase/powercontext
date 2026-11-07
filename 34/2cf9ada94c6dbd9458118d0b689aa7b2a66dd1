@@ -1,0 +1,344 @@
+docs/zh/development/memory-layer.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 51-53,61-72,81-86
+tests/integration_conformance/hermes/__init__.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-15
+src/powercontext/builtin/runtime/topic_memory_scope.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 34-38,173-178
+e2e/bub/run.sh
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 155-163
+gateway/crates/pc-gateway-transport/src/sender.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 40-43,57-62,77
+gateway/crates/pc-gateway-protocol/src/lib.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 22,27
+tests/builtin/runtime/test_topic_memory_scope.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 21,35-39,41,374-407
+  s_98c1bb9fbaf7be::t_6afa41390250f0 408-411
+tests/e2e/test_atomic_memory_temporal_retention.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-367
+tests/integration_conformance/hermes/run_manager.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-108
+tests/integration_conformance/hermes/test_real_manager.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-162
+docs/zh/docs/integrations/claude-code.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 84-87
+.github/actions/setup-upgrade-oceanbase/action.yml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 11-12,19-55
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 30-34,57-60,68-70,75-77,161-171,316-340,370,377-389,402-416
+tests/builtin/artifacts/prompt/test_prompt_content.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 74
+tests/integration_conformance/hermes/support.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-369
+gateway/crates/pc-gateway-app/tests/evidence_process.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-401
+src/powercontext/http/_generated/schema.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 261,5056,5126,5202,5272,5342
+gateway/crates/pc-gateway-transport/src/retry.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 57-59
+tests/integrations/test_hermes_provider.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 635-724
+evaluation/memory/atomic_extraction/manifest.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 27
+gateway/crates/pc-gateway-core/src/lib.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 41-42
+integrations/dify/plugin/powercontext_dify/contract.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 42-43,815-816
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 18,26-29,131-153,168,171,179-185,316-322,336,339,341-343,347,350-352,663-691,754-758,771-776,802-819,826-827,840,844,1610-1751
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_7127a71deeb52a 493-494,523-524,538-539,541-542,560,654
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 136,138,145-146,156-159,172-173,178,191-194,205,211,214-215,225-226,240-241,251-252,262-264,289,292-294,296,300,302,319,322,334,336,354,356,363-364,370,378,382,386,389,393,398,402,408,411-413,415,418,420,422,429,432,446,486,519,521,525-526,561-562,569,576,586-595,601,606-613
+  s_98c1bb9fbaf7be::t_070622adc87fbb 614
+tests/test_bub_compose_startup.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 117-189
+gateway/crates/pc-gateway-app/src/link.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 32,37
+src/powercontext/builtin/processing_diagnostics.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 153-222,232-242,359-395,404
+src/powercontext/builtin/runtime/topic_memory_processing.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 111-116,593,602-636,644-659,664-671,684-691,697-704,779-793,827,844-854,908-913,1128-1132,1230,2055-2060
+  s_98c1bb9fbaf7be::t_dce004ab62514d 2061-2062
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 214-215,1368-1369,2464-2465,2881-3313,3518,3523-3712
+docs/en/docs/integrations/claude-code.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 89-94
+desktop/src-tauri/src/connections/compatibility.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 661-662,808-809,1142-1184
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 28,58-61,78,168,172-214
+  s_98c1bb9fbaf7be::t_474fcf532666f0 215-216
+src/powercontext/server/atomic_memory.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 66
+tests/test_e2e_workflow_contract.py
+  s_98c1bb9fbaf7be::t_7127a71deeb52a 17,115,117
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 153-165,240,260,277
+  s_98c1bb9fbaf7be::t_9ee228114bc3a0 114,116,166-239,241-259,261-276,278-283
+docs/en/docs/integrations/codex.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 124,212-244
+gateway/crates/pc-gateway-evidence/src/output.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-188
+gateway/crates/pc-gateway-app/Cargo.toml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 37
+src/powercontext/builtin/artifacts/topic_memory/generation.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 29-34,41-47,153-165,488-499
+gateway/crates/pc-gateway-evidence/src/lib.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 15,17-18,21,26,31-102,105-113,115-121,125-186,188-190,192-193,202,208,215,218,221-224,229,234-235,238-245,247-248,250-277
+tests/e2e/test_atomic_memory_unrelated_reconciliation.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 140-141,165,177-245
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 6-7
+gateway/crates/pc-gateway-app/src/evidence_diagnostics.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-161
+tests/integration_conformance/hermes/model_stub.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-105
+gateway/CAPACITY_VALIDATION.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 6-8,10,18,62-64,74-82
+gateway/crates/pc-gateway-evidence/tests/output.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-306
+gateway/crates/pc-gateway-protocol/tests/content_boundary.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-174
+scripts/check_atomic_memory_migration_shards.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 25-26,30,69,80,87,97,102
+website/package.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 7
+.github/oceanbase-migration-durations.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-67
+scripts/run_atomic_memory_clean_migration.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 21-23,26,30-31,51-82,84,86-94,98,121,146,160-163,168,175,200,206-209
+tests/builtin/runtime/test_topic_memory_fragment_reduction.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 51-55,228,230-236,299-348
+tests/builtin/runtime/test_topic_memory_work_budget.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 47-51,226,228-240,647-708
+  s_98c1bb9fbaf7be::t_b7f527c220e098 709-712
+docs/en/docs/operate/meta.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 16
+scripts/oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-245
+docs/zh/docs/integrations/openclaw.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 39-72,79
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-221
+website/next.config.mjs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 24-25
+gateway/crates/pc-gateway-transport/tests/buffer_limit_nonstreaming.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 59-66
+tests/test_api_contract.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 21,952-974
+  s_98c1bb9fbaf7be::t_3666b3f997dcf7 975-976
+.github/ci-paths.toml
+  s_98c1bb9fbaf7be::t_7127a71deeb52a 82
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 31,53,77,98,131,137
+docs/zh/docs/operate/gateway-evidence.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-208
+docs/en/docs/workflows/manage-prompts.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 17-18,20-22
+docs/zh/development/processing-failures.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 21,36-37,51,58,72-85,89-90
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261029-19539511-7452a4ba/report.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-78
+docs/zh/docs/operate/configuration.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 33-34
+docs/zh/docs/operate/meta.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 16
+docs/en/development/processing-failures.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 22,38-39,57,64,78-92,97-98
+tests/e2e/test_atomic_memory_reconciliation_retry.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 22-23,27,30,70,168-396
+docs/en/docs/integrations/openclaw.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 39-76,85
+tests/test_hook_characterization.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 34,216,304-322
+  s_98c1bb9fbaf7be::t_dd80e592b38447 323-324
+src/powercontext/builtin/artifacts/atomic_memory/temporal.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-102
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261029-19539511-7452a4ba/run-manifest.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-40
+docs/en/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_7127a71deeb52a 79-80
+gateway/crates/pc-gateway-evidence/Cargo.toml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 23
+src/powercontext/builtin/runtime/composition.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 45,1701
+gateway/Cargo.toml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 44
+docs/zh/docs/integrations/pi.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 40-41
+gateway/crates/pc-gateway-protocol/src/content.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-257
+integrations/pi/plugins/powercontext/src/recall.ts
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 60
+gateway/crates/pc-gateway-types/src/lifecycle.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-47
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 31,41,107-123,170-180,182-185,196,270-277,344,348,352-362,365,434-436,486,493,591-593,688,711,715,723-733,736,745-755,778-780,810-811
+docs/en/docs/integrations/pi.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 40-42
+desktop/src-tauri/src/transport/operations.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 2
+tests/builtin/artifacts/atomic_memory/test_temporal_evidence.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-188
+tests/builtin/runtime/test_processing_scheduler.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 32-37,42,818-820,869-913
+  s_98c1bb9fbaf7be::t_b305095ddc16e4 914-915
+gateway/crates/pc-gateway-types/src/lib.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 15,18,21,26
+gateway/EVIDENCE_VALIDATION.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-154
+gateway/crates/pc-gateway-app/src/main.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 27-29,40,49,81,87-91,122-153,180,193,303-304
+src/powercontext/builtin/runtime/atomic_memory_processing.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 47,57,70,461,509,525,528-530,557-561,660,663-709,1023-1041
+  s_98c1bb9fbaf7be::t_0b3ebb141eaa18 1042-1043
+docs/en/docs/operate/gateway-evidence.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-222
+tests/integration_conformance/hermes/test_isolation.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-112
+tests/builtin/test_processing_diagnostics.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 36-41,62,418-536
+.pre-commit-config.yaml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 13
+gateway/crates/pc-gateway-protocol/Cargo.toml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 25
+docs/en/blog/posts/harbor-context-evaluation-harness.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-82
+docs/en/docs/operate/deploy-server.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 212-224
+docs/en/development/memory-layer.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 52-57,65-80,92-101
+src/powercontext/builtin/persistence/topic_memory_budget.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 40-45,100-143,150-154,299-303,321-324,330,333-334,343-347,382-386
+src/powercontext/builtin/runtime/artifact_processing.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 66-71,1335,1337-1338,1348,1632-1639
+docs/zh/docs/operate/deploy-server.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 195-205
+gateway/crates/pc-gateway-app/src/proxy.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 60
+.github/workflows/upgrade-release.yml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 129
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 203-211,217
+tests/builtin/runtime/test_topic_memory_processing.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 104-108,1716,1719-1727
+  s_98c1bb9fbaf7be::t_4d1b6b6af11501 1728
+gateway/crates/pc-gateway-core/src/evidence.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-164
+tests/integration_conformance/hermes/conftest.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-26
+tests/integration_conformance/hermes/README.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-119
+docs/zh/docs/integrations/hermes.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 91-124
+docs/zh/docs/workflows/manage-prompts.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 15-18
+tests/builtin/artifacts/memory/test_prompts.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 55
+gateway/crates/pc-gateway-app/src/authentication.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-74
+src/powercontext/builtin/artifacts/prompt/builtin.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 122
+docs/en/docs/operate/observability.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 13-16,587-589
+desktop/ui/src/generated/operations.ts
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 18
+tests/e2e/test_atomic_memory_vector_index.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 39,194-275
+  s_98c1bb9fbaf7be::t_01288672685bcf 276-277
+tests/e2e/test_worker_otlp.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 309-326
+tests/integration_conformance/__init__.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 15
+desktop/VALIDATION.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 560-586,2466-2508
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261101-review-2359-v2-glm/report.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-23
+pyproject.toml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 223
+tests/e2e/test_rfc2086_transport_acceptance.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 50,56
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261029-19539511-7452a4ba/report.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-23
+tests/e2e/test_kimi_code_host.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 259-260
+tests/test_managed_resource_producer.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 544-546
+docs/zh/docs/operate/observability.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 14-17,517-519
+gateway/README.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 15,29,33,76,109
+tests/test_ci_changes.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 87-89,91
+  s_98c1bb9fbaf7be::t_98618356b738a6 90
+openapi/powercontext.yaml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 299,4620,4669,4724,4773,4828
+.github/workflows/build-artifacts.yml
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 103
+tests/e2e/test_worker_logging.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 386,389-399,419,445,451-454,475-481,656-661,675-679,690-694
+gateway/crates/pc-gateway-app/src/evidence_body.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-232
+docs/en/docs/integrations/hermes.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 95-132
+integrations/pi/plugins/powercontext/tests/extension.spec.ts
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 103,474
+tests/e2e/test_blog_site.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 136-140
+evaluation/memory/atomic_extraction/cases/atomic-extraction-v2.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-177
+tests/e2e/test_gateway_authentication.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-281
+gateway/crates/pc-gateway-core/src/lifecycle.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 20,39-40,65-66,123-132,156
+tests/builtin/artifacts/atomic_memory/test_reconciliation.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 25,27-31,46-88
+  s_98c1bb9fbaf7be::t_b88f90c134ef9b 89-90
+tests/e2e/test_atomic_memory_language_live.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 36,49,136,145
+docs/zh/blog/posts/harbor-context-evaluation-harness.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-82
+evaluation/memory/atomic_extraction/README.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 15-19
+docs/zh/docs/integrations/codex.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 104-105,179-209
+gateway/crates/pc-gateway-app/tests/capacity_process.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 30,113-118,135-136,147-149,203,206-209,258-269,271-273,484-498,526-528,532-583
+tests/builtin/persistence/test_topic_memory.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 79-83,1618-1644,1667-1669,1677-1681
+tests/e2e/test_artifact_tags.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 45-84,284-292
+tests/test_upgrade_release_gate.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 963-964
+docs/en/docs/operate/configuration.md
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 38-39
+gateway/crates/pc-gateway-transport/tests/usage_timing.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-214
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261101-review-2359-v2-glm/report.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-76
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261101-review-2359-v2-glm/run-manifest.json
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-38
+tests/integration_conformance/hermes/compaction.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 1-197
+gateway/crates/pc-gateway-transport/src/reqwest_transport.rs
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 27,75,107,109,114-119,122-123,127-131,137-138,143-144,157-189,193,200-210
+src/powercontext/server/app.py
+  s_98c1bb9fbaf7be::t_30cf5d7a927142 3153,3166,3197,3209,3241
+docs/zh/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_8549fd6b2f8baf 79-80
+gateway/Cargo.lock
+  s_98c1bb9fbaf7be::t_b008253a1079ba 649,685
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "342cf9ada94c6dbd9458118d0b689aa7b2a66dd1",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
