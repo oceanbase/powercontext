@@ -120,7 +120,7 @@ locator 会经过 Candidate 负载、Artifact 血缘、Handoff 引用、HTTP/MCP
 同一 Source 的不同位置是不同的引用。缺失的 locator 在序列化时仍被省略，已有记录及其规范编码保持兼容。
 精确 Artifact Revision 校验及 Source 使用资格校验继续生效。
 
-Server 数据库修订 `v1_4_1_006` 增加可选的 `pc_artifact_source_locators` 关系表，按现有 Artifact Revision
+Server 数据库修订 `v1_5_0_004` 增加可选的 `pc_artifact_source_locators` 关系表，按现有 Artifact Revision
 及来源引用序号关联。已有托管数据库须在 Server 启动前按[数据库迁移流程](../operate/database-migrations.md)升级；
 迁移不会重写已有血缘行或历史负载。Atomic Memory 向量绑定记忆内容，不包含这份血缘位置元数据，因此升级不会导致既有向量失效，
 也无需重新嵌入。Handoff 内容中新增 locator 时，内容摘要随之变化，与其他内容修改一致。

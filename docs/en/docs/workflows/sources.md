@@ -129,7 +129,7 @@ export/restore. Distinct positions in the same Source remain distinct citations.
 in serialized references, preserving existing records and canonical encodings. Exact Artifact Revision and Source
 eligibility checks still apply.
 
-Server database revision `v1_4_1_006` adds the optional `pc_artifact_source_locators` relation keyed by the existing
+Server database revision `v1_5_0_004` adds the optional `pc_artifact_source_locators` relation keyed by the existing
 Artifact Revision and Source-edge ordinal. Upgrade existing managed databases through the normal
 [database migration workflow](../operate/database-migrations.md) before Server startup; existing lineage rows and
 historical payloads are not rewritten. Atomic Memory embeddings are bound to its content, not this lineage metadata,

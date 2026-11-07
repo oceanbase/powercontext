@@ -541,7 +541,12 @@ The historical Server c535d816 protocol qualification below records the specific
 
 ## Compatibility scope
 
-[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The bundled contract combines Source locators and Atomic Memory descriptions and has no matching product qualification record. `sqlite-atomic-cc5980f0-v1` retains its original ten-operation qualification below. The `sqlite-atomic-dd62723d-v1` and `sqlite-atomic-4ffdf4e9-v1` records retain their migration-framework and release-preparation source qualifications with their original contract digest. Other historical records also retain their exact identities and evidence. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest are disabled in the selector, and saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
+[compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source,
+normalized OpenAPI contract digest, qualification-wheel digest and operation set.
+`sqlite-locators-ccfa6f4d-v1` matches the bundled contract and qualifies its thirteen operations
+for the exact Server source and wheel recorded below. Historical records retain their original
+identities, operation sets and evidence. Selecting a record does not qualify another Server source.
+CI fixture identities remain distinct from product qualification.
 
 [compatibility.json](src-tauri/src/connections/compatibility.json) preserves each recorded Server source, normalized OpenAPI contract digest, qualification-wheel digest and operation set. The `sqlite-atomic-112db11e-v1` record qualifies its eleven recorded SQLite protocol operations against the exact Server source and wheel below. Separate `authenticatedClients` evidence qualifies those operations for the current client contract in Bearer mode with a valid Principal; it does not replace the original Server contract or qualify anonymous access. Historical records retain their exact identities and evidence, including the separate `sqlite-atomic-1da99747-linux-v1` qualification. Ordinary builds require explicitly selecting the record whose tested Server source and wheel match the deployment, then checking the connection before business operations become available. Records with a different contract digest remain disabled unless separate authenticated-client evidence covers the current contract and selected authentication mode. Saved unavailable selections remain visible until explicitly replaced. Selecting a profile does not extend its recorded operation set or qualify a different Server source. CI builds have their own artifact identities and do not change product qualification.
 
@@ -2482,3 +2487,43 @@ All 736 packaged runtime files match the recorded Git source bytes. Evidence is 
 under ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
 This record covers local SQLite protocol behavior. It does not establish installed UI,
 native credential persistence, Windows execution, external production acceptance or release readiness.
+
+
+#### Server ccfa6f4d protocol qualification
+
+`sqlite-locators-ccfa6f4d-v1` qualifies Server source
+`ccfa6f4d221f78b38c5e6a76f21535eb40100226` with OpenAPI digest
+`18af205a886552b6c2d9f41fb72a52cbf4453ddc70a98a47103212b4c16f2a6f`.
+The wheel is `powercontext-0.1.dev1471+gccfa6f4d2-py3-none-any.whl`, SHA-256
+`1229552d6e8054c2ee3fbb22eb143ae56ea996fa8fe2fe5873a2474b0ddf6a6c`.
+All 743 packaged runtime files match the recorded Git source bytes, with no missing or extra files.
+The sorted runtime manifest digest is
+`a9bf3cc8f6b440283d945e3ba60cef7ed0e2f1803d9e1c9f25379bedf3088d3b`
+(one `wheel/path sha256` line per file, with a final newline).
+
+On 2026-11-07, macOS 26.6.2 ARM64 with Python 3.13.12 ran the unchanged
+`desktop/tests/real_server.py` against this extracted wheel and independent SQLite Server processes.
+Anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and injected-provider/enforced-access
+modes passed. The thirteen catalogued operations include connection identity, Server discovery,
+statistics, Scope selection, Memory save/search and exact revision reads. The harness also checks
+committed writes with lost responses without replay and Server survival after client exit. The provider
+mode verifies identity changes, same-identity revocation, 51 same-title Scopes and scoped authorization.
+
+The native probe was built from the product Cargo lock without `ci-fixtures`. Its SHA-256 is
+`22218a7f37312264a9912b24dd5252edab70b77884274045e27e5ee8eef17020`.
+The report records Desktop commit `ccfa6f4d221f78b38c5e6a76f21535eb40100226` and a dirty working tree
+containing the added qualification record, UI test fixture and documentation updates. Runtime source
+bytes match the recorded commit. Ignored run evidence is retained in `desktop/.artifacts/real-server.json`.
+
+Reproduce using the recorded wheel and the client containing this qualification record:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-locators-ccfa6f4d-v1 \
+  --wheel desktop/.artifacts/server-wheel/powercontext-0.1.dev1471+gccfa6f4d2-py3-none-any.whl
+```
+
+本记录绑定上述精确源码、契约和 wheel，743 个运行时文件逐字节核对一致，四种独立真实 SQLite／HTTP
+连接模式全部通过。该记录验证所列协议操作；定位信息升级由单独的迁移和 HTTP／MCP 回归测试覆盖。
+它不替代安装后 GUI、原生凭据持久化、Windows／Intel、签名或 seekDB／OceanBase 升级验收。
