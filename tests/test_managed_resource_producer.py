@@ -560,7 +560,9 @@ def test_native_candidate_is_consumed_and_runs_independent_ops(native_candidates
         ],
         cwd=_ROOT,
         check=True,
-        timeout=300,
+        # Leave room for the launcher and Ops phase deadlines, archive I/O,
+        # and writing failure evidence before the outer process is stopped.
+        timeout=1200,
     )
 
 

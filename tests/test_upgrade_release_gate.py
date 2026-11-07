@@ -961,6 +961,7 @@ def _process_identity(pid: int) -> str | None:
     try:
         stat = Path(f"/proc/{pid}/stat").read_text()
     except (FileNotFoundError, ProcessLookupError):
+        # Linux can remove the task after opening its proc entry but before reading it.
         return None
     fields = stat[stat.rfind(")") + 2 :].split()
     return fields[19] if len(fields) > 19 else None

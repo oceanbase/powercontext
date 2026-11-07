@@ -1,5 +1,5 @@
 {
-  "contractSha256": "de74d806343998bae877effb732b1606b3eb27ee9c31fbc39509ee3937fa2a4a",
+  "contractSha256": "e54d69cdcbeef19a816e92670901aacda9c7e44df289c88c18ad5ae364a6efeb",
   "operations": {
     "get_liveness": {
       "method": "GET",
@@ -45,6 +45,10 @@
       "method": "GET",
       "path": "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}"
     },
+    "get_connection_identity": {
+      "method": "GET",
+      "path": "/v1/connection/identity"
+    },
     "get_access_principal": {
       "method": "GET",
       "path": "/v1/access/me"
@@ -53,6 +57,10 @@
   "discovery": {
     "apiMajor": 1,
     "features": {
+      "connection.identity": {
+        "major": 1,
+        "minor": 0
+      },
       "access.principal": {
         "major": 1,
         "minor": 0
@@ -88,6 +96,9 @@
       ],
       "get_stats": [],
       "get_artifact_revision": [],
+      "get_connection_identity": [
+        "connection.identity"
+      ],
       "get_access_principal": [
         "access.principal"
       ]

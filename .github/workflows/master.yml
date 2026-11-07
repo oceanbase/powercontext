@@ -34,7 +34,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     name: SeekDB managed startup regression (priority)
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
       PYTHONUNBUFFERED: "1"
@@ -91,12 +91,13 @@ jobs:
     uses: ./.github/workflows/upgrade-release.yml
     with:
       selection: ${{ github.event_name == 'workflow_dispatch' && inputs.upgrade_selection || 'full' }}
+      internal_runner: true
 
   upgrade-release-gate:
     name: Upgrade release gate
     needs: [quality, upgrade-acceptance]
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - name: Require the selected parallel acceptance workflow
@@ -116,7 +117,7 @@ jobs:
     name: OceanBase engine crash recovery
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     env:
       POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_engine_crash?charset=utf8mb4
@@ -176,7 +177,7 @@ jobs:
     name: CI preflight
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     outputs:
       suites: ${{ steps.select.outputs.suites }}
       test-matrix: ${{ steps.select.outputs.test-matrix }}
@@ -199,11 +200,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_changes.py
 
+      - name: Prepare a writable license-eye prefix
+        # Install license-eye via the action's supported INSTALL_DIR override,
+        # using a user-writable path that the action resolves from PATH.
+        env:
+          LICENSE_EYE_BIN: ${{ runner.temp }}/license-eye-bin
+        run: |
+          mkdir -p "$LICENSE_EYE_BIN"
+          echo "$LICENSE_EYE_BIN" >> "$GITHUB_PATH"
+
       - name: Check License Header
         timeout-minutes: 10
         uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTALL_DIR: ${{ runner.temp }}/license-eye-bin
         with:
           config: .licenserc.yaml
           mode: check
@@ -233,7 +244,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
     # Allow the Python 3.14 end-to-end suite's subprocess tail to finish.
     timeout-minutes: ${{ matrix.suite == 'e2e' && matrix.python-version == '3.14' && 55 || 40 }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
       max-parallel: 3
@@ -295,7 +306,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
       max-parallel: 2
@@ -350,7 +361,7 @@ jobs:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').docs_tests) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -374,7 +385,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').observability) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -419,7 +430,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').evaluation) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -484,7 +495,7 @@ jobs:
     # before migrations (40m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
     timeout-minutes: 80
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -633,7 +644,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     name: Atomic Memory clean migration (SeekDB)
     timeout-minutes: 55
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
       PYTHONUNBUFFERED: "1"
@@ -790,6 +801,7 @@ jobs:
           tests/builtin/runtime/test_external_skills.py
           tests/test_cli.py::test_remote_enroll_can_install_automatic_service_in_one_command
           tests/test_openclaw_cli.py::test_build_openclaw_plugin_runs_pnpm_install_non_interactively
+          tests/test_cli_minimax.py
           tests/test_opencode_cli.py
           tests/test_service.py
           tests/test_service_bootstrap.py
@@ -799,7 +811,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dify) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -865,7 +877,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').hermes) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -892,7 +904,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').dsh) }}
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -913,6 +925,9 @@ jobs:
 
       - name: Test DSH package
         run: make js-test
+
+      - name: Verify DSH npm archive installation
+        run: node --test integrations/dsh/plugins/powercontext/tests/pack-release.test.mjs
 
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
@@ -939,7 +954,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').cindy) }}
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -982,7 +997,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').pi) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1011,7 +1026,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1035,7 +1050,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').openclaw) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1061,7 +1076,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opendal) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1107,7 +1122,7 @@ jobs:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -1189,6 +1204,16 @@ jobs:
       # Linux is optional under #2112. Its diagnostics and artifacts remain
       # visible, but it is deliberately outside the required result gate.
       targets: '["linux-x86_64"]'
+
+  script-installation:
+    needs: [quality, tests]
+    if: >-
+      ${{ !cancelled() && needs.quality.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
+          (fromJSON(needs.quality.outputs.suites || '{}').packaging) }}
+    uses: ./.github/workflows/installation.yml
+    with:
+      suites: ${{ needs.quality.outputs.suites }}
 
   native-service:
     needs: [quality, tests]
@@ -1291,6 +1316,7 @@ jobs:
       - desktop-validation
       - managed-resource-candidates
       - helm
+      - script-installation
       - native-service
       - kimi-acceptance
       - zcode-acceptance
@@ -1329,7 +1355,7 @@ jobs:
     name: Helm deployment contracts
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').helm) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

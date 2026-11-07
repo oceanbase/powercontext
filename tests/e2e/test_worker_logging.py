@@ -383,9 +383,20 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
     if assignment.scope_id == "denied":
         raise AccessDeniedError()
     if assignment.scope_id == "blocked":
-        raise ArtifactProcessingBlockedError(
+        blocked = ArtifactProcessingBlockedError(
             ArtifactProcessingBlock("frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),))
         )
+        attach_diagnostics(
+            blocked,
+            ProcessingDiagnostics(
+                stage=ProcessingStage.GENERATION,
+                reason=ProcessingFailureReason.USAGE_LIMIT,
+                estimated_input_tokens=123,
+                effective_budget=100,
+                failure_location="window_attempt_limit",
+            ),
+        )
+        raise blocked
     return ArtifactProcessingWorkerCompletion()
 
 
@@ -405,7 +416,7 @@ def _logging_worker(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
     ],
 )
 def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
-    capfd, tmp_path, scope_id, category, outcome
+    capfd, caplog, tmp_path, scope_id, category, outcome
 ) -> None:
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
@@ -431,12 +442,16 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
                 bindings=(binding,),
                 lease_mode="single-process",
                 tracing=tracing,
-            ):
+            ) as supervisor:
                 async with asyncio.timeout(30):
                     while not any(  # noqa: ASYNC110 - bounded polling of exported observations
                         span.name == "artifact_processing.worker" for span in exporter.get_finished_spans()
                     ):
                         await asyncio.sleep(0.01)
+                    if outcome == "blocked":
+                        # The worker span can end before the supervisor handles the result.
+                        while not supervisor.family_status["memory"]["blocked"]:  # noqa: ASYNC110 - bounded polling
+                            await asyncio.sleep(0.01)
             async with profile.database.transaction() as connection:
                 intent = await intents.load(connection, scope_id, binding_name)
                 assert intent is not None and intent.requested_generation > intent.handled_generation
@@ -457,6 +472,13 @@ def test_supervisor_traces_preserve_spawned_worker_failure_semantics(
         assert _PRIVATE not in captured.out + captured.err + repr([dict(span.attributes or {}) for span in spans])
         terminal = [record for record in _json_records(captured.out) if record.get("duration_ms") is not None]
         assert terminal and terminal[-1]["error_category"] == category
+        if outcome == "blocked":
+            blocked = next(r for r in caplog.records if getattr(r, "event", None) == "artifact_processing.blocked")
+            worker_span = next(span for span in spans if span.name == "artifact_processing.worker")
+            assert worker_span.context is not None
+            assert blocked.trace_id == f"{worker_span.context.trace_id:032x}"
+            assert blocked.estimated_input_tokens == 123
+            assert blocked.effective_budget == 100
     finally:
         tracing.shutdown()
 
@@ -631,6 +653,12 @@ def test_spawned_worker_preserves_blocked_diagnostics_and_control_result(capfd, 
             assert failure.block == ArtifactProcessingBlock(
                 "frontier", "topic_memory", "window_attempt_limit", (("attempts", 3),)
             )
+            assert failure.diagnostics is not None
+            assert failure.diagnostics.stage is ProcessingStage.GENERATION
+            assert failure.diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
+            assert failure.diagnostics.estimated_input_tokens == 123
+            assert failure.diagnostics.effective_budget == 100
+            assert failure.diagnostics.failure_location == "window_attempt_limit"
         finally:
             await handle.terminate()
 
@@ -644,6 +672,11 @@ def test_spawned_worker_preserves_blocked_diagnostics_and_control_result(capfd, 
         assert terminal["level"] == "WARNING" and terminal["outcome"] == "blocked"
         assert terminal["error_category"] == "blocked" and terminal["error_code"] == "window_attempt_limit"
         assert terminal["stage"] == "topic_memory" and terminal["worker_id"] == "blocked-attempt"
+        assert terminal["processing_stage"] == "generation"
+        assert terminal["failure_reason"] == "usage_limit"
+        assert terminal["estimated_input_tokens"] == 123
+        assert terminal["effective_budget"] == 100
+        assert terminal["failure_location"] == "window_attempt_limit"
     else:
         terminal_line = captured.out.splitlines()[-1]
         assert " WARNING " in terminal_line
@@ -654,6 +687,11 @@ def test_spawned_worker_preserves_blocked_diagnostics_and_control_result(capfd, 
             'error_code="window_attempt_limit"',
             'stage="topic_memory"',
             'worker_id="blocked-attempt"',
+            'processing_stage="generation"',
+            'failure_reason="usage_limit"',
+            "estimated_input_tokens=123",
+            "effective_budget=100",
+            'failure_location="window_attempt_limit"',
         ):
             assert field in terminal_line
 
