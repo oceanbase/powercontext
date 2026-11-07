@@ -285,6 +285,55 @@ def test_malformed_stats_response_reports_invalid_response(
     ]
 
 
+@pytest.mark.parametrize("framing", ["chunked", "content-length"])
+@pytest.mark.parametrize("status", [pytest.param(503, id="error-body"), pytest.param(200, id="success-body")])
+def test_truncated_stats_response_reports_server_unavailable(
+    token_savings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    framing: str,
+) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            if self.path == "/v1/scope-bindings/resolve":
+                body = json.dumps({"scope_id": "project:test"}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            # Close the connection inside the body, before the length its framing announced.
+            body = b'{"error":{"code":'
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            if framing == "chunked":
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                self.wfile.write(b"%x\r\n" % (len(body) + 32) + body)
+            else:
+                self.send_header("Content-Length", str(len(body) + 32))
+                self.end_headers()
+                self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    with _serve(Handler) as server_url:
+        output = _run_main(token_savings_module, monkeypatch, _settings(token_savings_module, server_url))
+
+    assert _diagnostics(output) == [
+        {
+            "component": "powercontext.codex.token_savings",
+            "event": "status",
+            "outcome": "server_unavailable",
+            "recovery": "powercontext doctor",
+        }
+    ]
+
+
 def test_diagnostics_are_throttled_across_hook_invocations(
     token_savings_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -580,31 +629,35 @@ def test_slow_scope_response_respects_the_absolute_budget(
 
 
 @pytest.mark.parametrize(
-    ("status", "outcome"),
+    ("status", "body", "outcome", "http_status", "error_code"),
     [
-        (401, "authentication_failed"),
-        (404, "version_mismatch"),
-        (500, "invalid_response"),
-        (503, "server_unavailable"),
+        (401, {"error": {"code": "failure"}}, "authentication_failed", None, None),
+        (404, {"detail": "Not Found"}, "version_mismatch", 404, None),
+        (404, {"error": {"code": "scope_not_found"}}, "invalid_response", 404, "scope_not_found"),
+        (500, {"error": {"code": "failure"}}, "invalid_response", 500, "failure"),
+        (503, {"error": {"code": "failure"}}, "server_unavailable", 503, None),
     ],
 )
 def test_scope_binding_failures_are_classified(
     token_savings_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     status: int,
+    body: dict[str, object],
     outcome: str,
+    http_status: int | None,
+    error_code: str | None,
 ) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             assert self.path == "/v1/scope-bindings/resolve"
-            body = json.dumps({"error": {"code": "failure"}}).encode()
+            encoded = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(encoded)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             pass
@@ -614,6 +667,8 @@ def test_scope_binding_failures_are_classified(
 
     events = _diagnostics(output)
     assert [event["outcome"] for event in events] == [outcome]
+    assert events[0].get("http_status") == http_status
+    assert events[0].get("error_code") == error_code
 
 
 def test_scope_response_body_respects_the_per_request_timeout(

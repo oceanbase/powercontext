@@ -219,19 +219,22 @@ native MCP URL; the host's own MCP policy still applies. See [Connect to a remot
 ## Understand failure behavior
 
 Recall and capture are independent and fail open. A failed recall does not prevent prompt capture, and a failed
-capture does not remove valid recalled context. In every case Claude Code continues processing the current prompt.
+capture does not remove valid recalled context. Both need the current Scope: when Scope resolution fails, the Hook
+neither recalls nor captures and reports the failure as a `scope_resolve` event. In every case Claude Code continues
+processing the current prompt.
 
 | Condition | Hook behavior |
 | --- | --- |
 | Empty Prepared Context | Injects nothing and records the `empty` outcome |
 | HTTP 401 | Injects nothing and records `authentication_failed` |
-| HTTP 404 | Injects nothing and records `version_mismatch` |
+| HTTP 404 without an error code from a required route | Injects nothing and records `version_mismatch` |
 | HTTP 503 or unavailable Server | Injects nothing and records `server_unavailable` |
+| Another HTTP error, including a coded 404 such as `scope_not_found` | Injects nothing and records `invalid_response` with the status and any error code |
 | Unknown schema, malformed JSON, or oversized response | Injects nothing and records `invalid_response` |
 
-Diagnostics contain the outcome and safe numeric metadata only. They omit the prompt, scope, prepared content,
-Authorization value, and response body. The plugin rejects redirects and enforces both response-size and wall-clock
-limits.
+Diagnostics contain only the outcome, safe numeric metadata, and any error code the Server returned. They omit the
+prompt, scope, prepared content, Authorization value, and response body. The plugin rejects redirects and enforces
+both response-size and wall-clock limits.
 
 ## Diagnose or roll back
 
