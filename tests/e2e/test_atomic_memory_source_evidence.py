@@ -22,8 +22,9 @@ from dataclasses import replace
 from typing import cast
 
 import pytest
-from pydantic import Field, field_serializer, field_validator
-from sqlalchemy import event, text, update
+from pydantic import BaseModel, Field, field_serializer, field_validator
+from sqlalchemy import Select, event, text, update
+from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import SQLAlchemyError
 
 from powercontext.artifacts import ArtifactLineage
@@ -49,7 +50,15 @@ from powercontext.builtin.runtime.atomic_memory_rebuild import (
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION
-from powercontext.sources import AdapterSourceDefinition, SourceDefinitionRegistry, SourceMaterialization, SourceRef
+from powercontext.sources import (
+    TEXT_EVIDENCE_PROJECTION_KEY,
+    AdapterSourceDefinition,
+    LocatedTextEvidence,
+    SourceDefinitionRegistry,
+    SourceMaterialization,
+    SourceRef,
+    SourceSequenceLocator,
+)
 from powercontext.sources.evidence import MemoryEvidenceDeclaration
 from powercontext.sources.observations import manifest_for_definition, project_source_for_transport
 from tests.builtin.persistence.contract import NoteAdapter, NoteInput, NoteSource
@@ -75,6 +84,79 @@ async def _commit(contexts, scope_id, artifact_id, text_value, *, sources=(), ar
     async with contexts.database.transaction() as connection:
         result = await application.service.commit(connection, prepared, None)
     return result.primary
+
+
+@pytest.mark.parametrize("representation", ["native", "observation"])
+def test_accepted_adapter_sequence_can_finish_memory_window(migration_backend, representation) -> None:
+    class SequenceAdapter(NoteAdapter):
+        async def read(self, source, /):
+            return LocatedTextEvidence(
+                source_type=self.name,
+                source_id=source.name,
+                content=source.body,
+                locator=SourceSequenceLocator(sequence=0),
+            )
+
+    adapter = SequenceAdapter()
+
+    class SequenceProjection:
+        name = TEXT_EVIDENCE_PROJECTION_KEY.name
+        version = TEXT_EVIDENCE_PROJECTION_KEY.version
+        source_class: type[NoteSource] = NoteSource
+        output_class: type[BaseModel] = LocatedTextEvidence
+
+        def project(self, source, /):
+            return LocatedTextEvidence(
+                source_type=adapter.name,
+                source_id=source.name,
+                content=source.body,
+                locator=SourceSequenceLocator(sequence=0),
+            )
+
+    definition = AdapterSourceDefinition(adapter, projections=(SequenceProjection(),))
+    worker = SourceDefinitionRegistry((definition,))
+
+    class Extractor:
+        async def generate(self, request):
+            return GenerationResult(
+                output=AtomicMemoryExtractionOutput(
+                    candidates=(
+                        AtomicMemoryCandidate(
+                            kind="fact",
+                            text="Preserve the accepted remote fact.",
+                            description="Accepted source evidence",
+                            evidence_ids=tuple(item.evidence_id for item in request.evidence),
+                        ),
+                    )
+                )
+            )
+
+    async def scenario():
+        config = BuiltinConfig(database=migration_backend.config)
+        registry = worker if representation == "native" else SourceDefinitionRegistry(())
+        async with open_builtin_contexts(
+            config, source_registry=registry, candidate_pipeline=atomic_memory_pipeline(Extractor())
+        ) as contexts:
+            context = await contexts.get("scope")
+            source = await worker.resolve(NoteInput(note_id="accepted", body="Preserve the accepted remote fact."))
+            if representation == "observation":
+                await contexts.register_source_definition(manifest_for_definition(definition))
+                await contexts.submit_source_observation(
+                    SubmitSourceObservation(scope_id="scope", observation=project_source_for_transport(worker, source))
+                )
+            else:
+                await context.sources.add(source)
+            flush = await context.triggers.flush(limit=1)
+            assert flush.source_count == 1 and not flush.remaining_work
+            assert flush.current_cursor == 1
+            memory = contexts.atomic_memory.for_scope("scope")
+            (record,) = (await memory.list()).items
+            assert record.artifact.lineage.sources == (
+                SourceRef(source_type=adapter.name, source_id=source.name, locator=SourceSequenceLocator(sequence=1)),
+            )
+            assert not (await context.triggers.flush(limit=1)).processed
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("declared", [False, True])
@@ -498,5 +580,33 @@ def test_current_rebuild_accepts_the_configured_source_registry(migration_backen
                 )
             assert report.ready, report.errors
             assert await memory.evidence("rebuild", revision=1) == expected
+
+    asyncio.run(scenario())
+
+
+def test_current_rebuild_locks_authoritative_heads(migration_backend: MigrationBackend) -> None:
+    """Check emitted locking semantics; SQLite execution does not certify native row locks."""
+
+    async def scenario():
+        async with open_builtin_contexts(BuiltinConfig(database=migration_backend.config)) as contexts:
+            await _commit(contexts, "scope", "locked-rebuild", "Retain the current head.")
+            head_reads = []
+
+            def capture(_connection, clause, _multiparams, _params, _options):
+                if not isinstance(clause, Select):
+                    return
+                statement = str(clause.compile(dialect=mysql.dialect()))
+                if "pc_artifact_heads LEFT OUTER JOIN pc_artifacts" in statement:
+                    head_reads.append(statement)
+
+            engine = contexts.database.engine.sync_engine
+            event.listen(engine, "before_execute", capture)
+            try:
+                async with contexts.database.transaction() as connection:
+                    report = await rebuild_atomic_memory_current(connection, contexts.atomic_memory.index)
+                assert report.ready, report.errors
+            finally:
+                event.remove(engine, "before_execute", capture)
+            assert head_reads and head_reads[0].endswith("FOR UPDATE")
 
     asyncio.run(scenario())

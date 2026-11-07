@@ -35,6 +35,7 @@ from powercontext.sources import (
     SourceProjectionKey,
     SourceProjectionValue,
     SourceRef,
+    SourceSequenceLocator,
     TextEvidence,
     project_source_for_transport,
 )
@@ -119,7 +120,9 @@ def test_native_source_body_is_serialized_once() -> None:
 
         assert evidence.evidence_id == "source:1"
         assert evidence.journal_position == 1
-        assert evidence.source_ref == SourceRef(source_type="content", source_id="turn-1")
+        assert evidence.source_ref == SourceRef(
+            source_type="content", source_id="turn-1", locator=SourceSequenceLocator(sequence=1)
+        )
         assert isinstance(evidence.content, dict)
         assert evidence.content["content"] == BODY
 
@@ -149,7 +152,9 @@ def test_projected_observation_body_is_serialized_once() -> None:
 
         assert evidence.evidence_id == "source:1"
         assert evidence.journal_position == 1
-        assert evidence.source_ref == SourceRef(source_type="content", source_id="turn-1")
+        assert evidence.source_ref == SourceRef(
+            source_type="content", source_id="turn-1", locator=SourceSequenceLocator(sequence=1)
+        )
         assert isinstance(evidence.content, dict)
         assert evidence.content["content"] == BODY
 

@@ -14,9 +14,9 @@
 
 """Standard named projection schemas understood without Source plugin code."""
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from powercontext.sources.models import SourceProjectionKey
+from powercontext.sources.models import SourceLocator, SourceProjectionKey
 
 TEXT_EVIDENCE_PROJECTION_KEY = SourceProjectionKey(name="powercontext.text-evidence", version="1")
 
@@ -24,10 +24,23 @@ TEXT_EVIDENCE_PROJECTION_KEY = SourceProjectionKey(name="powercontext.text-evide
 class TextEvidence(BaseModel):
     """Canonical JSON shape consumed as textual Artifact evidence."""
 
+    # Definitions already registered with this shape keep their immutable
+    # manifest identity when consumers gain support for richer text evidence.
+    model_config = ConfigDict(title="TextEvidence")
+
     source_type: str
     source_id: str
     content: str
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-__all__ = ["TEXT_EVIDENCE_PROJECTION_KEY", "TextEvidence"]
+TextEvidenceV1 = TextEvidence
+
+
+class LocatedTextEvidence(TextEvidence):
+    """Canonical JSON shape consumed as textual Artifact evidence."""
+
+    locator: SourceLocator | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+__all__ = ["TEXT_EVIDENCE_PROJECTION_KEY", "LocatedTextEvidence", "TextEvidence", "TextEvidenceV1"]

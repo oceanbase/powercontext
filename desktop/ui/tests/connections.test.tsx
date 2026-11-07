@@ -415,9 +415,12 @@ test("new connections offer only current-contract profiles and keep no selection
 });
 test("a saved authenticated legacy profile remains selectable only in its qualified authentication mode", async () => {
   const user = userEvent.setup();
-  const legacy = qualifications.find(
-    (p) => p.id === "sqlite-atomic-112db11e-v1",
-  )!;
+  const legacy: CompatibilityProfile = {
+    ...qualifications.find((p) => p.id === "sqlite-atomic-112db11e-v1")!,
+    authenticatedClients: {
+      [contractSha256]: "Synthetic authenticated client qualification",
+    },
+  };
   const saved = { ...profile, compatibility: legacy.id };
   vi.mocked(desktopApi.invalidate).mockResolvedValue(state(saved));
   render(
