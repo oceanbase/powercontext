@@ -50,6 +50,28 @@ MAX_DIAGNOSTIC_BYTES = 64 * 1024
 
 
 @contextmanager
+def smoke_phase(evidence: Path, name: str) -> Iterator[None]:
+    """Persist bounded, content-free progress even if the outer process is terminated."""
+    evidence.mkdir(parents=True, exist_ok=True)
+    progress = evidence / "progress.jsonl"
+
+    def write(status: str, elapsed_seconds: float) -> None:
+        with progress.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps({"phase": name, "status": status, "elapsed_seconds": elapsed_seconds}) + "\n")
+            stream.flush()
+
+    started = time.monotonic()
+    write("started", 0)
+    try:
+        yield
+    except Exception:
+        write("failed", round(time.monotonic() - started, 3))
+        raise
+    else:
+        write("completed", round(time.monotonic() - started, 3))
+
+
+@contextmanager
 def preserve_failure(evidence: Path, workspace: Path) -> Iterator[None]:
     """Keep bounded fixture logs before temporary workspace cleanup; suppress raw errors."""
     try:
@@ -144,16 +166,19 @@ def check(candidate: Path, *, serve: bool = False, evidence_dir: Path | None = N
         preserve_failure(evidence, Path(temporary).resolve()),
     ):
         work = Path(temporary).resolve()
-        catalog_digest = (candidate / "server/catalog.sha256").read_text(encoding="utf-8").strip()
-        control = protect_directory(work / "control", create=True)
-        path = control / "catalog.json"
-        write_protected_file(path, (candidate / "server/catalog.json").read_bytes())
-        catalog = ResourceCatalog.read(path, catalog_digest)
-        spec = catalog.select_current()
-        cache = protect_directory(work / "cache", create=True)
-        shutil.copyfile(candidate / "server/server.tar.gz", cache / (spec.archive_sha256 + ".archive"))
-        prepared = ResourceStore(cache).prepare(spec, work / "staging")
-        verify(spec, prepared.directory)
+        with smoke_phase(evidence, "catalog_and_cache"):
+            catalog_digest = (candidate / "server/catalog.sha256").read_text(encoding="utf-8").strip()
+            control = protect_directory(work / "control", create=True)
+            path = control / "catalog.json"
+            write_protected_file(path, (candidate / "server/catalog.json").read_bytes())
+            catalog = ResourceCatalog.read(path, catalog_digest)
+            spec = catalog.select_current()
+            cache = protect_directory(work / "cache", create=True)
+            shutil.copyfile(candidate / "server/server.tar.gz", cache / (spec.archive_sha256 + ".archive"))
+        with smoke_phase(evidence, "prepare_resource"):
+            prepared = ResourceStore(cache).prepare(spec, work / "staging")
+        with smoke_phase(evidence, "verify_prepared"):
+            verify(spec, prepared.directory)
         moved = work / "relocated server"
         prepared.directory.rename(moved)
         if os.name != "nt":
@@ -169,10 +194,14 @@ def check(candidate: Path, *, serve: bool = False, evidence_dir: Path | None = N
         poison.mkdir()
         (poison / "powercontext.py").write_text("raise RuntimeError('checkout import leaked')\n", encoding="utf-8")
         env = {**environment(), "PATH": "", "PYTHONPATH": str(poison), "PYTHONHOME": str(poison / "missing")}
-        _server_probe(moved, spec_values, spec.server_version, env)
-        service = _serve(moved, spec, control, env) if serve else {"launcher": "help_only"}
-        verify(spec, moved)
-        check_ops(candidate / "ops")
+        with smoke_phase(evidence, "server_probe"):
+            _server_probe(moved, spec_values, spec.server_version, env)
+        with smoke_phase(evidence, "server_lifecycle"):
+            service = _serve(moved, spec, control, env) if serve else {"launcher": "help_only"}
+        with smoke_phase(evidence, "verify_relocated"):
+            verify(spec, moved)
+        with smoke_phase(evidence, "ops_inspection"):
+            check_ops(candidate / "ops")
         result = {
             "status": "candidate_smoke_passed",
             "qualified": False,

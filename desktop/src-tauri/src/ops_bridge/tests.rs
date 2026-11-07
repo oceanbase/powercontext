@@ -929,8 +929,8 @@ fn actual_independent_bundle_runs_through_native_trust_and_read_only_bridge() {
         .expect("set externally approved manifest pin");
     assert!(trust::is_digest(&pin));
     let f = Fixture::new();
-    let bundle = f.support.join("bundle");
-    fs::remove_dir_all(&bundle).unwrap();
+    fs::remove_dir_all(f.support.join("bundle")).unwrap();
+    let bundle = f.resources.join("ops");
     copy(&source, &bundle);
     fs::write(
         f.resources.join("ops-provision.json"),
@@ -971,4 +971,78 @@ fn actual_independent_bundle_runs_through_native_trust_and_read_only_bridge() {
         host.inspect().bridge_error,
         Some(OpsBridgeError::IntegrityFailure)
     );
+}
+
+#[test]
+fn packaged_ops_runs_without_a_user_provisioned_bundle_and_rejects_damage() {
+    let f = Fixture::new();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let host = f.host();
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+    assert!(!f.support.join("bundle").exists());
+    fs::write(f.resources.join("ops/entry.py"), b"corrupt").unwrap();
+    assert_eq!(
+        host.inspect().bridge_error,
+        Some(OpsBridgeError::IntegrityFailure)
+    );
+}
+
+#[test]
+fn damaged_packaged_ops_never_falls_back_to_a_user_bundle() {
+    let f = Fixture::new();
+    fs::create_dir(f.resources.join("ops")).unwrap();
+    assert!(f.host().inspect().bridge_error.is_some());
+    fs::remove_dir(f.resources.join("ops")).unwrap();
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+}
+
+#[test]
+fn packaged_ops_repairs_only_its_cache_and_preserves_it_when_app_resources_are_removed() {
+    let f = Fixture::new();
+    let original = fs::read(f.support.join("bundle/entry.py")).unwrap();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let provision: serde_json::Value =
+        serde_json::from_slice(&fs::read(f.resources.join("ops-provision.json")).unwrap()).unwrap();
+    let cache = f
+        .support
+        .join("bundles")
+        .join(provision["bundle_manifest_sha256"].as_str().unwrap());
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    let journal = f.support.join("operator-journal");
+    fs::write(&journal, b"preserve").unwrap();
+    fs::write(cache.join("entry.py"), b"damaged").unwrap();
+    assert_eq!(f.host().inspect().outcome, OpsOutcome::Succeeded);
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    let damaged = fs::read_dir(f.support.join("bundles"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("damaged-")
+        })
+        .unwrap();
+    assert_eq!(fs::read(damaged.join("entry.py")).unwrap(), b"damaged");
+    fs::remove_dir_all(&f.resources).unwrap();
+    assert_eq!(fs::read(cache.join("entry.py")).unwrap(), original);
+    assert_eq!(fs::read(journal).unwrap(), b"preserve");
+}
+
+#[test]
+fn concurrent_packaged_provisioning_returns_busy_and_can_retry() {
+    let f = Fixture::new();
+    fs::rename(f.support.join("bundle"), f.resources.join("ops")).unwrap();
+    let host = f.host();
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(f.support.join("bundles/provision.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    assert_eq!(host.inspect().bridge_error, Some(OpsBridgeError::Busy));
+    drop(lock);
+    assert_eq!(host.inspect().outcome, OpsOutcome::Succeeded);
 }
