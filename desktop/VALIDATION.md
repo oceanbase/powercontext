@@ -2596,3 +2596,32 @@ including the bundled-record Principal fence and rejected unauthenticated mode.
 All 195 UI tests, generated-contract checks, lint, TypeScript checking and the
 frontend production build pass. The native fixtures and UI tests do not establish
 installed-platform acceptance.
+
+## Server 9e3d1f11 Core target, identity, and statistics qualification
+
+`sqlite-core-target-identity-9e3d1f11-v1` qualifies the thirteen declared Desktop
+protocol operations against Server runtime sources at
+`9e3d1f11e70ee24ef6e2f1682ceed9e2c7e40c74`. The combined Core target-resolution,
+Scope validation, and statistics contract adds no Gateway authorization to Desktop.
+
+- Normalized OpenAPI SHA-256: `5b15657a9729208155625ee3e6bab7bcea1281fb1ea47a0ea66f3acb62908999`.
+- Wheel: `powercontext-1.5.1.dev197+g9e3d1f11e-py3-none-any.whl`.
+- Wheel SHA-256: `0ee520c40ece82d5b4f606ad3c929738203072944bdc87c2def4591696cab7fc`.
+
+All 740 packaged runtime files match the clean Git source commit after CRLF
+normalization. On 2026-11-07, macOS 27.0.1 arm64, Python 3.14.5 and Rust 1.97.1,
+`desktop/tests/real_server.py` passed four independent built-wheel SQLite modes:
+anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and enforced
+Provider. The native `server_probe` was built against the combined generated contract
+and exercised the ordinary connection, identity, Scope, Memory, and statistics paths,
+including uncertain writes without replay, Principal change and revocation. After
+adding the bundled record and rebuilding the probe, all four modes passed again with
+`--product-qualification sqlite-core-target-identity-9e3d1f11-v1` through the
+product ConnectionManager. The initial disposable-fixture run was from a clean tree;
+the product run included the uncommitted qualification record.
+
+Evidence is retained under ignored `desktop/.artifacts/real-server.json` and
+`desktop/.artifacts/server-wheel/`. This qualifies local SQLite protocol behavior,
+not installed UI, native credential persistence, Windows, external provider, or
+release acceptance. Earlier qualification records preserve their original source,
+contract, artifact, and authenticated-client evidence identities.
