@@ -14,6 +14,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -110,8 +111,10 @@ def test_shared_oceanbase_setup_and_evidence_are_independent_of_replay_selection
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     steps = {step.get("id"): step for step in jobs["acceptance"]["steps"] if "id" in step}
     assert steps["oceanbase_setup"]["if"] == "matrix.database == 'oceanbase'"
-    for setting in ("datafile_size='4G'", "datafile_maxsize='8G'", "datafile_next='512M'"):
-        assert setting in steps["oceanbase_setup"]["run"]
+    assert (
+        'scripts/oceanbase_ci.py wait --container "$container_id" --database powercontext'
+        in (steps["oceanbase_setup"]["run"])
+    )
     assert steps["native_acceptance"]["if"] == "matrix.native"
     assert steps["acceptance_scenarios"]["if"] == "matrix.replay"
     for name in ("evidence_scan", "replay_evidence"):
@@ -147,3 +150,134 @@ def test_e2e_scan_keeps_raw_scanner_output_out_of_artifacts() -> None:
 def test_e2e_diagnostics_upload_only_runs_for_failed_validation_or_scan() -> None:
     assert "steps.evidence_scan.outcome != 'success'" in WORKFLOW
     assert "steps.acceptance_scenarios.outcome != 'success'" in WORKFLOW
+
+
+def test_native_snapshot_precedes_replay_container_teardown() -> None:
+    steps = yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]["steps"]
+    collect_index = next(i for i, step in enumerate(steps) if step["name"] == "Collect OceanBase native diagnostics")
+    replay_index = next(i for i, step in enumerate(steps) if step.get("id") == "acceptance_scenarios")
+    upload_index = next(i for i, step in enumerate(steps) if step["name"] == "Upload OceanBase native reports")
+    # run.sh removes the container before returning, even when replay fails.
+    assert collect_index < replay_index < upload_index
+    assert steps[collect_index]["if"] == "always() && matrix.database == 'oceanbase'"
+    assert steps[replay_index]["env"]["POWERCONTEXT_E2E_OCEANBASE_DIAGNOSTICS"] == (
+        "${{ runner.temp }}/oceanbase-acceptance/replay-failure"
+    )
+
+
+@pytest.mark.parametrize(("native", "replay"), [(True, True), (True, False), (False, True)])
+def test_oceanbase_acceptance_reserves_time_for_evidence_and_cleanup(native, replay):
+    job = yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]
+
+    def oceanbase_minutes(value):
+        if isinstance(value, int):
+            return value
+        match = re.fullmatch(r"\$\{\{ matrix.database == 'oceanbase' && (\d+) \|\| \d+ }}", value)
+        assert match, value
+        return int(match[1])
+
+    steps = {step.get("id"): step for step in job["steps"] if "id" in step}
+    workload = steps["oceanbase_setup"]["timeout-minutes"]
+    if native:
+        workload += steps["native_acceptance"]["timeout-minutes"]
+    if replay:
+        workload += oceanbase_minutes(steps["acceptance_scenarios"]["timeout-minutes"])
+    # Reserve ten minutes outside the workload, including bounded diagnostics.
+    diagnostics = next(step for step in job["steps"] if step["name"] == "Collect OceanBase native diagnostics")
+    assert diagnostics["timeout-minutes"] <= 2
+    assert workload + 10 <= oceanbase_minutes(job["timeout-minutes"])
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Workflow steps require a POSIX shell")
+def test_native_acceptance_survives_fresh_step_shell_and_uploads_its_report(tmp_path, monkeypatch):
+    steps = {step.get("id"): step for step in yaml.safe_load(WORKFLOW)["jobs"]["acceptance"]["steps"] if "id" in step}
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    # Execute the actual workflow scripts in separate shells and use the real
+    # diagnostic wrapper. Substitute external commands, not the step handoff.
+    executable = (
+        f"#!{sys.executable}\n"
+        + r"""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+name = Path(sys.argv[0]).name
+if name == "timeout":
+    while args[0].startswith("--"):
+        args.pop(0)
+    os.execvp(args[1], args[1:])
+if name == "docker":
+    if "ps" in args:
+        print("shared-oceanbase")
+    elif args[0] == "inspect":
+        print("127.0.0.1")
+elif name == "python":
+    if args[:2] == ["scripts/oceanbase_ci.py", "wait"]:
+        raise SystemExit(0)
+    assert args[:2] == ["scripts/oceanbase_ci.py", "run"], args
+    container = args[args.index("--container") + 1]
+    deadline = float(args[args.index("--timeout") + 1])
+    assert container == "shared-oceanbase", container
+    assert 0 < deadline <= 2850, deadline
+    Path(os.environ["RUNNER_TEMP"], "invocation.json").write_text(json.dumps(args))
+    os.execv(sys.executable, [sys.executable, *args])
+elif name == "uv":
+    if "pytest" in args:
+        path = Path(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--junitxml=")))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="native"/></testsuite>')
+    else:
+        script = sys.stdin.read()
+        if "ET.parse" in script:
+            raise SystemExit(subprocess.run([sys.executable, "-c", script]).returncode)
+        # Version query requires the external database, omitted in this boundary test.
+        assert "OceanBaseConfig" in script
+"""
+    )
+    for name in ("docker", "timeout", "python", "uv"):
+        path = commands / name
+        path.write_text(executable, encoding="utf-8")
+        path.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{commands}{os.pathsep}{os.defpath}")
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("POWERCONTEXT_E2E_OUTPUT", str(tmp_path / "replay"))
+    monkeypatch.setenv("GITHUB_ENV", str(tmp_path / "env"))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "outputs"))
+    monkeypatch.delenv("container_id", raising=False)
+    monkeypatch.delenv("native_deadline", raising=False)
+    root = Path(__file__).parents[1]
+    setup = subprocess.run(
+        ["/bin/bash", "-e", "-o", "pipefail", "-c", steps["oceanbase_setup"]["run"]],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert setup.returncode == 0, setup.stderr
+    outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text().splitlines())
+    env = dict(os.environ)
+    env.update(line.split("=", 1) for line in (tmp_path / "env").read_text().splitlines())
+    for key, value in steps["native_acceptance"].get("env", {}).items():
+        match = re.fullmatch(r"\$\{\{ steps.oceanbase_setup.outputs.(\w+) }}", value)
+        assert match, value
+        env[key] = outputs[match[1]]
+    native = subprocess.run(
+        ["/bin/bash", "-e", "-o", "pipefail", "-c", steps["native_acceptance"]["run"]],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert native.returncode == 0, native.stdout + native.stderr
+    assert "OceanBase Atomic Memory, HTTP and archive results:" in native.stdout
+    invocation = json.loads((tmp_path / "invocation.json").read_text())
+    report = Path(steps["native_results"]["with"]["path"].replace("${{ runner.temp }}", str(tmp_path)))
+    assert f"--junitxml={report}" in invocation
+    assert report.is_file()

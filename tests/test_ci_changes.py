@@ -84,6 +84,11 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["scripts/scan_e2e_evidence.sh"], {"tests", "harness"}),
         (["scripts/run_atomic_memory_clean_migration.py"], {"tests", "database", "upgrade"}),
         (["scripts/check_atomic_memory_migration_shards.py"], {"tests", "database"}),
+        ([".github/oceanbase-migration-durations.json"], {"tests", "database"}),
+        (
+            ["scripts/oceanbase_ci.py"],
+            {"tests", "database", "harness", "oceanbase_acceptance", "upgrade", "candidate_replay", "release_schema"},
+        ),
         (["scripts/sync_dsh_plugin_tree.py"], {"tests", "dsh"}),
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),

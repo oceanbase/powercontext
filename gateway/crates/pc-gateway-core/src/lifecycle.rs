@@ -17,32 +17,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-/// Sending facts for the whole call, independent of authorization and local delivery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelSendState {
-    /// No attempt has crossed the transport boundary.
-    NoSend,
-    /// Every attempted send was confirmed unsent by the transport.
-    DefinitelyNotSent,
-    /// An attempt was handed off without evidence ruling out sending.
-    PossiblySent,
-    /// A complete upstream response was obtained, regardless of release or decoding.
-    ResponseReceived,
-}
-
-/// The local execution terminal; none of these establishes client receipt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionTerminal {
-    ReleaseAuthorized,
-    Blocked,
-    Withheld,
-    SendIndeterminate,
-    NotSent,
-    GatePaused,
-    Degraded,
-    AdmissionExpired,
-    Abandoned,
-}
+pub use pc_gateway_types::{ExecutionTerminal, ModelSendState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionState {
@@ -61,6 +36,8 @@ pub struct ExecutionSnapshot {
 struct Shared {
     deadline: Instant,
     request_id: Option<String>,
+    call_id: String,
+    started: std::time::Instant,
     snapshot: Mutex<ExecutionSnapshot>,
 }
 
@@ -85,6 +62,8 @@ impl RequestControl {
             shared: Arc::new(Shared {
                 deadline,
                 request_id,
+                call_id: pc_gateway_evidence::new_call_id(),
+                started: std::time::Instant::now(),
                 snapshot: Mutex::new(ExecutionSnapshot {
                     model_send: ModelSendState::NoSend,
                     execution: ExecutionState::NotStarted,
@@ -141,6 +120,16 @@ pub struct ExecutionObservation {
 }
 
 impl ExecutionObservation {
+    /// Process-local logical call identity; contains no host-provided values.
+    pub fn call_id(&self) -> &str {
+        &self.shared.call_id
+    }
+
+    /// Monotonic milliseconds since the host created request control.
+    pub fn elapsed_ms(&self) -> u64 {
+        self.shared.started.elapsed().as_millis() as u64
+    }
+
     pub fn deadline(&self) -> Instant {
         self.shared.deadline
     }
@@ -164,17 +153,7 @@ impl Execution {
     }
 
     pub(crate) fn finish(&mut self, outcome: &ManagedOutcome) {
-        let terminal = match outcome {
-            ManagedOutcome::Released { .. } => ExecutionTerminal::ReleaseAuthorized,
-            ManagedOutcome::Blocked { .. } => ExecutionTerminal::Blocked,
-            ManagedOutcome::Withheld { .. } => ExecutionTerminal::Withheld,
-            ManagedOutcome::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
-            ManagedOutcome::NotSent { .. } => ExecutionTerminal::NotSent,
-            ManagedOutcome::GatePaused(_) => ExecutionTerminal::GatePaused,
-            ManagedOutcome::Degraded { .. } => ExecutionTerminal::Degraded,
-            ManagedOutcome::AdmissionExpired => ExecutionTerminal::AdmissionExpired,
-        };
-        self.control.shared.snapshot().execution = ExecutionState::Finished(terminal);
+        self.control.shared.snapshot().execution = ExecutionState::Finished(outcome.terminal());
     }
 }
 
