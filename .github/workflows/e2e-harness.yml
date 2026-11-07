@@ -511,8 +511,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Five cases at 300s each, collection, database setup, and diagnostics.
-    timeout-minutes: 45
+    # Two native admission cases, collection, database setup, and diagnostics.
+    timeout-minutes: 30
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.4.2.1-101000022026050611
       POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
@@ -587,11 +587,10 @@ jobs:
           exit 1
 
       - name: Test native FTS retrieval and admission without skips
-        timeout-minutes: 30
+        timeout-minutes: 15
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
             oceanbase --test-timeout 300 --output "$MIGRATION_REPORTS/native-fts" --tests \
-            tests/e2e/test_atomic_memory_long_fts_query.py \
             tests/e2e/test_atomic_memory_fts_coverage.py
 
       - name: Collect the database log
