@@ -648,6 +648,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-hook-registry",
+ "subtle",
  "tokio",
  "tower",
  "tracing",
@@ -685,6 +686,7 @@ dependencies = [
 name = "pc-gateway-evidence"
 version = "0.1.0"
 dependencies = [
+ "pc-gateway-types",
  "serde",
  "serde_json",
 ]
@@ -706,6 +708,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-core",
+ "pc-gateway-evidence",
  "pc-gateway-types",
  "reqwest",
  "serde_json",

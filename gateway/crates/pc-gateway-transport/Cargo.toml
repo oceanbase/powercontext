@@ -27,3 +27,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
+
+[dev-dependencies]
+pc-gateway-evidence = { workspace = true }
