@@ -141,7 +141,7 @@ extensions do not establish connection completion. `ExecutionSnapshot::local_del
 execution terminals and model-send facts. Retaining an observation does not retain the permit or payload.
 Fallback retains its independent quota, body lifetime, authentication, and keep-alive behavior, without the
 model deadline or forced connection closure. UDS Core connections retain their idle pool. HTTP Core/provider requests use fresh HTTP/1 connections to prevent hidden stale-connection resends. Service-level
-bounded drain/process exit is tracked separately in G3 issue 04. .
+bounded drain and process exit follow the shutdown policy below.
 
 When an HTTP error can still be returned, deadline expiration maps to 504 and shutdown to 503. An explicit
 in-process cancellation uses 503 if a response channel remains available; there is no cancellation endpoint
@@ -155,7 +155,9 @@ The production Executor is the only model retry owner. Each provably unsent atte
 configured attempt limit, obtains a new before-send admission, and validates its binding and validity.
 The original deadline and cancellation apply throughout. `Executor::close_model_admission()` permanently
 closes new attempts, including retries and degraded sends; handed-off calls can still finish within their
-original lifecycle. The service drain owner can use this boundary; process shutdown remains issue 04.
+original lifecycle. `Executor::model_admission()` exposes a one-way atomic closure handle for signal
+handlers; `close_model_admission()` also synchronizes with committed transport handoffs before the
+service inspects sending facts.
 A timeout, partial response, or disconnect after request handoff retains possibly-sent facts and never
 triggers an automatic resend or fallback. The transport no longer exports `BoundedRetry` or `RetryOutcome`;
 embedding callers that used them must route model retries through the Executor.
@@ -178,4 +180,35 @@ cost. UDS retains operation-aware keep-alive reuse.
 `cargo test --locked --manifest-path gateway/Cargo.toml --workspace` requires an installed project Python
 at `.venv/bin/python` (override with `PC_TEST_PYTHON`) for mandatory real-Core UDS recovery acceptance.
 Core startup failure fails that test. The older optional TCP binding tests still use their separate port-8000
-availability check. 
+availability check.
+
+
+## Staged process shutdown
+
+On Unix, SIGTERM or Ctrl-C closes model-attempt admission directly in the signal handler. The first
+handler invocation records a monotonic timestamp; repeated signals never restart the budget. Before
+listening, the app installs the handlers and starts a native watchdog thread independent of Tokio.
+The listener then closes and existing HTTP/1 connections enter graceful shutdown. Established or
+buffered requests cannot bypass closed model admission. Calls still in intake, prepare, admission, or
+retry admission stop with `gateway_shutdown` when no model request is outstanding.
+
+Already handed-off calls may finish response checks, capture, and local delivery under their original
+180-second request deadline and a common drain deadline 25 seconds after the first signal. Normally
+drained calls retain their business result without a shutdown stop reason. Explicit cancellation and
+observable disconnect still stop work. A transport attempt subsequently proved unsent cannot retry.
+Fallback keeps its Core authentication, independent quota, and long connections during normal service;
+its connections share shutdown deadlines, including long MCP SSE streams.
+
+At drain expiry, the service ends remaining connections, cancels managed tasks, and joins their actual
+owners. Hyper, inline request/body work, and pending output are destroyed before connection-held
+permits and controls are released. Owner joins and Tokio runtime destruction must finish before the
+same signal's 30-second total exit deadline. The watchdog remains armed after the owner set empties.
+If cleanup cannot finish, it invokes Unix `_exit(1)` without further logging, destructors, atexit hooks,
+or joins. This covers non-yielding request work and already-running `spawn_blocking` tasks; Tokio
+cannot preempt them. As with any process deadline, OS scheduling has a finite measurement tolerance.
+
+Abnormal process exit is not proof of per-request cleanup, provider rollback, or client receipt. Known
+or uncertain remote operations retain their meaning. This executable does not start a Python
+supervisor, close the Python Core database, or implement restart generations. The RFC 2199 parent
+must own those responsibilities and confirm the old Rust PID has exited before restart. The Rust
+embedding API still leaves service signals and process lifetime to its host.

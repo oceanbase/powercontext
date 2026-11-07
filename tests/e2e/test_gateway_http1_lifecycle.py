@@ -23,6 +23,7 @@ import http.client
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import time
@@ -72,6 +73,7 @@ class _Provider(ThreadingHTTPServer):
         self.lock = Lock()
         self.sends = 0
         self.hold = False
+        self.hold_timeout = 15
         self.received = Event()
         self.release = Event()
         self.finished = Event()
@@ -95,7 +97,7 @@ class _ProviderHandler(BaseHTTPRequestHandler):
             hold = provider.hold
         if hold:
             provider.received.set()
-            assert provider.release.wait(15), "test did not release the remote provider"
+            assert provider.release.wait(provider.hold_timeout), "test did not release the remote provider"
         body = json.dumps(
             {
                 "model": "test",
@@ -182,7 +184,7 @@ def _gateway(binary, directory, uds, upstream, scope):
                     except httpx.TransportError:
                         pass
                     time.sleep(0.02)
-                yield address, client
+                yield address, client, process
         finally:
             if process.poll() is None:
                 process.kill()
@@ -267,7 +269,11 @@ def test_real_core_uds_model_disconnect_delivery_and_fallback(tmp_path, short_tm
                 },
             )
             assert granted.status_code == 201, granted.text
-            with _gateway(gateway_binary, tmp_path, uds, endpoint, created.json()["scope_id"]) as (address, client):
+            with _gateway(gateway_binary, tmp_path, uds, endpoint, created.json()["scope_id"]) as (
+                address,
+                client,
+                _process,
+            ):
                 # Responses replay checked JSON as SSE. Public Core's JSON
                 # carrier still withholds native Chat SSE; preserve that boundary.
                 for stream in [False, True]:
@@ -336,6 +342,165 @@ def test_real_core_uds_model_disconnect_delivery_and_fallback(tmp_path, short_tm
                 finally:
                     management.close()
     finally:
+        provider.release.set()
+        provider.shutdown()
+        provider.server_close()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+
+def _pending_shutdown_request(address, mode, process, provider, body, path):
+    if mode == "fallback":
+        # Actual Core is stateless MCP: GET SSE is intentionally 405. Hold a
+        # supported authenticated POST in body intake instead. A separate Rust
+        # process test uses the controlled UDS receiver's indefinitely open SSE.
+        connection = socket.create_connection(address, timeout=32)
+        connection.sendall(
+            f"POST /mcp/ HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer {_TOKEN}\r\n"
+            "Accept: application/json, text/event-stream\r\nContent-Type: application/json\r\n"
+            "Content-Length: 4096\r\n\r\n{".encode()
+        )
+        connection.settimeout(0.1)
+        with pytest.raises(TimeoutError):
+            connection.recv(1)
+        connection.settimeout(32)
+    else:
+        connection = _raw_request(address, path, body, incomplete=mode in {"unsent", "earlier_request"})
+        connection.settimeout(32)
+        if mode == "earlier_request":
+            # Real 180s ingress budget: consume 170s before the first
+            # provider attempt, leaving less than the 25s drain window.
+            intake = time.monotonic() + 170
+            while time.monotonic() < intake:
+                assert process.poll() is None and provider.sends == 0
+                time.sleep(0.05)
+            connection.sendall(json.dumps(body, ensure_ascii=False).encode()[1:])
+        if mode != "unsent":
+            assert provider.received.wait(5), "provider did not receive the model request"
+        else:
+            assert provider.sends == 0
+    return connection
+
+
+def _signal_and_verify_closed_admission(process, address, bypass, body, path):
+    # A TCP connection established before shutdown cannot start new
+    # model work after the listener and admission have closed.
+    started = time.monotonic()
+    process.send_signal(signal.SIGTERM)
+    while True:
+        try:
+            probe = socket.create_connection(address, timeout=0.1)
+        except OSError:
+            break
+        else:
+            probe.close()
+        assert time.monotonic() - started < 2, "listener remained open"
+        time.sleep(0.01)
+    if process.poll() is None:
+        process.send_signal(signal.SIGINT)
+    try:
+        payload = json.dumps(body).encode()
+        bypass.sendall(
+            f"POST {path} HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer {_KEY}\r\n"
+            f"Content-Length: {len(payload)}\r\n\r\n".encode()
+            + payload
+        )
+        assert bypass.recv(1024) == b""
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+    return started
+
+
+@pytest.mark.parametrize("mode", ["normal", "unsent", "expiry", "fallback", "earlier_request"])
+def test_real_core_uds_staged_shutdown(tmp_path, short_tmp_path, gateway_binary, mode):
+    provider = _Provider("openai-chat")
+    provider.hold = True
+    provider.hold_timeout = 40
+    thread = Thread(target=provider.serve_forever)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{provider.server_port}/provider"
+    environment = _environment(tmp_path)
+    environment["POWERCONTEXT_SERVER_MCP_ENABLED"] = "true"
+    environment["POWERCONTEXT_SERVER_INFERENCE"] = json.dumps({
+        "protection": {
+            "mode": "enforcing",
+            "targets": {
+                "model": {
+                    "endpoint": endpoint,
+                    "model": "test",
+                    "protocol": "openai-chat",
+                    "context_window_tokens": 65536,
+                    "max_output_tokens": 64,
+                    "validated_utf8_token_bound": True,
+                }
+            },
+        }
+    })
+    body = {"model": "test", "max_tokens": 64, "messages": [{"role": "user", "content": "hello"}]}
+    path = "/gateway/v1/chat/completions"
+    connection = None
+    bypass = None
+    try:
+        with _running_server(tmp_path, short_tmp_path / "core.sock", environment) as (_, core):
+            created = core.post(
+                "/v1/scopes",
+                json={
+                    "title": "Staged shutdown",
+                    "summary": "Real process shutdown",
+                    "idempotency_key": "shutdown",
+                },
+            )
+            assert created.status_code == 201, created.text
+            scope = created.json()["scope_id"]
+            granted = core.post(
+                "/v1/access/bindings/create",
+                json={
+                    "subject": {"type": "service", "id": "server-token"},
+                    "resource": {"type": "scope", "scope_id": scope},
+                    "role": "scope.contributor",
+                    "idempotency_key": "shutdown-contributor",
+                },
+            )
+            assert granted.status_code == 201, granted.text
+            with _gateway(gateway_binary, tmp_path, short_tmp_path / "core.sock", endpoint, scope) as (
+                address,
+                client,
+                process,
+            ):
+                # Core authentication remains authoritative through the proxy.
+                assert client.get("/v1/capabilities").status_code == 401
+                assert client.get("/v1/capabilities", headers=_HEADERS).status_code == 200
+                connection = _pending_shutdown_request(address, mode, process, provider, body, path)
+                bypass = socket.create_connection(address, timeout=2)
+                started = _signal_and_verify_closed_admission(process, address, bypass, body, path)
+                if mode == "normal":
+                    assert process.poll() is None, "handed-off model call must keep draining"
+                    provider.release.set()
+                    assert isinstance(connection, socket.socket)
+                    response = http.client.HTTPResponse(connection)
+                    response.begin()
+                    assert response.status == 201
+                    assert "已检查" in response.read().decode()
+                # Actual process exit is the evidence; _gateway's final kill is
+                # solely cleanup if an assertion or this bounded wait fails.
+                assert process.wait(timeout=max(0.1, 32 - (time.monotonic() - started))) == 0
+                elapsed = time.monotonic() - started
+                assert elapsed < 32, "30s total budget plus 2s scheduler/measurement tolerance"
+                if mode in {"expiry", "fallback"}:
+                    assert 24.9 <= elapsed <= 27, elapsed
+                elif mode == "earlier_request":
+                    assert 8 <= elapsed <= 13, elapsed
+                else:
+                    assert elapsed < 3, elapsed
+                assert provider.sends == int(mode in {"normal", "expiry", "earlier_request"})
+                # Rust shutdown does not own the Python Core/database lifecycle.
+                assert core.get("/health/ready").status_code == 200
+                print(f"linux HTTP/1 Core-UDS mode={mode} budget=25/30s exit=0 elapsed={elapsed:.3f}s")
+    finally:
+        if connection is not None:
+            connection.close()
+        if bypass is not None:
+            bypass.close()
         provider.release.set()
         provider.shutdown()
         provider.server_close()

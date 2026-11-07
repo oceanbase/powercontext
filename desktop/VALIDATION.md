@@ -39,8 +39,6 @@ The report identifies source `c527f3f6` with the new qualification record in the
 tree. Raw reports, per-mode Server logs, the source-equivalence report, and the exact wheel
 are retained under ignored `desktop/.artifacts/`.
 
-
-
 ## Gateway contract authenticated legacy qualification
 
 The `authenticatedClients` entries for `sqlite-atomic-112db11e-v1` and

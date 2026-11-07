@@ -746,6 +746,7 @@ pub(crate) mod tests {
         pub response_bytes: std::sync::atomic::AtomicUsize,
         pub blocked_phase: std::sync::atomic::AtomicUsize,
         pub entered: tokio::sync::Notify,
+        pub release: tokio::sync::Notify,
     }
 
     pub(crate) async fn lifecycle_router(
@@ -788,7 +789,7 @@ pub(crate) mod tests {
                     received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
                         received.entered.notify_one();
-                        std::future::pending::<()>().await;
+                        received.release.notified().await;
                     }
                     (
                         StatusCode::CREATED,

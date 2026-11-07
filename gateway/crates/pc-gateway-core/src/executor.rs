@@ -46,7 +46,10 @@ use pc_gateway_types::{
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Gate 不可用时的策略（PR #2199 故障语义）。
@@ -112,10 +115,32 @@ pub struct Executor<G, T> {
     gate: G,
     transport: T,
     max_attempts: NonZeroU32,
-    model_admission_open: Mutex<bool>,
+    model_admission: ModelAdmission,
+    handoff: Mutex<()>,
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     max_input_bytes: usize,
+}
+
+/// One-way admission closure, also usable by a process signal handler. Closing
+/// only stores an atomic flag; it does not cancel already committed attempts.
+#[derive(Clone)]
+pub struct ModelAdmission(Arc<AtomicBool>);
+
+impl Default for ModelAdmission {
+    fn default() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+}
+
+impl ModelAdmission {
+    pub fn close(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+
+    fn is_open(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
 }
 
 /// 单次发送尝试的准入凭证。
@@ -136,7 +161,8 @@ where
             gate,
             transport,
             max_attempts,
-            model_admission_open: Mutex::new(true),
+            model_admission: ModelAdmission::default(),
+            handoff: Mutex::new(()),
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
         }
@@ -146,19 +172,23 @@ where
     /// Already handed-off work may finish under its original lifecycle. Service draining
     /// can close this boundary without introducing another retry algorithm.
     pub fn close_model_admission(&self) {
-        *self
-            .model_admission_open
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = false;
+        self.model_admission.close();
+        // Synchronize with any attempt already committing its handoff, before
+        // the service inspects sending facts to stop unsent calls.
+        drop(
+            self.handoff
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
+    }
+
+    pub fn model_admission(&self) -> ModelAdmission {
+        self.model_admission.clone()
     }
 
     fn attempt_checkpoint(&self, execution: &Execution) -> Result<(), ManagedOutcome> {
         execution.checkpoint()?;
-        if !*self
-            .model_admission_open
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-        {
+        if !self.model_admission.is_open() {
             execution
                 .lifecycle()
                 .cancellation()
@@ -176,12 +206,13 @@ where
         execution: &mut Execution,
     ) -> Result<SendOutcome, ManagedOutcome> {
         let work = {
-            let open = self
-                .model_admission_open
+            let _handoff = self
+                .handoff
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             execution.checkpoint()?;
-            if !*open {
+            // This atomic read commits an attempt relative to signal closure.
+            if !self.model_admission.is_open() {
                 execution
                     .lifecycle()
                     .cancellation()

@@ -42,6 +42,9 @@ tower = { workspace = true }
 hyper-util = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
+# Unix process signals and immediate abnormal exit, independent of Tokio.
+libc = "0.2"
+signal-hook-registry = "1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

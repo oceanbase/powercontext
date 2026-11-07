@@ -289,7 +289,14 @@ async fn http_core_dripping_framing_stays_within_the_shared_deadline() {
 #[tokio::test]
 async fn refused_model_connect_requires_fresh_admission_and_obeys_stops() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    for mode in ["success", "cancel", "deadline", "closed", "expired"] {
+    for mode in [
+        "success",
+        "cancel",
+        "deadline",
+        "closed",
+        "signal_closed",
+        "expired",
+    ] {
         let reserved = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let provider_address = reserved.local_addr().unwrap();
         drop(reserved); // First real TCP connect must be refused, before any request bytes.
@@ -383,6 +390,10 @@ async fn refused_model_connect_requires_fresh_admission_and_obeys_stops() {
                     cancellation.cancel();
                     None
                 }
+                "signal_closed" => {
+                    executor.model_admission().close();
+                    None
+                }
                 "closed" => {
                     executor.close_model_admission();
                     None
@@ -404,7 +415,7 @@ async fn refused_model_connect_requires_fresh_admission_and_obeys_stops() {
             _ => {
                 let reason = match mode {
                     "cancel" => LifecycleStopReason::RequestCancelled,
-                    "closed" => LifecycleStopReason::GatewayShutdown,
+                    "closed" | "signal_closed" => LifecycleStopReason::GatewayShutdown,
                     _ => LifecycleStopReason::DeadlineExceeded,
                 };
                 assert!(

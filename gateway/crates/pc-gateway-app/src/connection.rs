@@ -14,8 +14,12 @@
 
 //! HTTP/1 connection ownership. Model permits outlive bodies and Hyper's pending writes.
 
+use crate::shutdown::Deadlines;
 use axum::{body::Body, http::header, response::Response, Router};
-use pc_gateway_core::{LifecycleStopReason, RequestControl, RequestLifecycle};
+use pc_gateway_core::{
+    ExecutionState, LifecycleStopReason, LocalDeliveryState, ModelSendState, RequestControl,
+    RequestLifecycle,
+};
 use std::{
     convert::Infallible,
     future::Future,
@@ -108,6 +112,7 @@ struct RequestOwner {
     work: Pin<Box<dyn Future<Output = Result<Response, Infallible>> + Send>>,
     model: Option<ModelConnection>,
     handed_off: bool,
+    shutdown: watch::Receiver<Option<Deadlines>>,
 }
 
 impl Future for RequestOwner {
@@ -137,18 +142,55 @@ impl Drop for RequestOwner {
     fn drop(&mut self) {
         if !self.handed_off {
             if let Some(model) = &self.model {
-                model.interrupt(LifecycleStopReason::RequestCancelled);
+                model.interrupt(drop_reason(&self.shutdown));
             }
         }
     }
 }
 
-pub(crate) async fn drive<I>(io: I, app: Router, mut shutdown: watch::Receiver<bool>)
+fn drop_reason(shutdown: &watch::Receiver<Option<Deadlines>>) -> LifecycleStopReason {
+    if shutdown
+        .borrow()
+        .as_ref()
+        .is_some_and(|deadlines| tokio::time::Instant::now() >= deadlines.drain())
+    {
+        LifecycleStopReason::GatewayShutdown
+    } else {
+        LifecycleStopReason::RequestCancelled
+    }
+}
+
+// Declared before Hyper, so even task abortion destroys Hyper and its inline
+// request/body owners before releasing permits and removing active control.
+struct ConnectionResources {
+    model: ModelConnection,
+    shutdown: watch::Receiver<Option<Deadlines>>,
+}
+
+impl Drop for ConnectionResources {
+    fn drop(&mut self) {
+        if self.model.lifecycle().is_some_and(|lifecycle| {
+            let snapshot = lifecycle.observation().snapshot();
+            snapshot.execution == ExecutionState::Running
+                || snapshot.local_delivery == LocalDeliveryState::InProgress
+        }) {
+            self.model.interrupt(drop_reason(&self.shutdown));
+        }
+        *self.model.state.lock().unwrap() = ModelState::default();
+    }
+}
+
+pub(crate) async fn drive<I>(io: I, app: Router, mut shutdown: watch::Receiver<Option<Deadlines>>)
 where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let owner = ModelConnection::default();
+    let resources = ConnectionResources {
+        model: owner.clone(),
+        shutdown: shutdown.clone(),
+    };
     let service_owner = owner.clone();
+    let service_shutdown = shutdown.clone();
     let service =
         hyper::service::service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
             let mut request = request.map(Body::new);
@@ -160,12 +202,16 @@ where
                     tokio::time::Instant::now() + std::time::Duration::from_secs(180),
                     Some(id),
                 ));
+                if service_shutdown.borrow().is_some() {
+                    model.interrupt(LifecycleStopReason::GatewayShutdown);
+                }
                 request.extensions_mut().insert(model.clone());
             }
             RequestOwner {
                 work: Box::pin(app.clone().oneshot(request)),
                 model,
                 handed_off: false,
+                shutdown: service_shutdown.clone(),
             }
         });
     // HTTP/1 only; half-close remains disabled so Hyper can observe EOF while
@@ -174,8 +220,27 @@ where
         hyper::server::conn::http1::Builder::new()
             .serve_connection(hyper_util::rt::TokioIo::new(io), service),
     );
-    let mut draining = false;
+    let mut draining = None;
     loop {
+        let requested = shutdown.borrow_and_update().clone();
+        if draining.is_none() {
+            if let Some(deadlines) = requested {
+                draining = Some(deadlines);
+                connection.as_mut().graceful_shutdown();
+                if let Some(lifecycle) = owner.lifecycle() {
+                    let snapshot = lifecycle.observation().snapshot();
+                    if matches!(
+                        snapshot.execution,
+                        ExecutionState::NotStarted | ExecutionState::Running
+                    ) && matches!(
+                        snapshot.model_send,
+                        ModelSendState::NoSend | ModelSendState::DefinitelyNotSent
+                    ) {
+                        owner.interrupt(LifecycleStopReason::GatewayShutdown);
+                    }
+                }
+            }
+        }
         tokio::select! {
             biased;
             result = &mut connection => {
@@ -190,31 +255,41 @@ where
                 owner.interrupt(reason);
                 break;
             }
-            _ = shutdown.changed(), if !draining => {
-                draining = true;
-                connection.as_mut().graceful_shutdown();
+            _ = shutdown.changed(), if draining.is_none() => {}
+            _ = async {
+                if let Some(deadlines) = &draining { deadlines.drain_expired().await; }
+                else { std::future::pending::<()>().await; }
+            } => {
+                owner.interrupt(LifecycleStopReason::GatewayShutdown);
+                break;
             }
         }
     }
     // Destruction is synchronous: includes the service future, body and write
     // buffers. Only afterwards may the final owner release the model permit.
     drop(connection);
-    *owner.state.lock().unwrap() = ModelState::default();
+    drop(resources);
     drop(owner);
 }
 
 pub(crate) async fn serve(
     listener: TcpListener,
     app: Router,
-    shutdown: impl Future<Output = ()>,
+    shutdown: impl Future<Output = Deadlines>,
 ) -> std::io::Result<()> {
-    let (signal, receiver) = watch::channel(false);
+    let (signal, receiver) = watch::channel(None);
     let mut connections = JoinSet::new();
     let mut accept_after = tokio::time::Instant::now();
     tokio::pin!(shutdown);
-    loop {
+    let mut failed = false;
+    let deadlines = loop {
         tokio::select! {
-            _ = &mut shutdown => break,
+            biased;
+            deadlines = &mut shutdown => break deadlines,
+            // Reap completed owners even when the accept backlog stays ready.
+            joined = connections.join_next(), if !connections.is_empty() => {
+                failed |= joined.is_some_and(|result| result.is_err());
+            }
             accepted = async {
                 tokio::time::sleep_until(accept_after).await;
                 listener.accept().await
@@ -234,11 +309,34 @@ pub(crate) async fn serve(
                     }
                 }
             }
-            _ = connections.join_next(), if !connections.is_empty() => {}
+        }
+    };
+    drop(listener);
+    signal.send_replace(Some(deadlines.clone()));
+    let drain = async {
+        while let Some(result) = connections.join_next().await {
+            failed |= result.is_err();
+        }
+    };
+    let expired = tokio::select! {
+        _ = drain => false,
+        _ = deadlines.drain_expired() => true,
+    };
+    if expired {
+        connections.abort_all();
+        let joins = async {
+            while let Some(result) = connections.join_next().await {
+                failed |= result.is_err_and(|error| !error.is_cancelled());
+            }
+        };
+        tokio::select! {
+            _ = joins => {},
+            _ = deadlines.exit_expired() => return Err(std::io::Error::other("gateway owner join exceeded exit deadline")),
         }
     }
-    signal.send_replace(true);
-    while connections.join_next().await.is_some() {}
+    if failed {
+        return Err(std::io::Error::other("gateway connection owner failed"));
+    }
     Ok(())
 }
 
@@ -335,6 +433,185 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_stops_unsent_calls_and_joins_their_actual_owners() {
+        let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+        received.blocked_phase.store(1, Ordering::SeqCst);
+        let owners = Arc::new(Mutex::new(Vec::<ModelConnection>::new()));
+        let retained = owners.clone();
+        let app = app.layer(axum::middleware::from_fn(
+            move |req: Request, next: Next| {
+                if let Some(owner) = req.extensions().get::<ModelConnection>() {
+                    retained.lock().unwrap().push(owner.clone());
+                }
+                async move { next.run(req).await }
+            },
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (shutdown, signal) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(serve(listener, app, async {
+            let _ = signal.await;
+            Deadlines::from_signal(tokio::time::Instant::now())
+        }));
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client.write_all(REQUEST).await.unwrap();
+        bounded(received.entered.notified()).await;
+        let owner = owners.lock().unwrap().pop().unwrap();
+        let observation = owner.lifecycle().unwrap().observation();
+        shutdown.send(()).unwrap();
+        bounded(server).await.unwrap().unwrap();
+        assert_eq!(
+            observation.snapshot().stop_reason,
+            Some(LifecycleStopReason::GatewayShutdown)
+        );
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::Stopped(
+                LifecycleStopReason::GatewayShutdown
+            ))
+        );
+        assert!(owner.lifecycle().is_none());
+        assert_eq!(received.sends.load(Ordering::SeqCst), 0);
+        upstream.abort();
+        upstream.await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn handed_off_calls_drain_normally_or_stop_at_the_earlier_absolute_deadline() {
+        for mode in [
+            "normal",
+            "drain",
+            "earlier_request",
+            "delayed_coordinator",
+            "disconnect",
+        ] {
+            let (app, upstream, received) = crate::ingress::tests::lifecycle_router().await;
+            received.blocked_phase.store(3, Ordering::SeqCst);
+            let owners = Arc::new(Mutex::new(Vec::<ModelConnection>::new()));
+            let retained = owners.clone();
+            let app = app.layer(axum::middleware::from_fn(
+                move |req: Request, next: Next| {
+                    if let Some(owner) = req.extensions().get::<ModelConnection>() {
+                        retained.lock().unwrap().push(owner.clone());
+                    }
+                    async move { next.run(req).await }
+                },
+            ));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let (shutdown, signal) = tokio::sync::oneshot::channel();
+            let coordinated = Arc::new(Notify::new());
+            let ready = coordinated.clone();
+            let server = tokio::spawn(serve(listener, app, async move {
+                let deadlines = signal.await.unwrap();
+                ready.notify_one();
+                deadlines
+            }));
+            let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+            if mode == "earlier_request" {
+                // Spend the original ingress budget BEFORE starting the provider's
+                // independent 120s attempt budget, using a slow inbound body.
+                client
+                    .write_all(&REQUEST[..REQUEST.len() - 1])
+                    .await
+                    .unwrap();
+                bounded(async {
+                    while owners.lock().unwrap().is_empty() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await;
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(170)).await;
+                tokio::time::resume();
+                client
+                    .write_all(&REQUEST[REQUEST.len() - 1..])
+                    .await
+                    .unwrap();
+            } else {
+                client.write_all(REQUEST).await.unwrap();
+            }
+            bounded(received.entered.notified()).await;
+            let owner = owners.lock().unwrap().pop().unwrap();
+            let observation = owner.lifecycle().unwrap().observation();
+            tokio::time::pause();
+            let now = tokio::time::Instant::now();
+            let started = if mode == "delayed_coordinator" {
+                now - Duration::from_secs(20)
+            } else {
+                now
+            };
+            assert!(shutdown.send(Deadlines::from_signal(started)).is_ok());
+            coordinated.notified().await;
+            tokio::task::yield_now().await;
+            assert!(
+                std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_err(),
+                "listener must be closed"
+            );
+            assert_eq!(observation.snapshot().stop_reason, None);
+            assert!(!server.is_finished(), "{mode}");
+            let expected_stop = match mode {
+                "normal" => {
+                    tokio::time::resume();
+                    received.release.notify_one();
+                    let mut response = Vec::new();
+                    bounded(client.read_to_end(&mut response)).await.unwrap();
+                    assert!(String::from_utf8_lossy(&response).contains("checked"));
+                    None
+                }
+                "disconnect" => {
+                    tokio::time::resume();
+                    drop(client);
+                    Some(LifecycleStopReason::RequestCancelled)
+                }
+                _ => {
+                    let limit = if mode == "earlier_request" {
+                        observation.deadline()
+                    } else {
+                        started + Duration::from_secs(25)
+                    };
+                    tokio::time::advance(
+                        limit - tokio::time::Instant::now() - Duration::from_secs(1),
+                    )
+                    .await;
+                    assert!(!server.is_finished(), "handed-off work must keep draining");
+                    tokio::time::advance(Duration::from_secs(1)).await;
+                    Some(if mode == "earlier_request" {
+                        LifecycleStopReason::DeadlineExceeded
+                    } else {
+                        LifecycleStopReason::GatewayShutdown
+                    })
+                }
+            };
+            server.await.unwrap().unwrap();
+            if !matches!(mode, "normal" | "disconnect") {
+                tokio::time::resume();
+            }
+            assert_eq!(observation.snapshot().stop_reason, expected_stop, "{mode}");
+            assert_eq!(
+                observation.snapshot().model_send,
+                if mode == "normal" {
+                    ModelSendState::ResponseReceived
+                } else {
+                    ModelSendState::PossiblySent
+                }
+            );
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(expected_stop.map_or(
+                    ExecutionTerminal::ReleaseAuthorized,
+                    ExecutionTerminal::Stopped
+                ))
+            );
+            assert!(owner.lifecycle().is_none());
+            assert_eq!(received.sends.load(Ordering::SeqCst), 1);
+            upstream.abort();
+            upstream.await.unwrap_err();
+        }
+    }
+
+    #[tokio::test]
     async fn consumed_body_with_pending_writes_holds_capacity_until_connection_ends() {
         for (stop, explicit) in [
             (None, false),
@@ -377,10 +654,11 @@ mod tests {
             let server_app = app.clone();
             let server = tokio::spawn(serve(listener, server_app, async {
                 let _ = signal.await;
+                Deadlines::from_signal(tokio::time::Instant::now())
             }));
             let (mut client, io) = tokio::io::duplex(64);
             let pending = Arc::new(Notify::new());
-            let (_signal, receiver) = watch::channel(false);
+            let (_signal, receiver) = watch::channel(None);
             let connection = tokio::spawn(drive(
                 WriteProbe {
                     io,
@@ -489,6 +767,7 @@ mod tests {
             let (shutdown, signal) = tokio::sync::oneshot::channel();
             let server = tokio::spawn(serve(listener, app, async {
                 let _ = signal.await;
+                Deadlines::from_signal(tokio::time::Instant::now())
             }));
             let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
             client.write_all(REQUEST).await.unwrap();
@@ -571,7 +850,7 @@ mod tests {
         let mut client = socket.connect(addr).await.unwrap();
         let (stream, _) = listener.accept().await.unwrap();
         let pending = Arc::new(Notify::new());
-        let (_signal, receiver) = watch::channel(false);
+        let (_signal, receiver) = watch::channel(None);
         let connection = tokio::spawn(drive(
             WriteProbe {
                 io: stream,
@@ -593,6 +872,7 @@ mod tests {
         let (shutdown, signal) = tokio::sync::oneshot::channel();
         let server = tokio::spawn(serve(listener, app, async {
             let _ = signal.await;
+            Deadlines::from_signal(tokio::time::Instant::now())
         }));
         assert_eq!(
             bounded(normal_request(addr)).await.status(),
