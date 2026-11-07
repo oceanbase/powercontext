@@ -70,8 +70,14 @@ class HttpAdmissionMiddleware:
 
         try:
             await self.app(scope, receive, send_response)
+        except _RequestBodyDisconnected:
+            return
         finally:
             release()
+
+
+class _RequestBodyDisconnected(Exception):
+    """The client left before its request body arrived."""
 
 
 class HttpRequestBodyLimitMiddleware:
@@ -98,7 +104,9 @@ class HttpRequestBodyLimitMiddleware:
         while True:
             message = await receive()
             if message["type"] == "http.disconnect":
-                return None
+                # The BaseHTTPMiddleware layers around this one fail if no response
+                # is sent, so admission catches this outside them and ends the request.
+                raise _RequestBodyDisconnected
             chunk = message.get("body", b"")
             if len(chunk) > self._max_body - len(body):
                 await _reject_body(scope, receive, send)

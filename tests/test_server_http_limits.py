@@ -19,6 +19,7 @@ import json
 import logging
 from collections import deque
 from collections.abc import Sequence
+from typing import Literal
 
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
@@ -210,6 +211,60 @@ def test_authenticated_oversized_body_is_rejected_before_downstream() -> None:
     assert output[0]["status"] == 413
     assert json.loads(output[1]["body"])["error"]["code"] == "request_too_large"
     assert not reached
+
+
+@pytest.mark.parametrize("access", ["enforced", "disabled"])
+def test_partial_upload_disconnect_ends_the_request_without_a_response(
+    access: Literal["enforced", "disabled"],
+) -> None:
+    settings = ServerSettings(
+        http=HttpConfig(max_concurrent_requests=1),
+        mcp=McpConfig(enabled=False),
+        access=AccessControlConfig(mode=access),
+    )
+    if access == "enforced":
+        settings = settings.model_copy(update={"auth": BearerAuthConfig(token=SecretStr("server-secret"))})
+    app = create_server_app(settings=settings)
+    app.mount("/sentinel", Response(status_code=204))
+    headers = [(b"authorization", b"Bearer server-secret"), (b"content-length", b"8")]
+    messages = deque[Message]([
+        {"type": "http.request", "body": b"123", "more_body": True},
+        {"type": "http.disconnect"},
+    ])
+    output: list[Message] = []
+
+    async def receive() -> Message:
+        return messages.popleft()
+
+    async def send(message: Message) -> None:
+        output.append(message)
+
+    async def scenario() -> list[Message]:
+        await app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/sentinel/",
+                "raw_path": b"/sentinel/",
+                "query_string": b"",
+                "headers": headers,
+                "server": ("localhost", 8000),
+                "client": ("127.0.0.1", 10000),
+            },
+            receive,
+            send,
+        )
+        accepted, _ = await _invoke(app, [b"{}"], headers=headers[:1])
+        return accepted
+
+    accepted = asyncio.run(scenario())
+
+    assert output == []
+    assert not messages
+    assert accepted[0]["status"] == 204
 
 
 @pytest.mark.parametrize("rejection", ["declared_body", "streamed_body", "capacity"])
