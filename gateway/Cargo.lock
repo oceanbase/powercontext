@@ -658,6 +658,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
+ "hyper",
  "pc-gateway-evidence",
  "pc-gateway-protocol",
  "pc-gateway-transport",
@@ -703,7 +704,6 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-core",
- "pc-gateway-evidence",
  "pc-gateway-types",
  "reqwest",
  "serde_json",

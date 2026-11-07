@@ -209,3 +209,37 @@ async fn lifecycle_bounds_dripping_headers_body_and_trailers_and_recovers() {
         }
     }
 }
+
+#[tokio::test]
+async fn prepare_response_loss_is_not_replayed_after_handoff() {
+    use pc_gateway_types::PrepareContextRequest;
+    let dir = std::env::temp_dir().join(format!("pc-prepare-loss-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("core.sock");
+    let _ = std::fs::remove_file(&socket);
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut connection, _) = listener.accept().await.unwrap();
+        read_request(&mut connection).await;
+        drop(connection);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(150), listener.accept())
+                .await
+                .is_err(),
+            "prepare must not reconnect after Core received its request"
+        );
+    });
+    let result = UdsGateClient::with_token(&socket, None)
+        .prepare(PrepareContextRequest {
+            scope_id: "test".into(),
+            query: "hello".into(),
+            max_bytes: 1024,
+            include_reuse: false,
+            include_code: false,
+            assembly: None,
+        })
+        .await;
+    assert!(result.is_err());
+    server.await.unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -46,6 +46,7 @@ use pc_gateway_types::{
 };
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Gate 不可用时的策略（PR #2199 故障语义）。
@@ -111,6 +112,7 @@ pub struct Executor<G, T> {
     gate: G,
     transport: T,
     max_attempts: NonZeroU32,
+    model_admission_open: Mutex<bool>,
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     max_input_bytes: usize,
@@ -134,9 +136,62 @@ where
             gate,
             transport,
             max_attempts,
+            model_admission_open: Mutex::new(true),
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
         }
+    }
+
+    /// Permanently prevent new model attempts, including retries and degraded sends.
+    /// Already handed-off work may finish under its original lifecycle. Service draining
+    /// can close this boundary without introducing another retry algorithm.
+    pub fn close_model_admission(&self) {
+        *self
+            .model_admission_open
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = false;
+    }
+
+    fn attempt_checkpoint(&self, execution: &Execution) -> Result<(), ManagedOutcome> {
+        execution.checkpoint()?;
+        if !*self
+            .model_admission_open
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+        {
+            execution
+                .lifecycle()
+                .cancellation()
+                .cancel_with(LifecycleStopReason::GatewayShutdown);
+            execution.checkpoint()?;
+        }
+        Ok(())
+    }
+
+    /// Commit handoff under the same lock used to close admission. Constructing the
+    /// transport future is the public transport boundary; no async wait holds the lock.
+    async fn send_attempt(
+        &self,
+        send: AdmittedSend,
+        execution: &mut Execution,
+    ) -> Result<SendOutcome, ManagedOutcome> {
+        let work = {
+            let open = self
+                .model_admission_open
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            execution.checkpoint()?;
+            if !*open {
+                execution
+                    .lifecycle()
+                    .cancellation()
+                    .cancel_with(LifecycleStopReason::GatewayShutdown);
+                execution.checkpoint()?;
+            }
+            execution.model_send(ModelSendState::PossiblySent);
+            self.transport.send(send)
+        };
+        Ok(work.await)
     }
 
     /// Apply the deployment/Core input intersection. Increasing configuration
@@ -176,7 +231,7 @@ where
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
     ) -> ManagedOutcome {
-        if let Err(stop) = execution.checkpoint() {
+        if let Err(stop) = self.attempt_checkpoint(execution) {
             return stop;
         }
         let mut call = call;
@@ -344,11 +399,11 @@ where
                     stream: call.request.stream,
                 };
                 let sent_binding = current.binding.clone();
-                if let Err(stop) = execution.checkpoint() {
-                    return stop;
-                }
-                execution.model_send(ModelSendState::PossiblySent);
-                match self.transport.send(send).await {
+                let outcome = match self.send_attempt(send, execution).await {
+                    Ok(outcome) => outcome,
+                    Err(stop) => return stop,
+                };
+                match outcome {
                     SendOutcome::Delivered(raw) => {
                         execution.model_send(ModelSendState::ResponseReceived);
                         break (raw, sent_binding);
@@ -367,11 +422,7 @@ where
                         if attempt >= self.max_attempts.get() {
                             return ManagedOutcome::NotSent { attempts: attempt };
                         }
-                        #[allow(unused_assignments)]
-                        {
-                            let _ = sent_binding;
-                        }
-                        if let Err(stop) = execution.checkpoint() {
+                        if let Err(stop) = self.attempt_checkpoint(execution) {
                             return stop;
                         }
                         // P1-4：重试前重新准入——撤销在这里被看见。
@@ -743,11 +794,11 @@ where
             headers: call.headers.clone(),
             stream: call.request.stream,
         };
-        if let Err(stop) = execution.checkpoint() {
-            return stop;
-        }
-        execution.model_send(ModelSendState::PossiblySent);
-        match self.transport.send(send).await {
+        let outcome = match self.send_attempt(send, execution).await {
+            Ok(outcome) => outcome,
+            Err(stop) => return stop,
+        };
+        match outcome {
             SendOutcome::Delivered(raw) => {
                 execution.model_send(ModelSendState::ResponseReceived);
                 ManagedOutcome::Degraded {
