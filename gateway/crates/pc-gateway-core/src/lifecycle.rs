@@ -54,12 +54,22 @@ pub enum ExecutionState {
     Finished(ExecutionTerminal),
 }
 
+/// Observations made by the local delivery owner, never a client receipt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalDeliveryState {
+    NotStarted,
+    InProgress,
+    Completed,
+    Interrupted(LifecycleStopReason),
+}
+
 /// A bounded, content-free snapshot. Completion does not release retained resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutionSnapshot {
     pub model_send: ModelSendState,
     pub execution: ExecutionState,
     pub stop_reason: Option<LifecycleStopReason>,
+    pub local_delivery: LocalDeliveryState,
 }
 
 struct Shared {
@@ -104,6 +114,7 @@ impl RequestControl {
                         model_send: ModelSendState::NoSend,
                         execution: ExecutionState::NotStarted,
                         stop_reason: None,
+                        local_delivery: LocalDeliveryState::NotStarted,
                     }),
                 }),
                 cancellation: RequestCancellation {
@@ -141,6 +152,33 @@ pub struct RequestLifecycle {
 }
 
 impl RequestLifecycle {
+    /// The response is handed to its actual delivery owner. Body EOF is not completion.
+    pub fn begin_local_delivery(&self) {
+        let mut snapshot = self.shared.snapshot();
+        if snapshot.local_delivery == LocalDeliveryState::NotStarted {
+            snapshot.local_delivery = LocalDeliveryState::InProgress;
+        }
+    }
+
+    /// Call only after normal completion of the model's closing HTTP/1 connection.
+    /// This does not claim the client application read or accepted the response.
+    pub fn complete_local_delivery(&self) {
+        let mut snapshot = self.shared.snapshot();
+        if snapshot.local_delivery == LocalDeliveryState::InProgress {
+            snapshot.local_delivery = LocalDeliveryState::Completed;
+        }
+    }
+
+    /// The delivery owner stopped unfinished output. Execution/send facts are preserved.
+    pub fn interrupt_local_delivery(&self, reason: LifecycleStopReason) {
+        let mut snapshot = self.shared.snapshot();
+        if snapshot.local_delivery == LocalDeliveryState::InProgress {
+            snapshot.stop_reason = Some(snapshot.stop_reason.unwrap_or(reason));
+            snapshot.local_delivery =
+                LocalDeliveryState::Interrupted(snapshot.stop_reason.unwrap());
+        }
+    }
+
     pub fn observation(&self) -> ExecutionObservation {
         ExecutionObservation {
             shared: self.shared.clone(),

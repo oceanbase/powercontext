@@ -294,8 +294,21 @@ Smaller, completely received responses still pass `before_release` before releas
 Transparent Core/MCP forwarding retains the deployment body limit rather than consuming the model input allowance.
 `PC_GATEWAY_MAX_CONCURRENT` (default 64) applies independently to model calls and fallback calls, so an active
 fallback SSE connection cannot exhaust the model semaphore. The combined ceiling is therefore up to twice the
-configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling. Each permit stays attached to the response body
-until drop; `/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
+configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling.
+Model permits stay with the actual HTTP/1 connection owner through local response delivery and the end of
+related request work, including writes still buffered after body EOF/drop. Model responses declare
+`Connection: close`; normal connection completion establishes local completion, without proving client receipt.
+The original 180-second monotonic deadline covers intake, execution, and local delivery. Expiration ends the
+connection without an extra delivery/cleanup window; a response may be truncated and error JSON is best effort.
+Framework-observed disconnects stop local work with `request_cancelled`; unobserved network loss is bounded by
+the deadline. A delivery interruption preserves completed execution and model-send facts, including
+`ReleaseAuthorized` and `ResponseReceived`. Cancellation does not prove provider rollback or safe resend.
+The process-local `ExecutionSnapshot::local_delivery` reports `NotStarted`, `InProgress`, `Completed`, or
+`Interrupted(reason)`; it is independent of the execution terminal and does not retain response bytes or permits.
+Fallback permits remain attached to their response body until drop. Fallback retains authentication,
+keep-alive and streaming behavior without the model deadline or forced connection closure; provider/Core pools
+remain enabled. Service-level bounded drain and process exit remain separate G3 work.
+`/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
 returns 413 before forwarding. Unknown-length overflow produces a body error: a prefix may already have reached
 Core, and the proxy returns 502 if forwarding fails. It is not successful truncation, and the gateway does not
 buffer an entire MCP stream to force a uniform error status.

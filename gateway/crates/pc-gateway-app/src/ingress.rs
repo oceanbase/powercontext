@@ -118,10 +118,13 @@ async fn ingress_common(
     req: Request,
     format: Format,
 ) -> Response {
-    let control = RequestControl::new(
-        tokio::time::Instant::now() + std::time::Duration::from_secs(180),
-        req.extensions().get::<String>().cloned(),
-    );
+    let control = match req.extensions().get::<crate::connection::ModelConnection>() {
+        Some(owner) => owner.take_control(),
+        None => RequestControl::new(
+            tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+            req.extensions().get::<String>().cloned(),
+        ),
+    };
     let lifecycle = control.lifecycle();
     let observation = control.observation();
     let cancellation = control.cancellation();
@@ -138,6 +141,10 @@ async fn ingress_common(
     response.extensions_mut().insert(lifecycle);
     response.extensions_mut().insert(observation);
     response.extensions_mut().insert(cancellation);
+    response.headers_mut().insert(
+        header::CONNECTION,
+        header::HeaderValue::from_static("close"),
+    );
     response
 }
 
@@ -728,22 +735,41 @@ fn respond(outcome: ManagedOutcome) -> Response {
 fn _unused(_: Option<Bytes>) {}
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     //! PR #2307 review P2：chat 工具元数据经入口 canonical 化的保真测试。
     use super::*;
 
-    async fn lifecycle_router() -> (axum::Router, tokio::task::JoinHandle<()>) {
+    #[derive(Default)]
+    pub(crate) struct Receivers {
+        pub admissions: std::sync::atomic::AtomicUsize,
+        pub sends: std::sync::atomic::AtomicUsize,
+        pub response_bytes: std::sync::atomic::AtomicUsize,
+        pub blocked_phase: std::sync::atomic::AtomicUsize,
+        pub entered: tokio::sync::Notify,
+    }
+
+    pub(crate) async fn lifecycle_router(
+    ) -> (axum::Router, tokio::task::JoinHandle<()>, Arc<Receivers>) {
         use axum::routing::post;
         use pc_gateway_core::{Executor, HttpGateClient};
         use pc_gateway_types::{CheckPhase, ContextCheckRequest};
+        let received = Arc::new(Receivers::default());
         let mock = axum::Router::new()
             .route(
                 "/v1/context/check",
-                post(|Json(request): Json<ContextCheckRequest>| async move {
+                post(|State(received): State<Arc<Receivers>>, Json(request): Json<ContextCheckRequest>| async move {
                     let phase = match request {
                         ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
                         ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
                     };
+                    let phase_id = if phase == CheckPhase::BeforeSend {
+                        received.admissions.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        1
+                    } else { 2 };
+                    if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == phase_id {
+                        received.entered.notify_one();
+                        std::future::pending::<()>().await;
+                    }
                     Json(serde_json::json!({
                         "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
                         "phase": phase,
@@ -758,23 +784,30 @@ mod tests {
             )
             .route(
                 "/v1/chat/completions",
-                post(|| async {
+                post(|State(received): State<Arc<Receivers>>| async move {
+                    received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if received.blocked_phase.load(std::sync::atomic::Ordering::SeqCst) == 3 {
+                        received.entered.notify_one();
+                        std::future::pending::<()>().await;
+                    }
                     (
                         StatusCode::CREATED,
                         Json(serde_json::json!({
-                            "choices": [{"message": {"role": "assistant", "content": "checked"}}]
+                            "choices": [{"message": {"role": "assistant", "content": if received.response_bytes.load(std::sync::atomic::Ordering::SeqCst) == 0 { "checked".to_owned() } else { "x".repeat(received.response_bytes.load(std::sync::atomic::Ordering::SeqCst)) }}}]
                         })),
                     )
                 }),
             )
             .route(
                 "/v1/responses",
-                post(|| async {
+                post(|State(received): State<Arc<Receivers>>| async move {
+                    received.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     Json(serde_json::json!({
                         "id": "resp-1", "object": "response", "status": "completed", "output": []
                     }))
                 }),
             );
+        let mock = mock.with_state(received.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
@@ -804,18 +837,18 @@ mod tests {
         let router = crate::middleware::apply_chain(
             crate::router(state, crate::proxy::ProxyState::from_env()),
             vec![
-                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 2),
+                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 1),
                 Arc::new(crate::middleware::RequestId),
             ],
         );
-        (router, server)
+        (router, server, received)
     }
 
     #[tokio::test(start_paused = true)]
     async fn real_listener_slow_body_stops_before_executor_and_recovers() {
         use pc_gateway_core::{ExecutionObservation, ExecutionState, ModelSendState};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let (router, upstream) = lifecycle_router().await;
+        let (router, upstream, _) = lifecycle_router().await;
         let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
         let retained = observations.clone();
         let entered = Arc::new(tokio::sync::Notify::new());
@@ -838,7 +871,11 @@ mod tests {
         ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let server = tokio::spawn(async move {
+            crate::connection::serve(listener, router, std::future::pending())
+                .await
+                .unwrap()
+        });
         // Resume for network setup, then freeze once the request has entered the body read.
         tokio::time::resume();
         let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -944,7 +981,7 @@ mod tests {
                 true,
             ),
         ] {
-            let (router, server) = lifecycle_router().await;
+            let (router, server, _) = lifecycle_router().await;
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let started = tokio::time::Instant::now();
             let request = Request::builder()
@@ -996,6 +1033,7 @@ mod tests {
                 response.headers()["x-powercontext-request-id"],
                 "route-request"
             );
+            assert_eq!(response.headers()[header::CONNECTION], "close");
             assert_eq!(
                 response.status(),
                 if path.contains("chat") {
@@ -1058,7 +1096,7 @@ mod tests {
                 serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false, "stream": true}),
             ),
         ] {
-            let (router, server) = lifecycle_router().await;
+            let (router, server, _) = lifecycle_router().await;
             let response = router
                 .oneshot(
                     Request::builder()

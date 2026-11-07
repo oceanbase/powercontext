@@ -24,6 +24,7 @@
 //! PC_GATEWAY_UPSTREAM_API_KEY、PC_GATEWAY_UPSTREAM_PROFILE、
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
+mod connection;
 mod ingress;
 mod link;
 mod middleware;
@@ -193,8 +194,7 @@ async fn main() {
 
     tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+    connection::serve(listener, app, shutdown_signal())
         .await
         .expect("serve");
 }

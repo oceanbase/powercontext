@@ -110,7 +110,7 @@ Credentials live only in server-side environment variables; they are never accep
 ## Execution deadline and cancellation
 
 Model ingress establishes one absolute monotonic deadline of 180 seconds before reading the body.
-Intake, parsing, preparation, admission, provider sending, release checks, capture, and response handoff
+Intake, parsing, preparation, admission, provider sending, release checks, capture, response handoff, and local delivery
 consume that budget. Admission refreshes and permitted retries keep the original deadline. HTTP and UDS
 Core RPCs run inline under this control, including connection/pool waits and response framing; repeated
 reads cannot extend the deadline. Startup capabilities discovery retains its separate 10-second bound.
@@ -128,9 +128,20 @@ Before Executor startup, lifecycle interruption retains `NotStarted`.
 Ingress attaches the same `RequestLifecycle`, `RequestCancellation`, and `ExecutionObservation` to
 response extensions for the next local owner. The Executor and ingress own their futures inline and
 create no request cleanup tasks. Embedding owners that spawn tasks must cancel and join them themselves.
-Response handoff establishes neither socket completion nor client receipt. Connection-level cancellation,
-delivery ownership, concurrency permits through socket completion, and service drain/exit remain separate
-work under the G3 delivery and shutdown tasks.
+The app explicitly drives Hyper HTTP/1 connection futures. Model responses declare `Connection: close`;
+normal completion of that connection records local completion. The original deadline also bounds pending
+response writes; expiration can truncate output, and error JSON is best effort. Framework-observed client
+disconnects stop local work with `request_cancelled`. Unobserved network loss remains bounded by the deadline.
+Neither observation establishes client receipt, provider billing cancellation, or remote rollback.
+
+The model concurrency permit transfers to the connection owner before ingress starts and is released after
+Hyper's connection, inline request work, body, and pending write buffers end. Body EOF/drop and response
+extensions do not establish connection completion. `ExecutionSnapshot::local_delivery` distinguishes
+`NotStarted`, `InProgress`, `Completed`, and `Interrupted(reason)`; delivery interruption preserves completed
+execution terminals and model-send facts. Retaining an observation does not retain the permit or payload.
+Fallback retains its independent quota, body lifetime, authentication, and keep-alive behavior, without the
+model deadline or forced connection closure. Core/provider connection pools remain enabled. Service-level
+bounded drain/process exit is tracked separately in G3 issue 04. .
 
 When an HTTP error can still be returned, deadline expiration maps to 504 and shutdown to 503. An explicit
 in-process cancellation uses 503 if a response channel remains available; there is no cancellation endpoint
