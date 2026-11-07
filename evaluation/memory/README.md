@@ -15,8 +15,8 @@ the shared `evaluation/` environment.
 | [Capture ownership](capture_ownership/README.md) | WorkBuddy joined-prompt evidence ownership, candidate contamination and current-fact retention. |
 | [Source poisoning observation](source_poisoning/README.md) | Versioned synthetic inputs, immutable citations, and actual host answers from a bounded live-model run. |
 
-For issue #2074, the [evidence admission review handoff](evidence_admission/REVIEW_HANDOFF.zh.md) separates the
-requesting user's reported checks, unresolved semantic judgments, frozen results and publication/merge limitations.
+For issue #2074, the [evidence admission integration handoff](evidence_admission/UPSTREAM_INTEGRATION.zh.md) links
+the current PR description, upstream compatibility checks and separately preserved historical review evidence.
 
 Add dataset-specific Memory quality suites here. Put latency, throughput, storage, and capacity measurements in
 [performance](../performance/README.md). Keep each suite's execution and grading tools with the suite; see
