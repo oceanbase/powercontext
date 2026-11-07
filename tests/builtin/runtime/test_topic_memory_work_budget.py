@@ -115,14 +115,14 @@ async def _capture(profile, *, metadata=None, tail=True):
     return await _capture_all(profile, captures)
 
 
-async def _capture_all(profile, captures):
+async def _capture_all(profile, items):
     sources = SourceRepository((*SOURCE_ADAPTERS, CONTENT_SOURCE_ADAPTER))
     async with profile.database.transaction() as connection:
-        for item in captures:
+        for item in items:
             source = await CONTENT_SOURCE_ADAPTER.resolve(item) if isinstance(item, ContentCapture) else item
             await sources.add(connection, "scope-a", source)
         await ArtifactProcessingPendingRepository().raise_source(
-            connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, len(captures)
+            connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, len(items)
         )
         term = await ArtifactProcessingLeaseRepository().start_single_process_term(connection, "holder")
     return sources, _assignment(term.fence("single-process"))
@@ -250,7 +250,7 @@ def test_failing_source_ends_the_window_after_the_healthy_prefix():
             with pytest.raises(TopicMemoryGenerationError, match="source_complexity_limit"):
                 await processor.process(frontier)
             row = await _row(profile)
-            assert row["source_after"] == 4 and row["failure_code"] == "source_complexity_limit"
+            assert (row["source_after"], row["requests"], row["failure_code"]) == (4, 0, "source_complexity_limit")
             with pytest.raises(TopicMemoryGenerationError, match="source_complexity_limit"):
                 await selector.select("scope-a", 4, 5)
             assert await _cursor(profile) == cursor
@@ -262,21 +262,24 @@ def test_failing_source_ends_the_window_after_the_healthy_prefix():
 
 @pytest.mark.parametrize(
     "characters,count,per_window",
-    [(80_000, 60, 3), (MAX_TOPIC_MEMORY_SOURCE_CHARACTERS * 3 // 8, 6, 2)],
+    [(80_000, 60, 3), (MAX_TOPIC_MEMORY_SOURCE_CHARACTERS // 2, 4, 2)],
     ids=["probe-budget", "character-ceiling"],
 )
 def test_large_healthy_backlog_fills_each_window_to_its_budget(characters, count, per_window):
     async def scenario():
         manager, profile, _, topics = await _repositories()
         try:
-            # Both backlogs exceed the Window character ceiling. Each Source costs 30,000 of the
-            # 100,000-token Probe budget, so the character ceiling binds first only for large Sources.
+            # Both backlogs exceed the Window character ceiling. Each Source has exactly `characters`
+            # canonical evidence characters and costs 30,000 of the 100,000-token Probe budget, so two
+            # half-ceiling Sources fill a Window exactly before the Probe budget would bind.
             marker = "backlog-source"
-            captures = [
-                ContentCapture(source_id=f"source-{index}", content=f"{marker} {index}\n" + "x" * characters)
-                for index in range(count)
-            ]
-            sources, assignment = await _capture_all(profile, captures)
+
+            def capture(index):
+                head = f"{marker} {index}\n"
+                overhead = len(json.dumps({"content": head, "metadata": {}}, separators=(",", ":")))
+                return ContentCapture(source_id=f"source-{index}", content=head + "x" * (characters - overhead))
+
+            sources, assignment = await _capture_all(profile, [capture(index) for index in range(count)])
             processor = _processor(profile, sources, topics, _FastProbe())
             estimator = TokenEstimator(character_token_estimator().profile, lambda text: text.count(marker) * 30_000)
             selector = TopicMemoryWindowSelector(profile.database, sources, estimator, context_window_tokens=125_000)
