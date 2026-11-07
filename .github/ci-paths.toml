@@ -5,6 +5,7 @@ full = [
   ".mise.toml", ".pre-commit-config.yaml", ".github/actions/setup-python-env/**",
   ".github/workflows/ci-changes.yml", ".github/workflows/master.yml",
   ".github/ci-paths.toml", "scripts/ci_changes.py", "tests/test_ci_changes.py", "tests/test_ci_pipeline.py",
+  ".github/actions/setup-license-eye/**", "tests/test_ci_license_eye.py",
   "tests/conftest.py", "tests/**/conftest.py", "tests/fixtures/**", "integrations/capabilities.toml",
   "integrations/langchain/pyproject.toml", "integrations/langgraph/pyproject.toml",
   "integrations/opendal/pyproject.toml",

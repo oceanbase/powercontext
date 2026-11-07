@@ -369,6 +369,33 @@ def test_moves_and_deletions_keep_the_original_suite(repository: Path) -> None:
     }
 
 
+def test_blobless_checkout_preserves_pr_scope_and_version_tags(repository: Path) -> None:
+    historical = repository / "old.bin"
+    historical.write_bytes(b"historical content that is no longer checked out")
+    git(repository, "add", "old.bin")
+    git(repository, "commit", "-m", "Historical content")
+    old_blob = git(repository, "rev-parse", "HEAD:old.bin")
+    git(repository, "rm", "old.bin")
+    git(repository, "commit", "-m", "Remove historical content")
+    git(repository, "tag", "v1.0.0")
+    git(repository, "checkout", "-b", "feature")
+    head = commit(repository, "docs/zh/说明.md")
+    git(repository, "checkout", "master")
+    base = commit(repository, "src/powercontext/unrelated.py")
+    git(repository, "checkout", "feature")
+    git(repository, "config", "uploadpack.allowFilter", "true")
+    clone = repository.parent / f"{repository.name}-partial"
+    git(repository, "clone", "--filter=blob:none", repository.as_uri(), str(clone))
+
+    assert git(clone, "rev-parse", "--is-shallow-repository") == "false"
+    assert git(clone, "describe", "--tags") == git(repository, "describe", "--tags")
+    selected = run_selector(clone, "pull_request", base, head)
+    assert {suite for suite, enabled in selected.items() if enabled} == {"website", "docs_tests"}
+    # Inspect missing objects without triggering a lazy fetch of the old content.
+    missing = git(clone, "rev-list", "--objects", "--all", "--missing=print")
+    assert f"?{old_blob}" in missing.splitlines()
+
+
 def test_large_diff_includes_code_after_hundreds_of_docs(repository: Path) -> None:
     base = git(repository, "rev-parse", "HEAD")
     head = commit(repository, *(f"docs/page-{index}.md" for index in range(350)), "src/powercontext/client.py")
