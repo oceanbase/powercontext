@@ -1,7 +1,7 @@
 # Gateway evidence validation / Gateway 证据验收
 
 - Date / 日期: 2026-11-07.
-- Implementation commit / 实现提交: `c8eeb50166d886f6155797a4ed6d74e645f979c1`.
+- Implementation commit / 实现提交: `2b3a1c5a48999ccae6a78499e61ba6d9a78bfdb5`.
 - Merged master / 已合并 master: `b8b189091e7a412300cf1292531208a8ead0e325`, including #2513 capacity limits and context refresh. / 包含 #2513 容量限制与上下文刷新。
 - Platform / 平台: Darwin arm64, Rust `1.95.0 (59807616e 2026-04-14)`, Python 3.13.15.
 - Scope / 范围: [#2463](https://github.com/oceanbase/powercontext/issues/2463),
@@ -33,22 +33,17 @@ Cargo was invoked through `/Users/lioky/.cargo/bin/cargo` because the shell's mi
 | --- | --- |
 | `cargo fmt --manifest-path gateway/Cargo.toml --all --check` | Passed / 通过 |
 | `cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings` | Passed / 通过 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml --workspace` | 183 exercised behavior tests passed; 4 live-Core cases returned early / 183 个实际行为测试通过，4 个真实 Core 用例提前返回 |
-| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app` | 49 passed, including independent stderr diagnostics, capacity/UDS, readable overflow evidence, 1000 enabled + 100 disabled calls, 511 calls with stdout loss and rejected startup / 49 个通过，含独立 stderr 诊断、容量/UDS、可读超限证据、启用 1000 次与关闭 100 次调用、stdout 丢失时 511 次调用及启动拒绝 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml --workspace` | 185 exercised behavior tests passed; 4 live-Core cases returned early / 185 个实际行为测试通过，4 个真实 Core 用例提前返回 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-transport --test usage_timing` | 5 passed, including actual 100 ms body-read timeouts versus premature EOF for JSON/SSE, with headers-only or partial-body observations and no retry / 5 个通过，含真实 100 ms 正文读取超时与提前 EOF 的 JSON/SSE 区分、仅响应头/部分正文事实及不重试 |
+| `cargo test --locked --manifest-path gateway/Cargo.toml -p pc-gateway-core --test executor_semantics` | 74 passed; actual reqwest body timeouts through normal/degraded executor paths export readable timeout attempts, unknown usage and no release or retry / 74 个通过；真实 reqwest 正文超时经正常/降级 executor 输出可读超时尝试、未知 usage，不释放、不重试 |
 | `make check` | Passed, including lock/policy checks, hooks, types and 61 integration-manifest tests / 通过，包含锁文件/策略检查、hooks、类型及 61 个集成清单测试 |
 | `uv run prek run -a` | Passed with all implementation files staged / 实现文件暂存后通过 |
 | `make docs-test` | Passed: bilingual links and static build, 1097 public pages verified / 双语链接与静态构建通过，验证 1097 个公开页面 |
 | `git diff --check` | Passed / 通过 |
 
-The workspace runner prints 187 passing test cases. Four `live_context_check` cases return early when the real Core
+The workspace runner prints 189 passing test cases. Four `live_context_check` cases return early when the real Core
 at `127.0.0.1:8000` is unavailable; readiness was unavailable here. Those four are not real-Core acceptance evidence.
-workspace 输出共 187 个通过用例；其中 4 个 `live_context_check` 因真实 Core 不可达而提前返回，不能算作真实 Core 验收。
-
-One earlier workspace attempt failed in the existing capacity process startup check (`gateway exited during startup`)
-while the documentation build was also running. That harness discarded child stderr, so the cause was not established.
-A complete workspace rerun passed with all tests included and the usual parallelism; no assertion or test was removed.
-一次较早的 workspace 执行在文档构建并行期间遇到既有容量子进程启动检查失败；该 harness 丢弃子进程 stderr，
-因此未确认原因。完整 workspace 重跑以通常并行度通过，没有移除测试或断言。
+workspace 输出共 189 个通过用例；其中 4 个 `live_context_check` 因真实 Core 不可达而提前返回，不能算作真实 Core 验收。
 
 ## Observed behavior / 实际覆盖
 
@@ -57,6 +52,7 @@ A complete workspace rerun passed with all tests included and the usual parallel
 | Correlated call terminals and actual attempts / 关联终态与真实尝试 | Executor tests cover success, zero-send block/withhold/expiry, retry/NotSent, Indeterminate, upstream HTTP error, release refusal/expiry, degraded execution and pending-future destruction / 覆盖成功、零发送拒绝/过期、重试/NotSent、不确定、上游 HTTP 错误、释放拒绝/过期、降级和 pending future 销毁 |
 | Usage through real transport / 真实 transport usage | Local HTTP JSON/SSE fixtures verify Chat/Responses input, output, cached reads, known zero and missing/malformed usage; cache writes stay unknown / 核对两种协议的输入、输出、缓存读、已知零及缺失/畸形 usage，缓存写保持未知 |
 | Capacity/evidence integration / 容量与证据集成 | Real fixed-length/chunked overflow returns 409 with no prefix or resend; JSONL links one `buffer_limit_exceeded` attempt to a `withheld`/`possibly_sent` call with unknown usage and observed status/first byte. Normal/degraded executor variants agree with lifecycle snapshots / 真实定长/chunked 超限返回 409，不释放前缀、不重发；JSONL 将一次超限尝试与 `withheld`/`possibly_sent` 调用关联，usage 未知且保留状态码/首字节，正常/降级 executor 与生命周期快照一致 |
+| Body timeout classification / 正文超时分类 | Real local HTTP fixtures send headers with or without a partial body, then stall: timeout stays `timeout_awaiting_response`; premature EOF stays `lost_after_handoff`. Readable JSONL preserves observed status/first byte, `possibly_sent`, unknown completion/usage, one attempt and no release/retry in normal/degraded execution / 真实本地 HTTP fixture 发送头部（可含部分正文）后停住，超时保留 timeout 分类，提前 EOF 保留连接丢失分类；正常/降级执行的 JSONL 保留状态/首字节、可能送达、未知完整响应/usage、单次尝试且不释放/重试 |
 | SSE evidence framing / SSE 证据 framing | Real transport reads 80/7/20 input/output/cache-read from lowercase and mixed-case media types, including first-event Chat/Responses usage behind one leading UTF-8 BOM. Protocol/body tests preserve original offsets through BOM and reject stripping a second/interior BOM / 真实 transport 在小写/混合大小写媒体类型及带一个开头 UTF-8 BOM 的 Chat/Responses 首事件读出 80/7/20 input/output/cache-read；协议/body 测试保留原始偏移，不移除第二个/流中间的 BOM |
 | Bounded retention and visible loss / 有界保留与可见丢失 | A held writer with capacity 4 receives 100000 extra submissions: exactly 4 queue, 99996 drop; 1 record remains in flight, and recovered output reports loss / 容量 4 且 writer 卡住时额外提交 10 万条，4 条排队、99996 条丢弃、1 条在写，恢复输出含丢失计数 |
 | Total stream loss / 整条输出流丢失 | Real Gateway with closed stdout reports nonzero write failures and zero writes on stderr; unread stdout reports nonzero drops, then another summary after 30 seconds without new requests or recovery. 511 requests return HTTP 200 with original usage; diagnostics exclude synthetic content/credentials and OS error text / 真实 Gateway 关闭 stdout 时 stderr 报告非零写失败与零写出；不读取 stdout 时报告非零丢弃，停止请求且不恢复后 30 秒再次汇总。511 次请求返回 200 并保留 usage，诊断不含合成正文/凭据或 OS 异常文本 |
@@ -69,6 +65,18 @@ A complete workspace rerun passed with all tests included and the usual parallel
 | Startup privacy / 启动隐私 | Spawned TCP requests embed synthetic Core URL credentials/path and invalid injection text; UDS plus rejected steering startup embeds socket/file paths. Markers are absent from stdout/stderr while diagnostics remain readable / 真实 TCP 进程植入 Core URL 凭据/路径及非法 injection 文本，UDS/steering 启动拒绝植入 socket/文件路径；stdout/stderr 不含标记且保留可读诊断 |
 | Real production composition / 真实生产装配 | Spawned binary handles 1000 requests with 6000 readable records and 1000 distinct call IDs; explicit Noop handles 100 requests with empty stdout and an evidence-disabled startup diagnostic / 真实二进制处理 1000 次请求，输出 6000 条可读记录、1000 个不同调用 ID；显式 Noop 处理 100 次请求，stdout 为空且启动诊断说明证据关闭 |
 | Both ingress formats / 两种入口格式 | In-process public-router tests send 200 calls through actual reqwest to local HTTP fixtures, covering Chat JSON/SSE and Responses JSON/replayed SSE, and read 1200 serialized production-sink records / 进程内公开路由用真实 reqwest 完成 200 次本地 HTTP 调用，覆盖 Chat JSON/SSE 与 Responses JSON/重放 SSE，读取生产 sink 的 1200 条序列化输出 |
+
+Body-read timeout regression tests failed before the fix: the real transport and exported attempt both reported
+`lost_after_handoff`. After classification is preserved before discarding the reqwest error, the same fixtures pass.
+Transport fixtures use an actual 100 ms timeout; executor/export fixtures use 250 ms and a fake Gate with the real
+reqwest transport and production JSONL sink. These are local HTTP and executor acceptance, not a spawned-Gateway
+short-timeout configuration, a real Core or hosted-provider claim. Raw reqwest errors are not retained or exported;
+no public enum values, schema fields, timeout configuration or retry behavior changed.
+正文超时回归在修复前失败：真实 transport 与导出的尝试均误记 `lost_after_handoff`；
+在丢弃 reqwest 错误前保留分类后，同样 fixture 通过。transport 使用真实 100 ms 超时；
+executor/export 使用 250 ms、FakeGate、真实 reqwest transport 与生产 JSONL sink。
+这些验证本地 HTTP 与执行器行为，不证明 Gateway 子进程的短超时配置、真实 Core 或真实供应商能力。
+不保留或导出原始 reqwest 错误；未修改公共枚举值、schema 字段、超时配置或重试行为。
 
 The combined implementation preserves startup-confirmed input intersection, rendered-body limits (including
 refreshed context), the response-buffer ceiling and separate fallback capacity from #2513. Capacity and evidence
