@@ -37,6 +37,10 @@ from .client import (
     PowerContextTransportError,
 )
 from .helpers import (
+    CAPTURE_COVERAGE_KEY,
+    capture_coverage,
+)
+from .helpers import (
     DEFAULT_BASE_URL as _DEFAULT_BASE_URL,
 )
 from .helpers import (
@@ -246,6 +250,7 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._memory_extraction_supported: bool | None = None
         self._precompress_stream_id = ""
         self._precompress_snapshot: list[str] = []
+        self._precompress_coverage_reasons: dict[str, tuple[str, ...]] = {}
         self._memory_map_path: Path | None = None
         self._memory_map: dict[str, dict[str, Any]] = {}
         self._hermes_home = ""
@@ -400,6 +405,7 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._memory_extraction_supported = None
         self._precompress_stream_id = session_id
         self._precompress_snapshot = []
+        self._precompress_coverage_reasons.clear()
         self._memory_map_path = Path(hermes_home) / "powercontext-memory-map.json"
         self._memory_map = self._load_memory_map()
         self._scope_binding_cwd = str(
@@ -599,6 +605,7 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._last_recall_scope_id = ""
         self._precompress_stream_id = f"{self._session_id}:{scope_id}"
         self._precompress_snapshot = []
+        self._precompress_coverage_reasons.clear()
         self._scope_id = scope_id
 
         with self._memory_write_lock:
@@ -915,12 +922,17 @@ class PowerContextMemoryProvider(MemoryProvider):
             return
         effective_session = session_id or self._session_id
         scope_id = self._scope_id
+        projected = f"[user]\n{user_content}\n\n[assistant]\n{assistant_content}"
+        coverage = capture_coverage(
+            "hermes-turn-text.v1",
+            reasons=("character_limit",) if len(projected) > _MAX_TURN_CHARS else (),
+        )
         self._enqueue_memory_write(
             lambda: self._capture_text(
                 scope_id,
                 self._turn_source_id(effective_session, user_content, assistant_content),
-                f"[user]\n{user_content}\n\n[assistant]\n{assistant_content}"[:_MAX_TURN_CHARS],
-                {"kind": "hermes-turn", "session_id": effective_session},
+                projected[:_MAX_TURN_CHARS],
+                {"kind": "hermes-turn", "session_id": effective_session, CAPTURE_COVERAGE_KEY: coverage},
             )
         )
 
@@ -930,9 +942,23 @@ class PowerContextMemoryProvider(MemoryProvider):
 
     def _capture_text(self, scope_id: str, source_id: str, content: str, metadata: dict[str, Any]) -> None:
         try:
-            self._client.capture_content(scope_id, source_id=source_id, content=content, metadata=metadata)
+            self._capture_content(self._client, scope_id, source_id, content, metadata)
         except PowerContextError as error:
             self._emit_failure_diagnostic("capture_source", error)
+
+    @staticmethod
+    def _capture_content(client, scope_id: str, source_id: str, content: str, metadata: dict[str, Any]) -> None:
+        """Replay an exact legacy capture once; the Server still owns payload equality."""
+        try:
+            client.capture_content(scope_id, source_id=source_id, content=content, metadata=metadata)
+        except PowerContextHTTPError as conflict:
+            if conflict.status != 409 or CAPTURE_COVERAGE_KEY not in metadata:
+                raise
+            legacy_metadata = {key: value for key, value in metadata.items() if key != CAPTURE_COVERAGE_KEY}
+            try:
+                client.capture_content(scope_id, source_id=source_id, content=content, metadata=legacy_metadata)
+            except PowerContextError as retry_error:
+                raise conflict from retry_error
 
     def on_session_end(self, messages: list[dict[str, Any]]) -> None:
         if not self._client or not self._scope_id:
@@ -994,6 +1020,7 @@ class PowerContextMemoryProvider(MemoryProvider):
         if reset or rewound:
             self._precompress_stream_id = new_session_id
             self._precompress_snapshot = []
+            self._precompress_coverage_reasons.clear()
 
     def on_pre_compress(
         self,
@@ -1067,15 +1094,25 @@ class PowerContextMemoryProvider(MemoryProvider):
             "hermes-compression:"
             + hashlib.sha256(json.dumps(idempotency_payload, sort_keys=True).encode("utf-8")).hexdigest()[:24]
         )
+        # The same captured prefix can be retried within a differently sized host window.
+        # Freeze its first declaration before sending, including when the acknowledgement is lost.
+        coverage_reasons = self._precompress_coverage_reasons.setdefault(
+            source_id, () if complete_checkpoint else ("character_limit",)
+        )
         try:
-            client.capture_content(
+            self._capture_content(
+                client,
                 scope_id,
-                source_id=source_id,
-                content=content,
-                metadata={
+                source_id,
+                content,
+                {
                     "kind": "hermes-context-compression",
                     "session_id": self._session_id,
                     "message_count": len(captured_fingerprints),
+                    CAPTURE_COVERAGE_KEY: capture_coverage(
+                        "hermes-precompress-text.v1",
+                        reasons=coverage_reasons,
+                    ),
                 },
             )
         except PowerContextError as error:
