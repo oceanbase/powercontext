@@ -325,12 +325,14 @@ def test_ci_e2e_runs_each_case_once_and_keeps_hook_tests_serial(tmp_path, monkey
     shutil.copyfile(ROOT / "Makefile", tmp_path / "Makefile")
     cases = tmp_path / "tests/e2e"
     cases.mkdir(parents=True)
+    # Read the child pytest configuration: its environment can retain the outer
+    # xdist worker ID even when the child runs serially.
     for name in ("test_other", "test_zcode_service_chain"):
         (cases / f"{name}.py").write_text(
             "import os\nfrom pathlib import Path\n"
-            "def test_observable_execution():\n"
+            "def test_observable_execution(request):\n"
             f"    with Path(os.environ['CI_TEST_EVENTS'], '{name}').open('a') as output:\n"
-            "        output.write(os.environ.get('PYTEST_XDIST_WORKER', 'serial') + '\\n')\n"
+            "        output.write(getattr(request.config, 'workerinput', {}).get('workerid', 'serial') + '\\n')\n"
         )
     commands = tmp_path / "bin"
     commands.mkdir()
