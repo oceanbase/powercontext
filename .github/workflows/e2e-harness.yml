@@ -115,7 +115,8 @@ jobs:
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    timeout-minutes: 60
+    # Bounded tests total about 91m; allow separate image pull/startup and final evidence.
+    timeout-minutes: 130
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       POWERCONTEXT_TEST_OCEANBASE_URL: >-
@@ -132,10 +133,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Pull the OceanBase image
+        timeout-minutes: 11
+        run: |
+          if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
+            timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
+          fi
+
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
-          timeout --kill-after=10s 180s docker run --detach --name recall-effort-oceanbase \
+          timeout --kill-after=10s 180s docker run --pull never --detach --name recall-effort-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
             --env MODE=slim \
@@ -325,8 +333,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Test steps total 205m; reserve 25m for setup, diagnostics and artifact upload.
-    timeout-minutes: 230
+    # Test steps total 205m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    timeout-minutes: 245
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -350,10 +358,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Pull the OceanBase image
+        timeout-minutes: 11
+        run: |
+          if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
+            timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
+          fi
+
       - name: Start the isolated OceanBase test instance
         timeout-minutes: 14
         run: |
-          timeout --kill-after=10s 180s docker run --detach --name atomic-memory-clean-oceanbase \
+          timeout --kill-after=10s 180s docker run --pull never --detach --name atomic-memory-clean-oceanbase \
             --publish 127.0.0.1:2881:2881 \
             --ulimit nofile=65536:65536 \
             --env MODE=slim \

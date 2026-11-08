@@ -3,13 +3,21 @@ description: Start the disposable MySQL tenant used by installed-release upgrade
 runs:
   using: composite
   steps:
+    - name: Pull the OceanBase image
+      shell: bash
+      env:
+        OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
+      run: |
+        if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
+          timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
+        fi
     - name: Start and verify OceanBase
       shell: bash
       env:
         OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       run: |
         mkdir -p "$RUNNER_TEMP/oceanbase-startup"
-        timeout --kill-after=10s 180s docker run --detach --name upgrade-oceanbase \
+        timeout --kill-after=10s 180s docker run --pull never --detach --name upgrade-oceanbase \
           --publish 127.0.0.1:2881:2881 \
           --ulimit nofile=65536:65536 \
           --env MODE=slim \
