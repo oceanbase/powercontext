@@ -264,8 +264,9 @@ jobs:
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
+          # Version and binary hashes are pinned from the verified, minisign-signed release checksums.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 
       - name: Cache DSH configuration dependencies
         if: matrix.suite == 'unit'
@@ -863,8 +864,8 @@ jobs:
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -916,8 +917,8 @@ jobs:
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
@@ -967,10 +968,10 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 
       - name: Cache shared JavaScript build tooling
         uses: ./.github/actions/cache-pnpm
@@ -1015,8 +1016,8 @@ jobs:
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 
       - name: Cache Pi dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1044,8 +1045,8 @@ jobs:
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
       - name: Cache OpenCode dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -1071,8 +1072,8 @@ jobs:
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
@@ -1120,8 +1121,8 @@ jobs:
       - name: Set up website tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: 4f796228c826ad6225d608e2029278b31677c8919508574498877543ed3431d8
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1152,8 +1153,8 @@ jobs:
       - name: Set up website tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Avoid the mutable release index during CI setup.
           version: "2026.11.3"
+          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
