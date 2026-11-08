@@ -123,6 +123,9 @@ jobs:
 
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
@@ -302,6 +305,9 @@ jobs:
 
       - name: Set up website tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm

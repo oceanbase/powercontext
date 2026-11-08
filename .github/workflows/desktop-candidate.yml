@@ -114,6 +114,8 @@ jobs:
             --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA"
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
           working_directory: desktop
       - name: Install pinned Rust target
         run: rustup toolchain install "1.95.0-$RUST_TARGET" --profile minimal

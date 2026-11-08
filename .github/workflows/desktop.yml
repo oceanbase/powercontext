@@ -60,6 +60,8 @@ jobs:
           }
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
           working_directory: desktop
       - name: Install pinned Windows Rust toolchain
         run: rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
@@ -186,6 +188,8 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
           working_directory: desktop
       - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -316,6 +320,8 @@ jobs:
             pkg-config
       - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
         with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
           working_directory: desktop
       - name: Install pinned Linux Rust toolchain
         run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy

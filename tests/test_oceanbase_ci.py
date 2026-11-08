@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -26,9 +27,10 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 from check_atomic_memory_migration_shards import verify_group
 from oceanbase_ci import collect, run_command, wait_ready
-from run_atomic_memory_clean_migration import assigned_nodes, read_durations
+from run_atomic_memory_clean_migration import SUITES, assigned_nodes, read_durations
 
 
 @pytest.fixture
@@ -219,3 +221,22 @@ def test_invalid_duration_baseline_cannot_silently_change_scheduling(tmp_path):
     path.write_text(json.dumps({"durations_seconds": {"test": -1}}))
     with pytest.raises(ValueError, match="positive"):
         read_durations(path)
+
+
+def test_clean_migration_shard_budget_covers_slow_cases_and_keeps_cleanup_time():
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
+    job = workflow["jobs"]["atomic-memory-clean-oceanbase-shards"]
+    steps = [step for step in job["steps"] if "run_atomic_memory_clean_migration.py" in step.get("run", "")]
+    clean = next(step for step in steps if '--output "$MIGRATION_REPORTS/clean-migration"' in step["run"])
+    args = shlex.split(clean["run"].replace("\\\n", ""))
+    case_timeout = int(args[args.index("--test-timeout") + 1])
+    durations = read_durations(root / ".github/oceanbase-migration-durations.json")
+    assert durations is not None
+    nodes = [node for node in durations if node.split("::")[0] in SUITES]
+    shard_count = len(job["strategy"]["matrix"]["shard"])
+    largest_shard = max(len(assigned_nodes(nodes, index, shard_count, durations)) for index in range(shard_count))
+    # Slow, passing cases can approach their deadline before the final case times out.
+    # Include the runner's 180s collection timeout and 10s process termination grace.
+    assert clean["timeout-minutes"] * 60 >= largest_shard * (case_timeout + 10) + 180 + 10
+    assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in steps) + 25
