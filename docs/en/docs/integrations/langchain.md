@@ -189,3 +189,8 @@ implementing the local `powercontext.genai_client` OTel context marker (included
 A 1.5.0 core ignores the marker and retains its existing operational spans and consumer filtering behavior;
 install matching core/adapter artifacts to obtain the complete default-filter tracing fix.
 The marker is local execution context, not network baggage, credentials, or a provider/exporter configuration.
+
+The `tracing-tests` dependency group pins the optional Langfuse consumer and OTLP exporter for CI.
+The `worker-observability` job also runs the LangChain consumer regressions and rejects skipped cases.
+Adapter-only LangChain edits select both that job and standalone installation validation.
+Content bounds and cancellation cleanup tests remain in the default suite without consumer extras.

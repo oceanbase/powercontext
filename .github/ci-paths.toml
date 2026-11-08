@@ -94,10 +94,12 @@ upgrade = [
   ".github/actions/setup-upgrade-oceanbase/**",
 ]
 observability = [
+  "integrations/langchain/**", "src/powercontext/client/tracing.py", "tests/langchain_middleware/**",
   "tests/*observability*", "tests/*logging*", "tests/*tracing*", "tests/e2e/*worker*",
   "tests/e2e/*observability*", "tests/builtin/runtime/*worker*", "tests/builtin/runtime/*model_usage*",
 ]
 packaging = [
+  "integrations/langchain/**", "tests/langchain_middleware/test_packaging.py",
   "website/public/install.sh", "website/public/install.ps1", ".github/workflows/installation.yml",
   "tests/test_installation_contract.py", "tests/native/test_installation.py", "tests/native/test_install_sources.py",
   "scripts/build_ops_bundle.py",

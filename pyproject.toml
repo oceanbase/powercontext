@@ -135,6 +135,8 @@ Repository = "https://github.com/oceanbase/powercontext"
 Documentation = "https://powercontext.oceanbase.io/en/docs/"
 
 [dependency-groups]
+# Optional consumer regression dependencies; never installed by the adapter itself.
+tracing-tests = ["langfuse==5.0.2", "powercontext[tracing-otlp]"]
 # Producer/consumer checks import Ops settings and models, without installing
 # Server transports or cryptography before the pinned native builder runs.
 resource-build = [

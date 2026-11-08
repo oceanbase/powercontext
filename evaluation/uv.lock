@@ -1893,6 +1893,11 @@ resource-build = [
     { name = "zstandard", specifier = ">=0.23,<1" },
 ]
 
+tracing-tests = [
+    { name = "langfuse", specifier = "==5.0.2" },
+    { name = "powercontext", extras = ["tracing-otlp"] },
+]
+
 [[package]]
 name = "powercontext-eval"
 version = "0.1.0"

@@ -175,3 +175,7 @@ Langfuse；`auto_capture` 与 `trace_content` 仍由各自的配置控制。
 SDK 依赖节点的 GenAI 属性增强需要 core 支持本次新增的本地 OTel 上下文标记 `powercontext.genai_client`。
 1.5.0 core 会忽略该标记，保留原有操作 span 和采集器过滤行为；要获得完整的默认过滤器链路修复，
 需要安装配套的 core 与 adapter。该标记不是网络 baggage，不包含凭据，也不配置 provider 或 exporter。
+
+`tracing-tests` 依赖组为 CI 提供固定版本的可选 Langfuse 消费端和 OTLP exporter。
+`worker-observability` 作业同时运行 LangChain 消费端回归，并拒绝跳过的用例。
+仅修改 LangChain 适配层也会触发该作业和独立安装验证；内容截断和取消清理测试仍由默认测试集执行，不依赖消费端扩展。

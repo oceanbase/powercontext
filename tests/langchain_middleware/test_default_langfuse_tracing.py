@@ -54,37 +54,6 @@ class LocalModel(BaseChatModel):
 
 
 class DefaultLangfuseTracingTests(unittest.TestCase):
-    def test_content_is_bounded_and_task_local(self):
-        from powercontext_langchain.tracing import recall_content_observation
-
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider(shutdown_on_exit=False)
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-        try:
-            with patch.object(trace, "get_tracer", side_effect=provider.get_tracer):
-                with recall_content_observation("private default query", enabled=False) as output:
-                    output("private default output", "ready")
-                self.assertEqual(len(exporter.get_finished_spans()), 0)
-                with recall_content_observation("查询" * 10000, enabled=True) as output:
-                    output("召回" * 10000, "ready")
-                span = exporter.get_finished_spans()[0]
-                assert span.attributes is not None
-                for field in ("input", "output"):
-                    raw_value = span.attributes[f"{field}.value"]
-                    assert isinstance(raw_value, str)
-                    value = json.loads(raw_value)
-                    self.assertLessEqual(len(value.encode("utf-8")), 16384)
-                    self.assertTrue(span.attributes[f"powercontext.content.{field}.truncated"])
-                with (
-                    self.assertRaises(asyncio.CancelledError),
-                    recall_content_observation("cancelled", enabled=True),
-                ):
-                    raise asyncio.CancelledError()
-                self.assertFalse(trace.get_current_span().get_span_context().is_valid)
-                self.assertNotIn("output.value", exporter.get_finished_spans()[-1].attributes)
-        finally:
-            provider.shutdown()
-
     def _assert_invocation_execution(self, spans, root_name, *, has_content):
         """Assert framework parents and actual call order, beyond parent closure."""
         invocation_root = next(span for span in spans if span.name == root_name)
@@ -168,7 +137,6 @@ class DefaultLangfuseTracingTests(unittest.TestCase):
             patch.object(OTLPSpanExporter, "export", side_effect=exporter.export),
             patch.object(trace, "get_tracer", side_effect=provider.get_tracer),
             patch("langfuse.Langfuse", side_effect=initialize),
-            patch("langchain_openai.ChatOpenAI", side_effect=lambda **kwargs: LocalModel()),
         ):
             app = create_server_app(
                 settings=ServerSettings(
