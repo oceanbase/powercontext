@@ -72,6 +72,7 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
             {"tests", "database", "harness", "upgrade", "candidate_replay", "release_schema"},
         ),
         (["scripts/sync_dsh_plugin_tree.py"], {"tests", "dsh"}),
+        (["scripts/generate_integration_lifecycle.py"], {"tests", "hermes"}),
         (["desktop/ui/src/app/App.tsx"], {"desktop"}),
         (["release/upgrade-support.json"], {"upgrade", "packaging"}),
         ([".github/workflows/desktop.yml"], {"desktop"}),
