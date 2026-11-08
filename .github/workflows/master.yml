@@ -263,6 +263,9 @@ jobs:
 
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache DSH configuration dependencies
         if: matrix.suite == 'unit'
@@ -859,6 +862,9 @@ jobs:
 
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -909,6 +915,9 @@ jobs:
 
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
@@ -959,6 +968,9 @@ jobs:
 
       - name: Set up project tools
         uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache shared JavaScript build tooling
         uses: ./.github/actions/cache-pnpm
@@ -1002,6 +1014,9 @@ jobs:
 
       - name: Set up project tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache Pi dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1028,6 +1043,9 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
       - name: Cache OpenCode dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -1052,6 +1070,9 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
@@ -1098,6 +1119,9 @@ jobs:
 
       - name: Set up website tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1127,6 +1151,9 @@ jobs:
 
       - name: Set up website tools
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          # Avoid the mutable release index during CI setup.
+          version: "2026.11.3"
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm

@@ -286,8 +286,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Test steps total 155m; reserve 25m for setup, diagnostics and artifact upload.
-    timeout-minutes: 180
+    # Test steps total 205m; reserve 25m for setup, diagnostics and artifact upload.
+    timeout-minutes: 230
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -340,8 +340,8 @@ jobs:
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
-        # Measured clean migration work is about 21m per worker; retain the 90m group ceiling.
-        timeout-minutes: 90
+        # The larger shard has 25 cases: 25 * (300s + 10s grace) + 190s collection < 140m.
+        timeout-minutes: 140
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
             oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration"
