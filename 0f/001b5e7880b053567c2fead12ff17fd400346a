@@ -1,0 +1,389 @@
+src/powercontext/http/_generated/schema.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 7809,14087-14141,14164,14174
+docs/en/docs/operate/database-migrations.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 20-21,93-95,165,167,170-171,193
+src/powercontext_integration_lifecycle/prepared_context.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-89
+docs/en/docs/workflows/sources.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 87-142
+integrations/workbuddy/plugins/powercontext/hooks/prompt_privacy.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+src/powercontext/builtin/persistence/tables.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 298-320,1115
+src/powercontext/limits.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 29-30
+src/powercontext/server/mapping.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 201,530,707,1265-1269,1273-1277,1281,1284-1285
+tests/builtin/artifacts/atomic_memory/test_extraction_evidence_projection.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 38,123-125,155-157
+desktop/scripts/generate.mjs
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 183-205
+docs/zh/docs/operate/troubleshoot.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 255,279,348-349,362-366,390,393-394
+desktop/scripts/openapi-generator/rust/model.mustache
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 92-94
+AGENTS.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 55-58
+src/powercontext/sources/models.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 18,20-21,24-29,39-72,78
+tests/builtin/persistence/test_atomic_evidence_upgrade_history.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 162-170,179,196,201,236-237,239,250,253
+tests/claude_code_plugin/test_python_floor.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 24-25,34,40,129-140,147-172,198-206,215,267-330
+  s_98c1bb9fbaf7be::t_4930850d7d976b 331-332
+tests/test_ci_changes.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 75
+integrations/codex/plugins/powercontext/hooks/recall.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 27,44-52,100,103,125-126,161-176,392-396,398-399,401,430,644-656
+  s_98c1bb9fbaf7be::t_3c4eaa53a9c2e7 657-658
+tests/builtin/artifacts/atomic_memory/test_extraction_evidence.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 29,38,44,302-348
+src/powercontext/builtin/inference/pydantic_ai.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 126-129,135-141
+.gitignore
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 276-279
+src/powercontext/builtin/persistence/artifacts.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 24,58,67-71,760,782-790,811-812,863-871,883,886,892-895,901-909,947-963,1149
+src/powercontext/builtin/persistence/migrations/atomic_projection.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 38,139
+tests/claude_code_plugin/test_statusline.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 241,243-247,255,262,265,267,427-471
+  s_98c1bb9fbaf7be::t_d0bf3603d59a28 472-473
+tests/e2e/test_memory_write_gate_privacy.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 40,177-179
+desktop/src-tauri/src/transport/operations.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 2
+tests/test_integration_lifecycle.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-63
+integrations/codex/plugins/powercontext/hooks/bootstrap_context.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+tests/e2e/test_source_write.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 22-23,25,33-36,43-94
+  s_98c1bb9fbaf7be::t_b9b8c777fb9286 95-96
+src/powercontext/builtin/sources/content.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 26,164,166-167
+tests/test_registered_source_maintenance_cli.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 69
+tests/fixtures/text_evidence_manifest_before_locators.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-311
+tests/fixtures/tickets_manifest_before_locators.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-208
+desktop/src-tauri/src/connections/compatibility.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1185-1248
+tests/builtin/inference/test_pydantic_ai.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 56,61,300-347
+  s_98c1bb9fbaf7be::t_df478aec92465c 348-351
+tests/e2e/test_artifact_dreaming.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 87,1237-1241,2540,2814-2822,3272-3301
+  s_98c1bb9fbaf7be::t_819996759bbc78 3302-3303
+tests/test_migration_revision_names.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 67,70,85,100
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 6-7
+integrations/dify/plugin/tools/pc_handoff_prepare.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 76-81,249-300,381-432,510-561
+integrations/dify/plugin/tools/pc_review_get.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 150-152,745-797,881-933,1011-1063,1265-1315
+integrations/claude-code/plugins/powercontext/scripts/statusline.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25,43,191,252,261-262
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/sqlite-v1_5_0_004.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-3
+tests/test_managed_atomic_maintenance.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 79,106
+tests/test_integration_shared_files.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 17-20,29
+tests/test_recall_query_bound.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 17,30-31,49,51-52
+src/powercontext/builtin/persistence/migrations/server_resources/mysql/versions/v1_5_0_004.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-24
+integrations/dify/plugin/tools/pc_review_list.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 235-237,853-906,990-1043,1121-1174,1377-1428
+tests/e2e/test_atomic_memory_source_evidence.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25-27,53-61,89-161,585-610,612
+  s_98c1bb9fbaf7be::t_5812c2c71f7163 611
+tests/e2e/test_source_citation_locators.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-159
+docs/en/docs/integrations/codex.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 351-352,357-359
+docs/zh/docs/operate/database-migrations.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 17-18,76-78,137,139,142-143,162
+pyproject.toml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 26,212,290-296
+src/powercontext/builtin/persistence/sources.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 59,70,117-122,285-287,313-314
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261030-merged-locators/report.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-78
+tests/claude_code_plugin/test_bootstrap.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 22,28,539-577
+src/powercontext/http/__init__.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 458-459,468,955-956,965
+src/powercontext/builtin/portability/bundle.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 47,96,125,183,357-361,1592-1597,2209-2211,2624-2632,2652
+src/powercontext/sources/projections.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 17,19,27-30,37-46
+integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25,42-47,94,97,119-120,154-169,362-366,368-369,371,400,563-575
+  s_98c1bb9fbaf7be::t_6ef622f9250204 576-577
+integrations/dify/plugin/tools/pc_skill_generate.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 72-77,251-253,868-921,1005-1058,1136-1189,1392-1443
+docs/en/docs/operate/troubleshoot.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 263-264,288,365-367,382-387,412,415-416
+desktop/VALIDATION.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 544-549,981-1030,2518-2557,2600-2632
+tests/codex_plugin/test_bootstrap.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 22,28,564-602
+scripts/generate_integration_lifecycle.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-121
+src/powercontext/builtin/persistence/migrations/server_resources/manifest.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 47-50,86-88,134,334-338,359-360
+src/powercontext_integration_lifecycle/bootstrap_context.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-158
+tests/codex_plugin/test_recall.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 47-165,488-797
+  s_98c1bb9fbaf7be::t_4360e2365cf572 798-799
+src/powercontext/cli/config.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 135
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261030-locators/report.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-78
+integrations/dify/plugin/tools/pc_handoff_finalize.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 48-65,426-477,558-609,687-738
+integrations/dify/plugin/powercontext_dify/contract.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 5043-5098,5113-5143,5164-5173
+src/powercontext/builtin/persistence/migrations/server_resources/versions/v1_5_0_004_source_locators.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-28
+src/powercontext_integration_lifecycle/client_config.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-126
+tests/builtin/persistence/test_mysql_migration_runner.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 709,840,850,917,985,1149,1171,1251
+tests/test_managed_processing_maintenance.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 78
+integrations/claude-code/plugins/powercontext/hooks/prepared_context.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261107-locators-v2-deterministic/run-manifest.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-42
+openapi/powercontext.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 7624-7626,13570-13611,13625-13627,13638-13640
+integrations/opendal/README.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 33-35
+integrations/dify/plugin/tools/pc_handoff_activate.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 46-51,99-104,149-151,254-304,386-438,519-571,649-701
+src/powercontext/builtin/persistence/migrations/server_resources/schemas/mysql-v1_5_0_004.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-141
+integrations/workbuddy/plugins/powercontext/hooks/powercontext_client_config.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+integrations/workbuddy/plugins/powercontext/hooks/prepared_context.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+docs/zh/docs/workflows/sources.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 82-130
+integrations/claude-code/plugins/powercontext/scope_binding_errors.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25-29,37,39,42
+integrations/claude-code/plugins/powercontext/hooks/prompt_privacy.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+integrations/codex/plugins/powercontext/hooks/prompt_privacy.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+desktop/ui/tests/connections.test.tsx
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 418-423
+integrations/claude-code/plugins/powercontext/powercontext_client_config.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+tests/native/test_personal_service_lifecycle.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 404
+src/powercontext/sources/__init__.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 34-42,51-56,70,80-81,89,92
+Makefile
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 22,31-36
+  s_98c1bb9fbaf7be::t_261a78aa53d8f6 37
+src/powercontext/builtin/artifacts/atomic_memory/reconciliation.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 281
+tests/test_source_observations.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 752-775
+integrations/codex/plugins/powercontext/hooks/session_binding.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25,54,56,83,86,214-215,218-219,251-252,257,259-265,278,346,351,360,369,384-385
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261030-merged-locators/run-manifest.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-40
+integrations/codex/plugins/powercontext/scripts/scope_binding.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 28,57-61,69,71,74,79,257-260,264-265,272-288,342-356,375
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 292-297
+tests/builtin/persistence/test_portable_storage_migration.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 129,131,190,192,194
+tests/builtin/persistence/test_atomic_description_vector_layout.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 46,159-160,163
+.github/ci-paths.toml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 30,58
+desktop/ui/src/generated/api.d.ts
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 3302,5763-5784,5790,5796
+src/powercontext/cli/config_wizard_models.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 82
+integrations/dify/plugin/tools/pc_memory_get.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 117-119,223-273
+integrations/claude-code/plugins/powercontext/hooks/bootstrap_context.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+integrations/claude-code/plugins/powercontext/scripts/workspace_scope.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 23,29,75,244-247,251-252,259-275,300-302,331-345,364
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261107-locators-v2-deterministic/report.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-80
+integrations/opendal/tests/fixtures/text_file_manifest_before_locators.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-166
+src/powercontext/__init__.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 67-68,73,120-121,128
+src/powercontext/builtin/evidence/resolver.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 479
+tests/claude_code_plugin/test_hook.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 23,26,47-162,512-805
+  s_98c1bb9fbaf7be::t_7838217e23a242 806-807
+integrations/codex/plugins/powercontext/hooks/prepared_context.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+integrations/dify/plugin/tools/pc_memory_revise.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 148-150,246-296
+tests/e2e/test_zcode_service_chain.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 441-447
+tests/native/test_oceanbase_engine_recovery.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 178
+docs/zh/docs/integrations/codex.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 309-310,314-316
+integrations/claude-code/plugins/powercontext/hooks/session_start.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25,56,58,84,87,211-212,215-216,248-249,254,256-262,275,343,348,357,366,381-382
+tests/test_config_wizard_models.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 182-197,199,203,256,266
+integrations/dify/plugin/tools/pc_experience_get.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 146-148,292-342
+tests/codex_plugin/test_token_savings.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 288-336,632,634-638,645,647-648,655,658,660,670-671
+integrations/opendal/tests/test_opendal_connector.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 18-20,25,290-319,336-338,344-382,384
+  s_98c1bb9fbaf7be::t_bde65f9d1ae191 383,385-386
+tests/e2e/test_atomic_memory_generation_merge.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 43,206-208,251-255,279-283,346-350,354-360,411-417,449-453,458-462,578-582
+src/powercontext/server/app.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 408,6755-6761
+evaluation/memory/atomic_extraction/tests/test_manifest.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 80-81,90-98
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261030-locators/run-manifest.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-40
+integrations/dify/plugin/tools/pc_capture_source.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 115-117,151-201
+tests/builtin/persistence/test_artifacts.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25,30,136-194,196
+  s_98c1bb9fbaf7be::t_d1136376ad3da6 195,197-198
+src/powercontext_integration_lifecycle/__init__.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-25
+integrations/codex/plugins/powercontext/hooks/token_savings.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 23,179-186,222,227-230,233-235,238
+src/powercontext/builtin/persistence/migrations/server_sources/1.4.0/manifest.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 46-49,85-87,133,338-342,363-364
+integrations/dify/plugin/tools/pc_handoff_continue.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 76-93,480-532,613-665,743-795,935-986
+tests/fixtures/hook_characterization/claude-code.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 3280-3284,3286-3302,3351-3355,3357-3373,3422-3426,3428-3444,3493-3497,3499-3515,3567-3571,3573-3589,3638-3642,3644-3660,4911,4981,4988,5058,5065,5141,5211,5218,5278,5353,5388,5409-5413
+tests/test_source_locators.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-95
+evaluation/memory/atomic_extraction/reports/atomic-extraction-20261107-locators-v2-deterministic/report.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-23
+integrations/hermes/plugins/powercontext/powercontext_client_config.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+tests/test_api_contract.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 846,1117-1118
+tests/e2e/test_atomic_memory_flush_concurrency.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 48,133-135,176-178,221-223
+integrations/codex/plugins/powercontext/powercontext_client_config.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 15-17
+src/powercontext/builtin/runtime/atomic_memory_rebuild.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 31-36,68-73,151,165-181,183-201,284-310
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261101-review-2359-v2-glm/report.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-23
+desktop/src-tauri/src/transport/wire.rs
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 2526,2754-2841,2851-2853,2862,3100-3104
+src/powercontext/builtin/artifacts/atomic_memory/extraction.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 39-46,309,315-317,322-323,330-339
+desktop/src-tauri/tests/api.rs
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 450-490
+desktop/ui/src/generated/operations.ts
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 18
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261101-review-2359-v2-glm/report.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-76
+integrations/dify/plugin/tools/pc_handoff_commit.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 50-67,234-236,421-472,553-604,682-733,785-835
+tests/e2e/test_atomic_memory_supervisor_generation.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 36,151-153
+tests/builtin/persistence/test_mysql_initialization_preflight.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 256,281,291
+tests/builtin/persistence/test_mysql_vector_admission.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 76-77
+src/powercontext_integration_lifecycle/prompt_privacy.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-47
+scripts/generate_api.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 196,344-401
+  s_98c1bb9fbaf7be::t_df028912465883 402-404
+tests/builtin/persistence/test_release140_server_migrations.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 19,22,31-33,36-37,41-45,159,323-386
+.env.example
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 213
+docs/zh/docs/integrations/claude-code.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 205,212,214,217-218
+src/powercontext/builtin/review/service.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1394,1397
+tests/e2e/test_atomic_memory_description_upgrade.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 88,90
+tests/e2e/test_prepared_context_receipt.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 29,324-360
+  s_98c1bb9fbaf7be::t_4ddbae33f9d96d 361-362
+tests/e2e/zcode_acceptance/runner.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 126-127,632-644
+docs/en/docs/integrations/claude-code.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 224-226,232,234,237-239
+tests/fixtures/hook_characterization/codex.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 2218-2222,2224-2240,2289-2293,2295-2311,2360-2364,2366-2382,2431-2435,2437-2453,2505-2509,2511-2527,2576-2580,2582-2598,3280,3779,3786,3836,3854-3858
+src/powercontext/builtin/sources/observation_validation.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 29-35,44,47-50,74
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261101-review-2359-v2-glm/run-manifest.json
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-38
+tests/builtin/portability/test_bundle.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 41,43,575-594,598,607,609,612-614
+tests/builtin/review/test_service.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1024-1054
+integrations/dify/plugin/tools/pc_skill_get.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 148-150,300-350
+integrations/dify/plugin/tools/pc_experience_generate.yaml
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 47-52,226-228,843-896,980-1033,1111-1164,1367-1418
+tests/e2e/test_rfc2086_worker_acceptance.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 48,228-230
+src/powercontext/builtin/artifacts/merge.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 789
+desktop/ui/src/generated/ipc.ts
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 365,393-401,410
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261030-locators/report.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-23
+evaluation/memory/atomic_extraction/reports/archive/atomic-extraction-20261030-merged-locators/report.md
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 1-23
+tests/builtin/persistence/test_full_server_migrations.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 76,87
+tests/e2e/test_atomic_memory_wire_evidence.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 25,38,41,166-228
+src/powercontext/http/_generated/models.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 3406-3448,3464,3473,4246,4264,4857,4861-4863,4866,4870-4871,4874-4875,4878,4882-4888,4891,4895-4897,5815-5867
+  s_98c1bb9fbaf7be::t_92063765d879cf 5868-5869
+integrations/opendal/src/powercontext_connector_opendal/source.py
+  s_98c1bb9fbaf7be::t_0f8cdaa127b6fc 24,35-36,143,145,160
+e2e/bub/uv.lock
+  s_98c1bb9fbaf7be::t_d4395a054bc755 897-898,1722
+evaluation/uv.lock
+  s_98c1bb9fbaf7be::t_d6833ec885cdb7 2,1777
+uv.lock
+  s_98c1bb9fbaf7be::t_5b61fb5e72a53d 3101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0f001b5e7880b053567c2fead12ff17fd400346a",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
