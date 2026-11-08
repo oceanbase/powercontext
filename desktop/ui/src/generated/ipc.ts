@@ -362,7 +362,7 @@ export type ScopeDescriptor = { scope_id: string, title: string, summary: string
 export type ScopeExternalReference = { kind: string, value: string, };
 export type ScopePage = { items: Array<ScopeDescriptor>, next_cursor?: string | null, };
 export type ScopeQueryField = "scope_id" | "title" | "summary" | "external_reference_value" | "binding_external_id";
-export type ScopeSelection = { "mode": "AllScopeSelection" } & AllScopeSelection | { "mode": "ExactScopeSelection" } & ExactScopeSelection | { "mode": "SubtreeScopeSelection" } & SubtreeScopeSelection;
+export type ScopeSelection = AllScopeSelection | ExactScopeSelection | SubtreeScopeSelection;
 export type ScopeStats = { scope_id: string, inventory: InventoryStatistics, usage: UsageStatistics, recall: RecallTokenStatistics, recurrence: RecurrenceStatistics,
 /**
  * Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.
@@ -390,6 +390,15 @@ api_contract_version: ContractVersion,
 feature_contracts: { [key in string]: FeatureContract }, };
 export type ShareUnit = "artifact" | "memory_entry";
 export type SourceInventoryStatistics = { total: number, memory_processed: number, memory_pending: number, };
+export type SourceLineRangeLocator = { kind: SourceLineRangeLocatorKind, start_line: number, end_line: number,
+/**
+ * Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.
+ */
+heading_path?: string | null, };
+export type SourceLineRangeLocatorKind = "line_range";
+export type SourceLocator = SourceSequenceLocator | SourceLineRangeLocator;
+export type SourceSequenceLocator = { kind: SourceSequenceLocatorKind, sequence: number, };
+export type SourceSequenceLocatorKind = "sequence";
 export type SourceTypeReference = {
 /**
  * Stable Source type, including dynamically registered Source names.
@@ -398,7 +407,7 @@ source_type: string,
 /**
  * Source identity as accepted at ingestion, including Unicode and interior spaces.
  */
-source_id: string, };
+source_id: string, locator?: SourceLocator, };
 export type Stage = "inference" | "flush" | "worker" | "supervisor" | "lease_renewal" | "scope_discovery";
 export type State = "running" | "degraded" | "stopped" | "unknown";
 export type StatsPeriod = "today" | "7d" | "30d";

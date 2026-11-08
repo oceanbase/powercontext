@@ -30,6 +30,9 @@ The process registers its immutable Definition manifest before each run. It adva
 after every accepted snapshot has a durable Server receipt and the scan completes without rejected or failed items.
 Set `POWERCONTEXT_TOKEN` when the Server requires bearer authentication.
 
+The worker uses the frozen `TextEvidenceV1` projection when the runtime exports it. On pre-locator runtimes,
+it uses the original `TextEvidence` schema instead, preserving the version-1 Definition manifest and fingerprint.
+
 Snapshot identity is derived from the configured namespace, path, and content digest. Identical content is accepted
 idempotently; changed content creates a different immutable snapshot identity. This evaluation representation does
 not provide one logical Source with multiple observation IDs, current heads, deletion semantics, referenced

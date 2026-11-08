@@ -21,7 +21,8 @@ skipping.
 
 The entry points fail open, so an error on Python 3.9 would still exit 0. Each
 test runs one entry point against a local stand-in for the Server and checks
-the output of its normal path.
+the output of its normal path, or of a failure that Python 3.9 raises
+differently from later versions.
 """
 
 from __future__ import annotations
@@ -30,11 +31,13 @@ import json
 import os
 import subprocess
 from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, suppress
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from shutil import which
 from threading import Thread
+from time import monotonic, sleep
 from typing import NoReturn
 
 import pytest
@@ -123,12 +126,50 @@ def python_floor(request: pytest.FixtureRequest) -> str:
 
 @pytest.fixture
 def server() -> Iterator[tuple[str, list[str]]]:
+    with _stand_in() as stand_in:
+        yield stand_in
+
+
+@contextmanager
+def _stand_in(stalled_path: str | None = None, trickled_path: str | None = None) -> Iterator[tuple[str, list[str]]]:
+    """Serve the normal responses, except for two misbehaving paths.
+
+    Requests to stalled_path get a 404 whose body stops after one byte. Requests to trickled_path get a chunked
+    response whose first chunk-size line keeps arriving, one byte at a time, and never ends.
+    """
+
     paths: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             self.rfile.read(int(self.headers["Content-Length"]))
             paths.append(self.path)
+            if self.path == trickled_path:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                # Python rounds a socket wait up to whole milliseconds, and each byte arrives well within one, so the
+                # entry point's deadline passes between two socket reads rather than inside one.
+                give_up = monotonic() + 10
+                with suppress(OSError):
+                    self.wfile.write(b"5;")
+                    while monotonic() < give_up:
+                        self.wfile.write(b"a")
+                        sleep(0.00002)
+                return
+            if self.path == stalled_path:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "64")
+                self.end_headers()
+                self.wfile.write(b"{")
+                self.wfile.flush()
+                # Hold the rest of the body back until the entry point gives up and closes the connection.
+                self.connection.settimeout(10)
+                with suppress(OSError):
+                    self.connection.recv(1)
+                return
             if self.path not in _RESPONSES:
                 self.send_error(404)
                 return
@@ -154,7 +195,15 @@ def server() -> Iterator[tuple[str, list[str]]]:
         stand_in.server_close()
 
 
-def _run(python: str, entry_point: str, payload: Mapping[str, object], *, server_url: str, home: Path) -> str:
+def _run(
+    python: str,
+    entry_point: str,
+    payload: Mapping[str, object],
+    *,
+    server_url: str,
+    home: Path,
+    settings: Mapping[str, str] | None = None,
+) -> str:
     environment = {
         **{name: value for name, value in os.environ.items() if not name.startswith(("CLAUDE_", "POWERCONTEXT_"))},
         "HOME": str(home),
@@ -163,6 +212,7 @@ def _run(python: str, entry_point: str, payload: Mapping[str, object], *, server
         "POWERCONTEXT_CLIENT_CONFIG_FILE": str(home / "client.toml"),
         "POWERCONTEXT_DIAGNOSTIC_STATE_FILE": str(home / "diagnostics.json"),
         "POWERCONTEXT_CLAUDE_SERVER_URL": server_url,
+        **(settings or {}),
     }
     # -S leaves out site-packages, so the entry point can import only the standard library.
     result = subprocess.run(
@@ -212,6 +262,72 @@ def test_prompt_hook_recalls_and_captures_on_python_3_9(
     # A failed capture would surface as a diagnostic in systemMessage.
     assert "systemMessage" not in output
     assert "/v1/sources/content" in paths
+
+
+@pytest.mark.parametrize(
+    ("path", "event"),
+    [("/v1/scope-bindings/resolve", "scope_resolve"), ("/v1/context/prepare", "context_prepare")],
+)
+def test_prompt_hook_reports_a_stalled_error_body_as_an_unavailable_server_on_python_3_9(
+    python_floor: str, tmp_path: Path, path: str, event: str
+) -> None:
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "hello",
+        "session_id": "python-floor",
+        "cwd": str(tmp_path),
+    }
+
+    # A stalled read raises socket.timeout, which on Python 3.9 is an OSError but not yet a TimeoutError.
+    with _stand_in(stalled_path=path) as (server_url, _):
+        output = _run(
+            python_floor,
+            "hooks/user_prompt_submit.py",
+            payload,
+            server_url=server_url,
+            home=tmp_path,
+            settings={"POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS": "0.5", "POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS": "false"},
+        )
+
+    assert json.loads(json.loads(output)["systemMessage"]) == {
+        "component": "powercontext.claude_code.recall",
+        "event": event,
+        "outcome": "server_unavailable",
+        "recovery": "powercontext doctor",
+    }
+
+
+@pytest.mark.parametrize(
+    ("path", "event"),
+    [("/v1/scope-bindings/resolve", "scope_resolve"), ("/v1/context/prepare", "context_prepare")],
+)
+def test_prompt_hook_reports_a_body_that_trickles_past_the_deadline_as_an_unavailable_server_on_python_3_9(
+    python_floor: str, tmp_path: Path, path: str, event: str
+) -> None:
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "hello",
+        "session_id": "python-floor",
+        "cwd": str(tmp_path),
+    }
+
+    # The response deadline then fails the next socket read itself, and Python 3.9 copes only with socket.timeout there.
+    with _stand_in(trickled_path=path) as (server_url, _):
+        output = _run(
+            python_floor,
+            "hooks/user_prompt_submit.py",
+            payload,
+            server_url=server_url,
+            home=tmp_path,
+            settings={"POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS": "0.5", "POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS": "false"},
+        )
+
+    assert json.loads(json.loads(output)["systemMessage"]) == {
+        "component": "powercontext.claude_code.recall",
+        "event": event,
+        "outcome": "server_unavailable",
+        "recovery": "powercontext doctor",
+    }
 
 
 def test_statusline_shows_token_savings_on_python_3_9(

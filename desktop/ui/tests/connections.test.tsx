@@ -443,16 +443,10 @@ test("an unqualified saved legacy profile remains unavailable after the contract
 });
 test("a saved authenticated legacy profile remains selectable only in its qualified authentication mode", async () => {
   const user = userEvent.setup();
-  const historical = qualifications.find(
-    (p) => p.id === "sqlite-atomic-112db11e-v1",
-  )!;
-  // Model an explicitly qualified client without changing the historical product evidence.
-  const legacy = {
-    ...historical,
+  const legacy: CompatibilityProfile = {
+    ...qualifications.find((p) => p.id === "sqlite-atomic-112db11e-v1")!,
     authenticatedClients: {
-      ...historical.authenticatedClients,
-      [contractSha256]:
-        "Synthetic UI fixture; no server qualification evidence.",
+      [contractSha256]: "Synthetic authenticated client qualification",
     },
   };
   const saved = { ...profile, compatibility: legacy.id };
