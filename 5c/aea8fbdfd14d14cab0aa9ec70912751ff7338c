@@ -1,0 +1,29 @@
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_48a2dc21c41266 267,269,868,921,971,974,1020,1049,1076,1125,1157
+.github/workflows/deploy-docs.yml
+  s_98c1bb9fbaf7be::t_48a2dc21c41266 40,42
+.github/workflows/release.yml
+  s_98c1bb9fbaf7be::t_48a2dc21c41266 127,129,311
+.github/workflows/desktop.yml
+  s_98c1bb9fbaf7be::t_48a2dc21c41266 63,65,193-194,323,326
+.github/workflows/desktop-candidate.yml
+  s_98c1bb9fbaf7be::t_48a2dc21c41266 117,119-120
+.github/workflows/upgrade-release.yml
+  s_98c1bb9fbaf7be::t_48a2dc21c41266 107,109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5caea8fbdfd14d14cab0aa9ec70912751ff7338c",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
