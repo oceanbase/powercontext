@@ -1,0 +1,19 @@
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_021a6e57185e63 297-298,350-352,355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e3792102dc8eec5f6e6dd0689f28fe74348b5553",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
