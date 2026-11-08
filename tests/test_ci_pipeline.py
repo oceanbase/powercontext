@@ -308,13 +308,22 @@ def test_actual_ci_result_script_rejects_missing_selected_acceptance(
     assert (run.returncode == 0) == passes, run.stdout + run.stderr
 
 
-def test_e2e_deadline_reserves_setup_and_cache_time_for_every_python():
+@pytest.mark.parametrize(
+    ("test_names", "reserve_minutes"),
+    [
+        (("Run unit tests", "Check Source serialization with minimum Pydantic"), 15),
+        (("Run end-to-end tests",), 10),
+    ],
+    ids=("unit", "e2e"),
+)
+def test_suite_deadline_reserves_setup_and_cache_time_for_every_python(test_names, reserve_minutes):
     job = workflow("master.yml")["jobs"]["tests"]
-    assert job["timeout-minutes"] == "${{ matrix.suite == 'e2e' && 60 || 40 }}"
-    steps = [step for step in job["steps"] if step.get("if") == "matrix.suite == 'e2e'"]
-    assert steps
+    # One common job budget covers every supported Python version, including the floor check.
+    assert isinstance(job["timeout-minutes"], int)
+    steps = [step for step in job["steps"] if step.get("name") in test_names]
+    assert len(steps) == len(test_names)
     assert all(isinstance(step.get("timeout-minutes"), int) for step in steps)
-    assert sum(step["timeout-minutes"] for step in steps) <= 50
+    assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in steps) + reserve_minutes
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="CI commands require POSIX make and shell")

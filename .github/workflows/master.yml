@@ -240,8 +240,8 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    # E2E: 50m for tests plus 10m for setup and post-job cache/cleanup on every Python version.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 60 || 40 }}
+    # E2E: 50m + 10m setup/cleanup. Unit: 40m + 5m floor check + 15m setup/cleanup.
+    timeout-minutes: 60
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
@@ -285,12 +285,14 @@ jobs:
 
       - name: Run unit tests
         if: matrix.suite == 'unit'
+        timeout-minutes: 40
         env:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
       - name: Check Source serialization with minimum Pydantic
         if: matrix.suite == 'unit' && matrix.python-version == '3.11'
+        timeout-minutes: 5
         run: >-
           uv run --with 'pydantic==2.12.0' python -m pytest
           tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
