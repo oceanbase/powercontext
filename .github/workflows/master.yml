@@ -240,8 +240,8 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    # Allow the Python 3.14 end-to-end suite's subprocess tail to finish.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && matrix.python-version == '3.14' && 55 || 40 }}
+    # E2E: 50m for tests plus 10m for setup and post-job cache/cleanup on every Python version.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 60 || 40 }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
@@ -289,15 +289,10 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
-      - name: Run the ZCode service chain with native Hook deadlines
+      - name: Run end-to-end tests
         if: matrix.suite == 'e2e'
-        # Preserve the real Hook deadlines without competing with xdist workers.
-        run: uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
-
-      - name: Run remaining end-to-end tests
-        if: matrix.suite == 'e2e'
-        env:
-          PYTEST_ADDOPTS: --ignore=tests/e2e/test_zcode_service_chain.py
+        timeout-minutes: 50
+        # The Makefile runs ordinary cases in parallel, then Hook cases once in isolation.
         run: make e2e-test
 
   isolated-installations:

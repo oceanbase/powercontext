@@ -306,3 +306,64 @@ def test_actual_ci_result_script_rejects_missing_selected_acceptance(
         check=False,
     )
     assert (run.returncode == 0) == passes, run.stdout + run.stderr
+
+
+def test_e2e_deadline_reserves_setup_and_cache_time_for_every_python():
+    job = workflow("master.yml")["jobs"]["tests"]
+    assert job["timeout-minutes"] == "${{ matrix.suite == 'e2e' && 60 || 40 }}"
+    steps = [step for step in job["steps"] if step.get("if") == "matrix.suite == 'e2e'"]
+    assert steps
+    assert all(isinstance(step.get("timeout-minutes"), int) for step in steps)
+    assert sum(step["timeout-minutes"] for step in steps) <= 50
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="CI commands require POSIX make and shell")
+def test_ci_e2e_runs_each_case_once_and_keeps_hook_tests_serial(tmp_path, monkeypatch):
+    make = shutil.which("make")
+    if make is None:
+        pytest.skip("make is required to exercise the CI entry point")
+    shutil.copyfile(ROOT / "Makefile", tmp_path / "Makefile")
+    cases = tmp_path / "tests/e2e"
+    cases.mkdir(parents=True)
+    for name in ("test_other", "test_zcode_service_chain"):
+        (cases / f"{name}.py").write_text(
+            "import os\nfrom pathlib import Path\n"
+            "def test_observable_execution():\n"
+            f"    with Path(os.environ['CI_TEST_EVENTS'], '{name}').open('a') as output:\n"
+            "        output.write(os.environ.get('PYTEST_XDIST_WORKER', 'serial') + '\\n')\n"
+        )
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    uv = commands / "uv"
+    uv.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "assert sys.argv[1:5] == ['run', 'python', '-m', 'pytest'], sys.argv\n"
+        "os.execv(sys.executable, [sys.executable, '-m', 'pytest', '-p', 'xdist.plugin', *sys.argv[5:]])\n"
+    )
+    uv.chmod(0o755)
+    events = tmp_path / "events"
+    events.mkdir()
+    monkeypatch.setenv("PATH", str(commands) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("CI_TEST_EVENTS", str(events))
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    monkeypatch.setenv("PYTEST_WORKERS", "2")
+    monkeypatch.delenv("PYTEST_ADDOPTS", raising=False)
+    # Execute the actual workflow commands and Makefile against small fixture
+    # cases; pytest itself handles ignore flags, xdist and serial selection.
+    for step in workflow("master.yml")["jobs"]["tests"]["steps"]:
+        if step.get("if") == "matrix.suite == 'e2e'":
+            result = subprocess.run(
+                ["/bin/sh", "-e", "-c", step["run"]],
+                cwd=tmp_path,
+                env={**os.environ, **step.get("env", {})},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+    assert (events / "test_zcode_service_chain").read_text().splitlines() == ["serial"]
+    parallel_runs = (events / "test_other").read_text().splitlines()
+    assert len(parallel_runs) == 1
+    assert parallel_runs[0].startswith("gw")
