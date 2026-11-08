@@ -27,14 +27,17 @@ import userEvent from "@testing-library/user-event";
 import { answerConfirmation } from "./confirmation";
 import { App } from "../src/app/App";
 import { Connections } from "../src/app/Connections";
+import { TopBar } from "../src/app/TopBar";
 import { desktopApi } from "../src/shared/ipc";
 import type {
   DesktopState,
   DiscoveryResult,
   ProfileView,
+  CompatibilityProfile,
 } from "../src/generated/ipc";
 import { contractSha256 } from "../src/generated/operations";
-import qualifications from "../../src-tauri/src/connections/compatibility.json";
+import bundledQualifications from "../../src-tauri/src/connections/compatibility.json";
+const qualifications = bundledQualifications as CompatibilityProfile[];
 vi.mock("../src/shared/ipc", () => ({
   getFoundationInfo: vi.fn().mockResolvedValue(null),
   desktopApi: {
@@ -43,6 +46,7 @@ vi.mock("../src/shared/ipc", () => ({
     state: vi.fn(),
     save: vi.fn(),
     check: vi.fn(),
+    probeReadiness: vi.fn(),
   },
 }));
 const profile: ProfileView = {
@@ -121,9 +125,146 @@ function discoveryState(discovery: DiscoveryResult): DesktopState {
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+test.each(["en", "zh"] as const)(
+  "readiness is explained and requested only by explicit action (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const current = discoveryState({
+      status: "supported",
+      server: null,
+      error: null,
+      reason: null,
+      operations: {},
+    });
+    const onState = vi.fn();
+    vi.mocked(desktopApi.probeReadiness).mockResolvedValue(current);
+    render(
+      <Connections
+        state={current}
+        language={language}
+        initialProfileId={profile.id}
+        onState={onState}
+        onDirty={vi.fn()}
+      />,
+    );
+    expect(desktopApi.probeReadiness).not.toHaveBeenCalled();
+    const button = screen.getByRole("button", {
+      name: language === "en" ? "Probe readiness" : "探测就绪状态",
+    });
+    expect(
+      document.getElementById(button.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toMatch(
+      language === "en"
+        ? /configured models and dependencies/
+        : /已配置的模型和依赖/,
+    );
+    await user.click(button);
+    await waitFor(() => expect(onState).toHaveBeenCalledWith(current));
+    expect(desktopApi.probeReadiness).toHaveBeenCalledExactlyOnceWith(
+      profile.id,
+      profile.revision,
+    );
+    expect(desktopApi.check).not.toHaveBeenCalled();
+  },
+);
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+test.each(["en", "zh"] as const)(
+  "identity menu and connection card agree when legacy identity fails (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const current = discoveryState({
+      status: "supported",
+      server: null,
+      error: null,
+      reason: null,
+      operations: {},
+    });
+    const report = current.reports[0];
+    report.connectionIdentity = {
+      value: {
+        server_id: "qualified-server",
+        authentication: "authenticated",
+        access_mode: "enforced",
+        principal: { type: "service", id: "scoped-user" },
+      },
+      error: null,
+    };
+    report.identity = {
+      value: null,
+      error: { code: "runtime_not_ready", requestId: null, dispatched: true },
+    };
+    current.active = {
+      connectionId: profile.id,
+      generation: current.generation,
+      scope: null,
+      report,
+    };
+    render(
+      <>
+        <TopBar
+          state={current}
+          language={language}
+          onManageConnections={vi.fn()}
+          onOpenScopes={vi.fn()}
+          onDisconnect={vi.fn()}
+        />
+        <Connections
+          state={current}
+          language={language}
+          initialProfileId={profile.id}
+          onState={vi.fn()}
+          onDirty={vi.fn()}
+        />
+      </>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: /service: scoped-user/ }),
+    );
+    expect(
+      within(screen.getByRole("region")).getByText(/enforced/),
+    ).toBeTruthy();
+    expect(screen.getByText("enforced", { selector: "dd" })).toBeTruthy();
+  },
+);
+
+test("a delayed readiness diagnostic permits activating a different connection", async () => {
+  const user = userEvent.setup();
+  const current = discoveryState({
+    status: "supported",
+    server: null,
+    error: null,
+    reason: null,
+    operations: {},
+  });
+  current.profiles.push({ ...profile, id: "working", name: "Working Server" });
+  let finish!: (state: DesktopState) => void;
+  vi.mocked(desktopApi.probeReadiness).mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  vi.mocked(desktopApi.check).mockResolvedValue(current);
+  render(
+    <Connections
+      state={current}
+      language="en"
+      initialProfileId={profile.id}
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Probe readiness" }));
+  await user.click(screen.getByRole("button", { name: /Working Server/ }));
+  const activate = screen.getByRole("button", { name: "Use this connection" });
+  expect((activate as HTMLButtonElement).disabled).toBe(false);
+  await user.click(activate);
+  expect(desktopApi.check).toHaveBeenCalledWith("working", true);
+  await act(async () => finish(current));
 });
 const discoveryCases: Array<{
   language: "en" | "zh";
@@ -269,6 +410,50 @@ test("new connections offer only current-contract profiles and keep no selection
   );
   await user.selectOptions(selector, current);
   expect(selector.value).toBe(currentCompatibility.id);
+  expect(desktopApi.save).not.toHaveBeenCalled();
+  expect(desktopApi.check).not.toHaveBeenCalled();
+});
+test("a saved authenticated legacy profile remains selectable only in its qualified authentication mode", async () => {
+  const user = userEvent.setup();
+  const legacy: CompatibilityProfile = {
+    ...qualifications.find((p) => p.id === "sqlite-atomic-112db11e-v1")!,
+    authenticatedClients: {
+      [contractSha256]: "Synthetic authenticated client qualification",
+    },
+  };
+  const saved = { ...profile, compatibility: legacy.id };
+  vi.mocked(desktopApi.invalidate).mockResolvedValue(state(saved));
+  render(
+    <Connections
+      state={{ ...state(saved), compatibilityProfiles: [legacy] }}
+      language="en"
+      onState={vi.fn()}
+      onDirty={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: /Original/ }));
+  const selector = screen.getByLabelText(
+    "Verified compatibility profile",
+  ) as HTMLSelectElement;
+  const option = within(selector).getByRole("option", {
+    name: legacy.id,
+  }) as HTMLOptionElement;
+  expect(selector.value).toBe(legacy.id);
+  expect(option.disabled).toBe(false);
+  expect(screen.queryByRole("alert")).toBeNull();
+  await user.selectOptions(
+    screen.getByLabelText("Authentication"),
+    "unauthenticated_loopback",
+  );
+  expect(
+    (
+      within(selector).getByRole("option", {
+        name: (text) => text.includes(legacy.id),
+      }) as HTMLOptionElement
+    ).disabled,
+  ).toBe(true);
+  expect(screen.getByRole("alert")).toBeTruthy();
+  expect(selector.value).toBe(legacy.id);
   expect(desktopApi.save).not.toHaveBeenCalled();
   expect(desktopApi.check).not.toHaveBeenCalled();
 });

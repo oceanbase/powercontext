@@ -20,7 +20,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext, suppress
 from datetime import timedelta
 from functools import partial
 from ipaddress import ip_address
@@ -42,6 +42,7 @@ from powercontext.builtin.artifacts.atomic_memory.extraction import (
     AtomicMemoryGenerationPipeline,
     atomic_memory_extraction_instructions,
     require_atomic_memory_pipeline,
+    validate_extraction_output,
 )
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     ATOMIC_MEMORY_RECONCILIATION_INSTRUCTIONS,
@@ -97,6 +98,16 @@ from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapt
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
 from powercontext.builtin.inference.input_encoding import INPUT_ENCODING_SCHEMA_V2
+from powercontext.builtin.inference.observability import (
+    ProviderObservationReport,
+    ProviderObservationSource,
+    ProviderObserver,
+    bind_provider_observer,
+    current_provider_observer,
+    observe_http_client,
+    provider_name,
+    suppress_provider_observation,
+)
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, PrivacyPolicy
 from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
@@ -543,6 +554,8 @@ async def open_builtin_runtime(
     model_usage_observer: Callable[[int, int, int, int], None] | None = None,
     worker_model_usage_observer: Callable[[ArtifactProcessingModelUsageDelta | None], None] | None = None,
     scope_cache_observer: ScopeCacheObserver | None = None,
+    provider_observer: ProviderObserver | None = None,
+    worker_provider_observer: Callable[[ProviderObservationReport | None], None] | None = None,
     topic_memory_search_observer: Callable[[str, bool], None] | None = None,
     tracing: RuntimeTracing | None = None,
     artifact_processing_bindings: Sequence[ArtifactProcessingBinding] = (),
@@ -593,6 +606,7 @@ async def open_builtin_runtime(
             memory_write_gate,
         )
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
+        resources.enter_context(bind_provider_observer(provider_observer or current_provider_observer()))
         resolved_decision_request_sanitizer = decision_request_sanitizer
         _validate_processing_source_registry(config, artifact_processing_bindings, configured_source_registry)
         prompt_demonstrators: dict[str, DemonstrationGenerator] = {}
@@ -767,6 +781,7 @@ async def open_builtin_runtime(
             worker_entrypoint_wrapper=worker_entrypoint_wrapper,
             worker_model_usage_observer=worker_model_usage_observer,
             source_registry=configured_source_registry,
+            worker_provider_observer=worker_provider_observer,
         )
         log_safely(
             logger,
@@ -995,6 +1010,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
     worker_entrypoint_wrapper: Callable[[WorkerEntrypoint], WorkerEntrypoint] | None = None,
     worker_model_usage_observer: Callable[[ArtifactProcessingModelUsageDelta | None], None] | None = None,
     source_registry: SourceDefinitionRegistry = BUILTIN_SOURCE_REGISTRY,
+    worker_provider_observer: Callable[[ProviderObservationReport | None], None] | None = None,
 ) -> tuple[ArtifactProcessingBinding, ...]:
     configured = list(bindings)
     _validate_processing_registrations(configured)
@@ -1074,6 +1090,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                     initializer=worker_initializer,
                     entrypoint_wrapper=worker_entrypoint_wrapper,
                     collect_model_usage=worker_model_usage_observer is not None,
+                    collect_provider_observations=worker_provider_observer is not None,
                 ),
                 max_workers=getattr(config.runtime, f"{prefix}_max_workers"),
                 worker_timeout_seconds=getattr(config.runtime, f"{prefix}_worker_timeout_seconds"),
@@ -1091,6 +1108,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 else None,
                 worker_model_usage_observer=worker_model_usage_observer,
                 work_failure=record_topic_memory_work_failure if family == "topic-memory" else None,
+                worker_provider_observer=worker_provider_observer,
             )
         )
     _validate_processing_registrations(configured)
@@ -1680,6 +1698,7 @@ async def _generation_pipelines(
             model_settings=generation_request_settings,
             name="atomic_memory_extraction",
             prompt_key="atomic_memory.extract",
+            output_check=validate_extraction_output,
             input_renderer=memory_send_renderer,
         )
         memory_reconciler = PydanticAIStructuredGenerator(
@@ -2053,6 +2072,7 @@ async def _open_pydantic_ai_model(
         and not headers
         and not disable_provider_retries
         and (protection is None or protection.mode == "disabled")
+        and current_provider_observer() is None
         else infer_model(
             model_name,
             provider_factory=_provider_factory(
@@ -2103,7 +2123,7 @@ def _provider_factory(
     protection: InferenceProtectionConfig | None = None,
 ) -> Callable[[str], Provider[Any]]:
     if protection is not None and protection.mode != "disabled":
-        return _protected_provider_factory(
+        create_provider = _protected_provider_factory(
             base_url,
             headers,
             workload=workload,
@@ -2111,8 +2131,30 @@ def _provider_factory(
             protection=protection,
             disable_retries=disable_retries or protection.mode == "enforcing",
         )
-    create = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
-    if not disable_retries:
+    else:
+        create_provider = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
+
+    def create(name: str) -> Provider[Any]:
+        provider = create_provider(name)
+        observer = current_provider_observer()
+        if observer is not None:
+            import httpx
+
+            client = getattr(provider, "_own_http_client", None)
+            # Explicit SDK clients above are newly owned by this Runtime as well.
+            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic"}:
+                client = getattr(provider.client, "_client", None)
+            supported = False
+            if isinstance(client, httpx.AsyncClient):
+                with suppress(Exception):
+                    observe_http_client(client)
+                    supported = True
+            ProviderObservationSource(provider_name(provider.name), workload, observer).emit(
+                "coverage", outcome="available" if supported else "unavailable"
+            )
+        return provider
+
+    if not disable_retries or (protection is not None and protection.mode != "disabled"):
         return create
 
     def bounded(provider_name: str) -> Provider[Any]:
@@ -2460,7 +2502,8 @@ def _minimax_embedding_models(
 
 def _embedding_readiness_probe(model: EmbeddingModel) -> ReadinessProbe:
     async def probe_embedding() -> None:
-        await model.embed(("PowerContext readiness probe",))
+        with suppress_provider_observation():
+            await model.embed(("PowerContext readiness probe",))
 
     return CachedReadinessProbe(dependency_readiness_probe(probe_embedding))
 

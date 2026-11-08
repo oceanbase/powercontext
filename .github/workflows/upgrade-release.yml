@@ -23,6 +23,10 @@ on:
         description: Explicit manual publication for new databases without upgrade acceptance
         type: boolean
         default: false
+      internal_runner:
+        description: Run CI-only callers on the internal Linux runner; release callers keep GitHub-hosted runners
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,7 +37,7 @@ env:
 jobs:
   prepare:
     name: Prepare upgrade artifacts and matrix
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.internal_runner && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     outputs:
       matrix: ${{ steps.prepare.outputs.matrix }}
@@ -122,7 +126,7 @@ jobs:
       - name: Build release distributions
         run: |
           uv build --out-dir dist
-          uvx --from twine twine check dist/*
+          uvx --from 'twine>=7.0.0' twine check dist/*
 
       - name: Freeze distributions and resolve the source matrix once
         if: ${{ !inputs.skip_upgrade_acceptance }}
@@ -244,7 +248,7 @@ jobs:
     name: Upgrade ${{ matrix.source_version }} / ${{ matrix.backend }} / ${{ matrix.configuration }}
     needs: prepare
     if: ${{ !inputs.skip_upgrade_acceptance }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.internal_runner && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     strategy:
       max-parallel: 3
@@ -299,7 +303,7 @@ jobs:
     name: Verify the selected upgrade matrix
     needs: [prepare, cases]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && !inputs.skip_upgrade_acceptance }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.internal_runner && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 15
     steps:
       - name: Check out

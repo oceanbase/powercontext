@@ -125,3 +125,26 @@ def test_product_acceptance_rejects_a_fixture_only_native_probe() -> None:
         "qualificationId": "qualified-product",
     }
     assert module.probe_measurement(json.dumps(product_probe), "qualified-product") == {"samples": []}
+    with pytest.raises(module.HarnessFailure, match="scoped_authorization_probe_required"):
+        module.probe_measurement(json.dumps(product_probe), "qualified-product", require_scoped_authorization=True)
+    product_probe["scopedAuthorizationWithoutObservation"] = True
+    assert module.probe_measurement(
+        json.dumps(product_probe), "qualified-product", require_scoped_authorization=True
+    ) == {"samples": []}
+
+
+def test_product_acceptance_binds_the_actual_wheel_before_archive_or_server_startup(
+    desktop: Path, qualification
+) -> None:
+    specification = importlib.util.spec_from_file_location("desktop_real_server", ROOT / "desktop/tests/real_server.py")
+    assert specification is not None and specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    profile = {**qualification.build_profile(desktop, "a" * 40), "id": "pinned-product"}
+    (desktop / "src-tauri/src/connections/compatibility.json").write_text(json.dumps([profile]), encoding="utf-8")
+    wheel = desktop / ".artifacts/server-wheel/powercontext-fixture.whl"
+    assert module.product_profile(desktop, profile["id"], wheel) == profile
+    # Deliberately not a ZIP: the identity error must precede extraction or subprocesses.
+    wheel.write_bytes(b"another artifact with identical selected catalog metadata")
+    with pytest.raises(module.HarnessFailure, match="product_qualification_mismatch"):
+        module.product_profile(desktop, profile["id"], wheel)

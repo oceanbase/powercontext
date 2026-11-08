@@ -58,12 +58,19 @@ header:
     - 'zensical.toml'
     - '.pre-commit-config.yaml'
     - 'docker/**'
+    # Directory symlink aliases are checked at their packaged resource paths.
+    - 'deploy/observability/collector'
+    - 'deploy/observability/gateway'
+    - 'deploy/observability/grafana'
+    - 'deploy/observability/prometheus'
     - 'theme/powercontext/assets/images/**'
     - 'theme/powercontext/assets/stylesheets/pygments-github-dark.css'
     - '**/py.typed'
     - 'src/powercontext/http/_generated/**'
     # Vendored distributions retain their upstream licenses and copyright notices.
     - 'LICENSES/**'
+    # Protocol recordings and upstream notices retain their original bytes and licenses.
+    - 'gateway/crates/pc-gateway-app/tests/fixtures/**'
     - 'src/powercontext/builtin/artifacts/lexical_data/*.txt'
     - 'src/powercontext/server/dashboard/static/vendor/**'
     - '.gitattributes'

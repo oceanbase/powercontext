@@ -28,12 +28,19 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::evidence::CallRecorder;
+use crate::lifecycle::Execution;
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
+
+/// Core 的 before_send 在复用证明的依赖已变化或证明已失效时给出的 withhold 原因。
+const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
 use crate::{GateClient, GateError};
+use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
+use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
-use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
+use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
     parse_rfc3339_ms, CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation, PrepareContextRequest,
@@ -60,6 +67,8 @@ pub struct ManagedCall {
     pub headers: Vec<(String, String)>,
     pub degrade_policy: DegradePolicy,
     pub inject_context: bool,
+    /// 注入时同时请求代码证据（默认关）。
+    pub include_code: bool,
     /// 宿主提供的会话 ID（`X-PowerContext-Conversation-ID`）。只有带它的请求才在会话内重放准备结果。
     pub conversation_id: Option<String>,
     pub sediment: bool,
@@ -95,12 +104,30 @@ pub enum ManagedOutcome {
     AdmissionExpired,
 }
 
+impl ManagedOutcome {
+    /// One terminal interpretation shared by lifecycle snapshots and evidence.
+    pub(crate) fn terminal(&self) -> crate::ExecutionTerminal {
+        use crate::ExecutionTerminal;
+        match self {
+            Self::Released { .. } => ExecutionTerminal::ReleaseAuthorized,
+            Self::Blocked { .. } => ExecutionTerminal::Blocked,
+            Self::Withheld { .. } => ExecutionTerminal::Withheld,
+            Self::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
+            Self::NotSent { .. } => ExecutionTerminal::NotSent,
+            Self::GatePaused(_) => ExecutionTerminal::GatePaused,
+            Self::Degraded { .. } => ExecutionTerminal::Degraded,
+            Self::AdmissionExpired => ExecutionTerminal::AdmissionExpired,
+        }
+    }
+}
+
 pub struct Executor<G, T> {
     gate: G,
     transport: T,
     max_attempts: NonZeroU32,
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
+    max_input_bytes: usize,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -122,96 +149,177 @@ where
             transport,
             max_attempts,
             replays: ReplayCache::default(),
+            max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
         }
+    }
+
+    /// Apply the deployment/Core input intersection. Increasing configuration
+    /// cannot bypass the currently supported complete-body parser ceiling.
+    pub fn with_input_limit(mut self, limit: usize) -> Self {
+        self.max_input_bytes = limit.min(pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT);
+        self
     }
 
     pub async fn run<R: WireRenderer>(
         &self,
+        control: RequestControl,
         call: ManagedCall,
         renderer: &R,
         evidence: &dyn EvidenceSink,
+    ) -> ManagedOutcome {
+        let mut recording = CallRecorder::new(
+            evidence,
+            control.observation(),
+            control.cancellation(),
+            &call.target_url,
+            match renderer.message_list_key() {
+                "input" => Some(UsageMapping::OpenAiResponses),
+                "messages" => Some(UsageMapping::OpenAiChat),
+                _ => None,
+            },
+        );
+        let mut execution = control.start();
+        let outcome = self
+            .execute(call, renderer, evidence, &mut execution, &mut recording)
+            .await;
+        recording.finish(&outcome);
+        execution.finish(&outcome);
+        outcome
+    }
+
+    async fn execute<R: WireRenderer>(
+        &self,
+        call: ManagedCall,
+        renderer: &R,
+        evidence: &dyn EvidenceSink,
+        execution: &mut Execution,
+        recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
         let mut call = call;
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
         // 重新渲染，否则 prepare 召回的私密记忆会在未经任何检查的情况下外发。
         let pristine_request = call.request.clone();
 
-        if call.inject_context {
-            let anchor = message_anchor(&pristine_request);
-            self.enrich(&mut call, anchor, renderer.message_list_key(), evidence)
-                .await;
-        }
-
-        let payload = match renderer.render(&call.request, None) {
-            Ok(p) => p,
-            Err(e) => {
-                return ManagedOutcome::Blocked {
-                    reason_codes: vec![format!("render_failed:{e}")],
-                }
+        let anchor = call
+            .inject_context
+            .then(|| message_anchor(&pristine_request))
+            .flatten();
+        let mut refreshed = false;
+        let (payload, admission) = loop {
+            if call.inject_context {
+                self.enrich(&mut call, anchor, renderer.message_list_key(), evidence)
+                    .await;
             }
-        };
-        let payload_body = match String::from_utf8(payload.bytes.clone().to_vec()) {
-            Ok(text) => text,
-            Err(_) => {
-                return ManagedOutcome::Blocked {
-                    reason_codes: vec!["invalid_payload_encoding".into()],
-                }
-            }
-        };
-        let model_payload = ModelJsonPayload::new(
-            content_headers(&call.headers, payload.content_type),
-            payload_body,
-        );
-        let check = ContextCheckRequest::BeforeSend {
-            scope_id: call.scope_id.clone(),
-            target_profile: call.target_profile.clone(),
-            payload: model_payload,
-            prepared_contexts: call.prepared_contexts.clone(),
-        };
 
-        let admission = match self.gate.check(check).await {
-            Err(e) => {
-                // 降级仅适用于 Core「不可用」；Malformed（可达但响应异常）一律暂停。
-                return match (e, call.degrade_policy) {
-                    (GateError::GateUnavailable(_), DegradePolicy::PassthroughWithoutMemory) => {
-                        // P1-3：降级时丢弃已注入的载荷，用 pristine 请求重新渲染。
-                        let mut degraded_call = ManagedCall {
-                            scope_id: call.scope_id.clone(),
-                            target_profile: call.target_profile.clone(),
-                            request: pristine_request,
-                            target_url: call.target_url.clone(),
-                            headers: call.headers.clone(),
-                            degrade_policy: DegradePolicy::Pause,
-                            inject_context: false,
-                            conversation_id: None,
-                            sediment: false,
-                            prepared_contexts: Vec::new(),
-                        };
-                        degraded_call.request.stream = call.request.stream;
-                        self.degraded_send(&degraded_call, renderer, evidence).await
+            let payload = match renderer.render(&call.request, None) {
+                Ok(p) => p,
+                Err(e) => {
+                    return ManagedOutcome::Blocked {
+                        reason_codes: vec![format!("render_failed:{e}")],
                     }
-                    (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
+                }
+            };
+            // Measure every rendered body, including a refreshed prepare result.
+            if payload.bytes.len() > self.max_input_bytes {
+                return ManagedOutcome::Blocked {
+                    reason_codes: vec!["request_payload_too_large".into()],
                 };
             }
-            Ok(result) => match result.decision {
-                CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
-                    Ok((binding, deadline)) => Admission {
-                        binding,
-                        valid_until_ms: deadline,
-                    },
-                    Err(outcome) => return outcome,
-                },
-                CheckDecision::Block => {
+            let payload_body = match String::from_utf8(payload.bytes.clone().to_vec()) {
+                Ok(text) => text,
+                Err(_) => {
                     return ManagedOutcome::Blocked {
-                        reason_codes: result.reason_codes,
+                        reason_codes: vec!["invalid_payload_encoding".into()],
                     }
                 }
-                CheckDecision::Withhold => {
-                    return ManagedOutcome::Withheld {
-                        reason_codes: result.reason_codes,
-                    }
+            };
+            let model_payload = ModelJsonPayload::new(
+                content_headers(&call.headers, payload.content_type),
+                payload_body,
+            );
+            let check = ContextCheckRequest::BeforeSend {
+                scope_id: call.scope_id.clone(),
+                target_profile: call.target_profile.clone(),
+                payload: model_payload,
+                prepared_contexts: call.prepared_contexts.clone(),
+            };
+
+            let admission = match self.gate.check(check).await {
+                Err(e) => {
+                    // 降级仅适用于 Core「不可用」；Malformed（可达但响应异常）一律暂停。
+                    return match (e, call.degrade_policy) {
+                        (
+                            GateError::GateUnavailable(_),
+                            DegradePolicy::PassthroughWithoutMemory,
+                        ) => {
+                            // P1-3：降级时丢弃已注入的载荷，用 pristine 请求重新渲染。
+                            let mut degraded_call = ManagedCall {
+                                scope_id: call.scope_id.clone(),
+                                target_profile: call.target_profile.clone(),
+                                request: pristine_request.clone(),
+                                target_url: call.target_url.clone(),
+                                headers: call.headers.clone(),
+                                degrade_policy: DegradePolicy::Pause,
+                                inject_context: false,
+                                include_code: false,
+                                conversation_id: None,
+                                sediment: false,
+                                prepared_contexts: Vec::new(),
+                            };
+                            degraded_call.request.stream = call.request.stream;
+                            self.degraded_send(
+                                &degraded_call,
+                                renderer,
+                                evidence,
+                                execution,
+                                recording,
+                            )
+                            .await
+                        }
+                        (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
+                    };
                 }
-            },
+                Ok(result) => match result.decision {
+                    CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
+                        Ok((binding, deadline)) => Admission {
+                            binding,
+                            valid_until_ms: deadline,
+                        },
+                        Err(outcome) => return outcome,
+                    },
+                    CheckDecision::Block => {
+                        return ManagedOutcome::Blocked {
+                            reason_codes: result.reason_codes,
+                        }
+                    }
+                    // 复用证明的依赖已变化（例如 Agent 改了被引用的代码文件）：丢弃该会话的重放，从注入前的
+                    // 请求重新准备一次再送检，不把可恢复的过期交给客户端。每个请求最多刷新一次。
+                    CheckDecision::Withhold
+                        if !refreshed
+                            && !call.prepared_contexts.is_empty()
+                            && result
+                                .reason_codes
+                                .iter()
+                                .any(|reason| reason == CONTEXT_REFRESH_REQUIRED) =>
+                    {
+                        refreshed = true;
+                        if let Some((conversation, anchor)) =
+                            call.conversation_id.as_deref().zip(anchor)
+                        {
+                            self.replays.forget(&call.scope_id, conversation, anchor);
+                        }
+                        call.request = pristine_request.clone();
+                        call.prepared_contexts.clear();
+                        continue;
+                    }
+                    CheckDecision::Withhold => {
+                        return ManagedOutcome::Withheld {
+                            reason_codes: result.reason_codes,
+                        }
+                    }
+                },
+            };
+            break (payload, admission);
         };
 
         // P1-4：发送阶段。每次尝试前验有效期；确定性失败后重新走 check 拿新准入。
@@ -233,12 +341,29 @@ where
                     stream: call.request.stream,
                 };
                 let sent_binding = current.binding.clone();
+                recording.begin_attempt();
+                execution.model_send(ModelSendState::PossiblySent);
                 match self.transport.send(send).await {
                     SendOutcome::Delivered(raw) => {
+                        recording.received(&raw);
+                        execution.model_send(ModelSendState::ResponseReceived);
                         break (raw, sent_binding);
                     }
-                    SendOutcome::Indeterminate(_) => return ManagedOutcome::SendIndeterminate,
+                    SendOutcome::IncompleteResponse {
+                        reason,
+                        status,
+                        response_first_byte_ms,
+                    } => {
+                        recording.incomplete_response(&reason, status, response_first_byte_ms);
+                        return indeterminate_outcome(reason);
+                    }
+                    SendOutcome::Indeterminate(reason) => {
+                        recording.indeterminate(&reason);
+                        return indeterminate_outcome(reason);
+                    }
                     SendOutcome::NotSent(reason) => {
+                        recording.not_sent(&reason);
+                        execution.model_send(ModelSendState::DefinitelyNotSent);
                         evidence.record_not_sent(attempt, &reason.to_string());
                         if attempt >= self.max_attempts.get() {
                             return ManagedOutcome::NotSent { attempts: attempt };
@@ -306,7 +431,9 @@ where
             ),
             completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
         };
-        match self.gate.check(release_check).await {
+        let verdict = self.gate.check(release_check).await;
+        recording.release_decision();
+        match verdict {
             Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
             Ok(result) => match result.decision {
                 CheckDecision::Allow => {
@@ -356,13 +483,14 @@ where
                             Err(GateError::GateRejected(409)) => {
                                 evidence.record_not_sent(0, "sediment_duplicate")
                             }
-                            Err(e) => evidence.record_not_sent(0, &format!("sediment_failed:{e}")),
+                            Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
                         if now_ms() >= release_deadline {
                             return ManagedOutcome::AdmissionExpired;
                         }
                     }
+                    recording.authorized();
                     ManagedOutcome::Released {
                         binding: result.binding,
                         status: raw.status,
@@ -452,6 +580,7 @@ where
                 query,
                 max_bytes: 8192,
                 include_reuse: true,
+                include_code: call.include_code,
                 // P2 review：限定 memory-only（#2313 reuse 只支持 atomic-memory），
                 // 防止 Experience/Topic 加入后 check 拒绝导致注入静默失效。
                 assembly: Some(pc_gateway_types::ContextAssembly::memory_only()),
@@ -459,9 +588,9 @@ where
             .await
         {
             Ok(p) => p,
-            Err(e) => {
-                evidence.record_not_sent(0, &format!("prepare_failed:{e}"));
-                tracing::warn!(error = %e, "prepare failed; injecting nothing");
+            Err(_) => {
+                evidence.record_not_sent(0, "prepare_failed");
+                tracing::warn!("prepare failed; injecting nothing");
                 return None;
             }
         };
@@ -555,6 +684,8 @@ where
         call: &ManagedCall,
         renderer: &R,
         evidence: &dyn EvidenceSink,
+        execution: &mut Execution,
+        recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
         evidence.record_not_sent(0, "degraded_passthrough");
         let payload = match renderer.render(&call.request, None) {
@@ -565,6 +696,11 @@ where
                 }
             }
         };
+        if payload.bytes.len() > self.max_input_bytes {
+            return ManagedOutcome::Blocked {
+                reason_codes: vec!["request_payload_too_large".into()],
+            };
+        }
         let send = AdmittedSend {
             binding: "degraded-passthrough".into(),
             payload: payload.bytes,
@@ -572,18 +708,48 @@ where
             headers: call.headers.clone(),
             stream: call.request.stream,
         };
+        recording.begin_attempt();
+        execution.model_send(ModelSendState::PossiblySent);
         match self.transport.send(send).await {
-            SendOutcome::Delivered(raw) => ManagedOutcome::Degraded {
-                status: raw.status,
-                content_type: raw.content_type,
-                body: raw.body,
-            },
-            SendOutcome::Indeterminate(_) => ManagedOutcome::SendIndeterminate,
+            SendOutcome::Delivered(raw) => {
+                recording.received(&raw);
+                execution.model_send(ModelSendState::ResponseReceived);
+                ManagedOutcome::Degraded {
+                    status: raw.status,
+                    content_type: raw.content_type,
+                    body: raw.body,
+                }
+            }
+            SendOutcome::IncompleteResponse {
+                reason,
+                status,
+                response_first_byte_ms,
+            } => {
+                recording.incomplete_response(&reason, status, response_first_byte_ms);
+                indeterminate_outcome(reason)
+            }
+            SendOutcome::Indeterminate(reason) => {
+                recording.indeterminate(&reason);
+                indeterminate_outcome(reason)
+            }
             SendOutcome::NotSent(reason) => {
+                recording.not_sent(&reason);
+                execution.model_send(ModelSendState::DefinitelyNotSent);
                 evidence.record_not_sent(1, &reason.to_string());
                 ManagedOutcome::NotSent { attempts: 1 }
             }
         }
+    }
+}
+
+// Capacity failure withholds the incomplete body without clearing possible billing.
+// Other uncertain sends keep their existing indeterminate terminal; none is retried.
+fn indeterminate_outcome(reason: SendIndeterminateReason) -> ManagedOutcome {
+    match reason {
+        SendIndeterminateReason::BufferLimitExceeded => ManagedOutcome::Withheld {
+            reason_codes: vec!["response_buffer_limit_exceeded".into()],
+        },
+        _ => ManagedOutcome::SendIndeterminate,
     }
 }
 
@@ -609,10 +775,9 @@ fn validate_allow(
 ) -> Result<(String, u64), ManagedOutcome> {
     // 1. schema 必须匹配
     if result.schema != pc_gateway_types::CONTEXT_CHECK_SCHEMA {
-        return Err(ManagedOutcome::GatePaused(format!(
-            "malformed_verdict: schema mismatch: {}",
-            result.schema
-        )));
+        return Err(ManagedOutcome::GatePaused(
+            "malformed_verdict: schema mismatch".into(),
+        ));
     }
     // 2. phase 必须与请求阶段一致
     if result.phase != expected_phase {
@@ -642,7 +807,8 @@ fn validate_allow(
 
 fn classify_gate_error(e: GateError) -> String {
     match e {
-        GateError::GateUnavailable(msg) | GateError::Malformed(msg) => msg,
+        GateError::GateUnavailable(_) => "gate_unavailable".into(),
+        GateError::Malformed(_) => "malformed_gate_response".into(),
         GateError::GateRejected(status) => format!("gate rejected: HTTP {status}"),
     }
 }

@@ -1,0 +1,3128 @@
+{
+  "uid": "pc-scopes",
+  "title": "PowerContext · 业务空间活动",
+  "description": "查看一个业务空间的应用操作、后台结果、日志和已保存调用链。一个请求可能参与多个业务空间，因此参与次数不等于唯一请求数。日志和调用链是尽力采集；入口鉴权或校验失败、共享 CPU/内存和依赖状态请在“服务与采集”或“依赖与采集”查看。",
+  "schemaVersion": 40,
+  "version": 8,
+  "tags": [
+    "powercontext"
+  ],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "scope_id",
+        "label": "业务空间",
+        "type": "query",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "pc-stats"
+        },
+        "query": {
+          "queryType": "infinity",
+          "refId": "scope-options",
+          "infinityQuery": {
+            "refId": "scope-options",
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "http://stats:8080/stats?period=today",
+            "url_options": {
+              "method": "GET"
+            },
+            "root_selector": "by_scope",
+            "columns": [
+              {
+                "selector": "scope_id",
+                "text": "业务空间",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "role",
+        "label": "服务角色",
+        "type": "custom",
+        "query": "API 服务 : api,后台角色 : background,后台子进程 : worker,组合进程 : all",
+        "current": {
+          "text": "全部",
+          "value": "$__all"
+        },
+        "options": [],
+        "includeAll": true,
+        "allValue": ".*"
+      },
+      {
+        "name": "period",
+        "label": "用量周期（UTC）",
+        "type": "custom",
+        "query": "today,7d,30d",
+        "current": {
+          "text": "30d",
+          "value": "30d"
+        },
+        "options": [
+          {
+            "text": "today",
+            "value": "today",
+            "selected": false
+          },
+          {
+            "text": "7d",
+            "value": "7d",
+            "selected": false
+          },
+          {
+            "text": "30d",
+            "value": "30d",
+            "selected": true
+          }
+        ],
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 200,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**这里查看一个业务空间的历史活动，不替代“业务进展”的库存视图。** 先填业务空间，再看 API 参与、后台结果、日志和已保存调用链。没有样本表示未知，不是健康。"
+      }
+    },
+    {
+      "id": 1,
+      "title": "业务空间相关请求量",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation,outcome) (rate({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"application.scope.completed\" | operation!=\"get_stats\" | keep operation, family, outcome, error_category [5m]))",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "所选时间范围内完成的应用操作，按参与的业务空间计数，排除统计轮询。一个请求可能参与多个业务空间。",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: 次/秒",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "业务空间请求失败率",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by(operation) (rate({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"application.scope.completed\" | operation!=\"get_stats\" | outcome=\"failure\" | keep operation, family, outcome, error_category [5m])) or (sum by(operation) (rate({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"application.scope.completed\" | operation!=\"get_stats\" | keep operation, family, outcome, error_category [5m])) * 0)) / sum by(operation) (rate({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"application.scope.completed\" | operation!=\"get_stats\" | keep operation, family, outcome, error_category [5m]))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "description": "有观测的业务空间 完成操作中失败的比例。没有样本时显示未知。",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "业务空间请求延迟 P95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile_over_time(0.95, {service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"application.scope.completed\" | operation!=\"get_stats\" | keep operation, family, outcome, error_category, duration_ms | unwrap duration_ms | __error__=\"\" [5m]) by (operation) / 1000",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "应用操作的 95 分位耗时，包含业务空间运行时边界，不含入口解析、鉴权和统计轮询。",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "业务空间相关操作结果",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(operation,outcome) (count_over_time({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"application.scope.completed\" | operation!=\"get_stats\" | keep operation, family, outcome, error_category [$__range]))",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "所选时间范围内的业务空间参与次数和结果。一个多业务空间请求会贡献多条参与记录。",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "后台子进程完成次数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(family,outcome) (rate({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=~\"artifact_processing.worker.(returned|failed|blocked)\" | keep operation, family, outcome, error_category [5m]))",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "后台子进程返回、失败和被规则阻止的次数。返回结果不等于确认写入成功；强制终止可能没有终态事件。",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: 次/秒",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "后台结果确认次数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(family) (rate({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"artifact_processing.worker.acknowledged\" | keep operation, family, outcome, error_category [5m]))",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "服务主进程确认后台结果已经写入的次数。它不证明新增了 记忆 或产物。",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: 次/秒",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "后台子进程耗时 P95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile_over_time(0.95, {service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=~\"artifact_processing.worker.(returned|failed|blocked)\" | keep operation, family, outcome, error_category, duration_ms | unwrap duration_ms | __error__=\"\" [5m]) by (family) / 1000",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "按处理类型观察的后台执行耗时；每次重试单独计算。",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "后台失败与重试次数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(family,error_category) (rate({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=\"artifact_processing.failed\" | keep operation, family, outcome, error_category [5m]))",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "该业务空间的失败和重试记录。重试状态和全局队列在“后台处理”页查看。",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: 次/秒",
+          "noValue": "当前范围没有失败或重试记录"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "规则阻止次数 · 所选时间范围",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(family) (count_over_time({service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | event=~\"artifact_processing[.](worker[.])?blocked\" | keep operation, family, outcome, error_category [$__range]))",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "观察到的准入阻止和后台阻止事件，不是当前阻止数量的实时值。被规则阻止不是服务故障。",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)cancelled(.*)",
+            "renamePattern": "$1取消$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)failure(.*)",
+            "renamePattern": "$1失败$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)timeout(.*)",
+            "renamePattern": "$1超时$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)nonempty(.*)",
+            "renamePattern": "$1有结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)empty(.*)",
+            "renamePattern": "$1空结果$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)success(.*)",
+            "renamePattern": "$1成功$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)blocked(.*)",
+            "renamePattern": "$1被阻止$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\btopic-memory\\b(.*)",
+            "renamePattern": "$1主题记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\batomic-memory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprofile\\b(.*)",
+            "renamePattern": "$1用户画像$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bexperience\\b(.*)",
+            "renamePattern": "$1经验$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bskill\\b(.*)",
+            "renamePattern": "$1技能$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bhandoff\\b(.*)",
+            "renamePattern": "$1交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bprompt\\b(.*)",
+            "renamePattern": "$1提示词$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)\\bmemory\\b(.*)",
+            "renamePattern": "$1记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.templates.list(.*)",
+            "renamePattern": "$1列出 MCP 资源模板$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_bootstrap_context(.*)",
+            "renamePattern": "$1准备启动上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_prompt_configuration(.*)",
+            "renamePattern": "$1读取提示词配置$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)capture_content_source(.*)",
+            "renamePattern": "$1采集输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)resolve_scope_binding(.*)",
+            "renamePattern": "$1解析业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact_revision(.*)",
+            "renamePattern": "$1读取产物版本$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_atomic_memories(.*)",
+            "renamePattern": "$1列出记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.generation(.*)",
+            "renamePattern": "$1生成模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.resources.list(.*)",
+            "renamePattern": "$1列出 MCP 资源$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)provider.embedding(.*)",
+            "renamePattern": "$1向量模型调用$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)set_scope_binding(.*)",
+            "renamePattern": "$1设置业务空间绑定$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_default_scope(.*)",
+            "renamePattern": "$1读取默认业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_capabilities(.*)",
+            "renamePattern": "$1读取服务能力$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)continue_handoff(.*)",
+            "renamePattern": "$1继续交接$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)prepare_context(.*)",
+            "renamePattern": "$1准备检索上下文$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)remember_memory(.*)",
+            "renamePattern": "$1保存记忆$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_artifacts(.*)",
+            "renamePattern": "$1列出产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.initialize(.*)",
+            "renamePattern": "$1MCP 初始化$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.list(.*)",
+            "renamePattern": "$1列出 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)mcp.tools.call(.*)",
+            "renamePattern": "$1调用 MCP 工具$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)create_source(.*)",
+            "renamePattern": "$1创建输入$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_artifact(.*)",
+            "renamePattern": "$1读取产物$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)list_scopes(.*)",
+            "renamePattern": "$1列出业务空间$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)query_code(.*)",
+            "renamePattern": "$1查询代码$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_stats(.*)",
+            "renamePattern": "$1读取统计数据$2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "(.*)get_scope(.*)",
+            "renamePattern": "$1读取业务空间$2"
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "业务空间操作日志",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=~\"powercontext.*\"} | json | scope=~\"^${scope_id:regex}$\" | service_role=~\"$role\" | line_format `{{ .event | replace \"artifact_processing.block_recheck_failed\" \"阻止复查失败\" | replace \"artifact_processing.worker.acknowledged\" \"处理结果已确认写入\" | replace \"artifact_processing.worker.acknowledge\" \"处理结果确认中\" | replace \"artifact_processing.worker.interrupted\" \"后台子进程被中断\" | replace \"artifact_processing.worker.memory_hold\" \"记忆写入暂缓\" | replace \"topic_memory.search.embedding_fallback\" \"主题记忆改用关键词检索\" | replace \"artifact_processing.attempt.completed\" \"本次处理尝试完成\" | replace \"artifact_processing.worker.returned\" \"后台子进程已返回\" | replace \"artifact_processing.worker.started\" \"后台子进程已开始\" | replace \"artifact_processing.worker.execute\" \"后台子进程执行中\" | replace \"artifact_processing.worker.blocked\" \"后台子进程被规则阻止\" | replace \"artifact_processing.worker.failed\" \"后台子进程失败\" | replace \"artifact_processing.worker.start\" \"后台子进程已开始\" | replace \"application.operation.completed\" \"业务操作完成\" | replace \"artifact_processing.worker.wait\" \"后台子进程等待中\" | replace \"artifact_processing.configured\" \"处理配置完成\" | replace \"artifact_processing.dispatched\" \"已派发给后台子进程\" | replace \"provider.operation.completed\" \"最终模型操作完成\" | replace \"application.scope.completed\" \"业务空间操作完成\" | replace \"provider.business.completed\" \"服务商业务拒绝\" | replace \"artifact_processing.failure\" \"处理失败\" | replace \"artifact_processing.blocked\" \"被规则阻止\" | replace \"transport.request.completed\" \"外部请求完成\" | replace \"artifact_processing.queued\" \"已进入队列\" | replace \"artifact_processing.failed\" \"处理失败\" | replace \"collector.continuity.probe\" \"采集连续性测试\" | replace \"artifact.read.completed\" \"产物读取完成\" | replace \"provider.http.completed\" \"模型服务响应\" | replace \"retrieval.completed\" \"检索完成\" | replace \"server.degraded\" \"服务降级\" }} | {{ .operation | replace \"incubate_experience_candidates\" \"生成经验候选（incubate_experience_candidates）\" | replace \"mcp.resources.templates.list\" \"列出 MCP 资源模板（mcp.resources.templates.list）\" | replace \"prepare_bootstrap_context\" \"准备启动上下文（prepare_bootstrap_context）\" | replace \"get_prompt_configuration\" \"读取提示词配置（get_prompt_configuration）\" | replace \"capture_content_source\" \"采集输入（capture_content_source）\" | replace \"process_artifact_scope\" \"处理产物任务（process_artifact_scope）\" | replace \"resolve_scope_binding\" \"解析业务空间绑定（resolve_scope_binding）\" | replace \"get_artifact_revision\" \"读取产物版本（get_artifact_revision）\" | replace \"process_source_window\" \"处理输入窗口（process_source_window）\" | replace \"review_catalog_change\" \"审核目录变更（review_catalog_change）\" | replace \"list_atomic_memories\" \"列出记忆（list_atomic_memories）\" | replace \"search_atomic_memory\" \"检索原子记忆（search_atomic_memory）\" | replace \"provider.generation\" \"生成模型调用（provider.generation）\" | replace \"artifact_processing\" \"处理后台任务（artifact_processing）\" | replace \"record_task_outcome\" \"记录任务结果（record_task_outcome）\" | replace \"search_topic_memory\" \"检索主题记忆（search_topic_memory）\" | replace \"mcp.resources.list\" \"列出 MCP 资源（mcp.resources.list）\" | replace \"provider.embedding\" \"向量模型调用（provider.embedding）\" | replace \"record_skill_usage\" \"记录技能使用（record_skill_usage）\" | replace \"set_scope_binding\" \"设置业务空间绑定（set_scope_binding）\" | replace \"get_default_scope\" \"读取默认业务空间（get_default_scope）\" | replace \"artifact_dreaming\" \"生成产物（artifact_dreaming）\" | replace \"get_capabilities\" \"读取服务能力（get_capabilities）\" | replace \"continue_handoff\" \"继续交接（continue_handoff）\" | replace \"access_readiness\" \"检查访问就绪（access_readiness）\" | replace \"review_candidate\" \"审核候选（review_candidate）\" | replace \"prepare_context\" \"准备检索上下文（prepare_context）\" | replace \"remember_memory\" \"保存记忆（remember_memory）\" | replace \"collector_probe\" \"采集连续性测试（collector_probe）\" | replace \"list_artifacts\" \"列出产物（list_artifacts）\" | replace \"mcp.initialize\" \"MCP 初始化（mcp.initialize）\" | replace \"mcp.tools.list\" \"列出 MCP 工具（mcp.tools.list）\" | replace \"mcp.tools.call\" \"调用 MCP 工具（mcp.tools.call）\" | replace \"create_source\" \"创建输入（create_source）\" | replace \"flush_profile\" \"刷新用户画像（flush_profile）\" | replace \"search_memory\" \"检索记忆（search_memory）\" | replace \"get_artifact\" \"读取产物（get_artifact）\" | replace \"list_scopes\" \"列出业务空间（list_scopes）\" | replace \"get_metrics\" \"读取监控指标（get_metrics）\" | replace \"query_code\" \"查询代码（query_code）\" | replace \"get_stats\" \"读取统计数据（get_stats）\" | replace \"get_scope\" \"读取业务空间（get_scope）\" | replace \"unmatched\" \"未匹配接口（unmatched）\" }}{{if .family}} · {{ .family | replace \"atomic-memory\" \"记忆\" | replace \"topic-memory\" \"主题记忆\" | replace \"experience\" \"经验\" | replace \"profile\" \"用户画像\" | replace \"handoff\" \"交接记录\" | replace \"context\" \"上下文\" | replace \"memory\" \"记忆\" | replace \"prompt\" \"提示词\" | replace \"skill\" \"技能\" }}{{end}}{{if .outcome}} | {{ .outcome | replace \"not_modified\" \"未修改\" | replace \"unavailable\" \"不可用\" | replace \"cancelled\" \"取消\" | replace \"available\" \"可用\" | replace \"nonempty\" \"有结果\" | replace \"fallback\" \"降级回退\" | replace \"queued\" \"已排队\" | replace \"running\" \"执行中\" | replace \"pending\" \"待处理\" | replace \"received\" \"已收到\" | replace \"missing\" \"缺失\" | replace \"needs_evidence\" \"需补充证据\" | replace \"no_change\" \"无变化\" | replace \"success\" \"成功\" | replace \"failure\" \"失败\" | replace \"timeout\" \"超时\" | replace \"blocked\" \"被阻止\" | replace \"skipped\" \"跳过\" | replace \"empty\" \"空结果\" }}{{end}}{{if .error_category}} · 分类 {{ .error_category | replace \"invalid_request\" \"请求无效（invalid_request）\" | replace \"authentication\" \"认证失败（authentication）\" | replace \"authorization\" \"授权失败（authorization）\" | replace \"configuration\" \"配置错误（configuration）\" | replace \"unavailable\" \"不可用（unavailable）\" | replace \"dependency\" \"依赖异常（dependency）\" | replace \"rate_limit\" \"限流（rate_limit）\" | replace \"not_found\" \"未找到（not_found）\" | replace \"cancelled\" \"已取消（cancelled）\" | replace \"conflict\" \"冲突（conflict）\" | replace \"internal\" \"内部错误（internal）\" | replace \"timeout\" \"超时（timeout）\" | replace \"blocked\" \"被规则阻止（blocked）\" | replace \"unknown\" \"未知（unknown）\" }}{{end}}{{if .error_code}} · 代码 {{.error_code}}{{end}}{{if .duration_ms}} | 耗时 {{ .duration_ms | float64 | printf \"%.0f\" }} 毫秒{{end}}{{if .trace_id}} | 调用链 trace_id={{.trace_id}}{{end}}{{if .request_id}} 请求={{.request_id}}{{end}}`",
+          "legendFormat": "{{operation}} {{family}} {{outcome}}"
+        }
+      ],
+      "description": "按业务空间查询结构化日志。业务空间不是 Loki 索引标签；保留的日志可能带有未保存的调用链 ID。",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "未知 · 缺少数据"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 11,
+      "title": "业务空间已保存调用链",
+      "type": "traces",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ (span.powercontext.scope.id =~ \"^${scope_id:regex}$\" || span.powercontext.scope.ids =~ \"^${scope_id:regex}$\") && resource.powercontext.service.role =~ \"$role\" }",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "description": "包含该业务空间调用片段的已保存采样调用链。没有结果显示未知，不推断未采样或导出失败。",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "当前范围没有已保存调用链"
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "全服务总览",
+      "type": "link",
+      "url": "/d/pc-overview",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "业务进展",
+      "type": "link",
+      "url": "/d/pc-flow",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "后台处理",
+      "type": "link",
+      "url": "/d/pc-processing",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "模型调用",
+      "type": "link",
+      "url": "/d/pc-providers",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "服务与采集",
+      "type": "link",
+      "url": "/d/pc-service",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "timepicker": {
+    "refresh_intervals": [
+      "15s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  }
+}

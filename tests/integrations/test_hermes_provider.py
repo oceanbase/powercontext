@@ -632,6 +632,96 @@ def test_pre_compress_filters_roles_and_redacts_secrets(provider_and_client):
     assert "deployment" in content
 
 
+@pytest.mark.parametrize(
+    "entry,fail_flush",
+    [
+        ("sync_turn", False),
+        ("on_pre_compress", False),
+        ("on_pre_compress", True),
+        ("on_session_end", False),
+        ("on_session_end", True),
+    ],
+)
+def test_private_display_fields_do_not_cross_adapter_boundaries(
+    tmp_path, hermes_modules, caplog, monkeypatch, entry, fail_flush
+):
+    from tests.integration_conformance.hermes.support import (
+        ALLOWED_ASSISTANT,
+        ALLOWED_USER,
+        SECRET_SAMPLE,
+        assert_projected,
+        messages,
+        trace_text,
+    )
+
+    provider_module, _ = hermes_modules
+    client = FakeClient()
+    if fail_flush:
+
+        def failed_flush(scope_id):
+            client.calls.append(("flush_memory", (scope_id,), {}))
+            from plugins.powercontext.client import PowerContextTransportError  # ty: ignore[unresolved-import]
+
+            raise PowerContextTransportError("synthetic extraction unavailable")  # noqa: TRY003 - controlled failure.
+
+        monkeypatch.setattr(client, "flush_memory", failed_flush)
+    provider = provider_module.PowerContextMemoryProvider(
+        {"capture_pre_compress": True, "evaluation_trace": True}, client_factory=lambda _: client
+    )
+    with caplog.at_level(logging.INFO):
+        provider.initialize("fixture-session", hermes_home=str(tmp_path), agent_identity="fixture")
+        try:
+            if entry == "on_pre_compress":
+                provider.on_pre_compress(messages(), require_checkpoint=True)
+            else:
+                # Hermes owns sync's secret normalization. The full synthetic transcript
+                # still contains the original sample, private display data and unknown fields.
+                provider.sync_turn(f"{ALLOWED_USER} [REDACTED]", ALLOWED_ASSISTANT, messages=messages())
+                if entry == "on_session_end":
+                    provider.on_session_end(messages())
+            provider.prefetch(f"{ALLOWED_USER} api_key={SECRET_SAMPLE}")
+        finally:
+            provider.shutdown()
+
+    captures = [call for call in client.calls if call[0] == "capture_content"]
+    assert captures
+    for _, args, kwargs in captures:
+        assert ALLOWED_USER in args[2]
+        assert ALLOWED_ASSISTANT in args[2]
+        assert "[REDACTED]" in args[2]
+        assert_projected(json.dumps({"content": args[2], "metadata": kwargs["metadata"]}))
+    assert any(call[0] == "flush_memory" for call in client.calls) == (entry != "sync_turn")
+    trace = trace_text(tmp_path)
+    assert ALLOWED_USER in trace
+    assert "[REDACTED]" in trace
+    assert_projected(trace)
+    assert_projected(caplog.text)
+    # The query is deliberately raw at the client boundary: prefetch's provider-side
+    # redaction contract applies to its evaluation trace, not to the query request.
+    assert_projected(json.dumps([call for call in client.calls if call[0] != "prepare_context"]))
+
+
+def test_private_display_fields_stay_absent_after_http_sqlite_restart(tmp_path, hermes_modules, caplog):
+    from tests.integration_conformance.hermes.support import assert_projected, exercise_storage
+
+    provider_module, _ = hermes_modules
+    with caplog.at_level(logging.INFO):
+        result = exercise_storage(provider_module.PowerContextMemoryProvider, tmp_path)
+    assert result["restart_readback"]
+    assert_projected(caplog.text)
+
+
+def test_http_late_capture_keeps_scope_and_shutdown_does_not_claim_success(tmp_path, hermes_modules, caplog):
+    from tests.integration_conformance.hermes.support import assert_projected, exercise_scope_shutdown
+
+    provider_module, _ = hermes_modules
+    with caplog.at_level(logging.INFO):
+        result = exercise_scope_shutdown(provider_module.PowerContextMemoryProvider, tmp_path)
+    assert result["unfinished_shutdown_not_persisted"]
+    assert "shutdown dropped 1 queued write(s); active=True" in caplog.text
+    assert_projected(caplog.text)
+
+
 @pytest.fixture
 def make_provider(tmp_path, hermes_modules):
     """Build an initialized provider for a specific agent context; shut it down after the test."""

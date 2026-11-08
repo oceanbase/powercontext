@@ -2,6 +2,25 @@
 
 This plugin is a thin DeepSeek Harness integration for a running PowerContext Server. It does not embed storage or start the Server.
 
+## Install from npm
+
+Once the desired version is published on npm, open **Plugins → Add plugin** in DeepSeek Harness Web or Desktop,
+enter `powercontext-dsh`, and click **Install**. Use `powercontext-dsh@<version>` to select a specific release.
+If the Mainland China mirror has not synchronized it yet, select the official npm registry.
+The package includes compiled JavaScript and its Cordis bundle patch; installation requires no source build.
+
+Start a matching PowerContext Server separately and configure its URL and credentials before using memory features.
+The default URL is `http://127.0.0.1:8000`; an existing `powercontext setup dsh` connection is also recognized.
+Restart the host if requested, then run `/pc doctor` in a session to inspect the running plugin and MCP tools.
+Installing the bundle alone does not establish Server readiness, extraction, or cross-session recall.
+
+Release archives use the PowerContext Release version. Python prereleases such as `1.6.0rc1` become npm
+`1.6.0-rc.1`; prereleases use the `next` dist-tag, while versions without a prerelease suffix normally use `latest`.
+See the [installation guide](https://github.com/oceanbase/powercontext/blob/master/docs/en/docs/integrations/dsh.md)
+and [npm release instructions](https://github.com/oceanbase/powercontext/blob/master/docs/en/development/releasing.md#dsh-npm-package).
+
+## Install from source
+
 Install the released Server and plugin together:
 
 ```bash
@@ -21,7 +40,7 @@ Run those development commands from the PowerContext repository root. Each remot
 from the same ref and restart DSH after updating the plugin. For a local source, update that checkout before
 reinstalling both components.
 
-Use [the DSH setup guide](../../../../docs/en/docs/integrations/dsh.md) for generation/processing configuration.
+Use [the DSH setup guide](https://github.com/oceanbase/powercontext/blob/master/docs/en/docs/integrations/dsh.md) for generation/processing configuration.
 Run `powercontext server run --env-file powercontext.env` in one terminal, then set
 `POWERCONTEXT_DSH_BASE_URL` in another terminal and run `dsh web`. Restart DSH after changing installation or environment.
 Release 1.1.0 includes direct-operation Scope failure handling, MCP/Scope failure handling, and the layered Doctor and
@@ -110,7 +129,7 @@ cannot discard a successful recall. Accepted Source evidence still needs Server 
 Non-empty recall uses a persisted plugin `snapshot` with a `PowerContext` section for the host context browser.
 Its displayed text is the same untrusted, request-specific context sent to the model. Empty recall creates no snapshot.
 
-See [runtime acceptance tests](tests/runtime/README.md) for the pinned real DSH host, deterministic CI scenarios,
+See [runtime acceptance tests](https://github.com/oceanbase/powercontext/blob/master/integrations/dsh/plugins/powercontext/tests/runtime/README.md) for the pinned real DSH host, deterministic CI scenarios,
 and the separate real-model and Web acceptance procedure.
 
 ## Web and Desktop setup targets
@@ -121,7 +140,7 @@ and bundle activation. Desktop requires its installed dsh launcher, an initializ
 Use Desktop's **Manage dsh Command…** menu or pass `--dsh-command` with its installed launcher path.
 `powercontext doctor dsh --profile desktop` checks registration without launching the reserved profile; reopen
 Desktop and run `/pc doctor` to inspect the active session. Connection settings and URL-bound credentials remain shared.
-See [the installation guide](../../../../docs/en/docs/integrations/dsh.md) for paths and complete examples.
+See [the installation guide](https://github.com/oceanbase/powercontext/blob/master/docs/en/docs/integrations/dsh.md) for paths and complete examples.
 
 With `powercontext setup dsh --json`, distinguish `hosts.dsh.setup: "complete"` and
 `hosts.dsh.checks.plugin.checks.registration: "present"` from top-level `ok`. Separate Server diagnostics can

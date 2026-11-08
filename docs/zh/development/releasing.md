@@ -70,6 +70,7 @@ beta 和 RC 跳过网站条目检查。`make docs-test` 也会通过网站测试
 | --- | --- |
 | Python wheel/sdist 版本及安装后的 `powercontext --version` | `pyproject.toml` 声明 `dynamic = ["version"]`，Hatch VCS 读取 Git 元数据。最终产物应从目标发布 tag 构建。 |
 | Runtime 包元数据 | 读取已安装 Python 发行包的版本，没有另一份需要手工更新的 Runtime 静态版本。 |
+| DSH npm 发布包 | 发布流程根据所选 Release tag，在临时打包目录中为 `powercontext-dsh` 写入版本。源码 manifest 保留开发版本；运行时身份读取已安装的 manifest。 |
 | Desktop API 绑定 | 运行 `pnpm --dir desktop generate` 重新生成 OpenAPI 类型和契约摘要，再用 `pnpm --dir desktop generate:check` 检查。Desktop 应用本身使用独立包版本。 |
 | Dify 工具契约 | 运行 `uv run python integrations/dify/generate_contract.py` 重新生成，再为同一命令添加 `--check`，检查 API 版本及 Schema。 |
 | Docker 和 Bub harness 的构建版本 | 构建输入通过 `POWERCONTEXT_VERSION` 传递选定的包或 Git 版本，不应在 Dockerfile 中加入固定发布版本。 |
@@ -91,7 +92,7 @@ OpenAPI 版本描述待发布的 API 契约，不覆盖 Hatch VCS。打 tag 前�
 | 通用 Agent Plugin | `integrations/agent-plugin/powercontext/plugin.json`；其包版本与 Agent Plugins schema 版本相互独立。 |
 | Hermes 插件 | `integrations/hermes/plugins/{powercontext,powercontext-command}/plugin.yaml`。 |
 | MiniMax 和 ZCode 插件 | `integrations/minimax/plugins/powercontext/.minimax-plugin/plugin.json` 与 `integrations/zcode/plugins/powercontext/.zcode-plugin/plugin.json`。 |
-| JavaScript 插件 | `integrations/{dsh,opencode,pi}/plugins/powercontext/package.json` 与 `integrations/openclaw/plugins/memory-powercontext/package.json`；OpenClaw 的发现 manifest 没有独立版本字段。 |
+| JavaScript 插件 | `integrations/{opencode,pi}/plugins/powercontext/package.json` 与 `integrations/openclaw/plugins/memory-powercontext/package.json`；OpenClaw 的发现 manifest 没有独立版本字段。DSH 发布包跟随主 Release。 |
 | WorkBuddy 集成 | Hook 和传输脚本包含 User-Agent 字符串，没有需要与 Server 对齐的插件 manifest 版本。 |
 | Skill Receiver | `src/powercontext/client/skill_receiver.py` 中的 `RECEIVER_VERSION` 提供注册、协调及回执上报时默认使用的 Receiver 身份版本，独立于 Server 版本。 |
 | Python 集成包 | `integrations/{bub,langchain,langgraph,opendal,pydantic-ai}/pyproject.toml` 有各自的发行版本；依赖范围表示兼容性，不是当前主发布版本。 |
@@ -117,6 +118,57 @@ DSH 的 `pack:release` 先构建再给包 manifest 写入版本，而写版本�
 它是遗漏更新的当前版本声明。
 
 DSH README 中说明某项能力已包含在 `1.1.0` 的文字同样属于历史说明，仅其当前安装命令中的版本参与同步。
+
+## DSH npm 发布包
+
+`release.yml` 从 Python 发布使用的同一个固定 commit 构建 `powercontext-dsh`。流程先测试插件，再将编译后的
+入口、类型声明、Skills 资源、bundle patch、README、许可证和 manifest 打包，并将该发布包安装到干净的使用方目录中检查。
+打包不会改写源码 manifest。验收后的 `.tgz` 保存为 `dsh-release-package`，并附加到 GitHub Release。
+PyPI 发布同时依赖此项检查及原有发布门禁。npm 发布在 PyPI 成功后执行，且仅在 `oceanbase/powercontext` 中运行。
+
+版本来自 Release tag：`powercontext-v1.6.0rc1` 转换为 `1.6.0-rc.1`，`a`、`b` 分别转换为 `alpha`、`beta`。
+正式版本使用 `latest`；版本号带预发布后缀或 GitHub Release 标记为预发布时使用 `next`。
+源码中的开发版本不作为独立的 npm 发布计数。缺少这些打包脚本的旧 tag 不能通过此流程发布，应选择包含 npm
+交付改动的 Release。
+
+发布任务使用 [npm 可信发布](https://docs.npmjs.com/trusted-publishers/)、Node 24 和 GitHub 的 `id-token: write`
+权限，工作流不保存 npm token。包维护者需要完成首次 npm 发布，再配置可信发布者：
+
+| npm 设置 | 值 |
+| --- | --- |
+| Package | `powercontext-dsh` |
+| Provider | GitHub Actions |
+| Organization | `oceanbase` |
+| Repository | `powercontext` |
+| Workflow filename | `release.yml` |
+| Environment | 留空；发布任务没有声明环境 |
+| Allowed actions | 允许直接执行 `npm publish` |
+
+首次发布时，从目标 Release 构建下载已验收的发布包，用维护者的 npm 账户登录，发布同一个文件。例如预发布包：
+
+```bash
+npm login --registry=https://registry.npmjs.org/
+npm publish ./powercontext-dsh-1.6.0-rc.1.tgz --access public --ignore-scripts --tag next --registry=https://registry.npmjs.org/
+```
+
+正式版本改用 `--tag latest`。包创建后配置可信发布者，再重跑失败的 npm 任务。
+重跑仅在 registry 中的 SHA-512 与本次发布包一致时跳过发布；同一版本对应不同内容时明确失败。
+相同发布包的重跑不会修改 dist-tag。不要通过重跑旧 Release 回退 `latest` 或将预发布包提升为正式版本。
+首次补发历史版本前，应核对 registry 中已有的标签。
+
+在仓库根目录执行以下命令验证本地打包：
+
+```bash
+pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+pnpm --dir integrations/dsh/plugins/powercontext test
+pnpm --dir integrations/dsh/plugins/powercontext test:package
+pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
+```
+
+发布包位于插件的 `dist/` 目录。在 DSH Desktop 的 **Plugins → Add plugin** 中安装此文件，确认包信息及启用状态，
+按提示重启，并连接匹配的 Server 运行 `/pc doctor`。分别记录桌面版版本、安装和加载结果、Server 就绪状态及记忆
+行为。本地发布包安装不能证明 npm 已可用；发布后还需在官方源中用 `powercontext-dsh@<version>` 安装，并单独检查
+所选镜像。
 
 ## 发布前验证
 

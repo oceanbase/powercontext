@@ -223,6 +223,21 @@ def test_collect_only_does_not_claim_execution(tmp_path: Path) -> None:
     assert not (tmp_path / "executed.txt").exists()
 
 
+def test_case_deadline_does_not_count_a_timed_out_test_as_passed(tmp_path: Path) -> None:
+    (tmp_path / "test_cases.py").write_text(
+        "import time\ndef test_oceanbase_slow():\n    time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "timed-out"
+    result = run_runner(tmp_path, output, "--test-timeout", "2")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads((output / "summary.json").read_text())
+    assert report["complete"] is False
+    assert report["passed_nodes"] == []
+    assert "FAIL exit=124" in (output / "001/result.txt").read_text()
+
+
 @pytest.mark.parametrize("outcome", ["fail", "skip", "interrupt"])
 def test_unsuccessful_case_is_not_counted_as_passed_and_is_not_retried(tmp_path: Path, outcome: str) -> None:
     write_suite(tmp_path, 3, outcome=outcome)

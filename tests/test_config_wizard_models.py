@@ -179,12 +179,28 @@ def test_reconfigure_clears_old_workload_settings_and_replaces_credentials() -> 
     assert any("previous" in prompt and "settings" in prompt for prompt in ui.prompts)
 
 
-def test_anthropic_uses_runtime_supported_api_key_header() -> None:
-    ui = Answers("anthropic", "", "claude-sonnet-4-5", "anthropic-key")
+def test_anthropic_default_generation_model_is_a_current_claude_model() -> None:
+    ui = Answers("anthropic", "", "", "anthropic-key")
 
     updates = collect_models(ui, {}, generation=True, embedding=False)
 
-    assert updates[PREFIX + "GENERATION_MODEL"] == "anthropic:claude-sonnet-4-5"
+    assert updates[PREFIX + "GENERATION_MODEL"] == "anthropic:claude-sonnet-5-5"
+
+
+def test_anthropic_protocol_default_matches_the_wizard_default() -> None:
+    from powercontext.cli.config import API_PROTOCOLS
+
+    protocol = next(protocol for protocol in API_PROTOCOLS if protocol.identifier == "anthropic")
+
+    assert protocol.default_generation_model == "claude-sonnet-5-5"
+
+
+def test_anthropic_uses_runtime_supported_api_key_header() -> None:
+    ui = Answers("anthropic", "", "claude-sonnet-5-5", "anthropic-key")
+
+    updates = collect_models(ui, {}, generation=True, embedding=False)
+
+    assert updates[PREFIX + "GENERATION_MODEL"] == "anthropic:claude-sonnet-5-5"
     assert json.loads(updates[PREFIX + "GENERATION_HEADERS"] or "") == {"x-api-key": "anthropic-key"}
 
 
@@ -237,7 +253,7 @@ def test_anthropic_generation_does_not_offer_unsupported_embedding_connection_sh
     ui = Answers(
         "anthropic",
         "",
-        "claude-sonnet-4-5",
+        "claude-sonnet-5-5",
         "generation-key",
         "bailian",
         "",
@@ -247,7 +263,7 @@ def test_anthropic_generation_does_not_offer_unsupported_embedding_connection_sh
 
     updates = collect_models(ui, {}, generation=True, embedding=True)
 
-    assert updates[PREFIX + "GENERATION_MODEL"] == "anthropic:claude-sonnet-4-5"
+    assert updates[PREFIX + "GENERATION_MODEL"] == "anthropic:claude-sonnet-5-5"
     assert updates[PREFIX + "EMBEDDING_MODEL"] == "openai:text-embedding-v4"
     assert updates[PREFIX + "EMBEDDING_PROFILE_ID"] == "openai-text-embedding-v4-1024-unit-v1"
     assert not any("same API" in prompt for prompt in ui.prompts)

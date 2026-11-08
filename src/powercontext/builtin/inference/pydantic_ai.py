@@ -45,6 +45,11 @@ from powercontext.builtin.inference.models import (
     InferenceUsage,
     combine_inference_usage,
 )
+from powercontext.builtin.inference.observability import (
+    ProviderObservationSource,
+    current_provider_observer,
+    provider_name,
+)
 from powercontext.builtin.inference.usage import approved_usage, collect_approved_usage
 from powercontext.builtin.processing_diagnostics import (
     ProcessingDiagnostics,
@@ -118,12 +123,22 @@ OutputT = TypeVar("OutputT")
 logger = logging.getLogger(__name__)
 
 
+# Sampling settings the Anthropic adapter drops for models that reject them (pydantic_ai ANTHROPIC_SAMPLING_PARAMS).
+_ANTHROPIC_SAMPLING_PARAMS = ("temperature", "top_p", "top_k")
+
+
 def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dict[str, object]:
     """Return settings that the pinned provider will pass to its request builder."""
 
     effective = dict(settings or {})
     profile = getattr(model, "profile", None)
-    if not hasattr(profile, "get") or not profile.get("openai_supports_reasoning", False):
+    if not hasattr(profile, "get"):
+        return effective
+    if profile.get("anthropic_disallows_sampling_settings", False):
+        for setting in _ANTHROPIC_SAMPLING_PARAMS:
+            effective.pop(setting, None)
+        return effective
+    if not profile.get("openai_supports_reasoning", False):
         return effective
 
     reasoning_effort = effective.get("openai_reasoning_effort")
@@ -293,6 +308,9 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         self._input_type = input_type
         self._prompt_key = prompt_key
         self._input_renderer = input_renderer
+        self._provider_observations = ProviderObservationSource(
+            provider_name(model.system), "generation", current_provider_observer()
+        )
         try:
             self._input_adapter = TypeAdapter(input_type)
             bounded_settings = model_settings
@@ -364,50 +382,53 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         except (PydanticSerializationError, PydanticUserError, ValidationError, UnicodeError) as error:
             raise PydanticAIConfigurationError("serialize") from error
 
-        run_usage = RunUsage()
-        raw_usage: list[InferenceUsage] = []
-        try:
-            selection = None if self._prompt_key is None else current_prompt(self._prompt_key)
-            # Agent.override uses task-local state; concurrent Scopes never mutate a shared Agent.
-            override = (
-                self._agent.override(instructions=selection.compiled_instructions)
-                if selection is not None and selection.selection == "artifact"
-                else nullcontext()
-            )
-            with override, collect_approved_usage() as raw_usage:
-                result = await asyncio.wait_for(
-                    self._agent.run(
-                        prompt,
-                        deps=value,
-                        usage=run_usage,
-                        usage_limits=UsageLimits(
-                            request_limit=self._limits.max_requests,
-                            output_tokens_limit=self._limits.output_tokens_limit,
-                        ),
-                        metadata=None if selection is None else selection.trace_attributes(),
-                    ),
-                    timeout=self._limits.timeout_seconds,
+        with self._provider_observations.operation():
+            run_usage = RunUsage()
+            raw_usage: list[InferenceUsage] = []
+            try:
+                selection = None if self._prompt_key is None else current_prompt(self._prompt_key)
+                # Agent.override uses task-local state; concurrent Scopes never mutate a shared Agent.
+                override = (
+                    self._agent.override(instructions=selection.compiled_instructions)
+                    if selection is not None and selection.selection == "artifact"
+                    else nullcontext()
                 )
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            # An exhausted retry budget reports the rule the last response broke, not a generic failure.
-            rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
-            mapped = rejected or _map_error(error, operation="generate", timeout_seconds=self._limits.timeout_seconds)
-            if mapped is not None and raw_usage:
-                prior = approved_usage(raw_usage)
-                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
-            elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
-                prior = _generation_usage(run_usage)
-                mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
-            if mapped is None:
+                with override, collect_approved_usage() as raw_usage:
+                    result = await asyncio.wait_for(
+                        self._agent.run(
+                            prompt,
+                            deps=value,
+                            usage=run_usage,
+                            usage_limits=UsageLimits(
+                                request_limit=self._limits.max_requests,
+                                output_tokens_limit=self._limits.output_tokens_limit,
+                            ),
+                            metadata=None if selection is None else selection.trace_attributes(),
+                        ),
+                        timeout=self._limits.timeout_seconds,
+                    )
+            except asyncio.CancelledError:
                 raise
-            if mapped is error:
-                raise
-            raise mapped from error
+            except Exception as error:
+                # An exhausted retry budget reports the rule the last response broke, not a generic failure.
+                rejected = _checked_rule(error) if isinstance(error, UnexpectedModelBehavior) else None
+                mapped = rejected or _map_error(
+                    error, operation="generate", timeout_seconds=self._limits.timeout_seconds
+                )
+                if mapped is not None and raw_usage:
+                    prior = approved_usage(raw_usage)
+                    mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+                elif isinstance(mapped, InferencePrivacyError) and run_usage.requests:
+                    prior = _generation_usage(run_usage)
+                    mapped.usage = prior if mapped.usage is None else combine_inference_usage(prior, mapped.usage)
+                if mapped is None:
+                    raise
+                if mapped is error:
+                    raise
+                raise mapped from error
 
-        usage = approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
-        return GenerationResult(output=cast(OutputT, result.output), usage=usage)
+            usage = approved_usage(raw_usage) if raw_usage else _generation_usage(result.usage)
+            return GenerationResult(output=cast(OutputT, result.output), usage=usage)
 
 
 class PydanticAIEmbeddingModel:
@@ -432,6 +453,9 @@ class PydanticAIEmbeddingModel:
         if not profile.profile_id.strip() or not profile.model.strip() or not profile.normalization.strip():
             raise PydanticAIConfigurationError("profile-identifiers")
         self._embedder = embedder
+        self._provider_observations = ProviderObservationSource(
+            provider_name(embedder.model.system), "embedding", current_provider_observer()
+        )
         self.profile = profile
         self._batch_size = batch_size
         self._limits = InferenceLimits() if limits is None else limits
@@ -460,32 +484,33 @@ class PydanticAIEmbeddingModel:
         if not texts:
             return EmbeddingResult(vectors=())
 
-        try:
-            result = await asyncio.wait_for(
-                self._embed_batches(texts, input_type=input_type), timeout=self._limits.timeout_seconds
-            )
-        except asyncio.CancelledError:
-            raise
-        except InvalidInferenceOutputError:
-            raise
-        except ValidationError as error:
-            # Malformed provider output is an invalid-output failure, not a
-            # transient availability failure; match the structured mapping.
-            mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
-            if mapped is None:
+        with self._provider_observations.operation():
+            try:
+                result = await asyncio.wait_for(
+                    self._embed_batches(texts, input_type=input_type), timeout=self._limits.timeout_seconds
+                )
+            except asyncio.CancelledError:
                 raise
-            raise mapped from error
-        except ValueError as error:
-            raise InferenceUnavailableError("embed") from error
-        except Exception as error:
-            mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
-            if mapped is None:
+            except InvalidInferenceOutputError:
                 raise
-            if mapped is error:
-                raise
-            raise mapped from error
+            except ValidationError as error:
+                # Malformed provider output is an invalid-output failure, not a
+                # transient availability failure; match the structured mapping.
+                mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
+                if mapped is None:
+                    raise
+                raise mapped from error
+            except ValueError as error:
+                raise InferenceUnavailableError("embed") from error
+            except Exception as error:
+                mapped = _map_error(error, operation="embed", timeout_seconds=self._limits.timeout_seconds)
+                if mapped is None:
+                    raise
+                if mapped is error:
+                    raise
+                raise mapped from error
 
-        return result
+            return result
 
     async def _embed_batches(
         self, texts: tuple[str, ...], *, input_type: Literal["document", "query"]

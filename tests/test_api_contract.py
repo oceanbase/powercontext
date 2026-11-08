@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 
 import powercontext.http as http_models
@@ -169,10 +170,6 @@ from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.info import server_info
 from powercontext.server.settings import HandoffReportConfig, ServerSettings
-
-
-def test_http_public_exports_resolve() -> None:
-    assert [name for name in http_models.__all__ if not hasattr(http_models, name)] == []
 
 
 def test_http_star_import_resolves_every_public_export() -> None:
@@ -846,7 +843,7 @@ def test_source_reference_keeps_name_as_the_source_type() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     properties = contract["components"]["schemas"]["SourceReference"]["properties"]
 
-    assert set(properties) == {"name", "source_id"}
+    assert set(properties) == {"name", "source_id", "locator"}
 
 
 def test_memory_transport_has_no_legacy_citation_shape() -> None:
@@ -950,6 +947,31 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
         for operation_id in actual_operations.values()
     )
     assert not any("search-results" in path for path in paths)
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags"),
+        ("put", "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags"),
+        ("post", "/v1/scopes/{scope_id}/artifact-tags/query"),
+        ("get", "/v1/scopes/{scope_id}/artifacts/atomic-memory/{artifact_id}/state"),
+        ("get", "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags"),
+        ("put", "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags"),
+    ],
+)
+def test_tag_and_state_scope_contract_rejects_blank_ids(method: str, path: str) -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schema = next(
+        parameter["schema"]
+        for parameter in contract["paths"][path][method]["parameters"]
+        if parameter["in"] == "path" and parameter["name"] == "scope_id"
+    )
+    validator = Draft202012Validator(schema)
+    for scope_id in ("s", " scope-a ", "s" * 256):
+        assert validator.is_valid(scope_id)
+    for scope_id in ("", " ", "　", "s" * 257):
+        assert not validator.is_valid(scope_id), repr(scope_id)
 
 
 def test_scope_pagination_declares_cursor_failures() -> None:
@@ -1092,8 +1114,8 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
 
-    assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id"}
-    assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id"}
+    assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id", "locator"}
+    assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id", "locator"}
     assert schemas["SourcePage"]["required"] == ["items", "next_cursor"]
     assert schemas["SourcePage"]["properties"]["items"]["items"] == {"$ref": "#/components/schemas/SourceRecord"}
     for schema_name in ("ArtifactCreated", "ArtifactRevision", "ArtifactCollectionItem"):

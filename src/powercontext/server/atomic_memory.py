@@ -63,7 +63,7 @@ def add_atomic_memory_routes(  # noqa: C901
     execution_context,
 ):
     async def get_atomic_memory_state(
-        scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+        scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
         artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
         http_request: Request,
         response: Response,

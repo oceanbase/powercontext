@@ -29,7 +29,7 @@ jobs:
     if: >-
       ${{ !cancelled() &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').gateway) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -48,3 +48,22 @@ jobs:
         run: cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings
       - name: Tests
         run: cargo test --locked --manifest-path gateway/Cargo.toml --workspace
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: gateway/tck/upstreams.json
+      - name: Upstream protocol compatibility suites
+        run: |
+          npm ci --prefix gateway/tck --no-audit --no-fund
+          cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
+          python3 tests/e2e/gateway_tck.py
+      - name: Upload protocol test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gateway-tck
+          path: .artifacts/gateway-tck
+          if-no-files-found: ignore

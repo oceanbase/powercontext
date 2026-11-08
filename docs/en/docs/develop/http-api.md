@@ -25,6 +25,15 @@ authentication is enabled so it can render the reference; requests made from it 
 browser setup that injects it, or download `/openapi.json` with an authenticated command. Never put the token in the
 URL.
 
+## Connection identity without readiness probes
+
+`GET /v1/connection/identity` returns `server_id`, `authentication` (`disabled` or `authenticated`),
+`access_mode` and a nullable `principal`. It uses normal request authentication and `access.self`, without
+requiring `server.observe` or invoking model/provider readiness. Explicit anonymous identity requires both
+authentication and Access enforcement to be disabled. A 401, 403 or 503 is never evidence of anonymous mode.
+The result grants no resource permissions and does not attest the remote binary. The Python client exposes
+`get_connection_identity()`. Readiness remains the separately requested `/health/ready` diagnostic.
+
 ## Authenticate requests
 
 Authentication is disabled for the default loopback-only installation. When the operator enables it, include this

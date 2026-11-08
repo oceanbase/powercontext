@@ -72,12 +72,16 @@ pub struct CanonicalMessage {
     /// tool 消息的结果配对 id，原样透传（丢失即破坏工具循环）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Additional native message fields, included in the final payload checked by Core.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra_fields: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     System,
+    Developer,
     User,
     Assistant,
     Tool,
