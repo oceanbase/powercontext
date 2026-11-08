@@ -34,10 +34,11 @@ from time import monotonic
 from typing import Annotated, Any, cast
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 import typer
 from pydantic import ValidationError
+from typing_extensions import override
 
 from powercontext.cli.dsh_runtime import DshProfile, resolve_dsh_target
 from powercontext.cli.hosts import stdin_is_tty
@@ -390,7 +391,11 @@ def run_diagnostics(*, server_url: str | None = None, allow_insecure_http: bool 
 
 
 def server_diagnostics(
-    *, server_url: str | None, allow_insecure_http: bool | None, readiness: Diagnostic | None = None
+    *,
+    server_url: str | None,
+    allow_insecure_http: bool | None,
+    readiness: Diagnostic | None = None,
+    authorization: str | None = None,
 ) -> dict[str, Diagnostic]:
     """Check the selected Server and its optional local service registration."""
     from powercontext.cli.memory_protocol import server_memory_protocol
@@ -411,7 +416,11 @@ def server_diagnostics(
                 detail="Insecure HTTP explicitly enabled; credentials and content are unencrypted in transit",
             )
         if readiness is not None:
-            return {**service, "server": readiness, "server_memory_protocol": server_memory_protocol(server_url)}
+            return {
+                **service,
+                "server": readiness,
+                "server_memory_protocol": server_memory_protocol(server_url, authorization=authorization),
+            }
         liveness = _server_liveness_diagnostic(server_url)
     readiness = (
         _server_readiness_diagnostic(server_url)
@@ -425,7 +434,7 @@ def server_diagnostics(
         **service,
         "server_liveness": liveness,
         "server_readiness": readiness,
-        "server_memory_protocol": server_memory_protocol(server_url)
+        "server_memory_protocol": server_memory_protocol(server_url, authorization=authorization)
         if liveness.ok and server_url is not None
         else Diagnostic(DiagnosticStatus.SKIPPED, "not checked because Server liveness failed"),
     }
@@ -979,13 +988,24 @@ def _server_readiness_diagnostic(server_url: str) -> Diagnostic:
     )
 
 
-def _request_json(server_url: str, path: str) -> tuple[int, object]:
+class _NoDiagnosticRedirects(HTTPRedirectHandler):
+    @override
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # An authenticated probe is bound to the selected Server endpoint.
+        return None
+
+
+def _request_json(server_url: str, path: str, *, authorization: str | None = None) -> tuple[int, object]:
     request = Request(  # noqa: S310 - a user-selected diagnostics endpoint is expected.
         f"{server_url.rstrip('/')}{path}",
         headers={"Accept": "application/json", "User-Agent": "powercontext-doctor"},
     )
+    open_request = urlopen
+    if authorization is not None:
+        request.add_header("Authorization", authorization)
+        open_request = build_opener(_NoDiagnosticRedirects()).open
     try:
-        with urlopen(request, timeout=3) as response:  # noqa: S310
+        with open_request(request, timeout=3) as response:
             return response.getcode(), _load_json(response)
     except HTTPError as error:
         try:
@@ -1006,7 +1026,11 @@ def _diagnostics_ok(diagnostics: dict[str, Diagnostic]) -> bool:
 
 
 def _diagnostics_status(diagnostics: dict[str, Diagnostic]) -> DiagnosticStatus:
-    statuses = {diagnostic.status for diagnostic in diagnostics.values()}
+    statuses = {
+        diagnostic.status
+        for name, diagnostic in diagnostics.items()
+        if name != "server_memory_protocol" or diagnostic.status is not DiagnosticStatus.SKIPPED
+    }
     for status in (DiagnosticStatus.FAILED, DiagnosticStatus.DEGRADED, DiagnosticStatus.SKIPPED):
         if status in statuses:
             return status

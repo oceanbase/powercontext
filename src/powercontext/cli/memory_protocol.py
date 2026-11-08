@@ -52,13 +52,20 @@ def installed_memory_protocol(protocol: object, host: str) -> Diagnostic:
     )
 
 
-def server_memory_protocol(server_url: str) -> Diagnostic:
-    """Inspect the public OpenAPI semantic contract without reading or writing Memory."""
+def server_memory_protocol(server_url: str, *, authorization: str | None = None) -> Diagnostic:
+    """Inspect the OpenAPI contract using the selected connection's authorization."""
     try:
-        status, body = _request_json(server_url, "/openapi.json")
+        status, body = _request_json(server_url, "/openapi.json", authorization=authorization)
     except OSError:
         return Diagnostic(
             DiagnosticStatus.DEGRADED, "Server Memory protocol could not be checked; inspect connectivity."
+        )
+    if status in {401, 403}:
+        return Diagnostic(
+            DiagnosticStatus.SKIPPED if authorization is None else DiagnosticStatus.DEGRADED,
+            f"Server Memory protocol is unverified (OpenAPI HTTP {status}); configure valid credentials "
+            "with permission to read the contract for this Server and host/profile, rerun setup, then Doctor. "
+            "Health checks alone do not establish compatibility.",
         )
     if status != 200:
         return Diagnostic(

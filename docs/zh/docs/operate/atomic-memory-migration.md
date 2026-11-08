@@ -31,7 +31,9 @@ description: "备份数据库后，将旧版 Memory 集合离线转换为 Atomic
 更新后的独立 Doctor 将 Server 协议声明与健康状态分开报告。已安装包检查覆盖 DSH、Pi、OpenCode、OpenClaw
 和 Hermes：`atomic-artifact-v1` 是包声明，与 npm/插件版本号无关。没有声明的包是**兼容性未验证**，不等于已确认
 不兼容；诊断会返回 degraded 并提示更新，不再整体显示正常。有声明也不能证明正在运行的进程已经重新加载。
-Server 协议发现接口缺失或不可访问时，同样不能判定兼容。这些只读检查不会执行写入。
+Server 协议发现接口缺失或不可访问时，同样不能判定兼容。发现请求会复用所选 Host 按 URL 绑定的已存凭据。发现接口要求鉴权但没有可用凭据时，
+检查显示 skipped 并提示配置凭据，单独这项不会使安装或 Doctor 失败；已配置的凭据被拒绝时仍返回 degraded。
+这些只读检查不会执行写入。
 
 Codex、Claude Code、WorkBuddy、ZCode 和 Kimi Code 的 Memory 操作使用 Server 原生 MCP schema。升级 Server 后
 需要重新连接这些 Host；Hook 的上下文准备或采集检查不能验证缓存中的 MCP 工具目录。Server 会在 HTTP/MCP 错误

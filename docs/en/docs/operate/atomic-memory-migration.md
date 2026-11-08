@@ -36,7 +36,9 @@ The updated standalone Doctor reports Server protocol declarations separately fr
 covers DSH, Pi, OpenCode, OpenClaw and Hermes: `atomic-artifact-v1` is a package declaration, independent of npm/plugin
 version. Packages with no declaration are **unverified**, not confirmed incompatible; they produce a degraded result and
 update instructions instead of an all-green result. A declaration does not prove that an already running process has
-reloaded. Missing or inaccessible Server discovery also remains unverified. These read-only checks do not execute writes.
+reloaded. Missing or inaccessible Server discovery also remains unverified. Discovery reuses the selected host’s URL-bound stored credential. If discovery requires authorization and no credential
+is available, the check is skipped with credential guidance and does not fail installation or Doctor by itself.
+Rejected configured credentials still produce a degraded result. These read-only checks do not execute writes.
 
 Codex, Claude Code, WorkBuddy, ZCode and Kimi Code use the Server's native MCP schemas for Memory operations. Reconnect
 these hosts after updating the Server; their hook preparation/capture checks do not validate a cached MCP tool catalog.
