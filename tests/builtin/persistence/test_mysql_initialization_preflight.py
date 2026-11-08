@@ -253,7 +253,7 @@ def test_evidence_recovery_resumes_before_final_schema_marker(tmp_path, monkeypa
             before = database.read_bytes(), journal.path.read_bytes()
             plan = runner.plan()
             assert plan.state == "recovery_required" and plan.source_revision == predecessor
-            assert plan.revisions == ("v1_5_0_002", "v1_5_0_003")
+            assert plan.revisions == ("v1_5_0_002", "v1_5_0_003", "v1_5_0_004")
             assert (database.read_bytes(), journal.path.read_bytes()) == before
             assert connection.exec_driver_sql("SELECT schema_version FROM pc_atomic_memory_evidence_schema").all() == []
 
@@ -278,7 +278,7 @@ def test_evidence_recovery_resumes_before_final_schema_marker(tmp_path, monkeypa
 
             monkeypatch.setattr(runner, "_upgrade", execute_revision)
             result = runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
-            assert result.state == "ready" and result.revision == "v1_5_0_003"
+            assert result.state == "ready" and result.revision == runner.bundle.head
             assert result.backup_state == "not_required"
             assert runner.verify().state == "ready"
             assert connection.exec_driver_sql("SELECT schema_version FROM pc_atomic_memory_evidence_schema").all() == [
@@ -288,7 +288,7 @@ def test_evidence_recovery_resumes_before_final_schema_marker(tmp_path, monkeypa
             assert completed is not None and completed.state == "complete"
             assert completed.maintenance_window_id == "interrupted-evidence-ddl"
             assert completed.source_revision is None and completed.backup_state == "not_required"
-            assert completed.last_revision == "v1_5_0_003" and completed.pending_revision is None
+            assert completed.last_revision == runner.bundle.head and completed.pending_revision is None
             assert completed.release_checksums == runner.checksums
             assert not runner.apply(plan_id=runner.plan().plan_id, accepted=True, maintenance_confirmed=True).changed
 

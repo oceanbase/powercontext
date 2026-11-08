@@ -1,0 +1,35 @@
+{
+  "openresponses": {
+    "repository": "https://github.com/openresponses/openresponses.git",
+    "commit": "dce9ddb91921427c2ba06901c7dfaf0cc7056799",
+    "tests": [
+      "basic-response",
+      "streaming-response",
+      "system-prompt",
+      "tool-calling",
+      "multi-turn"
+    ]
+  },
+  "openai_sdk": {
+    "repository": "https://github.com/beranekio/openai-compatibility-tester.git",
+    "commit": "c8b48c263883e06109b9bdffcda1c0a90373dfa9",
+    "tests": [
+      "chat_completions",
+      "chat_completions_stream",
+      "chat_completions_stream_usage",
+      "chat_completions_logprobs",
+      "chat_completions_json",
+      "chat_completions_tools",
+      "chat_completions_tools_stream",
+      "chat_completions_multi_turn",
+      "chat_completions_reasoning",
+      "responses",
+      "responses_stream",
+      "responses_tools",
+      "responses_tools_stream",
+      "responses_json",
+      "responses_reasoning",
+      "error_responses"
+    ]
+  }
+}

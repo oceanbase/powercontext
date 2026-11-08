@@ -132,7 +132,7 @@ API_PROTOCOLS = (
         credential_name="ANTHROPIC_API_KEY",
         base_url_name="ANTHROPIC_BASE_URL",
         default_base_url="https://api.anthropic.com",
-        default_generation_model="claude-sonnet-4-5",
+        default_generation_model="claude-sonnet-5-5",
         default_embedding_model=None,
     ),
 )
