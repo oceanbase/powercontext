@@ -2748,3 +2748,35 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-source-plugins-c00dbf14-v1 \
   --wheel desktop/.artifacts/source-framework-upgrade/powercontext-0.1.dev1509+gc00dbf145-py3-none-any.whl
 ```
+
+## Server 4b5d34aa Core target protocol qualification
+
+`sqlite-core-target-4b5d34aa-v1` qualifies the thirteen declared Desktop protocol
+operations against Server runtime sources at
+`4b5d34aa49d91e19519fd3d8ee2c3873cbd78c63`. Combining the Core target-resolution
+contract with current Server authentication and Desktop changes does not grant the
+Desktop Gateway privileges.
+
+- Normalized OpenAPI SHA-256: `58ffd2f4c79e43c5ae5f64433ba3c0457386df49f15f0e74fc7b6d7a5a7bf011`.
+- Wheel: `powercontext-1.5.1.dev232+g4b5d34aa4-py3-none-any.whl`.
+- Wheel SHA-256: `3b56ae2cd5d054a961f672d01c046aebdcbdad44fabe3a802a73822e13cb44e8`.
+
+All 749 packaged runtime files across the Server, integration lifecycle and
+service bootstrap packages match the clean Git source commit after CRLF
+normalization. On 2026-11-09, macOS 27.0.1 arm64, Python 3.14.5 and Rust 1.97.1,
+`desktop/tests/real_server.py` passed four isolated built-wheel SQLite modes:
+anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and enforced
+Provider. The native `server_probe` used the merged generated contract and
+exercised connection identity, Scope selection, Memory reads and writes,
+statistics, uncertain writes without replay, Principal changes and revocation.
+After adding the bundled record and rebuilding the native probe, all four modes
+passed again with `--product-qualification sqlite-core-target-4b5d34aa-v1`
+through the ordinary product ConnectionManager. The disposable-fixture run
+used a clean worktree; the bundled-product run included the uncommitted
+qualification record.
+
+Evidence is retained under ignored `desktop/.artifacts/real-server.json` and
+`desktop/.artifacts/server-wheel/`. This qualifies local SQLite protocol behavior,
+not installed UI, native credential persistence, Windows, external provider,
+or release acceptance. Historical qualification identities and evidence remain
+unchanged.
