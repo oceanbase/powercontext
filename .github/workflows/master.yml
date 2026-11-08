@@ -262,11 +262,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          # Version and binary hashes are pinned from the verified, minisign-signed release checksums.
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+        uses: ./.github/actions/setup-project-tools
 
       - name: Cache DSH configuration dependencies
         if: matrix.suite == 'unit'
@@ -862,10 +858,7 @@ jobs:
           cache-dependency-path: .artifacts/dify-daemon/go.sum
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+        uses: ./.github/actions/setup-project-tools
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -915,10 +908,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+        uses: ./.github/actions/setup-project-tools
 
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
@@ -968,10 +958,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+        uses: ./.github/actions/setup-project-tools
 
       - name: Cache shared JavaScript build tooling
         uses: ./.github/actions/cache-pnpm
@@ -1014,10 +1001,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+        uses: ./.github/actions/setup-project-tools
 
       - name: Cache Pi dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1043,10 +1027,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+      - uses: ./.github/actions/setup-project-tools
       - name: Cache OpenCode dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -1070,10 +1051,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+      - uses: ./.github/actions/setup-project-tools
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
@@ -1119,10 +1097,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up website tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: 4f796228c826ad6225d608e2029278b31677c8919508574498877543ed3431d8
+        uses: ./.github/actions/setup-project-tools
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1151,10 +1126,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up website tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
+        uses: ./.github/actions/setup-project-tools
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
