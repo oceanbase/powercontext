@@ -362,7 +362,9 @@ content-free JSON event such as:
 The stable outcomes remain distinct: `authentication_failed`, `version_mismatch`, `server_unavailable`, and
 `invalid_response`. Diagnostics never include prompts, recalled content, scopes, URLs, credentials, response bodies,
 or exception text. Repeated outcomes are deduplicated within one invocation and throttled for 60 seconds using local
-state shared across hook processes; a diagnostic failure never changes the host task result.
+state shared across hook processes; a diagnostic failure never changes the host task result. The Codex and Claude
+Code `SessionStart` hooks write their failures only to stderr for local debugging, so those failures do not count
+toward the throttle.
 
 Bub is not included in this first host-diagnostic slice. Its integration will be qualified separately when its host
 diagnostic channel and native lifecycle behavior are specified.
@@ -377,10 +379,12 @@ database is reopened automatically.
 
 For failures, inspect the Hook's top-level `systemMessage`; its value is the single-line JSON event. `empty` means the
 Runtime prepared no context for this turn and remains a local diagnostic rather than a host warning.
-`version_mismatch` means the installed plugin expects
-`POST /v1/context/prepare` but the Server does not provide it—reinstall the plugin and tool from the same ref, then
-restart the Server. `server_unavailable` and `invalid_response` distinguish transport and contract failures. These
-events intentionally omit the query and prepared content.
+`version_mismatch` means the Server does not provide a route the installed plugin requires:
+`POST /v1/context/prepare` for a `context_prepare` event or `POST /v1/scope-bindings/resolve` for a `scope_resolve`
+event. Reinstall the plugin and tool from the same ref, then restart the Server. `server_unavailable` and
+`invalid_response` distinguish transport and contract failures; a `scope_resolve` event with
+`error_code: scope_not_found` means the configured Scope does not exist or no binding resolves. These events
+intentionally omit the query and prepared content.
 
 Run `powercontext capabilities` and confirm that `powercontext.prepared-context.v1` appears under Context
 versions.
@@ -405,10 +409,11 @@ contract as Codex, with component `powercontext.claude_code.recall`:
 | `authentication_failed` | Export the complete `POWERCONTEXT_CLAUDE_AUTHORIZATION` header before starting Claude Code |
 | `version_mismatch` | Install the package and plugin from the same ref, then restart both processes |
 | `server_unavailable` | Start the Server or correct `POWERCONTEXT_CLAUDE_SERVER_URL` |
-| `invalid_response` | Check for a proxy, redirect, incompatible schema, malformed JSON, or an oversized response |
+| `invalid_response` | Check for a proxy, redirect, incompatible schema, malformed JSON, or an oversized response; `error_code: scope_not_found` means the configured Scope does not exist or no binding resolves |
 
 The diagnostics never log the token, query, scope, prepared content, or response body. Prompt capture is independent
-of recall; a capture failure cannot suppress valid context, and a recall failure cannot suppress capture.
+of recall; a capture failure cannot suppress valid context, and a recall failure cannot suppress capture. Both need
+the current Scope, so a `scope_resolve` event means that the prompt was neither recalled nor captured.
 
 ## Claude Code MCP authentication fails
 

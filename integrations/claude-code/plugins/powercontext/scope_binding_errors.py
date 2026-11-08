@@ -22,7 +22,11 @@ class ScopeBindingError(RuntimeError):
 
 
 class ScopeBindingUnavailableError(ScopeBindingError):
-    """Transport failure, timeout, or exhausted budget."""
+    """Transport failure, timeout, exhausted budget, or HTTP 503, whose status it keeps."""
+
+    def __init__(self, status: int | None = None) -> None:
+        self.status = status
+        super().__init__("PowerContext is unavailable" if status is None else f"PowerContext returned HTTP {status}")
 
 
 class ScopeBindingRejectedError(ScopeBindingError):
@@ -30,11 +34,12 @@ class ScopeBindingRejectedError(ScopeBindingError):
 
 
 class ScopeBindingStatusError(ScopeBindingError):
-    """A non-successful HTTP status outside the fixed classifications."""
+    """A non-successful HTTP status outside the fixed classifications, with the error code the Server sent."""
 
-    def __init__(self, status: int, path: str) -> None:
+    def __init__(self, status: int, path: str, code: str | None = None) -> None:
         self.status = status
         self.path = path
+        self.code = code
         super().__init__(f"PowerContext returned HTTP {status}")
 
 
