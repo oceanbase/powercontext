@@ -305,24 +305,20 @@ describe('PowerContextPlugin', () => {
     expect(JSON.parse(String(result))).toMatchObject({ ok: true })
   })
 
-  it('makes OpenCode ask for durable mutations unless the user permission rules decide', async () => {
+  it('puts an ask rule for its permission ahead of the user permission rules', async () => {
     const hooks = await PowerContextPlugin(pluginInput())
-    const configure = async (config: any) => {
+    const configure = async (permission?: unknown) => {
+      const config: any = permission === undefined ? {} : { permission }
       await hooks.config?.(config)
       return config.permission
     }
-    // OpenCode's agents allow permissions their defaults do not name, and they apply the last matching rule.
-    expect(await configure({})).toEqual({ powercontext: 'ask' })
-    expect(Object.entries(await configure({ permission: { bash: 'ask', '*': 'allow' } }))).toEqual([
-      ['powercontext', 'ask'],
-      ['bash', 'ask'],
-      ['*', 'allow'],
-    ])
-    expect(Object.entries(await configure({ permission: { '*': 'ask', powercontext: 'allow' } }))).toEqual([
-      ['*', 'ask'],
-      ['powercontext', 'allow'],
-    ])
-    expect(await configure({ permission: 'allow' })).toBe('allow')
+    // OpenCode applies the last matching rule, so each rule the user configures still decides what it matches.
+    expect(await configure()).toEqual({ 'powercontex?': 'ask' })
+    const rules = { bash: 'ask', powercontext: { commit_handoff: 'allow' }, '*': 'deny' }
+    expect(Object.entries(await configure(rules))).toEqual([['powercontex?', 'ask'], ...Object.entries(rules)])
+    const configured = await configure({ powercontext: 'allow' })
+    expect(Object.entries(await configure(configured))).toEqual([['powercontex?', 'ask'], ['powercontext', 'allow']])
+    expect(await configure('allow')).toBe('allow')
   })
 
   it('captures a Working Note through the scoped operation', async () => {

@@ -45,9 +45,12 @@ asks for confirmation before a durable mutation. Candidate approval and rejectio
 
 The confirmation is OpenCode's `powercontext` permission, which the plugin sets to `ask`. A rule you configure that
 matches it, such as `"*": "allow"` in `permission` or in an agent's `permission`, takes precedence. Each request uses
-the operation as its pattern, so `"permission": {"powercontext": {"*": "ask", "remember_memory": "allow"}}` saves
-memories without asking. `opencode run` rejects permission requests unless it runs with `--auto` or the older
-`--dangerously-skip-permissions`.
+the operation as its pattern, so `"permission": {"powercontext": {"remember_memory": "allow"}}` saves memories
+without asking while other writes still ask. Answering "Allow always" approves only that call.
+
+In `opencode run`, OpenCode rejects each permission request and ends the turn, so a non-interactive run stops at its
+first PowerContext write. Allow the operations such a run needs, for example with
+`"permission": {"powercontext": "allow"}`, rather than approving every permission for the run.
 
 ## Configure the connection
 

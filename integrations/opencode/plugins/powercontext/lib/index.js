@@ -2470,6 +2470,7 @@ Memory correction requires the requested change, exact current Atomic Memory art
 Use powercontext-project-context for a relevant detailed workflow if that Skill is available; no Skill detour is needed before every response.`;
 const CONTEXT_PREFIX = "PowerContext host-supplied context.";
 const PERMISSION = "powercontext";
+const DEFAULT_PERMISSION_RULE = `${PERMISSION.slice(0, -1)}?`;
 const MAX_SOURCE_BYTES = 2e5;
 const MAX_SESSION_CACHE = 256;
 function promptText(parts, transportEncoded) {
@@ -3042,10 +3043,11 @@ const PowerContextPlugin = async (input) => {
 	const hooks = {
 		config: async (config) => {
 			const settings = config;
-			if (typeof settings.permission === "string" || settings.permission && PERMISSION in settings.permission) return;
+			const permission = settings.permission;
+			if (typeof permission === "string" || permission && DEFAULT_PERMISSION_RULE in permission) return;
 			settings.permission = {
-				[PERMISSION]: "ask",
-				...settings.permission
+				[DEFAULT_PERMISSION_RULE]: "ask",
+				...permission
 			};
 		},
 		tool: createTools(runtime),
