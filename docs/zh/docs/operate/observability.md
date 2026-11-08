@@ -11,6 +11,10 @@ description: 通过日志定位请求，并查看 Server 指标与 Trace。
 
 需要自动配置的本地 metrics、traces 和 logs 后端时，参见[参考监控环境](reference-observability-stack.md)。
 
+Rust Gateway 调用证据使用独立的 `gateway.model_call` 操作及 `call`、`attempt`、`delivery` 单位。
+通用 outcome 投影与 exporter 边界见 [Gateway 证据契约](gateway-evidence.md)。
+托管 Server OTLP pipeline 默认不采集该 JSONL 流。
+
 ## 日志
 
 前台 Server 将运行日志写入进程输出。可配置 `POWERCONTEXT_SERVER_LOGGING_LEVEL`（默认 `INFO`）、
@@ -513,3 +517,5 @@ Topic 处理可通过 `invalid_topic_placeholder` 标识可识别的编号占位
 
 
 LangChain 适配层范围内的 Client span 另含不携带正文的 GenAI 属性：`gen_ai.provider.name=powercontext`；上下文准备采用 `gen_ai.operation.name=retrieval` 和逻辑来源 `gen_ai.data_source.id=powercontext`，辅助调用使用有界的 `powercontext.<operation_id>` 操作名。该语义范围按任务隔离并在退出时重置，不修改全局 provider/exporter，也不改变独立 SDK 调用的遥测。详见 LangChain 集成指南。
+Rust Gateway 的调用/尝试/usage 与 HTTP 框架观测使用独立的[有界证据输出](gateway-evidence.md)，
+不新增 Python 日志字段，也不证明客户端已收到内容。

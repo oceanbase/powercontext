@@ -209,6 +209,19 @@ The Rust executable, joint launcher, gateway settings, private channel authentic
 tables remain separate work. The design assigns the original public TCP port to the gateway, which calls the Core over
 UDS with channel and user authentication.
 
+### Gateway authentication boundaries
+
+`PC_GATEWAY_API_KEY` applies only to `/gateway/v1/chat/completions` and `/gateway/v1/responses`.
+A non-loopback Gateway listener requires a valid, nonempty key; that startup check does not authenticate other routes.
+In a combined deployment (`PC_GATEWAY_CORE_UDS`), requests forwarded to Core retain the client's credentials.
+Core API, MCP and Dashboard requests follow Core's existing authentication and access-control rules.
+The Gateway key does not grant Core API access, and UDS does not replace Core authentication.
+
+Before exposing a combined deployment, set `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and configure valid Core
+authentication credentials, as in the UDS example above. Clients of protected Core routes must use Core credentials.
+`PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls; the reverse proxy does not substitute it for
+client credentials.
+
 ### Gateway context injection
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared
@@ -233,6 +246,11 @@ translates its requests to the Chat or Responses route and forwards them. Set `P
 (`PC_GATEWAY_CORE_BASE`) injects only with `PC_GATEWAY_INJECTION=on`. An empty or failed preparation sends the request
 without injection.
 
+Set `PC_GATEWAY_INJECTION_CODE=on` to include code evidence from the Scope's code index in the prepared context; it is
+off by default and requires a configured repository for the Scope. When a replayed value no longer passes the check
+because a cited source changed (for example, the agent edited a cited file), the gateway discards that conversation's
+replay and prepares once more for the request instead of returning the withhold.
+
 ### Gateway instruction
 
 `PC_GATEWAY_STEERING_FILE` names a file with a short, fixed instruction that the gateway adds to every request on the
@@ -246,6 +264,58 @@ which is where Codex places its own `developer_instructions`. Without such a mes
 message after the client's first developer message, or before the first user message when the request has no developer
 message. The text is identical on every request, so it stays part of the cached prefix. Core checks it as part of the
 final request like any other request text. It is independent of context injection, capture, and replay.
+
+### Gateway byte capacity
+
+The Rust gateway discovers `context_protection` once at startup through `/v1/capabilities`.
+Model routes require the complete `ContextProtectionCapabilities` DTO defined by OpenAPI:
+`check_versions`, `payload_versions`, `reuse_versions`, `reuse_families`, `enforcing`, and `limits`
+with `payload_bytes`, `binding_bytes`, `prepared_contexts`, `dependencies`, `send_seconds`, and
+`correlate_seconds`. Missing or mistyped required fields pause admission even when the input capacity is present.
+The check/payload versions must include v1, and `limits.payload_bytes` must be a positive integer.
+A failed query, incompatible version, incomplete DTO, or invalid capacity pauses both model routes with HTTP 503;
+`/healthz` and configured Core/MCP forwarding remain available. Restore the Core contract and restart
+this gateway to rediscover capacity. Every model send and response release still requires its own
+Core check. If Core lowers a limit before the gateway restarts, that check can reject the call;
+increasing a Core limit does not enlarge this gateway's startup allowance until restart.
+Startup diagnostics distinguish transport failure, query rejection, malformed/incomplete responses,
+unsupported versions, and invalid capacity using fixed messages without Core error values.
+
+`PC_GATEWAY_MAX_BODY_BYTES` defaults to 16 MiB (1 MiB = 1,048,576 bytes). The effective model input
+limit is the minimum of that setting, the advertised input capacity, and the current 1 MiB complete-body
+parser ceiling. A zero deployment limit disables model input with HTTP 503 and
+`input_capacity_disabled`; it does not indicate a Core discovery failure.
+Both Content-Length and consumed chunked request bytes are limited. The executor also
+measures the final UTF-8 JSON body after prepared-context injection/replay, Responses steering and protocol
+rendering. Initial-body overflow returns HTTP 413; final-body overflow returns HTTP 403 with
+`request_payload_too_large`, before any model send. Enlarging configuration cannot bypass the parser ceiling.
+
+Provider response buffering defaults to at most 1 MiB for both fixed-length and chunked/SSE responses.
+The transport's explicit buffer limit can reduce this ceiling. Input `payload_bytes` does **not** declare
+an output allowance. Core's response configuration, content checks and the JSON/RPC envelope impose their
+own limits, so even a body below 1 MiB may be refused. The UDS client's 8 MiB RPC-response parser ceiling
+is a separate direction and is not model-body capacity.
+
+A response buffer overflow discards the response and returns HTTP 409 with `response_buffer_limit_exceeded`.
+No provider content is released and the call is not retried. The execution observation retains `PossiblySent`
+and a `Withheld` terminal: the provider may already have charged for the call. This is not proof of a complete
+response or of zero cost. This observation is process-local; this stage does not export a readable call record
+with attempts and terminal/sending facts. The G5-A requirement to expose possible billing in call evidence remains
+pending integration and an exported-record regression with [#2506](https://github.com/oceanbase/powercontext/pull/2506).
+Smaller, completely received responses still pass `before_release` before release.
+
+Transparent Core/MCP forwarding retains the deployment body limit rather than consuming the model input allowance.
+`PC_GATEWAY_MAX_CONCURRENT` (default 64) applies independently to model calls and fallback calls, so an active
+fallback SSE connection cannot exhaust the model semaphore. The combined ceiling is therefore up to twice the
+configured value, excluding exempt health probes; this setting is not a process-wide concurrency ceiling. Each permit stays attached to the response body
+until drop; `/healthz` is exempt from both semaphores. A fallback request with a known oversized Content-Length
+returns 413 before forwarding. Unknown-length overflow produces a body error: a prefix may already have reached
+Core, and the proxy returns 502 if forwarding fails. It is not successful truncation, and the gateway does not
+buffer an entire MCP stream to force a uniform error status.
+
+These are per-body and per-class concurrency limits. They do not measure retained bytes or establish a process
+RSS ceiling. Process-wide retained-byte accounting and output-capacity discovery belong to the remaining
+[G5-B work in #2464](https://github.com/oceanbase/powercontext/issues/2464).
 
 ## Run with Docker
 

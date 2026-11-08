@@ -22,8 +22,13 @@ from pydantic import ValidationError
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryEvidence
-from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
+from powercontext.builtin.artifacts.atomic_memory.models import (
+    AtomicMemoryContent,
+    AtomicMemoryRead,
+    AtomicMemoryStateValue,
+)
 from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryComparisonItem,
     AtomicMemoryReconciliationContent,
@@ -36,6 +41,51 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
 from powercontext.builtin.inference import InvalidInferenceOutputError
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
 from powercontext.sources import SourceRef
+
+
+@pytest.mark.parametrize("action", ["revise", "merge"])
+def test_equal_content_can_still_consolidate_published_identities(action) -> None:
+    content = AtomicMemoryContent(kind="fact", text="The project uses OceanBase.", description="Project database")
+    evidence = AtomicMemoryEvidence(
+        evidence_id="source:1",
+        source_ref=SourceRef(source_type="content", source_id="session-1"),
+        journal_position=1,
+        content=content.text,
+        source_metadata={},
+    )
+    published = tuple(
+        AtomicMemoryRead(
+            ref=ArtifactRef(family="atomic-memory", artifact_id=identity, revision=1),
+            state=AtomicMemoryStateValue.ACTIVE,
+            state_version=0,
+        )
+        for identity in ("memory-a", "memory-b")
+    )
+    workset = AtomicMemoryWindowWorkset()
+    workset.add(AtomicMemoryWorkingItem(key="proposal", content=content, origins=published[:1], evidence=(evidence,)))
+    workset.add(
+        AtomicMemoryWorkingItem(
+            key="target", content=content, origins=published[1:] if action == "merge" else (), evidence=(evidence,)
+        )
+    )
+    related = workset.related("proposal", ("target",))
+    workset.apply(
+        "proposal",
+        related,
+        AtomicMemoryReconciliationOutput(
+            action=action,
+            compared_ids=("target",),
+            target_ids=("target",),
+            content=AtomicMemoryReconciliationContent(
+                kind=content.kind, text=content.text, description="Project database"
+            ),
+            evidence_ids=(evidence.evidence_id,),
+            reason="Keep the published identities while consolidating the same fact.",
+        ),
+    )
+    (change,) = workset.changes()
+    assert change.content == content
+    assert change.origins == (published if action == "merge" else published[:1])
 
 
 @pytest.mark.parametrize("corrected", [True, False])

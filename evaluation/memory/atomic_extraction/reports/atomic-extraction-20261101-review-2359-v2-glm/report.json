@@ -1,0 +1,76 @@
+{
+  "content_policy": "aggregate_only_no_evidence_or_generated_candidate_text",
+  "dataset": {
+    "case_count": 9,
+    "dataset_version": "powercontext.atomic-memory-extraction.synthetic.v2",
+    "manifest_sha256": "853d22abc12ede5ccdd46e380cb935b9746c8003fc484d0934366bb8f5df22c6",
+    "schema_version": "powercontext.atomic-memory-extraction-cases.v1"
+  },
+  "dispositions": {
+    "atomic_memory": {
+      "failed": 0,
+      "passed": 6,
+      "total": 6
+    },
+    "experience_or_skill": {
+      "failed": 0,
+      "passed": 1,
+      "total": 1
+    },
+    "reject": {
+      "failed": 0,
+      "passed": 2,
+      "total": 2
+    }
+  },
+  "factual_retention": {
+    "failed": 0,
+    "false_rejections": 0,
+    "passed": 6,
+    "total": 6,
+    "unobserved": 0
+  },
+  "failure_classes": {},
+  "instruction_leakage": {
+    "leaks": 0,
+    "passed": 9,
+    "total": 9,
+    "unobserved": 0
+  },
+  "overall": {
+    "failed": 0,
+    "passed": 9,
+    "total": 9
+  },
+  "prompts": {
+    "coding": {
+      "builtin_version": "powercontext.atomic-memory.extract.coding.v4",
+      "compiled_digest": "43e6381c37ed2dfa38a6d6c912d1dd8181685aef34580acc62f50181af87b625",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "da5de7be4ac0e23f5e718076dc51b5f1825f376bfe2f071278ff5be2dc096a97",
+      "key": "atomic_memory.extract"
+    },
+    "conversation": {
+      "builtin_version": "powercontext.atomic-memory.extract.conversation.v4",
+      "compiled_digest": "dc7a06e5a421de97cae39ca8052473512391224fc01707eb997b57a8c4463fcf",
+      "definition_version": "powercontext.prompt.atomic-memory.extract.v2",
+      "instructions_sha256": "503f212db750b5d0db4b5e84d6c88ad42f90e8c51bbd0af3d1a9a50e7bb6afc4",
+      "key": "atomic_memory.extract"
+    }
+  },
+  "provider": {
+    "base_url_configured": false,
+    "base_url_sha256": null,
+    "header_names": [],
+    "max_requests": 2,
+    "model": "openai-chat:glm-5.3",
+    "model_settings": {},
+    "model_settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "provider": "openai-chat",
+    "timeout_seconds": 120.0
+  },
+  "run_id": "atomic-extraction-20261101-review-2359-v2-glm",
+  "run_manifest_sha256": "688347f1338a855323b581b5e1bb8c13605e763e6f79a637e9e1f74c7f3bf1b1",
+  "schema_version": "powercontext.atomic-memory-extraction-report.v1",
+  "status": "passed"
+}

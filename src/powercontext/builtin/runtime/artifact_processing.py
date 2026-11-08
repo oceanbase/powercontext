@@ -63,7 +63,12 @@ from powercontext.builtin.persistence.supervision import (
     database_utc_now,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
-from powercontext.builtin.processing_diagnostics import safe_classify_processing_error, safe_log_fields
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingDiagnostics,
+    classify_block_code,
+    safe_classify_processing_error,
+    safe_log_fields,
+)
 from powercontext.builtin.runtime.observations import DurationObservations, DurationObservationSnapshot
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingBlock,
@@ -1327,7 +1332,10 @@ class ArtifactProcessingSupervisor:
         block: ArtifactProcessingBlock,
         *,
         trace_id: str | None = None,
+        diagnostics: ProcessingDiagnostics | None = None,
     ) -> None:
+        if diagnostics is None:
+            diagnostics = classify_block_code(block.stage, block.error_code)
         previous = state.retries.get(assignment.scope_id)
         if previous is None or previous.block != block:
             last_error_trace_id = None if previous is None else previous.last_error_trace_id
@@ -1337,6 +1345,7 @@ class ArtifactProcessingSupervisor:
                 "Artifact processing blocked; operator remediation required",
                 extra={
                     **dict(block.details),
+                    **safe_log_fields(diagnostics),
                     "event": "artifact_processing.blocked",
                     "stage": block.stage,
                     "error_code": block.error_code,
@@ -1620,7 +1629,14 @@ class ArtifactProcessingSupervisor:
                 if block is not None:
                     observed_outcome = "blocked"
                     diagnostic_code = block.error_code
-                    self._wait_for_block(state, running.assignment, block, trace_id=running.trace_id)
+                    diagnostics = (
+                        error.failure.diagnostics
+                        if isinstance(error, _WorkerExecutionError)
+                        else safe_classify_processing_error(error)
+                    )
+                    self._wait_for_block(
+                        state, running.assignment, block, trace_id=running.trace_id, diagnostics=diagnostics
+                    )
                     continue
                 if isinstance(error, TimeoutError):
                     observed_outcome = "timeout"
