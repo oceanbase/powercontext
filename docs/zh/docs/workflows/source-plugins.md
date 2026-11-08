@@ -171,3 +171,68 @@ pc_source_status({"scope_id":"SCOPE_ID","target_id":"TARGET_ID","view":"control"
 仓库 `examples/source_plugins` 按工单、工单/聊天、图片组织示例，每个目录就近放置代码和加载配置。工单示例共用一份 Definition 和 Projection：`write.yml` 用于 Server 内同步写入，`powercontext.yml` 用于托管采集。加载和 MCP 调用步骤见 `examples/source_plugins/README.zh.md`。
 
 凭据、数据库、日志和生成的进程状态留在部署机器；只提交插件代码、无敏感信息的配置模板和合成示例资料。
+
+## Agent 客户端的插件分工
+
+Agent 客户端接入使用两类插件，领域行为仍由 Server 负责：
+
+| 插件 | 职责 | 接口 |
+| --- | --- | --- |
+| Agent Plugin | 宿主原生配置、认证、Skill、实时 Hook 和用户提示 | Server 公共 MCP 与已有客户端接口 |
+| Source 插件 | 历史文件解析、外部数据采集、Source 身份与提交、采集进度 | SourceDefinition、Connector、PluginContext 和公共 Source MCP |
+
+新客户端优先复用[共享 Agent Plugin](../integrations/agent-plugin.md)。需要宿主原生 Hook 或不同清单格式时，
+在 `integrations/<host>/` 提供薄适配层。历史格式解析放在相邻的 Source 插件中；不在核心 CLI 增加按宿主分支的导入命令。
+Agent Plugin 通过 `pc_source_capabilities`、`pc_source_instances`、`pc_source_add` 和状态、启停工具使用 Source 能力，
+不直接启动采集进程，不重复实现 Memory、Handoff 或持久化逻辑。通用协议允许复用，不表示所有宿主已经完成兼容性验证。
+
+collect 插件可以复用内置 `content` Definition。登记仅接受完全一致的内置 manifest；提交的 payload 和 Projection 必须与 Server 重建的普通 Content capture 一致。插件不能注入系统字段或提交 Working Note。其他活跃 Definition 仍不能通过登记覆盖。
+
+## Codex 历史会话
+
+Codex collect 插件位于 `integrations/codex/source_plugin/`，入口为该目录的 `__init__.py`。
+管理员在持有历史文件的 Linux 执行机器上准备仓库代码、PowerContext Python 环境和独立管理服务，
+按前述本机或远端 collect 部署流程加载。macOS 和 Windows 目前不能本地启动托管 collect Runtime；
+可以将用户显式选择的文件放在 Linux Runtime 的配置目录中采集。
+
+先编辑同目录 `powercontext.yml`，替换 `SCOPE_ID` 和 `config.codex_home`（必须指向执行机器上的 Codex home），再执行：
+
+```sh
+powercontext source load --config /path/to/powercontext/integrations/codex/source_plugin/powercontext.yml \
+  --env-file /path/to/pc.env
+```
+
+清单没有初始目标；加载实例本身不会读取历史。用户显式选择相对于 `codex_home/sessions/` 的 JSONL 文件和目标 Scope：
+
+```javascript
+pc_source_capabilities({"scope_id":"SCOPE_ID"})
+pc_source_instances({"scope_id":"SCOPE_ID"})
+pc_source_add({
+  "scope_id":"SCOPE_ID","instance_id":"codex-history",
+  "capability":"codex.session-history","capability_version":"1",
+  "input":{"session_file":"2026/09/13/rollout.jsonl"}
+})
+```
+
+目标 Scope 是用户显式授权的导入目的地。插件不推断默认 Scope，也不遍历其他 session；
+绝对路径、越界路径和指向目录外的符号链接会被拒绝。目标启用期间按 `poll_interval` 重读选定文件，
+也会采集该文件后续新增的 Prompt；仅需一次导入时，确认提交后通过 `pc_source_target_set_enabled` 停用。
+
+插件仅保存真实用户 Prompt，排除 assistant 回复、AGENTS/environment、内部执行通知与 Page 上下文，
+使用执行机器的环境及所配置 Codex home 的 `auth.json` 脱敏。空文本与超过 200,000 字符的文本不导入。
+Source 保持内置 `content` 类型，身份和 metadata 与 Codex 实时 Hook 一致；相同身份和内容会复用既有 Source。
+同身份内容不同会冲突，包括已有原始内容而历史文本被脱敏的情况；插件不会覆盖既有证据或将冲突当作成功。
+
+进度由框架保存在目标 Server 的 instance/Scope checkpoint 中，只在批次完整成功后推进。
+失败后重新运行可能重交已经保存的项，服务端按 Source 身份去重。单个文件格式错误时不提交该文件的部分解析结果。
+每轮会完整解析所选文件，并保存该 instance/Scope 已接受的 Source ID 集合；读取成本随所选文件大小增长，
+checkpoint 大小随累计 Prompt 数增长，不承诺按追加字节增量读取。
+
+历史 CLI `powercontext import-sessions` 不再提供。已有 Content Source 保持可读、可复用；
+旧 Codex home 下的 `.powercontext/session-import/codex.json` 不迁入框架 checkpoint，首次采集依赖 Server 幂等检查。
+旧 CLI 的自动 session/workspace Scope 解析和 `--dry-run` 不属于此 collect 能力，目标需逐个显式指定 Scope。
+采集成功只表示 Source 已保存；Memory 提取仍遵循 Server 的独立处理配置。
+
+## 已有 Codex Memory
+
+`.codex/memories` 使用独立的 `codex.memory-history` 能力，按文件保留派生资料和版本证据。支持 macOS/Linux 一次性导入及 Linux 托管采集，步骤见[导入已有 Codex Memory](import-codex-memory.md)。

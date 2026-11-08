@@ -8,6 +8,7 @@
     "---Source 与证据---",
     "sources",
     "source-plugins",
+    "import-codex-memory",
     "ingest-text-files-with-opendal",
     "---Artifact 与知识---",
     "artifacts",

@@ -1,0 +1,6 @@
+id: codex-history
+plugin: .
+scope_ids: [SCOPE_ID]
+config:
+  codex_home: /absolute/path/to/codex-home
+  poll_interval: 30

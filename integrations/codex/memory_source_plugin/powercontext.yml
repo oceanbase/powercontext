@@ -1,0 +1,7 @@
+id: codex-memory
+plugin: .
+scope_ids: [SCOPE_ID]
+config:
+  codex_home: /absolute/path/to/codex-home
+  namespace: my-codex-memory
+  poll_interval: 30

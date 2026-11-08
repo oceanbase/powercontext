@@ -214,9 +214,13 @@ from powercontext.builtin.scope.subject_sources import SubjectSourceService
 from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
+    CONTENT_SOURCE_DEFINITION,
+    CONTENT_SOURCE_NAME,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
     SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER,
     SKILL_USAGE_SOURCE_ADAPTER,
+    WORKING_NOTE_SOURCE_KIND,
+    ContentCapture,
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
     ExternalSkillSnapshotSource,
@@ -244,6 +248,7 @@ from powercontext.context import PowerContext
 from powercontext.errors import (
     ArtifactNotFoundError,
     InvalidSourceDefinitionError,
+    InvalidSourceObservationError,
     SourceConflictError,
     SourceDefinitionNotFoundError,
     SourceNotFoundError,
@@ -257,6 +262,8 @@ from powercontext.sources import (
     SourceDefinitionRegistry,
     SourceObservation,
     SourceRef,
+    manifest_for_definition,
+    project_source_for_transport,
 )
 
 IdFactory = Callable[[str], str]
@@ -880,10 +887,12 @@ class RelationalContexts:
 
         validate_source_definition_manifest(manifest)
         try:
-            self.source_registry.definition_for_name(manifest.name)
+            active = self.source_registry.definition_for_name(manifest.name)
         except SourceDefinitionNotFoundError:
             pass
         else:
+            if active is CONTENT_SOURCE_DEFINITION and manifest == manifest_for_definition(active):
+                return manifest
             raise InvalidSourceDefinitionError(type(manifest), "name", "must not replace an active Source Definition")
         try:
             async with self.database.transaction() as connection:
@@ -907,19 +916,38 @@ class RelationalContexts:
         """Validate and durably append one worker-materialized Source observation."""
 
         observation = request.observation
-        try:
-            async with self.database.transaction() as connection:
-                manifest = await self.repositories.source_definitions.get(
-                    connection,
-                    observation.source_type,
-                    observation.definition_version,
-                )
-        except RepositoryNotFoundError:
-            raise SourceDefinitionNotFoundError(observation.source_type, observation.definition_version) from None
-        validate_source_observation(observation, manifest)
+        source: Source = observation
+        if (
+            observation.source_type == CONTENT_SOURCE_NAME
+            and CONTENT_SOURCE_DEFINITION in self.source_registry.definitions
+        ):
+            # Content remains native so historical and live captures share both identity
+            # and persisted representation. Never accept worker-supplied system fields.
+            manifest = manifest_for_definition(CONTENT_SOURCE_DEFINITION)
+            validate_source_observation(observation, manifest)
+            capture = ContentCapture.model_validate({
+                "source_id": observation.name,
+                "content": observation.payload["content"],
+                "metadata": observation.payload.get("metadata", {}),
+            })
+            source = await CONTENT_SOURCE_DEFINITION.resolve(capture)
+            canonical = project_source_for_transport(SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,)), source)
+            if canonical != observation or capture.metadata.get("kind") == WORKING_NOTE_SOURCE_KIND:
+                raise InvalidSourceObservationError("content", "must be an ordinary canonical Content capture")
+        else:
+            try:
+                async with self.database.transaction() as connection:
+                    manifest = await self.repositories.source_definitions.get(
+                        connection,
+                        observation.source_type,
+                        observation.definition_version,
+                    )
+            except RepositoryNotFoundError:
+                raise SourceDefinitionNotFoundError(observation.source_type, observation.definition_version) from None
+            validate_source_observation(observation, manifest)
         services = self._services_for(request.scope_id)
         source_store, source_catalog = services.sources()
-        stored = await source_store.add(observation)
+        stored = await source_store.add(source)
         return SourceReceipt(
             source_ref=source_catalog.as_ref(stored),
             sequence=await source_store.position(stored),
