@@ -53,10 +53,12 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models import Model, ModelRequestParameters, ModelResponseState, StreamedResponse
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.instrumented import InstrumentationSettings, InstrumentedModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
@@ -291,6 +293,58 @@ def test_structured_generator_receipt_uses_reasoning_provider_settings(
                 assert (key in effective) == (key in sent)
                 assert effective.get(key) == sent.get(key)
             assert effective["max_tokens"] == sent["max_completion_tokens"] == 512
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("model_name", "sends_sampling"),
+    [("claude-sonnet-5-5", False), ("claude-sonnet-4-5", True)],
+)
+@pytest.mark.filterwarnings("ignore:Sampling parameters.*:UserWarning")
+def test_structured_generator_receipt_uses_anthropic_adapter_settings(model_name: str, sends_sampling: bool) -> None:
+    # Use whichever HTTP library the installed Anthropic SDK builds its clients on
+    # (``httpx`` for 0.117, ``httpx2`` for newer releases); importability alone is
+    # not enough because other packages can pull in ``httpx2`` too.
+    import anthropic._base_client as _anthropic_client
+
+    _http = vars(_anthropic_client).get("httpx") or vars(_anthropic_client)["httpx2"]
+    requests: list[dict[str, object]] = []
+
+    def respond(request: _http.Request) -> _http.Response:
+        requests.append(json.loads(request.content))
+        return _http.Response(
+            200,
+            json={
+                "id": "msg_receipt",
+                "type": "message",
+                "role": "assistant",
+                "model": model_name,
+                "content": [{"type": "text", "text": '{"value":"stable"}'}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    async def scenario() -> None:
+        async with _http.AsyncClient(transport=_http.MockTransport(respond)) as client:
+            generator = PydanticAIStructuredGenerator(
+                model=AnthropicModel(model_name, provider=AnthropicProvider(api_key="test", http_client=client)),
+                instructions="Return a value.",
+                input_type=Question,
+                output_type=Answer,
+                model_settings={"temperature": 0.0, "top_p": 0.2, "max_tokens": 512},
+            )
+            result = await generator.generate(Question("settings evidence"))
+            assert result.output == Answer("stable")
+            effective = cast(dict[str, object], generator.receipt_configuration()["effective_settings"])
+            sent = requests[0]
+            for key in ("temperature", "top_p"):
+                assert (key in sent) == sends_sampling
+                assert (key in effective) == (key in sent)
+                assert effective.get(key) == sent.get(key)
+            assert effective["max_tokens"] == sent["max_tokens"] == 512
 
     asyncio.run(scenario())
 
