@@ -246,6 +246,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
                 content: vec![serde_json::json!("hello")],
                 content_null: false,
                 tool_calls: None,
+                extra_fields: Default::default(),
                 tool_call_id: None,
             }],
             tools: vec![],
@@ -1106,6 +1107,7 @@ async fn responses_injection_targets_input_text_and_declares_input_pointer() {
                 "content": [{"type": "input_text", "text": "base"}]})],
             content_null: false,
             tool_calls: None,
+            extra_fields: Default::default(),
             tool_call_id: None,
         },
         CanonicalMessage {
@@ -1116,6 +1118,7 @@ async fn responses_injection_targets_input_text_and_declares_input_pointer() {
             ],
             content_null: false,
             tool_calls: None,
+            extra_fields: Default::default(),
             tool_call_id: None,
         },
     ];
@@ -2092,6 +2095,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
         content: vec![user],
         content_null: false,
         tool_calls: None,
+        extra_fields: Default::default(),
         tool_call_id: None,
     }];
     for i in 0..step {
@@ -2106,6 +2110,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
                     content: vec![item],
                     content_null: false,
                     tool_calls: None,
+                    extra_fields: Default::default(),
                     tool_call_id: None,
                 });
             }
@@ -2117,6 +2122,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
                 tool_calls: Some(vec![serde_json::json!({
                     "id": id, "type": "function", "function": {"name": "run", "arguments": "{}"}
                 })]),
+                extra_fields: Default::default(),
                 tool_call_id: None,
             });
             c.request.messages.push(CanonicalMessage {
@@ -2124,6 +2130,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
                 content: vec![serde_json::json!("ok")],
                 content_null: false,
                 tool_calls: None,
+                extra_fields: Default::default(),
                 tool_call_id: Some(id),
             });
         }
@@ -2588,6 +2595,7 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
                     content: vec![reasoning_item()],
                     content_null: false,
                     tool_calls: None,
+                    extra_fields: Default::default(),
                     tool_call_id: None,
                 },
             );

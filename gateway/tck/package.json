@@ -1,0 +1,9 @@
+{
+  "name": "powercontext-gateway-tck",
+  "private": true,
+  "description": "Pinned runtime dependencies for the upstream Open Responses compliance runner",
+  "dependencies": {
+    "bun": "1.4.4",
+    "zod": "3.25.76"
+  }
+}
