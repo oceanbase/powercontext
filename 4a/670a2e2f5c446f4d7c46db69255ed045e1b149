@@ -1,0 +1,41 @@
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_2896af9257a550 310-311,313
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 243-244
+  s_98c1bb9fbaf7be::t_5e4f05ebc42894 245-309,312,314-330,334-339
+  s_98c1bb9fbaf7be::t_a23194ecfa2e24 21,331-333
+tests/test_upgrade_release_gate.py
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 567
+.github/actions/setup-upgrade-oceanbase/action.yml
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 6-13,20
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 118-119,136-142,146,336-337,361-367,371
+.github/workflows/upgrade-release.yml
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 256
+.github/workflows/capture-release-schema.yml
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 32
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 121
+integrations/dsh/plugins/powercontext/tests/status-http.spec.ts
+  s_98c1bb9fbaf7be::t_795909d5306e6a 37,57,66-69,94,102,112
+  s_98c1bb9fbaf7be::t_bed86d764ecfcf 38
+.github/workflows/skill-guidance.yml
+  s_98c1bb9fbaf7be::t_1ef2f79c627934 39-45,47-51
+.github/workflows/candidate-schema-replay.yml
+  s_98c1bb9fbaf7be::t_2648464bee3ebf 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4a670a2e2f5c446f4d7c46db69255ed045e1b149",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
