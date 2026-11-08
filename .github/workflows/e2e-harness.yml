@@ -333,8 +333,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Test steps total 205m; reserve 40m for image pull, setup, diagnostics and artifact upload.
-    timeout-minutes: 245
+    # Test steps total 210m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    timeout-minutes: 250
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -386,11 +386,12 @@ jobs:
             tests/e2e/test_scope_search_migration.py
 
       - name: Test background listener lifecycle without skips
-        # One full Server case (300s), collection (180s), and termination grace.
-        timeout-minutes: 10
+        # Full Server DDL was still progressing at 277s in CI, before listener verification.
+        # One 600s lifecycle, 180s collection and process termination grace fit within 15m.
+        timeout-minutes: 15
         run: |
           uv run --locked --extra server python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
+            oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
