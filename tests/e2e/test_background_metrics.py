@@ -34,6 +34,7 @@ async def _database_objects(config: OceanBaseConfig) -> tuple[tuple[str, str], .
 
 @pytest.mark.parametrize("migration_backend", ["oceanbase"], indirect=True)
 def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_path, migration_backend):
+    import json
     import os
     import signal
     import socket
@@ -44,6 +45,17 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
     import httpx
 
     assert isinstance(migration_backend.config, OceanBaseConfig)
+    reports = os.environ.get("MIGRATION_REPORTS")
+    evidence = Path(reports) / "background-metrics" if reports else tmp_path
+    evidence.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+
+    def checkpoint(stage: str) -> None:
+        # Persist progress even if the external deadline terminates pytest before it prints capture.
+        with (evidence / "lifecycle.jsonl").open("a") as output:
+            output.write(json.dumps({"stage": stage, "elapsed_seconds": time.monotonic() - started}) + "\n")
+
+    checkpoint("inspect_empty_database")
     with socket.socket() as candidate:
         candidate.bind(("127.0.0.1", 0))
         port = candidate.getsockname()[1]
@@ -67,6 +79,7 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
     ]
     before = asyncio.run(_database_objects(migration_backend.config))
     assert before == ()
+    checkpoint("reject_uninitialized_background")
     rejected = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=60, check=False)
     assert rejected.returncode != 0, rejected.stdout + rejected.stderr
     assert "migration_required" in rejected.stdout + rejected.stderr
@@ -81,7 +94,9 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
         evidence_dir=tmp_path / "migration-evidence",
         lock_coordination="single-host",
     )
+    checkpoint("plan_initialization")
     plan = runner.plan(backup_policy="skip")
+    checkpoint("apply_initialization")
     initialized = runner.apply(
         plan_id=plan.plan_id,
         accepted=True,
@@ -91,9 +106,8 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
     )
     assert initialized.state == "ready"
     assert initialized.readiness_scope == "server"
-    reports = os.environ.get("MIGRATION_REPORTS")
-    log_path = Path(reports) / "background-metrics" / "background.log" if reports else tmp_path / "background.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint("start_background")
+    log_path = evidence / "background.log"
     with log_path.open("w") as output:
         process = subprocess.Popen(
             command,
@@ -117,15 +131,18 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
                     f"Background CLI did not become live (returncode={process.poll()}); log tail:\n"
                     + log_path.read_text(errors="replace")[-16000:]
                 )
+                checkpoint("verify_metrics")
                 assert client.get(base + "/metrics").status_code == 401
                 headers = {"Authorization": "Bearer background-fixture-token"}
                 response = client.get(base + "/metrics", headers=headers)
                 assert response.status_code == 200
                 assert 'powercontext_server_readiness_state{state="ready"} 1.0' in response.text
                 assert client.get(base + "/v1/scopes/default", headers=headers).status_code == 404
+                checkpoint("stop_background")
                 process.send_signal(signal.SIGTERM)
                 assert process.wait(timeout=10) == 0
         finally:
             if process.poll() is None:
                 process.kill()
             process.wait(timeout=5)
+    checkpoint("complete")
