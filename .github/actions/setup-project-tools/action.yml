@@ -1,6 +1,11 @@
 name: Setup project tools
 description: Install pinned mise tools with a verified Linux Release API fallback
 
+inputs:
+  working-directory:
+    description: Directory containing the mise tool configuration
+    default: .
+
 runs:
   using: composite
   steps:
@@ -10,6 +15,7 @@ runs:
       uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
       with:
         version: "2026.11.3"
+        working_directory: ${{ inputs.working-directory }}
         sha256: >-
           ${{ runner.os == 'Windows' && '4f796228c826ad6225d608e2029278b31677c8919508574498877543ed3431d8' || 'c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b' }}
 
@@ -41,4 +47,5 @@ runs:
       uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
       with:
         version: "2026.11.3"
+        working_directory: ${{ inputs.working-directory }}
         sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b

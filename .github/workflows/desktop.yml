@@ -320,11 +320,9 @@ jobs:
             libxdo-dev \
             openjdk-17-jre-headless \
             pkg-config
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: ./.github/actions/setup-project-tools
         with:
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
-          working_directory: desktop
+          working-directory: desktop
       - name: Install pinned Linux Rust toolchain
         run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
       - name: Cache desktop dependencies
