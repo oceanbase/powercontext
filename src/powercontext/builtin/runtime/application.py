@@ -1114,8 +1114,6 @@ class ScopedContextApplication:
                 await authorize_scopes((self.scope_id, *scope.context_references))
             if request.include_reuse:
                 self._require_reuse_scope(scope)
-                if request.include_code:
-                    raise ContextReuseError("context-reuse-code-unsupported")
             token = _PREPARE_ATOMIC_CONTEXT.set(atomic_context)
             try:
                 return await self._prepare(request, scope, binding_identity=binding_identity)
@@ -1149,6 +1147,7 @@ class ScopedContextApplication:
                 binding_identity=binding_identity,
                 now=self._runtime._clock(),
                 context=atomic_context,
+                code=self._runtime.code.for_scope(self.scope_id),
             )
 
     async def check(
@@ -1257,6 +1256,7 @@ class ScopedContextApplication:
                 binding_identity=binding_identity,
                 now=self._runtime._clock(),
                 context=_PREPARE_ATOMIC_CONTEXT.get(),
+                code=self._runtime.code.for_scope(self.scope_id),
             )
         return context
 

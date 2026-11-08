@@ -256,7 +256,8 @@ def serving(app, *, startup_diagnostic: Path | None = None):
     failure = None
     try:
         started = time.monotonic()
-        deadline = started + 15
+        # Startup includes loading the inference client's CA bundle on the Windows runner.
+        deadline = started + 60
         while not server.started and thread.is_alive() and time.monotonic() < deadline:
             time.sleep(0.05)
         if not server.started:

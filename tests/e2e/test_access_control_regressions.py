@@ -106,6 +106,39 @@ async def _scope(client):
     return result.json()["scope_id"]
 
 
+def test_connection_identity_and_owned_memory_survive_denied_server_observation(tmp_path: Path, monkeypatch) -> None:
+    async def scenario() -> None:
+        async with _server(tmp_path) as (app, client, _access):
+
+            async def forbidden_probe():
+                pytest.fail("Ordinary connection and Memory operations must not probe readiness")
+
+            app.state.readiness_probe = forbidden_probe
+            monkeypatch.setattr(app.state.authentication_provider, "readiness", forbidden_probe)
+            monkeypatch.setattr(_access, "readiness", forbidden_probe)
+            scope_id = await _scope(client)
+            await _grant(client, scope_id, "alice", "scope.contributor")
+            client.headers["Authorization"] = "Bearer alice"
+            denied = await client.get("/v1/capabilities")
+            assert denied.status_code == 403
+            identity = await client.get("/v1/connection/identity")
+            assert identity.status_code == 200, identity.text
+            assert identity.json()["principal"] == {"type": "user", "id": "alice", "description": None}
+            assert identity.json()["authentication"] == "authenticated"
+            assert identity.json()["access_mode"] == "enforced"
+            saved = await client.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "note", "text": "Owned memory"}
+            )
+            assert saved.status_code == 200, saved.text
+            reference = saved.json()["records"][0]["artifact"]
+            read = await client.get(
+                f"/v1/scopes/{scope_id}/artifacts/atomic-memory/{reference['artifact_id']}/revisions/{reference['revision']}"
+            )
+            assert read.status_code == 200, read.text
+
+    asyncio.run(scenario())
+
+
 def test_remember_memory_survives_concurrent_write_after_authorization(tmp_path: Path, monkeypatch) -> None:
     async def scenario() -> None:
         async with _server(tmp_path) as (_, client, access):

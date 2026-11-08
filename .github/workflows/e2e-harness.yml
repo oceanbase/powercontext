@@ -44,7 +44,7 @@ jobs:
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').harness) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
     timeout-minutes: 15
     steps:
       - name: Check out
@@ -75,7 +75,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
@@ -282,7 +282,8 @@ jobs:
           POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
-          timeout --signal=TERM --kill-after=10s 600s uv run --locked pytest -vv -s -rs \
+          # Allow the five native cases to finish fixture cleanup and write the JUnit report.
+          timeout --signal=TERM --kill-after=10s 900s uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_processing_mode_switch_preserves_revision_and_history \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_atomic_compatibility_command_uses_shared_server_upgrade \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_projection_repair_preserves_authority_and_revision \
@@ -342,7 +343,7 @@ jobs:
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     # Test steps total 155m; reserve 25m for setup, diagnostics and artifact upload.
     timeout-minutes: 180
     strategy:
@@ -506,7 +507,7 @@ jobs:
     if: >-
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - name: Require every shard to succeed
@@ -544,7 +545,7 @@ jobs:
     needs: validate
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     # Reserve 50m for OceanBase regressions, 15m for replay, and 10m for setup/evidence/cleanup.
     timeout-minutes: ${{ matrix.database == 'oceanbase' && 75 || 40 }}
     strategy:

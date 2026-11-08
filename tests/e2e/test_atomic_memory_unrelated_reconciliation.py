@@ -137,8 +137,8 @@ def test_builtin_reconciliation_drops_only_candidates_it_compares(tmp_path, monk
                     },
                     {
                         "kind": "fact",
-                        "text": "The billing team had lunch today.",
-                        "description": "Billing team lunch today",
+                        "text": "The billing service team had lunch today.",
+                        "description": "Billing service team lunch today",
                         "evidence_ids": [evidence_id],
                     },
                 ]
@@ -161,7 +161,7 @@ def test_builtin_reconciliation_drops_only_candidates_it_compares(tmp_path, monk
             await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(
                     source_id="note-1",
-                    content="We use PostgreSQL 16 for billing. The billing team had lunch today.",
+                    content="We use PostgreSQL 16 for billing. The billing service team had lunch today.",
                     metadata={},
                 )
             )
@@ -173,4 +173,71 @@ def test_builtin_reconciliation_drops_only_candidates_it_compares(tmp_path, monk
     memories = asyncio.run(scenario())
 
     assert [memory.artifact.content.text for memory in memories] == ["The billing service uses PostgreSQL 16."]
-    assert [request["proposal"]["text"] for request in reconciliations] == ["The billing team had lunch today."]
+    assert [request["proposal"]["text"] for request in reconciliations] == ["The billing service team had lunch today."]
+
+
+def test_builtin_reconciliation_compares_only_related_window_siblings(tmp_path, monkeypatch):
+    # An earlier candidate of the same window is compared under the threshold that selects published memories.
+    reconciliations = []
+    texts = (
+        "The billing service uses PostgreSQL 16.",
+        "Deploys to production never run on Friday afternoons.",
+        "The billing service runs PostgreSQL 16 on dedicated hosts.",
+    )
+
+    def respond(messages, _info) -> ModelResponse:
+        prompt = next(
+            part.content
+            for message in reversed(messages)
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+        )
+        if prompt == "Reply with one token.":
+            return ModelResponse(parts=[TextPart("ok")])
+        request = json.loads(prompt)
+        if "proposal" in request:
+            reconciliations.append(request)
+            proposal = request["proposal"]
+            value = {
+                "action": "create",
+                "compared_ids": [item["item_id"] for item in request["related"]],
+                "content": {key: proposal[key] for key in ("kind", "text", "description")},
+                "evidence_ids": proposal["evidence_ids"],
+                "reason": "Independent fact.",
+            }
+        else:
+            evidence_id = request["evidence"][0]["evidence_id"]
+            value = {
+                "candidates": [
+                    {"kind": "fact", "text": text, "description": text[:-1], "evidence_ids": [evidence_id]}
+                    for text in texts
+                ]
+            }
+        return ModelResponse(parts=[TextPart(json.dumps(value))])
+
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(respond))
+
+    async def scenario():
+        async with open_builtin_runtime(
+            BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'builtin.db'}"),
+                inference=InferenceConfig(generation_model="test"),
+            ),
+        ) as runtime:
+            assert runtime.scopes is not None
+            assert runtime.atomic_memory is not None
+            draft = ScopeDraft(title="Billing", summary="Billing decisions", idempotency_key="billing")
+            scope_id = (await runtime.scopes.create(draft)).scope_id
+            await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="note-1", content=" ".join(texts), metadata={})
+            )
+            memory = runtime.atomic_memory.for_scope(scope_id)
+            await memory.flush()
+            return (await memory.list(limit=10)).items
+
+    memories = asyncio.run(scenario())
+
+    assert sorted(memory.artifact.content.text for memory in memories) == sorted(texts)
+    assert [
+        (request["proposal"]["text"], [item["text"] for item in request["related"]]) for request in reconciliations
+    ] == [(texts[2], [texts[0]])]

@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "unattended-default",
+      "args": [],
+      "git": false,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": true
+      }
+    },
+    {
+      "id": "compatibility-no-hosts",
+      "args": [
+        "--no-hosts"
+      ],
+      "git": false,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": true
+      }
+    },
+    {
+      "id": "client-profile",
+      "args": [
+        "--profile",
+        "client"
+      ],
+      "git": false,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": false
+      }
+    },
+    {
+      "id": "explicit-hosts",
+      "args": [
+        "--host",
+        "codex",
+        "--host",
+        "claude"
+      ],
+      "git": true,
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex",
+          "claude"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": true
+      }
+    },
+    {
+      "id": "host-partial-failure",
+      "args": [
+        "--host",
+        "codex"
+      ],
+      "git": true,
+      "setup_exit": 17,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": true,
+        "error_contains": "Runtime installed, but integration setup did not complete"
+      }
+    },
+    {
+      "id": "host-choice-conflict",
+      "args": [
+        "--host",
+        "codex",
+        "--no-hosts"
+      ],
+      "git": true,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "selected_hosts": [],
+        "error_contains": "--host and --no-hosts cannot be combined"
+      }
+    },
+    {
+      "id": "explicit-host-needs-git",
+      "args": [
+        "--host",
+        "codex"
+      ],
+      "git": false,
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "selected_hosts": [],
+        "error_contains": "requires Git"
+      }
+    },
+    {
+      "id": "host-uses-existing-file",
+      "environment_file": true,
+      "git": true,
+      "args": [
+        "--host",
+        "codex",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "setup_env_file": true
+      }
+    },
+    {
+      "id": "host-requires-existing-file",
+      "git": true,
+      "args": [
+        "--host",
+        "codex",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "existing file"
+      }
+    },
+    {
+      "id": "unsupported-configure",
+      "args": [
+        "--configure"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "Unknown option"
+      }
+    },
+    {
+      "id": "unsupported-service",
+      "args": [
+        "--service"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "error_contains": "Unknown option"
+      }
+    },
+    {
+      "id": "released-group-hosts",
+      "setup_style": "group",
+      "git": true,
+      "args": [
+        "--host",
+        "codex",
+        "--host",
+        "claude"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex",
+          "claude"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": true
+      }
+    },
+    {
+      "id": "released-group-env-file",
+      "setup_style": "group",
+      "git": true,
+      "environment_file": true,
+      "args": [
+        "--host",
+        "codex",
+        "--env-file",
+        "{env_file}"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "setup_env_file": true,
+        "server_extra": true
+      }
+    },
+    {
+      "id": "released-client-without-setup",
+      "setup_style": "group",
+      "git": true,
+      "args": [
+        "--profile",
+        "client",
+        "--host",
+        "codex"
+      ],
+      "expected": {
+        "exit_code": 1,
+        "runtime_installed": false,
+        "selected_hosts": [],
+        "error_contains": "No such command 'setup'"
+      }
+    },
+    {
+      "id": "client-with-setup",
+      "git": true,
+      "args": [
+        "--profile",
+        "client",
+        "--host",
+        "codex"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [
+          "codex"
+        ],
+        "setup_ref": "powercontext-v1.2.0",
+        "server_extra": false
+      }
+    },
+    {
+      "id": "unicode-native-output",
+      "unicode_paths": true,
+      "git": false,
+      "args": [
+        "--profile",
+        "client"
+      ],
+      "expected": {
+        "exit_code": 0,
+        "runtime_installed": true,
+        "selected_hosts": [],
+        "server_extra": false
+      }
+    }
+  ]
+}

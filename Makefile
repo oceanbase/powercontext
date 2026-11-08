@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check ## Run code quality tools.
+check: version-check upgrade-policy-check workflow-actions-check integration-manifest-check integration-guidance-check integration-lifecycle-check ## Run code quality tools.
 
 .PHONY: integration-guidance integration-guidance-check
 integration-guidance: ## Copy shared Skills into native packages.
@@ -27,6 +27,13 @@ integration-guidance: ## Copy shared Skills into native packages.
 
 integration-guidance-check: ## Check native Skill copies without modifying files or calling models.
 	@uv run python scripts/integration_guidance_skills.py --check
+
+.PHONY: integration-lifecycle integration-lifecycle-check
+integration-lifecycle: ## Write the lifecycle helper copies that copy-installed Python plugins ship.
+	@uv run python scripts/generate_integration_lifecycle.py
+
+integration-lifecycle-check: ## Reject a lifecycle helper copy that has drifted from its source.
+	@uv run python scripts/generate_integration_lifecycle.py --check
 
 .PHONY: workflow-actions-check
 workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
@@ -42,13 +49,17 @@ workflow-actions-check: ## Verify third-party GitHub Actions use immutable commi
 	@echo "🚀 Static type checking: Running ty for the Pydantic AI integration"
 	@uv run ty check integrations/pydantic-ai/src
 
-# pytest-xdist worker count; set PYTEST_WORKERS=0 to run tests in a single process.
+# pytest-xdist worker count; set PYTEST_WORKERS=0 to disable parallel workers.
 PYTEST_WORKERS ?= auto
+
+# Fixed Hook deadlines must not compete with unrelated xdist CPU and disk work.
+SERIAL_E2E_TESTS := tests/e2e/test_zcode_service_chain.py
 
 .PHONY: test
 test: ## Test the code with pytest
 	@echo "🚀 Testing code: Running pytest"
-	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules
+	@uv run python -m pytest -n $(PYTEST_WORKERS) --doctest-modules $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
+	@uv run python -m pytest -n 0 --doctest-modules $(SERIAL_E2E_TESTS)
 
 .PHONY: unit-test
 unit-test: ## Run tests that do not cross the Server boundary end to end.
@@ -56,7 +67,8 @@ unit-test: ## Run tests that do not cross the Server boundary end to end.
 
 .PHONY: e2e-test
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
-	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e
+	@uv run python -m pytest -n $(PYTEST_WORKERS) tests/e2e $(addprefix --ignore=,$(SERIAL_E2E_TESTS))
+	@uv run python -m pytest -n 0 $(SERIAL_E2E_TESTS)
 
 .PHONY: evaluation-unit-test
 evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and agent tool recovery suites included.

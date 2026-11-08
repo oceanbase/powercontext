@@ -101,6 +101,11 @@ from powercontext.builtin.persistence.topic_memory_index import (
     CompositeTopicMemoryIndex,
     topic_memory_embedding_profile_fingerprint,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
@@ -1708,8 +1713,18 @@ def test_related_coordination_fails_closed_and_keeps_cursor_when_history_exceeds
                 id_factory=unexpected_id,
             )
 
-            with pytest.raises(TopicMemoryGenerationError, match="input_budget_exceeded"):
+            with pytest.raises(TopicMemoryGenerationError, match="input_budget_exceeded") as raised:
                 await processor.process(_assignment(term.fence("single-process")))
+
+            diagnostics = classify_processing_error(raised.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+            assert diagnostics.reason is ProcessingFailureReason.CONTEXT_OVERFLOW
+            assert diagnostics.estimated_input_tokens is not None
+            assert diagnostics.effective_budget is not None
+            assert diagnostics.estimated_input_tokens > diagnostics.effective_budget
+            assert diagnostics.token_estimator_id is not None
+            assert diagnostics.failure_location is not None
 
             assert stages.reconciler.inputs == []
             async with profile.database.transaction() as connection:

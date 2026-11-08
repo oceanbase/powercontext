@@ -2295,6 +2295,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connection/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe the current connection identity without readiness probes
+         * @description Returns the actual deployment, access mode and request authentication identity. Does not invoke model, authentication-provider or access-provider readiness probes, require server.observe, or grant resource permissions. Anonymous identity is explicit only when authentication and access enforcement are disabled. Authentication errors and unavailable enforced access remain errors, never anonymous fallback.
+         */
+        get: operations["get_connection_identity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/access/me": {
         parameters: {
             query?: never;
@@ -3279,6 +3299,7 @@ export interface components {
         DreamSourceReference: {
             source_type: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         ListDreamRunsRequest: {
             status?: components["schemas"]["DreamStatus"];
@@ -5739,16 +5760,40 @@ export interface components {
             items: components["schemas"]["SourceRecord"][];
             next_cursor: string | null;
         };
+        /** @description Position of this exact Source in its scope journal; zero is distinct from absence. */
+        SourceSequenceLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sequence";
+            sequence: number;
+        };
+        /** @description Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect. */
+        SourceLineRangeLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line_range";
+            start_line: number;
+            end_line: number;
+            /** @description Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes. */
+            heading_path?: string | null;
+        };
+        SourceLocator: components["schemas"]["SourceSequenceLocator"] | components["schemas"]["SourceLineRangeLocator"];
         SourceTypeReference: {
             /** @description Stable Source type, including dynamically registered Source names. */
             source_type: string;
             /** @description Source identity as accepted at ingestion, including Unicode and interior spaces. */
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         SourceReference: {
             /** @description Stable Source type. */
             name: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         /** @enum {string} */
         CaptureStatus: "accepted";
@@ -5851,6 +5896,14 @@ export interface components {
             share_unit: "artifact" | "memory_entry";
             actions: components["schemas"]["AccessAction"][];
             grantable_roles: components["schemas"]["AccessRole"][];
+        };
+        /** @enum {string} */
+        ConnectionAuthentication: "disabled" | "authenticated";
+        ConnectionIdentity: {
+            server_id: string;
+            authentication: components["schemas"]["ConnectionAuthentication"];
+            access_mode: components["schemas"]["AccessControlMode"];
+            principal: components["schemas"]["AccessPrincipal"] | null;
         };
         AccessMeResponse: {
             principal: components["schemas"]["AccessPrincipal"];
@@ -10477,6 +10530,29 @@ export interface operations {
             404: components["responses"]["NotFound"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_connection_identity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current request identity; not an operation authorization or binary attestation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionIdentity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             503: components["responses"]["Unavailable"];
         };
     };

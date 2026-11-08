@@ -196,8 +196,10 @@ def test_empty_prepare_envelope_remains_explicit_and_bound(receipt, empty_sectio
             checked = await scoped.validate_reuse(prepared.reuse.binding)
             assert checked.content_bytes == 0
             assert checked.ordered_roots == ()
-            with pytest.raises(ContextReuseError, match="code-unsupported"):
-                await scoped.prepare(_request(include_code=True))
+            # Without a configured code index, code is simply unavailable and the proof cites no code.
+            with_code = await scoped.prepare(_request(include_code=True))
+            assert isinstance(with_code, PreparedContextWithReuse)
+            assert (await scoped.validate_reuse(with_code.reuse.binding)).ordered_roots == ()
 
     asyncio.run(scenario())
 

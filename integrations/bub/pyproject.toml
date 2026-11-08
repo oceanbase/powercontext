@@ -18,10 +18,11 @@ version = "0.0.1"
 description = "Bub integration for PowerContext durable memory."
 requires-python = ">=3.12,<4.0"
 dependencies = [
-    "bub>=0.4.0,<0.6.0",
+    "bub[app]>=0.6.1,<0.7.0",
     "httpx>=0.28,<1",
     "powercontext[client]",
     "pydantic-settings>=2.7,<3",
+    "republic>=0.6.1,<0.7.0",
 ]
 
 [project.entry-points."bub"]
