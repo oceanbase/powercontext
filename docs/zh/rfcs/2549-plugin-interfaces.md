@@ -5,7 +5,7 @@ description: 用少量接口定义 Source 和 Artifact 插件，由 PC Server �
 
 - Proposal Name: `plugin_interfaces`
 - Start Date: 2026-11-08
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#2549](https://github.com/oceanbase/powercontext/pull/2549)
 
 # 概要
 

@@ -5,7 +5,7 @@ description: Define Source and Artifact plugins through a few interfaces that PC
 
 - Proposal Name: `plugin_interfaces`
 - Start Date: 2026-11-08
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#2549](https://github.com/oceanbase/powercontext/pull/2549)
 
 # Summary
 
