@@ -874,6 +874,32 @@ def test_native_stream_withholds_ambiguous_tool_indices(index: str) -> None:
         assert len(upstream.requests) == 1
 
 
+def test_responses_root_settings_are_not_opaque_content_but_output_images_are() -> None:
+    # OpenAI echoes response settings at the root, including `image`, on every Responses result.
+    policy = PrivacyPolicy(config(endpoint="https://example.invalid/v1/responses"))
+    policy.config.targets["test"] = policy.config.targets["test"].model_copy(update={"protocol": "openai-responses"})
+    text = {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "done", "annotations": []}],
+    }
+    response = {
+        "object": "response",
+        "status": "completed",
+        "model": "test-model",
+        "image": {"context_compression": "disabled"},
+        "output": [text],
+    }
+    allowed = policy.inspect_json(json.dumps(response).encode(), phase="before_release", target_profile="test")
+    assert allowed.decision == "allow", allowed.reason_codes
+    image = {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "x", "image": "AAAA"}]}
+    for output in ([image], [{"type": "image_generation_call", "id": "ig_1", "result": "AAAA"}]):
+        withheld = policy.inspect_json(
+            json.dumps({**response, "output": output}).encode(), phase="before_release", target_profile="test"
+        )
+        assert withheld.reason_codes == ("content_unsupported",), output
+
+
 def test_native_responses_sdk_withholds_image_generation_input_and_output() -> None:
     item = {"type": "image_generation_call", "id": "ig_test", "status": "completed", "result": "iVBORw0KGgo="}
     payload = json.dumps({"id": "resp_test", "model": "test-model", "status": "completed", "output": [item]}).encode()

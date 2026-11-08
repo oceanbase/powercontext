@@ -36,7 +36,14 @@ from powercontext.builtin.processing_diagnostics import (
     ProcessingStage,
     attach_diagnostics,
 )
-from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, Source, SourceObservation, SourceRef, TextEvidence
+from powercontext.sources import (
+    TEXT_EVIDENCE_PROJECTION_KEY,
+    LocatedTextEvidence,
+    Source,
+    SourceObservation,
+    SourceRef,
+    SourceSequenceLocator,
+)
 
 _JSON = TypeAdapter(JsonValue)
 _TEXT_EVIDENCE_KEY = TEXT_EVIDENCE_PROJECTION_KEY.model_dump(mode="json")
@@ -299,23 +306,37 @@ async def project_atomic_memory_evidence(
     """Expose source-provided dates in content/metadata without synthesizing time."""
 
     value = stored.value
+    locator = None
     body_from_text_projection = False
     if isinstance(value, SourceObservation):
         content = value.payload
         for projection in value.projections:
             if projection.key == TEXT_EVIDENCE_PROJECTION_KEY:
-                content = TextEvidence.model_validate(projection.value).model_dump(mode="json")
+                text_evidence = LocatedTextEvidence.model_validate(projection.value)
+                locator = text_evidence.locator
+                content = text_evidence.model_dump(mode="json")
                 body_from_text_projection = True
                 break
     else:
         materialized = await sources.read_value(value)
+        if isinstance(materialized, LocatedTextEvidence):
+            locator = materialized.locator
         content = (
             materialized.model_dump(mode="json", by_alias=True) if isinstance(materialized, BaseModel) else materialized
         )
     body = _JSON.validate_python(content)
     return AtomicMemoryEvidence(
         evidence_id=evidence_id,
-        source_ref=stored.ref,
+        source_ref=SourceRef(
+            source_type=stored.ref.source_type,
+            source_id=stored.ref.source_id,
+            # Journal positions belong to the persisted Source, not the adapter.
+            locator=(
+                SourceSequenceLocator(sequence=stored.journal_position)
+                if locator is None or isinstance(locator, SourceSequenceLocator)
+                else locator
+            ),
+        ),
         journal_position=stored.journal_position,
         content=body,
         source_metadata=_compact_source_metadata(value, body=body, body_from_text_projection=body_from_text_projection),

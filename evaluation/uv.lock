@@ -1780,7 +1780,7 @@ requires-dist = [
     { name = "pycasbin", marker = "extra == 'ops'", specifier = ">=2.8,<3" },
     { name = "pycasbin", marker = "extra == 'seekdb'", specifier = ">=2.8,<3" },
     { name = "pycasbin", marker = "extra == 'server'", specifier = ">=2.8,<3" },
-    { name = "pydantic", specifier = ">=2.10,<3" },
+    { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'builtin'", specifier = ">=2.64.0,<3" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'cli'", specifier = ">=2.64.0,<3" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'ops'", specifier = ">=2.64.0,<3" },
@@ -1898,6 +1898,11 @@ resource-build = [
     { name = "ty", specifier = ">=0.0.24" },
     { name = "tzdata", specifier = ">=2026.3" },
     { name = "zstandard", specifier = ">=0.23,<1" },
+]
+
+tracing-tests = [
+    { name = "langfuse", specifier = "==5.0.2" },
+    { name = "powercontext", extras = ["tracing-otlp"] },
 ]
 
 [[package]]
