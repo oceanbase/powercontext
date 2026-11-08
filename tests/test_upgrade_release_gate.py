@@ -564,7 +564,7 @@ def test_oceanbase_sources_and_profiles_use_separate_provisioned_databases(tmp_p
     action = yaml.safe_load(
         (Path(__file__).parents[1] / ".github/actions/setup-upgrade-oceanbase/action.yml").read_text()
     )
-    setup = action["runs"]["steps"][0]["run"]
+    setup = next(step["run"] for step in action["runs"]["steps"] if step["name"] == "Start and verify OceanBase")
     provisioned = set(re.findall(r"CREATE DATABASE (pc_upgrade[a-z0-9_]*)", setup))
     provisioned.update(re.findall(r"--env OB_DATABASE=(pc_upgrade[a-z0-9_]*)", setup))
     selected = set()

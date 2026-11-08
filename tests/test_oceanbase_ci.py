@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -239,4 +240,100 @@ def test_clean_migration_shard_budget_covers_slow_cases_and_keeps_cleanup_time()
     # Slow, passing cases can approach their deadline before the final case times out.
     # Include the runner's 180s collection timeout and 10s process termination grace.
     assert clean["timeout-minutes"] * 60 >= largest_shard * (case_timeout + 10) + 180 + 10
-    assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in steps) + 25
+    pull = next(step for step in job["steps"] if step["name"] == "Pull the OceanBase image")
+    assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in steps) + pull["timeout-minutes"] + 25
+
+
+@pytest.mark.parametrize("caller", ["recall-effort", "atomic-memory-clean-oceanbase-shards", "upgrade"])
+@pytest.mark.parametrize("cache_state", ["cold", "warm", "pull_failure"])
+def test_cold_image_download_does_not_consume_the_container_start_deadline(tmp_path, caller, cache_state):
+    if sys.platform == "win32":
+        pytest.skip("OceanBase CI runs on POSIX runners")
+    root = Path(__file__).parents[1]
+    if caller == "upgrade":
+        action = yaml.safe_load((root / ".github/actions/setup-upgrade-oceanbase/action.yml").read_text())
+        steps = action["runs"]["steps"]
+    else:
+        workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
+        steps = workflow["jobs"][caller]["steps"]
+    startup = "\n".join(
+        step["run"]
+        for step in steps
+        if step.get("name")
+        in {"Pull the OceanBase image", "Start the isolated OceanBase test instance", "Start and verify OceanBase"}
+    )
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    # Model a cold image requiring five minutes, without spending that time in the test.
+    (binaries / "timeout").write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "args = sys.argv[1:]\n"
+        "while args[0].startswith('--'): args.pop(0)\n"
+        "os.environ['PC_DOCKER_DEADLINE'] = args.pop(0).removesuffix('s')\n"
+        "os.execvp(args[0], args)\n"
+    )
+    (binaries / "docker").write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "root = Path(os.environ['PC_DOCKER_STATE'])\n"
+        "image = root / 'image'\n"
+        "if args[:2] == ['image', 'inspect']: sys.exit(0 if image.exists() else 1)\n"
+        "if args[0] == 'pull':\n"
+        "    (root / 'pull').touch()\n"
+        "    if os.environ['PC_CACHE_STATE'] == 'pull_failure': sys.exit(124)\n"
+        "    if int(os.environ['PC_DOCKER_DEADLINE']) < 300: sys.exit(124)\n"
+        "    image.touch()\n"
+        "if args[0] == 'run':\n"
+        "    if not image.exists():\n"
+        "        if '--pull' in args and args[args.index('--pull') + 1] == 'never': sys.exit(125)\n"
+        "        if int(os.environ['PC_DOCKER_DEADLINE']) < 300: sys.exit(124)\n"
+        "        image.touch()\n"
+        "    (root / 'container').touch()\n"
+    )
+    (binaries / "python").write_text("#!/bin/sh\nexit 0\n")
+    for executable in binaries.iterdir():
+        executable.chmod(0o755)
+    if cache_state == "warm":
+        (tmp_path / "image").touch()
+    env = {
+        **os.environ,
+        "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+        "PC_DOCKER_STATE": str(tmp_path),
+        "PC_CACHE_STATE": cache_state,
+        "OCEANBASE_IMAGE": "fixture-image",
+        "RUNNER_TEMP": str(tmp_path),
+        "MIGRATION_REPORTS": str(tmp_path / "reports"),
+    }
+    bash = shutil.which("bash")
+    assert bash is not None
+    result = subprocess.run(
+        [bash, "-e", "-o", "pipefail", "-c", startup],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == (124 if cache_state == "pull_failure" else 0), result.stderr
+    assert (tmp_path / "container").exists() is (cache_state != "pull_failure")
+    assert (tmp_path / "pull").exists() is (cache_state != "warm")
+
+
+def test_recall_job_preserves_startup_and_cleanup_beyond_command_deadlines():
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
+    job = workflow["jobs"]["recall-effort"]
+    commands = [step["run"] for step in job["steps"] if "scripts/oceanbase_ci.py run" in step.get("run", "")]
+    deadlines = [int(value) for command in commands for value in re.findall(r"--timeout (\d+)", command)]
+    assert len(deadlines) == len(commands)
+    test_seconds = sum(deadline + 10 for deadline in deadlines)
+    setup_minutes = sum(
+        step["timeout-minutes"]
+        for step in job["steps"]
+        if step["name"] in {"Pull the OceanBase image", "Start the isolated OceanBase test instance"}
+    )
+    assert job["timeout-minutes"] >= test_seconds / 60 + setup_minutes + 10

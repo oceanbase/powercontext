@@ -253,7 +253,7 @@ jobs:
     needs: prepare
     if: ${{ !inputs.skip_upgrade_acceptance }}
     runs-on: ${{ inputs.internal_runner && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.backend == 'oceanbase' && 75 || 60 }}
     strategy:
       max-parallel: 3
       fail-fast: false
