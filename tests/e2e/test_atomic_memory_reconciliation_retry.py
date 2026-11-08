@@ -30,6 +30,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, RuntimeConfig, open_builtin_runtime
 from powercontext.builtin.runtime.config import InferenceConfig
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.sources import SourceSequenceLocator
 
 REVISE_RULE = "revise must have exactly one published identity"
 
@@ -343,7 +344,9 @@ def test_redundant_revision_recovery_preserves_facts_and_processes_later_sources
             assert len(entries) == len({_PUBLISHED_WORKFLOW, proposal_text})
             if proposal_text != _PUBLISHED_WORKFLOW:
                 retained = next(entry for entry in entries if entry.ref != original.ref)
-                assert retained.artifact.lineage.sources == (receipt.source_ref,)
+                assert retained.artifact.lineage.sources == (
+                    receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+                )
             assert len(provider.retry_feedback) == max_requests - 1
             await memory.flush()
             assert (await memory.list()).items == entries
@@ -366,7 +369,9 @@ def test_redundant_revision_recovery_preserves_facts_and_processes_later_sources
                 provider.proposal_text,
             }
             retained = next(entry for entry in current if entry.artifact.content.text == provider.proposal_text)
-            assert retained.artifact.lineage.sources == (later.source_ref,)
+            assert retained.artifact.lineage.sources == (
+                later.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=later.sequence)}),
+            )
             assert await memory.get(original.ref.artifact_id) == original
             history = await runtime.records.for_scope(scope.scope_id).list_artifact_revisions(
                 "atomic-memory", original.ref.artifact_id, limit=10, cursor=None
@@ -390,7 +395,9 @@ def test_changed_workflow_revises_published_fact_and_preserves_history(monkeypat
     assert current.ref.artifact_id == original.ref.artifact_id
     assert current.ref.revision == original.ref.revision + 1
     assert current.artifact.content.text == _UPDATED_WORKFLOW
-    assert current.artifact.lineage.sources == (receipt.source_ref,)
+    assert current.artifact.lineage.sources == (
+        receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+    )
     assert current.artifact.lineage.artifacts == (original.ref,)
     assert len(history.items) == 2
     assert not provider.retry_feedback
