@@ -66,6 +66,46 @@ _NATIVE_FTS_PROBE = (
     "AND MATCH(searchable_text^1, 'powercontext', 'operator=or;minimum_should_match=1') LIMIT 1"
 )
 _NATIVE_FTS_MATCH = "MATCH(searchable_text^1, :fts_query, :fts_options)"
+# The registered SPACE parser uses its built-in stoplist. Analyzer terms are
+# encoded to fit its token-size bounds, but retain these words (including quoted
+# identifiers). Native term counts cannot stand in for Analyzer coverage then.
+_SPACE_STOPWORDS = frozenset([
+    "a",
+    "about",
+    "an",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "com",
+    "de",
+    "en",
+    "for",
+    "from",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "la",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "was",
+    "what",
+    "when",
+    "where",
+    "who",
+    "will",
+    "with",
+    "und",
+    "www",
+])
 
 
 def oceanbase_atomic_memory_vector_sql(eligibility: str, /) -> str:
@@ -132,16 +172,21 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             ) from error
         await self._initialize_vectors(connection)
 
-    async def _supports_native_fts(self, connection: AsyncConnection, *, term_count: int = 1) -> bool:
+    async def _supports_native_fts(self, connection: AsyncConnection, *, terms: tuple[str, ...] = ()) -> bool:
         # Managed-schema startup can skip initialize(). Cache by pool so reusing
         # this index with another backend, or disposing its engine, cannot carry
         # a capability decision into a different connection lifecycle.
-        pool = connection.sync_engine.pool
-        if pool in self._native_fts_support:
-            if not self._native_fts_support[pool] or term_count <= 256:
-                return self._native_fts_support[pool]
-            if pool in self._native_long_fts_support:
-                return self._native_long_fts_support[pool]
+        if _SPACE_STOPWORDS.intersection(terms):
+            return False
+        # run_sync is also implemented by migration's pinned connection; it keeps
+        # the capability probe on the executor's existing connection and lock.
+        pool = await connection.run_sync(lambda sync: sync.engine.pool)
+        term_count = len(terms)
+        native = self._native_fts_support.get(pool)
+        if native is False or (native is True and term_count <= 256):
+            return native
+        if native and pool in self._native_long_fts_support:
+            return self._native_long_fts_support[pool]
         lock = self._native_fts_locks.setdefault(pool, asyncio.Lock())
         async with lock:
             if pool not in self._native_fts_support:
@@ -237,7 +282,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             if request.mode in {"fts", "hybrid"}
             else ((), 0)
         )
-        if not terms or not await self._supports_native_fts(connection, term_count=len(terms)):
+        if not terms or not await self._supports_native_fts(connection, terms=terms):
             return await super().probe_recoverable(connection, scope_id, request, floor)
         _, lower_required = fts_query_requirements(request.query, floor=floor)
         eligibility, parameters = atomic_memory_filter_sql(request.filters, "mysql")
@@ -326,7 +371,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             terms = ()
         if not terms and not vector:
             return (), {}
-        native = bool(terms) and await self._supports_native_fts(connection, term_count=len(terms))
+        native = bool(terms) and await self._supports_native_fts(connection, terms=terms)
         if terms:
             parameters["fts_query"] = " ".join(terms)
             parameters["fts_required"] = required
@@ -472,7 +517,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
             terms, required = fts_query_requirements(request.query, floor=request.admission)
             if terms and required <= len(terms):
                 parameters["fts_query"] = " ".join(terms)
-                if await self._supports_native_fts(connection, term_count=len(terms)):
+                if await self._supports_native_fts(connection, terms=terms):
                     score = "SCORE()"
                     admission = _NATIVE_FTS_MATCH
                     parameters["fts_options"] = f"operator=or;minimum_should_match={required}"

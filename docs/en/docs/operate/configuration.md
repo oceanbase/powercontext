@@ -636,6 +636,8 @@ query terms and admission threshold, including recovery probes and complete rela
 Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
 Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
 OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.
+Queries containing Analyzer terms omitted by the SPACE parser, such as `com`, also retain whole-word coverage
+for search, complete enumeration, and recovery. The threshold still counts every distinct Analyzer term.
 This selection requires no new setting, table, or index migration; the existing `SPACE` full-text index is reused.
 
 seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases

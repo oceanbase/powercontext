@@ -33,18 +33,20 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryRelatedRequest,
     AtomicMemorySearchRequest,
 )
+from powercontext.builtin.persistence.migrations.pinned import finish, pinned
 from powercontext.builtin.tags import TagFilter
 from tests.e2e.atomic_memory_migration_backend import MigrationBackend, migration_index, migration_profile
 from tests.e2e.test_atomic_memory_vector_index import Embedding, _initialize_related_authority
 
 
 @pytest.fixture(autouse=True)
-def require_oceanbase_fts_path() -> Iterator[None]:
+def require_oceanbase_fts_path(request: pytest.FixtureRequest) -> Iterator[None]:
     """CI must exercise successful business queries, not just the capability probe."""
     expected = os.environ.get("POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH")
     if expected is None:
         yield
         return
+    expected = getattr(request, "param", expected)
     assert expected in {"native", "legacy"}, f"Unknown OceanBase FTS path: {expected}"
     observed: set[str] = set()
 
@@ -88,7 +90,11 @@ def test_fts_coverage_keeps_distinct_terms_and_filters_before_limits(migration_b
         )
         async with migration_profile(migration_backend.config) as profile:
             async with profile.database.transaction() as connection:
-                await index.initialize(connection)
+                if connection.dialect.name == "mysql":
+                    # Historical native migration retains its synchronous connection and maintenance lock.
+                    await connection.run_sync(lambda sync: finish(index.initialize(pinned(sync))))
+                else:
+                    await index.initialize(connection)
                 await _initialize_related_authority(connection)
                 for scope, identity, kind, tags, body in rows:
                     prepared = await preparer.prepare(AtomicMemoryContent(kind=kind, text=body))
@@ -227,5 +233,47 @@ def test_hybrid_coverage_keeps_vectors_and_validates_rows_outside_lexical_matche
                 assert not await index.probe_recoverable(
                     connection, "scope", replace(request, filters=filtered), AdmissionFloor()
                 )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("require_oceanbase_fts_path", ["legacy"], indirect=True)
+@pytest.mark.parametrize("word", ["com", "www", "the"])
+def test_fts_coverage_counts_analyzer_terms_omitted_by_space_parser(migration_backend: MigrationBackend, word: str):
+    async def scenario():
+        index = migration_index(migration_backend.config)
+        preparer = AtomicMemoryProjectionPublisher(index)
+        async with migration_profile(migration_backend.config) as profile:
+            async with profile.database.transaction() as connection:
+                await index.initialize(connection)
+                await _initialize_related_authority(connection)
+                for identity, body in (("admitted", f"{word} alpha"), ("insufficient", "alpha")):
+                    prepared = await preparer.prepare(AtomicMemoryContent(kind="fact", text=body))
+                    await index.replace_many(
+                        connection,
+                        "scope",
+                        (
+                            AtomicMemoryProjection(
+                                artifact_ref=ArtifactRef(family="atomic-memory", artifact_id=identity, revision=1),
+                                state_version=0,
+                                prepared=prepared,
+                                tag_keys=(),
+                            ),
+                        ),
+                    )
+            # Quoted identifiers remain Analyzer terms even if they are ordinary stopwords.
+            query = f'"{word}" alpha beta'
+            request = AtomicMemorySearchRequest(query, AtomicMemoryIndexFilter(), limit=1)
+            related = AtomicMemoryRelatedRequest(query, AtomicMemoryIndexFilter())
+            strict = replace(request, admission=AdmissionFloor(lexical_min_matched_terms=3))
+            async with profile.database.transaction() as connection:
+                hits = (await index.search(connection, "scope", request)).fts
+                assert [hit.artifact_ref.artifact_id for hit in hits] == ["admitted"]
+                complete, _ = await index.enumerate_related_with_heads(connection, "scope", related)
+                assert [hit.artifact_ref.artifact_id for hit in complete] == ["admitted"]
+                assert not (await index.search(connection, "scope", strict)).fts
+                assert await index.probe_recoverable(connection, "scope", strict, AdmissionFloor())
+                await index.delete(connection, "scope", "admitted")
+                assert not await index.probe_recoverable(connection, "scope", strict, AdmissionFloor())
 
     asyncio.run(scenario())

@@ -80,6 +80,9 @@ class _Connection:
         self.native_query_error: BaseException | None = None
         self.parameters: list[dict[str, object]] = []
 
+    async def run_sync(self, function):
+        return function(SimpleNamespace(engine=self.sync_engine))
+
     async def exec_driver_sql(self, statement):
         if statement == "SELECT VERSION()":
             return SimpleNamespace(scalar_one=lambda: self.version)
