@@ -1,0 +1,21 @@
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_eec9c3be77abbd 79-80,186,197,203-204,211,213,224,240
+scripts/replay_candidate_migration.py
+  s_98c1bb9fbaf7be::t_5f0f4beb17350e 268-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1ff4d7ee37ee863103cf6cdcfa56f7ce3109f95f",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
