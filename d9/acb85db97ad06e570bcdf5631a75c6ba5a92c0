@@ -1,0 +1,139 @@
+gateway/crates/pc-gateway-core/src/capture_coverage.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1-149
+gateway/crates/pc-gateway-app/src/main.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 178-179
+.github/workflows/gateway.yml
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 54
+docs/en/development/meta.json
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 12
+docs/en/docs/get-started/quickstart.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 8,15,83
+docs/en/docs/operate/database-migrations.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 18,148
+docs/en/docs/get-started/manual-start.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 52,182,217
+gateway/crates/pc-gateway-core/src/lib.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 28
+docs/zh/docs/operate/context-protection.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 8,96,99-105
+tests/e2e/test_capture_coverage.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1-361
+docs/zh/docs/get-started/manual-start.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 52,182,217
+gateway/crates/pc-gateway-core/src/executor.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 131,154,165-171,292-296,400-404,457-465,494,498,790-792,796,811-812
+tests/test_release_version.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 39-40,47-51,63,114-115,118-125,128-129
+integrations/dify/plugin/powercontext_dify/contract.json
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 2
+tests/builtin/runtime/test_context_check.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 140-141,143-144,148,151,153,187-231,235-236,258-259,262,272,275
+docs/zh/docs/get-started/install-and-run.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 3,85,88,93,147,150-151,161,167,225,309,324,328,344
+tests/integration_conformance/capture_coverage_cases.json
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1-627
+docs/en/development/integration-guidance.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 35-37
+docs/en/development/releasing.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 66,203,210-211
+docs/zh/development/integration-guidance.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 35-36
+docs/zh/docs/operate/database-migrations.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 120
+tests/e2e/test_context_check_authorization.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 31,34,76-91,217-218,220,245,269,282-283,285
+src/powercontext/http/_generated/schema.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 10
+website/src/lib/releases.ts
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 32-78
+  s_98c1bb9fbaf7be::t_153848c6a1c7e1 31
+gateway/crates/pc-gateway-core/src/transcript.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 21,58-64,71-72,75,88-94,96,103,106,112-115,121,181,189,201,208,213-226,229,235,243,249,263-283,286,290,295-319,388,392,407-408,414,451-630,634,647,685
+tests/e2e/test_context_external_executor.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 64-106
+desktop/src-tauri/src/transport/operations.json
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 2
+tests/e2e/test_gateway_authentication.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 158,160,185
+openapi/powercontext.yaml
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 19
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 3
+tests/integration_conformance/test_capture_coverage.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1-39
+docs/zh/development/capture-coverage.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1-186
+docs/zh/development/releasing.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 63,187,191
+tests/integrations/test_hermes_provider.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 553-770
+desktop/ui/src/generated/operations.ts
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 18
+docs/en/docs/get-started/install-and-run.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 3,85,88,93,147,150-151,161,167,225,309,326,330,346
+docs/en/docs/operate/context-protection.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 8,102,105-111
+website/tests/releases.test.ts
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 43,49-56
+README_JP.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 41,50,62,76,128,141,171
+README_CN.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 41,50,62,76,130,143,173
+scripts/release_version.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 60-65
+integrations/dsh/plugins/powercontext/README.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 27-28
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 87,173-176,376,1316-1324,1725-1819,1822,1930,2740-3051
+  s_98c1bb9fbaf7be::t_3922d694a60e7b 3052
+desktop/src-tauri/tests/deployment_identity.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 22,37-38,222-239,243,289-310,312-372,376,381,389,712,806,816
+docs/zh/docs/get-started/quickstart.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 8,15,83
+src/powercontext/http/_generated/operations.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 245
+scripts/upgrade_release_gate.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 64-65
+desktop/src-tauri/src/connections/compatibility.json
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1249-1270
+tests/test_upgrade_release_gate.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 111-123
+integrations/hermes/plugins/powercontext/provider.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 40-42,171-182,265,420,620,937-941,946-947,957,961-974,1035,1109-1115,1117-1118,1120-1122,1126-1129,1134,1137-1139,1161-1171
+  s_98c1bb9fbaf7be::t_60941157e6005b 39,1172
+desktop/VALIDATION.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 2633-2678
+src/powercontext/builtin/runtime/context_check.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 286-289,362-363,365-371,373,427-428
+release/notes/powercontext-v1.5.1.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1-91
+integrations/hermes/plugins/powercontext/helpers.py
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 24,37-44,57-98
+  s_98c1bb9fbaf7be::t_fb64c68b0976a7 99-100
+tests/release_upgrades/README.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 10,12
+desktop/src-tauri/tests/common/mod.rs
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 36-39,42,50
+docs/en/development/capture-coverage.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 1-213
+docs/zh/development/meta.json
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 12
+README.md
+  s_98c1bb9fbaf7be::t_35b64ad8e94057 43,52,64,78,132,145,175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d9acb85db97ad06e570bcdf5631a75c6ba5a92c0",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
