@@ -29,7 +29,7 @@ provenance:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: locomo-open-pastries
-  checksum: e5578c5f860c439230a9e67399ee61f9303ddf95831b08d78a40385c7f964831
+  checksum: e85ab69fee937a19bd39b9bccc9d3e06bc58b87bc775442a97434914e29a6229
 execution:
   type: bub
   model: false

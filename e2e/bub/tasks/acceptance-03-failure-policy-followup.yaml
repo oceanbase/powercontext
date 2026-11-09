@@ -21,7 +21,7 @@ categories:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: failure-policy-followup
-  checksum: 350d4719cac43cd99e93ea7d92ca6bcb651e1e5f1805a041a1abbf58af5216fc
+  checksum: f911d5b682d5fd96defd2da0d01bc50a01ad814fe8b006f2ca8b5bf176623c3e
 execution:
   type: bub
   model: false
