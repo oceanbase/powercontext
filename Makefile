@@ -85,8 +85,8 @@ evaluation-unit-test: ## Run the evaluation unit tests, the work-continuity and 
 		evaluation/coding/work_continuity/tests/unit \
 		evaluation/memory/longmemeval_v2/tests \
 		evaluation/memory/capture_ownership/tests -m "not live" -q
-	@# Agent tool recovery drives the real Server package, so it runs in the root project environment.
-	@uv run --frozen pytest evaluation/agent_tool_recovery/tests -q
+	@# Agent tool recovery and prepared-context budgets use the runtime in the root project environment.
+	@uv run --frozen pytest evaluation/agent_tool_recovery/tests evaluation/memory/prepared_context_budget/tests -q
 
 .PHONY: code-seekdb-test
 code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.

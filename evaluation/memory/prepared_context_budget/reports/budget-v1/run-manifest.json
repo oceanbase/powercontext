@@ -1,21 +1,21 @@
 {
   "schema_version": "powercontext.prepared-context-budget-report.v1",
-  "generated_at": "2026-11-07T04:25:56+00:00",
+  "generated_at": "2026-11-09T14:38:44+00:00",
   "command": [
     "run.py",
     "--manifest",
     "evaluation/memory/prepared_context_budget/fixtures/budget-v1.json",
     "--output",
-    ".powercontext/task-2520/evaluation"
+    "/tmp/powercontext-budget-refresh.W98U5Q"
   ],
   "manifest_path": "evaluation/memory/prepared_context_budget/fixtures/budget-v1.json",
   "manifest_sha256": "f66d20fde6356dee53d63790dbb4f5936f8979e51f1f01ee10452cde80068078",
   "definitions_path": "evaluation/memory/prepared_context_budget/fixtures/budget-v1-definitions.md",
   "definitions_sha256": "1892d202e9d5d9bda732912991609ecf68224ee096b48bd7269fa746bd3aa5ec",
-  "git_head": "e50d0fca32ab230e654ab9167ff0c32eca02b9f4",
+  "git_head": "5411017c28d8c323bdd7664adcc11107e4bb81e7",
   "git_worktree_dirty": false,
   "source_sha256": {
-    "src/powercontext/builtin/runtime/prepared_context.py": "6f2d858e66e88f6289e696d82de56228eb1f36e2f8ab865cb3c271219cad4c87",
+    "src/powercontext/builtin/runtime/prepared_context.py": "552a8d9785036be2a24017237d4640677faf9f161157c20c11282bddcf9588e4",
     "src/powercontext/builtin/runtime/prepared_text.py": "00d4bd578ec06db729be77965a044a69a799786b7ab6ec3bd8e16e1653788ef7",
     "evaluation/memory/prepared_context_budget/arms.py": "d0e3fd2bf17cc3385f026064f0eddd25c192fc6165809b6567f0488a215e720f",
     "evaluation/memory/prepared_context_budget/experiment.py": "edd5949143c7b44533750d74a15acd295ca79deec4a5a2006e10eb58a06e28c5",
