@@ -102,7 +102,25 @@ PC_GATEWAY_UPSTREAM_API_KEY_CHAT=... \
 # PC_GATEWAY_CORE_TOKEN (bearer for Core when authentication is enabled).
 ```
 
-Credentials live only in server-side environment variables; they are never accepted from request fields and never enter check payloads.
+Credentials come from server-side configuration or explicitly selected subscription stores. They are never accepted from request fields and never enter check payloads.
+
+## OAuth subscriptions
+
+`PC_GATEWAY_SUBSCRIPTION` selects `codex`, `copilot`, `grok`, `qwen`, `kimi`, `gemini`, or `claude`.
+The Python/Pydantic AI and Rust support lists are maintained by human review; their execution and protection modes differ.
+For HTTP subscriptions, set `PC_GATEWAY_SUBSCRIPTION_CREDENTIALS` to an explicit private credential file. Codex and
+Gemini reuse read-only CLI logins; Grok maintains its shared CLI store under the CLI's OS lock. Copilot, Qwen, and Kimi
+can acquire independent device grants with `pc-gateway login <provider> <new-file>`.
+
+Gemini uses Chat ingress, final Code Assist request JSON and final Chat response JSON with a Core
+`google-codeassist-chat` profile. Injection is disabled for this adapter. Claude uses a genuine signed-in CLI for
+fresh text-only turns; it cannot expose its internal HTTP sends or retries, and enforcing or unconfirmed Core
+deployments reject it before starting a model subprocess. Its prompt boundary uses `claude-cli-prompt`, not an HTTP
+coverage claim. Codex has no supported output token cap, so Core budget enforcement can withhold it.
+
+See the [subscription contract](SUBSCRIPTIONS.md) for endpoints, ownership, model/protocol restrictions, configuration,
+and local versus live validation. Source pins and licenses are consolidated in
+[LICENSES/oauth.md](../LICENSES/oauth.md).
 
 ## Tests
 

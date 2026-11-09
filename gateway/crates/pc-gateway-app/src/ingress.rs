@@ -279,21 +279,100 @@ async fn ingress_model(
         }
     };
     // P1 review：未配置的上游禁用路由（不默认到任何第三方）。
-    if let Format::Responses = format {
-        if state.upstream_responses.is_empty() {
-            return (
-                StatusCode::NOT_IMPLEMENTED,
-                Json(serde_json::json!({
-                    "error": "responses_route_disabled",
-                    "hint": "set PC_GATEWAY_UPSTREAM_URL_RESPONSES to enable this route"
-                })),
-            )
-                .into_response();
-        }
+    if (matches!(format, Format::Responses) && state.upstream_responses.is_empty())
+        || (matches!(format, Format::Chat) && state.upstream_chat.is_empty())
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(serde_json::json!({
+                "error": match format { Format::Chat => "chat_route_disabled", Format::Responses => "responses_route_disabled" },
+                "hint": "configure a provider-supported upstream endpoint for this route"
+            })),
+        )
+            .into_response();
     }
-    let renderer = match format {
+    let inner_renderer = match format {
         Format::Chat => pc_gateway_protocol::GatewayRenderer::Chat(Default::default()),
         Format::Responses => pc_gateway_protocol::GatewayRenderer::Responses(Default::default()),
+    };
+    let subscription_kind = state.subscription.as_ref().map(|auth| auth.kind());
+    if subscription_kind == Some(pc_gateway_auth::Subscription::Codex)
+        && matches!(format, Format::Chat)
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(serde_json::json!({"error":"subscription_requires_responses"})),
+        )
+            .into_response();
+    }
+    if matches!(
+        subscription_kind,
+        Some(
+            pc_gateway_auth::Subscription::Gemini
+                | pc_gateway_auth::Subscription::Claude
+                | pc_gateway_auth::Subscription::Qwen
+        )
+    ) && matches!(format, Format::Responses)
+    {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(serde_json::json!({"error":"subscription_requires_chat"})),
+        )
+            .into_response();
+    }
+    let mut renderer = pc_gateway_protocol::SubscriptionRenderer {
+        inner: inner_renderer,
+        subscription: match subscription_kind {
+            Some(pc_gateway_auth::Subscription::Grok) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Grok)
+            }
+            Some(pc_gateway_auth::Subscription::Codex) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Codex)
+            }
+            Some(pc_gateway_auth::Subscription::Kimi) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Kimi)
+            }
+            Some(pc_gateway_auth::Subscription::Claude) => {
+                Some(pc_gateway_protocol::SubscriptionProtocol::Claude)
+            }
+            _ => None,
+        },
+    };
+    let target_url = match format {
+        Format::Chat => state.upstream_chat.clone(),
+        Format::Responses => state.upstream_responses.clone(),
+    };
+    let upstream_headers = if let Some(auth) = state.subscription.as_ref() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|v| v.as_secs() as i64)
+            .unwrap_or(0);
+        let result = if auth.kind() == pc_gateway_auth::Subscription::Gemini {
+            auth.gemini_context(&target_url, now)
+                .await
+                .map(|(headers, project)| {
+                    renderer.subscription =
+                        Some(pc_gateway_protocol::SubscriptionProtocol::Gemini { project });
+                    headers
+                })
+        } else {
+            auth.headers(&target_url, now).await
+        };
+        match result {
+            Ok(headers) => headers,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({"error":"subscription_auth_failed"})),
+                )
+                    .into_response()
+            }
+        }
+    } else {
+        bearer_headers(match format {
+            Format::Chat => &state.upstream_chat_api_key,
+            Format::Responses => &state.upstream_responses_api_key,
+        })
     };
 
     let conversation = conversation_id(&headers, &format);
@@ -301,26 +380,23 @@ async fn ingress_model(
         scope_id: state.default_scope.clone(),
         target_profile: state.upstream_profile.clone(),
         request: canonical,
-        target_url: match format {
-            Format::Chat => state.upstream_chat.clone(),
-            Format::Responses => state.upstream_responses.clone(),
-        },
-        headers: bearer_headers(match format {
-            Format::Chat => &state.upstream_chat_api_key,
-            Format::Responses => &state.upstream_responses_api_key,
-        }),
+        target_url,
+        headers: upstream_headers,
         // P1-3：降级资格由启动时 capabilities 查询决定，环境变量只是运维申请。
-        degrade_policy: if state.degradation_allowed {
+        degrade_policy: if state.degradation_allowed
+            && subscription_kind != Some(pc_gateway_auth::Subscription::Claude)
+        {
             state.degrade
         } else {
             pc_gateway_core::DegradePolicy::Pause
         },
-        inject_context: injects(
-            &format,
-            state.injection,
-            state.inject_responses,
-            conversation.is_some(),
-        ),
+        inject_context: subscription_kind != Some(pc_gateway_auth::Subscription::Gemini)
+            && injects(
+                &format,
+                state.injection,
+                state.inject_responses,
+                conversation.is_some(),
+            ),
         include_code: state.inject_code,
         conversation_id: conversation,
         sediment: state.sediment,
@@ -948,7 +1024,11 @@ mod tests {
         let state = Arc::new(AppState {
             executor: Arc::new(Executor::new(
                 crate::link::CoreLink::Http(HttpGateClient::with_token(&base, None)),
-                pc_gateway_transport::ReqwestTransport::new(std::time::Duration::from_secs(120)),
+                pc_gateway_transport::GatewayTransport::new(
+                    pc_gateway_transport::ReqwestTransport::new(std::time::Duration::from_secs(
+                        120,
+                    )),
+                ),
                 std::num::NonZeroU32::new(2).unwrap(),
             )),
             evidence,
@@ -957,6 +1037,7 @@ mod tests {
             upstream_responses: format!("{base}/v1/responses"),
             upstream_chat_api_key: "SYNTHETIC_SENSITIVE_CREDENTIAL".into(),
             upstream_responses_api_key: String::new(),
+            subscription: None,
             api_key: Some("gateway-key".into()),
             degrade: pc_gateway_core::DegradePolicy::Pause,
             injection: Injection::Off,

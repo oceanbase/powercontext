@@ -1,0 +1,21 @@
+[package]
+name = "pc-gateway-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Subscription credentials, constrained destinations and OAuth refresh"
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+oauth2 = { workspace = true }
+chrono = { workspace = true }
+fs2 = { workspace = true }
+tempfile = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true }

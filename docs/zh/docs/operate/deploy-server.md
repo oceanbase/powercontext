@@ -203,6 +203,50 @@ Rust 可执行程序、联合 launcher、网关配置、私有通道认证、私
 如上文的 UDS 示例所示。访问受保护 Core 路由的客户端必须使用 Core 凭据。
 `PC_GATEWAY_CORE_TOKEN` 用于网关主动发起的 Core 调用；反向代理不会用它替换客户端凭据。
 
+### 网关 OAuth 订阅
+
+Rust Gateway 与 Python 集成覆盖同一组订阅：ChatGPT/Codex、GitHub Copilot、Grok、Qwen Code Plus/Pro、
+Kimi Code、Gemini CLI/Code Assist，以及受限 Claude CLI 执行。各渠道有独立认证与执行契约，不把 API Key
+接口计为 OAuth 订阅。支持名单通过文档人工维护。
+
+`PC_GATEWAY_SUBSCRIPTION` 可设为 `codex`、`copilot`、`grok`、`qwen`、`kimi`、`gemini` 或 `claude`。
+HTTP 渠道要求 `PC_GATEWAY_SUBSCRIPTION_CREDENTIALS` 显式指向私有凭据文件，不搜索主目录或 keychain。
+Codex、Gemini 只读 CLI 凭据，续期归 CLI；Grok 使用 CLI 的 OS 锁协调共享文件续期。
+Copilot、Qwen、Kimi 可直接获取独立设备授权，无需串联另一推理代理服务：
+
+```bash
+install -d -m 700 /path/to/private/oauth
+./target/release/pc-gateway login qwen /path/to/private/oauth/qwen.json
+
+PC_GATEWAY_CORE_UDS=/path/to/core.sock \
+PC_GATEWAY_SUBSCRIPTION=qwen \
+PC_GATEWAY_SUBSCRIPTION_CREDENTIALS=/path/to/private/oauth/qwen.json \
+PC_GATEWAY_UPSTREAM_PROFILE=approved-qwen \
+./target/release/pc-gateway
+```
+
+以上命令在 `gateway/` 下执行。设备登录创建权限为 `0600` 的新文件，拒绝覆盖已有文件；同一命令支持
+`copilot` 和 `kimi`。不能复制 CLI 刷新令牌到另一存储后将其视为独立授权。
+HTTP 目标仅允许对应 provider 的受支持 HTTPS endpoint，不跟随重定向。
+模型错误或送达不确定不会触发认证层自动重放模型请求。
+
+Core 必须批准实际目标、模型及协议。Gemini 使用 `google-codeassist-chat`，检查最终 Code Assist 输入与
+最终 Chat Completion 输出；Gateway 对该适配关闭注入。仅支持 Responses 的 Codex 要求 profile 允许流式
+请求，但其 endpoint 没有受支持的输出 token 上限，因此 Core enforcing 预算可能 withhold；Gateway 不伪造
+远端可执行的上限。
+
+Claude 使用真实已登录 CLI，只接受新建单轮文本 Chat，禁用工具、MCP 与会话持久化。
+`CLAUDE_CLI_EXECUTABLE` 指定可执行程序，不需要 Gateway token 文件。
+Core 的 `claude-cli-prompt` profile 只允许目标 `claude-cli://execute`，观察实际 prompt 与归一化结果，
+不能观察 CLI 内部 HTTP 或重试。enforcing 或 Core 能力未知时，Gateway 在模型子进程启动前拒绝；
+之后切换为 enforcing 的 Core 策略也会 withhold。该执行不等同 Magpie 的常驻会话／工具桥接。
+
+完整路由、模型、账号权益、凭据所有权与验证范围见
+[Gateway 订阅契约](https://github.com/oceanbase/powercontext/blob/master/gateway/SUBSCRIPTIONS.md)。
+合成 HTTP 与子进程测试不能证明真实订阅资格、额度扣费或 CLI 版本兼容性。
+Server 内部生成回经 Gateway 还需独立递归边界：全局注入／沉淀无法区分内部生成和普通客户端，
+客户端自报标记不能豁免检查。
+
 ### 网关上下文注入
 
 网关通过 UDS 连接 Core（`PC_GATEWAY_CORE_UDS`，即同机组合部署）时，默认向属于某个会话的 Chat 和 Responses 请求注入

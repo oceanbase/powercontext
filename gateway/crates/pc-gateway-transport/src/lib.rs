@@ -23,7 +23,9 @@
 mod reqwest_transport;
 mod retry;
 mod sender;
+mod subscription;
 
 pub use reqwest_transport::*;
 pub use retry::*;
 pub use sender::*;
+pub use subscription::*;

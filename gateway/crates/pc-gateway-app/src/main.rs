@@ -38,14 +38,14 @@ use axum::routing::{get, post};
 use axum::Router;
 use pc_gateway_core::Executor;
 use pc_gateway_evidence::{EvidenceSink, JsonEvidenceSink, NoopEvidenceSink};
-use pc_gateway_transport::ReqwestTransport;
+use pc_gateway_transport::{GatewayTransport, ReqwestTransport};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
 pub struct AppState {
     /// 单一执行器；线格式渲染器按请求格式传入（同格式进出）。
-    pub executor: Arc<Executor<CoreLink, ReqwestTransport>>,
+    pub executor: Arc<Executor<CoreLink, GatewayTransport>>,
     pub evidence: Arc<dyn EvidenceSink>,
     pub upstream_profile: String,
     /// chat-completions 上游（含 key；老变量 PC_GATEWAY_UPSTREAM_URL 仍作缺省）。
@@ -54,6 +54,7 @@ pub struct AppState {
     pub upstream_responses: String,
     pub upstream_chat_api_key: String,
     pub upstream_responses_api_key: String,
+    pub subscription: Option<pc_gateway_auth::SubscriptionAuth>,
     pub api_key: Option<String>,
     pub degrade: pc_gateway_core::DegradePolicy,
     /// 是否调 prepare 注入上下文（默认关）。
@@ -77,6 +78,32 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() {
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    if !arguments.is_empty() {
+        let result = match arguments.as_slice() {
+            [command, provider, path] if command == "login" => {
+                match provider
+                    .to_str()
+                    .and_then(|v| pc_gateway_auth::Subscription::parse(v).ok())
+                {
+                    Some(kind) => match pc_gateway_auth::SubscriptionAuth::new(kind, path.into()) {
+                        Ok(auth) => tokio::select! {
+                            result = auth.login_device(|uri, code| eprintln!("Open {uri}\nEnter code: {code}")) => result,
+                            _ = tokio::signal::ctrl_c() => return,
+                        },
+                        Err(error) => Err(error),
+                    },
+                    None => Err(pc_gateway_auth::AuthError::Configuration),
+                }
+            }
+            _ => Err(pc_gateway_auth::AuthError::Configuration),
+        };
+        if let Err(error) = result {
+            eprintln!("{error}; usage: pc-gateway login <copilot|qwen|kimi> <new-credential-file>");
+            std::process::exit(2);
+        }
+        return;
+    }
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
@@ -91,6 +118,52 @@ async fn main() {
 
     let core_link = CoreLink::from_env();
     let proxy_state = proxy::ProxyState::from_env();
+    let subscription = subscription_from_env().unwrap_or_else(|reason| {
+        eprintln!("{reason}");
+        std::process::exit(2);
+    });
+    let subscription_kind = subscription.as_ref().map(|auth| auth.kind());
+    let (default_chat, default_responses) = match subscription_kind {
+        Some(pc_gateway_auth::Subscription::Grok) => (
+            "https://api.x.ai/v1/chat/completions",
+            "https://api.x.ai/v1/responses",
+        ),
+        Some(pc_gateway_auth::Subscription::Codex) => {
+            ("", "https://chatgpt.com/backend-api/codex/responses")
+        }
+        Some(pc_gateway_auth::Subscription::Copilot) => (
+            "https://api.githubcopilot.com/chat/completions",
+            "https://api.githubcopilot.com/responses",
+        ),
+        Some(pc_gateway_auth::Subscription::Qwen) => (
+            "https://api.qwen.ai/compatible-mode/v1/chat/completions",
+            "",
+        ),
+        Some(pc_gateway_auth::Subscription::Kimi) => (
+            "https://api.kimi.com/coding/v1/chat/completions",
+            "https://api.kimi.com/coding/v1/responses",
+        ),
+        Some(pc_gateway_auth::Subscription::Gemini) => (
+            "https://cloudcode-pa.googleapis.com/v1internal:generateContent",
+            "",
+        ),
+        Some(pc_gateway_auth::Subscription::Claude) => ("claude-cli://execute", ""),
+        None => ("http://127.0.0.1:9000/v1/chat/completions", ""),
+    };
+    let upstream_chat = std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
+        .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_URL"))
+        .unwrap_or_else(|_| default_chat.into());
+    let upstream_responses = std::env::var("PC_GATEWAY_UPSTREAM_URL_RESPONSES")
+        .unwrap_or_else(|_| default_responses.into());
+    if let Some(kind) = subscription_kind {
+        let valid = (!upstream_responses.is_empty() || !upstream_chat.is_empty())
+            && (upstream_responses.is_empty() || kind.validate_target(&upstream_responses).is_ok())
+            && (upstream_chat.is_empty() || kind.validate_target(&upstream_chat).is_ok());
+        if !valid {
+            eprintln!("subscription requires its approved upstream endpoints");
+            std::process::exit(2);
+        }
+    }
 
     let max_attempts: u32 = std::env::var("PC_GATEWAY_MAX_ATTEMPTS")
         .ok()
@@ -167,12 +240,28 @@ async fn main() {
         .map(|limit| limit.min(max_body_bytes))
         .unwrap_or(0);
     let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
+    if subscription_kind == Some(pc_gateway_auth::Subscription::Claude) && !degradation_allowed {
+        eprintln!("Claude CLI requires confirmed non-enforcing Core; its internal HTTP sends are not observable");
+        std::process::exit(2);
+    }
+    let transport = GatewayTransport::new(
+        ReqwestTransport::new(Duration::from_secs(120))
+            .with_subscription_responses_sse(matches!(
+                subscription_kind,
+                Some(pc_gateway_auth::Subscription::Codex | pc_gateway_auth::Subscription::Kimi)
+            ))
+            .with_codeassist_chat(subscription_kind == Some(pc_gateway_auth::Subscription::Gemini)),
+    )
+    .with_claude(
+        (subscription_kind == Some(pc_gateway_auth::Subscription::Claude))
+            .then(|| std::env::var_os("CLAUDE_CLI_EXECUTABLE").unwrap_or_else(|| "claude".into())),
+    );
 
     let state = Arc::new(AppState {
         executor: Arc::new(
             Executor::new(
                 core_link.clone(),
-                ReqwestTransport::new(Duration::from_secs(120)),
+                transport,
                 NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
             )
             .with_input_limit(model_body_bytes)
@@ -181,10 +270,9 @@ async fn main() {
         evidence,
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
-        upstream_chat: std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
-            .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_URL"))
-            .unwrap_or_else(|_| "http://127.0.0.1:9000/v1/chat/completions".into()),
-        upstream_responses: std::env::var("PC_GATEWAY_UPSTREAM_URL_RESPONSES").unwrap_or_default(),
+        upstream_chat,
+        upstream_responses,
+        subscription,
         upstream_chat_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_CHAT")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
@@ -231,6 +319,22 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");
+}
+
+fn subscription_from_env(
+) -> Result<Option<pc_gateway_auth::SubscriptionAuth>, pc_gateway_auth::AuthError> {
+    let value = match std::env::var("PC_GATEWAY_SUBSCRIPTION") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(_) => return Err(pc_gateway_auth::AuthError::Configuration),
+    };
+    let kind = pc_gateway_auth::Subscription::parse(&value)?;
+    if kind == pc_gateway_auth::Subscription::Claude {
+        return pc_gateway_auth::SubscriptionAuth::new(kind, "cli-managed".into()).map(Some);
+    }
+    let path = std::env::var_os("PC_GATEWAY_SUBSCRIPTION_CREDENTIALS")
+        .ok_or(pc_gateway_auth::AuthError::Configuration)?;
+    pc_gateway_auth::SubscriptionAuth::new(kind, path.into()).map(Some)
 }
 
 fn router(state: Arc<AppState>, proxy_state: proxy::ProxyState) -> Router {

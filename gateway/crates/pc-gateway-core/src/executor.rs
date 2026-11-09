@@ -779,7 +779,26 @@ fn content_headers(headers: &[(String, String)], content_type: &str) -> BTreeMap
     out.insert("content-type".to_string(), content_type.to_string());
     for (k, v) in headers {
         let lower = k.to_ascii_lowercase();
-        if matches!(lower.as_str(), "authorization" | "x-api-key" | "cookie") {
+        // Subscription account/device identity is configured by the gateway, never copied
+        // from caller headers. It belongs to authentication, not the model-json carrier.
+        if matches!(
+            lower.as_str(),
+            "authorization"
+                | "x-api-key"
+                | "cookie"
+                | "chatgpt-account-id"
+                | "user-agent"
+                | "copilot-integration-id"
+                | "x-github-api-version"
+                | "editor-version"
+                | "editor-plugin-version"
+                | "x-msh-platform"
+                | "x-msh-version"
+                | "x-msh-device-name"
+                | "x-msh-device-model"
+                | "x-msh-os-version"
+                | "x-msh-device-id"
+        ) {
             continue;
         }
         out.insert(lower, v.clone());

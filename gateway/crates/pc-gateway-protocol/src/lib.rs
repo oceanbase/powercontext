@@ -20,10 +20,14 @@
 
 mod canonical;
 mod content;
+mod gemini;
 mod render;
 mod sse;
+mod subscription;
 
 pub use canonical::*;
 pub use content::{first_model_content_offset, OutputProtocol};
+pub use gemini::codeassist_chat_response;
 pub use render::*;
 pub use sse::*;
+pub use subscription::*;

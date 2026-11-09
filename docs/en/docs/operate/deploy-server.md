@@ -222,6 +222,50 @@ authentication credentials, as in the UDS example above. Clients of protected Co
 `PC_GATEWAY_CORE_TOKEN` authenticates Gateway-initiated Core calls; the reverse proxy does not substitute it for
 client credentials.
 
+### Gateway OAuth subscriptions
+
+The Rust Gateway supports the same subscription families as the Python integration: ChatGPT/Codex, GitHub Copilot,
+Grok, Qwen Code Plus/Pro, Kimi Code, Gemini CLI/Code Assist, and restricted Claude CLI execution. These are distinct
+authentication and execution contracts, not API Key aliases. The support list is maintained in documentation.
+
+Set `PC_GATEWAY_SUBSCRIPTION` to `codex`, `copilot`, `grok`, `qwen`, `kimi`, `gemini`, or `claude`. HTTP channels require
+an explicit private file in `PC_GATEWAY_SUBSCRIPTION_CREDENTIALS`; the Gateway does not search home directories or
+keychains. Codex and Gemini use read-only CLI credentials, with renewal owned by their CLIs. Grok shares the CLI's
+file under its OS lock. Copilot, Qwen and Kimi can acquire independent device grants without another proxy service:
+
+```bash
+install -d -m 700 /path/to/private/oauth
+./target/release/pc-gateway login qwen /path/to/private/oauth/qwen.json
+
+PC_GATEWAY_CORE_UDS=/path/to/core.sock \
+PC_GATEWAY_SUBSCRIPTION=qwen \
+PC_GATEWAY_SUBSCRIPTION_CREDENTIALS=/path/to/private/oauth/qwen.json \
+PC_GATEWAY_UPSTREAM_PROFILE=approved-qwen \
+./target/release/pc-gateway
+```
+
+Run these commands from `gateway/`. Device login creates a new `0600` file and refuses to overwrite one. The same
+command supports `copilot` and `kimi`. Do not copy a CLI refresh token into another store and treat it as an independent
+grant. Configured HTTP destinations are restricted to each provider's supported HTTPS endpoints; redirects are disabled.
+Model errors and indeterminate delivery never cause an authentication-layer model replay.
+
+Core must approve the actual target, model and protocol. Gemini uses `google-codeassist-chat`: final Code Assist input
+and final Chat Completion output are checked, and Gateway injection is disabled for this adapter. Responses-only Codex
+requires `allow_streaming` on its profile, but has no supported output token cap; Core's enforcing budget may therefore
+withhold it. The Gateway does not invent a remotely enforced cap.
+
+Claude runs a genuine logged-in CLI, accepts fresh text-only Chat turns, and disables tools, MCP and session persistence.
+`CLAUDE_CLI_EXECUTABLE` selects its executable; no Gateway token file is needed. Core's `claude-cli-prompt` profile uses
+the unique target `claude-cli://execute`. Its checks observe the prompt and normalized result, not the CLI's internal HTTP
+or retries. Enforcing or unconfirmed Core deployments reject this path before any model subprocess starts; a later
+enforcing policy also withholds it. This does not implement Magpie's persistent session/tool bridge.
+
+See the [Gateway subscription contract](https://github.com/oceanbase/powercontext/blob/master/gateway/SUBSCRIPTIONS.md)
+for route, model, entitlement, file ownership and test boundaries. Synthetic HTTP and subprocess tests do not establish
+live subscription eligibility, quota consumption or CLI version compatibility. Internal Server generation routed back
+through the Gateway still needs a separate recursion boundary: global injection/sedimentation cannot distinguish it from
+ordinary clients, and a client-supplied marker cannot waive checks.
+
 ### Gateway context injection
 
 When the gateway connects to the Core over UDS (`PC_GATEWAY_CORE_UDS`, the combined deployment), it injects prepared
