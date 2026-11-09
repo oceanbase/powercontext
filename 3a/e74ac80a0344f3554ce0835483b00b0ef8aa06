@@ -1,0 +1,37 @@
+scripts/download_ci_asset.py
+  s_98c1bb9fbaf7be::t_e22ac6a98c3404 17
+  s_98c1bb9fbaf7be::t_3b4ded2e2bf253 1-16,18-141
+.github/workflows/desktop.yml
+  s_98c1bb9fbaf7be::t_a7911832e386d1 141-146
+scripts/prepare_managed_resources.py
+  s_98c1bb9fbaf7be::t_3b4ded2e2bf253 41,44,70,128
+tests/test_ci_changes.py
+  s_98c1bb9fbaf7be::t_5318fd6a287d6d 79-80
+.github/workflows/skill-guidance.yml
+  s_98c1bb9fbaf7be::t_a7911832e386d1 54-56,60-63
+tests/test_managed_resource_producer.py
+  s_98c1bb9fbaf7be::t_85a85cdefe9286 257
+  s_98c1bb9fbaf7be::t_5318fd6a287d6d 252,254,288-290,292-295,297,300
+  s_98c1bb9fbaf7be::t_83f3df811e594a 296
+  s_98c1bb9fbaf7be::t_3b4ded2e2bf253 32,263
+.github/ci-paths.toml
+  s_98c1bb9fbaf7be::t_5318fd6a287d6d 118,123,148
+scripts/prepare_windows_ci_tools.py
+  s_98c1bb9fbaf7be::t_816e7ed8b714c4 1-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3ae74ac80a0344f3554ce0835483b00b0ef8aa06",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
