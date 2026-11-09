@@ -16,7 +16,7 @@ openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 1.5.0
+  version: 1.5.1
 x-powercontext-feature-contracts:
   connection.identity: {major: 1, minor: 0}
   access.principal: {major: 1, minor: 0}

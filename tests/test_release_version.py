@@ -42,6 +42,11 @@ HISTORICAL_AND_INDEPENDENT_FILES = (
     "integrations/agent-plugin/powercontext/plugin.json",
     "integrations/openclaw/plugins/memory-powercontext/openclaw.plugin.json",
 )
+MIGRATION_PAGES = (
+    "docs/en/docs/operate/database-migrations.md",
+    "docs/zh/docs/operate/database-migrations.md",
+    "tests/release_upgrades/README.md",
+)
 
 
 @pytest.fixture
@@ -53,6 +58,7 @@ def release_repo(tmp_path: Path) -> Path:
         "openapi/powercontext.yaml",
         *INSTALL_PAGES,
         *HISTORICAL_AND_INDEPENDENT_FILES,
+        *MIGRATION_PAGES,
     ):
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -107,6 +113,12 @@ def test_release_updates_installation_references_and_preserves_history(release_r
         assert "1.3.0 和 1.4.0 升级必须通过 SQLite、seekDB 和 OceanBase 的完整 Server 验收" in chinese
         dsh = (release_repo / "integrations/dsh/plugins/powercontext/README.md").read_text(encoding="utf-8")
         assert "Release 1.1.0 includes direct-operation Scope failure handling" in dsh
+        for relative in MIGRATION_PAGES:
+            content = (release_repo / relative).read_text(encoding="utf-8")
+            assert f"**PowerContext {version}**" in content or f"**{version}**" in content, relative
+            assert "v1_5_0_001" in content, relative
+            if relative.startswith("docs/"):
+                assert '"software_version":"1.5.0"' in content, relative
         for relative, original in preserved.items():
             assert (release_repo / relative).read_bytes() == original, relative
 

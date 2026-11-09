@@ -60,6 +60,7 @@ beta 和 RC 跳过网站条目检查。`make docs-test` 也会通过网站测试
 | `docs/en/docs/get-started/manual-start.md`、`docs/zh/docs/get-started/manual-start.md` | CLI/Server 和 Python Client 安装版本及配套 Agent 集成 tag。 |
 | `docs/en/docs/get-started/install-and-run.md`、`docs/zh/docs/get-started/install-and-run.md` | 页面描述、当前版本介绍、包版本和 tag、升级目标及 Python Client 安装命令。 |
 | `integrations/dsh/plugins/powercontext/README.md` | Server 安装版本及对应的 `setup dsh --ref` tag。 |
+| `docs/{en,zh}/docs/operate/database-migrations.md`、`tests/release_upgrades/README.md` | 仅同步当前目标发布版本；冻结的 schema revision 名称及原始软件版本保持不变。 |
 
 安装指南也包含历史迁移版本，这些引用会保留。新增表示当前发布版本的安装示例时，应同时将其纳入版本工具的
 管理路径及匹配规则，使下次发布可以自动更新和检查。

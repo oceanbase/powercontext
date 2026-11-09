@@ -63,6 +63,7 @@ the website lists stable releases only. `make docs-test` also runs this check as
 | `docs/en/docs/get-started/manual-start.md`, `docs/zh/docs/get-started/manual-start.md` | CLI/Server and Python Client installation pins, and the matching Agent integration tag. |
 | `docs/en/docs/get-started/install-and-run.md`, `docs/zh/docs/get-started/install-and-run.md` | Page description, current release prose, package/tag pins, upgrade target, and Python Client installation. |
 | `integrations/dsh/plugins/powercontext/README.md` | Server installation pin and the matching `setup dsh --ref` tag. |
+| `docs/{en,zh}/docs/operate/database-migrations.md`, `tests/release_upgrades/README.md` | Current target release only; frozen schema revision names and their original software versions remain unchanged. |
 
 The installation guides also contain historical migration versions. Those references are preserved. When adding
 another current-release installation example, include it in the version tooling's managed paths and patterns so

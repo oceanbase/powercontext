@@ -129,7 +129,7 @@ PowerContext keeps durable project context outside any single chat. A first run 
 Agent input → Source evidence → Memory / Topic Memory → PreparedContext → next session or Agent
 ```
 
-PowerContext 1.5.0 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](docs/en/docs/get-started/install-and-run.md). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](docs/en/docs/get-started/install-and-run.md#install-with-the-recommended-script).
+PowerContext 1.5.1 includes an interactive setup wizard. You need Python 3.11+, Git, and [uv](https://docs.astral.sh/uv/getting-started/installation/); uv can provision Python when needed. To connect an Agent, also install its CLI. In the wizard, choose Basic memory for explicit saves and recall without model APIs; Full memory requires separate Generation and Embedding API credentials. For a local Server without model APIs, see [Install and run](docs/en/docs/get-started/install-and-run.md). macOS and Linux are supported; Windows support is `experimental`. To provision Python and uv automatically, use the [installation script](docs/en/docs/get-started/install-and-run.md#install-with-the-recommended-script).
 
 Choose the path that matches your goal:
 
@@ -142,7 +142,7 @@ Choose the path that matches your goal:
 ### 1. Install and run the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
 ```
@@ -172,7 +172,7 @@ powercontext capabilities
 Continue with `.env.next-steps.md` to create and bind the selected Scopes. Use the real `scope_id` returned by the creation request; a planned `codex-...` title is not an ID. Changing directories does not create isolation; use the same Server and Scope in the Dashboard and Agent. After editing `.env`, rerun `powercontext service install --env-file .env` to apply the updated settings. Then install the matching plugins and launch a new Agent session. The [complete walkthrough](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) covers Codex and Claude Code, Dashboard login, SSH forwarding, HTTPS prerequisites, and observable acceptance checks. For example, the matching Codex installation is:
 
 ```bash
-powercontext setup codex --ref powercontext-v1.5.0
+powercontext setup codex --ref powercontext-v1.5.1
 powercontext doctor codex
 ```
 
