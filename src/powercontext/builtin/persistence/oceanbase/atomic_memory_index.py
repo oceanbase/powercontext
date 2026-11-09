@@ -477,7 +477,8 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         self, eligibility: str, request: AtomicMemoryRelatedRequest, parameters: dict[str, object]
     ) -> str | None:
         terms, required = fts_query_requirements(request.query, floor=request.admission)
-        if not terms:
+        if not terms or required > len(terms):
+            # Whole-word coverage can never reach a threshold above the query's distinct terms.
             return None
         coverage, coverage_parameters = oceanbase_fts_coverage_sql(terms)
         parameters.update(coverage_parameters)
