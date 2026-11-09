@@ -22,7 +22,7 @@ categories:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: project-database-decision
-  checksum: 4d0e45489408dbece683ab91b0d77419bb90a202d1c66c1209e69315ad97e799
+  checksum: 9dd41373d55af84745c98b757ea416d9e2b0aea25f80604a2ff490d735205f6d
 execution:
   type: bub
   model: false
