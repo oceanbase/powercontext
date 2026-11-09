@@ -21,8 +21,14 @@ status: community
 
 上面的动图使用 Desktop 界面演示，Web 版的入口名称相同。npm 安装只负责安装插件，不会启动或配置 PowerContext Server。
 
+同一个包还导出独立的浏览器入口 `./client`。重启后，DSH Web 和 Desktop 会在账号区域上方显示 PowerContext
+状态控件。没有显示时说明宿主没有加载浏览器入口；已有工具和生命周期行为仍可用，因此这不是 Server 故障。
+这个控件不是 Dashboard 替代品：点击只打开连接诊断，Dashboard 内嵌属于后续工作。
+
 npm 版本跟随 PowerContext Release：`1.6.0rc1` 对应 `1.6.0-rc.1`，alpha、beta 同样转换。
 正式版本使用 `latest` 标签，预发布版本使用 `next`；安装前先确认目标 npm 版本已经发布。
+本次实现验收使用的官方最新版本是 `0.2.2-rc.1`（2026-11-04 发布的预发布版）；只在对应真实 Web 和
+Desktop 自带 runtime 上验证过，不能据此推断其他 DSH 版本兼容。
 
 ## 启动 PowerContext Server
 
@@ -112,9 +118,61 @@ Desktop 必须使用桌面版自带的 dsh 命令，npm/pnpm 版 dsh 无权管�
 Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powercontext/credentials.json`。
 `DSH_HOME` 默认是 `~/.dsh`。使用 `powercontext setup dsh --json` 时，可从 `hosts.dsh.result.plugin_path`
 取得插件路径并记录插件 commit；`hosts.dsh.setup: "complete"` 只表示注册完成，不代表运行中的 Server 已就绪。
+插件检查还会分别报告 `browser_client`、`client_declaration`、`asset_export` 和 `host_bundle`。缺少浏览器入口时
+属于无界面安装：工具继续可用，侧栏状态不可用，不会因此误报 Server 故障。
 
 已有界面和模型 patch 可以保留。setup 会检查合成后的 PowerContext 连接设置；冲突处理和动态配置限制见
 [远程连接配置](../operate/connect-remote-server.md)。原生 include 文件必须存在，循环引用、不支持的文件类型或无法验证的动态结构会在保存前报错。
+
+## 侧栏状态与诊断
+
+侧栏控件位于账号区域上方，颜色始终配有无障碍标签：
+
+| 状态 | 含义 |
+| --- | --- |
+| 灰色 | 未配置、已禁用，或不是已验证的本机所有者宿主 |
+| 黄色 | 正在连接、重试，或过期观测正在重新核对 |
+| 绿色 | 已通过 liveness、readiness 和所需 PreparedContext 能力 |
+| 红色 | 连接、DSH 认证或必要能力失败 |
+
+点击后打开只读诊断面板，显示已验证的部署方式、Server origin 和配置来源、是否已配置 Authorization
+（不显示值）、liveness、readiness 及其依赖、所需 context schema、当前会话和 Scope，并分别显示最近的
+自动召回、采集、flush 和注入观测。它复用 `/pc` 使用的内存 `RuntimeStatus`，不从日志重建历史，也不调用模型、
+发送诊断 prompt 或轮询 `/pc doctor`。
+
+桥接接口是插件自有、经 DSH 认证的 `GET /powercontext/status`。DSH 原有 `requestRejection` 始终先执行，不会被削弱；
+此外还必须到达已验证的本机所有者界面：
+
+- DSH Desktop 通过 Desktop Host 提供的受管 `desktop` profile 上下文识别；用同一个 Electron 可执行程序运行
+  Web profile 不会被当作 Desktop 权限。
+- DSH Web 只有在 loopback 请求且所有者明确设置 `ownerLocal: true`（或 `POWERCONTEXT_DSH_OWNER_LOCAL=true`）时接受。
+  只应在自己的本机 Web 宿主上设置。
+- 非 loopback、SSH 启动或未配置的 Web 宿主会被拒绝。非 loopback 显示为可处理失败；SSH 启动或未配置 Web
+  显示为灰色未配置；都不会被静默标为 local。
+
+本机 Web 可在 profile 或 home 的 `cordis.patch.yml` 中加入：
+
+```yaml
+- id: powercontext-dsh
+  config:
+    ownerLocal: true
+```
+
+或在启动 `dsh web` 前设置：
+
+```bash
+POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
+```
+
+不要在远程、共享、容器或 SSH 转发的宿主上设置。桥接不增加 launch、install、target 或 Dashboard 路由。
+
+页面可见时每十秒刷新；隐藏时暂停，恢复可见后立即重新核对；失败后从 2 秒退避到 30 秒；成功观测超过 30 秒
+会标为过期而不是继续显示绿色。DSH 的 401/403、Server 离线、readiness 依赖失败或缺少 context schema 分别显示
+不同诊断。面板只展示允许字段，不打印启动 token、Authorization 值或 Bearer header。切换会话会更新观测会话并
+丢弃上一会话的迟到响应；没有会话时如实显示，不创建会话。
+
+更新插件是重新安装并重启，保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status` 路由、
+订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
 
 ## 诊断运行中的配置
 

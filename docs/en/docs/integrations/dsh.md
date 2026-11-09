@@ -21,15 +21,22 @@ endpoint is `http://127.0.0.1:8000`, and saved `powercontext setup dsh` connecti
 After installation, restart DSH if requested and run `/pc doctor` in a session. Check both Server readiness and
 native MCP discovery before validating capture and recall.
 
+The same package also exposes an independent browser entry, `./client`. After restart, DSH Web and Desktop show a
+PowerContext status control above the account area. If the control is absent, the host did not load the browser
+entry; existing tools and lifecycle behavior remain available, so this is not a Server failure. The control is not
+a Dashboard replacement: clicking it opens connection diagnostics only. Dashboard embedding remains future work.
+
 The npm version follows the PowerContext Release: `1.6.0rc1` maps to `1.6.0-rc.1`, with equivalent `alpha` and
 `beta` suffixes. Stable releases use `latest`; prereleases use `next`. Verify the selected npm version exists
 before installation. Local `.tgz` installation verifies the archive path, not npm or mirror availability.
 
 ## Install matching Server and plugin versions
 
-Install DeepSeek Harness Web or Desktop. The automated real-host suite pins DSH `0.1.2-rc.1`;
-manual macOS Desktop acceptance also covers `0.2.1-rc.5`, including native MCP writes and fresh-session recall.
-Choose one PowerContext installation path and keep the Server and plugin together.
+Install DeepSeek Harness Web or Desktop. The latest official release checked for this implementation is
+`0.2.2-rc.1` (a prerelease published on 2026-11-04); the P1/P2 Web and Desktop bundled-runtime acceptance was run
+against that exact package. The deterministic SDK runtime contract tests remain pinned to their older fixture.
+Do not infer support for another DSH release from this result. Choose one PowerContext installation path and keep
+the Server and plugin together.
 
 For this guided-setup build:
 
@@ -110,11 +117,15 @@ Recall queries exclude current DSH `runtime-context` messages (including cleared
 `@deepseek-ai/dsh-system-prompt` plugin snapshots, so host catalogs cannot displace the user request.
 
 With `powercontext setup dsh --json`, `hosts.dsh.setup: "complete"` records completed installation/configuration.
-Registration is reported separately at `hosts.dsh.checks.plugin.checks.registration: "present"`. The same report
-includes Server diagnostics, so its top-level `ok` can be `false` and its exit code 1 even after installation
-completed. Inspect the failed entries under `hosts.dsh.checks`, start or correct the selected Server, and rerun
-`powercontext doctor dsh --json`. This command includes separate Server probes; registration itself does not prove
-running-session connectivity. Restart DSH and use `/pc doctor` to verify the active session.
+Registration is reported separately at `hosts.dsh.checks.plugin.checks.registration: "present"`. The plugin check
+also reports package capability independently: `browser_client`, `client_declaration`, and `asset_export` are
+`present` or `missing`, and `host_bundle` reports the Host half. A missing browser client is a headless
+installation: existing tools continue to work, but the sidebar status is unavailable. Setup reports this rather
+than treating it as a Server error. The same report includes Server diagnostics, so its top-level `ok` can be
+`false` and its exit code 1 even after installation completed. Inspect the failed entries under
+`hosts.dsh.checks`, start or correct the selected Server, and rerun `powercontext doctor dsh --json`. This command
+includes separate Server probes; registration itself does not prove running-session connectivity. Restart DSH and
+use `/pc doctor` to verify the active session.
 
 ## Start the Server and the host
 
@@ -145,6 +156,64 @@ the Server default/workspace binding, or set it to an existing Scope intentional
 
 Environment overrides take precedence over plugin patch values, which take precedence over defaults. They must be
 present in the process launching DSH; changing another terminal's environment does not update a running host.
+
+## Sidebar status and diagnostics
+
+The sidebar control appears above the account area. Its color and accessible label are always paired:
+
+| State | Meaning |
+| --- | --- |
+| Gray | Not configured, disabled, or not a verified owner-local host |
+| Yellow | Connecting, retrying, or an expired observation being re-verified |
+| Green | Liveness, readiness, and the required PreparedContext capability were verified |
+| Red | Connection, DSH authentication, or a required capability failed |
+
+Clicking the control opens a read-only diagnostics panel. It shows the verified deployment mode, endpoint origin
+and configuration source, whether an Authorization value is configured (never the value), liveness, readiness and
+its dependency states, the required context schema, the active conversation and Scope, and the latest automatic
+recall/capture/flush/injection observations independently. It reuses the same in-memory `RuntimeStatus` as `/pc`
+rather than reconstructing history from logs. It never calls a model, sends a diagnostic prompt, or polls
+`/pc doctor`.
+
+The bridge is the plugin-owned authenticated route `GET /powercontext/status`. DSH's existing `requestRejection`
+runs first and is never weakened. The route must also reach a verified local owner surface:
+
+- DSH Desktop is detected from the managed `desktop` profile context provided by the Desktop Host. An Electron
+executable running a Web profile is not treated as Desktop authority.
+- DSH Web is accepted only for a loopback request when the owner explicitly sets `ownerLocal: true` (or
+  `POWERCONTEXT_DSH_OWNER_LOCAL=true`). Set this only on your own local Web host.
+- A non-loopback request, an SSH-launched host, or an unconfigured Web host is rejected. The UI reports
+  non-loopback requests as an actionable failure, and SSH-launched or unconfigured Web hosts as gray unconfigured;
+  none is silently labeled local.
+
+For an explicitly local Web host, add this to the profile or home `cordis.patch.yml`:
+
+```yaml
+- id: powercontext-dsh
+  config:
+    ownerLocal: true
+```
+
+Or set the environment variable before starting `dsh web`:
+
+```bash
+POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
+```
+
+Do not set this for a remote, shared, container, or SSH-forwarded host. The bridge does not add launch, install,
+target, or Dashboard routes.
+
+While the page is visible, the client refreshes every ten seconds. It pauses while hidden, re-verifies immediately
+on return, backs off from two to thirty seconds after a failure, and marks a success older than thirty seconds as
+stale instead of leaving it green. A 401/403 from DSH, an offline Server, a failed readiness dependency, or a
+missing context schema produces a distinct diagnostic. The panel shows only allowlisted status fields; it never
+prints the launch token, Authorization value, or a bearer header. A conversation switch changes the observed
+session and invalidates responses from the previous selection. With no conversation, the panel says so and does
+not create one.
+
+Updating the plugin is an install-and-restart operation; the existing profile and connection settings are
+preserved. Uninstalling it removes the browser entry, the `/powercontext/status` route, subscriptions, and
+timers. A headless host or a package without the browser entry keeps the tools and lifecycle hooks.
 
 ## Diagnose the running configuration
 

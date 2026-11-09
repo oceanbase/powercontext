@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#2f6f86" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="PowerContext">
+  <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" />
+  <path d="m4 12 8 4.5 8-4.5" opacity=".72" />
+  <path d="m4 16.5 8 4.5 8-4.5" opacity=".45" />
+</svg>
