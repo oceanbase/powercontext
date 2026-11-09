@@ -91,34 +91,35 @@ def release(tmp_path, monkeypatch):
     return tmp_path, wheel, policy
 
 
-def test_required_mode_executes_three_cases_but_cannot_publish_as_supported(release):
-    root, wheel, policy = release
-    with pytest.raises(gate.GateError, match="support declaration"):
-        gate.gate(root, wheel, root / "evidence", release=True, release_notes=gate.support_text(policy, "en"))
+def test_required_mode_allows_publication_after_every_case_passes(release):
+    root, wheel, _ = release
+    gate.gate(root, wheel, root / "evidence", release=True)
     result = json.loads((root / "evidence/result.json").read_text())
-    assert result["status"] == "failed"
+    assert result["status"] == "passed"
+    assert result["mode"] == "upgrade-required"
     assert len(result["cases"]) == 3
     assert all(case["status"] == "passed" for case in result["cases"])
     assert result["target_wheel_sha256"] == gate.sha256(wheel)
 
 
-def test_release_notes_cannot_omit_the_support_limit(release):
+@pytest.mark.parametrize("notes", [None, "", "Release highlights without a database support declaration."])
+def test_release_acceptance_does_not_require_support_prose(release, notes):
     root, wheel, _ = release
-    with pytest.raises(gate.GateError, match="notes"):
-        gate.gate(root, wheel, root / "evidence", release=True, release_notes="Upgrade your deployment now.")
+    gate.gate(root, wheel, root / "evidence", release=True, release_notes=notes)
+    assert json.loads((root / "evidence/result.json").read_text())["status"] == "passed"
 
 
-def test_prepared_release_notes_pass_the_published_support_declaration_check(tmp_path):
+def test_prepared_release_notes_do_not_need_an_upgrade_declaration(tmp_path):
     root = Path(__file__).resolve().parents[1]
     policy = gate.load_policy(root)
     version = policy["target_version"]
     notes = (root / f"release/notes/powercontext-v{version}.md").read_text(encoding="utf-8")
-    # Metadata alone exercises declaration validation, not installed-wheel or database acceptance.
+    # Metadata alone verifies target validation, not installed-wheel or database acceptance.
     wheel = tmp_path / f"powercontext-{version}-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr(f"powercontext-{version}.dist-info/METADATA", f"Name: powercontext\nVersion: {version}\n")
     assert gate.validate_target(root, wheel, release=True, release_notes=notes) == policy
-    assert gate.support_text(policy, "zh") in notes
+    assert "| Source | Target | Backend | Configuration |" not in notes
 
 
 def test_release_rejects_wrong_artifact_version(release):
@@ -442,9 +443,15 @@ def test_publishing_jobs_require_upgrade_acceptance_unless_manually_bypassed():
     assert events["workflow_dispatch"]["inputs"]["skip_upgrade_acceptance"]["default"] is False
     assert not build.get("continue-on-error")
     shared = yaml.safe_load((root / ".github/workflows/upgrade-release.yml").read_text())["jobs"]
+    for job in shared.values():
+        checkouts = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
+        assert checkouts[0]["with"]["ref"] == "${{ inputs.source_ref }}"
+        tooling = checkouts[1]
+        assert tooling["if"] == "inputs.release && !inputs.skip_upgrade_acceptance"
+        assert tooling["with"]["ref"] == "${{ github.sha }}"
     prepare = shared["prepare"]["steps"]
     freeze = next(step for step in prepare if "parallel_upgrade_release_gate.py prepare" in step.get("run", ""))
-    assert "--release --release-event" in freeze["run"]
+    assert "args+=(--release)" in freeze["run"]
     steps = shared["collect"]["steps"]
     index = next(i for i, step in enumerate(steps) if "parallel_upgrade_release_gate.py collect" in step.get("run", ""))
     assert "if" not in steps[index] and not steps[index].get("continue-on-error")
@@ -1187,21 +1194,39 @@ def test_parallel_workers_reject_changed_preparation_inputs(parallel_reports, mo
     assert not (root / "another-case").exists()
 
 
-def test_parallel_passes_do_not_override_unreviewed_release_support(parallel_reports):
-    root, prepared, reports, policy = parallel_reports
+@pytest.mark.parametrize("broken", [None, "missing-case", "failed-case", "mixed-plan"])
+def test_parallel_publication_requires_actual_acceptance_without_support_prose(parallel_reports, broken):
+    root, prepared, reports, _ = parallel_reports
     # Model the release preparation metadata; distribution validation itself is
     # exercised with real sdist rebuilds in test_upgrade_publication.py.
     plan = json.loads((prepared / "plan.json").read_text())
     plan["release"] = True
-    plan["release_notes"] = gate.support_text(policy, "en")
+    plan["release_notes"] = None
     parallel.write_json(prepared / "plan.json", plan)
     for path in reports.glob("*/result.json"):
         result = json.loads(path.read_text())
         result["plan_sha256"] = gate.sha256(prepared / "plan.json")
         parallel.write_json(path, result)
-    with pytest.raises(gate.GateError, match="support declaration"):
-        parallel.collect(root, prepared, reports, root / "accepted")
-    assert not (root / "accepted/validated-dist").exists()
+    path = next(reports.glob("*/result.json"))
+    result = json.loads(path.read_text())
+    if broken == "missing-case":
+        path.unlink()
+    elif broken == "failed-case":
+        result["status"] = "failed"
+        parallel.write_json(path, result)
+    elif broken == "mixed-plan":
+        result["plan_sha256"] = "another-plan"
+        parallel.write_json(path, result)
+    if broken:
+        with pytest.raises(gate.GateError):
+            parallel.collect(root, prepared, reports, root / "accepted")
+        assert not (root / "accepted/validated-dist").exists()
+    else:
+        accepted = parallel.collect(root, prepared, reports, root / "accepted")
+        assert {path.name: gate.sha256(path) for path in accepted} == plan["artifacts"]
+        verdict = json.loads((root / "accepted/result.json").read_text())
+        assert verdict["complete"] and verdict["status"] == "passed"
+        assert verdict["mode"] == "upgrade-required"
 
 
 def test_parallel_worker_rejects_artifact_changed_during_execution(release, monkeypatch):

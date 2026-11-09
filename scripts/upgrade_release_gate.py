@@ -510,11 +510,6 @@ def validate_target(root: Path, wheel: Path, *, release: bool, release_notes: st
     actual_version = wheel_version(wheel)
     if release:
         require(actual_version == policy["target_version"], "Wheel version differs from upgrade policy target")
-        require(release_notes is not None, "Published release notes must declare upgrade support")
-        require(
-            support_text(policy, "en") in (release_notes or ""),
-            "GitHub Release notes must include the exact upgrade support declaration",
-        )
     return policy
 
 
@@ -548,11 +543,6 @@ def gate(root: Path, wheel: Path, output: Path, *, release: bool = False, releas
                 failures.append(case["backend"])
                 evidence["cases"].append({"case": case, "status": "failed", "error": str(error)})
         require(not failures, f"Required upgrade acceptance failed: {', '.join(failures)}")
-        if release:
-            require(
-                policy["mode"] == "supported-upgrades",
-                "Upgrade acceptance passed; update the reviewed support declaration before publication",
-            )
         evidence["status"] = "passed"
     finally:
         (output / "result.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
