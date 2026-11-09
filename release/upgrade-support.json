@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "target_version": "1.5.0",
+  "target_version": "1.5.1",
   "mode": "upgrade-required",
   "schema_review": {
     "persistence_sha256": "90defa76dc50ab00a3890fab117ff0e5900c103ceb14eb188bc06c38f0349e0c",

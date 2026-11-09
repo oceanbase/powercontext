@@ -155,8 +155,9 @@ def test_loopback_listener_retains_no_key_compatibility(
 
 
 @pytest.mark.parametrize("route", ["chat/completions", "responses"])
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
 def test_model_ingress_authentication_with_real_core_and_provider(
-    gateway_binary: Path, tmp_path: Path, short_tmp_path: Path, route: str
+    gateway_binary: Path, tmp_path: Path, short_tmp_path: Path, route: str, mode: str
 ) -> None:
     response_body = (
         completion("gateway accepted")
@@ -181,7 +182,7 @@ def test_model_ingress_authentication_with_real_core_and_provider(
         environment = _environment(tmp_path)
         environment["POWERCONTEXT_SERVER_INFERENCE"] = json.dumps({
             "protection": {
-                "mode": "enforcing",
+                "mode": mode,
                 "policy_version": "gateway-auth.v1",
                 "targets": {
                     "auth-test": {
