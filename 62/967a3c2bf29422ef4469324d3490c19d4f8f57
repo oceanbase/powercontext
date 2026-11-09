@@ -1,0 +1,28 @@
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_82ea3dcbea930b 496
+  s_98c1bb9fbaf7be::t_ab54ff87978a55 498,558-559
+  s_98c1bb9fbaf7be::t_5d9bdea61fa007 609,647,665
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_5afb3bc5b8d3fa 118-119,234,336-337,398
+  s_98c1bb9fbaf7be::t_cdbdb6436550fa 399,402
+tests/e2e/test_atomic_memory_search_authorization_snapshot.py
+  s_98c1bb9fbaf7be::t_c5dbed854af14f 22,133-148,189-191,202,211,228,231-233,236,411,415,418
+tests/e2e/test_background_metrics.py
+  s_98c1bb9fbaf7be::t_6c361b08fea4d8 120-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "62967a3c2bf29422ef4469324d3490c19d4f8f57",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
