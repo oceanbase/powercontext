@@ -258,6 +258,39 @@ archives its evidence. It runs after `release.published`, so it cannot prevent t
 the GitHub Release page: run the command above before that action. `make publish` requires
 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md` and runs the same gate before uploading packages.
 
+### Approve upgrade support after a release tag is created
+
+If a tagged release passes the full matrix but collection stops with
+`Update the reviewed support declaration before publication`, submit a PR to the default branch that changes
+`release/upgrade-support.json` to `supported-upgrades`, regenerates both installation guides with
+`uv run python scripts/upgrade_release_gate.py --write-docs`, and updates the bilingual release notes.
+Keep every other policy field unchanged. Merge the reviewed PR before dispatching publication.
+
+Copy the exact English support table from the updated installation guide into the published GitHub Release body;
+include its Chinese counterpart and remove any contradictory `upgrade-required` or skipped-acceptance claims.
+For `powercontext-v1.5.1`, the complete bilingual body is in `release/notes/powercontext-v1.5.1.md`.
+Then run **Actions → Release → Run workflow** from `master`, select the existing tag, enable
+`use_reviewed_upgrade_support`, and leave `skip_upgrade_acceptance` disabled:
+
+```bash
+gh workflow run release.yml --repo oceanbase/powercontext --ref master \
+  -f release_tag=powercontext-v1.5.1 \
+  -f use_reviewed_upgrade_support=true \
+  -f skip_upgrade_acceptance=false
+```
+
+The option defaults to false and is available only for manual publication from the default branch. It pins that
+workflow commit for the support declaration and gate tooling, while package builds and acceptance suites still
+use the original tag commit. Both policies must match except for `mode`, including target version, persistence
+review and the complete source/backend/configuration matrix. Both sets of installation guidance and the live
+Release declaration are checked. The support checkout stays outside the package build tree.
+
+All twelve cases run again against the newly frozen tagged distributions. Missing, failed, skipped or mixed
+evidence still blocks publication. The prepared plan and aggregate evidence record both policy hashes, the
+tagged source commit and the support commit. This option neither reuses an earlier run's verdict nor moves the
+tag. It cannot be combined with `skip_upgrade_acceptance`; it does not change the tagged documentation or
+the website deployment's selected release source.
+
 ### Manual publication without upgrade acceptance
 
 The **Release** workflow has a `workflow_dispatch` input named `skip_upgrade_acceptance`, defaulting to `false`.

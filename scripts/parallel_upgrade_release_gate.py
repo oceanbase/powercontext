@@ -54,13 +54,20 @@ def selected_indexes(cases: list[dict[str, Any]], selection: str, *, release: bo
 
 
 def prepare(
-    root: Path, dist: Path, output: Path, *, release: bool, release_notes: str | None, selection: str = "full"
+    root: Path,
+    dist: Path,
+    output: Path,
+    *,
+    release: bool,
+    release_notes: str | None,
+    selection: str = "full",
+    support_root: Path | None = None,
 ) -> dict[str, Any]:
     """Freeze the distributions and source discovery before scheduling any cases."""
     gate.require(not release or selection != "seekdb-code", "Manual-only acceptance cannot authorize publication")
     output.mkdir(parents=True, exist_ok=False)
     wheel, files = stage_distributions(dist, output / "inputs", release=release)
-    policy = gate.validate_target(root, wheel, release=release, release_notes=release_notes)
+    policy = gate.validate_target(root, wheel, release=release, release_notes=release_notes, support_root=support_root)
     matrix = resolve_matrix(policy, gate.wheel_version(wheel))
     gate.require(matrix["required_cases"], "No required upgrade acceptance cases")
     plan = {
@@ -69,6 +76,8 @@ def prepare(
         "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
         "source_sha": os.environ.get("PC_UPGRADE_SOURCE_SHA", os.environ.get("GITHUB_SHA")),
         "policy_sha256": gate.sha256(root / gate.MANIFEST),
+        "support_policy_sha256": gate.sha256(support_root / gate.MANIFEST) if support_root is not None else None,
+        "support_sha": os.environ.get("PC_UPGRADE_SUPPORT_SHA") if support_root is not None else None,
         "target_version": gate.wheel_version(wheel),
         "target_wheel": wheel.name,
         "artifacts": {path.name: gate.sha256(path) for path in files},
@@ -94,7 +103,7 @@ def prepare(
     }
 
 
-def read_plan(root: Path, prepared: Path) -> tuple[dict[str, Any], Path]:
+def read_plan(root: Path, prepared: Path, *, support_root: Path | None = None) -> tuple[dict[str, Any], Path]:
     plan = json.loads((prepared / "plan.json").read_text(encoding="utf-8"))
     gate.require(plan["format"] == 1, "Unknown parallel upgrade plan format")
     gate.require(plan["workflow_run_id"] == os.environ.get("GITHUB_RUN_ID"), "Evidence belongs to another workflow run")
@@ -103,6 +112,12 @@ def read_plan(root: Path, prepared: Path) -> tuple[dict[str, Any], Path]:
         "Evidence belongs to another checkout",
     )
     gate.require(plan["policy_sha256"] == gate.sha256(root / gate.MANIFEST), "Upgrade policy changed after preparation")
+    gate.require(
+        plan.get("support_policy_sha256")
+        == (gate.sha256(support_root / gate.MANIFEST) if support_root is not None else None)
+        and plan.get("support_sha") == (os.environ.get("PC_UPGRADE_SUPPORT_SHA") if support_root is not None else None),
+        "Reviewed support declaration changed after preparation",
+    )
     inputs = prepared / "inputs"
     files = list(inputs.iterdir())
     gate.require(all(path.is_file() and not path.is_symlink() for path in files), "Invalid prepared distributions")
@@ -111,7 +126,9 @@ def read_plan(root: Path, prepared: Path) -> tuple[dict[str, Any], Path]:
     )
     gate.require(plan["target_wheel"] in plan["artifacts"], "Missing prepared target wheel")
     wheel = inputs / plan["target_wheel"]
-    policy = gate.validate_target(root, wheel, release=plan["release"], release_notes=plan["release_notes"])
+    policy = gate.validate_target(
+        root, wheel, release=plan["release"], release_notes=plan["release_notes"], support_root=support_root
+    )
     gate.require(
         plan["target_version"] == gate.wheel_version(wheel) and plan["mode"] == policy["mode"], "Target changed"
     )
@@ -130,8 +147,8 @@ def read_plan(root: Path, prepared: Path) -> tuple[dict[str, Any], Path]:
     return plan, wheel
 
 
-def execute_case(root: Path, prepared: Path, index: int, output: Path) -> None:
-    plan, wheel = read_plan(root, prepared)
+def execute_case(root: Path, prepared: Path, index: int, output: Path, *, support_root: Path | None = None) -> None:
+    plan, wheel = read_plan(root, prepared, support_root=support_root)
     cases = plan["resolved_matrix"]["required_cases"]
     gate.require(
         index in selected_indexes(cases, plan["selection"], release=plan["release"]), "Unselected upgrade case index"
@@ -141,7 +158,7 @@ def execute_case(root: Path, prepared: Path, index: int, output: Path) -> None:
     try:
         evidence["result"] = gate.run_case(root, wheel, cases[index], output / "acceptance")
         gate.require(evidence["result"]["status"] == "passed", "Upgrade case failed")
-        read_plan(root, prepared)
+        read_plan(root, prepared, support_root=support_root)
         evidence["status"] = "passed"
     finally:
         # If provisioning failed before this command, the collector instead sees
@@ -149,12 +166,15 @@ def execute_case(root: Path, prepared: Path, index: int, output: Path) -> None:
         write_json(output / "result.json", evidence)
 
 
-def collect(root: Path, prepared: Path, reports: Path, output: Path) -> list[Path]:
+def collect(root: Path, prepared: Path, reports: Path, output: Path, *, support_root: Path | None = None) -> list[Path]:
     """Accept exactly one passing result per planned case, then expose the tested bytes."""
-    plan, wheel = read_plan(root, prepared)
+    plan, wheel = read_plan(root, prepared, support_root=support_root)
     output.mkdir(parents=True, exist_ok=False)
     evidence: dict[str, Any] = {
         "policy_sha256": plan["policy_sha256"],
+        "source_sha": plan["source_sha"],
+        "support_policy_sha256": plan.get("support_policy_sha256"),
+        "support_sha": plan.get("support_sha"),
         "target_version": plan["target_version"],
         "target_wheel_sha256": plan["artifacts"][wheel.name],
         "mode": plan["mode"],
@@ -200,7 +220,7 @@ def collect(root: Path, prepared: Path, reports: Path, output: Path) -> list[Pat
                 plan["mode"] == "supported-upgrades", "Update the reviewed support declaration before publication"
             )
         # Verify the originals once more before exposing a publication set.
-        read_plan(root, prepared)
+        read_plan(root, prepared, support_root=support_root)
         evidence["complete"] = len(selected) == len(cases)
         if plan["selection"] == "seekdb-code":
             evidence["status"] = "selected-cases-passed"
@@ -244,6 +264,9 @@ def main() -> None:
     collection.add_argument("--prepared", type=Path, required=True)
     collection.add_argument("--reports", type=Path, required=True)
     collection.add_argument("--output", type=Path, required=True)
+    for command in (preparation, execution, collection):
+        command.add_argument("--root", type=Path, default=gate.ROOT)
+        command.add_argument("--support-root", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -251,21 +274,34 @@ def main() -> None:
             if args.release_event:
                 notes = json.loads(args.release_event.read_text(encoding="utf-8"))["release"]["body"] or ""
             matrix = prepare(
-                gate.ROOT,
+                args.root.resolve(),
                 args.dist.resolve(),
                 args.output.resolve(),
                 release=args.release,
                 release_notes=notes,
                 selection=args.selection,
+                support_root=args.support_root,
             )
             print(json.dumps(matrix))
             if github_output := os.environ.get("GITHUB_OUTPUT"):
                 with Path(github_output).open("a", encoding="utf-8") as stream:
                     stream.write(f"matrix={json.dumps(matrix)}\n")
         elif args.command == "case":
-            execute_case(gate.ROOT, args.prepared.resolve(), args.index, args.output.resolve())
+            execute_case(
+                args.root.resolve(),
+                args.prepared.resolve(),
+                args.index,
+                args.output.resolve(),
+                support_root=args.support_root,
+            )
         else:
-            accepted = collect(gate.ROOT, args.prepared.resolve(), args.reports.resolve(), args.output.resolve())
+            accepted = collect(
+                args.root.resolve(),
+                args.prepared.resolve(),
+                args.reports.resolve(),
+                args.output.resolve(),
+                support_root=args.support_root,
+            )
             if accepted:
                 print(f"Complete upgrade matrix passed; {len(accepted)} validated distributions")
             else:

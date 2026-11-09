@@ -305,8 +305,25 @@ powercontext capabilities
 
 ## 更新或替换安装
 
-<!-- upgrade-support:start -->
 数据库升级支持以通过完整 Server 验收的来源版本、目标产物、后端和配置组合为准。
+
+<!-- upgrade-support:start -->
+支持的数据库升级组合（其他组合不受支持）：
+
+| Source | Target | Backend | Configuration |
+| --- | --- | --- | --- |
+| 1.3.0 | 1.5.1 | sqlite | full-server-no-vector |
+| 1.3.0 | 1.5.1 | seekdb | full-server-no-vector |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-no-vector |
+| 1.3.0 | 1.5.1 | sqlite | full-server-code |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-code |
+| 1.3.0 | 1.5.1 | seekdb | full-server-code |
+| 1.3.0 | 1.5.1 | sqlite | full-server-vector |
+| 1.3.0 | 1.5.1 | seekdb | full-server-vector |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-vector |
+| 1.3.0 | 1.5.1 | sqlite | full-server-vector-code |
+| 1.3.0 | 1.5.1 | seekdb | full-server-vector-code |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-vector-code |
 <!-- upgrade-support:end -->
 
 已有部署应保持当前可用版本，等待来源版本及后端具备已验收的升级路径。试用新建部署时，请使用独立程序环境、数据库位置和端口。替换程序包不会完成数据库迁移；备份也不能使不受支持的迁移变为可用。

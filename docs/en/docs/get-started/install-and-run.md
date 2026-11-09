@@ -305,8 +305,25 @@ For a long-running process, Docker, authentication, or remote access, continue w
 
 ## Update or replace an installation
 
-<!-- upgrade-support:start -->
 Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance.
+
+<!-- upgrade-support:start -->
+Supported database upgrades (other combinations are unsupported):
+
+| Source | Target | Backend | Configuration |
+| --- | --- | --- | --- |
+| 1.3.0 | 1.5.1 | sqlite | full-server-no-vector |
+| 1.3.0 | 1.5.1 | seekdb | full-server-no-vector |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-no-vector |
+| 1.3.0 | 1.5.1 | sqlite | full-server-code |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-code |
+| 1.3.0 | 1.5.1 | seekdb | full-server-code |
+| 1.3.0 | 1.5.1 | sqlite | full-server-vector |
+| 1.3.0 | 1.5.1 | seekdb | full-server-vector |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-vector |
+| 1.3.0 | 1.5.1 | sqlite | full-server-vector-code |
+| 1.3.0 | 1.5.1 | seekdb | full-server-vector-code |
+| 1.3.0 | 1.5.1 | oceanbase | full-server-vector-code |
 <!-- upgrade-support:end -->
 
 Keep existing deployments on their working version until their source version and backend have an accepted upgrade path. To evaluate a fresh installation, use a separate program environment, database location, and port. Replacing the installed package does not migrate its database. Backups do not make an unsupported migration supported.

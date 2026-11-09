@@ -13,6 +13,10 @@ on:
         description: Publish for new databases only, without database upgrade acceptance
         type: boolean
         default: false
+      use_reviewed_upgrade_support:
+        description: Use the default branch support declaration for the tagged policy and run full upgrade acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,6 +40,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
           SKIP_UPGRADE_ACCEPTANCE: ${{ inputs.skip_upgrade_acceptance || false }}
+          USE_REVIEWED_UPGRADE_SUPPORT: ${{ inputs.use_reviewed_upgrade_support || false }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           python - <<'PY'
@@ -51,10 +56,13 @@ jobs:
               raise SystemExit("Invalid PowerContext Release tag")
           manual = os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
           skip = os.environ["SKIP_UPGRADE_ACCEPTANCE"] == "true"
+          reviewed_support = os.environ.get("USE_REVIEWED_UPGRADE_SUPPORT", "false") == "true"
           if manual and os.environ["GITHUB_REF"] != "refs/heads/" + os.environ["DEFAULT_BRANCH"]:
               raise SystemExit("Run manual publication from the default branch; select the target with release_tag")
           if skip and not manual:
               raise SystemExit("Skipping upgrade acceptance requires explicit manual dispatch")
+          if reviewed_support and (not manual or skip):
+              raise SystemExit("Reviewed upgrade support requires manual publication with full upgrade acceptance")
 
           def get(path):
               request = urllib.request.Request(
@@ -105,6 +113,7 @@ jobs:
       source_ref: ${{ needs.resolve-release.outputs.source_sha }}
       release_tag: ${{ needs.resolve-release.outputs.tag }}
       skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
+      support_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.use_reviewed_upgrade_support && github.sha || '' }}
       internal_runner: false
 
   dsh-release-build:

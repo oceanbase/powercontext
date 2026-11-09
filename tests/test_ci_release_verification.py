@@ -148,6 +148,7 @@ def resolve_publication(tmp_path, monkeypatch):
     for key, value in {
         "RELEASE_TAG": tag,
         "SKIP_UPGRADE_ACCEPTANCE": "false",
+        "USE_REVIEWED_UPGRADE_SUPPORT": "false",
         "GITHUB_EVENT_NAME": "workflow_dispatch",
         "GITHUB_REF": "refs/heads/master",
         "DEFAULT_BRANCH": "master",
@@ -186,6 +187,20 @@ def test_release_preserves_github_prerelease_for_npm_channel(resolve_publication
     run, release, _ = resolve_publication
     release["prerelease"] = True
     assert run()["prerelease"] == "true"
+
+
+@pytest.mark.parametrize("skip", [False, True])
+def test_reviewed_support_requires_full_acceptance_and_keeps_the_tagged_source(resolve_publication, monkeypatch, skip):
+    run, _, root = resolve_publication
+    monkeypatch.setenv("GITHUB_SHA", "b" * 40)
+    monkeypatch.setenv("USE_REVIEWED_UPGRADE_SUPPORT", "true")
+    monkeypatch.setenv("SKIP_UPGRADE_ACCEPTANCE", str(skip).lower())
+    if skip:
+        with pytest.raises(SystemExit, match="full upgrade acceptance"):
+            run()
+        assert not (root / "output").exists()
+    else:
+        assert run()["source_sha"] == "a" * 40
 
 
 def test_upgrade_bypass_requires_explicit_new_database_notice(resolve_publication, monkeypatch):

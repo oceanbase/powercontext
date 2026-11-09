@@ -230,6 +230,36 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十二个必�
 `release.published` 后运行，无法阻止之前手动发布 GitHub Release 页面，因此必须先运行上述命令再发布页面。
 `make publish` 要求提供 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md`，并在上传软件包之前执行相同门禁。
 
+### 在创建发布标签后确认升级支持
+
+如果标签产物已通过完整矩阵，但汇总报错
+`Update the reviewed support declaration before publication`，向默认分支提交 PR，将
+`release/upgrade-support.json` 的模式改为 `supported-upgrades`，执行
+`uv run python scripts/upgrade_release_gate.py --write-docs` 更新两种语言的安装指南，并更新中英文 Release 说明。
+其他策略字段必须保持一致。PR 经审阅并合并后再触发发布。
+
+将更新后安装指南中的完整英文支持表原样加入已发布的 GitHub Release 正文，同时加入中文对应表，
+删除与其矛盾的 `upgrade-required` 或跳过升级验收声明。
+`powercontext-v1.5.1` 的完整中英文正文位于 `release/notes/powercontext-v1.5.1.md`。
+然后在 **Actions → Release → Run workflow** 选择 `master`，填写已有标签，勾选
+`use_reviewed_upgrade_support`，保持 `skip_upgrade_acceptance` 不勾选：
+
+```bash
+gh workflow run release.yml --repo oceanbase/powercontext --ref master \
+  -f release_tag=powercontext-v1.5.1 \
+  -f use_reviewed_upgrade_support=true \
+  -f skip_upgrade_acceptance=false
+```
+
+该选项默认关闭，仅允许从默认分支手动发布。工作流固定本次提交中的支持声明和验收工具，
+包构建和验收测试仍使用原标签提交。两份策略除 `mode` 外必须完全一致，包括目标版本、持久化审阅记录、
+来源版本、后端和配置矩阵。两份安装指南及在线 Release 声明都必须通过校验。
+支持声明检出目录放在包构建目录之外。
+
+全部十二种配置将针对本次冻结的标签产物重新验收。缺失、失败、跳过或混用的证据仍阻止发布。
+准备计划和汇总证据记录两份策略的哈希、标签源码提交及支持声明提交。该选项不复用旧流水线的验收结果，
+也不移动标签；不能与 `skip_upgrade_acceptance` 同时启用，且不会修改标签中的文档或网站部署所用的发布源码。
+
 ### 手动跳过升级验收发布
 
 **Release** 工作流提供 `workflow_dispatch` 参数 `skip_upgrade_acceptance`，默认 `false`。
