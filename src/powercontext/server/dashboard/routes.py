@@ -61,6 +61,7 @@ PAGES = {
     "review",
     "processing",
     "runtime",
+    "observability",
     "entry",
     *RECORDS,
 }
@@ -879,7 +880,7 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
             from powercontext.server.dashboard.runtime import load_runtime
 
             await load_runtime(api, ctx)
-        elif not await load_builtin_page(api, request, ctx):
+        elif page != "observability" and not await load_builtin_page(api, request, ctx):
             descriptor = await default_scope(api, ctx)
             if ctx["scope"]:
                 await scope_context(api, ctx, descriptor)
@@ -905,7 +906,7 @@ async def screen(request: Request, page: str) -> HTMLResponse:  # noqa: C901 -- 
             from powercontext.server.dashboard.usage import finish_usage
 
             await finish_usage(api, request, ctx)
-        if page not in {"entry", "runtime"} and not ctx["scope_descriptor"] and not ctx["record_only"]:
+        if page not in {"entry", "runtime", "observability"} and not ctx["scope_descriptor"] and not ctx["record_only"]:
             await load_entry_scopes(api, request, ctx)
     except ReadError as error:
         if error.status == 401:

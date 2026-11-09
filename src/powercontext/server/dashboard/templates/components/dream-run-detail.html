@@ -1,0 +1,74 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+{% set run = processing_run %}
+{% set manifest = run.input_manifest %}
+<div id="dream-run-detail" class="dream-run-reading" {% if run.status in ['queued','running'] %}hx-get="{{ link() }}" hx-trigger="every 3s" hx-select="#dream-run-detail" hx-target="this" hx-swap="outerHTML"{% endif %}>
+  <h1 class="page-title mb-3">{{ t.get('processing_operation_' ~ run.operation,run.operation) }}</h1>
+  <a class="processing-back" href="{{ link(run_id=none) }}">← {{ t.processing_runs }}</a>
+  <ol class="processing-steps">
+    <li class="processing-step" data-dream-stage="input">
+      <div class="processing-step-heading"><span class="processing-step-number">1</span><h2>{{ t.processing_history_input }}</h2></div>
+      <div class="processing-step-body">
+        {% if manifest %}
+          {% for ref in manifest.artifacts[:20] %}
+          {% set preview = processing_memory_previews.get(ref.family ~ '/' ~ ref.artifact_id ~ '@' ~ ref.revision) %}
+          <div class="processing-document">
+            {% if preview and preview.title %}<strong>{{ preview.title }}</strong>{% endif %}
+            {% if preview and preview.text %}<p class="dream-input-text mb-0">{{ preview.text|truncate(600,true) }}</p>
+              {% if preview.text|length > 600 %}<details class="processing-more"><summary>{{ t.processing_saved_content }}</summary><p class="dream-input-text mt-2 mb-0">{{ preview.text }}</p></details>{% endif %}
+            {% elif preview and preview.error %}{{ read_error(preview.error,t.processing_run_inputs) }}
+            {% else %}<p class="text-secondary mb-0">{{ t.processing_output_content_unavailable }}</p>{% endif %}
+          </div>
+          {% endfor %}
+          {% if manifest.artifacts|length > 20 %}<p class="processing-caption mt-3">{{ t.processing_dream_more_inputs.format(count=manifest.artifacts|length - 20) }}</p>{% endif %}
+          {% if not manifest.artifacts %}<p class="text-secondary mb-0">{{ t.processing_dream_source_inputs.format(count=processing_run_sources|length) }}</p>{% endif %}
+          {% if manifest.incomplete %}<p class="text-warning mt-3 mb-0">{{ t.processing_inputs_incomplete }}</p>{% endif %}
+        {% else %}<p class="text-secondary mb-0">{{ t.processing_inputs_unknown }}</p>{% endif %}
+      </div>
+    </li>
+    <li class="processing-step" data-dream-stage="process">
+      <div class="processing-step-heading"><span class="processing-step-number">2</span><h2>{{ t.processing_history_process }}</h2><span class="badge bg-{{ {'queued':'secondary','running':'blue','succeeded':'green','failed':'red'}[run.status] }}-lt ms-auto">{{ t['processing_status_' ~ run.status] }}</span></div>
+      <div class="processing-step-body">
+        {% if run.outcome %}<p class="mb-2"><strong>{{ t.get('processing_outcome_' ~ run.outcome,t.processing_outcome_unrecorded) }}</strong></p>{% endif %}
+        {% if run.reason %}<p class="dream-input-text mb-2">{{ run.reason }}</p>{% endif %}
+        {% if run.error %}<p class="text-danger mb-2"><code>{{ run.error }}</code></p>{% endif %}
+        {% if run.status in ['queued','running'] %}<p class="text-secondary mb-2">{{ t.processing_execution_pending }}</p>{% endif %}
+        <div class="document-meta"><span>{{ t.processing_started }} {{ run.started_at|display_time if run.started_at else t.unknown_value }}</span><span>{{ t.processing_completed }} {{ run.completed_at|display_time if run.completed_at else t.unknown_value }}</span><span>{{ t.processing_attempts }} {{ run.attempt_count }}</span></div>
+      </div>
+    </li>
+    <li class="processing-step" data-dream-stage="output">
+      <div class="processing-step-heading"><span class="processing-step-number">3</span><h2>{{ t.processing_history_output }}</h2></div>
+      <div class="processing-step-body">
+        {% if run.candidate %}<a class="btn btn-sm btn-primary" href="{{ link('review', candidate_id=run.candidate.candidate_id, candidate_kind=run.candidate.kind, review_status=none, resource_type='all') }}">{{ t.processing_open_candidate }} →</a><p class="processing-caption mt-2">{{ t.processing_candidate_scope }}</p>
+        {% elif run.status in ['queued','running'] %}<p class="text-secondary mb-0">{{ t.processing_execution_pending }}</p>
+        {% else %}<p class="text-secondary mb-0">{{ t.processing_dream_no_output }}</p>{% endif %}
+      </div>
+    </li>
+  </ol>
+  <details class="processing-record-details" data-dream-references>
+    <summary>{{ t.note_record_identity }}</summary>
+    <div class="processing-details-body">
+      <dl class="processing-facts"><dt>{{ t.note_record_identity }}</dt><dd>{{ run.run_id }}</dd><dt>{{ t.processing_accepted }}</dt><dd>{{ run.accepted_at|display_time }}</dd><dt>{{ t.processing_prompt_version }}</dt><dd>{{ run.prompt_version }}</dd></dl>
+      {% if run.target %}{% set destination = artifact_destination(run.target) %}<div class="processing-document"><strong>{{ t.processing_target }}</strong><div class="processing-reference">{% if destination %}<a href="{{ destination }}">{{ run.target.family }}/{{ run.target.artifact_id }}@{{ run.target.revision }}</a>{% else %}{{ run.target.family }}/{{ run.target.artifact_id }}@{{ run.target.revision }}{% endif %}</div></div>{% endif %}
+      {% if manifest %}
+        {% for ref in manifest.artifacts if ref != run.target %}{% set destination = artifact_destination(ref) %}<div class="processing-document processing-reference">{% if destination %}<a href="{{ destination }}">{{ t.get(ref.family,ref.family) }} · {{ ref.artifact_id }}@{{ ref.revision }}</a>{% else %}{{ ref.family }}/{{ ref.artifact_id }}@{{ ref.revision }}{% endif %}</div>{% endfor %}
+        {% for source in processing_run_sources %}<div class="processing-document processing-reference">{{ source.source_type }}/{{ source.source_id }}{% if source.source_type == 'content' %} <a href="{{ link(record_type='sources',source_id=source.source_id,run_id=none) }}">{{ t.source_original }} →</a>{% endif %}</div>{% endfor %}
+      {% endif %}
+      <p class="mt-3">{{ t.processing_inputs_scope }}</p>
+      <p class="mb-0">{{ t.processing_attempts_scope }}</p>
+    </div>
+  </details>
+</div>

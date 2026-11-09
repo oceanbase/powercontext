@@ -104,10 +104,10 @@ async def load_memory_previews(api, ctx):
         await _load_memory_preview(api, ctx, ref)
 
 
-async def load_run_previews(api, ctx):
+async def load_run_previews(api, ctx, runs):
     """Resolve only the visible Dream inputs, with the same bounded read as results."""
     selected = {}
-    for run in ctx.get("processing_items") or []:
+    for run in runs:
         manifest = run.get("input_manifest")
         if manifest is None:
             continue
@@ -292,7 +292,7 @@ async def _load_source_history(api, request, ctx, scope, source_id) -> None:
 async def _load_list_context(api, ctx, scope):
     """Read source diagnostics or Dream input previews for the visible list."""
     if ctx["processing_kind"] == "dreams":
-        await load_run_previews(api, ctx)
+        await load_run_previews(api, ctx, ctx["processing_items"])
         return
     if ctx["processing_kind"] != "sources":
         return
@@ -343,6 +343,7 @@ async def load_processing(api, request, ctx):
     if run_id is not None:
         ctx["processing_run"] = await api.read(f"/v1/scopes/{scope}/dream/{segment(run_id)}")
         ctx["processing_run_sources"] = manifest_sources(ctx["processing_run"])
+        await load_run_previews(api, ctx, [ctx["processing_run"]])
         return
     family = {"sources": "processing_sources", "dreams": "processing_runs"}.get(kind, "processing_attempts")
     params: dict[str, str | int] = {"limit": PAGE_SIZE}

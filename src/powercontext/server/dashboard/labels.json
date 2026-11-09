@@ -1002,5 +1002,9 @@
   "method_dream_selection_notice": "选择要提炼的内容，再发起后台任务。可在 Dream 处理中查看进度，生成结果仍需审核。",
   "method_start_task": "发起任务",
   "method_selected_count": "已选择 {count} 项",
-  "method_generation_cancel": "取消"
+  "method_generation_cancel": "取消",
+  "processing_dream_no_output": "本次任务未记录新的产物。",
+  "processing_dream_more_inputs": "另有 {count} 项输入，可展开引用查看。",
+  "processing_dream_source_inputs": "本次任务记录了 {count} 项资料引用，可展开查看。",
+  "observability": "云原生监控"
 }

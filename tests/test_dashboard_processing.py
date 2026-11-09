@@ -242,6 +242,9 @@ def test_processing_dream_displays_persisted_outcome_and_inputs(tmp_path, outcom
                 )
                 assert queued.status_code == 200, queued.text
                 assert LABELS["processing_status_queued"] in queued.text
+                assert queued.text.index('data-dream-stage="input"') < queued.text.index('data-dream-stage="process"')
+                assert queued.text.index('data-dream-stage="process"') < queued.text.index('data-dream-stage="output"')
+                assert 'hx-trigger="every 3s"' in queued.text
                 await process_pending(runtime)
                 run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
                 assert run.status == ("failed" if outcome == "failed" else "succeeded"), run.error
@@ -250,6 +253,25 @@ def test_processing_dream_displays_persisted_outcome_and_inputs(tmp_path, outcom
                 )
                 assert page.status_code == 200, page.text
                 assert source.source_id in page.text
+                inputs = re.search(r'<li\b[^>]*data-dream-stage="input"[^>]*>(.*?)</li>', page.text, re.S)
+                assert inputs is not None
+                assert "The replay test passed without duplicate writes." in inputs[1]
+                assert "UNSELECTED_SIBLING_SENTINEL" not in page.text
+                references = re.search(
+                    r"<details\b([^>]*)data-dream-references([^>]*)>(.*?)</details>", page.text, re.S
+                )
+                assert references is not None
+                assert "open" not in (references[1] + references[2]).split()
+                assert source.source_id in references[3]
+                assert citation.artifact_id in references[3]
+                assert page.text.index('data-dream-stage="input"') < page.text.index('data-dream-stage="process"')
+                assert page.text.index('data-dream-stage="process"') < page.text.index('data-dream-stage="output"')
+                output = re.search(r'<li\b[^>]*data-dream-stage="output"[^>]*>(.*?)</li>', page.text, re.S)
+                assert output is not None
+                if run.candidate:
+                    assert run.candidate.candidate_id in output[1]
+                else:
+                    assert LABELS["processing_dream_no_output"] in output[1]
                 if outcome == "failed":
                     assert run.error and run.error in page.text
                     assert LABELS["processing_status_failed"] in page.text

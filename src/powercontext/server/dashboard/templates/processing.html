@@ -107,6 +107,11 @@ limitations under the License.
       me .processing-facts dd { margin-bottom: .75rem; }
     }
 
+    me .dream-run-reading { max-width: 960px; margin-inline: auto; font-size: .8125rem; line-height: 1.7; }
+    me .dream-run-reading .processing-step-heading h2 { font-size: inherit; margin: 0; }
+    me .dream-run-reading .dream-input-text { font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+    me .dream-run-reading :is(.processing-caption, .document-meta, .processing-details-body) { font-size: .75rem; }
+
     me .processing-reading { font-size: .875rem; line-height: 1.8; }
     me .processing-reading-title { font-size: 1.5rem; line-height: 1.4; font-weight: 600; }
     me .processing-reading .processing-step-heading h2 { font-size: 1.25rem; line-height: 1.5; font-weight: 600; }
@@ -135,7 +140,7 @@ limitations under the License.
     me .processing-reading .processing-secondary-disclosure { margin-top: 1.75rem; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--tblr-border-color); border-radius: 0; background: transparent; }
     me .processing-history-entry .processing-attempt-title { margin-bottom: 0; }
     me .processing-history-flow .processing-step-number { width: 1.5rem; height: 1.5rem; font-size: .75rem; }
-    me .processing-attempt-details .processing-input-body { font-size: .875rem; line-height: 1.7; padding: .15rem 0 .15rem 1rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    me .processing-attempt-details .processing-input-body { font-size: inherit; line-height: 1.7; padding: .15rem 0 .15rem 1rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     me .processing-reading .processing-older-attempts { margin-top: 1.25rem; padding: 0; border: 0; }
     me .processing-reading .processing-result-header { margin-bottom: .75rem; }
   </style>
@@ -174,52 +179,7 @@ limitations under the License.
 
     </div>
   {% elif processing_run %}
-    {% set run = processing_run %}
-    <div id="dream-run-detail" {% if run.status in ['queued','running'] %}hx-get="{{ link() }}" hx-trigger="every 3s" hx-select="#dream-run-detail" hx-target="this" hx-swap="outerHTML"{% endif %}>
-    {% set manifest = run.input_manifest %}
-    <h1 class="page-title mb-4">{{ t.get('processing_operation_' ~ run.operation,run.operation) }}</h1>
-    <a class="d-inline-block mb-3" href="{{ link(run_id=none) }}">← {{ t.processing_runs }}</a>
-    <div class="processing-grid">
-      <div>
-        <section class="card mb-3">
-          <div class="card-header"><h2 class="card-title mb-0">{{ t.get('processing_operation_' ~ run.operation, run.operation) }}</h2><span class="badge bg-{{ {'queued':'secondary','running':'blue','succeeded':'green','failed':'red'}[run.status] }}-lt ms-auto">{{ t['processing_status_' ~ run.status] }}</span></div>
-          <div class="card-body">
-            <h3 class="h3">{{ t.get('processing_outcome_' ~ run.outcome, t.processing_outcome_unrecorded) if run.outcome else t.processing_outcome_unrecorded }}</h3>
-            {% if run.reason %}<p>{{ run.reason }}</p>{% endif %}
-            {% if run.error %}<p class="text-danger processing-reference">{{ run.error }}</p>{% endif %}
-            {% if run.candidate %}<a class="btn" href="{{ link('review', candidate_id=run.candidate.candidate_id, candidate_kind=run.candidate.kind, review_status=none, resource_type='all') }}">{{ t.processing_open_candidate }} →</a><p class="small text-secondary mt-3 mb-0">{{ t.processing_candidate_scope }}</p>{% endif %}
-            {% if not run.outcome and run.status in ['queued', 'running'] %}<p class="text-secondary mb-0">{{ t.processing_execution_pending }}</p>{% endif %}
-          </div>
-        </section>
-        <section class="card">
-          <div class="card-header"><h2 class="card-title mb-0">{{ t.processing_run_inputs }}</h2></div>
-          <div class="card-body">
-            {% if run.target %}{% set destination = artifact_destination(run.target) %}<div class="processing-document"><div class="small text-secondary mb-2">{{ t.processing_target }}</div>{% if destination %}<a href="{{ destination }}">{{ t.get(run.target.family, run.target.family) }} · {{ t.revision }} {{ run.target.revision }}</a>{% else %}<span class="processing-reference">{{ run.target.family }}/{{ run.target.artifact_id }}@{{ run.target.revision }}</span>{% endif %}</div>{% endif %}
-            {% if manifest %}
-              {% for ref in manifest.artifacts if ref != run.target %}<div class="processing-document">{% set destination = artifact_destination(ref) %}{% if destination %}<a href="{{ destination }}">{{ t.get(ref.family, ref.family) }} · {{ t.revision }} {{ ref.revision }}</a>{% endif %}<div class="small text-secondary processing-reference">{{ ref.artifact_id }}@{{ ref.revision }}</div></div>{% endfor %}
-              {% for source in processing_run_sources %}<div class="processing-document"><div class="small processing-reference">{{ source.source_type }}/{{ source.source_id }}</div>{% if source.source_type == 'content' %}<a href="{{ link(record_type='sources', source_id=source.source_id, run_id=none) }}">{{ t.source_original }} →</a>{% endif %}</div>{% endfor %}
-              {% if manifest.incomplete %}<p class="text-warning mt-3">{{ t.processing_inputs_incomplete }}</p>{% endif %}
-            {% else %}<p class="text-secondary">{{ t.processing_inputs_unknown }}</p>{% endif %}
-            <p class="text-secondary small border-top pt-3 mt-3 mb-0">{{ t.processing_inputs_scope }}</p>
-          </div>
-        </section>
-      </div>
-      <aside>
-        <section class="card mb-3">
-          <div class="card-header"><h2 class="card-title mb-0">{{ t.processing_execution_record }}</h2></div>
-          <div class="card-body"><dl class="processing-facts mb-0">
-            <dt>{{ t.processing_accepted }}</dt><dd>{{ run.accepted_at }}</dd>
-            <dt>{{ t.processing_started }}</dt><dd>{{ run.started_at or t.unknown_value }}</dd>
-            <dt>{{ t.processing_completed }}</dt><dd>{{ run.completed_at or t.unknown_value }}</dd>
-            <dt>{{ t.processing_attempts }}</dt><dd>{{ run.attempt_count }}</dd>
-            <dt>{{ t.processing_prompt_version }}</dt><dd>{{ run.prompt_version }}</dd>
-          </dl></div>
-        </section>
-        <section class="card mb-3"><div class="card-body"><h2 class="card-title">{{ t.processing_history_coverage }}</h2><p class="text-secondary mb-0">{{ t.processing_attempts_scope }}</p></div></section>
-        <details class="card"><summary class="card-body">{{ t.note_record_identity }}</summary><div class="card-body pt-0 processing-reference">{{ run.run_id }}</div></details>
-      </aside>
-    </div>
-    </div>
+    {% include 'components/dream-run-detail.html' %}
   {% else %}
     {% if processing_kind == 'overview' %}
       {% if processing_bounds %}<p class="text-secondary small" data-overview-window>{{ t.observation_window.format(start=processing_bounds[0]|display_time, end=processing_bounds[1]|display_time) }}</p>{% endif %}

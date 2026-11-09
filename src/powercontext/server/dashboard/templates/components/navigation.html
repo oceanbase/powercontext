@@ -36,7 +36,7 @@ limitations under the License.
       <p class="small mt-2" data-scope-error {% if not errors.get('scopes') %}hidden{% endif %}>{{ t.scope_list_unavailable }}</p>
     </form>
     <ul class="navbar-nav w-100" aria-label="{{ t.navigation }}">
-      {% for group, items in [('', ['home']), ('nav_runtime', ['source_records', 'dream_records']), ('nav_content', ['notes', 'topics', 'methods', 'profile']), ('nav_work', ['review', 'handoff']), ('nav_observation', ['usage', 'usage_resources', 'runtime']), ('nav_configuration', ['prompts'])] %}
+      {% for group, items in [('', ['home']), ('nav_runtime', ['source_records', 'dream_records']), ('nav_content', ['notes', 'topics', 'methods', 'profile']), ('nav_work', ['review', 'handoff']), ('nav_observation', ['usage', 'usage_resources', 'runtime', 'observability']), ('nav_configuration', ['prompts'])] %}
       {% if group %}<li class="nav-section" role="presentation">{{ t[group] }}</li>{% endif %}
       {% for item in items %}
       {% set processing_entry = {'source_records':'sources','processing':'attempts','dream_records':'dreams'}.get(item) %}

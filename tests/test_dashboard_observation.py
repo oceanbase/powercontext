@@ -399,6 +399,7 @@ def test_sidebar_sections_follow_the_business_workflow(dashboard):
         "/dashboard/usage",
         "/dashboard/usage",
         "/dashboard/runtime",
+        "/dashboard/observability",
         "/dashboard/prompts",
     ]
     groups = [
