@@ -289,7 +289,7 @@ def post(client, path, body):
 
 
 @contextmanager
-def server(python, environment, work, log):
+def server(python, environment, work, log, *, readiness_timeout=180):
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
@@ -310,7 +310,7 @@ def server(python, environment, work, log):
                 trust_env=False,
                 timeout=30,
             ) as client:
-                deadline = time.monotonic() + 180
+                deadline = time.monotonic() + readiness_timeout
                 while True:
                     assert process.poll() is None, f"Server exited before readiness; see {log}"
                     try:
