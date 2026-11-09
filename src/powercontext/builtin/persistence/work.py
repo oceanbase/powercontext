@@ -571,7 +571,13 @@ class WorkRepository:
         logical_key_locked = await _lock_logical_key_if_present(connection, unlocked.logical_key)
         work = await _lock_work(connection, work_id)
         _verify_version(work, expected_version)
-        if work.status in {WorkStatus.CANCELLING, WorkStatus.SUCCEEDED, WorkStatus.CANCELLED}:
+        if work.status is WorkStatus.CANCELLING:
+            # The contract promises that repeating a cancellation with the current
+            # version is idempotent. The accepted request already recorded the
+            # cancellation and moved the row to cancelling, so the replay reports
+            # that state without repeating any effect.
+            return work
+        if work.status in {WorkStatus.SUCCEEDED, WorkStatus.CANCELLED}:
             raise WorkStateConflictError(work_id, expected_version, work.status, work.state_version)
         if not logical_key_locked:
             raise StaleWorkClaimError(work_id)
