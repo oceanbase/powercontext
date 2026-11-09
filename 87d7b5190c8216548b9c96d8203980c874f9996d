@@ -1,0 +1,21 @@
+desktop/VALIDATION.md
+  s_2543359c25a9ab::t_9a1648a7319cb3 2633-2667
+desktop/src-tauri/src/connections/compatibility.json
+  s_2543359c25a9ab::t_301a8155545cfe 1249-1270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "87d7b5190c8216548b9c96d8203980c874f9996d",
+  "prompts": {},
+  "sessions": {
+    "s_2543359c25a9ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bbae-f485-7de0-8db5-7a3658e08ff1",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
