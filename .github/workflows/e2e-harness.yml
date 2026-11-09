@@ -733,7 +733,12 @@ jobs:
           POWERCONTEXT_E2E_OCEANBASE_DIAGNOSTICS: ${{ runner.temp }}/oceanbase-acceptance/replay-failure
           POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
-        run: make harness-compose-acceptance
+        run: |
+          # Nested task containers do not inherit the runner's outbound proxy.
+          # Keep an explicitly configured task-reachable proxy; otherwise use the runner's route.
+          # The harness passes this secret by reference to Harbor, including during agent setup.
+          export POWERCONTEXT_E2E_AGENT_PROXY_URL="${POWERCONTEXT_E2E_AGENT_PROXY_URL:-${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}}"
+          make harness-compose-acceptance
 
       - name: Upload OceanBase native reports
         if: always() && matrix.database == 'oceanbase'
