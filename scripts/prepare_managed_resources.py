@@ -34,14 +34,14 @@ import stat
 import subprocess
 import tarfile
 import tempfile
-import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 import build_intel_managed_wheel
+from download_ci_asset import download
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
@@ -52,7 +52,6 @@ _SCRIPTS = Path(__file__).resolve().parent
 _INTERPRETERS = _SCRIPTS / "managed_resource_interpreters.json"
 _BUILD_TOOLS = _SCRIPTS / "managed_resource_build_tools.json"
 _SOURCE_REPOSITORY = "https://github.com/oceanbase/powercontext"
-_WINDOWS_ACCESS_VIOLATION = 0xC0000005
 
 
 def json_bytes(value: object) -> bytes:
@@ -68,6 +67,7 @@ def producer_identity() -> dict[str, Any]:
     """Bind executable producer sources separately from the packaged Server source."""
     names = (
         "prepare_managed_resources.py",
+        "download_ci_asset.py",
         "produce_managed_resources.py",
         "build_ops_bundle.py",
         "managed_resource_interpreters.json",
@@ -106,83 +106,6 @@ def target_spec(target: str, *, native: bool = True) -> dict[str, Any]:
     return spec
 
 
-def _download_release_asset(url: str, partial: Path, env: dict[str, str], deadline: float) -> bool:
-    """Use the official API for the same pinned asset when the release route fails."""
-    parsed = urlsplit(url)
-    parts = parsed.path.strip("/").split("/")
-    if (
-        parsed.netloc != "github.com"
-        or parsed.query
-        or len(parts) != 6
-        or parts[2:4] != ["releases", "download"]
-        or shutil.which("gh") is None
-        or time.monotonic() >= deadline
-    ):
-        return False
-    owner, repository, _, _, tag, filename = parts
-    endpoint = f"repos/{owner}/{repository}/releases"
-    command = ["gh", "api", "--hostname", "github.com"]
-    result = subprocess.run(
-        [*command, f"{endpoint}/tags/{quote(unquote(tag), safe='')}"],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=min(30, max(0.001, deadline - time.monotonic())),
-    )
-    assets = json.loads(result.stdout)["assets"]
-    asset = next((asset for asset in assets if asset["name"] == unquote(filename)), None)
-    if asset is None or type(asset.get("id")) is not int or asset["id"] <= 0:
-        raise ValueError("The pinned GitHub release asset is unavailable")
-    partial.unlink(missing_ok=True)
-    with partial.open("xb") as output:
-        subprocess.run(
-            [*command, f"{endpoint}/assets/{asset['id']}", "--header", "Accept: application/octet-stream"],
-            check=True,
-            stdout=output,
-            env=env,
-            timeout=max(0.001, deadline - time.monotonic()),
-        )
-    return True
-
-
-def _download(url: str, partial: Path) -> None:
-    deadline = time.monotonic() + 1900
-    command = [
-        "curl",
-        "--fail",
-        "--silent",
-        "--show-error",
-        "--location",
-        "--proto",
-        "=https",
-        "--proto-redir",
-        "=https",
-        "--retry",
-        "2",
-        "--max-time",
-        "1800",
-        "--output",
-        str(partial),
-        url,
-    ]
-    env = environment()
-    for attempt in range(2):
-        try:
-            subprocess.run(command, check=True, env=env, timeout=max(0.001, deadline - time.monotonic()))
-        except subprocess.CalledProcessError as error:
-            if error.returncode in {5, 6, 7, 18, 22, 28, 35, 52, 55, 56} and _download_release_asset(
-                url, partial, env, deadline
-            ):
-                return
-            # curl's own retry cannot recover from a process crash on the Windows runner.
-            if attempt or error.returncode != _WINDOWS_ACCESS_VIOLATION:
-                raise
-            partial.unlink(missing_ok=True)
-        else:
-            return
-
-
 def acquire(item: dict[str, Any], destination: Path, cache: Path | None = None) -> None:
     """Download fixed HTTPS bytes; incomplete and corrupt files cannot be reused."""
     if destination.exists():
@@ -202,7 +125,7 @@ def acquire(item: dict[str, Any], destination: Path, cache: Path | None = None) 
     partial = destination.with_name(destination.name + ".partial")
     if partial.exists():
         raise ValueError("An incomplete input exists; inspect it before retrying")
-    _download(item["url"], partial)
+    download(item["url"], partial, env=environment())
     if sha256(partial) != item["sha256"] or ("size" in item and partial.stat().st_size != item["size"]):
         raise ValueError("Downloaded input does not match its locked digest and size")
     partial.rename(destination)
