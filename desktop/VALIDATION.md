@@ -1,5 +1,40 @@
 # Desktop validation
 
+## Server 7d716b64 Work Ledger v1.5.1 protocol qualification
+
+`sqlite-work-ledger-7d716b64-v1` qualifies the thirteen bundled Desktop operations
+against SQLite Server source `7d716b64bafbc963b7e05d2e7a0e354fb301b305`, the merge of
+master `2291237a` (release 1.5.1) into the durable Work Ledger line. The merged
+contract carries both lineages — master's 1.5.1 release edits and the
+`list_operations` / `DurableOperationPage` additions — so a new record was generated
+instead of reusing either side's digest.
+
+- Normalized OpenAPI SHA-256 is `020226490ea629c5241f37cdc0d859535c7dc5f1b928362a7dc383edb46ea1c4`.
+- The wheel is `powercontext-1.2.1.dev809+g7d716b64b-py3-none-any.whl`.
+- Wheel SHA-256 is `f96659527b00c34f1598a1aac16a8cd74109e0dd3acde32633ce505fe1c831f3`.
+
+On 2026-11-09, macOS arm64 / Python 3.14.7 / debug probe passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path and enforced Provider modes through the
+ordinary product manager (`qualificationSource: bundled product records`). Anonymous
+loopback and static Bearer record p50/p95 of 8.0/8.5 ms and 17.6/18.6 ms for exact reads,
+21.9/143.9 ms and 36.0/38.1 ms for saves, and 10.4/11.0 ms and 18.4/19.4 ms for searches
+over twenty samples (eleven for saves). The enforced Provider scenario additionally
+records identity-change invalidation, same-identity revocation denying exact reads,
+51-Scope pagination and scoped native authorization retained while Server discovery
+returns 403.
+
+The wheel was built from a clean tree at `7d716b64`; the report still records a dirty
+Desktop working tree because this qualification record and section are written in the
+same checkout afterwards. The product run uses debug probe SHA-256
+`d1f620b7603ad7705754bbfbaa6f69f645092630f1fb73b3025a4f221d7df6ea` and retains its
+report under the ignored `.artifacts/real-server.json`. These are loopback fixture
+processes on one macOS host; they do not establish an external deployment, installed UI,
+signing or release acceptance, and the upgrade policy remains `upgrade-required`.
+
+```sh
+python desktop/tests/real_server.py --product-qualification sqlite-work-ledger-7d716b64-v1
+```
+
 ## Server 2cb8da31 Work Ledger protocol qualification
 
 `sqlite-work-ledger-2cb8da31-v1` qualifies the thirteen bundled Desktop operations
