@@ -20,7 +20,7 @@ import asyncio
 from collections.abc import Iterable
 from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -175,6 +175,21 @@ class DurableScheduler:
             lease = await self._fence(connection, lease)
             scan = await self._coordination.load_scan(connection, discoverer.name)
             now = await database_now(connection)
+            if scan is None:
+                cron_next_run = getattr(discoverer, "next_run_at", None)
+                if cron_next_run is not None:
+                    # A cron discoverer is due at its own boundary, not when the
+                    # process happens to start: enabling or restarting a fresh
+                    # deployment must not trigger an unscheduled run.
+                    next_run_at = self._future_run(discoverer, cron_next_run(now), now)
+                    await self._coordination.save_scan(
+                        connection,
+                        discoverer.name,
+                        next_run_at=next_run_at,
+                        continuation=None,
+                        expected_version=None,
+                    )
+                    return lease
         if scan is not None and scan.next_run_at > now:
             return lease
 
@@ -204,9 +219,7 @@ class DurableScheduler:
             now = await database_now(connection)
             next_run = getattr(discoverer, "next_run_at", None)
             next_run_at = now + timedelta(seconds=discoverer.interval_seconds) if next_run is None else next_run(now)
-            if next_run_at <= now:
-                message = f"discoverer {discoverer.name} produced a non-future next run"
-                raise ValueError(message)
+            next_run_at = self._future_run(discoverer, next_run_at, now)
             await self._coordination.save_scan(
                 connection,
                 discoverer.name,
@@ -215,6 +228,14 @@ class DurableScheduler:
                 expected_version=None if scan is None else scan.state_version,
             )
         return lease
+
+    def _future_run(self, discoverer: WorkDiscoverer, next_run_at: datetime, now: datetime, /) -> datetime:
+        """Reject a schedule that would run again in the past."""
+
+        if next_run_at <= now:
+            message = f"discoverer {discoverer.name} produced a non-future next run"
+            raise ValueError(message)
+        return next_run_at
 
     async def _fence(self, connection: AsyncConnection, lease: CoordinatorLease, /) -> CoordinatorLease:
         """Renew leadership inside a write transaction.

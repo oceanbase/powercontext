@@ -27,9 +27,15 @@ from powercontext.builtin.persistence.coordination import (
     StaleCoordinatorLeaseError,
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import COORDINATION_TABLES, SCHEDULER_LEASES_TABLE, WORK_TABLES
+from powercontext.builtin.persistence.tables import (
+    COORDINATION_TABLES,
+    SCHEDULER_LEASES_TABLE,
+    SCHEDULER_SCANS_TABLE,
+    WORK_TABLES,
+)
 from powercontext.builtin.persistence.work import WorkRepository, WorkSpec
 from powercontext.builtin.runtime.config import CoordinationConfig
+from powercontext.builtin.runtime.cron import CronSchedule
 from powercontext.builtin.runtime.durable_scheduler import DiscoveryPage, DurableScheduler
 
 
@@ -60,6 +66,25 @@ class _ExpiringDiscoverer:
         del continuation, limit
         await self._expire()
         return DiscoveryPage(specs=(_spec(3),), continuation=None)
+
+
+class _CronDiscoverer:
+    """A Profile-style discoverer that is only due at its cron boundary."""
+
+    name = "cron-discoverer"
+    interval_seconds = 60.0
+
+    def __init__(self) -> None:
+        self.pages: list[str | None] = []
+        self.schedule = CronSchedule.parse("0 0 1 1 *", "UTC")
+
+    def next_run_at(self, now: datetime, /) -> datetime:
+        return self.schedule.next_after(now)
+
+    async def page(self, continuation: str | None, limit: int) -> DiscoveryPage:
+        del limit
+        self.pages.append(continuation)
+        return DiscoveryPage(specs=(_spec(1),), continuation=None)
 
 
 class _PausingDiscoverer:
@@ -209,6 +234,47 @@ def test_scheduler_renews_leadership_when_a_page_outlives_the_lease() -> None:
             assert all(scan is not None for scan in scans)
             assert lease["owner_id"] == "scheduler-a"
             assert lease["fence"] == 2
+
+            await scheduler.stop()
+
+    asyncio.run(scenario())
+
+
+def test_cron_discoverer_waits_for_its_first_boundary_instead_of_running_at_startup() -> None:
+    async def scenario() -> None:
+        tables = WORK_TABLES + COORDINATION_TABLES
+        async with SQLiteProfile.open(SQLiteConfig(), tables=tables) as profile:
+            discoverer = _CronDiscoverer()
+            scheduler = DurableScheduler(
+                database=profile.database,
+                scheduler_id="scheduler-a",
+                discoverers=(discoverer,),
+                config=CoordinationConfig(),
+            )
+            assert await scheduler.tick() is True
+
+            async with profile.database.transaction() as connection:
+                scan = await CoordinationRepository().load_scan(connection, discoverer.name)
+                assert await WorkRepository().list(connection) == ()
+            # A fresh deployment records its first boundary and discovers nothing:
+            # enabling a schedule must not fire an unscheduled run at startup.
+            assert scan is not None
+            assert scan.continuation is None
+            assert discoverer.pages == []
+
+            async with profile.database.transaction() as connection:
+                await connection.execute(
+                    update(SCHEDULER_SCANS_TABLE)
+                    .where(SCHEDULER_SCANS_TABLE.c.discoverer == discoverer.name)
+                    .values(next_run_at=datetime(2000, 1, 1, tzinfo=UTC))
+                )
+            assert await scheduler.tick() is True
+            async with profile.database.transaction() as connection:
+                work = await WorkRepository().list(connection)
+                due = await CoordinationRepository().load_scan(connection, discoverer.name)
+            assert len(work) == 1
+            assert discoverer.pages == [None]
+            assert due is not None and due.next_run_at > datetime.now(UTC).replace(tzinfo=None)
 
             await scheduler.stop()
 
