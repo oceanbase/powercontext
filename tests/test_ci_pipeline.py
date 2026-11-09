@@ -262,18 +262,13 @@ def test_compatibility_and_upgrade_matrices_have_bounded_runner_bursts():
     upgrade = workflow("upgrade-release.yml")["jobs"]["cases"]["strategy"]
     assert int(upgrade["max-parallel"]) <= 3
     assert upgrade["fail-fast"] is False  # Complete upgrade evidence remains mandatory.
-    native = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]["strategy"]
+    jobs = workflow("managed-resource-candidates.yml")["jobs"]
+    native = jobs["candidate"]["strategy"]
     native_job = workflow("managed-resource-candidates.yml")["jobs"]["candidate"]
     assert int(native["max-parallel"]) <= 2
-    rows = {row["target"]: row for row in native["matrix"]["include"]}
-    assert set(rows) == {
-        "linux-x86_64",
-        "windows-x86_64",
-        "macos-arm64",
-        "macos-x86_64",
-    }
-    assert rows["linux-x86_64"]["optional"] is True
-    assert all(rows[target]["optional"] is False for target in rows if target != "linux-x86_64")
+    assert native["matrix"] == "${{ fromJSON(needs.select-targets.outputs.matrix) }}"
+    selector = jobs["select-targets"]
+    assert selector["outputs"]["matrix"] == "${{ steps.select.outputs.matrix }}"
     assert native_job["continue-on-error"] == "${{ matrix.optional }}"
 
 
@@ -290,9 +285,8 @@ def test_managed_resource_linux_is_outside_required_main_result_gate():
 def test_managed_resource_workflow_filters_called_targets():
     jobs = workflow("managed-resource-candidates.yml")["jobs"]
     candidate = jobs["candidate"]
-    condition = candidate["if"]
-    assert "inputs.targets == ''" in condition
-    assert "contains(fromJSON(inputs.targets), matrix.target)" in condition
+    assert "matrix.target" not in candidate["if"]
+    assert "inputs.targets" in jobs["select-targets"]["steps"][0]["env"]["TARGETS"]
 
 
 def test_ci_result_ignores_only_the_separate_optional_linux_call():

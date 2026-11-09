@@ -29,11 +29,44 @@ jobs:
     with:
       baseline-workflow: managed-resource-candidates.yml
 
+  select-targets:
+    name: Select candidate targets
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          rows = [
+              {"target": "linux-x86_64", "runner": "ubuntu-24.04", "optional": True},
+              {"target": "windows-x86_64", "runner": "windows-2025", "optional": False},
+              {"target": "macos-arm64", "runner": "macos-15", "optional": False},
+              {"target": "macos-x86_64", "runner": "macos-15-intel", "optional": False},
+          ]
+          requested = os.environ["TARGETS"].strip()
+          selected = set(json.loads(requested)) if requested else {row["target"] for row in rows}
+          if not selected:
+              raise SystemExit("at least one managed-resource target must be selected")
+          known = {row["target"] for row in rows}
+          unknown = selected - known
+          if unknown:
+              raise SystemExit(f"unsupported managed-resource target(s): {sorted(unknown)}")
+          print("matrix=" + json.dumps(
+              {"include": [row for row in rows if row["target"] in selected]},
+              separators=(",", ":"),
+          ))
+          PY
+
   candidate:
-    needs: changes
+    needs: [changes, select-targets]
     if: >-
       ${{ !cancelled() &&
-          (inputs.targets == '' || contains(fromJSON(inputs.targets), matrix.target)) &&
           ((inputs.suites == '' && needs.changes.result != 'success') ||
            fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').managed_resources) }}
     name: Candidate ${{ matrix.target }}
@@ -44,20 +77,7 @@ jobs:
     strategy:
       max-parallel: 2
       fail-fast: false
-      matrix:
-        include:
-          - target: linux-x86_64
-            runner: ubuntu-24.04
-            optional: true
-          - target: windows-x86_64
-            runner: windows-2025
-            optional: false
-          - target: macos-arm64
-            runner: macos-15
-            optional: false
-          - target: macos-x86_64
-            runner: macos-15-intel
-            optional: false
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     defaults:
