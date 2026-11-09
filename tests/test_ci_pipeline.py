@@ -218,6 +218,11 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
             assert "needs.quality.result == 'success'" in job["if"]
 
 
+def test_website_build_uses_the_standard_internal_runner():
+    runs_on = workflow("master.yml")["jobs"]["check-website"]["runs-on"]
+    assert "powercontext-ci-standard" in runs_on
+
+
 def test_installation_roles_use_only_two_python_runners():
     job = workflow("master.yml")["jobs"]["isolated-installations"]
     assert job["strategy"]["matrix"] == {"python-version": ["3.11", "3.14"]}
