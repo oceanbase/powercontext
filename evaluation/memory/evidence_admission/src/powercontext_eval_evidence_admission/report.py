@@ -38,22 +38,23 @@ def code_identity(suite: Suite) -> dict:
 
     package = Path(__file__).resolve().parent
     repository = next((parent for parent in package.parents if (parent / ".git").exists()), None)
+    runtime = Path(powercontext.__file__).resolve().parent
     python_paths = sorted(package.glob("*.py"))
+    runtime_paths = sorted(runtime.rglob("*.py"))
     data_paths = sorted((*suite.root.glob("manifests/*.json"), *suite.root.glob("fixtures/*.json")))
     dependency_paths = (
         [repository / name for name in ("pyproject.toml", "uv.lock", "evaluation/pyproject.toml", "evaluation/uv.lock")]
         if repository
         else []
     )
-    paths = python_paths + data_paths + dependency_paths
+    paths = python_paths + runtime_paths + data_paths + dependency_paths
     suite_hash = digest(
         {
             **{f"python/{path.name}": file_hash(path) for path in python_paths},
             **{f"data/{path.relative_to(suite.root)}": file_hash(path) for path in data_paths},
         }
     )
-    runtime = Path(powercontext.__file__).resolve().parent
-    runtime_hash = digest({str(path.relative_to(runtime)): file_hash(path) for path in sorted(runtime.rglob("*.py"))})
+    runtime_hash = digest({str(path.relative_to(runtime)): file_hash(path) for path in runtime_paths})
     revision = "unavailable"
     if repository is not None:
         revision = subprocess.run(
