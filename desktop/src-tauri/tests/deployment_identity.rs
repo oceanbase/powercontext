@@ -19,7 +19,7 @@ mod common;
 use powercontext_desktop::{
     connections::{
         profiles::ProfileRepository,
-        session::{ConnectionManager, WriteStatus},
+        session::{CompatibilityProfile, ConnectionManager, WriteStatus},
     },
     credentials::NativeVault,
     error::SafeError,
@@ -85,6 +85,16 @@ impl Fixture {
         Self::with_profile(authenticated, None).await
     }
     async fn with_profile(authenticated: bool, compatibility: Option<&str>) -> Self {
+        Self::with_evidence(authenticated, compatibility, false).await
+    }
+    async fn with_legacy_evidence(authenticated: bool, compatibility: &str) -> Self {
+        Self::with_evidence(authenticated, Some(compatibility), true).await
+    }
+    async fn with_evidence(
+        authenticated: bool,
+        compatibility: Option<&str>,
+        synthetic_legacy_evidence: bool,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let state = Arc::new(Mutex::new(State {
@@ -217,14 +227,34 @@ impl Fixture {
             Arc::new(NativeVault),
         )
         .unwrap();
-        let manager = Arc::new(if compatibility.is_some() {
+        let mut profile_id = compatibility.unwrap_or(common::PROFILE_ID).to_owned();
+        let manager = Arc::new(if synthetic_legacy_evidence {
+            let profiles: Vec<CompatibilityProfile> =
+                serde_json::from_str(include_str!("../src/connections/compatibility.json"))
+                    .unwrap();
+            let mut evidence = profiles.into_iter().find(|p| p.id == profile_id).unwrap();
+            let contract: Value =
+                serde_json::from_str(include_str!("../src/transport/operations.json")).unwrap();
+            // These HTTP fixtures prove fencing behavior, not release compatibility.
+            // Keep the bundled qualification records unchanged when the client contract advances.
+            profile_id = format!("synthetic-{}", evidence.id);
+            evidence.id = profile_id.clone();
+            evidence.authenticated_clients = Some(
+                [(
+                    contract["contractSha256"].as_str().unwrap().to_owned(),
+                    "Synthetic HTTP fixture; not release qualification".to_owned(),
+                )]
+                .into(),
+            );
+            ConnectionManager::with_compatibility(repository, vec![evidence])
+        } else if compatibility.is_some() {
             ConnectionManager::new(repository)
         } else {
             common::connection_manager(repository)
         });
         let saved = manager.save_profile(serde_json::from_value(json!({"id":null,"revision":null,"name":"Synthetic",
             "endpoint":endpoint,"authentication":if authenticated {"bearer"} else {"unauthenticated_loopback"},
-            "caPem":null,"compatibility":compatibility.unwrap_or(common::PROFILE_ID),"keepCredential":false,
+            "caPem":null,"compatibility":profile_id,"keepCredential":false,
             "credential":if authenticated {json!({"secret":"synthetic-token","storage":"session_only"})} else {Value::Null}})).unwrap()).unwrap();
         Self {
             manager,
@@ -270,9 +300,9 @@ impl Fixture {
 }
 
 #[tokio::test]
-async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal_fence() {
+async fn authenticated_legacy_evidence_keeps_its_operations_and_principal_fence() {
     for compatibility in ["sqlite-atomic-112db11e-v1", "sqlite-atomic-3cefa45a-v1"] {
-        let fixture = Fixture::with_profile(true, Some(compatibility)).await;
+        let fixture = Fixture::with_legacy_evidence(true, compatibility).await;
         fixture.state.lock().unwrap().discovery.1["feature_contracts"]
             .as_object_mut()
             .unwrap()
@@ -323,9 +353,20 @@ async fn bundled_authenticated_legacy_profile_keeps_its_operations_and_principal
 }
 
 #[tokio::test]
+async fn unqualified_bundled_legacy_profiles_do_not_enable_current_client_operations() {
+    for compatibility in ["sqlite-atomic-112db11e-v1", "sqlite-atomic-3cefa45a-v1"] {
+        let fixture = Fixture::with_profile(true, Some(compatibility)).await;
+        let state = fixture.manager.check(&fixture.id, true).await.unwrap();
+        let report = state.active.unwrap().report;
+        assert!(!report.compatibility_verified);
+        assert!(report.supported_operations.is_empty());
+    }
+}
+
+#[tokio::test]
 async fn authenticated_client_evidence_requires_bearer_mode_and_a_valid_principal() {
     for bearer in [false, true] {
-        let fixture = Fixture::with_profile(bearer, Some("sqlite-atomic-112db11e-v1")).await;
+        let fixture = Fixture::with_legacy_evidence(bearer, "sqlite-atomic-112db11e-v1").await;
         fixture.state.lock().unwrap().principal = None;
         let state = fixture.manager.check(&fixture.id, true).await.unwrap();
         let report = state.active.unwrap().report;
@@ -742,7 +783,7 @@ async fn a_late_readiness_probe_cannot_repopulate_an_invalidated_report() {
 #[tokio::test]
 async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
     for status in [404, 401, 403, 503] {
-        let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
+        let fixture = Fixture::with_legacy_evidence(true, "sqlite-atomic-112db11e-v1").await;
         let generation = fixture.activate().await;
         fixture.state.lock().unwrap().discovery = (status, json!({}));
         assert!(fixture.manager.scopes(generation, "", None).await.is_err());
@@ -752,7 +793,7 @@ async fn failed_discovery_cannot_downgrade_an_active_deployment_to_legacy() {
 
 #[tokio::test]
 async fn a_legacy_session_requires_explicit_recheck_when_discovery_appears() {
-    let fixture = Fixture::with_profile(true, Some("sqlite-atomic-112db11e-v1")).await;
+    let fixture = Fixture::with_legacy_evidence(true, "sqlite-atomic-112db11e-v1").await;
     fixture.state.lock().unwrap().discovery = (404, json!({}));
     let generation = fixture.activate().await;
     assert!(fixture.manager.scopes(generation, "", None).await.is_ok());
