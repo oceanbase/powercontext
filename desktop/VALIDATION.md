@@ -2630,3 +2630,38 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-source-plugins-c00dbf14-v1 \
   --wheel desktop/.artifacts/source-framework-upgrade/powercontext-0.1.dev1509+gc00dbf145-py3-none-any.whl
 ```
+
+## Artifact replacement conflict protocol qualification
+
+`sqlite-artifact-conflict-8dc98e49-v1` qualifies all thirteen Desktop protocol operations against
+Server source `8dc98e49b50e807489e01e973b34a0f059b4c9c5`, whose OpenAPI contract declares the
+existing `409 Conflict` response for Artifact replacement.
+
+- Normalized OpenAPI SHA-256: `ad2a39e2dd633c373dc8cd24af22a8923bcbda1c84fc3825ba21349f0496b878`.
+- Wheel: `powercontext-1.5.1.dev220+g8dc98e49b-py3-none-any.whl`.
+- Wheel SHA-256: `b55cb9e5fc48f81774113e5c36c08c6130ecfe593837defbca977a79db19f8e8`.
+- Native debug probe SHA-256: `efd20544e7e393f3fe94b90c9b0ed8d80677fbe712b518361c16af248bda79ea`.
+
+All 749 packaged runtime files match the recorded Git source after CRLF normalization, with no
+missing or extra runtime files. On 2026-11-09, macOS 26.2 ARM64, Python 3.12.15 and Rust 1.95.0
+passed anonymous loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider
+modes through the ordinary product ConnectionManager. The probe was built with the product
+Cargo lock, without `ci-fixtures`, and with this bundled qualification record.
+
+The unchanged `desktop/tests/real_server.py` exercised discovery, Scope selection, statistics,
+Memory save/search/revision reads and committed writes with lost responses without replay.
+The Provider mode also verified Principal changes, same-identity revocation, scoped authorization
+and 51 same-title Scopes. The report identifies `bundled-product` qualification in all four
+successful cases. The wheel, source verification, build log and report are retained under ignored
+`desktop/.artifacts/artifact-conflict/`. This qualifies the observed local SQLite protocol;
+installed WebView, native credential persistence, other operating systems and release acceptance
+remain outside this run.
+
+Reproduce against the recorded artifact:
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-artifact-conflict-8dc98e49-v1 \
+  --wheel desktop/.artifacts/artifact-conflict/powercontext-1.5.1.dev220+g8dc98e49b-py3-none-any.whl
+```
