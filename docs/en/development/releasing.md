@@ -200,7 +200,7 @@ CI upgrade acceptance, so a passing gate does not certify its upgrade path. Sour
 from public PyPI and recorded with the target artifact.
 
 The source-specific chains start at `s1300` for 1.3.0 and `r1400` for 1.4.0, join the shared
-`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`.
+`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
 They share the target contract while preserving their frozen execution
 history and journal lineage for subsequent registered upgrades. Application versions do not identify schema
 checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its bridge preserves those records and
