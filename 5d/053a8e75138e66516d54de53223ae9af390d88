@@ -1,0 +1,29 @@
+scripts/run_atomic_memory_clean_migration.py
+  s_98c1bb9fbaf7be::t_bcf991df87adf2 68,73-74,77-80,82
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_bcf991df87adf2 359,377-378
+docs/en/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_76a0948fc939a8 82-83
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_9e112671c8fccb 20,187-189,191-196,238,241-242,244-245,248-250,252-256,262-265,272-279
+  s_98c1bb9fbaf7be::t_472cc776cb8a1a 190,246-247,251,257-261,266-271
+  s_98c1bb9fbaf7be::t_bcf991df87adf2 243
+docs/zh/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_76a0948fc939a8 82-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5d053a8e75138e66516d54de53223ae9af390d88",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
