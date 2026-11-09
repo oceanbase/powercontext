@@ -34,11 +34,12 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import build_intel_managed_wheel
 from packaging.requirements import Requirement
@@ -105,7 +106,48 @@ def target_spec(target: str, *, native: bool = True) -> dict[str, Any]:
     return spec
 
 
+def _download_release_asset(url: str, partial: Path, env: dict[str, str], deadline: float) -> bool:
+    """Use the official API for the same pinned asset when the release route fails."""
+    parsed = urlsplit(url)
+    parts = parsed.path.strip("/").split("/")
+    if (
+        parsed.netloc != "github.com"
+        or parsed.query
+        or len(parts) != 6
+        or parts[2:4] != ["releases", "download"]
+        or shutil.which("gh") is None
+        or time.monotonic() >= deadline
+    ):
+        return False
+    owner, repository, _, _, tag, filename = parts
+    endpoint = f"repos/{owner}/{repository}/releases"
+    command = ["gh", "api", "--hostname", "github.com"]
+    result = subprocess.run(
+        [*command, f"{endpoint}/tags/{quote(unquote(tag), safe='')}"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=min(30, max(0.001, deadline - time.monotonic())),
+    )
+    assets = json.loads(result.stdout)["assets"]
+    asset = next((asset for asset in assets if asset["name"] == unquote(filename)), None)
+    if asset is None or type(asset.get("id")) is not int or asset["id"] <= 0:
+        raise ValueError("The pinned GitHub release asset is unavailable")
+    partial.unlink(missing_ok=True)
+    with partial.open("xb") as output:
+        subprocess.run(
+            [*command, f"{endpoint}/assets/{asset['id']}", "--header", "Accept: application/octet-stream"],
+            check=True,
+            stdout=output,
+            env=env,
+            timeout=max(0.001, deadline - time.monotonic()),
+        )
+    return True
+
+
 def _download(url: str, partial: Path) -> None:
+    deadline = time.monotonic() + 1900
     command = [
         "curl",
         "--fail",
@@ -127,8 +169,12 @@ def _download(url: str, partial: Path) -> None:
     env = environment()
     for attempt in range(2):
         try:
-            subprocess.run(command, check=True, env=env, timeout=1900)
+            subprocess.run(command, check=True, env=env, timeout=max(0.001, deadline - time.monotonic()))
         except subprocess.CalledProcessError as error:
+            if error.returncode in {5, 6, 7, 18, 22, 28, 35, 52, 55, 56} and _download_release_asset(
+                url, partial, env, deadline
+            ):
+                return
             # curl's own retry cannot recover from a process crash on the Windows runner.
             if attempt or error.returncode != _WINDOWS_ACCESS_VIOLATION:
                 raise
