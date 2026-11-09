@@ -40,7 +40,7 @@ Scope
 
 For Kubernetes deployments with external OceanBase, see the [Helm chart and deployment guide](deploy/helm/powercontext/README.md).
 
-*Recordings show the running Dashboard and native Desktop preview in their dark themes, using synthetic demonstration records.*
+*Recordings show the running Dashboard and native Desktop preview in their light themes, using synthetic demonstration records.*
 
 ### Memory — decisions and constraints that outlive a session
 
@@ -49,7 +49,7 @@ Memory is a revisioned Artifact family for reusable decisions, constraints, fact
 > "Don't refactor the old auth module — mobile is still using it."
 > Context this expensive shouldn't depend on someone repeating it in every session.
 
-![Dashboard in dark mode: search project memories and inspect a saved revision](docs/assets/readme-dashboard-demo.gif)
+![Dashboard in light mode: search project memories and inspect a saved revision](docs/assets/readme-dashboard-demo.gif)
 
 ### Handoff — the current state, not the whole transcript
 
@@ -61,7 +61,7 @@ Work Contract → Prepared Handoff → Acknowledgement → Task Outcome
 
 `handoff_current_work` captures an inspected boundary and returns a temporary Prepared Handoff. Committing it creates a durable Revision only when the user wants a milestone. The receiver resolves the Handoff and records an Acknowledgement; a Task Outcome preserves the final status and checks as Source evidence. The [Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) projects the latest Revision in each selected Scope — read-only, and it never rewrites Memory.
 
-![Dashboard in dark mode: open a Handoff and inspect its saved revision](docs/assets/readme-dashboard-handoff.gif)
+![Dashboard in light mode: open a Handoff and inspect its saved revision](docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — what worked, reviewed before it is reused
 
@@ -75,7 +75,7 @@ A managed Skill holds a name, a discovery description, instructions, validation 
 
 Connect to a Server, select an exact Scope, and search its memories. Open a result to read its saved revision, or save a note for the next session. The [Desktop preview](desktop/README.md) is intended for internal validation; signed distribution and platform release qualification remain separate work.
 
-![Native Desktop in dark mode: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
+![Native Desktop in light mode: search project memories and read an exact saved revision](docs/assets/readme-desktop-demo.gif)
 
 [Operational metrics](docs/en/docs/operate/observability.md) expose dependency observations, processing freshness, and attempt latency, including a protected metrics-only endpoint for standalone background deployments.
 
