@@ -21,7 +21,7 @@ import json
 
 import pytest
 from pydantic_ai.embeddings import TestEmbeddingModel
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent
@@ -46,9 +46,11 @@ class _Provider:
     async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         request = messages[-1]
         assert isinstance(request, ModelRequest)
-        retries = [part for part in request.parts if isinstance(part, RetryPromptPart)]
+        retries = [
+            part for part in request.parts if isinstance(part, UserPromptPart) and REVISE_RULE in str(part.content)
+        ]
         self.retry_feedback.extend(str(part.content) for part in retries)
-        (prompt,) = (
+        prompt = next(
             part.content
             for message in messages
             if isinstance(message, ModelRequest)
@@ -185,15 +187,16 @@ class _PublishedWorkflowProvider:
     async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         request = messages[-1]
         assert isinstance(request, ModelRequest)
-        retries = [part for part in request.parts if isinstance(part, RetryPromptPart)]
-        self.retry_feedback.extend(str(part.content) for part in retries)
-        (prompt,) = (
+        prompt = next(
             part.content
             for message in messages
             if isinstance(message, ModelRequest)
             for part in message.parts
             if isinstance(part, UserPromptPart)
         )
+        # FunctionModel receives normalized retry feedback as another user prompt.
+        retries = [part for part in request.parts if isinstance(part, UserPromptPart) and part.content != prompt]
+        self.retry_feedback.extend(str(part.content) for part in retries)
         value = json.loads(str(prompt))
         if "proposal" not in value:
             return _json({
