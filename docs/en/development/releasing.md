@@ -207,8 +207,8 @@ checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its b
 creates empty retained tables for the common target shape, without inventing old Candidate history. Adding other
 sources requires exact captures, a registered bridge and actual acceptance; the two registered paths do not certify
 all releases between them or the target.
-The current `upgrade-required` policy mandates positive acceptance on all three backends while keeping upgrade
-support unverified. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
+The current `upgrade-required` policy mandates positive acceptance on all three backends with support limited to combinations
+that pass full Server acceptance. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
 must fail. Neither a fresh-install-only declaration nor correct rejection of an old database satisfies this gate.
 After the full migration implementation and acceptance pass, review the declaration, set `supported-upgrades`, and
 regenerate the installation notices before publication. Both modes run the same mandatory acceptance matrix.

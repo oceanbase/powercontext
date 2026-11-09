@@ -188,7 +188,7 @@ pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
 以便后续已登记版本继续升级。应用版本不等于 schema 检查点；1.4.0
 的 Candidate 已是当前格式，桥接原样保留记录，并创建空保留表以统一目标结构，不虚构旧 Candidate 历史。
 登记其他来源需要精确采集、明确桥接和真实验收；这两条已登记路径不能证明其间及目标之前所有发行版均兼容。
-当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，同时保持“升级支持尚未验证”的声明。
+当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，支持范围以通过完整 Server 验收的组合为准。
 所有配置均使用 `tests/release_upgrades/test_full_server.py`，迁移能力缺失必须失败。仅支持新建数据库的声明或
 正确拒绝旧库，都不能满足门禁。完整迁移实现和验收通过后，审查支持范围，将模式改为 `supported-upgrades`，
 并在发布前重新生成安装说明；两种模式都运行相同的必测矩阵。
