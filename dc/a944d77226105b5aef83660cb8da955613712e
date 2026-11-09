@@ -1,0 +1,40 @@
+e2e/bub/tests/test_task_integrity.py
+  s_98c1bb9fbaf7be::t_17ea1f4ca847d8 29
+  s_98c1bb9fbaf7be::t_0a81ed1811b29b 1-28,30-37
+e2e/bub/paired-tasks/api-contract-continuation.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 23
+e2e/bub/tasks/acceptance-01-project-database-decision.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 25
+e2e/bub/tasks/locomo-multihop-football.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 32
+e2e/bub/tasks/locomo-temporal-banker.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 32
+e2e/bub/tasks/locomo-open-pastries.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 32
+e2e/bub/tasks/locomo-support-group.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 32
+e2e/bub/tasks/acceptance-02-failure-policy-timeout.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 24
+e2e/bub/tasks/acceptance-03-failure-policy-followup.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 24
+e2e/bub/paired-tasks/revised-decision-continuation.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 23
+e2e/bub/paired-tasks/project-decision-continuation.yaml
+  s_98c1bb9fbaf7be::t_d4effbeb4874d6 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dca944d77226105b5aef83660cb8da955613712e",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
