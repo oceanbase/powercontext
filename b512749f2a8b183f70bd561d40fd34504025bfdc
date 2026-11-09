@@ -1,0 +1,21 @@
+.github/actions/setup-project-tools/action.yml
+  s_98c1bb9fbaf7be::t_197f94c41158d9 1-44
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_197f94c41158d9 265,861,911,961,1004,1030,1054,1100,1129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b512749f2a8b183f70bd561d40fd34504025bfdc",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}

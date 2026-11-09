@@ -1,0 +1,33 @@
+.github/workflows/deploy-docs.yml
+  s_98c1bb9fbaf7be::t_3f77cdaa10b68d 39-41
+.github/workflows/desktop-candidate.yml
+  s_98c1bb9fbaf7be::t_5d2c9a125babd0 117-118
+.github/workflows/desktop.yml
+  s_98c1bb9fbaf7be::t_872a413f3af19b 63-64,191-192,323-324
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_c2962e3e3cf9ae 328-329,382-383
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_c525a868320742 266-268,865-867,918-920,971-973,1017-1019,1046-1048,1073-1075,1122-1124,1154-1156
+.github/workflows/release.yml
+  s_98c1bb9fbaf7be::t_39b055e829bb49 126-128,308-310
+.github/workflows/upgrade-release.yml
+  s_98c1bb9fbaf7be::t_c635e5b24d6c79 106-108
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_defe891db97daf 21,30,33,224-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ed6f0268927dd3178d19ac6258c7d68fca6b114b",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
