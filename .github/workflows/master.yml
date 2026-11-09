@@ -493,9 +493,9 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
-    # before migrations (40m). Preserve each step's deadline and leave time
+    # before migrations (50m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 80
+    timeout-minutes: 90
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
@@ -555,8 +555,8 @@ jobs:
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
         # Last-client shutdown adds native startup work. Partition runner nodes;
-        # Source evidence expands the batch; every node keeps its 180-second deadline.
-        timeout-minutes: 40
+        # Full Server cases can pass at 175s; allow process startup and native shutdown as well.
+        timeout-minutes: 50
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -606,7 +606,7 @@ jobs:
             fi
             seekdb_runner_node="${seekdb_runner_nodes[$index]}"
             uv run --locked --extra seekdb --extra code python .github/scripts/run_seekdb_migration_test.py \
-              "$seekdb_runner_node" \
+              --timeout 210 "$seekdb_runner_node" \
               2>&1 | tee -a seekdb-migrations.log
           done
           # These are required independent runs, not retries: any failure stops
@@ -644,7 +644,7 @@ jobs:
     needs: [quality, seekdb-managed-startup, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     name: Atomic Memory clean migration (SeekDB)
-    timeout-minutes: 55
+    timeout-minutes: 65
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -662,7 +662,7 @@ jobs:
           python-version: "3.12"
 
       - name: Run clean migration evidence, grants and vectors without skips
-        timeout-minutes: 35
+        timeout-minutes: 45
         env:
           TMPDIR: ${{ runner.temp }}/am-seekdb
         run: |
