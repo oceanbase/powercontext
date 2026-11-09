@@ -210,9 +210,7 @@ class ProcessingStatusInspector:
             details={"binding": binding},
         )
 
-    async def _topic_memory_snapshot(
-        self, connection: Any, scope_id: str, now: datetime
-    ) -> ArtifactProcessingStatus:
+    async def _topic_memory_snapshot(self, connection: Any, scope_id: str, now: datetime) -> ArtifactProcessingStatus:
         if self._topic_memory_status is None:
             return _unsupported_snapshot("topic-memory", scope_id, now, "recovery_not_configured")
         try:
@@ -272,9 +270,7 @@ class ProcessingStatusInspector:
     async def _dream_snapshot(
         self, connection: Any, scope_id: str, family: str, binding: str, now: datetime
     ) -> ArtifactProcessingStatus:
-        operations_for_family = [
-            spec.operation for spec in DREAM_OPERATIONS if spec.binding == binding
-        ]
+        operations_for_family = [spec.operation for spec in DREAM_OPERATIONS if spec.binding == binding]
         if not operations_for_family:
             return _unsupported_snapshot(family, scope_id, now, "no_dream_operations")
 
@@ -377,7 +373,8 @@ class ScopedProcessingStatusApplication:
     """Read-only processing status inspection for one Scope."""
 
     def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
-        from powercontext.limits import validate_scope_id
+        from powercontext.builtin.sources import validate_scope_id
+
         self._runtime = runtime
         self.scope_id = validate_scope_id(scope_id)
 
@@ -385,7 +382,10 @@ class ScopedProcessingStatusApplication:
         recovery = getattr(self._runtime, "_topic_memory_recovery", None)
         topic_status = None if recovery is None else recovery.status
         inspector = ProcessingStatusInspector(topic_memory_status=topic_status)
-        async with self._runtime._scoped_operation(self.scope_id), self._runtime.primary_database.transaction() as connection:
+        async with (
+            self._runtime._scoped_operation(self.scope_id),
+            self._runtime.primary_database.transaction() as connection,
+        ):
             return await inspector.status(connection, self.scope_id, family)
 
 

@@ -88,9 +88,9 @@ class TestProcessingStatusInspector:
         intents.load = AsyncMock(return_value=None)
         inspector = ProcessingStatusInspector(intents=intents)
 
-        result = _run(inspector._source_consumption_snapshot(
-            Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC)
-        ))
+        result = _run(
+            inspector._source_consumption_snapshot(Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC))
+        )
 
         assert result.state is ProcessingStatusState.IDLE
         assert result.progress is None
@@ -102,9 +102,9 @@ class TestProcessingStatusInspector:
         intents.load = AsyncMock(return_value=intent)
         inspector = ProcessingStatusInspector(intents=intents)
 
-        result = _run(inspector._source_consumption_snapshot(
-            Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC)
-        ))
+        result = _run(
+            inspector._source_consumption_snapshot(Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC))
+        )
 
         assert result.state is ProcessingStatusState.PENDING
         assert result.progress is not None
@@ -117,9 +117,9 @@ class TestProcessingStatusInspector:
         intents.load = AsyncMock(return_value=intent)
         inspector = ProcessingStatusInspector(intents=intents)
 
-        result = _run(inspector._source_consumption_snapshot(
-            Mock(), "scope-1", "profile", datetime(2026, 1, 1, tzinfo=UTC)
-        ))
+        result = _run(
+            inspector._source_consumption_snapshot(Mock(), "scope-1", "profile", datetime(2026, 1, 1, tzinfo=UTC))
+        )
 
         assert result.state is ProcessingStatusState.IDLE
         assert result.progress is not None
@@ -129,9 +129,7 @@ class TestProcessingStatusInspector:
     def test_topic_memory_unavailable_when_no_status_provider(self) -> None:
         inspector = ProcessingStatusInspector(topic_memory_status=None)
 
-        result = _run(inspector._topic_memory_snapshot(
-            Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)
-        ))
+        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
 
         assert result.state is ProcessingStatusState.UNKNOWN
         assert result.details["reason"] == "recovery_not_configured"
@@ -140,9 +138,7 @@ class TestProcessingStatusInspector:
         failing_status = AsyncMock(side_effect=RuntimeError("boom"))
         inspector = ProcessingStatusInspector(topic_memory_status=failing_status)
 
-        result = _run(inspector._topic_memory_snapshot(
-            Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)
-        ))
+        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
 
         assert result.state is ProcessingStatusState.UNKNOWN
         assert result.details["reason"] == "status_query_failed"
@@ -152,9 +148,7 @@ class TestProcessingStatusInspector:
         status_fn = AsyncMock(return_value=raw)
         inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
 
-        result = _run(inspector._topic_memory_snapshot(
-            Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)
-        ))
+        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
 
         assert result.state is ProcessingStatusState.IDLE
         assert result.progress is not None
@@ -172,9 +166,7 @@ class TestProcessingStatusInspector:
         status_fn = AsyncMock(return_value=raw)
         inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
 
-        result = _run(inspector._topic_memory_snapshot(
-            Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)
-        ))
+        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
 
         assert result.state is ProcessingStatusState.BLOCKED
         assert result.block is not None
@@ -195,7 +187,11 @@ class TestProcessingStatusInspector:
 
     def test_dream_blocked_when_latest_run_failed(self) -> None:
         failed_run = Mock(
-            run_id="dr_1", operation="derive_skill", status="failed", outcome=None, error="budget_exceeded",
+            run_id="dr_1",
+            operation="derive_skill",
+            status="failed",
+            outcome=None,
+            error="budget_exceeded",
         )
         dream = MagicMock()
         dream.list = AsyncMock(return_value=Mock(runs=(failed_run,)))
@@ -229,7 +225,11 @@ class TestProcessingStatusInspector:
 
     def test_dream_idle_when_latest_succeeded(self) -> None:
         succeeded_run = Mock(
-            run_id="dr_4", operation="derive_skill", status="succeeded", outcome="proposed", error=None,
+            run_id="dr_4",
+            operation="derive_skill",
+            status="succeeded",
+            outcome="proposed",
+            error=None,
         )
         dream = MagicMock()
         dream.list = AsyncMock(return_value=Mock(runs=(succeeded_run,)))
@@ -271,10 +271,18 @@ class TestProcessingStatusInspector:
     def test_dream_filters_runs_by_family_operations(self) -> None:
         """Runs from other families must not appear in this family's status."""
         skill_run = Mock(
-            run_id="dr_skill", operation="derive_skill", status="succeeded", outcome="proposed", error=None,
+            run_id="dr_skill",
+            operation="derive_skill",
+            status="succeeded",
+            outcome="proposed",
+            error=None,
         )
         handoff_run = Mock(
-            run_id="dr_handoff", operation="refresh_handoff", status="failed", outcome=None, error="err",
+            run_id="dr_handoff",
+            operation="refresh_handoff",
+            status="failed",
+            outcome=None,
+            error="err",
         )
         dream = MagicMock()
         dream.list = AsyncMock(return_value=Mock(runs=(skill_run, handoff_run)))
