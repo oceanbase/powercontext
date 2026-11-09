@@ -1,0 +1,209 @@
+integrations/langchain/src/powercontext_langchain/tracing.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-89
+desktop/ui/src/app/Overview.tsx
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 26,36-42,50-56,65-66,107-135,137-152,154-188
+gateway/crates/pc-gateway-app/src/ingress.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 50-51,63-64,71,103-118,409-457,466-471,474,476-490,549-567,662,680,698,730,745
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/goose_chat_empty_arguments/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-23
+docs/en/docs/operate/observability.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 588-589
+gateway/crates/pc-gateway-app/tests/fixtures/republic/LICENSE.fantasy
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-177
+desktop/ui/src/app/messages.ts
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 213-242,456-488
+desktop/ui/src/app/style.css
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 453-545,1334-1335
+desktop/ui/tests/local-server.test.tsx
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 55,64-68
+docs/en/rfcs/2528-dsh-plugin-ui-and-agent-handoff.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-431
+gateway/crates/pc-gateway-app/tests/fixtures/republic/NOTICE.fantasy
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-13
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_simple/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-73
+gateway/crates/pc-gateway-protocol/tests/openai_responses_renderer.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 27,77,86,135,172,222,258,294,329,363
+src/powercontext/builtin/inference/model_payload.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 223-225
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_tool/1.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-36
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_multi_tool_streaming/1.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-58
+evaluation/performance/oceanbase_fts_native/corpus.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-118
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_tool_streaming/1.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-99
+gateway/crates/pc-gateway-app/tests/fixtures/republic/README.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-20
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_tool_streaming/0.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-42
+desktop/ui/src/app/OverviewGuide.tsx
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-262
+gateway/crates/pc-gateway-protocol/src/canonical.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 75-77,84
+pyproject.toml
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 138-139,227
+scripts/benchmark_oceanbase_fts_native.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-1017
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_multi_tool/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-54
+src/powercontext/server/factory.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 111,448-450,475
+tests/langchain_middleware/test_default_langfuse_tracing.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-266
+.github/ci-paths.toml
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 24,103,108
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_tool/1.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-92
+tests/builtin/inference/test_privacy.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 877-902
+tests/test_ci_changes.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 51-52
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_multi_tool/1.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-36
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_tool_streaming/0.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-24
+gateway/crates/pc-gateway-core/src/transcript.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 349,416
+Makefile
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 73-78
+docs/zh/docs/operate/configuration.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 570-576
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 6-7
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/goose_chat_length/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-11
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_tool/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-46
+gateway/tck/upstreams.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-35
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/goose_responses_call_id/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-17
+docs/zh/rfcs/2528-dsh-plugin-ui-and-agent-handoff.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-431
+gateway/crates/pc-gateway-protocol/tests/openai_renderer.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 27,101,112,120,170,205,239,279
+gateway/tck/package.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-9
+desktop/ui/tests/memory.test.tsx
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 321-327,1330-1336
+src/powercontext/server/http_limits.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 26-27,29,72-74,78-98,107-109
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_simple_streaming/0.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-12
+desktop/README.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 54-58
+gateway/README.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 109-112
+src/powercontext/builtin/persistence/oceanbase/atomic_memory_index.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 19-22,25,27-28,31,63-108,141-143,167,175-216,271-360,370-371,374,377-384,410-445,518-529,533-534,536
+tests/e2e/gateway_tck.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-303
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_multi_tool/1.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-120
+evaluation/performance/oceanbase_fts_native/README.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-115
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_multi_tool_streaming/0.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-28
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/goose_responses_refusal/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-21
+gateway/crates/pc-gateway-protocol/src/render.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 94-100,129-135
+  s_98c1bb9fbaf7be::t_c8209506d3e99c 136
+.pre-commit-config.yaml
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 13,16
+gateway/tck/README.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-34
+docs/zh/docs/operate/observability.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 518-519
+desktop/ui/tests/app.test.tsx
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 42
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_tool_streaming/1.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-32
+src/powercontext/client/tracing.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 39-49,53
+desktop/ui/src/app/App.tsx
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 60,369-379
+tests/builtin/persistence/test_oceanbase_atomic_memory_fts.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-253
+desktop/ui/tests/overview.test.tsx
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-436
+gateway/crates/pc-gateway-app/tests/fixtures/republic/LICENSE.goose
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-201
+.gitattributes
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 20-21
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 342-357,417,419-421,436-437,665,693-694,701-702
+  s_98c1bb9fbaf7be::t_032004fdb88572 666
+gateway/crates/pc-gateway-app/tests/gateway_behaviors.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-734
+docs/en/docs/operate/configuration.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 632-642
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_simple_streaming/0.sse
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-45
+.licenserc.yaml
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 72-73
+integrations/langchain/src/powercontext_langchain/middleware.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 35,62,65,138-152,179-188
+scripts/replay_candidate_migration.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 36,192,228-241
+tests/builtin/persistence/test_candidate_schema_replay.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 162,169
+.github/workflows/gateway.yml
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 51-69
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_multi_tool/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-122
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_responses_tool/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-86
+tests/langchain_middleware/test_tracing.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-58
+desktop/README.zh.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 50-54
+tests/test_server_http_limits.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 22,28,35-42,135-267
+  s_98c1bb9fbaf7be::t_da3745adff3502 268-269
+docs/zh/docs/integrations/langchain.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 117-181
+tests/e2e/test_atomic_memory_fts_coverage.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-279
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/fantasy_chat_simple/0.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-36
+tests/builtin/persistence/test_atomic_memory_search_scoring.py
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 196-198,202,206-207
+  s_98c1bb9fbaf7be::t_ef66797bb309ae 208
+gateway/crates/pc-gateway-app/tests/fixtures/responses_rich.json
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 1-55
+docs/en/docs/integrations/langchain.md
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 124-196
+gateway/crates/pc-gateway-core/tests/executor_semantics.rs
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 249,1110,1121,2098,2113,2125,2133,2598
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_7760c3aca10e9a 297-298,377-378,435-436,438,455-461,464,466,473-474,477,485,488-490,492,495,497,499,506,509,523
+  s_98c1bb9fbaf7be::t_7b2f7a60c7d4e2 375-376,383-384,428-434,437,439-454,462-463,465,467-472,475-476,478-484,486-487,491,493-494,496,498,500-505,507-508,510-522
+  s_98c1bb9fbaf7be::t_2373ec6d816189 524
+e2e/bub/uv.lock
+  s_98c1bb9fbaf7be::t_8fd80d9281a773 1840-1843
+evaluation/uv.lock
+  s_98c1bb9fbaf7be::t_f06671014ca0b2 1896-1900
+gateway/tck/package-lock.json
+  s_98c1bb9fbaf7be::t_13ffea4804933a 1-215
+uv.lock
+  s_98c1bb9fbaf7be::t_ead17849fa7b98 258-266,1237,1874-1893,2442-2443,2452,2457-2469,2471-2488,2493,2498,2500,2505,2510-2511,2518,2520,2525,2530,2532,2537,2544,2546,2551,2557,2559,3083-3086,3283-3286,3293-3294,5560-5645
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ef8611fcf3de846ec08d0f5f1cf74b91550230c8",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
