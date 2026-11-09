@@ -18,6 +18,7 @@ import asyncio
 
 import pytest
 
+from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
 from powercontext.builtin.persistence.memory_windows import MemorySourceWindowRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -171,6 +172,7 @@ def test_memory_work_handler_prepares_and_publishes_as_the_background_principal(
             # from this context, so preparation must carry the worker's identity and
             # not fall back to the anonymous local policy.
             execution = seen["atomic_context"]
+            assert isinstance(execution, ArtifactSearchExecutionContext)
             assert execution.principal is security.principal
             assert execution.access is security.access
             assert execution.audit is security.context
