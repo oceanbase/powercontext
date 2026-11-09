@@ -1837,6 +1837,10 @@ resource-build = [
     { name = "tzdata", specifier = ">=2026.3" },
     { name = "zstandard", specifier = ">=0.23,<1" },
 ]
+tracing-tests = [
+    { name = "langfuse", specifier = "==5.0.2" },
+    { name = "powercontext", extras = ["tracing-otlp"] },
+]
 
 [[package]]
 name = "powercontext-bub"

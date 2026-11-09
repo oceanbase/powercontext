@@ -294,8 +294,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Test steps total 230m; reserve 40m for image pull, setup, diagnostics and artifact upload.
-    timeout-minutes: 270
+    # Test steps total 240m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    timeout-minutes: 280
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -372,13 +372,16 @@ jobs:
           test "$(wc -l < "$MIGRATION_REPORTS/startup-snapshot/nodes.txt")" -eq 3
 
       - name: Test long-query retrieval and admission without skips
-        # Four full Server cases per shard at 300s each, plus collection (180s).
-        timeout-minutes: 30
+        env:
+          POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH: legacy
+        # Seven cases in the larger shard: 7 * (300s + 10s grace) + 190s collection < 40m.
+        timeout-minutes: 40
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
             oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
-            tests/e2e/test_atomic_memory_long_fts_query.py
+            tests/e2e/test_atomic_memory_long_fts_query.py \
+            tests/e2e/test_atomic_memory_fts_coverage.py
 
       - name: Collect the database log
         if: always()
@@ -421,6 +424,103 @@ jobs:
       - name: Stop and remove the test instance
         if: always()
         run: timeout 30s docker rm --force atomic-memory-clean-oceanbase || true
+
+  atomic-memory-native-fts-oceanbase:
+    name: Atomic Memory native FTS (OceanBase)
+    needs: changes
+    if: >-
+      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+          ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
+    # Five cases (including three parser fallbacks), bounded setup, and diagnostics.
+    timeout-minutes: 65
+    env:
+      OCEANBASE_CI_CONTAINER: atomic-memory-native-fts-oceanbase
+      OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.4.2.1-101000022026050611
+      POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
+        mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/powercontext_test?charset=utf8mb4
+      POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH: native
+      PYTHONUNBUFFERED: "1"
+      MIGRATION_REPORTS: ${{ github.workspace }}/.powercontext/atomic-memory-native-fts-oceanbase
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Pull the OceanBase image
+        timeout-minutes: 11
+        run: |
+          if ! timeout --kill-after=5s 15s docker image inspect "$OCEANBASE_IMAGE" >/dev/null 2>&1; then
+            timeout --kill-after=10s 600s docker pull "$OCEANBASE_IMAGE"
+          fi
+
+      - name: Start the isolated OceanBase test instance
+        timeout-minutes: 14
+        run: |
+          timeout --kill-after=10s 180s docker run --pull never --detach --name atomic-memory-native-fts-oceanbase \
+            --publish 127.0.0.1:2881:2881 \
+            --ulimit nofile=65536:65536 \
+            --env MODE=slim \
+            --env OB_DATABASE=powercontext_test \
+            --env OB_TENANT_PASSWORD=powercontext-e2e \
+            "$OCEANBASE_IMAGE"
+          python scripts/oceanbase_ci.py wait --container atomic-memory-native-fts-oceanbase \
+            --output "$MIGRATION_REPORTS/startup"
+
+      - name: Test native FTS retrieval and admission without skips
+        timeout-minutes: 30
+        run: |
+          uv run --locked python scripts/run_atomic_memory_clean_migration.py \
+            oceanbase --test-timeout 300 --output "$MIGRATION_REPORTS/native-fts" --tests \
+            tests/e2e/test_atomic_memory_fts_coverage.py
+
+      - name: Collect the database log
+        if: always()
+        timeout-minutes: 3
+        run: |
+          mkdir -p "$MIGRATION_REPORTS"
+          python scripts/oceanbase_ci.py collect --container atomic-memory-native-fts-oceanbase \
+            --output "$MIGRATION_REPORTS/diagnostics"
+          timeout 15s docker logs --tail 20000 atomic-memory-native-fts-oceanbase > "$MIGRATION_REPORTS/oceanbase.log" 2>&1 || true
+          for logfile in observer.log observer.log.wf; do
+            timeout 15s docker exec atomic-memory-native-fts-oceanbase tail -n 20000 "/root/demo/log/$logfile" \
+              > "$MIGRATION_REPORTS/$logfile" 2>&1 || true
+          done
+          timeout 15s docker inspect --format 'MemoryBytes={{.HostConfig.Memory}} NanoCpus={{.HostConfig.NanoCpus}} CpuQuota={{.HostConfig.CpuQuota}}' \
+            atomic-memory-native-fts-oceanbase > "$MIGRATION_REPORTS/container-resources.txt" 2>&1 || true
+          timeout 15s docker stats --no-stream atomic-memory-native-fts-oceanbase \
+            > "$MIGRATION_REPORTS/container-stats.txt" 2>&1 || true
+          timeout 15s docker exec atomic-memory-native-fts-oceanbase \
+            obclient -h127.0.0.1 -P2881 -uroot@sys \
+            -e "SHOW PARAMETERS WHERE name IN ('datafile_size', 'datafile_maxsize', 'datafile_next', 'memory_limit', 'system_memory', 'cpu_count');" \
+            > "$MIGRATION_REPORTS/database-parameters.txt" 2>&1 || true
+
+      - name: Save complete observer logs on failure
+        if: failure()
+        timeout-minutes: 3
+        run: |
+          mkdir -p "$MIGRATION_REPORTS/observer"
+          timeout 120s docker cp atomic-memory-native-fts-oceanbase:/root/demo/log/. "$MIGRATION_REPORTS/observer/" || true
+
+      - name: Save native FTS reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: atomic-memory-native-fts-oceanbase-${{ github.sha }}
+          path: ${{ env.MIGRATION_REPORTS }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop and remove the test instance
+        if: always()
+        run: timeout 30s docker rm --force atomic-memory-native-fts-oceanbase || true
 
   atomic-memory-clean-oceanbase:
     name: Atomic Memory clean migration (OceanBase)
