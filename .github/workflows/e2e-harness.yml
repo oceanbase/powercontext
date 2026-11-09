@@ -356,7 +356,7 @@ jobs:
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
-        # The larger shard has 25 cases: 25 * (360s + 10s grace) + 190s collection < 160m.
+        # The count cap allows at most 24 cases: 24 * (360s + 10s grace) + 190s collection < 160m.
         timeout-minutes: 160
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
@@ -374,7 +374,8 @@ jobs:
       - name: Test long-query retrieval and admission without skips
         env:
           POWERCONTEXT_TEST_ATOMIC_MEMORY_FTS_PATH: legacy
-        # Seven cases in the larger shard: 7 * (300s + 10s grace) + 190s collection < 40m.
+        # The count cap keeps 13 cases within 7 per shard, independent of duration estimates.
+        # 7 * (300s + 10s grace) + 190s collection < 40m.
         timeout-minutes: 40
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
