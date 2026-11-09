@@ -1,0 +1,19 @@
+tests/builtin/persistence/test_atomic_memory_search_scoring.py
+  s_037ee7262a16d1::t_ee6be0b64fb104 206-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1d152b076ee316aa123958bfc56575d48e7eea92",
+  "prompts": {},
+  "sessions": {
+    "s_037ee7262a16d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1be75-9deb-7ec3-85c8-523f52d23b82",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
