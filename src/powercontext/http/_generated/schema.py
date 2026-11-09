@@ -4854,6 +4854,23 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "current "
                 "head. "
                 "Replacing "
+                "merged "
+                "or "
+                "retired "
+                "Atomic "
+                "Memory "
+                "returns "
+                "409 "
+                "invalid_memory_state "
+                "even "
+                "when "
+                "If-Match "
+                "matches "
+                "the "
+                "current "
+                "content "
+                "revision. "
+                "Replacing "
                 "a "
                 "Prompt "
                 "requires "
@@ -5019,6 +5036,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "412": {"$ref": "#/components/responses/PreconditionFailed"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "428": {"$ref": "#/components/responses/PreconditionRequired"},
