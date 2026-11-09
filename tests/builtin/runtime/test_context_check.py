@@ -346,3 +346,285 @@ def test_phase_dto_and_headers_do_not_accept_cross_phase_or_authority_override()
         CHECK_CONTEXT_REQUEST.validate_python(value)
     with pytest.raises(ValidationError):
         ModelJsonPayload(headers={"content-type": "application/json", "authorization": "arbitrary"}, body="{}")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("allow_streaming", [False, True])
+async def test_responses_streaming_send_requires_approval_and_complete_json_release(allow_streaming):
+    profile = UpstreamProfile(
+        endpoint="https://model.example/v1/responses",
+        model="test",
+        protocol="openai-responses",
+        allow_streaming=allow_streaming,
+        context_window_tokens=65536,
+        max_output_tokens=64,
+        validated_utf8_token_bound=True,
+    )
+    protection = _config(targets={"test": profile})
+    codec = BindingCodec()
+    request = _send(
+        payload=_payload({
+            "model": "test",
+            "input": "safe",
+            "store": False,
+            "stream": True,
+            "max_output_tokens": 64,
+        })
+    )
+    admitted = await _check(request, codec, config=protection)
+    if not allow_streaming:
+        assert admitted.decision == "withhold" and admitted.reason_codes == ("streaming_unsupported",)
+        return
+    assert admitted.decision == "allow" and admitted.binding
+    output = {
+        "model": "test",
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "safe"}],
+            }
+        ],
+    }
+    released = await _check(
+        _release(admitted.binding).model_copy(update={"payload": _payload(output)}), codec, config=protection
+    )
+    assert released.decision == "allow"
+    partial = await _check(
+        _release(admitted.binding).model_copy(
+            update={
+                "payload": _payload({**output, "status": "incomplete"}),
+            }
+        ),
+        codec,
+        config=protection,
+    )
+    assert partial.decision == "withhold" and partial.reason_codes == ("response_incomplete",)
+    no_limit = await _check(
+        _send(
+            payload=_payload({
+                "model": "test",
+                "input": "safe",
+                "store": False,
+                "stream": True,
+            })
+        ),
+        codec,
+        config=protection,
+    )
+    assert no_limit.decision == "withhold" and no_limit.reason_codes == ("output_limit_required",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("protocol", ["google-codeassist", "google-codeassist-chat"])
+async def test_codeassist_checks_final_envelope_and_selected_release_format(protocol):
+    profile = UpstreamProfile(
+        endpoint="https://cloudcode-pa.googleapis.com/v1internal:generateContent",
+        model="test",
+        protocol=protocol,
+        context_window_tokens=65536,
+        max_output_tokens=64,
+        validated_utf8_token_bound=True,
+    )
+    protection = _config(targets={"test": profile})
+    codec = BindingCodec()
+    envelope = {
+        "model": "test",
+        "project": "synthetic-project",
+        "request": {
+            "contents": [{"role": "user", "parts": [{"text": "safe"}]}],
+            "generationConfig": {"maxOutputTokens": 64},
+        },
+    }
+    admitted = await _check(_send(payload=_payload(envelope)), codec, config=protection)
+    assert admitted.decision == "allow" and admitted.binding
+    raw = {
+        "response": {
+            "candidates": [{"content": {"role": "model", "parts": [{"text": "safe"}]}, "finishReason": "STOP"}]
+        }
+    }
+    output = (
+        raw
+        if protocol == "google-codeassist"
+        else {
+            "model": "test",
+            "choices": [{"message": {"role": "assistant", "content": "safe"}, "finish_reason": "stop"}],
+        }
+    )
+    released = await _check(
+        _release(admitted.binding).model_copy(update={"payload": _payload(output)}), codec, config=protection
+    )
+    assert released.decision == "allow"
+    # Checking the intermediate carrier cannot authorize a different final release format.
+    wrong = output if protocol == "google-codeassist" else raw
+    if protocol == "google-codeassist":
+        wrong = {"choices": [{"message": {"content": "safe"}, "finish_reason": "stop"}]}
+    refused = await _check(
+        _release(admitted.binding).model_copy(update={"payload": _payload(wrong)}), codec, config=protection
+    )
+    assert refused.decision == "withhold"
+    poisoned = {
+        **envelope,
+        "request": {
+            **envelope["request"],
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": "synthetic-forbidden-"},
+                        {"text": "value"},
+                    ],
+                }
+            ],
+        },
+    }
+    blocked = await _check(_send(payload=_payload(poisoned)), codec, config=protection)
+    assert blocked.decision == "block" and blocked.reason_codes == ("forbidden_content",)
+    oversized = {**envelope, "request": {**envelope["request"], "generationConfig": {"maxOutputTokens": 65}}}
+    blocked = await _check(_send(payload=_payload(oversized)), codec, config=protection)
+    assert blocked.decision == "withhold" and blocked.reason_codes == ("output_limit_required",)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "parts",
+    [
+        [{"inlineData": {"mimeType": "image/png", "data": "opaque"}}],
+        [{"text": "safe", "thoughtSignature": "opaque"}],
+        [{"fileData": {"fileUri": "gs://synthetic/private"}}],
+    ],
+)
+async def test_codeassist_opaque_content_never_receives_a_send_binding(parts):
+    profile = UpstreamProfile(
+        endpoint="https://cloudcode-pa.googleapis.com/v1internal:generateContent",
+        model="test",
+        protocol="google-codeassist",
+        context_window_tokens=65536,
+        max_output_tokens=64,
+        validated_utf8_token_bound=True,
+    )
+    result = await _check(
+        _send(
+            payload=_payload({
+                "model": "test",
+                "project": "synthetic",
+                "request": {
+                    "contents": [{"role": "user", "parts": parts}],
+                    "generationConfig": {"maxOutputTokens": 64},
+                },
+            })
+        ),
+        BindingCodec(),
+        config=_config(targets={"test": profile}),
+    )
+    assert result.decision == "withhold" and result.binding is None
+    assert result.reason_codes == ("content_unsupported",)
+
+
+@pytest.mark.anyio
+async def test_codeassist_prepared_context_retains_exact_native_user_text_location():
+    block = "BEGIN_POWERCONTEXT_PREPARED_CONTEXT_V1\nreference\nEND_POWERCONTEXT_PREPARED_CONTEXT_V1"
+    profile = UpstreamProfile(
+        endpoint="https://cloudcode-pa.googleapis.com/v1internal:generateContent",
+        model="test",
+        protocol="google-codeassist-chat",
+        context_window_tokens=65536,
+        max_output_tokens=64,
+        validated_utf8_token_bound=True,
+    )
+    protection = _config(targets={"test": profile})
+    envelope = {
+        "model": "test",
+        "project": "synthetic",
+        "request": {
+            "contents": [{"role": "user", "parts": [{"text": block}]}],
+            "generationConfig": {"maxOutputTokens": 64},
+        },
+    }
+    location = {
+        "binding": "opaque",
+        "location": {
+            "pointer": "/request/contents/0/parts/0/text",
+            "start_byte": 0,
+            "end_byte": len(block.encode()),
+        },
+    }
+
+    async def validate(_binding):
+        return ValidatedContextReuse(
+            content_digest=sha256(block.encode()).hexdigest(),
+            content_bytes=len(block.encode()),
+            expires_at=NOW + timedelta(minutes=5),
+            ordered_roots=(),
+        )
+
+    request = _send(payload=_payload(envelope), prepared_contexts=(location,))
+    result = await _check(request, BindingCodec(), config=protection, validate_reuse=validate)
+    assert result.decision == "allow" and result.binding
+    promoted = {
+        **envelope,
+        "request": {**envelope["request"], "contents": [{"role": "model", "parts": [{"text": block}]}]},
+    }
+    with pytest.raises(InvalidRuntimeRequestError, match="location-trust"):
+        await _check(
+            _send(payload=_payload(promoted), prepared_contexts=(location,)),
+            BindingCodec(),
+            config=protection,
+            validate_reuse=validate,
+        )
+    split = {
+        **envelope,
+        "request": {
+            **envelope["request"],
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": "BEGIN_POWERCONTEXT_PREPARED_"},
+                        {"text": "CONTEXT_V1"},
+                    ],
+                }
+            ],
+        },
+    }
+    with pytest.raises(InvalidRuntimeRequestError, match="binding-required"):
+        await _check(_send(payload=_payload(split)), BindingCodec(), config=protection)
+
+
+@pytest.mark.anyio
+async def test_claude_prompt_approval_does_not_authorize_unobserved_http_when_policy_becomes_enforcing():
+    profile = (
+        _config()
+        .targets["test"]
+        .model_copy(update={"protocol": "claude-cli-prompt", "endpoint": "claude-cli://execute"})
+    )
+    prompt_only = _config(mode="advisory", targets={"test": profile})
+    codec = BindingCodec()
+    send = await _check(_send(), codec, config=prompt_only)
+    assert send.decision == "allow" and send.binding
+    release = await _check(_release(send.binding), codec, config=prompt_only)
+    assert release.decision == "allow"
+    enforcing = prompt_only.model_copy(update={"mode": "enforcing"})
+    refused_send = await _check(_send(), codec, config=enforcing)
+    assert refused_send.decision == "withhold" and refused_send.reason_codes == ("cli_http_unobservable",)
+    refused_release = await _check(_release(send.binding), codec, config=enforcing)
+    assert refused_release.decision == "withhold" and refused_release.reason_codes == ("cli_http_unobservable",)
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "claude-cli://other",
+        "claude-cli://execute/path",
+        "claude-cli://execute?x=1",
+        "https://api.anthropic.com/v1/messages",
+    ],
+)
+def test_cli_profile_has_one_exact_destination(endpoint):
+    with pytest.raises(ValueError):
+        UpstreamProfile(endpoint=endpoint, model="test-model", protocol="claude-cli-prompt")
+    profile = UpstreamProfile(endpoint="claude-cli://execute", model="test-model", protocol="claude-cli-prompt")
+    assert profile.endpoint == "claude-cli://execute"
+    with pytest.raises(ValueError):
+        UpstreamProfile(endpoint="claude-cli://execute", model="test-model", protocol="openai-chat")

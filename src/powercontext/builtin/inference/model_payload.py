@@ -28,7 +28,15 @@ from typing import Literal, cast
 from powercontext.builtin.inference.models import InferenceUsage
 
 PrivacyProtocol = Literal[
-    "openai-chat", "openai-responses", "anthropic-messages", "openai-embeddings", "minimax-embeddings", "jev-rerank"
+    "openai-chat",
+    "openai-responses",
+    "anthropic-messages",
+    "openai-embeddings",
+    "minimax-embeddings",
+    "jev-rerank",
+    "google-codeassist",
+    "google-codeassist-chat",
+    "claude-cli-prompt",
 ]
 
 _OPAQUE_KEYS = frozenset({
@@ -201,6 +209,10 @@ def contains_opaque_content(value: object, *, protocol: PrivacyProtocol | None =
     All scalar evidence still receives the independent forbidden-content check.
     """
 
+    if protocol in {"google-codeassist", "google-codeassist-chat"}:
+        from powercontext.builtin.inference.codeassist_payload import supported_carrier
+
+        return not isinstance(value, dict) or not supported_carrier(cast(dict[str, object], value))
     if isinstance(value, dict):
         # This built-in Responses tool produces opaque images, including when
         # its completed output is replayed as an input item.
@@ -321,6 +333,10 @@ def nested_json_text(strings: tuple[str, ...], max_depth: int) -> tuple[tuple[st
 def complete_response(value: dict[str, object], protocol: PrivacyProtocol) -> bool:
     if isinstance(value.get("error"), dict) and value["error"]:
         return True  # The raw error is inspected, then the SDK handles its status.
+    if protocol == "google-codeassist":
+        from powercontext.builtin.inference.codeassist_payload import complete_response as complete_codeassist_response
+
+        return complete_codeassist_response(value)
     if protocol == "openai-chat":
         choices = value.get("choices")
         return (

@@ -2068,17 +2068,40 @@ async def _open_pydantic_ai_model(
 
     if (base_url is not None or headers) and ":" not in model_name:
         raise BuiltinConfigurationError("inference-endpoint-provider")
-    inferred_model = infer_model(
-        model_name,
-        provider_factory=_provider_factory(
-            base_url,
-            headers,
-            workload="generation",
-            resources=resources,
-            disable_retries=disable_provider_retries,
-            protection=protection,
-        ),
+    create_provider = _provider_factory(
+        base_url,
+        headers,
+        workload="generation",
+        resources=resources,
+        disable_retries=disable_provider_retries,
+        protection=protection,
     )
+    if model_name.startswith("claude-cli:"):
+        from powercontext.builtin.inference.claude_cli import ClaudeCliModel
+
+        if (
+            disable_provider_retries
+            or base_url is not None
+            or headers
+            or (protection is not None and protection.mode != "disabled")
+        ):
+            raise BuiltinConfigurationError("inference-endpoint-provider")
+        inferred_model = ClaudeCliModel(model_name.split(":", 1)[1])
+    elif model_name.split(":", 1)[0] in {"qwen", "kimi"}:
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        prefix, identifier = model_name.split(":", 1)
+        inferred_model = OpenAIChatModel(identifier, provider=create_provider(prefix))
+    elif model_name.startswith("gemini-cli:"):
+        from pydantic_ai.models.google import GoogleModel
+
+        inferred_model = GoogleModel(model_name.split(":", 1)[1], provider=create_provider("gemini-cli"))
+    elif model_name.startswith("grok:"):
+        from pydantic_ai.models.openai import OpenAIResponsesModel
+
+        inferred_model = OpenAIResponsesModel(model_name.split(":", 1)[1], provider=create_provider("grok"))
+    else:
+        inferred_model = infer_model(model_name, provider_factory=create_provider)
     provider_model = await resources.enter_async_context(inferred_model)
     model = provider_model
     if streaming == "auto" and model_name.split(":", 1)[0] in _STREAMING_AGGREGATED_PROVIDERS:
@@ -2136,7 +2159,14 @@ def _provider_factory(
 
             client = getattr(provider, "_own_http_client", None)
             # Explicit SDK clients above are newly owned by this Runtime as well.
-            if client is None and name in {"openai", "openai-chat", "openai-responses", "anthropic", "openai-codex"}:
+            if client is None and name in {
+                "openai",
+                "openai-chat",
+                "openai-responses",
+                "anthropic",
+                "openai-codex",
+                "grok",
+            }:
                 client = getattr(provider.client, "_client", None)
             supported = False
             if isinstance(client, httpx2.AsyncClient):
@@ -2217,7 +2247,7 @@ def _protected_provider_factory(
     return create
 
 
-def _unbounded_provider_factory(
+def _unbounded_provider_factory(  # noqa: C901 - provider-specific SDK and authentication contracts
     base_url: AnyHttpUrl | None,
     headers: Mapping[str, SecretStr],
     *,
@@ -2228,8 +2258,20 @@ def _unbounded_provider_factory(
     from pydantic_ai.providers import infer_provider
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    def create_provider(provider_name: str) -> Provider[Any]:
+    def create_provider(provider_name: str) -> Provider[Any]:  # noqa: C901 - provider-specific construction
         if base_url is None and not headers:
+            if provider_name in {"qwen", "kimi"} and workload == "generation":
+                from powercontext.builtin.inference.coding_oauth import coding_oauth_provider
+
+                return coding_oauth_provider("qwen" if provider_name == "qwen" else "kimi", resources)
+            if provider_name == "gemini-cli" and workload == "generation":
+                from powercontext.builtin.inference.gemini_cli import gemini_cli_provider
+
+                return gemini_cli_provider(resources)
+            if provider_name == "grok" and workload == "generation":
+                from powercontext.builtin.inference.grok import grok_cli_provider
+
+                return grok_cli_provider(resources)
             if provider_name == "openai-codex" and workload == "generation":
                 from powercontext.builtin.inference.codex import codex_cli_provider
 
