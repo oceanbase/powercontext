@@ -222,6 +222,13 @@ for (const moduleName of pythonModules) {
       repositoryDir,
       '--with',
       pythonPackage,
+      // fumapy 1.0.5 imports griffe internals that the 2.x series moved into
+      // griffelib, so an unpinned resolve now imports a broken package and the
+      // generator fails before writing any page. Pin the major the generator
+      // was written against so the docs build does not depend on the newest
+      // upstream release.
+      '--with',
+      'griffe<2',
       'fumapy-generate',
       moduleName,
       '--dir',
