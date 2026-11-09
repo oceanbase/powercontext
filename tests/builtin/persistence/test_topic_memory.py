@@ -1298,6 +1298,21 @@ def _ranked_fts(channels: TopicMemorySearchChannels) -> tuple[object, ...]:
     )
 
 
+async def _assert_scope_rowid_ranges(connection: AsyncConnection, scope_ids: Sequence[str]) -> None:
+    # Range bounds, not the scope_id filter, are what keep FTS5 from reading
+    # other Scopes, so each test Scope's range must hold exactly its own rows.
+    for statement in (
+        "SELECT rowid, scope_id FROM pc_topic_memory_topic_fts",
+        "SELECT rowid, scope_id FROM pc_topic_memory_chunk_fts",
+    ):
+        rows = (await connection.exec_driver_sql(statement)).all()
+        for scope_id in scope_ids:
+            first, last = sqlite_topic_memory_index._scope_rowid_range(scope_id)
+            own = {rowid for rowid, owner in rows if owner == scope_id}
+            assert own
+            assert own == {rowid for rowid, _ in rows if first <= rowid <= last}
+
+
 def test_sqlite_fts_replacements_leave_other_scopes_results_unchanged(tmp_path: Path) -> None:
     async def scenario() -> None:
         index = SQLiteTopicMemoryFTSIndex()
@@ -1317,6 +1332,7 @@ def test_sqlite_fts_replacements_leave_other_scopes_results_unchanged(tmp_path: 
             async with profile.database.transaction() as connection:
                 other_after = await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)
                 revised = await index.search(connection, "scope-a", _SHARED_FTS_REQUEST)
+                await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
 
         assert _ranked_fts(other_after) == _ranked_fts(other_before)
         assert _fts_refs(revised) == ([("topic-0", 4), ("topic-1", 1), ("topic-2", 4)],) * 2
@@ -1368,6 +1384,7 @@ def test_sqlite_fts_version_1_database_stays_searchable_before_and_after_upgrade
             profile.database.transaction() as connection,
         ):
             await repository.initialize(connection)
+            await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
             upgraded = await index.search(connection, "scope-a", _SHARED_FTS_REQUEST)
             assert _ranked_fts(await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)) == _ranked_fts(
                 expected["scope-b"]
@@ -1379,6 +1396,7 @@ def test_sqlite_fts_version_1_database_stays_searchable_before_and_after_upgrade
                 _fts_refs(await index.search(connection, "scope-a", _SHARED_FTS_REQUEST))
                 == ([("topic-0", 2), ("topic-1", 2)],) * 2
             )
+            await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
             assert _ranked_fts(await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)) == _ranked_fts(
                 expected["scope-b"]
             )
@@ -1416,6 +1434,7 @@ def test_sqlite_fts_scope_keeps_replacing_topics_after_its_rowid_range_fills(
                     revised = await index.search(connection, "scope-a", _SHARED_FTS_REQUEST)
                     assert _fts_refs(revised) == (current, current)
             assert _ranked_fts(await index.search(connection, "scope-b", _SHARED_FTS_REQUEST)) == _ranked_fts(other)
+            await _assert_scope_rowid_ranges(connection, ("scope-a", "scope-b"))
         assert _fts_refs(revised) == ([("topic-0", 4), ("topic-1", 4)],) * 2
 
     asyncio.run(scenario())
