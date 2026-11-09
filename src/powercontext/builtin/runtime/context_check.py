@@ -283,7 +283,10 @@ async def _validate_prepared(
     profile = config.targets[request.target_profile]
     if profile.require_prepared_contexts and not request.prepared_contexts:
         raise InvalidRuntimeRequestError("context-binding-required")
-    body = parse_model_json(request.payload.body.encode("utf-8"), max_depth=config.max_json_depth)
+    try:
+        body = parse_model_json(request.payload.body.encode("utf-8"), max_depth=config.max_json_depth)
+    except (ValueError, RecursionError):
+        raise InvalidRuntimeRequestError("context-payload-invalid") from None
     previous: tuple[int, int, int] | None = None
     locations: dict[str, list[tuple[int, int]]] = {}
     expiry: datetime | None = None
@@ -356,13 +359,18 @@ async def check_context(
     limit = config.max_payload_bytes if request.phase == "before_send" else config.max_response_bytes
     if len(body) > min(limit, MAX_CHECK_BODY_BYTES):
         raise ContextCheckTooLargeError
-    if config.mode != "enforcing":
-        return _withheld(request, config, now, "enforcement-not-configured")
+    if request.target_profile not in config.targets:
+        return _withheld(request, config, now, "target_unsupported")
     policy = PrivacyPolicy(config)
-    assessed = policy.inspect_json(
-        body, phase=request.phase, target_profile=request.target_profile, headers=request.payload.headers
+    # Match the existing transport: observation modes do not inspect responses.
+    assessed = (
+        policy.inspect_json(
+            body, phase=request.phase, target_profile=request.target_profile, headers=request.payload.headers
+        )
+        if policy.enforcing or request.phase == "before_send"
+        else policy.decision(request.phase, "allow")
     )
-    if assessed.decision != "allow" or not assessed.coverage.complete:
+    if policy.enforcing and (assessed.decision != "allow" or not assessed.coverage.complete):
         return ContextCheckResult(
             phase=request.phase,
             decision=assessed.decision if assessed.decision != "allow" else "withhold",
@@ -416,7 +424,8 @@ async def check_context(
     return ContextCheckResult(
         phase=request.phase,
         decision="allow",
-        coverage=assessed.coverage,
+        reason_codes=assessed.reason_codes,
+        coverage=assessed.coverage if policy.enforcing else PrivacyCoverage(complete=False),
         policy_version=config.policy_version,
         valid_until=deadline,
         correlate_until=correlate_until,

@@ -175,7 +175,8 @@ async fn main() {
                 ReqwestTransport::new(Duration::from_secs(120)),
                 NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
             )
-            .with_input_limit(model_body_bytes),
+            .with_input_limit(model_body_bytes)
+            .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
         ),
         evidence,
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")

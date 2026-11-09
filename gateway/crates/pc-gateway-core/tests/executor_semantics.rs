@@ -1723,9 +1723,103 @@ async fn prepare_requests_memory_only_assembly() {
 // ---------- P2 allow 完整性验证探针 ----------
 
 #[tokio::test]
+async fn non_enforcing_core_can_admit_retry_and_release_without_privacy_coverage() {
+    let verdicts = [
+        (CheckPhase::BeforeSend, "initial"),
+        (CheckPhase::BeforeSend, "retry"),
+        (CheckPhase::BeforeRelease, "release"),
+    ]
+    .into_iter()
+    .map(|(phase, binding)| {
+        let mut verdict = result(phase, CheckDecision::Allow, &[]);
+        verdict.coverage.complete = false;
+        verdict.binding = Some(binding.into());
+        Ok(verdict)
+    })
+    .collect();
+    let (executor, renderer, transport, gate) = harness(
+        verdicts,
+        vec![
+            SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
+            raw_response(),
+        ],
+        2,
+    );
+    let outcome = executor
+        .with_core_enforcement(false)
+        .run(
+            request_control(),
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::Released { binding: Some(ref b), .. } if b == "release")
+    );
+    assert_eq!(*transport.bindings.lock().unwrap(), ["initial", "retry"]);
+    assert_eq!(gate.seen.lock().unwrap().last().unwrap().1, "retry");
+}
+
+#[tokio::test]
+async fn non_enforcing_core_still_requires_valid_admission_for_each_phase() {
+    for phase in [CheckPhase::BeforeSend, CheckPhase::BeforeRelease] {
+        for invalid in [
+            "binding", "deadline", "schema", "phase", "block", "withhold",
+        ] {
+            let mut verdict = result(phase, CheckDecision::Allow, &[]);
+            verdict.coverage.complete = false;
+            match invalid {
+                "binding" => verdict.binding = None,
+                "deadline" => verdict.valid_until = "2000-01-01T00:00:00Z".into(),
+                "schema" => verdict.schema = "invalid".into(),
+                "phase" => {
+                    verdict.phase = if phase == CheckPhase::BeforeSend {
+                        CheckPhase::BeforeRelease
+                    } else {
+                        CheckPhase::BeforeSend
+                    }
+                }
+                "block" => verdict.decision = CheckDecision::Block,
+                "withhold" => verdict.decision = CheckDecision::Withhold,
+                _ => unreachable!(),
+            }
+            let mut verdicts = Vec::new();
+            if phase == CheckPhase::BeforeRelease {
+                verdicts.push(Ok(result(
+                    CheckPhase::BeforeSend,
+                    CheckDecision::Allow,
+                    &[],
+                )));
+            }
+            verdicts.push(Ok(verdict));
+            let (executor, renderer, transport, _) = harness(verdicts, vec![raw_response()], 1);
+            let outcome = executor
+                .with_core_enforcement(false)
+                .run(
+                    request_control(),
+                    call(DegradePolicy::Pause),
+                    &RendererRef(renderer),
+                    &NoopEvidenceSink,
+                )
+                .await;
+            match invalid {
+                "deadline" => assert!(matches!(outcome, ManagedOutcome::AdmissionExpired)),
+                "block" => assert!(matches!(outcome, ManagedOutcome::Blocked { .. })),
+                "withhold" => assert!(matches!(outcome, ManagedOutcome::Withheld { .. })),
+                _ => assert!(matches!(outcome, ManagedOutcome::GatePaused(_))),
+            }
+            assert_eq!(
+                transport.sends.lock().unwrap().len(),
+                usize::from(phase == CheckPhase::BeforeRelease)
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn allow_with_incomplete_coverage_pauses() {
-    // 契约："Only allow with complete coverage permits the corresponding phase."
-    // coverage.complete=false 的 allow 是畸形 → 必须暂停。
+    // Without an explicit non-enforcing configuration, incomplete coverage pauses.
     let (executor, renderer, transport, _gate) = harness(
         vec![Ok(ContextCheckResult {
             coverage: pc_gateway_types::ContextCheckCoverage {
@@ -1833,7 +1927,7 @@ async fn allow_with_wrong_schema_pauses() {
 
 #[tokio::test]
 async fn release_allow_with_incomplete_coverage_pauses() {
-    // 释放阶段同样验证——incomplete coverage 的 release allow 不放行内容。
+    // The default coverage requirement also applies to release admission.
     let (executor, renderer, _transport, _gate) = harness(
         vec![
             Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
