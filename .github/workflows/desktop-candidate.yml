@@ -96,6 +96,8 @@ jobs:
         if: matrix.target == 'macos-x86_64'
         run: echo 'DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer' >> "$GITHUB_ENV"
       - name: Produce and smoke-test the pinned 09-C resources
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           uv run --no-sync python scripts/prepare_managed_resources.py \
             --target "$RESOURCE_TARGET" --source-ref "$SERVER_SOURCE_SHA" --server-version "$SERVER_VERSION" \
