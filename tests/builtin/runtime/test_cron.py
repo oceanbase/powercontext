@@ -18,6 +18,7 @@ from datetime import datetime
 
 import pytest
 
+from powercontext.builtin.runtime.config import RuntimeConfig
 from powercontext.builtin.runtime.cron import CronSchedule
 
 
@@ -111,3 +112,45 @@ def test_next_after_rejects_dates_that_never_exist() -> None:
     schedule = CronSchedule.parse("0 0 30 2 *", "UTC")
     with pytest.raises(ValueError, match="four hundred years"):
         schedule.next_after(datetime(2026, 11, 4))  # noqa: DTZ001 - naive on purpose
+
+
+def test_last_marker_schedules_the_final_day_of_each_month() -> None:
+    """``last`` is the APScheduler spelling existing Profile schedules use."""
+
+    schedule = CronSchedule.parse("0 2 last * *", "UTC")
+    assert schedule.next_after(datetime(2026, 11, 4)) == datetime(2026, 11, 30, 2, 0)  # noqa: DTZ001 - naive on purpose
+    # February in a non-leap year ends on the 28th.
+    assert schedule.next_after(datetime(2027, 2, 1)) == datetime(2027, 2, 28, 2, 0)  # noqa: DTZ001 - naive on purpose
+    assert schedule.next_after(datetime(2028, 2, 1)) == datetime(2028, 2, 29, 2, 0)  # noqa: DTZ001 - naive on purpose
+
+
+def test_last_marker_combines_with_numbered_days() -> None:
+    """A mixed field keeps both the numbered days and the month end."""
+
+    schedule = CronSchedule.parse("0 2 1,last * *", "UTC")
+    assert schedule.next_after(datetime(2026, 11, 2)) == datetime(2026, 11, 30, 2, 0)  # noqa: DTZ001 - naive on purpose
+    # 1 December matches the numbered day before the month ends.
+    assert schedule.next_after(datetime(2026, 12, 1)) == datetime(2026, 12, 1, 2, 0)  # noqa: DTZ001 - naive on purpose
+    assert schedule.next_after(datetime(2026, 12, 2)) == datetime(2026, 12, 31, 2, 0)  # noqa: DTZ001 - naive on purpose
+
+
+def test_disabled_profile_schedule_keeps_an_unparseable_expression_loadable() -> None:
+    """An inert schedule must not fail startup, matching the previous validator."""
+
+    config = RuntimeConfig(profile_cron="not a cron", profile_schedule_enabled=False)
+    assert config.profile_schedule_enabled is False
+    assert config.profile_cron == "not a cron"
+
+
+def test_enabled_profile_schedule_rejects_an_unparseable_expression() -> None:
+    """Enabling the schedule is the point where the expression has to be valid."""
+
+    with pytest.raises(ValueError, match="invalid Profile cron expression"):
+        RuntimeConfig(profile_cron="not a cron", profile_schedule_enabled=True)
+
+
+def test_enabled_profile_schedule_accepts_the_legacy_last_marker() -> None:
+    """Single-node configurations written for APScheduler keep loading."""
+
+    config = RuntimeConfig(profile_cron="0 2 last * *", profile_schedule_enabled=True)
+    assert config.profile_cron == "0 2 last * *"

@@ -45,19 +45,22 @@ class CronSchedule:
     months: frozenset[int]
     weekdays: frozenset[int]
     timezone: ZoneInfo
+    last_day: bool = False
 
     @classmethod
     def parse(cls, expression: str, timezone: str, /) -> CronSchedule:
         fields = expression.split()
         if len(fields) != 5:
             raise ValueError("cron expression must contain five fields")  # noqa: TRY003
+        days, last_day = _parse_day_field(fields[2])
         return cls(
             minutes=_parse_field(fields[0], minimum=0, maximum=59),
             hours=_parse_field(fields[1], minimum=0, maximum=23),
-            days=_parse_field(fields[2], minimum=1, maximum=31),
+            days=days,
             months=_parse_field(fields[3], minimum=1, maximum=12, names=_MONTH_NAMES),
             weekdays=_parse_field(fields[4], minimum=0, maximum=6, names=_WEEKDAY_NAMES),
             timezone=ZoneInfo(timezone),
+            last_day=last_day,
         )
 
     def next_after(self, value: datetime, /) -> datetime:
@@ -95,11 +98,35 @@ class CronSchedule:
 
         for year in range(first_date.year, first_date.year + _SEARCH_HORIZON_YEARS):
             for month in sorted(self.months):
-                last_day = monthrange(year, month)[1]
-                for day in sorted(candidate_day for candidate_day in self.days if candidate_day <= last_day):
+                month_last_day = monthrange(year, month)[1]
+                candidates = {day for day in self.days if day <= month_last_day}
+                if self.last_day:
+                    candidates.add(month_last_day)
+                for day in sorted(candidates):
                     candidate = date(year, month, day)
                     if candidate >= first_date and candidate.weekday() in self.weekdays:
                         yield candidate
+
+
+def _parse_day_field(value: str) -> tuple[frozenset[int], bool]:
+    """Split the day-of-month field into numbered days and the ``last`` marker.
+
+    ``last`` is the APScheduler spelling for the final day of the month, which
+    single-node Profile schedules were configured with before durable discovery.
+    Rejecting it would fail an existing configuration merely for being upgraded.
+    """
+
+    numbered: list[str] = []
+    last_day = False
+    for part in value.casefold().split(","):
+        if part == "last":
+            last_day = True
+        else:
+            numbered.append(part)
+    days = _parse_field(",".join(numbered), minimum=1, maximum=31) if numbered else frozenset()
+    if not days and not last_day:
+        raise ValueError("cron day field cannot be empty")  # noqa: TRY003
+    return frozenset(days), last_day
 
 
 def _parse_field(
