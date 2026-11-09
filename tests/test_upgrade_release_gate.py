@@ -108,6 +108,19 @@ def test_release_notes_cannot_omit_the_support_limit(release):
         gate.gate(root, wheel, root / "evidence", release=True, release_notes="Upgrade your deployment now.")
 
 
+def test_prepared_release_notes_pass_the_published_support_declaration_check(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    policy = gate.load_policy(root)
+    version = policy["target_version"]
+    notes = (root / f"release/notes/powercontext-v{version}.md").read_text(encoding="utf-8")
+    # Metadata alone exercises declaration validation, not installed-wheel or database acceptance.
+    wheel = tmp_path / f"powercontext-{version}-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(f"powercontext-{version}.dist-info/METADATA", f"Name: powercontext\nVersion: {version}\n")
+    assert gate.validate_target(root, wheel, release=True, release_notes=notes) == policy
+    assert gate.support_text(policy, "zh") in notes
+
+
 def test_release_rejects_wrong_artifact_version(release):
     root, wheel, _ = release
     with zipfile.ZipFile(wheel, "w") as archive:
