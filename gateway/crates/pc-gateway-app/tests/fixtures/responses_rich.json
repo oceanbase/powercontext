@@ -1,0 +1,55 @@
+{
+  "id": "resp_rich",
+  "object": "response",
+  "status": "completed",
+  "model": "gpt-4o-mini",
+  "output": [
+    {
+      "id": "rs_1",
+      "type": "reasoning",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "Check the evidence."
+        },
+        {
+          "type": "summary_text",
+          "text": "Use the result."
+        }
+      ]
+    },
+    {
+      "id": "msg_1",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Answer",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 0,
+              "end_index": 6,
+              "url": "https://example.com/evidence",
+              "title": "Evidence"
+            }
+          ],
+          "logprobs": []
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 20,
+    "output_tokens": 10,
+    "total_tokens": 30,
+    "input_tokens_details": {
+      "cached_tokens": 4
+    },
+    "output_tokens_details": {
+      "reasoning_tokens": 5
+    }
+  }
+}

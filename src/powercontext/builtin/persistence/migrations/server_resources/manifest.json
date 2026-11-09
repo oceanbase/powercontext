@@ -45,6 +45,10 @@
       "schemas/sqlite-v1_5_0_003.json",
       "schemas/mysql-v1_5_0_003.json"
     ],
+    "v1_5_0_004": [
+      "schemas/sqlite-v1_5_0_004.json",
+      "schemas/mysql-v1_5_0_004.json"
+    ],
     "v1_5_0_005": [
       "schemas/sqlite-v1_5_0_005.json",
       "schemas/mysql-v1_5_0_005.json"
@@ -83,6 +87,9 @@
     ],
     "v1_5_0_003": [
       "357287e3bae474ca1810dd0949fe56326dff48f5adf0db851b4b4cf3cf01a308"
+    ],
+    "v1_5_0_004": [
+      "cfafc8c1d4f0207e5d04febca1e3f9f9a91948d15fb85678de3765d8e772efdc"
     ],
     "v1_5_0_005": [
       "05e19278f66734ed98cc632b5ffe860ea4fc49ae7f5de49c824b9ade1562da46"
@@ -131,6 +138,7 @@
     "pc_artifact_search_fts_update",
     "pc_artifact_search_states",
     "pc_artifact_search_text",
+    "pc_artifact_source_locators",
     "pc_artifact_tags",
     "pc_artifact_vector_indexes",
     "pc_artifact_vector_spaces",
@@ -161,7 +169,6 @@
     "pc_model_usage_daily",
     "pc_portable_restore_receipts",
     "pc_profile_policies",
-    "pc_rate_limit_windows",
     "pc_recall_effort_daily",
     "pc_recall_token_daily",
     "pc_receipt_migration_review",
@@ -169,9 +176,6 @@
     "pc_recurrence_observation",
     "pc_retained_dream_candidate_heads",
     "pc_retained_dream_candidate_versions",
-    "pc_runtime_members",
-    "pc_scheduler_leases",
-    "pc_scheduler_scans",
     "pc_scope_bindings",
     "pc_scope_context_references",
     "pc_scope_creation_requests",
@@ -207,6 +211,10 @@
     "pc_topic_memory_topic_fts_idx",
     "pc_topic_memory_work_blocks",
     "pc_topic_memory_work_budgets",
+    "pc_rate_limit_windows",
+    "pc_runtime_members",
+    "pc_scheduler_leases",
+    "pc_scheduler_scans",
     "pc_work_attempts",
     "pc_work_items",
     "pc_work_keys",
@@ -339,6 +347,11 @@
       "portable_storage",
       "atomic_memory_evidence_projection"
     ],
+    "v1_5_0_004": [
+      "artifact_storage",
+      "portable_storage",
+      "atomic_memory_evidence_projection"
+    ],
     "v1_5_0_005": [
       "artifact_storage",
       "portable_storage",
@@ -364,6 +377,7 @@
     "schemas/mysql-v1_5_0_001.json",
     "schemas/mysql-v1_5_0_002.json",
     "schemas/mysql-v1_5_0_003.json",
+    "schemas/mysql-v1_5_0_004.json",
     "schemas/mysql-v1_5_0_005.json"
   ],
   "mysql_history": "mysql",

@@ -5,7 +5,7 @@ description: 复用精确的 Atomic Memory 上下文，并按当前授权检查�
 
 # 上下文复用与最终准入
 
-准备一次上下文，保留短期复用证明，在每次模型请求发送前和完整响应交付前验证实际字节。使用公开准入 API 前，先按[推理隐私保护](inference-protection.md)配置 enforcing 目标。调用方负责模型执行与响应交付；检查本身不会调用模型，也不会授予模型调用额度。
+准备一次上下文，保留短期复用证明，在每次模型请求发送前和完整响应交付前验证实际字节。先按[推理隐私保护](inference-protection.md)配置目标和隐私模式；需要完整隐私检查的调用方必须使用 enforcing 模式。调用方负责模型执行与响应交付；检查本身不会调用模型，也不会授予模型调用额度。
 
 升级带有此 API 的 Server 前，请遵循 [SDK/CLI 协调升级要求](../get-started/install-and-run.md#更新或替换安装)。即使关闭保护，旧客户端仍会拒绝新增的能力字段。
 
@@ -43,10 +43,14 @@ Python Client 返回 `PreparedContext` 或 `PreparedContextWithReuse`，读取�
 进程内沿用 `runtime.context.for_scope(scope_id).prepare(request)`；
 `validate_reuse` 检查保留的证明，不做检索或 Embedding。嵌入式应用自行提供当前可信授权上下文。
 
-首个复用 profile 支持单 Scope、实际选中的 Atomic Memory，不支持 context references 或代码。
-它记录最终选中的当前 revision、生命周期版本和完整有界历史依赖。合并结果的旧祖先在领域规则允许时仍可作为证据。
+复用 profile 支持单 Scope、实际选中的 Atomic Memory 和代码证据（`include_code: true`），不支持 context references。
+对 Atomic Memory，它记录最终选中的当前 revision、生命周期版本和完整有界历史依赖。合并结果的旧祖先在领域规则允许时仍可作为证据。
 根记忆被修订或遗忘、访问撤销、引用范围变化、绑定过期、Source 不再符合资格，都会停止旧值复用。
 请求复用时实际选中了其他 family，会明确拒绝；普通 prepare 保持原支持范围。
+
+对代码证据，它记录每个被引用文件的仓库路径和 SHA-256 摘要，并附带索引指纹以备查。校验时只按与建索引相同的路径和排除
+规则，从 Scope 当前工作区读取被引用的文件。被引用文件被修改、删除或不再可索引，或仓库不可用，都会停止复用；修改未被
+引用的文件或重建索引不会。代码文件与 Atomic Memory 依赖共用依赖上限。
 
 绑定经过认证加密，期限五分钟，最多 64 个依赖、八层祖先。绑定不是访问权限。
 Server 用既有签名秘密派生独立用途的密钥，并绑定持久 Server 身份；同部署的多个进程需要共享该秘密。
@@ -89,10 +93,16 @@ JSON pointer，以及解码后 UTF-8 文本的 `start_byte`、`end_byte` 半开�
 网关不能在请求获准后脱敏，或在响应获准后还原值，再把原批准用于变化后的字节。
 变化后的载荷需要单独准入；本 API 不提供占位符映射，也不授予逆转隐私变换的权限。
 
-只有 `allow` 且 `coverage.complete=true` 才能继续对应动作。
+要求完整隐私检查的调用方，只有在 `allow` 且 `coverage.complete=true` 时才能继续对应动作。
 `block`、`withhold` 虽然返回 HTTP 200，但都禁止执行；只判断 HTTP 成功是不够的。
 载体或位置不合法返回 422，权限失败返回 401/403，正文超限返回 413。
-必需检查不可用时不发送、不交付；未配置 enforcing 的公开检查只返回暂缓。
+必需检查不可用时不发送、不交付。
+在 `disabled`、`shadow` 和 `advisory` 模式下，Core 验证授权和上下文复用后可以返回 `allow` 和绑定，
+但会如实返回 `coverage.complete=false`。Disabled 跳过隐私检查；shadow 和 advisory 对请求进行不阻断的观察，
+不检查响应；enforcing 保留请求和响应的强制检查。
+Gateway 只有在可信的 Core 能力发现明确返回 `enforcing=false` 时才接受不完整隐私覆盖，
+仍要求允许的决定、有效绑定和未过期的期限；能力发现失败不会开启这种行为。
+修改 Core 隐私模式后应重启 Gateway，刷新启动时获取的模式信息。外部执行器示例仍要求完整隐私覆盖。
 
 发送批准绑定准确载荷、目标、策略、身份和 Scope。60 秒发送期限与五分钟响应关联期限分开：
 把发送批准的 `binding` 作为 `before_release.request_binding`，提交完整响应载体及

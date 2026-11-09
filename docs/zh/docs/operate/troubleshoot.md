@@ -252,7 +252,7 @@ collation，但不会包含数据库 URL 或凭据。
    源数据库早于三张 Skill 生命周期表（`pc_skill_packages`、`pc_agent_skill_targets` 和
    `pc_skill_publications`）、Profile 表、`pc_topic_memory_work_budgets`、`pc_topic_memory_work_blocks`、
    `pc_recall_effort_daily`、`pc_receipt_migration_review`、`pc_context_bootstrap_receipts` 或
-   `pc_decision_observations` 时，应从对应层删除缺失的表。
+   `pc_decision_observations` 或 `pc_artifact_source_locators` 时，应从对应层删除缺失的表。
    如果存在 work-budget 表，必须与 Cursor 一起恢复，保留已消耗的失败额度，避免迁移后重置累计成本。
    work-attempt 表也应一起恢复，保留阻塞身份、诊断信息与已接受的重试回执。
 
@@ -276,7 +276,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
+      --table 'pc_artifact_source_locators,pc_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads,pc_artifact_tags,pc_recurrence_match,pc_recurrence_observation' \
      -f <export-directory>
    ```
 
@@ -345,7 +345,8 @@ Codex、Claude Code、DSH、OpenClaw、Pi 和 Hermes 集成都遵循 fail-open�
 
 稳定的 outcome 仍然彼此区分：`authentication_failed`、`version_mismatch`、`server_unavailable` 和
 `invalid_response`。诊断不会包含 prompt、召回内容、scope、URL、凭据、响应正文或异常文本。同一次调用内的
-相同 outcome 会去重，跨 Hook 进程会使用本地状态限流 60 秒；诊断失败不会改变宿主任务结果。
+相同 outcome 会去重，跨 Hook 进程会使用本地状态限流 60 秒；诊断失败不会改变宿主任务结果。Codex 和 Claude Code
+的 `SessionStart` Hook 只把失败写到 stderr 供本地调试，因此这些失败不计入限流。
 
 Bub 不包含在本次第一阶段的宿主诊断切片中。待其宿主诊断通道和原生生命周期行为单独明确并完成支持验证后再纳入。
 
@@ -358,9 +359,11 @@ Bub 不包含在本次第一阶段的宿主诊断切片中。待其宿主诊断�
 
 对于故障，查看 Hook 顶层 `systemMessage` 中的单行 JSON 事件。`empty` 表示 Runtime 没有为本轮准备上下文，
 它仍是本地诊断，不作为宿主 warning。`version_mismatch`
-表示已安装插件要求 `POST /v1/context/prepare`，但 Server 尚未提供该接口；请从同一个 ref 重新安装插件和工具
-并重启 Server。`server_unavailable` 和 `invalid_response` 分别表示传输与 contract 问题。诊断事件会刻意
-省略 query 与准备好的上下文正文。
+表示 Server 没有提供已安装插件需要的接口：`context_prepare` 事件对应 `POST /v1/context/prepare`，`scope_resolve`
+事件对应 `POST /v1/scope-bindings/resolve`。请从同一个 ref 重新安装插件和工具并重启 Server。
+`server_unavailable` 和 `invalid_response` 分别表示传输与 contract 问题；`scope_resolve` 事件带有
+`error_code: scope_not_found` 时，表示配置的 Scope 不存在或没有可解析的绑定。诊断事件会刻意省略 query 与准备好的
+上下文正文。
 
 执行 `powercontext capabilities`，确认 Context versions 中包含
 `powercontext.prepared-context.v1`。
@@ -384,10 +387,11 @@ component 为 `powercontext.claude_code.recall`：
 | `authentication_failed` | 启动 Claude Code 前导出完整的 `POWERCONTEXT_CLAUDE_AUTHORIZATION` header |
 | `version_mismatch` | 从同一个 ref 安装 package 和插件，再重启两个进程 |
 | `server_unavailable` | 启动 Server，或修正 `POWERCONTEXT_CLAUDE_SERVER_URL` |
-| `invalid_response` | 检查 proxy、redirect、不兼容 schema、错误 JSON 或超大响应 |
+| `invalid_response` | 检查 proxy、redirect、不兼容 schema、错误 JSON 或超大响应；`error_code: scope_not_found` 表示配置的 Scope 不存在或没有可解析的绑定 |
 
 诊断不会记录 token、query、scope、Prepared Context 正文或响应正文。Prompt 采集与召回彼此独立：采集失败
-不会抑制有效上下文，召回失败也不会抑制采集。
+不会抑制有效上下文，召回失败也不会抑制采集。两者都依赖当前 Scope，因此 `scope_resolve` 事件表示该 prompt
+既没有召回也没有采集。
 
 ## Claude Code MCP 认证失败
 

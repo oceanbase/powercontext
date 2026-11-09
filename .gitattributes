@@ -17,3 +17,5 @@ src/powercontext/builtin/persistence/migrations/resources/** text eol=lf
 src/powercontext/builtin/persistence/migrations/mysql_resources/** text eol=lf
 src/powercontext/builtin/persistence/migrations/server_resources/** text eol=lf
 src/powercontext/builtin/persistence/migration_resources/** text eol=lf
+# SSE recordings retain their final blank event separator.
+gateway/crates/pc-gateway-app/tests/fixtures/republic/cases/**/*.sse whitespace=-blank-at-eof

@@ -25,6 +25,7 @@ import sys
 import threading
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
+from http.client import HTTPException, IncompleteRead
 from pathlib import Path
 from shutil import which
 from time import monotonic
@@ -53,7 +54,11 @@ class ScopeBindingError(RuntimeError):
 
 
 class ScopeBindingUnavailableError(ScopeBindingError):
-    """Transport failure, timeout, or exhausted budget."""
+    """Transport failure, timeout, exhausted budget, or HTTP 503, whose status it keeps."""
+
+    def __init__(self, status: int | None = None) -> None:
+        self.status = status
+        super().__init__("PowerContext is unavailable" if status is None else f"PowerContext returned HTTP {status}")
 
 
 class ScopeBindingRejectedError(ScopeBindingError):
@@ -61,23 +66,17 @@ class ScopeBindingRejectedError(ScopeBindingError):
 
 
 class ScopeBindingStatusError(ScopeBindingError):
-    """A non-successful HTTP status outside the fixed classifications."""
+    """A non-successful HTTP status outside the fixed classifications, with the error code the Server sent."""
 
-    def __init__(self, status: int, path: str) -> None:
+    def __init__(self, status: int, path: str, code: str | None = None) -> None:
         self.status = status
         self.path = path
+        self.code = code
         super().__init__(f"PowerContext returned HTTP {status}")
 
 
 class _Response(Protocol):
-    fp: object
-    status: int
-
-    def __enter__(self) -> _Response: ...
-
-    def __exit__(self, *args: object) -> object: ...
-
-    def read(self, amount: int = -1) -> bytes: ...
+    def read(self, amount: int = -1, /) -> bytes: ...
 
 
 class _RejectRedirects(HTTPRedirectHandler):
@@ -255,17 +254,36 @@ def _post_json(
         if error.code == 401:
             raise ScopeBindingRejectedError from error
         if error.code == 503:
-            raise ScopeBindingUnavailableError from error
-        raise ScopeBindingStatusError(error.code, path) from error
-    except (OSError, TimeoutError) as error:
+            raise ScopeBindingUnavailableError(503) from error
+        raise ScopeBindingStatusError(error.code, path, read_error_code(error, deadline=request_deadline)) from error
+    except (OSError, TimeoutError, HTTPException) as error:
+        # http.client reports a truncated or malformed response as HTTPException, not OSError.
         raise ScopeBindingUnavailableError from error
     try:
         value: Any = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (ValueError, RecursionError) as error:
+        # Besides JSONDecodeError, json raises ValueError for an over-long integer and RecursionError for deep nesting.
         raise ScopeBindingError from error
     if not isinstance(value, dict):
         raise ScopeBindingError
     return value
+
+
+def read_error_code(error: HTTPError, *, deadline: float) -> str | None:
+    """Return the code of one error body, failing the request when the body exceeds the size bound or breaks off."""
+
+    try:
+        raw = _read_bounded(error, deadline=deadline)
+    except (OSError, HTTPException) as failure:
+        # A stalled, reset, or truncated body is a transport failure, as it is for a successful response.
+        raise ScopeBindingUnavailableError from failure
+    try:
+        body: Any = json.loads(raw)
+    except (ValueError, RecursionError):
+        return None
+    detail = body.get("error") if isinstance(body, dict) else None
+    code = detail.get("code") if isinstance(detail, dict) else None
+    return code if isinstance(code, str) else None
 
 
 def _remaining_time(deadline: float) -> float:
@@ -321,6 +339,21 @@ def bind_response_deadline(response: object, deadline: float) -> None:
     raw._sock = _DeadlineSocket(sock, deadline)
 
 
+def complete_body(response: object, body: bytes) -> bytes:
+    """Return a body read to its end, failing one that ended before its announced Content-Length.
+
+    ``http.client`` reports a truncated chunked body as ``IncompleteRead`` but returns a Content-Length body that the
+    connection cut short as if it were complete, leaving the missing byte count in ``length``.
+    """
+
+    if isinstance(response, HTTPError):
+        response = response.fp
+    missing = getattr(response, "length", None)
+    if missing:
+        raise IncompleteRead(body, missing)
+    return body
+
+
 def _set_response_timeout(response: object, timeout: float) -> None:
     """Tighten urllib's socket timeout before each bounded read."""
 
@@ -339,7 +372,7 @@ def _read_bounded(response: _Response, *, deadline: float) -> bytes:
         _set_response_timeout(response, _remaining_time(deadline))
         chunk = response.read(1)
         if not chunk:
-            return b"".join(chunks)
+            return complete_body(response, b"".join(chunks))
         size += len(chunk)
         if size > _MAX_RESPONSE_BYTES:
             raise ScopeBindingError

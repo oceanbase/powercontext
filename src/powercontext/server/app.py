@@ -410,6 +410,7 @@ from powercontext.errors import (
     InvalidConnectorRunError,
     InvalidSourceDefinitionError,
     InvalidSourceObservationError,
+    InvalidSourceReferenceError,
     PowerContextError,
     RevisionConflictError,
     SourceConflictError,
@@ -471,6 +472,8 @@ from powercontext.http import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionAuthentication,
+    ConnectionIdentity,
     ConnectorCheckpointState,
     ContextCheckResult,
     ContinueHandoffRequest,
@@ -767,6 +770,7 @@ from powercontext.http._generated.operations import (
     GET_CANDIDATE,
     GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
+    GET_CONNECTION_IDENTITY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -1628,6 +1632,7 @@ def create_app(
     _add_route(app, PUBLISH_ARTIFACT, publish_artifact)
     _add_route(app, GET_STATS, get_stats)
     _add_route(app, GET_ACCESS_PRINCIPAL, get_access_principal)
+    _add_route(app, GET_CONNECTION_IDENTITY, get_connection_identity)
     _add_route(app, CHECK_ACCESS, check_access)
     _add_route(app, LIST_ACCESS_RESOURCES, list_access_resources)
     _add_route(app, LIST_ACCESS_ROLES, list_access_roles)
@@ -1935,6 +1940,23 @@ async def get_server_info(request: Request) -> ServerInfo:
     if info is None:
         raise _RuntimeNotReadyError
     return info
+
+
+async def get_connection_identity(request: Request) -> ConnectionIdentity:
+    info = await get_server_info(request)
+    principal = current_principal()
+    if principal is None and (
+        request.app.state.access_mode != "disabled" or request.app.state.authentication_provider is not None
+    ):
+        raise AccessIdentityRequiredError
+    return ConnectionIdentity(
+        server_id=info.server_id,
+        authentication=ConnectionAuthentication.DISABLED
+        if principal is None
+        else ConnectionAuthentication.AUTHENTICATED,
+        access_mode=request.app.state.access_mode,
+        principal=None if principal is None else _access_principal_response(principal),
+    )
 
 
 async def get_access_principal(request: Request) -> AccessMeResponse:
@@ -3169,7 +3191,7 @@ async def generate_prompt_demonstrations(
 
 
 async def get_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     family: Annotated[TaggableArtifactFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     response: Response,
@@ -3182,7 +3204,7 @@ async def get_artifact_tags(
 
 
 async def replace_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     family: Annotated[TaggableArtifactFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
@@ -3213,7 +3235,7 @@ def _tag_family(family: TaggableArtifactFamily) -> RuntimeTaggableArtifactFamily
 
 
 async def get_memory_entry_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     response: Response,
@@ -3225,7 +3247,7 @@ async def get_memory_entry_tags(
 
 
 async def replace_memory_entry_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     artifact_id: Annotated[str, Path(min_length=1, max_length=128)],
     entry_id: Annotated[str, Path(min_length=1, max_length=128)],
     request: ReplaceArtifactTagsRequest,
@@ -3257,7 +3279,7 @@ def _tag_response(
 
 
 async def query_artifact_tags(
-    scope_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: _ScopePathId,
     request: QueryArtifactTagsRequest,
     http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -6888,6 +6910,13 @@ _WORKING_NOTE_EXPIRY_REASONS = {
 
 
 def _map_source_ingestion_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, InvalidSourceReferenceError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_request",
+            "The Source reference is invalid.",
+            {"field": error.field},
+        )
     if isinstance(error, SourceConflictError):
         return status.HTTP_409_CONFLICT, "source_conflict", "The Source identity has different content.", None
     if isinstance(error, InvalidConnectorRunError):

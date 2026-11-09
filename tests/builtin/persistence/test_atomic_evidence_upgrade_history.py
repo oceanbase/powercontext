@@ -170,15 +170,17 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
     plan = upgraded.plan()
     assert plan.state == "migration_required"
     assert plan.source_revision == "v1_4_1_004"
-    assert plan.target_revision == LEDGER_REVISION
+    assert plan.target_revision == current.head
     assert plan.revisions == (
         "v1_4_1_005",
         "v1_4_1_006",
         "v1_5_0_001",
         EVIDENCE_REVISION,
         PROJECTION_REVISION,
-        LEDGER_REVISION,
+        "v1_5_0_004",
     )
+    assert plan.target_revision == LEDGER_REVISION
+        LEDGER_REVISION,
     assert plan.domain_steps == (
         "artifact_storage",
         "atomic_memory_evidence",
@@ -187,6 +189,7 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
     assert upgraded.evidence_path.read_bytes() == old_evidence_bytes
     result = upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
     assert result.changed
+    assert result.revision == current.head
     assert result.revision == LEDGER_REVISION
     assert result.backup_state == "completed"
 
@@ -204,11 +207,13 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
         "v1_5_0_001",
         EVIDENCE_REVISION,
         PROJECTION_REVISION,
+        "v1_5_0_004",
         LEDGER_REVISION,
     }
     ready = reopened.plan()
     assert ready.state == "ready"
     assert ready.revisions == ()
+    assert reopened.verify().revision == current.head
     assert reopened.verify().revision == LEDGER_REVISION
     assert not apply(reopened).changed
     assert reopened.evidence_path.read_bytes() == completed_evidence_bytes
@@ -244,7 +249,10 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
 @pytest.mark.parametrize("vectors", [False, True], ids=["lexical", "vectors"])
 def test_evidence_projection_upgrade_preserves_registered_evidence_revision(tmp_path, vectors):
     embedding = EmbeddingProfile(profile_id="evidence-upgrade", model="fixture", dimension=3) if vectors else None
+    from tests.builtin.persistence.test_portable_storage_migration import previous_bundle
+
     current = server_bundle(embedding_profile=embedding)
+    previous = previous_bundle(tmp_path / "evidence-bundle", embedding, through=EVIDENCE_REVISION)
     directory = tmp_path / "evidence-bundle"
     shutil.copytree(current.directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
     manifest_path = directory / "manifest.json"
@@ -278,9 +286,11 @@ def test_evidence_projection_upgrade_preserves_registered_evidence_revision(tmp_
     before = old.evidence_path.read_bytes()
     upgraded = SQLiteMigrationRunner(database, current, configuration=config)
     plan = upgraded.plan()
+    assert plan.revisions == (PROJECTION_REVISION, "v1_5_0_004")
     assert plan.revisions == (PROJECTION_REVISION, LEDGER_REVISION)
     assert plan.domain_steps == ("atomic_memory_evidence_projection",)
     assert old.evidence_path.read_bytes() == before
+    assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == current.head
     assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == LEDGER_REVISION
     assert upgraded.verify().state == "ready"
     with closing(sqlite3.connect(database)) as connection:

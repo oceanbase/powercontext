@@ -550,6 +550,224 @@ def test_sync_turn_is_flushed_before_session_end(provider_and_client):
     assert client.calls[0][2]["metadata"]["kind"] == "hermes-turn"
 
 
+@pytest.mark.parametrize("extra", [-1, 0, 1])
+def test_turn_coverage_uses_the_uncut_pair_and_preserves_identity(provider_and_client, extra):
+    provider, client = provider_and_client
+    user = "文" * (50_000 - len("[user]\n\n\n[assistant]\nok") + extra)
+    projected = f"[user]\n{user}\n\n[assistant]\nok"
+    provider.sync_turn(user, "ok", session_id="session-1")
+    provider.sync_turn(user, "ok", session_id="session-1")
+    provider._wait_for_background()
+
+    first, replay = client.calls
+    assert first == replay
+    assert first[1][1] == provider._turn_source_id("session-1", user, "ok")
+    assert first[1][2] == projected[:50_000]
+    coverage = first[2]["metadata"]["powercontext_capture_coverage"]
+    assert coverage["status"] == ("partial" if extra > 0 else "complete")
+    assert coverage["reasons"] == (["character_limit"] if extra > 0 else [])
+
+
+def test_turn_marker_is_data_and_empty_pairs_are_not_captured(provider_and_client):
+    provider, client = provider_and_client
+    provider.sync_turn("", "")
+    provider.sync_turn("", "[truncated 999 bytes]")
+    provider._wait_for_background()
+
+    assert len(client.calls) == 1
+    assert client.calls[0][2]["metadata"]["powercontext_capture_coverage"]["status"] == "complete"
+
+
+def test_optional_partial_checkpoint_does_not_skip_uncaptured_entries(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    first = {"role": "user", "content": "a" * 20_000}
+    second = {"role": "assistant", "content": "b" * 20_000}
+    provider.on_pre_compress([first, second])
+    provider.on_pre_compress([first, second])
+    provider.on_pre_compress([first, second])
+
+    captures = [call for call in client.calls if call[0] == "capture_content"]
+    assert len(captures) == 2
+    assert captures[0][1][2] == "[user] " + first["content"]
+    assert captures[1][1][2] == "[assistant] " + second["content"]
+    assert captures[0][2]["metadata"]["powercontext_capture_coverage"]["reasons"] == ["character_limit"]
+    assert captures[1][2]["metadata"]["powercontext_capture_coverage"]["status"] == "complete"
+
+
+def test_optional_oversized_first_entry_creates_no_empty_source(provider_and_client):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    provider.on_pre_compress([{"role": "user", "content": "x" * 30_001}])
+    assert client.calls == []
+    assert provider._precompress_snapshot == []
+
+
+@pytest.mark.parametrize("first_partial", [False, True])
+def test_checkpoint_replay_preserves_its_first_declaration_after_lost_ack(
+    provider_and_client, monkeypatch, first_partial
+):
+    provider, client = provider_and_client
+    module = hermes_provider_module(provider)
+    provider._config["capture_pre_compress"] = True
+    stored = {}
+    attempts = []
+    lost_ack = module.PowerContextTransportError("Acknowledgement lost after capture committed")
+
+    def capture(scope_id, *, source_id, content, metadata):
+        payload = json.loads(json.dumps({"content": content, "metadata": metadata}))
+        identity = (scope_id, source_id)
+        attempts.append((identity, payload))
+        if identity in stored and stored[identity] != payload:
+            raise module.PowerContextHTTPError(409, path="/v1/sources/content")
+        stored[identity] = payload
+        if len(attempts) == 1:
+            raise lost_ack
+        return {}
+
+    monkeypatch.setattr(client, "capture_content", capture)
+    prefix = [{"role": "user", "content": "Already stored."}]
+    oversized_window = [*prefix, {"role": "assistant", "content": "x" * 30_001}]
+    provider.on_pre_compress(oversized_window if first_partial else prefix)
+    assert provider._precompress_snapshot == []
+    provider.on_pre_compress(prefix if first_partial else oversized_window, require_checkpoint=first_partial)
+    provider.on_pre_compress(prefix, require_checkpoint=True)
+    with pytest.raises(module.PreCompressCheckpointError):
+        provider.on_pre_compress(oversized_window, require_checkpoint=True)
+
+    assert len(stored) == 1
+    assert len(attempts) == 2
+    assert attempts[0] == attempts[1]
+    assert attempts[0][1]["metadata"]["powercontext_capture_coverage"]["status"] == (
+        "partial" if first_partial else "complete"
+    )
+    assert len(provider._precompress_snapshot) == 1
+
+
+@pytest.mark.parametrize("first_partial", [False, True])
+def test_checkpoint_recomputes_declaration_after_definitive_rejection(provider_and_client, monkeypatch, first_partial):
+    """A definitive rejection proves nothing was persisted, so a later retry of the
+    same prefix recomputes its declaration from the new host window."""
+    provider, client = provider_and_client
+    module = hermes_provider_module(provider)
+    provider._config["capture_pre_compress"] = True
+    attempts = []
+    rejection = module.PowerContextHTTPError(401, path="/v1/sources/content")
+
+    def capture(scope_id, *, source_id, content, metadata):
+        attempts.append(json.loads(json.dumps(metadata)))
+        if len(attempts) == 1:
+            raise rejection
+        return {}
+
+    monkeypatch.setattr(client, "capture_content", capture)
+    prefix = [{"role": "user", "content": "Already stored."}]
+    oversized_window = [*prefix, {"role": "assistant", "content": "x" * 30_001}]
+    provider.on_pre_compress(oversized_window if first_partial else prefix)
+    provider.on_pre_compress(prefix if first_partial else oversized_window)
+
+    assert len(attempts) == 2
+    expected = ("partial", "complete") if first_partial else ("complete", "partial")
+    assert attempts[0]["powercontext_capture_coverage"]["status"] == expected[0]
+    assert attempts[1]["powercontext_capture_coverage"]["status"] == expected[1]
+
+
+@pytest.mark.parametrize("first_partial", [False, True])
+def test_definitive_rejection_after_uncertain_attempt_keeps_frozen_declaration(
+    provider_and_client, monkeypatch, first_partial
+):
+    """A later definitive rejection cannot prove an earlier uncertain attempt did not
+    persist, so the frozen declaration survives and is reused on the next retry."""
+    provider, client = provider_and_client
+    module = hermes_provider_module(provider)
+    provider._config["capture_pre_compress"] = True
+    attempts = []
+    lost_ack = module.PowerContextTransportError("Acknowledgement lost after capture committed")
+    rejection = module.PowerContextHTTPError(401, path="/v1/sources/content")
+
+    def capture(scope_id, *, source_id, content, metadata):
+        attempts.append(json.loads(json.dumps(metadata)))
+        if len(attempts) == 1:
+            raise lost_ack
+        if len(attempts) == 2:
+            raise rejection
+        return {}
+
+    monkeypatch.setattr(client, "capture_content", capture)
+    prefix = [{"role": "user", "content": "Already stored."}]
+    oversized_window = [*prefix, {"role": "assistant", "content": "x" * 30_001}]
+    provider.on_pre_compress(oversized_window if first_partial else prefix)
+    provider.on_pre_compress(prefix if first_partial else oversized_window)
+    provider.on_pre_compress(prefix if first_partial else oversized_window)
+
+    assert len(attempts) == 3
+    expected_status = "partial" if first_partial else "complete"
+    for attempt in attempts:
+        assert attempt["powercontext_capture_coverage"]["status"] == expected_status
+
+
+@pytest.mark.parametrize("operation", ["turn", "precompress"])
+@pytest.mark.parametrize("legacy_succeeds", [False, True])
+def test_capture_409_retries_only_the_exact_legacy_payload(
+    provider_and_client, monkeypatch, operation, legacy_succeeds
+):
+    provider, client = provider_and_client
+    module = hermes_provider_module(provider)
+    provider._config["capture_pre_compress"] = True
+    conflict = module.PowerContextHTTPError(409, path="/v1/sources/content")
+    requests = []
+    diagnostics = []
+
+    def capture(scope_id, **payload):
+        requests.append({"scope_id": scope_id, **payload})
+        if len(requests) == 1 or not legacy_succeeds:
+            raise conflict
+        return {}
+
+    monkeypatch.setattr(client, "capture_content", capture)
+    monkeypatch.setattr(provider, "_emit_failure_diagnostic", lambda event, error: diagnostics.append(error))
+    if operation == "turn":
+        provider.sync_turn("Keep the decision.", "Understood.")
+        provider._wait_for_background()
+    elif legacy_succeeds:
+        provider.on_pre_compress([{"role": "user", "content": "Keep the decision."}], require_checkpoint=True)
+    else:
+        with pytest.raises(module.PreCompressCheckpointError):
+            provider.on_pre_compress([{"role": "user", "content": "Keep the decision."}], require_checkpoint=True)
+        assert provider._precompress_snapshot == []
+
+    assert len(requests) == 2
+    original = requests[0]
+    legacy = {
+        **original,
+        "metadata": {
+            key: value for key, value in original["metadata"].items() if key != "powercontext_capture_coverage"
+        },
+    }
+    assert requests[1] == legacy
+    assert "powercontext_capture_coverage" in original["metadata"]
+    assert diagnostics == ([] if legacy_succeeds else [conflict])
+
+
+@pytest.mark.parametrize("status", [401, 403, 503, None])
+def test_capture_does_not_legacy_retry_other_failures(provider_and_client, monkeypatch, status):
+    provider, client = provider_and_client
+    module = hermes_provider_module(provider)
+    failure = (
+        module.PowerContextTransportError("unavailable") if status is None else module.PowerContextHTTPError(status)
+    )
+    attempts = []
+
+    def capture(*args, **kwargs):
+        attempts.append(kwargs)
+        raise failure
+
+    monkeypatch.setattr(client, "capture_content", capture)
+    provider.sync_turn("Keep the decision.", "Understood.")
+    provider._wait_for_background()
+    assert len(attempts) == 1
+
+
 def test_sync_turn_does_not_wait_for_http(provider_and_client):
     provider, client = provider_and_client
     started = threading.Event()
@@ -630,6 +848,96 @@ def test_pre_compress_filters_roles_and_redacts_secrets(provider_and_client):
     assert "hunter2" not in content
     assert "[REDACTED]" in content
     assert "deployment" in content
+
+
+@pytest.mark.parametrize(
+    "entry,fail_flush",
+    [
+        ("sync_turn", False),
+        ("on_pre_compress", False),
+        ("on_pre_compress", True),
+        ("on_session_end", False),
+        ("on_session_end", True),
+    ],
+)
+def test_private_display_fields_do_not_cross_adapter_boundaries(
+    tmp_path, hermes_modules, caplog, monkeypatch, entry, fail_flush
+):
+    from tests.integration_conformance.hermes.support import (
+        ALLOWED_ASSISTANT,
+        ALLOWED_USER,
+        SECRET_SAMPLE,
+        assert_projected,
+        messages,
+        trace_text,
+    )
+
+    provider_module, _ = hermes_modules
+    client = FakeClient()
+    if fail_flush:
+
+        def failed_flush(scope_id):
+            client.calls.append(("flush_memory", (scope_id,), {}))
+            from plugins.powercontext.client import PowerContextTransportError  # ty: ignore[unresolved-import]
+
+            raise PowerContextTransportError("synthetic extraction unavailable")  # noqa: TRY003 - controlled failure.
+
+        monkeypatch.setattr(client, "flush_memory", failed_flush)
+    provider = provider_module.PowerContextMemoryProvider(
+        {"capture_pre_compress": True, "evaluation_trace": True}, client_factory=lambda _: client
+    )
+    with caplog.at_level(logging.INFO):
+        provider.initialize("fixture-session", hermes_home=str(tmp_path), agent_identity="fixture")
+        try:
+            if entry == "on_pre_compress":
+                provider.on_pre_compress(messages(), require_checkpoint=True)
+            else:
+                # Hermes owns sync's secret normalization. The full synthetic transcript
+                # still contains the original sample, private display data and unknown fields.
+                provider.sync_turn(f"{ALLOWED_USER} [REDACTED]", ALLOWED_ASSISTANT, messages=messages())
+                if entry == "on_session_end":
+                    provider.on_session_end(messages())
+            provider.prefetch(f"{ALLOWED_USER} api_key={SECRET_SAMPLE}")
+        finally:
+            provider.shutdown()
+
+    captures = [call for call in client.calls if call[0] == "capture_content"]
+    assert captures
+    for _, args, kwargs in captures:
+        assert ALLOWED_USER in args[2]
+        assert ALLOWED_ASSISTANT in args[2]
+        assert "[REDACTED]" in args[2]
+        assert_projected(json.dumps({"content": args[2], "metadata": kwargs["metadata"]}))
+    assert any(call[0] == "flush_memory" for call in client.calls) == (entry != "sync_turn")
+    trace = trace_text(tmp_path)
+    assert ALLOWED_USER in trace
+    assert "[REDACTED]" in trace
+    assert_projected(trace)
+    assert_projected(caplog.text)
+    # The query is deliberately raw at the client boundary: prefetch's provider-side
+    # redaction contract applies to its evaluation trace, not to the query request.
+    assert_projected(json.dumps([call for call in client.calls if call[0] != "prepare_context"]))
+
+
+def test_private_display_fields_stay_absent_after_http_sqlite_restart(tmp_path, hermes_modules, caplog):
+    from tests.integration_conformance.hermes.support import assert_projected, exercise_storage
+
+    provider_module, _ = hermes_modules
+    with caplog.at_level(logging.INFO):
+        result = exercise_storage(provider_module.PowerContextMemoryProvider, tmp_path)
+    assert result["restart_readback"]
+    assert_projected(caplog.text)
+
+
+def test_http_late_capture_keeps_scope_and_shutdown_does_not_claim_success(tmp_path, hermes_modules, caplog):
+    from tests.integration_conformance.hermes.support import assert_projected, exercise_scope_shutdown
+
+    provider_module, _ = hermes_modules
+    with caplog.at_level(logging.INFO):
+        result = exercise_scope_shutdown(provider_module.PowerContextMemoryProvider, tmp_path)
+    assert result["unfinished_shutdown_not_persisted"]
+    assert "shutdown dropped 1 queued write(s); active=True" in caplog.text
+    assert_projected(caplog.text)
 
 
 @pytest.fixture

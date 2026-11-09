@@ -21,6 +21,14 @@ HTTP API 是访问 PowerContext Server 的语言无关接口。默认 base URL �
 请求仍需鉴权。`/openapi.json` 需要 Bearer token。浏览器地址栏无法添加该 header；应使用可信的代理或浏览器配置注入
 header，或者通过带鉴权的命令下载 `/openapi.json`。不要把 token 放进 URL。
 
+## 不触发就绪探测的连接身份
+
+`GET /v1/connection/identity` 返回 `server_id`、`authentication`（`disabled` 或 `authenticated`）、
+`access_mode` 和可为空的 `principal`。它沿用请求鉴权及 `access.self`，不要求 `server.observe`，
+也不调用模型／Provider 就绪探测。明确的匿名身份要求认证和 Access 强制授权同时禁用；401、403 或 503 均不代表匿名模式。
+结果不授予资源权限，也不证明远端二进制身份。Python 客户端提供 `get_connection_identity()`。
+就绪检查仍通过单独请求 `/health/ready` 执行。
+
 ## 请求鉴权
 
 默认的 loopback 安装不启用鉴权。运维者启用鉴权后，API 和 MCP 请求需要携带：

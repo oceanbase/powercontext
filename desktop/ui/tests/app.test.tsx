@@ -39,7 +39,7 @@ test("disconnected shell prevents writes and search and explains the boundary", 
   expect(
     await screen.findByRole("heading", { name: "尚未连接服务" }),
   ).toBeTruthy();
-  await user.click(screen.getByRole("button", { name: /连接已有服务/ }));
+  await user.click(screen.getByRole("button", { name: "添加连接" }));
   expect(screen.getByRole("heading", { name: "添加连接" })).toBeTruthy();
   expect(
     (screen.getByRole("button", { name: "保存配置" }) as HTMLButtonElement)

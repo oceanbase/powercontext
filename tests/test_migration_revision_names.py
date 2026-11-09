@@ -67,6 +67,7 @@ def test_release_names_preserve_source_upgrade_plan_and_evidence(tmp_path, monke
         "v1_5_0_005",
     ]
     assert [item["revision"] for item in plan["pending_migrations"]] == list(reviewed.revisions)
+    target = {"revision": "v1_5_0_004", "name": "v1_5_0_004", "software_version": "1.5.0", "sequence": 4}
     target = {"revision": "v1_5_0_005", "name": "v1_5_0_005", "software_version": "1.5.0", "sequence": 5}
     assert plan["target_migration"] == target
 

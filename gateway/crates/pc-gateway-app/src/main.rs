@@ -24,6 +24,9 @@
 //! PC_GATEWAY_UPSTREAM_API_KEY、PC_GATEWAY_UPSTREAM_PROFILE、
 //! PC_GATEWAY_POLICY_VERSION、PC_GATEWAY_MAX_ATTEMPTS、PC_GATEWAY_DEGRADE。
 
+mod authentication;
+mod evidence_body;
+mod evidence_diagnostics;
 mod ingress;
 mod link;
 mod middleware;
@@ -34,9 +37,8 @@ use crate::link::CoreLink;
 use axum::routing::{get, post};
 use axum::Router;
 use pc_gateway_core::Executor;
-use pc_gateway_evidence::BufferedEvidenceSink;
+use pc_gateway_evidence::{EvidenceSink, JsonEvidenceSink, NoopEvidenceSink};
 use pc_gateway_transport::ReqwestTransport;
-use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,7 +46,7 @@ use std::time::Duration;
 pub struct AppState {
     /// 单一执行器；线格式渲染器按请求格式传入（同格式进出）。
     pub executor: Arc<Executor<CoreLink, ReqwestTransport>>,
-    pub evidence: Arc<BufferedEvidenceSink>,
+    pub evidence: Arc<dyn EvidenceSink>,
     pub upstream_profile: String,
     /// chat-completions 上游（含 key；老变量 PC_GATEWAY_UPSTREAM_URL 仍作缺省）。
     pub upstream_chat: String,
@@ -59,13 +61,15 @@ pub struct AppState {
     /// Responses 入口是否注入：默认跟随 injection，
     /// `PC_GATEWAY_INJECTION_RESPONSES=off` 可单独关闭。
     pub inject_responses: bool,
+    /// 注入时同时请求代码证据：`PC_GATEWAY_INJECTION_CODE=on`（默认关）。
+    pub inject_code: bool,
     /// 过检后同步沉淀对话（默认关）。
     pub sediment: bool,
     /// 运维配置的固定指令（`PC_GATEWAY_STEERING_FILE`），只插入 Responses 请求；未配置时为空。
     pub steering: Option<String>,
     /// 默认 Scope（启动时读一次，避免热路径读环境变量）。
     pub default_scope: String,
-    /// Request body byte limit (also enforced when consuming chunked bodies).
+    /// Confirmed model input intersection in bytes; zero pauses model routes.
     pub max_body_bytes: usize,
     /// 启动时查 capabilities 确定降级资格：enforcing=true 或查询失败 → 不允许。
     pub degradation_allowed: bool,
@@ -74,10 +78,16 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+
+    let (addr, api_key) = authentication::load().unwrap_or_else(|reason| {
+        eprintln!("{reason}");
+        std::process::exit(2);
+    });
 
     let core_link = CoreLink::from_env();
     let proxy_state = proxy::ProxyState::from_env();
@@ -109,13 +119,66 @@ async fn main() {
         }
     };
 
+    // stdout is reserved for body-free evidence JSONL; operational tracing uses stderr.
+    let evidence: Arc<dyn EvidenceSink> =
+        if matches!(std::env::var("PC_GATEWAY_EVIDENCE").as_deref(), Ok("off")) {
+            tracing::info!("gateway evidence disabled; usage and call coverage unavailable");
+            Arc::new(NoopEvidenceSink)
+        } else {
+            match JsonEvidenceSink::new(
+                std::io::stdout(),
+                std::num::NonZeroUsize::new(1024).unwrap(),
+            ) {
+                Ok(sink) => {
+                    let sink = Arc::new(sink);
+                    if evidence_diagnostics::start(&sink).is_err() {
+                        tracing::error!(
+                            "gateway evidence health reporter unavailable; evidence disabled"
+                        );
+                        Arc::new(NoopEvidenceSink)
+                    } else {
+                        tracing::info!(
+                            capacity = 1024,
+                            "gateway evidence JSONL enabled on stdout; drop newest on overflow"
+                        );
+                        sink
+                    }
+                }
+                Err(_) => {
+                    tracing::error!("gateway evidence worker unavailable; evidence disabled");
+                    Arc::new(NoopEvidenceSink)
+                }
+            }
+        };
+
+    // Reuse startup discovery. Fallback keeps its deployment limit; a missing
+    // model capacity cannot be treated as permission to send.
+    let capabilities = match resolve_core_capabilities(core_link.clone()).await {
+        Ok(caps) => Some(caps),
+        Err(reason) => {
+            // Only fixed local diagnostics: never log Core response/error values.
+            tracing::warn!("{reason}; model routes paused until restart");
+            None
+        }
+    };
+    let model_body_bytes = capabilities
+        .as_ref()
+        .and_then(|caps| caps.input_payload_limit())
+        .map(|limit| limit.min(max_body_bytes))
+        .unwrap_or(0);
+    let degradation_allowed = capabilities.as_ref().is_some_and(|caps| !caps.enforcing);
+
     let state = Arc::new(AppState {
-        executor: Arc::new(Executor::new(
-            core_link.clone(),
-            ReqwestTransport::new(Duration::from_secs(120)),
-            NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
-        )),
-        evidence: Arc::new(BufferedEvidenceSink::new()),
+        executor: Arc::new(
+            Executor::new(
+                core_link.clone(),
+                ReqwestTransport::new(Duration::from_secs(120)),
+                NonZeroU32::new(max_attempts).expect("max_attempts > 0"),
+            )
+            .with_input_limit(model_body_bytes)
+            .with_core_enforcement(capabilities.as_ref().is_none_or(|caps| caps.enforcing)),
+        ),
+        evidence,
         upstream_profile: std::env::var("PC_GATEWAY_UPSTREAM_PROFILE")
             .unwrap_or_else(|_| "default".into()),
         upstream_chat: std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
@@ -128,13 +191,15 @@ async fn main() {
         upstream_responses_api_key: std::env::var("PC_GATEWAY_UPSTREAM_API_KEY_RESPONSES")
             .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_API_KEY"))
             .unwrap_or_default(),
-        api_key: std::env::var("PC_GATEWAY_API_KEY")
-            .ok()
-            .filter(|k| !k.is_empty()),
+        api_key,
         degrade,
         injection: injection_mode(
             std::env::var("PC_GATEWAY_INJECTION").ok().as_deref(),
             std::env::var("PC_GATEWAY_CORE_UDS").is_ok(),
+        ),
+        inject_code: matches!(
+            std::env::var("PC_GATEWAY_INJECTION_CODE").as_deref(),
+            Ok("on")
         ),
         inject_responses: !matches!(
             std::env::var("PC_GATEWAY_INJECTION_RESPONSES").as_deref(),
@@ -144,26 +209,21 @@ async fn main() {
         steering,
         default_scope: std::env::var("PC_GATEWAY_DEFAULT_SCOPE")
             .unwrap_or_else(|_| "gateway:default".into()),
-        max_body_bytes,
-        degradation_allowed: resolve_degradation(core_link.clone()).await,
+        max_body_bytes: model_body_bytes,
+        degradation_allowed,
     });
 
     let router = router(state, proxy_state);
 
     // 中间件链：按序注册，前者为外层。新增功能 = 实现 GatewayMiddleware + 此处一行。
     let chain: Vec<std::sync::Arc<dyn middleware::GatewayMiddleware>> = vec![
-        middleware::ResourceLimits::new(max_body_bytes, max_concurrent),
+        middleware::ResourceLimits::new(model_body_bytes, max_body_bytes, max_concurrent),
         std::sync::Arc::new(middleware::RequestId),
     ];
     for mw in &chain {
         tracing::info!(middleware = mw.name(), "middleware enabled");
     }
     let app = middleware::apply_chain(router, chain);
-
-    let addr: SocketAddr = std::env::var("PC_GATEWAY_LISTEN")
-        .unwrap_or_else(|_| "127.0.0.1:8787".into())
-        .parse()
-        .expect("PC_GATEWAY_LISTEN must be host:port");
 
     tracing::info!(%addr, "pc-gateway listening (port takeover mode)");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
@@ -190,62 +250,32 @@ async fn shutdown_signal() {
     tracing::info!("shutting down (draining)");
 }
 
-/// P1-3：启动时确定降级资格。
-/// capabilities 返回 enforcing=true → 不允许（Core 说了算）。
-/// 查询失败 → 不允许（fail-closed）。
-async fn resolve_degradation(link: link::CoreLink) -> bool {
-    use pc_gateway_core::GateClient;
-    match tokio::time::timeout(std::time::Duration::from_secs(10), link.capabilities()).await {
-        Ok(Ok(caps)) => {
-            let cp = caps.get("context_protection");
-            // P2 review：验契约版本——Core 必须支持我们消费的 check/payload 契约。
-            let check_ok = cp
-                .and_then(|cp| cp.get("check_versions"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .any(|s| s.as_str() == Some("powercontext.context-check.v1"))
-                })
-                .unwrap_or(false);
-            let payload_ok = cp
-                .and_then(|cp| cp.get("payload_versions"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .any(|s| s.as_str() == Some("powercontext.model-json-payload.v1"))
-                })
-                .unwrap_or(false);
-            if !check_ok || !payload_ok {
-                tracing::error!(
-                    check_ok,
-                    payload_ok,
-                    "Core does not support the required context-check contract; \
-                     this gateway requires #2311+#2313. Startup will continue but \
-                     every /gateway/v1 request will fail until the contract is available."
-                );
-                return false; // 降级也不允许——没有 check 契约就没有安全保障
-            }
-            let enforcing = cp
-                .and_then(|cp| cp.get("enforcing"))
-                .and_then(|e| e.as_bool())
-                .unwrap_or(true); // 缺字段 → fail-closed
-            let allowed = !enforcing;
-            tracing::info!(
-                enforcing,
-                allowed,
-                "degradation eligibility from capabilities"
-            );
-            allowed
-        }
-        Ok(Err(e)) => {
-            tracing::warn!(error = %e, "capabilities error; degradation disabled (fail-closed)");
-            false
-        }
-        Err(_) => {
-            tracing::warn!("capabilities timeout (10s); degradation disabled (fail-closed)");
-            false
-        }
+/// A failed or incompatible startup discovery pauses model routes. Core still
+/// checks every send/release; restart the gateway to rediscover changed limits.
+async fn resolve_core_capabilities(
+    link: link::CoreLink,
+) -> Result<pc_gateway_types::ContextProtectionCapabilities, &'static str> {
+    use pc_gateway_core::{GateClient, GateError};
+    let caps = tokio::time::timeout(Duration::from_secs(10), link.capabilities())
+        .await
+        .map_err(|_| "Core capabilities query timed out")?
+        .map_err(|error| match error {
+            GateError::GateUnavailable(_) => "Core capabilities transport unavailable",
+            GateError::GateRejected(_) => "Core capabilities query rejected",
+            GateError::Malformed(_) => "Core capabilities response malformed",
+        })?;
+    let caps: pc_gateway_types::ContextProtectionCapabilities = serde_json::from_value(
+        caps.get("context_protection")
+            .ok_or("Core context_protection capability missing")?
+            .clone(),
+    )
+    .map_err(|_| "Core context_protection DTO incomplete or invalid")?;
+    if caps.limits.payload_bytes == 0 {
+        return Err("Core input capacity must be positive");
     }
+    caps.input_payload_limit()
+        .ok_or("Core check/payload versions incompatible")?;
+    Ok(caps)
 }
 
 async fn healthz() -> axum::Json<serde_json::Value> {
@@ -271,11 +301,8 @@ fn injection_mode(setting: Option<&str>, combined: bool) -> Injection {
         Some("off") => Injection::Off,
         None if combined => Injection::ConversationsOnly,
         None => Injection::Off,
-        Some(other) => {
-            tracing::warn!(
-                value = other,
-                "PC_GATEWAY_INJECTION must be on or off; injection disabled"
-            );
+        Some(_) => {
+            tracing::warn!("PC_GATEWAY_INJECTION must be on or off; injection disabled");
             Injection::Off
         }
     }

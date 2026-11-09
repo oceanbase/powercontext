@@ -45,6 +45,7 @@ from powercontext.builtin.artifacts.atomic_memory.reconciliation import (
     AtomicMemoryReconciliationOutput,
     AtomicMemoryWindowWorkset,
     AtomicMemoryWorkingItem,
+    RedundantAtomicMemoryRevisionError,
 )
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.memory.protocols import (
@@ -54,6 +55,7 @@ from powercontext.builtin.artifacts.memory.protocols import (
 )
 from powercontext.builtin.artifacts.prompt.errors import PromptError
 from powercontext.builtin.artifacts.prompt.service import PromptService, current_prompt
+from powercontext.builtin.artifacts.search import analyze_text, fts_query_requirements
 from powercontext.builtin.decision_observations import DecisionObservation
 from powercontext.builtin.inference import (
     InferencePrivacyError,
@@ -66,6 +68,7 @@ from powercontext.builtin.persistence.atomic_memory_index import (
     AtomicMemoryIndexError,
     AtomicMemoryIndexFilter,
     AtomicMemoryRelatedRequest,
+    atomic_memory_embedding_input,
 )
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.decision_observations import DecisionObservationRepository
@@ -671,6 +674,7 @@ class AtomicMemorySourceWindowProcessor:
             prompt is not None and prompt.selection == "built_in"
             for prompt in (extraction_prompt, current_prompt("atomic_memory.reconcile"))
         )
+        window_vectors: dict[str, tuple[float, ...]] = {}
         for ordinal, candidate in enumerate(candidates):
             selected = tuple(by_id[identifier] for identifier in dict.fromkeys(candidate.evidence_ids))
             key = workset.add(
@@ -686,11 +690,11 @@ class AtomicMemorySourceWindowProcessor:
                     changed=True,
                 )
             )
-            prior = tuple(
-                item.key for item in workset.items.values() if item.key != key and item.changed and item.retain
-            )
-            recalled = await self._recall_related_items(
+            recalled, related_request = await self._recall_related_items(
                 scope_id, candidate.text, context, workset, artifacts, local_policy=local_policy
+            )
+            prior = await self._window_comparisons(
+                workset, key, related_request, window_vectors, related_only=skip_unrelated
             )
             pending = list(dict.fromkeys((*prior, *recalled)))
             # An unrelated candidate is kept as extracted rather than reconciled alone.
@@ -718,8 +722,11 @@ class AtomicMemorySourceWindowProcessor:
                         }.values()
                     )
                     artifacts[(ref.family, ref.artifact_id, ref.revision)] = ref
-                result = await pipeline.reconciler.generate(value)
-                key = workset.apply(key, related, AtomicMemoryReconciliationOutput.model_validate(result.output))
+                try:
+                    result = await pipeline.reconciler.generate(value)
+                    key = workset.apply(key, related, AtomicMemoryReconciliationOutput.model_validate(result.output))
+                except RedundantAtomicMemoryRevisionError as error:
+                    key = workset.recover_redundant_revision(key, related, error)
                 del pending[:selected_count]
                 compared = True
         for item in workset.changes():
@@ -818,9 +825,56 @@ class AtomicMemorySourceWindowProcessor:
             ):
                 if local_policy:
                     await application.security.authorize(connection, scope_id, context, "read")
-                return await self._load_related_items(
+                recalled = await self._load_related_items(
                     connection, scope_id, hits, context, workset, artifacts, joined_heads=joined_heads
                 )
+        return recalled, request
+
+    async def _window_comparisons(self, workset, key, request, vectors, *, related_only):
+        items = tuple(item for item in workset.items.values() if item.key != key and item.changed and item.retain)
+        if not related_only:
+            return tuple(item.key for item in items)
+        # Earlier window items are not indexed until publication. The threshold that selects published memories
+        # selects them too, so an unrelated sibling no longer forces a comparison of its own.
+        if items and request.mode in {"vector", "hybrid"}:
+            try:
+                await self._embed_window_items(items, vectors)
+            except (AtomicMemoryIndexError, InferenceUnavailableError, InferenceTimeoutError):
+                if not self.config.related_fts_fallback:
+                    raise
+                request = replace(request, mode="fts")
+        return tuple(
+            item.key
+            for item in items
+            if related_window_match(
+                request,
+                item.content.kind,
+                item.content.text,
+                vectors.get(atomic_memory_embedding_input(item.content.kind, item.content.text)),
+            )
+        )
+
+    async def _embed_window_items(self, items, vectors) -> None:
+        profile = self.application.index.capabilities.embedding_profile
+        model = self.application.embedding_model
+        if model is None or profile is None or model.profile != profile:
+            raise AtomicMemoryIndexError("embedding-profile", "Related-memory vector profile is unavailable")
+        inputs = tuple(
+            dict.fromkeys(
+                value
+                for item in items
+                if (value := atomic_memory_embedding_input(item.content.kind, item.content.text)) not in vectors
+            )
+        )
+        if not inputs:
+            return
+        result = await model.embed(inputs)
+        if len(result.vectors) != len(inputs):
+            raise AtomicMemoryIndexError("embedding-result", "Related window items require one vector each")
+        for value, vector in zip(inputs, result.vectors, strict=True):
+            vectors[value] = canonical_embedding(
+                vector, dimension=profile.dimension, normalization=profile.normalization
+            )
 
     async def _related_request(self, query, filters):
         application = self.application
@@ -1123,6 +1177,27 @@ class _PendingObservationSink:
 
     async def record(self, observation: DecisionObservation, /) -> None:
         self.observation = observation
+
+
+def related_window_match(
+    request: AtomicMemoryRelatedRequest, kind: str, body: str, vector: tuple[float, ...] | None, /
+) -> bool:
+    """Apply the related-enumeration threshold to one unindexed item, as the backends do for indexed rows.
+
+    Lexical coverage counts whole analyzed terms of the projection's searchable text; the vector channel compares the
+    item's document embedding by exact L2 distance. Hybrid admits an item that meets either channel.
+    """
+
+    if request.mode in {"fts", "hybrid"}:
+        terms, required = fts_query_requirements(request.query, floor=request.admission)
+        searchable = f" {analyze_text(atomic_memory_embedding_input(kind, body))} "
+        if terms and sum(f" {term} " in searchable for term in terms) >= required:
+            return True
+    if request.mode in {"vector", "hybrid"}:
+        if request.query_vector is None or vector is None or request.max_distance is None:
+            raise AtomicMemoryIndexError("embedding-profile", "Related vector matching requires both vectors")
+        return math.dist(request.query_vector, vector) <= request.max_distance
+    return False
 
 
 def _gate_evidence_text(value) -> str:

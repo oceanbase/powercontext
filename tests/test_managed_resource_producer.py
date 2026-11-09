@@ -541,6 +541,9 @@ def test_native_candidate_is_consumed_and_runs_independent_ops(native_candidates
         ],
         cwd=_ROOT,
         check=True,
+        # Leave room for the launcher and Ops phase deadlines, archive I/O,
+        # and writing failure evidence before the outer process is stopped.
+        timeout=1200,
         # The serve smoke probes the launcher, inspects Ops and verifies the
         # relocated Server twice; on Windows runners the whole flow measured
         # about 195s before exceeding 300s once (2026-11-05). The candidate

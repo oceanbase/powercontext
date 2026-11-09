@@ -18,6 +18,7 @@ info:
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
   version: 1.5.0
 x-powercontext-feature-contracts:
+  connection.identity: {major: 1, minor: 0}
   access.principal: {major: 1, minor: 0}
   scope.selection: {major: 1, minor: 0}
   memory.explicit: {major: 1, minor: 0}
@@ -295,7 +296,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: artifact_id
           in: path
           required: true
@@ -4793,7 +4794,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: family
           in: path
           required: true
@@ -4842,7 +4843,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: family
           in: path
           required: true
@@ -4897,7 +4898,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: artifact_id
           in: path
           required: true
@@ -4946,7 +4947,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
         - name: artifact_id
           in: path
           required: true
@@ -5001,7 +5002,7 @@ paths:
         - name: scope_id
           in: path
           required: true
-          schema: {type: string, minLength: 1, maxLength: 256}
+          schema: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
       requestBody:
         required: true
         content:
@@ -5252,6 +5253,32 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/connection/identity:
+    get:
+      tags: [access]
+      summary: Observe the current connection identity without readiness probes
+      operationId: get_connection_identity
+      x-powercontext-feature-contracts: [connection.identity]
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      description: >-
+        Returns the actual deployment, access mode and request authentication identity.
+        Does not invoke model, authentication-provider or access-provider readiness probes,
+        require server.observe, or grant resource permissions. Anonymous identity is explicit
+        only when authentication and access enforcement are disabled. Authentication errors
+        and unavailable enforced access remain errors, never anonymous fallback.
+      responses:
+        '200':
+          description: Current request identity; not an operation authorization or binary attestation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionIdentity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
   /v1/access/me:
     get:
       tags: [access]
@@ -7771,6 +7798,9 @@ components:
           type: string
           minLength: 1
           maxLength: 256
+        locator:
+          $ref: "#/components/schemas/SourceLocator"
+          nullable: true
     ListDreamRunsRequest:
       type: object
       additionalProperties: false
@@ -13819,6 +13849,48 @@ components:
         next_cursor:
           type: string
           nullable: true
+    SourceSequenceLocator:
+      type: object
+      additionalProperties: false
+      required: [kind, sequence]
+      description: Position of this exact Source in its scope journal; zero is distinct from absence.
+      properties:
+        kind:
+          type: string
+          enum: [sequence]
+        sequence:
+          type: integer
+          minimum: 0
+    SourceLineRangeLocator:
+      type: object
+      additionalProperties: false
+      required: [kind, start_line, end_line]
+      description: Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect.
+      x-powercontext-source-line-range: true
+      properties:
+        kind:
+          type: string
+          enum: [line_range]
+        start_line:
+          type: integer
+          minimum: 1
+        end_line:
+          type: integer
+          minimum: 1
+        heading_path:
+          type: string
+          nullable: true
+          maxLength: 1024
+          description: Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes.
+    SourceLocator:
+      oneOf:
+        - $ref: "#/components/schemas/SourceSequenceLocator"
+        - $ref: "#/components/schemas/SourceLineRangeLocator"
+      discriminator:
+        propertyName: kind
+        mapping:
+          sequence: "#/components/schemas/SourceSequenceLocator"
+          line_range: "#/components/schemas/SourceLineRangeLocator"
     SourceTypeReference:
       type: object
       additionalProperties: false
@@ -13832,6 +13904,9 @@ components:
           minLength: 1
           maxLength: 256
           description: Source identity as accepted at ingestion, including Unicode and interior spaces.
+        locator:
+          $ref: "#/components/schemas/SourceLocator"
+          nullable: true
     SourceReference:
       type: object
       additionalProperties: false
@@ -13842,6 +13917,9 @@ components:
           description: Stable Source type.
         source_id:
           type: string
+        locator:
+          $ref: "#/components/schemas/SourceLocator"
+          nullable: true
     CaptureStatus:
       type: string
       enum: [accepted]
@@ -14007,6 +14085,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AccessRole"
+    ConnectionAuthentication:
+      type: string
+      enum: [disabled, authenticated]
+    ConnectionIdentity:
+      type: object
+      additionalProperties: false
+      required: [server_id, authentication, access_mode, principal]
+      properties:
+        server_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        authentication:
+          $ref: '#/components/schemas/ConnectionAuthentication'
+        access_mode:
+          $ref: '#/components/schemas/AccessControlMode'
+        principal:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AccessPrincipal'
     AccessMeResponse:
       type: object
       additionalProperties: false

@@ -203,6 +203,8 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"
     assert license_check["with"] == {"config": ".licenserc.yaml", "mode": "check"}
+    assert license_check["env"]["INSTALL_DIR"] == "${{ runner.temp }}"
+    assert license_check["env"]["PATH"].startswith("${{ runner.temp }}:")
     for step in (selection, license_check, quality, contract):
         assert not step.get("continue-on-error")
         assert "if" not in step  # A preceding failure prevents further admission work.
@@ -212,6 +214,16 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
         if name not in {"quality", "upgrade-release-gate", "ci-result"}:
             assert "quality" in job["needs"]
             assert "needs.quality.result == 'success'" in job["if"]
+
+
+def test_website_build_uses_the_standard_internal_runner():
+    runs_on = workflow("master.yml")["jobs"]["check-website"]["runs-on"]
+    assert "powercontext-ci-standard" in runs_on
+
+
+def test_all_end_to_end_suites_have_extended_timeout():
+    timeout = workflow("master.yml")["jobs"]["tests"]["timeout-minutes"]
+    assert timeout == "${{ matrix.suite == 'e2e' && 55 || 40 }}"
 
 
 def test_installation_roles_use_only_two_python_runners():
@@ -274,7 +286,7 @@ def test_cancelled_or_draft_runs_cannot_start_terminal_runner_jobs():
     assert "converted_to_draft" in workflow("master.yml")["on"]["pull_request"]["types"]
 
 
-@pytest.mark.parametrize("selected_job", ["quality", "harness-validation"])
+@pytest.mark.parametrize("selected_job", ["quality", "harness-validation", "script-installation"])
 @pytest.mark.parametrize(
     ("selected_result", "unselected_result", "passes"),
     [
@@ -290,7 +302,7 @@ def test_actual_ci_result_script_rejects_missing_selected_acceptance(
 ):
     script = workflow("master.yml")["jobs"]["ci-result"]["steps"][0]["run"]
     script = script.split("<<'PYTHON'\n", 1)[1].rsplit("PYTHON", 1)[0]
-    required = ["quality", "upgrade-release-gate", "harness-validation"]
+    required = ["quality", "upgrade-release-gate", "harness-validation", "script-installation"]
     results = {job: {"result": "success"} for job in required}
     results[selected_job]["result"] = selected_result
     results["desktop-validation"] = {"result": unselected_result}
