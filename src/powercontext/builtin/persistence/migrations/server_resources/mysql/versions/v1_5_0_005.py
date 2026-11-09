@@ -21,7 +21,7 @@ SQLite and MySQL histories stay linear with the same release-based name.
 
 from alembic import context
 
-revision = "v1_5_0_004"
+revision = "v1_5_0_005"
 down_revision = "v1_5_0_003"
 
 

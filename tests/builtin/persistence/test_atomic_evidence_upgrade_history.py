@@ -34,7 +34,7 @@ from powercontext.builtin.runtime.processing_registry import canonical_processin
 
 EVIDENCE_REVISION = "v1_5_0_002"
 PROJECTION_REVISION = "v1_5_0_003"
-LEDGER_REVISION = "v1_5_0_004"
+LEDGER_REVISION = "v1_5_0_005"
 LEDGER_TABLES = {
     "pc_work_lanes",
     "pc_work_items",
