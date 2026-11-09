@@ -569,8 +569,8 @@ jobs:
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Reserve 50m for OceanBase regressions, 15m for replay, and 10m for setup/evidence/cleanup.
-    timeout-minutes: ${{ matrix.database == 'oceanbase' && 75 || 40 }}
+    # OceanBase: 15m setup + 60m native + 15m replay + 10m diagnostics/evidence/cleanup.
+    timeout-minutes: ${{ matrix.database == 'oceanbase' && 100 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -588,25 +588,38 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
 
-      - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
-        # The 22 tests alone took 39m; this step also starts the database and installs dependencies.
-        timeout-minutes: 50
+      - name: Start and configure the shared OceanBase instance
+        id: oceanbase_setup
+        timeout-minutes: 15
         if: matrix.database == 'oceanbase'
         env:
           COMPOSE_PROJECT_NAME: powercontext-e2e-oceanbase
           POWERCONTEXT_E2E_OUTPUT: ${{ github.workspace }}/.powercontext-e2e/oceanbase/acceptance
         run: |
-          native_deadline=$((SECONDS + 2850))
           mkdir -p "$POWERCONTEXT_E2E_OUTPUT" "$RUNNER_TEMP/oceanbase-acceptance"
           compose=(docker compose -f e2e/bub/compose.yaml -f e2e/bub/compose.oceanbase.yaml)
           timeout --kill-after=10s 700s "${compose[@]}" up --detach --wait --wait-timeout 660 oceanbase
           container_id=$("${compose[@]}" ps -q oceanbase)
+          test -n "$container_id"
+          echo "container_id=$container_id" >> "$GITHUB_OUTPUT"
           python scripts/oceanbase_ci.py wait --container "$container_id" --database powercontext \
             --timeout 90 --output "$RUNNER_TEMP/oceanbase-acceptance/startup"
           oceanbase_ip=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container_id")
           test -n "$oceanbase_ip"
           export POWERCONTEXT_TEST_OCEANBASE_URL="mysql+aoceanbase://root%40test:powercontext-e2e@${oceanbase_ip}:2881/powercontext?charset=utf8mb4"
           export POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL="$POWERCONTEXT_TEST_OCEANBASE_URL"
+          echo "POWERCONTEXT_TEST_OCEANBASE_URL=$POWERCONTEXT_TEST_OCEANBASE_URL" >> "$GITHUB_ENV"
+          echo "POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL=$POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL" >> "$GITHUB_ENV"
+
+      - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
+        id: native_acceptance
+        timeout-minutes: 60
+        if: matrix.database == 'oceanbase'
+        env:
+          OCEANBASE_CONTAINER: ${{ steps.oceanbase_setup.outputs.container_id }}
+        run: |
+          native_deadline=$((SECONDS + 3450))
+          test -n "$OCEANBASE_CONTAINER"
           uv run --locked --extra server python - <<'PY'
           import asyncio
           import os
@@ -624,7 +637,7 @@ jobs:
 
           asyncio.run(version())
           PY
-          python scripts/oceanbase_ci.py run --container "$container_id" \
+          python scripts/oceanbase_ci.py run --container "$OCEANBASE_CONTAINER" \
             --timeout "$((native_deadline - SECONDS))" --output "$RUNNER_TEMP/oceanbase-acceptance/process" -- \
             uv run --locked --extra server python -m pytest -vv -ra --durations=0 \
             tests/e2e/test_atomic_memory_search_authorization_snapshot.py \
