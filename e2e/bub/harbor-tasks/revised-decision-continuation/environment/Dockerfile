@@ -13,5 +13,7 @@
 # limitations under the License.
 
 FROM python:3.12-slim-bookworm
+
+COPY --from=docker.io/astral/uv:0.10.12 /uv /uvx /usr/local/bin/
 WORKDIR /workspace
 RUN printf '# Search service\n\nResults are cached per query; the cache is cleared when the index is rebuit.\n' > /workspace/README.md

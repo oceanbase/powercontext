@@ -81,3 +81,55 @@ def test_python_image_bootstrap_avoids_system_install_and_preserves_package_fail
         assert result.returncode != 0
         assert "uv==0.10.12" in evidence
         assert "ACP bootstrap: ready" not in evidence
+
+
+def test_matching_image_uv_bootstraps_offline_without_downloading_uv(tmp_path, monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip("Harbor task images use Linux bash")
+    uv, uvx, shell = shutil.which("uv"), shutil.which("uvx"), shutil.which("bash")
+    assert uv and uvx and shell
+    from powercontext_e2e import agent_bootstrap
+
+    # Exercise the reuse path with the real locally installed uv, even when the
+    # developer toolchain differs from the pinned Linux task image.
+    installed = subprocess.check_output([uv, "--version"], text=True).split()[1]  # noqa: S603 -- local toolchain
+    monkeypatch.setattr(agent_bootstrap, "UV_VERSION", installed)
+    wheels = tmp_path / "wheels"
+    wheels.mkdir()
+    name, version = "agent_client_protocol", "1.0.0rc2"
+    dist = f"{name}-{version}.dist-info"
+    with zipfile.ZipFile(wheels / f"{name}-{version}-py3-none-any.whl", "w") as wheel:
+        wheel.writestr(f"{dist}/METADATA", f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n")
+        wheel.writestr(f"{dist}/WHEEL", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+        wheel.writestr(f"{dist}/RECORD", "")
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    (binaries / "python3").symlink_to(sys.executable)
+    (binaries / "uv").symlink_to(uv)
+    (binaries / "uvx").symlink_to(uvx)
+    runner, log = tmp_path / "runner", tmp_path / "bootstrap.log"
+    result = subprocess.run(  # noqa: S603 -- checked-in bootstrap with offline fixture wheels
+        [shell, "-c", runner_setup_command(str(runner), "exit 67", log_path=str(log))],
+        env={
+            **os.environ,
+            "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
+            "UV_OFFLINE": "1",
+            "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+            "UV_FIND_LINKS": str(wheels),
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "reuse the pinned task image uv" in log.read_text()
+    assert subprocess.check_output([str(runner / "bin/uv"), "--version"], text=True).split()[1] == installed  # noqa: S603 -- copied local toolchain
+    subprocess.run(  # noqa: S603 -- interpreter just created in the isolated fixture
+        [
+            str(runner / "bin/python"),
+            "-c",
+            "from importlib.metadata import version; assert version('agent-client-protocol') == '1.0.0rc2'",
+        ],
+        check=True,
+    )
