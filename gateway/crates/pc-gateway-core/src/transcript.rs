@@ -74,7 +74,7 @@ pub(crate) fn turn_transcript(
     let (final_steps, assistant) = if is_responses(list_key) {
         responses_final(&response, &mut losses)?
     } else {
-        (Vec::new(), chat_final_text(&response)?)
+        (Vec::new(), chat_final_text(&response, &mut losses)?)
     };
     let start = request
         .messages
@@ -123,7 +123,7 @@ pub(crate) fn turn_transcript(
 }
 
 /// Chat 终止响应：第一个 choice 的消息既没有 `tool_calls`，也没有旧式的 `function_call`。
-fn chat_final_text(response: &Value) -> Option<String> {
+fn chat_final_text(response: &Value, losses: &mut CaptureLosses) -> Option<String> {
     let message = response.get("choices")?.get(0)?.get("message")?;
     let calls = message.get("tool_calls").and_then(Value::as_array);
     if calls.is_some_and(|calls| !calls.is_empty())
@@ -133,7 +133,15 @@ fn chat_final_text(response: &Value) -> Option<String> {
     {
         return None;
     }
-    Some(content_text(message.get("content")))
+    // Chat 格式的拒绝文本在 message.refusal，content 为 null 时被投影忽略。
+    if message
+        .get("refusal")
+        .and_then(Value::as_str)
+        .is_some_and(|text| !text.is_empty())
+    {
+        losses.unmeasured_projection = true;
+    }
+    Some(content_text(message.get("content"), losses))
 }
 
 /// Responses 条目按语义分类。
@@ -184,7 +192,7 @@ fn responses_final(response: &Value, losses: &mut CaptureLosses) -> Option<(Vec<
     let mut texts = Vec::new();
     for item in output {
         match classify(item) {
-            ItemKind::Message => texts.extend(assistant_text(item)),
+            ItemKind::Message => texts.extend(assistant_text(item, losses)),
             ItemKind::Ignored => {}
             ItemKind::HostedCall => steps.extend(item_steps(item, losses)),
             ItemKind::ClientCall | ItemKind::CallOutput | ItemKind::Unknown => return None,
@@ -193,9 +201,9 @@ fn responses_final(response: &Value, losses: &mut CaptureLosses) -> Option<(Vec<
     Some((steps, texts.join("\n")))
 }
 
-fn assistant_text(item: &Value) -> Option<String> {
+fn assistant_text(item: &Value, losses: &mut CaptureLosses) -> Option<String> {
     (item.get("role").and_then(Value::as_str) == Some("assistant"))
-        .then(|| content_text(item.get("content")))
+        .then(|| content_text(item.get("content"), losses))
 }
 
 fn chat_steps(message: &CanonicalMessage, losses: &mut CaptureLosses) -> Vec<Step> {
@@ -242,7 +250,7 @@ fn chat_steps(message: &CanonicalMessage, losses: &mut CaptureLosses) -> Vec<Ste
 /// 作为工具输出。条目 ID、`call_id`、状态等字段不进入记录。
 fn item_steps(item: &Value, losses: &mut CaptureLosses) -> Vec<Step> {
     match classify(item) {
-        ItemKind::Message => assistant_text(item)
+        ItemKind::Message => assistant_text(item, losses)
             .filter(|text| !text.is_empty())
             .map(|text| {
                 vec![Step::Assistant {
@@ -357,11 +365,20 @@ fn string_field(value: Option<&Value>, key: &str) -> String {
         .to_owned()
 }
 
-/// 字符串或内容块数组中的文本。
-fn content_text(content: Option<&Value>) -> String {
+/// 字符串或内容块数组中的文本。受支持文本组件之外的文本型组件（如 refusal）
+/// 被丢弃时记录 unmeasured_projection，正文渲染保持不变。
+fn content_text(content: Option<&Value>, losses: &mut CaptureLosses) -> String {
     match content {
         Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(parts)) => parts_text(parts),
+        Some(Value::Array(parts)) => {
+            if parts
+                .iter()
+                .any(|part| matches!(part.get("type").and_then(Value::as_str), Some("refusal")))
+            {
+                losses.unmeasured_projection = true;
+            }
+            parts_text(parts)
+        }
         _ => String::new(),
     }
 }
@@ -599,6 +616,40 @@ mod tests {
             serde_json::json!(["field_byte_limit"])
         );
         assert!(!projection.text.contains("opaque"));
+    }
+
+    #[test]
+    fn refusal_content_is_unmeasured_without_changing_the_body() {
+        // Responses：assistant 的 content 只有 refusal 组件，正文为空但声明 unknown。
+        let response = serde_json::json!({"output":[
+            {"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"I can't help with that."}]}
+        ]}).to_string();
+        let projection = turn_transcript(&chat_turn(&[]), &response, "input").unwrap();
+        assert_eq!(
+            projection.text,
+            r#"{"kind":"gateway_turn","user":"task","steps":[],"assistant":""}"#
+        );
+        assert_eq!(projection.coverage["status"], "unknown");
+        assert_eq!(
+            projection.coverage["reasons"],
+            serde_json::json!(["unmeasured_projection"])
+        );
+
+        // Chat：message.refusal 非空且 content 为 null。
+        let response = serde_json::json!({"choices":[
+            {"message":{"role":"assistant","content":null,"refusal":"I can't help with that."}}
+        ]})
+        .to_string();
+        let projection = turn_transcript(&chat_turn(&[]), &response, "messages").unwrap();
+        assert_eq!(
+            projection.text,
+            r#"{"kind":"gateway_turn","user":"task","steps":[],"assistant":""}"#
+        );
+        assert_eq!(projection.coverage["status"], "unknown");
+        assert_eq!(
+            projection.coverage["reasons"],
+            serde_json::json!(["unmeasured_projection"])
+        );
     }
 
     #[test]
