@@ -203,13 +203,13 @@ export const messages = {
     guideLocalTitle: "在本机设置",
     guidePersonal: "个人使用",
     guideLocalHint:
-      "适合还没有 Server 的用户。先查看本机准备说明，了解独立安装、配置和运行 Server 的步骤。",
+      "适合还没有 Server 的用户。先查看本机状态，再批准安装、配置和运行 Server 的计划。",
     guideLocalOpen: "查看本机设置",
     guideExistingHint:
       "已有本机或远程 Server 时，添加地址和认证方式，再检查并启用连接。",
     guideAddConnection: "添加连接",
     guideLocalUnavailable:
-      "当前版本尚未接入本机安装与恢复；可查看本机准备说明，或连接已有 Server。",
+      "本机安装与恢复需要可信 Installer/Ops 资源；也可连接已有 Server。",
     guideSavedLabel: "已保存的连接",
     guideReviewProfile: "查看已保存的配置",
     guideSavedHint:
@@ -431,13 +431,13 @@ export const messages = {
     guideLocalTitle: "Set up on this computer",
     guidePersonal: "Personal use",
     guideLocalHint:
-      "For users without a Server. Review local preparation guidance for installing, configuring and running a Server independently.",
+      "For users without a Server. Inspect local state, then approve a plan to install, configure and run a Server.",
     guideLocalOpen: "View local setup",
     guideExistingHint:
       "Already have a local or remote Server? Add its address and authentication, then check and explicitly activate the connection.",
     guideAddConnection: "Add connection",
     guideLocalUnavailable:
-      "Local installation and recovery are not integrated in this version. Read the local preparation guidance or connect an existing Server.",
+      "Local installation and recovery require trusted Installer/Ops resources. You can also connect an existing Server.",
     guideSavedLabel: "Saved connection",
     guideReviewProfile: "Review saved profile",
     guideSavedHint:

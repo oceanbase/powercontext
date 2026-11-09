@@ -51,6 +51,7 @@ struct Fixture {
     scope_status: Arc<AtomicU16>,
     hold_scope: Arc<AtomicBool>,
     change_access_on_exact: Arc<AtomicBool>,
+    change_access_on_readiness: Arc<AtomicBool>,
     scope_started: Arc<Notify>,
     scope_release: Arc<Notify>,
     server: tokio::task::JoinHandle<()>,
@@ -69,6 +70,8 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
     let scope_status = Arc::new(AtomicU16::new(200));
     let hold_scope = Arc::new(AtomicBool::new(false));
     let change_access_on_exact = Arc::new(AtomicBool::new(false));
+    let change_access_on_readiness = Arc::new(AtomicBool::new(false));
+    let change_ready = change_access_on_readiness.clone();
     let access_enabled = Arc::new(AtomicBool::new(false));
     let change_access = change_access_on_exact.clone();
     let scope_started = Arc::new(Notify::new());
@@ -91,6 +94,7 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
                 release.clone(),
             );
             let change_access = change_access.clone();
+            let change_ready = change_ready.clone();
             let access_enabled = access_enabled.clone();
             tokio::spawn(async move {
                 let mut bytes = Vec::new();
@@ -114,13 +118,17 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
                     scope_started.notify_one();
                     scope_release.notified().await;
                 }
-                if path == "/prefix/v1/scopes/default-exact"
-                    && change_access.load(Ordering::Relaxed)
+                if (path == "/prefix/v1/scopes/default-exact"
+                    && change_access.load(Ordering::Relaxed))
+                    || (path == "/prefix/health/ready" && change_ready.load(Ordering::Relaxed))
                 {
                     access_enabled.store(true, Ordering::Relaxed);
                 }
                 let (status, body) = match path {
                     "/prefix/v1/server-info" => (status, document),
+                    "/prefix/v1/connection/identity" if access_enabled.load(Ordering::Relaxed) => {
+                        (503, json!({"error":{"code":"runtime_not_ready"}}))
+                    }
                     "/prefix/v1/connection/identity" => (
                         200,
                         json!({"server_id":"synthetic-server","authentication":"disabled","access_mode":"disabled","principal":null}),
@@ -173,6 +181,7 @@ async fn fixture(status: u16, document: Value, qualified: bool) -> Fixture {
         scope_status,
         hold_scope,
         change_access_on_exact,
+        change_access_on_readiness,
         scope_started,
         scope_release,
         server,
@@ -411,6 +420,9 @@ async fn explicit_local_handoff_resolves_the_public_default_scope_and_reuses_its
             .scope_id,
         "default-exact"
     );
+    let report = &selected.active.as_ref().unwrap().report;
+    assert!(report.readiness.value.is_some());
+    assert!(report.readiness_checked_at.is_some());
     assert_eq!(selected.profiles.len(), 1);
     let id = selected.active.as_ref().unwrap().connection_id.clone();
     let again = f
@@ -600,6 +612,24 @@ async fn published_local_scope_is_newer_than_pending_activation_snapshots() {
 async fn local_handoff_rejects_identity_changes_during_exact_scope_resolution() {
     let f = fixture(200, document(), true).await;
     f.change_access_on_exact.store(true, Ordering::Relaxed);
+    let before = f.manager.state().unwrap();
+    let result = f
+        .manager
+        .connect_local(
+            before.generation,
+            before.profiles[0].endpoint.clone(),
+            common::PROFILE_ID.into(),
+            "display-only-version".into(),
+        )
+        .await;
+    assert_eq!(result.err().unwrap().code, SafeError::RuntimeNotReady);
+    assert!(f.manager.state().unwrap().active.is_none());
+}
+
+#[tokio::test]
+async fn local_handoff_rejects_identity_changes_during_consented_readiness() {
+    let f = fixture(200, document(), true).await;
+    f.change_access_on_readiness.store(true, Ordering::Relaxed);
     let before = f.manager.state().unwrap();
     let result = f
         .manager

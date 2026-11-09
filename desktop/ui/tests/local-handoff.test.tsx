@@ -168,7 +168,7 @@ test.each(["en", "zh"] as const)(
   },
 );
 
-test("a late handoff cannot navigate after a newer native context was received", async () => {
+test("a pending handoff guards refresh and cannot navigate after leaving settings", async () => {
   const user = userEvent.setup();
   let finish!: (state: DesktopState) => void;
   vi.mocked(opsApi.connect).mockImplementation(
@@ -188,23 +188,15 @@ test("a late handoff cannot navigate after a newer native context was received",
     }),
   );
   await user.click(screen.getByRole("button", { name: "总览" }));
-  vi.mocked(desktopApi.state).mockResolvedValue({
-    ...disconnected,
-    generation: 20,
-  });
-  await user.click(screen.getByRole("button", { name: "刷新状态" }));
-  await waitFor(() =>
-    expect(
-      (screen.getByRole("button", { name: "刷新状态" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false),
-  );
+  expect(
+    (screen.getByRole("button", { name: "刷新状态" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
   finish(connected());
   await waitFor(() =>
     expect(screen.queryByText("正在更新连接状态…")).toBeNull(),
   );
   expect(screen.getByRole("heading", { level: 1, name: "总览" })).toBeTruthy();
-  expect(screen.queryByText("server-returned-default")).toBeNull();
 });
 
 test("local service management remains usable while connection storage is unavailable", async () => {
@@ -394,5 +386,70 @@ test.each(["zh", "en"] as const)(
         name: language === "en" ? "Overview" : "总览",
       }),
     ).toBeTruthy();
+  },
+);
+
+test.each(["zh", "en"] as const)(
+  "local invalidation prevents Memory editing until reconciliation (%s)",
+  async (language) => {
+    const user = userEvent.setup();
+    const t = (key: string) => localText(language, key);
+    let finish!: (state: DesktopState) => void;
+    vi.mocked(desktopApi.state).mockResolvedValue(connected());
+    vi.mocked(desktopApi.invalidate).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.mocked(opsApi.preflight).mockResolvedValue({
+      outcome: "succeeded",
+      approval: {
+        approvalId: "approval-a",
+        planId: "plan-a",
+        operation: "repair",
+        options: {},
+        target: {
+          targetId: "personal",
+          packageVersion: "1.4.2",
+          pythonExecutable: "/program/runtime/python",
+          envFile: "/config/server.env",
+          dataDir: "/data/personal",
+          endpoint: "http://127.0.0.1:8123",
+          startOnLogin: true,
+        },
+        effects: { mayStart: true, preservesData: true },
+      },
+    });
+    render(<App />);
+    await screen.findAllByText("Local Server");
+    await user.click(screen.getByRole("button", { name: "设置与诊断" }));
+    await user.selectOptions(screen.getByLabelText("语言"), language);
+    await user.click(screen.getByRole("button", { name: t("repair") }));
+    const plan = await screen.findByRole("dialog", { name: t("plan") });
+    await user.click(within(plan).getByRole("button", { name: t("approve") }));
+    await waitFor(() =>
+      expect(desktopApi.invalidate).toHaveBeenCalledWith("local-profile"),
+    );
+    await user.click(within(plan).getByRole("button", { name: t("dismiss") }));
+    await user.click(
+      screen.getByRole("button", {
+        name: language === "en" ? "Memories" : "记忆",
+      }),
+    );
+    const inputs = screen.queryAllByRole("textbox");
+    expect(inputs.length).toBeGreaterThan(0);
+    expect(
+      inputs.every(
+        (input) =>
+          (input as HTMLInputElement).disabled ||
+          (input as HTMLInputElement).readOnly,
+      ),
+    ).toBe(true);
+    await act(async () =>
+      finish({ ...connected(), generation: 7, active: null }),
+    );
+    expect(opsApi.apply).not.toHaveBeenCalled();
+    expect(screen.queryByText("server-returned-default")).toBeNull();
   },
 );

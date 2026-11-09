@@ -537,6 +537,7 @@ export function App() {
                       new URL(plan.target.endpoint).origin
                   ) {
                     if (!(await confirmSwitch())) return false;
+                    connectionPending(true);
                     try {
                       receiveState(
                         await desktopApi.invalidate(activeProfile.id),
@@ -545,6 +546,8 @@ export function App() {
                     } catch (error) {
                       setNativeError(error);
                       return false;
+                    } finally {
+                      connectionPending(false);
                     }
                   }
                   return true;

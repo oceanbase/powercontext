@@ -173,11 +173,29 @@ impl Drop for WriteGuard<'_> {
         }
     }
 }
+#[derive(PartialEq)]
 enum NativeIdentity {
     Principal(AccessMeResponse),
     Connection(ConnectionIdentity),
 }
 impl NativeIdentity {
+    fn from_report(report: &CheckReport) -> Result<Self, SafeError> {
+        match &report.connection_identity {
+            Some(fact) => Ok(Self::Connection(fact.value.clone().ok_or_else(|| {
+                fact.error
+                    .as_ref()
+                    .map_or(SafeError::Unauthorized, |error| error.code)
+            })?)),
+            None => Ok(Self::Principal(
+                report
+                    .identity
+                    .value
+                    .clone()
+                    .ok_or(SafeError::Unauthorized)?,
+            )),
+        }
+    }
+
     async fn verify(&self, api: &ServerApi) -> Result<(), ApiFailure> {
         let unchanged = match self {
             Self::Principal(original) => api.principal().await.map(|current| current == *original),
@@ -481,7 +499,7 @@ impl ConnectionManager {
                 retained_scope,
             )
         };
-        let report = Self::cancellable(&mut cancelled, async {
+        let mut report = Self::cancellable(&mut cancelled, async {
             // Discovery is separate from the bounded observation batch (four transport slots).
             let discovery = api.server_info().await;
             let (live, identity, capabilities) =
@@ -638,13 +656,19 @@ impl ConnectionManager {
             {
                 return Err(SafeError::CompatibilityUnverified.into());
             }
-            let identity = report.identity.value.clone();
-            if identity.is_none() && !report.anonymous_access {
-                return Err(SafeError::Unauthorized.into());
-            }
+            let identity = NativeIdentity::from_report(&report)?;
             let server_id = server.server_id.clone();
             Some(
                 Self::cancellable(&mut cancelled, async {
+                    self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
+                        .await?;
+                    report.readiness = api.readiness().await.into();
+                    report.readiness_checked_at = Some(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs(),
+                    );
                     self.identity_unchanged(&api, &identity, Some(server_id.as_str()), generation)
                         .await?;
                     let default = api.default_scope().await?;
@@ -672,9 +696,9 @@ impl ConnectionManager {
                 .discovery
                 .as_ref()
                 .and_then(|value| value.server.as_ref());
-            let same_identity = previous.identity.value == report.identity.value
-                && previous.anonymous_access == report.anonymous_access
-                && (report.identity.value.is_some() || report.anonymous_access);
+            let same_identity = NativeIdentity::from_report(&previous).is_ok_and(|identity| {
+                NativeIdentity::from_report(&report).is_ok_and(|current| identity == current)
+            });
             match (previous_server, current_server) {
                 (Some(before), Some(current))
                     if before.server_id == current.server_id
@@ -684,7 +708,7 @@ impl ConnectionManager {
                             .iter()
                             .any(|operation| operation == "get_scope") =>
                 {
-                    let identity = report.identity.value.clone();
+                    let identity = NativeIdentity::from_report(&report)?;
                     let server_id = current.server_id.clone();
                     Self::cancellable(&mut cancelled, async {
                         self.identity_unchanged(
@@ -836,22 +860,7 @@ impl ConnectionManager {
         {
             return Err(SafeError::CompatibilityUnverified);
         }
-        let identity = match &active.view.report.connection_identity {
-            Some(fact) => NativeIdentity::Connection(fact.value.clone().ok_or_else(|| {
-                fact.error
-                    .as_ref()
-                    .map_or(SafeError::Unauthorized, |error| error.code)
-            })?),
-            None => NativeIdentity::Principal(
-                active
-                    .view
-                    .report
-                    .identity
-                    .value
-                    .clone()
-                    .ok_or(SafeError::Unauthorized)?,
-            ),
-        };
+        let identity = NativeIdentity::from_report(&active.view.report)?;
         Ok(ReadSnapshot {
             api: active.api.clone(),
             server_id: active.view.report.server_id().map(str::to_owned),

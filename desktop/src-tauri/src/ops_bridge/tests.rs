@@ -1154,6 +1154,7 @@ fn local_qualification_is_bound_to_the_pinned_catalog_and_observed_resource_dige
             .unwrap();
     let host = f.host();
     let mut qualifications = vec![crate::connections::session::CompatibilityProfile {
+        authenticated_clients: None,
         id: "qualified-profile-a".into(),
         server_commit: "d".repeat(40),
         artifact_sha256: "e".repeat(64),
