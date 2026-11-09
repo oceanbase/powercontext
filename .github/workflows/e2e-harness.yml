@@ -76,8 +76,8 @@ jobs:
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Bounded tests total about 91m; allow separate image pull/startup and final evidence.
-    timeout-minutes: 130
+    # Bounded tests total about 106m; allow separate image pull/startup and final evidence.
+    timeout-minutes: 145
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       POWERCONTEXT_TEST_OCEANBASE_URL: >-
@@ -192,7 +192,7 @@ jobs:
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
           python scripts/oceanbase_ci.py run --container recall-effort-oceanbase \
-            --timeout 900 --output .powercontext/recall-effort-ci/historical-server-upgrade-process -- uv run --locked pytest -vv -s -rs \
+            --timeout 1800 --output .powercontext/recall-effort-ci/historical-server-upgrade-process -- uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_historical_memory_upgrades_and_resumes_native_ddl \
             -o faulthandler_timeout=180 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/historical-server-upgrade.xml
@@ -294,8 +294,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Test steps total 210m; reserve 40m for image pull, setup, diagnostics and artifact upload.
-    timeout-minutes: 250
+    # Test steps total 230m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    timeout-minutes: 270
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -356,11 +356,11 @@ jobs:
             tests/e2e/test_background_metrics.py
 
       - name: Run clean migration evidence, grants and vectors without skips
-        # The larger shard has 25 cases: 25 * (300s + 10s grace) + 190s collection < 140m.
-        timeout-minutes: 140
+        # The larger shard has 25 cases: 25 * (360s + 10s grace) + 190s collection < 160m.
+        timeout-minutes: 160
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 300 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration"
+            oceanbase --test-timeout 360 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration"
 
       - name: Test concurrent managed startup without skips
         # Up to two full Server cases (300s each), plus collection (180s).

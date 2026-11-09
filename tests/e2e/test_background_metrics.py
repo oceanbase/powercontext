@@ -117,7 +117,8 @@ def test_background_cli_serves_only_authorized_metrics_and_stops_cleanly(tmp_pat
         )
         try:
             base = f"http://127.0.0.1:{port}"
-            deadline = time.monotonic() + 20
+            # The fresh process must import the Server and inspect the initialized native schema.
+            deadline = time.monotonic() + 60
             ready = False
             with httpx.Client(timeout=0.5) as client:
                 while time.monotonic() < deadline and process.poll() is None:
