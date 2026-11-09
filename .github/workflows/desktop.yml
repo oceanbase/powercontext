@@ -138,6 +138,12 @@ jobs:
       - name: Test native diagnostics with isolated real CLI
         working-directory: .
         run: uv run --no-sync python desktop/tests/real_cli.py
+      - name: Prepare checksum-pinned Windows bundler tools
+        working-directory: .
+        timeout-minutes: 11
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-sync python scripts/prepare_windows_ci_tools.py
       - name: Build fixture-qualified unsigned internal Windows installer
         run: pnpm desktop:build:windows:ci
       - name: Prepare matching WebView2 driver

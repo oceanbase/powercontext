@@ -29,8 +29,8 @@ import zipfile
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
+import download_ci_asset
 import httpx
-import prepare_managed_resources
 import pytest
 from build_intel_managed_wheel import _check_linkage, native_build_environment, verify_backend
 from ci_managed_resource_smoke import MAX_DIAGNOSTIC_BYTES, preserve_failure
@@ -249,17 +249,18 @@ def test_acquire_retries_windows_curl_crash_with_fresh_partial(
 
 @pytest.mark.parametrize("curl_error", [22, 56])
 @pytest.mark.parametrize("corrupt_asset", [False, True])
+@pytest.mark.parametrize("consumer", ["producer", "ci-tool"])
 def test_acquire_release_asset_after_gateway_failure_preserves_digest_and_budget(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, curl_error: int, corrupt_asset: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, curl_error: int, corrupt_asset: bool, consumer: str
 ) -> None:
     content = b"locked candidate bytes"
-    item = {
+    item: dict[str, Any] = {
         "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/python%2Bbuild.tar.gz",
         "sha256": hashlib.sha256(content).hexdigest(),
         "size": len(content),
     }
     elapsed = 0.0
-    monkeypatch.setattr(prepare_managed_resources.time, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(download_ci_asset.time, "monotonic", lambda: elapsed)
     monkeypatch.setattr(shutil, "which", lambda _name: "/tools/gh")
     monkeypatch.setenv("GH_TOKEN", "test-token-not-for-command-line")
 
@@ -284,12 +285,19 @@ def test_acquire_release_asset_after_gateway_failure_preserves_digest_and_budget
 
     monkeypatch.setattr(subprocess, "run", download)
     artifact = tmp_path / "python.tar.gz"
-    if corrupt_asset:
-        with pytest.raises(ValueError, match="locked digest and size"):
+
+    def acquire_candidate() -> None:
+        if consumer == "producer":
             acquire(item, artifact)
+        else:
+            download_ci_asset.acquire_asset(item["url"], artifact, item["sha256"], timeout=1900)
+
+    if corrupt_asset:
+        with pytest.raises(ValueError, match=r"locked digest and size|pinned SHA256"):
+            acquire_candidate()
         assert not artifact.exists()
     else:
-        acquire(item, artifact)
+        acquire_candidate()
         assert artifact.read_bytes() == content
 
 
