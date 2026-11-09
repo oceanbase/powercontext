@@ -572,7 +572,11 @@ because the agent can search its container. Agent setup uses Bub's supported ins
 installs Bub with the local PowerContext plugin when enabled, then `bub install` adds the ACP server to the same
 environment. Both steps pin Bub to the harness version so installing ACP cannot upgrade the host. The ACP step also
 names the pre-release ACP SDK that `bub-acp-server` pins, because uv resolves a pre-release only when a direct
-requirement asks for it. Harbor starts the server with `bub acp` in that environment and runs its native ACP client. The
+requirement asks for it. Harbor keeps its own ACP client in a separate runner environment and installs that SDK
+there without a version, so an upstream release that reorganizes the package leaves the runner unable to import
+what Harbor wrote against it and every step ends before the agent starts; the harness names the same SDK in that
+environment and prints the version and symbols it resolves, so the setup log identifies the mismatch. Harbor starts
+the server with `bub acp` in that environment and runs its native ACP client. The
 Terminal-Bench task keeps its original image, setup, verifier, and isolation boundary. The harness ignores dataset CPU
 and memory limits because it evaluates Memory behavior rather than benchmark resource compliance. This also keeps the
 fixed harness usable in nested container runtimes that cannot create additional cgroups.
