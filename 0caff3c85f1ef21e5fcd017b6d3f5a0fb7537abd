@@ -1,0 +1,27 @@
+src/powercontext/builtin/runtime/context_check.py
+  s_acf461081857b1::t_62de8eb0eb617e 359-360,365-366,370,424-425
+  s_acf461081857b1::t_c70c10f35770e8 362-364,367-368
+tests/builtin/runtime/test_context_check.py
+  s_acf461081857b1::t_268dfca3263efa 211-217
+  s_acf461081857b1::t_c6ebf15cfeae3a 140-141,143-144,148,151,153,187-210,218-230,234-235,257-258,261,271,274
+tests/e2e/test_context_check_authorization.py
+  s_acf461081857b1::t_8da6048ec2e087 31,34,201-202,204,265-266,268
+tests/e2e/test_gateway_authentication.py
+  s_acf461081857b1::t_d3610cf9132a79 158,160,185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0caff3c85f1ef21e5fcd017b6d3f5a0fb7537abd",
+  "prompts": {},
+  "sessions": {
+    "s_acf461081857b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9be-165d-7212-9566-657833d76862",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "frf12 <rongfeng.frf@antgroup.com>"
+    }
+  }
+}
