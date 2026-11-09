@@ -183,7 +183,13 @@ def test_inference_spans_sanitize_provider_exception_content() -> None:
     span = next(span for span in exporter.get_finished_spans() if span.name.startswith("chat "))
     assert span.status.status_code is StatusCode.ERROR
     assert span.status.description in (None, "")
-    assert span.events == ()
+    assert len(span.events) == 1
+    event = span.events[0]
+    assert event.name == "exception"
+    assert dict(event.attributes or {}) == {
+        "exception.type": "pydantic_ai.exceptions.ModelHTTPError",
+        "exception.escaped": "False",
+    }
     attributes = span.attributes or {}
     assert attributes["error.type"] == "ModelHTTPError"
     rendered = repr(dict(attributes)) + repr(span.events) + str(span.status.description)

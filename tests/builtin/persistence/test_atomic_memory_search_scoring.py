@@ -203,6 +203,9 @@ def test_atomic_backend_sql_returns_raw_separately_without_changing_legacy_order
             self.sql = ""
             self.parameters = {}
 
+        async def run_sync(self, function):
+            return function(SimpleNamespace(engine=self.sync_engine))
+
         async def exec_driver_sql(self, _statement):
             return SimpleNamespace(close=lambda: None)
 

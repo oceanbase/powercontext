@@ -37,7 +37,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2
 from pydantic import BaseModel, ConfigDict
 
 from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
@@ -99,7 +99,7 @@ class RequestEvidence:
         self.attempts: list[dict[str, Any]] = []
         report["http_attempts"] = self.attempts
 
-    async def on_request(self, request: httpx.Request) -> None:
+    async def on_request(self, request: httpx2.Request) -> None:
         body = await request.aread()
         self.attempts.append({
             "ordinal": len(self.attempts) + 1,
@@ -112,7 +112,7 @@ class RequestEvidence:
         })
         write_report(self.directory, self.report)
 
-    async def on_response(self, response: httpx.Response) -> None:
+    async def on_response(self, response: httpx2.Response) -> None:
         raw = await response.aread()
         attempt = self.attempts[-1]
         attempt["state"] = "response_received"
@@ -200,7 +200,7 @@ async def probe_model(
     report["protocol"] = "openai-chat"
     recorder = RequestEvidence(directory, report)
     async with (
-        httpx.AsyncClient(
+        httpx2.AsyncClient(
             timeout=45,
             follow_redirects=False,
             event_hooks={"request": [recorder.on_request], "response": [recorder.on_response]},
@@ -273,7 +273,7 @@ def main() -> int:
         "status": "RUNNING",
         "mode": args.mode,
         "started_at": datetime.now(UTC).isoformat(),
-        "versions": {package: version(package) for package in ("pydantic-ai-slim", "openai", "httpx", "sqlalchemy")},
+        "versions": {package: version(package) for package in ("pydantic-ai-slim", "openai", "httpx2", "sqlalchemy")},
         "synthetic_inputs_only": True,
         "provider_calls_authorized": True,
         "database_writes_authorized": "unique-run-scope-only",
