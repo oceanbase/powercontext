@@ -1,5 +1,39 @@
 # Desktop validation
 
+## Server 2cb8da31 Work Ledger protocol qualification
+
+`sqlite-work-ledger-2cb8da31-v1` qualifies the thirteen bundled Desktop operations
+against SQLite Server source `2cb8da31b6b53b74cb77307e3a7cb19c6b20a1dd`, the merge of
+master `cfdb617c` with the durable Work Ledger revision `v1_5_0_005`. The rebase moved
+the previously qualified contract because the merged OpenAPI carries both lineages, so
+the record was regenerated instead of reusing either side's digest.
+
+- Normalized OpenAPI SHA-256 is `60bd028a7d73eb7745717acbe3a2b21c664ff52b85a255e2fc1f128e5e74914d`.
+- The wheel is `powercontext-1.2.1.dev800+g2cb8da31b-py3-none-any.whl`.
+- Wheel SHA-256 is `e80d76c887f1ac369cbb524bad11c8a705d6b16795b819d3e0f1edee247a565f`.
+
+On 2026-11-09, macOS arm64 / Python 3.14.7 / debug probe passed anonymous loopback,
+static Bearer, HTTPS with explicit CA/base path and enforced Provider modes through the
+ordinary product manager (`qualificationSource: bundled product records`). Anonymous
+loopback and static Bearer record p50/p95 of 8.4/9.1 ms and 18.2/18.7 ms for exact reads,
+22.8/146.8 ms and 39.1/210.0 ms for saves, and 11.0/12.1 ms and 19.0/19.7 ms for searches
+over twenty samples (eleven for saves). The enforced Provider scenario additionally
+records identity-change invalidation, same-identity revocation denying exact reads,
+51-Scope pagination and scoped native authorization retained while Server discovery
+returns 403.
+
+The product run uses debug probe SHA-256
+`ae709e8430c58759317539db9180c5be66ddb86f2519294b674810ad692c7817` and records a dirty
+Desktop working tree because this qualification record is added in the working tree, as
+earlier records were. The report is retained under the ignored `.artifacts/real-server.json`.
+These are loopback fixture processes on one macOS host; they do not establish an external
+deployment, installed UI, signing or release acceptance, and the upgrade policy remains
+`upgrade-required`.
+
+```sh
+python desktop/tests/real_server.py --product-qualification sqlite-work-ledger-2cb8da31-v1
+```
+
 ## Server 7d89a97a identity Runtime and statistics qualification
 
 `sqlite-identity-stats-7d89a97a-v1` qualifies thirteen Desktop operations against

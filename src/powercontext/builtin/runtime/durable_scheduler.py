@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Protocol
 
+from sqlalchemy.ext.asyncio import AsyncConnection
+
 from powercontext.builtin.persistence.coordination import (
     CoordinationRepository,
     CoordinatorLease,
@@ -121,7 +123,8 @@ class DurableScheduler:
                     span.set_outcome("standby")
                 return False
             for discoverer in self._discoverers.values():
-                await self._scan_once(discoverer, lease)
+                lease = await self._scan_once(discoverer, lease)
+            self._lease = lease
             if span is not None:
                 span.set_outcome("leader")
         await refresh_work_queue(self._database, self._work, self._observer)
@@ -167,13 +170,13 @@ class DurableScheduler:
             async with self._database.transaction() as connection:
                 await self._coordination.release_lease(connection, lease)
 
-    async def _scan_once(self, discoverer: WorkDiscoverer, lease: CoordinatorLease) -> None:
+    async def _scan_once(self, discoverer: WorkDiscoverer, lease: CoordinatorLease) -> CoordinatorLease:
         async with self._database.transaction() as connection:
-            await self._coordination.assert_lease(connection, lease)
+            lease = await self._fence(connection, lease)
             scan = await self._coordination.load_scan(connection, discoverer.name)
             now = await database_now(connection)
         if scan is not None and scan.next_run_at > now:
-            return
+            return lease
 
         continuation = None if scan is None else scan.continuation
         page = await discoverer.page(continuation, self._config.scan_page_size)
@@ -189,13 +192,15 @@ class DurableScheduler:
                 },
             ) as span:
                 async with self._database.transaction() as connection:
-                    await self._coordination.assert_lease(connection, lease)
+                    # The page above can outlive the lease window, so the write
+                    # renews leadership instead of only asserting the old fence.
+                    lease = await self._fence(connection, lease)
                     result = await self._work.enqueue(connection, spec)
                 if span is not None:
                     span.set_outcome("created" if result.created else "joined")
 
         async with self._database.transaction() as connection:
-            await self._coordination.assert_lease(connection, lease)
+            lease = await self._fence(connection, lease)
             now = await database_now(connection)
             next_run = getattr(discoverer, "next_run_at", None)
             next_run_at = now + timedelta(seconds=discoverer.interval_seconds) if next_run is None else next_run(now)
@@ -209,6 +214,30 @@ class DurableScheduler:
                 continuation=page.continuation,
                 expected_version=None if scan is None else scan.state_version,
             )
+        return lease
+
+    async def _fence(self, connection: AsyncConnection, lease: CoordinatorLease, /) -> CoordinatorLease:
+        """Renew leadership inside a write transaction.
+
+        Discovery pages are unbounded in wall-clock terms, so a page can consume
+        the whole lease window before this scheduler writes anything. Re-acquiring
+        under the same owner extends the window and keeps later discoverers
+        reachable; a scheduler that lost the lease to another owner still fails
+        the write, because acquisition returns no lease for a live foreign fence.
+        """
+
+        renewed = await self._coordination.acquire_lease(
+            connection,
+            lease_name=_SCHEDULER_LEASE_NAME,
+            owner_id=self._scheduler_id,
+            lease_seconds=self._config.scheduler_lease_seconds,
+        )
+        if renewed is None:
+            raise StaleCoordinatorLeaseError(lease.lease_name)
+        if renewed.fence != lease.fence:
+            self._observe_leadership(lease, renewed)
+            self._lease = renewed
+        return renewed
 
     def _observe_leadership(
         self,

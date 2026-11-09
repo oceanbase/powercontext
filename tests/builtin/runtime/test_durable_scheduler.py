@@ -18,7 +18,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.coordination import (
@@ -45,6 +45,21 @@ class _Discoverer:
         if continuation is None:
             return DiscoveryPage(specs=(_spec(1),), continuation="next")
         return DiscoveryPage(specs=(_spec(2),), continuation=None)
+
+
+class _ExpiringDiscoverer:
+    """A discovery page that consumes the whole lease window."""
+
+    name = "expiring-discoverer"
+    interval_seconds = 60.0
+
+    def __init__(self, expire) -> None:
+        self._expire = expire
+
+    async def page(self, continuation: str | None, limit: int) -> DiscoveryPage:
+        del continuation, limit
+        await self._expire()
+        return DiscoveryPage(specs=(_spec(3),), continuation=None)
 
 
 class _PausingDiscoverer:
@@ -154,6 +169,48 @@ def test_old_scheduler_cannot_enqueue_after_a_higher_fence_takes_over() -> None:
                 await stale_tick
             async with profile.database.transaction() as connection:
                 assert await WorkRepository().list(connection) == ()
+
+    asyncio.run(scenario())
+
+
+def test_scheduler_renews_leadership_when_a_page_outlives_the_lease() -> None:
+    async def scenario() -> None:
+        tables = WORK_TABLES + COORDINATION_TABLES
+        async with SQLiteProfile.open(SQLiteConfig(), tables=tables) as profile:
+
+            async def expire() -> None:
+                # A 3s lease with 1s renewal: one slow page is enough to run out.
+                async with profile.database.transaction() as connection:
+                    await connection.execute(
+                        update(SCHEDULER_LEASES_TABLE)
+                        .where(SCHEDULER_LEASES_TABLE.c.lease_name == "work-discovery")
+                        .values(lease_expires_at=datetime(2000, 1, 1, tzinfo=UTC))
+                    )
+
+            expiring = _ExpiringDiscoverer(expire)
+            trailing = _Discoverer()
+            scheduler = DurableScheduler(
+                database=profile.database,
+                scheduler_id="scheduler-a",
+                discoverers=(expiring, trailing),
+                config=CoordinationConfig(scheduler_lease_seconds=3, scheduler_renew_seconds=1),
+            )
+            assert await scheduler.tick() is True
+
+            async with profile.database.transaction() as connection:
+                work = await WorkRepository().list(connection)
+                lease = (await connection.execute(select(SCHEDULER_LEASES_TABLE))).mappings().one()
+                scans = [
+                    await CoordinationRepository().load_scan(connection, name)
+                    for name in (expiring.name, trailing.name)
+                ]
+            assert len(work) == 2
+            assert trailing.pages == [None]
+            assert all(scan is not None for scan in scans)
+            assert lease["owner_id"] == "scheduler-a"
+            assert lease["fence"] == 2
+
+            await scheduler.stop()
 
     asyncio.run(scenario())
 

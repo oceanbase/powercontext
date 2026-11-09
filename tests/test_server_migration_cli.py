@@ -29,7 +29,7 @@ def test_server_migrate_runs_the_packaged_forward_only_chain(tmp_path) -> None:
     environment.write_text(
         "\n".join((
             "POWERCONTEXT_SERVER_DATABASE_KIND=sqlite",
-            f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database}",
+            f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{database.as_posix()}",
         )),
         encoding="utf-8",
     )

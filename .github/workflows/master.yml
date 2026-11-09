@@ -762,6 +762,9 @@ jobs:
           tests/claude_code_plugin/test_bootstrap.py
           tests/codex_plugin/test_bootstrap.py
 
+      - name: Verify the packaged migration CLI on Windows
+        run: uv run --locked --no-sync pytest -q tests/test_server_migration_cli.py
+
       - name: Verify unsupported native indexing is skipped on Windows
         run: >-
           uv run --locked --no-sync pytest -q
