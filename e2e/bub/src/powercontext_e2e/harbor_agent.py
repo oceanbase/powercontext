@@ -45,6 +45,8 @@ BUB_ACP_SERVER_VERSION = "0.1.3"
 # install must repeat the pin or it cannot resolve the server at all. A server release that pins another SDK version
 # conflicts with this requirement and fails to install.
 ACP_SDK_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
+# Harbor 0.16.1 uploads a runner that imports text_block, removed in ACP SDK 1.0.
+RUNNER_ACP_SDK_REQUIREMENT = "agent-client-protocol==0.12.1"
 STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 # Harbor uploads each step's tests to this directory before running the step's verifier and leaves them there.
 STEP_TESTS_DIR = "/tests"
@@ -105,6 +107,9 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
             environment,
             command=self._build_dependencies_command("uvx"),
             env={"DEBIAN_FRONTEND": "noninteractive", "PIP_INDEX_URL": pip_index_url()},
+        )
+        await self.exec_as_root(
+            environment, command=_install_runner_sdk_command(), env={"PIP_INDEX_URL": pip_index_url()}
         )
         await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
         await self.exec_as_root(environment, command=_install_acp_server_command())
@@ -177,6 +182,14 @@ def _install_bub_command(*, powercontext: bool = True) -> str:
         f"SETUPTOOLS_SCM_PRETEND_VERSION={shlex.quote(POWERCONTEXT_VERSION)} {_tool_environment()} "
         f"{uv} tool install --force {plugin}"
         f"{shlex.quote(f'bub[app]=={BUB_VERSION}')}"
+    )
+
+
+def _install_runner_sdk_command() -> str:
+    runner_bin = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin"
+    return (
+        f"{runner_bin}/pip install --disable-pip-version-check {shlex.quote(RUNNER_ACP_SDK_REQUIREMENT)} && "
+        f"{runner_bin}/python -c {shlex.quote('from acp import PROTOCOL_VERSION, RequestError, spawn_agent_process, text_block')}"
     )
 
 

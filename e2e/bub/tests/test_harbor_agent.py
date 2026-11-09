@@ -26,8 +26,10 @@ from powercontext_e2e.harbor_agent import (
     BUB_ACP_SERVER_VERSION,
     REMOTE_BIN_DIR,
     REMOTE_SOURCE_OVERRIDE,
+    RUNNER_ACP_SDK_REQUIREMENT,
     _install_acp_server_command,
     _install_bub_command,
+    _install_runner_sdk_command,
 )
 from powercontext_e2e.harbor_codex import MCP_URL_REWRITE, plugin_mcp_url
 
@@ -70,6 +72,13 @@ def test_acp_server_install_names_the_pre_release_sdk_and_keeps_the_harness_bub(
         ACP_SDK_REQUIREMENT,
         f"bub[app]=={version('bub')}",
     }
+
+
+def test_harbor_runner_installs_its_compatible_sdk_separately_from_the_bub_server() -> None:
+    command = _install_runner_sdk_command()
+    assert RUNNER_ACP_SDK_REQUIREMENT in command
+    assert "from acp import PROTOCOL_VERSION, RequestError, spawn_agent_process, text_block" in command
+    assert ACP_SDK_REQUIREMENT not in command
 
 
 def test_codex_plugin_accepts_the_server_url_the_harness_writes(monkeypatch, tmp_path: Path) -> None:
