@@ -392,3 +392,27 @@ def test_candidate_replay_deadline_leaves_time_for_diagnostics_and_cleanup(backe
     # leaving another 5m for Python setup and artifact/cache publication.
     reserve = 34 if backend == "oceanbase" else 10
     assert job_minutes >= step["timeout-minutes"] + reserve
+
+
+def test_native_acceptance_reserves_startup_and_evidence_outside_test_deadline():
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
+    job = workflow["jobs"]["acceptance"]
+
+    def native_minutes(value):
+        if isinstance(value, int):
+            return value
+        match = re.search(r"&& (\d+) \|\|", value)
+        assert match is not None
+        return int(match[1])
+
+    names = {
+        "Start and configure the shared OceanBase instance",
+        "Verify OceanBase Atomic Memory, HTTP and archive regressions",
+        "Run deterministic scenarios",
+    }
+    workload = [step for step in job["steps"] if step["name"] in names]
+    assert len(workload) == len(names)
+    assert (
+        native_minutes(job["timeout-minutes"]) >= sum(native_minutes(step["timeout-minutes"]) for step in workload) + 10
+    )
