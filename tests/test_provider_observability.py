@@ -25,7 +25,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import httpx
+import httpx2
 import pytest
 from prometheus_client.parser import text_string_to_metric_families
 from pydantic import AnyHttpUrl
@@ -44,7 +44,7 @@ from powercontext.server.metrics import ServerMetrics
 
 @pytest.mark.parametrize("phase", [None, "before_send", "before_release"])
 def test_http_observations_preserve_the_privacy_send_and_release_boundaries(phase):
-    import httpx
+    import httpx2
     from pydantic import SecretStr
 
     from powercontext.builtin.inference.errors import InferencePrivacyError
@@ -70,7 +70,7 @@ def test_http_observations_preserve_the_privacy_send_and_release_boundaries(phas
     observations = []
 
     def response(_request):
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "id": "chatcmpl-fixture",
@@ -88,8 +88,8 @@ def test_http_observations_preserve_the_privacy_send_and_release_boundaries(phas
         )
 
     async def run():
-        async with httpx.AsyncClient(
-            transport=ProtectedAsyncTransport(configuration, transport=httpx.MockTransport(response))
+        async with httpx2.AsyncClient(
+            transport=ProtectedAsyncTransport(configuration, transport=httpx2.MockTransport(response))
         ) as client:
             observe_http_client(client)
             source = ProviderObservationSource("openai", "generation", observations.append)
@@ -306,24 +306,24 @@ def test_failed_observer_cannot_change_a_successful_model_operation(tmp_path, mo
 def test_transport_failures_do_not_fabricate_response_status(failure):
     metrics = ServerMetrics()
 
-    class FailedBody(httpx.AsyncByteStream):
+    class FailedBody(httpx2.AsyncByteStream):
         async def __aiter__(self):
             yield b"partial"
-            raise httpx.ReadTimeout("controlled-body-failure")
+            raise httpx2.ReadTimeout("controlled-body-failure")
 
     async def respond(request):
         if failure == "body":
-            return httpx.Response(200, stream=FailedBody())
+            return httpx2.Response(200, stream=FailedBody())
         if failure == "timeout":
-            raise httpx.ReadTimeout("controlled-timeout")
+            raise httpx2.ReadTimeout("controlled-timeout")
         if failure == "connection":
-            raise httpx.ConnectError("controlled-connection")
+            raise httpx2.ConnectError("controlled-connection")
         raise asyncio.CancelledError
 
     async def scenario():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
             observe_http_client(client)
-            error = asyncio.CancelledError if failure == "cancelled" else httpx.HTTPError
+            error = asyncio.CancelledError if failure == "cancelled" else httpx2.HTTPError
             with (
                 pytest.raises(error),
                 ProviderObservationSource("openai", "generation", metrics.observe_provider).operation(),
@@ -351,14 +351,14 @@ def test_observing_a_client_preserves_mount_headers_timeout_and_redirects():
     async def mounted(request):
         requested.append(request)
         if request.url.path == "/first":
-            return httpx.Response(307, headers={"Location": "/second"})
-        return httpx.Response(200, json={"result": "ok"})
+            return httpx2.Response(307, headers={"Location": "/second"})
+        return httpx2.Response(200, json={"result": "ok"})
 
     async def scenario():
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(direct),
-            mounts={"https://provider.invalid": httpx.MockTransport(mounted)},
-            timeout=httpx.Timeout(7, connect=2),
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(direct),
+            mounts={"https://provider.invalid": httpx2.MockTransport(mounted)},
+            timeout=httpx2.Timeout(7, connect=2),
             follow_redirects=True,
             headers={"X-Fixture": "private-header"},
         ) as client:

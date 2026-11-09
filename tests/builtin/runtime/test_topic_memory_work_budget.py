@@ -24,7 +24,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
 
-import httpx
+import httpx2
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import select
@@ -373,7 +373,7 @@ def test_topic_provider_disables_sdk_transport_retries(provider_name, with_heade
 
         async def fail(request):
             calls.append(request)
-            return httpx.Response(
+            return httpx2.Response(
                 429, headers={"retry-after": "0"}, json={"error": {"message": "busy", "type": "rate_limit_error"}}
             )
 
@@ -392,7 +392,7 @@ def test_topic_provider_disables_sdk_transport_retries(provider_name, with_heade
             client = provider.client
             assert client.max_retries == 0
             # Preserve the SDK's real request/retry implementation; substitute transport only.
-            transport = await resources.enter_async_context(httpx.AsyncClient(transport=httpx.MockTransport(fail)))
+            transport = await resources.enter_async_context(httpx2.AsyncClient(transport=httpx2.MockTransport(fail)))
             client._client = transport
             with pytest.raises(Exception, match="busy"):
                 if provider_name == "openai":
@@ -569,10 +569,11 @@ def test_suspended_response_cannot_hide_multiple_provider_calls_in_one_request()
     asyncio.run(scenario())
 
 
-def test_unsupported_worker_provider_fails_when_binding_is_assembled():
+@pytest.mark.parametrize("provider", ["google", "openai-codex"])
+def test_unsupported_worker_provider_fails_when_binding_is_assembled(provider):
     config = BuiltinConfig(
         database=SQLiteConfig(url="sqlite+aiosqlite:///not-opened.sqlite3"),
-        inference=InferenceConfig(generation_model="google:test"),
+        inference=InferenceConfig(generation_model=f"{provider}:test"),
         runtime=RuntimeConfig(topic_memory_schedule_seconds=60, artifact_processing_families=("topic-memory",)),
     )
     with pytest.raises(BuiltinConfigurationError, match="bounded stateless"):

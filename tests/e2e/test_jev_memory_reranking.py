@@ -22,6 +22,7 @@ from typing import cast
 from uuid import uuid4
 
 import httpx
+import httpx2
 import pytest
 from pydantic import SecretStr
 from starlette.middleware import Middleware
@@ -49,8 +50,8 @@ def test_jev_search_and_prepare_preserve_identity_authorization_and_budget(datab
         if failure == "timeout":
             await asyncio.Event().wait()
         if failure == "unavailable":
-            return httpx.Response(429)
-        return httpx.Response(
+            return httpx2.Response(429)
+        return httpx2.Response(
             200,
             json={
                 "model": "jev-1.13.0",
@@ -63,7 +64,7 @@ def test_jev_search_and_prepare_preserve_identity_authorization_and_budget(datab
         efforts.append(effort)
 
     async def scenario():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as provider:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as provider:
             reranker = JevMemoryReranker(
                 JevRerankConfig(
                     endpoint="https://api.typesafe.ai/v1/systemone",

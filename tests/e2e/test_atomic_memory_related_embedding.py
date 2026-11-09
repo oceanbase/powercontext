@@ -21,7 +21,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
-import httpx
+import httpx2
 import pytest
 
 from powercontext.artifacts.search import ArtifactSearchExecutionContext
@@ -537,13 +537,13 @@ def test_source_flush_uses_minimax_query_vectors_to_recall_the_prior_identity(tm
             [1.0, 0.0, 0.0] if body["type"] == "query" or ORIGINAL in text else [0.0, 1.0, 0.0]
             for text in body["texts"]
         ]
-        return httpx.Response(
+        return httpx2.Response(
             200, json={"vectors": vectors, "total_tokens": len(vectors), "base_resp": {"status_code": 0}}
         )
 
     async def scenario():
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client,
             open_builtin_contexts(
                 _config(tmp_path), embedding_model=_minimax(client), candidate_pipeline=_pipeline()
             ) as contexts,
@@ -592,11 +592,11 @@ class _EmbeddingEndpoint:
             self.document_requests.append(body)
         failure = self.query_failure if body["type"] == "query" else self.document_failure
         if failure == "timeout":
-            raise httpx.ReadTimeout("Embedding deadline expired", request=request)  # noqa: TRY003
+            raise httpx2.ReadTimeout("Embedding deadline expired", request=request)  # noqa: TRY003
         if failure == "unavailable":
-            return httpx.Response(503, json={"error": "temporarily unavailable"})
+            return httpx2.Response(503, json={"error": "temporarily unavailable"})
         vectors = [[1.0, 0.0, 0.0] for _ in body["texts"]]
-        return httpx.Response(
+        return httpx2.Response(
             200, json={"vectors": vectors, "total_tokens": len(vectors), "base_resp": {"status_code": 0}}
         )
 
@@ -609,7 +609,7 @@ def test_related_query_failure_uses_fts_only_when_opted_in(tmp_path, failure, fa
 
     async def scenario():
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(endpoint.respond)) as client,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(endpoint.respond)) as client,
             open_builtin_contexts(
                 _config(tmp_path, fallback=fallback), embedding_model=_minimax(client), candidate_pipeline=_pipeline()
             ) as contexts,
@@ -645,7 +645,7 @@ def test_related_fts_fallback_does_not_hide_document_embedding_failure(tmp_path,
 
     async def scenario():
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(endpoint.respond)) as client,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(endpoint.respond)) as client,
             open_builtin_contexts(
                 _config(tmp_path, fallback=True),
                 embedding_model=_minimax(client),
