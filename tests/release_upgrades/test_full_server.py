@@ -1241,7 +1241,11 @@ def test_fresh_upgrade_equivalence(
             case["report"] / "fresh-apply.log",
         )
     with server(
-        case["target"], environment_for(case, fresh=True), case["work"], case["report"] / "fresh-server.log"
+        case["target"],
+        environment_for(case, fresh=True),
+        case["work"],
+        case["report"] / "fresh-server.log",
+        readiness_timeout=360 if case["backend"] in {"seekdb", "oceanbase"} else 180,
     ) as client:
         fresh = seed(client, candidate_prefix="/v1/candidates")
         hits = post(
