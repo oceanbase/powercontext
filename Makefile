@@ -112,10 +112,13 @@ topic-memory-r8-acceptance: ## Run bounded R8 hermetic and available real produc
 harness-sync: ## Install the Bub replay harness environment.
 	@uv sync --project e2e/bub --locked
 
+# The standalone Connector check runs outside the project, so pin the type checker to
+# the version the repository itself is locked to; an unpinned resolve picks up new
+# rules that the repository gate has not adopted yet and the two disagree.
 OPENDAL_TEST_RUN = uv run --isolated --no-project --python 3.12 \
 	--with-editable ".[server]" \
 	--with-editable ./integrations/opendal \
-	--with pytest --with ruff --with ty
+	--with pytest --with ruff --with "ty==0.0.56"
 
 .PHONY: opendal-test
 opendal-test: ## Validate the standalone OpenDAL Connector against this checkout.
