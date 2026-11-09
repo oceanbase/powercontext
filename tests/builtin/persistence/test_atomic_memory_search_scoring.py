@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef, ChannelScore
@@ -203,7 +204,12 @@ def test_atomic_backend_sql_returns_raw_separately_without_changing_legacy_order
             self.sql = ""
             self.parameters = {}
 
-        async def exec_driver_sql(self, _statement):
+        async def run_sync(self, function):
+            return function(SimpleNamespace(engine=self.sync_engine))
+
+        async def exec_driver_sql(self, statement):
+            if dialect == "mysql" and "SCORE()" in statement:
+                raise DBAPIError(statement, None, Exception(1064, "Native SCORE is unavailable"))
             return SimpleNamespace(close=lambda: None)
 
         async def execute(self, statement, parameters):
