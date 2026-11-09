@@ -1,9 +1,9 @@
 # Installed-release upgrade acceptance
 
 `release/upgrade-support.json` requires **positive** 1.3.0 upgrades on SQLite, embedded seekDB, and OceanBase.
-The current `upgrade-required` mode keeps the upgrade support declaration unverified while requiring every automatic case
-to run and pass, including both embedded seekDB Code configurations. Missing full migration integration (#2154) fails the gate. `supported-upgrades` runs the same
-matrix and enables publication after the reviewed support declaration is updated. `fresh-install-only` is rejected.
+Both `upgrade-required` and `supported-upgrades` require every automatic case to run and pass, including both embedded
+seekDB Code configurations. Missing full migration integration (#2154) fails the gate. Complete passing acceptance
+allows publication in either mode, without a separate support-declaration approval. `fresh-install-only` is rejected.
 
 ## Reviewed sources and current target
 
@@ -89,7 +89,7 @@ gh workflow run master.yml --repo oceanbase/powercontext --ref YOUR_BRANCH -f up
 ```
 
 A diagnostic subset produces no publication artifacts and cannot authorize release. Missing, skipped or failed
-cases in the full automatic matrix block publication, and the reviewed support declaration remains mandatory.
+cases in the full automatic matrix block publication. Release prose is not an acceptance requirement.
 
 The fixed required check remains **Upgrade release gate**; on Main it covers only the selected configurations. It fails if the shared workflow fails or is cancelled.
 Each case job has a sixty-minute budget including provisioning; existing thirty-minute command deadlines and
@@ -168,9 +168,9 @@ Server identity and authorization, and shared limits used in table definitions. 
 changes, but does not infer semantic compatibility or replace real upgrade tests.
 
 Build one wheel and its matching `.tar.gz` source distribution into `dist/`, then run `make upgrade-release-test`. Before release, additionally run
-`uv run python scripts/run_upgrade_release_gate.py --release --release-notes /path/to/notes.md`. The notes must contain
-the exact English support declaration generated in the installation guide. The release workflow performs this check
-against the GitHub event's notes and gates both PyPI publication and release assets on the same tested wheel.
+`uv run python scripts/run_upgrade_release_gate.py --release`. No release-notes file or support declaration is required.
+The release workflow gates both PyPI publication and release assets on the same tested wheel. It pins gate tooling
+to the workflow commit and builds packages and runs acceptance suites from the selected tag commit.
 
 Repository administrators must require **Upgrade release gate** in branch protection. Workflow code cannot configure
 that setting. Because the release workflow starts on `release.published`, it can block package/asset publication,

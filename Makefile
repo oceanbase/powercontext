@@ -285,8 +285,8 @@ clean-build: ## Clean build artifacts
 	@uv run python -c "import shutil; import os; shutil.rmtree('dist') if os.path.exists('dist') else None"
 
 .PHONY: publish
-publish: ## Publish after release upgrade acceptance; UPGRADE_RELEASE_NOTES must name the reviewed release notes file.
-	@uv run python scripts/run_upgrade_release_gate.py --release --publish --release-notes "$$UPGRADE_RELEASE_NOTES"
+publish: ## Publish the exact distributions that pass release upgrade acceptance.
+	@uv run python scripts/run_upgrade_release_gate.py --release --publish
 
 .PHONY: build-and-publish
 build-and-publish: build publish ## Build and publish.

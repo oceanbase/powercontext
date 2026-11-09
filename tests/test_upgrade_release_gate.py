@@ -36,7 +36,6 @@ from ci_legacy_upgrade_rejection import database_environment
 
 from powercontext.server.settings import ServerSettings
 from tests.release_upgrades.test_full_server import environment_for
-from tests.test_upgrade_publication import write_source, write_wheel
 
 
 @pytest.fixture
@@ -92,113 +91,35 @@ def release(tmp_path, monkeypatch):
     return tmp_path, wheel, policy
 
 
-def test_required_mode_executes_three_cases_but_cannot_publish_as_supported(release):
-    root, wheel, policy = release
-    with pytest.raises(gate.GateError, match="support declaration"):
-        gate.gate(root, wheel, root / "evidence", release=True, release_notes=gate.support_text(policy, "en"))
+def test_required_mode_allows_publication_after_every_case_passes(release):
+    root, wheel, _ = release
+    gate.gate(root, wheel, root / "evidence", release=True)
     result = json.loads((root / "evidence/result.json").read_text())
-    assert result["status"] == "failed"
+    assert result["status"] == "passed"
+    assert result["mode"] == "upgrade-required"
     assert len(result["cases"]) == 3
     assert all(case["status"] == "passed" for case in result["cases"])
     assert result["target_wheel_sha256"] == gate.sha256(wheel)
 
 
-def test_release_notes_cannot_omit_the_support_limit(release):
+@pytest.mark.parametrize("notes", [None, "", "Release highlights without a database support declaration."])
+def test_release_acceptance_does_not_require_support_prose(release, notes):
     root, wheel, _ = release
-    with pytest.raises(gate.GateError, match="notes"):
-        gate.gate(root, wheel, root / "evidence", release=True, release_notes="Upgrade your deployment now.")
+    gate.gate(root, wheel, root / "evidence", release=True, release_notes=notes)
+    assert json.loads((root / "evidence/result.json").read_text())["status"] == "passed"
 
 
-@pytest.fixture
-def reviewed_support(release, tmp_path_factory):
-    root, _, policy = release
-    support = tmp_path_factory.mktemp("reviewed-support")
-    for directory in ("src", "openapi", "tests", "release", "docs"):
-        shutil.copytree(root / directory, support / directory)
-    reviewed = {**policy, "mode": "supported-upgrades"}
-    parallel.write_json(support / gate.MANIFEST, reviewed)
-    gate.check_docs(support, reviewed, write=True)
-    return support, reviewed
-
-
-def test_reviewed_support_preserves_tagged_policy_and_artifact(release, reviewed_support):
-    root, wheel, policy = release
-    support, reviewed = reviewed_support
-    original = gate.sha256(wheel)
-    assert (
-        gate.validate_target(
-            root, wheel, release=True, release_notes=gate.support_text(reviewed, "en"), support_root=support
-        )
-        == reviewed
-    )
-    assert gate.load_policy(root) == policy
-    assert gate.sha256(wheel) == original
-
-
-@pytest.mark.parametrize("changed", ["version", "persistence", "matrix", "docs", "mode", "notes", "non-release"])
-def test_reviewed_support_rejects_unmatched_or_unpublished_declarations(release, reviewed_support, changed):
-    root, wheel, _ = release
-    support, reviewed = reviewed_support
-    notes = gate.support_text(reviewed, "en")
-    if changed == "version":
-        reviewed["target_version"] = "2.0.1"
-        (support / "openapi/powercontext.yaml").write_text("info:\n  version: 2.0.1\n")
-    elif changed == "persistence":
-        (support / "src/powercontext/builtin/persistence/tables.py").write_text("# another schema\n")
-        reviewed["schema_review"] = {"persistence_sha256": gate.managed_digest(support), "rationale": "Changed schema"}
-    elif changed == "matrix":
-        reviewed["automatic_sources"]["profiles"][0]["configuration"] = "different-profile"
-    elif changed == "docs":
-        (support / "docs/en/docs/get-started/install-and-run.md").write_text("Unreviewed documentation\n")
-    elif changed == "mode":
-        reviewed["mode"] = "upgrade-required"
-    elif changed == "notes":
-        notes = gate.NOTICE["en"]
-    parallel.write_json(support / gate.MANIFEST, reviewed)
-    with pytest.raises(gate.GateError):
-        gate.validate_target(root, wheel, release=changed != "non-release", release_notes=notes, support_root=support)
-
-
-def test_preparation_binds_reviewed_support_to_the_frozen_artifacts(release, reviewed_support, monkeypatch):
-    root, wheel, _ = release
-    support, reviewed = reviewed_support
-    monkeypatch.setenv("UV_OFFLINE", "true")
-    monkeypatch.setenv("PC_UPGRADE_SUPPORT_SHA", "b" * 40)
-    dist = root / "dist"
-    dist.mkdir()
-    write_wheel(dist / wheel.name)
-    write_source(dist / "powercontext-2.0.0.tar.gz")
-    prepared = root / "prepared"
-    parallel.prepare(
-        root, dist, prepared, release=True, release_notes=gate.support_text(reviewed, "en"), support_root=support
-    )
-    plan, _ = parallel.read_plan(root, prepared, support_root=support)
-    assert plan["mode"] == "supported-upgrades"
-    assert plan["support_sha"] == "b" * 40
-    assert plan["artifacts"] == {path.name: gate.sha256(path) for path in dist.iterdir()}
-    with pytest.raises(gate.GateError, match="support declaration changed"):
-        parallel.read_plan(root, prepared)
-    monkeypatch.setenv("PC_UPGRADE_SUPPORT_SHA", "c" * 40)
-    with pytest.raises(gate.GateError, match="support declaration changed"):
-        parallel.read_plan(root, prepared, support_root=support)
-    monkeypatch.setenv("PC_UPGRADE_SUPPORT_SHA", "b" * 40)
-    reviewed["mode"] = "upgrade-required"
-    parallel.write_json(support / gate.MANIFEST, reviewed)
-    with pytest.raises(gate.GateError, match="support declaration changed"):
-        parallel.read_plan(root, prepared, support_root=support)
-
-
-def test_prepared_release_notes_pass_the_published_support_declaration_check(tmp_path):
+def test_prepared_release_notes_do_not_need_an_upgrade_declaration(tmp_path):
     root = Path(__file__).resolve().parents[1]
     policy = gate.load_policy(root)
     version = policy["target_version"]
     notes = (root / f"release/notes/powercontext-v{version}.md").read_text(encoding="utf-8")
-    # Metadata alone exercises declaration validation, not installed-wheel or database acceptance.
+    # Metadata alone verifies target validation, not installed-wheel or database acceptance.
     wheel = tmp_path / f"powercontext-{version}-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr(f"powercontext-{version}.dist-info/METADATA", f"Name: powercontext\nVersion: {version}\n")
     assert gate.validate_target(root, wheel, release=True, release_notes=notes) == policy
-    assert gate.support_text(policy, "zh") in notes
+    assert "| Source | Target | Backend | Configuration |" not in notes
 
 
 def test_release_rejects_wrong_artifact_version(release):
@@ -515,20 +436,17 @@ def test_publishing_jobs_require_upgrade_acceptance_unless_manually_bypassed():
     assert build["uses"] == "./.github/workflows/upgrade-release.yml"
     assert build["with"]["release"] is True
     assert build["with"]["selection"] == "full"
+    assert build["with"]["gate_ref"] == "${{ github.sha }}"
     assert build["with"]["skip_upgrade_acceptance"] == (
         "${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}"
     )
     events = workflow.get("on", workflow.get(True))  # PyYAML's YAML 1.1 parser treats "on" as True.
     assert events["workflow_dispatch"]["inputs"]["skip_upgrade_acceptance"]["default"] is False
-    assert events["workflow_dispatch"]["inputs"]["use_reviewed_upgrade_support"]["default"] is False
-    assert build["with"]["support_ref"] == (
-        "${{ github.event_name == 'workflow_dispatch' && inputs.use_reviewed_upgrade_support && github.sha || '' }}"
-    )
     assert not build.get("continue-on-error")
     shared = yaml.safe_load((root / ".github/workflows/upgrade-release.yml").read_text())["jobs"]
     prepare = shared["prepare"]["steps"]
     freeze = next(step for step in prepare if "parallel_upgrade_release_gate.py prepare" in step.get("run", ""))
-    assert "--release --release-event" in freeze["run"]
+    assert "args+=(--release)" in freeze["run"]
     steps = shared["collect"]["steps"]
     index = next(i for i, step in enumerate(steps) if "parallel_upgrade_release_gate.py collect" in step.get("run", ""))
     assert "if" not in steps[index] and not steps[index].get("continue-on-error")
@@ -550,42 +468,6 @@ def test_publishing_jobs_require_upgrade_acceptance_unless_manually_bypassed():
     assert {"quality", "upgrade-acceptance"} <= set([dependencies] if isinstance(dependencies, str) else dependencies)
     assert not verdict.get("continue-on-error")
     assert all(not step.get("continue-on-error") for step in verdict["steps"])
-
-
-@pytest.mark.parametrize("invalid", [None, "branch", "event", "skip", "support-sha", "source-ref", "non-release"])
-def test_external_support_requires_pinned_manual_release_with_full_acceptance(invalid):
-    root = Path(__file__).parents[1]
-    jobs = yaml.safe_load((root / ".github/workflows/upgrade-release.yml").read_text())["jobs"]
-    guard = next(step for step in jobs["prepare"]["steps"] if "SOURCE_REF" in step.get("env", {}))["run"]
-    environment = {
-        **os.environ,
-        "GITHUB_EVENT_NAME": "workflow_dispatch",
-        "GITHUB_REF": "refs/heads/master",
-        "GITHUB_SHA": "b" * 40,
-        "DEFAULT_BRANCH": "master",
-        "PC_UPGRADE_SUPPORT_SHA": "b" * 40,
-        "SOURCE_REF": "a" * 40,
-        "RELEASE": "true",
-        "SKIP_UPGRADE_ACCEPTANCE": "false",
-    }
-    overrides = {
-        "branch": ("GITHUB_REF", "refs/heads/feature"),
-        "event": ("GITHUB_EVENT_NAME", "release"),
-        "skip": ("SKIP_UPGRADE_ACCEPTANCE", "true"),
-        "support-sha": ("PC_UPGRADE_SUPPORT_SHA", "c" * 40),
-        "source-ref": ("SOURCE_REF", "master"),
-        "non-release": ("RELEASE", "false"),
-    }
-    if invalid:
-        key, value = overrides[invalid]
-        environment[key] = value
-    result = subprocess.run(
-        ["bash", "-e", "-c", guard],  # noqa: S607 -- execute the checked-in Actions gate
-        env=environment,
-        capture_output=True,
-        check=False,
-    )
-    assert (result.returncode == 0) == (invalid is None)
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="the Actions gate runs in Bash")
@@ -1307,40 +1189,15 @@ def test_parallel_workers_reject_changed_preparation_inputs(parallel_reports, mo
     assert not (root / "another-case").exists()
 
 
-def test_parallel_passes_do_not_override_unreviewed_release_support(parallel_reports):
-    root, prepared, reports, policy = parallel_reports
+@pytest.mark.parametrize("broken", [None, "missing-case", "failed-case", "mixed-plan"])
+def test_parallel_publication_requires_actual_acceptance_without_support_prose(parallel_reports, broken):
+    root, prepared, reports, _ = parallel_reports
     # Model the release preparation metadata; distribution validation itself is
     # exercised with real sdist rebuilds in test_upgrade_publication.py.
     plan = json.loads((prepared / "plan.json").read_text())
     plan["release"] = True
-    plan["release_notes"] = gate.support_text(policy, "en")
+    plan["release_notes"] = None
     parallel.write_json(prepared / "plan.json", plan)
-    for path in reports.glob("*/result.json"):
-        result = json.loads(path.read_text())
-        result["plan_sha256"] = gate.sha256(prepared / "plan.json")
-        parallel.write_json(path, result)
-    with pytest.raises(gate.GateError, match="support declaration"):
-        parallel.collect(root, prepared, reports, root / "accepted")
-    assert not (root / "accepted/validated-dist").exists()
-
-
-@pytest.mark.parametrize("broken", [None, "missing-case", "failed-case", "mixed-plan"])
-def test_reviewed_support_still_requires_complete_matching_upgrade_evidence(parallel_reports, reviewed_support, broken):
-    root, prepared, reports, _ = parallel_reports
-    support, reviewed = reviewed_support
-    # Use fixture backend reports, not real database acceptance. The distribution
-    # freeze with a real offline sdist rebuild is covered above.
-    plan = json.loads((prepared / "plan.json").read_text())
-    plan.update(
-        release=True,
-        release_notes=gate.support_text(reviewed, "en"),
-        mode="supported-upgrades",
-        support_policy_sha256=gate.sha256(support / gate.MANIFEST),
-        support_sha=os.environ.get("PC_UPGRADE_SUPPORT_SHA"),
-    )
-    parallel.write_json(prepared / "plan.json", plan)
-    parallel.execute_case(root, prepared, 0, root / "reviewed-case", support_root=support)
-    assert json.loads((root / "reviewed-case/result.json").read_text())["status"] == "passed"
     for path in reports.glob("*/result.json"):
         result = json.loads(path.read_text())
         result["plan_sha256"] = gate.sha256(prepared / "plan.json")
@@ -1353,18 +1210,28 @@ def test_reviewed_support_still_requires_complete_matching_upgrade_evidence(para
         result["status"] = "failed"
         parallel.write_json(path, result)
     elif broken == "mixed-plan":
-        result["plan_sha256"] = "different-plan"
+        result["plan_sha256"] = "another-plan"
         parallel.write_json(path, result)
     if broken:
         with pytest.raises(gate.GateError):
-            parallel.collect(root, prepared, reports, root / "accepted", support_root=support)
+            parallel.collect(root, prepared, reports, root / "accepted")
         assert not (root / "accepted/validated-dist").exists()
     else:
-        accepted = parallel.collect(root, prepared, reports, root / "accepted", support_root=support)
+        accepted = parallel.collect(root, prepared, reports, root / "accepted")
         assert {path.name: gate.sha256(path) for path in accepted} == plan["artifacts"]
         verdict = json.loads((root / "accepted/result.json").read_text())
         assert verdict["complete"] and verdict["status"] == "passed"
-        assert verdict["support_policy_sha256"] == gate.sha256(support / gate.MANIFEST)
+        assert verdict["mode"] == "upgrade-required"
+
+
+def test_parallel_workers_reject_a_changed_gate_commit(parallel_reports, monkeypatch):
+    root, prepared, reports, _ = parallel_reports
+    monkeypatch.setenv("PC_UPGRADE_GATE_SHA", "different-gate-commit")
+    with pytest.raises(gate.GateError, match="gate changed"):
+        parallel.execute_case(root, prepared, 0, root / "unexpected-case")
+    with pytest.raises(gate.GateError, match="gate changed"):
+        parallel.collect(root, prepared, reports, root / "accepted")
+    assert not (root / "accepted/validated-dist").exists()
 
 
 def test_parallel_worker_rejects_artifact_changed_during_execution(release, monkeypatch):

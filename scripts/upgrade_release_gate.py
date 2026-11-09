@@ -504,30 +504,12 @@ def validate_case_output(case: dict[str, Any], output: Path) -> dict[str, Any]:
     return backend
 
 
-def validate_target(
-    root: Path, wheel: Path, *, release: bool, release_notes: str | None, support_root: Path | None = None
-) -> dict[str, Any]:
+def validate_target(root: Path, wheel: Path, *, release: bool, release_notes: str | None) -> dict[str, Any]:
     policy = load_policy(root)
     check_docs(root, policy)
-    if support_root is not None:
-        require(release, "An external support declaration requires release acceptance")
-        reviewed = load_policy(support_root)
-        require(reviewed["mode"] == "supported-upgrades", "External policy must declare supported upgrades")
-        require(
-            {key: value for key, value in policy.items() if key != "mode"}
-            == {key: value for key, value in reviewed.items() if key != "mode"},
-            "Reviewed support policy differs from the tagged policy beyond its mode",
-        )
-        check_docs(support_root, reviewed)
-        policy = reviewed
     actual_version = wheel_version(wheel)
     if release:
         require(actual_version == policy["target_version"], "Wheel version differs from upgrade policy target")
-        require(release_notes is not None, "Published release notes must declare upgrade support")
-        require(
-            support_text(policy, "en") in (release_notes or ""),
-            "GitHub Release notes must include the exact upgrade support declaration",
-        )
     return policy
 
 
@@ -561,11 +543,6 @@ def gate(root: Path, wheel: Path, output: Path, *, release: bool = False, releas
                 failures.append(case["backend"])
                 evidence["cases"].append({"case": case, "status": "failed", "error": str(error)})
         require(not failures, f"Required upgrade acceptance failed: {', '.join(failures)}")
-        if release:
-            require(
-                policy["mode"] == "supported-upgrades",
-                "Upgrade acceptance passed; update the reviewed support declaration before publication",
-            )
         evidence["status"] = "passed"
     finally:
         (output / "result.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

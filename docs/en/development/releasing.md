@@ -193,7 +193,7 @@ configurations. `automatic_sources` keeps 1.3.0 as its fixed baseline; explicit 
 The catalog declares twelve cases: one source × three backends × vectors enabled/disabled × Code enabled/disabled.
 Normal publication requires all twelve automatic cases to pass, including both embedded seekDB configurations with
 Code enabled. Failed, skipped, or missing cases block acceptance; the diagnostic-only `seekdb-code` selection cannot
-authorize publication. Passing the matrix does not replace review of the upgrade-support declaration.
+authorize publication. Publication depends on the actual acceptance evidence, without a separate support-declaration approval.
 The target is always the actual wheel built by CI. Future target releases keep testing 1.3.0;
 intervening releases are not added automatically. The registered 1.4.0 bridge remains implemented but is outside
 CI upgrade acceptance, so a passing gate does not certify its upgrade path. Source wheel URLs and SHA-256s are resolved
@@ -210,8 +210,8 @@ all releases between them or the target.
 The current `upgrade-required` policy mandates positive acceptance on all three backends with support limited to combinations
 that pass full Server acceptance. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
 must fail. Neither a fresh-install-only declaration nor correct rejection of an old database satisfies this gate.
-After the full migration implementation and acceptance pass, review the declaration, set `supported-upgrades`, and
-regenerate the installation notices before publication. Both modes run the same mandatory acceptance matrix.
+Both `upgrade-required` and `supported-upgrades` run the same mandatory acceptance matrix and allow publication
+when it passes. Changing the policy mode or adding support prose to the Release body is not required for publication.
 The suite contract and evidence requirements are in `tests/release_upgrades/README.md` in the repository.
 
 `make check` and `make release-check` validate this policy and the bilingual installation notices. Changes to
@@ -224,7 +224,7 @@ Build exactly one wheel and its matching source distribution into `dist/`, then 
 
 ```bash
 make upgrade-release-test
-uv run python scripts/run_upgrade_release_gate.py --release --release-notes /path/to/release-notes.md
+uv run python scripts/run_upgrade_release_gate.py --release
 ```
 
 The publication input directory must contain exactly one wheel and one matching `.tar.gz` source distribution;
@@ -239,8 +239,8 @@ files to the evidence directory's `validated-dist/`. CI uploads that set. `make 
 upload those exact paths in the same invocation; subsequent changes to the original `dist/` cannot join the upload.
 No packages are uploaded by validation commands without `--publish`.
 
-The release check requires the actual wheel version to match the policy and the release notes to include the exact
-English support declaration from the installation guide. It installs each exact source release and the target wheel
+The release check requires the actual wheel version to match the policy. Release notes have no required support
+declaration or configuration table. It installs each exact source release and the target wheel
 in separate environments. Missing tests, skipped backends, failures, and missing evidence block the check. Static
 policy validation alone does not establish an upgrade path. Ordinary PR builds may have a development
 version; the `--release` check must run against the final tagged wheel without overriding its version.
@@ -255,68 +255,41 @@ credentials are needed. Unavailable backends fail instead of being skipped. Hist
 not part of the positive acceptance gate. Administrators must make this job required in branch protection.
 By default, the release workflow gates distribution upload, PyPI publication, and release assets on the acceptance result and
 archives its evidence. It runs after `release.published`, so it cannot prevent the earlier manual publication of
-the GitHub Release page: run the command above before that action. `make publish` requires
-`UPGRADE_RELEASE_NOTES=/path/to/release-notes.md` and runs the same gate before uploading packages.
+the GitHub Release page: run the command above before that action. `make publish` runs the same gate before
+uploading packages and does not require a release-notes file.
 
-### Approve upgrade support after a release tag is created
+### Publish an existing release tag
 
-If a tagged release passes the full matrix but collection stops with
-`Update the reviewed support declaration before publication`, submit a PR to the default branch that changes
-`release/upgrade-support.json` to `supported-upgrades`, regenerates both installation guides with
-`uv run python scripts/upgrade_release_gate.py --write-docs`, and updates the bilingual release notes.
-Keep every other policy field unchanged. Merge the reviewed PR before dispatching publication.
-
-Copy the exact English support table from the updated installation guide into the published GitHub Release body;
-include its Chinese counterpart and remove any contradictory `upgrade-required` or skipped-acceptance claims.
-For `powercontext-v1.5.1`, the complete bilingual body is in `release/notes/powercontext-v1.5.1.md`.
-Then run **Actions → Release → Run workflow** from `master`, select the existing tag, enable
-`use_reviewed_upgrade_support`, and leave `skip_upgrade_acceptance` disabled:
+After the workflow changes are merged, run **Actions → Release → Run workflow** from `master` and enter the
+existing published tag in `release_tag`. Leave `skip_upgrade_acceptance` disabled for full upgrade acceptance:
 
 ```bash
 gh workflow run release.yml --repo oceanbase/powercontext --ref master \
-  -f release_tag=powercontext-v1.5.1 \
-  -f use_reviewed_upgrade_support=true \
-  -f skip_upgrade_acceptance=false
+  -f release_tag=powercontext-v1.5.1
 ```
 
-The option defaults to false and is available only for manual publication from the default branch. It pins that
-workflow commit for the support declaration and gate tooling, while package builds and acceptance suites still
-use the original tag commit. Both policies must match except for `mode`, including target version, persistence
-review and the complete source/backend/configuration matrix. Both sets of installation guidance and the live
-Release declaration are checked. The support checkout stays outside the package build tree.
-
-All twelve cases run again against the newly frozen tagged distributions. Missing, failed, skipped or mixed
-evidence still blocks publication. The prepared plan and aggregate evidence record both policy hashes, the
-tagged source commit and the support commit. This option neither reuses an earlier run's verdict nor moves the
-tag. It cannot be combined with `skip_upgrade_acceptance`; it does not change the tagged documentation or
-the website deployment's selected release source.
+The workflow pins its own commit for gate tooling and the selected tag commit for package builds and acceptance
+suites. This applies gate fixes to existing tags without moving them or altering their package contents.
+Preparation, case execution and collection use the same pinned tooling; the evidence records both commits.
+No support table, fixed wording, policy-mode promotion or additional approval input is required.
 
 ### Manual publication without upgrade acceptance
 
 The **Release** workflow has a `workflow_dispatch` input named `skip_upgrade_acceptance`, defaulting to `false`.
 Enable it only to publish for new databases without claiming that existing databases can be upgraded. This does
 not change `release/upgrade-support.json`, certify a migration path, or relax the default release and PR gates.
-The target policy must remain `upgrade-required` when using this option.
 
-For an existing published Release such as `powercontext-v1.4.1`:
+In **Actions → Release → Run workflow**, select the default branch (`master`), set `release_tag` to an existing
+published tag such as `powercontext-v1.4.1`, and enable `skip_upgrade_acceptance`. The workflow definition must
+already be merged into the default branch. Select the tag through the input, not the workflow branch selector.
 
-1. Add this exact English notice to its GitHub Release body:
-
-   ```text
-   Upgrade acceptance was skipped for this release. Use only new databases; upgrades of existing databases are not supported.
-   ```
-
-2. In **Actions → Release → Run workflow**, select the repository's default branch (`master`), set
-   `release_tag` to `powercontext-v1.4.1`, and enable `skip_upgrade_acceptance`. The workflow definition must
-   already be merged into the default branch. Select the tag through the input, not the workflow branch selector.
-
-   ```bash
-   gh workflow run release.yml --repo oceanbase/powercontext --ref master \
-     -f release_tag=powercontext-v1.4.1 -f skip_upgrade_acceptance=true
-   ```
+```bash
+gh workflow run release.yml --repo oceanbase/powercontext --ref master \
+  -f release_tag=powercontext-v1.4.1 -f skip_upgrade_acceptance=true
+```
 
 The workflow resolves the existing tag to a commit and builds that commit; it does not move the tag or package
-the current default branch. It reads current Release notes rather than reusing the failed run's event payload.
+the current default branch. Release-body wording does not gate this explicit manual option.
 Version checks, synchronized release references, policy consistency, package metadata checks, an sdist rebuild
 comparison, clean installation, dependency checks, and the new-database Server/MCP/Memory smoke test remain
 mandatory. Only then can the exact checked distributions reach PyPI and GitHub Release assets. Post-publication
@@ -324,7 +297,7 @@ verification and website deployment remain enabled, using the selected release t
 
 The `release-without-upgrades` artifact records the tag, source commit, actor, run, distribution hashes, and
 `upgrade_acceptance: skipped`; the run summary also states that existing-database upgrades are unsupported.
-Leaving the option disabled runs the normal automatic upgrade matrix and support-declaration checks.
+Leaving the option disabled runs the normal automatic upgrade matrix.
 
 ### General release validation
 
