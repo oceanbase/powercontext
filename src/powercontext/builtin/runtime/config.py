@@ -203,12 +203,6 @@ class RuntimeConfig(BaseModel):
 
         from powercontext.builtin.runtime.cron import CronSchedule
 
-        if not self.profile_schedule_enabled:
-            # A disabled schedule is inert: keep existing single-node configurations
-            # loadable even when their expression cannot be parsed, so an upgrade
-            # never fails on a schedule the deployment does not run. Enabling the
-            # schedule validates it.
-            return self
         try:
             CronSchedule.parse(self.profile_cron, self.profile_timezone)
         except ZoneInfoNotFoundError as error:

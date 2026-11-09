@@ -134,19 +134,21 @@ def test_last_marker_combines_with_numbered_days() -> None:
     assert schedule.next_after(datetime(2026, 12, 2)) == datetime(2026, 12, 31, 2, 0)  # noqa: DTZ001 - naive on purpose
 
 
-def test_disabled_profile_schedule_keeps_an_unparseable_expression_loadable() -> None:
-    """An inert schedule must not fail startup, matching the previous validator."""
+def test_existing_single_node_schedule_keeps_loading_with_scheduling_disabled() -> None:
+    """A configuration written for the previous scheduler must still construct."""
 
-    config = RuntimeConfig(profile_cron="not a cron", profile_schedule_enabled=False)
+    config = RuntimeConfig(profile_cron="0 2 last * *", profile_schedule_enabled=False)
     assert config.profile_schedule_enabled is False
-    assert config.profile_cron == "not a cron"
+    assert config.profile_cron == "0 2 last * *"
 
 
 def test_enabled_profile_schedule_rejects_an_unparseable_expression() -> None:
-    """Enabling the schedule is the point where the expression has to be valid."""
+    """A genuinely invalid expression is still rejected before the schedule runs."""
 
     with pytest.raises(ValueError, match="invalid Profile cron expression"):
         RuntimeConfig(profile_cron="not a cron", profile_schedule_enabled=True)
+    with pytest.raises(ValueError, match="invalid Profile cron expression"):
+        RuntimeConfig(profile_cron="not a cron")
 
 
 def test_enabled_profile_schedule_accepts_the_legacy_last_marker() -> None:
