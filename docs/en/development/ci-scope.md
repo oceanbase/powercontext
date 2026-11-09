@@ -80,7 +80,7 @@ The reusable E2E workflow selects replay (`harness`) separately from native snap
 
 When both scopes are selected, their OceanBase work shares one worker and container. Database startup and capacity configuration run for either scope. Native-only changes do not allocate a SQLite replay worker or install the Bub validation environment. Selected tests and evidence must succeed; missing reports and unexpected skips fail the acceptance gate. Native JUnit results are retained independently of replay artifacts.
 
-The OceanBase acceptance job allows 90 minutes: 15 for shared startup, 50 for native regressions, 15 for replay, and 10 for diagnostics, evidence and cleanup. These are ceilings; unselected work is skipped. The native process deadline starts in its own step, and the setup step passes the container ID explicitly. Native report validation and upload use the same JUnit file.
+The OceanBase acceptance job allows 100 minutes: 15 for shared startup, 60 for native regressions, 15 for replay, and 10 for diagnostics, evidence and cleanup. These are ceilings; unselected work is skipped. The native process deadline starts in its own step, and the setup step passes the container ID explicitly. Native report validation and upload use the same JUnit file.
 
 Main's preflight covers repository-wide lint and formatting. Its harness validation runs `make harness-test`, retaining harness type checks, scenario tests and CLI validation, plus Compose validation. Standalone runs retain formatting through `make harness-lint`; local `make harness-check` runs both targets.
 

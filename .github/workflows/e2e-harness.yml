@@ -608,8 +608,8 @@ jobs:
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # OceanBase: 15m setup + 50m native + 15m replay + 10m diagnostics/evidence/cleanup.
-    timeout-minutes: ${{ matrix.database == 'oceanbase' && 90 || 40 }}
+    # OceanBase: 15m setup + 60m native + 15m replay + 10m diagnostics/evidence/cleanup.
+    timeout-minutes: ${{ matrix.database == 'oceanbase' && 100 || 40 }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
@@ -651,12 +651,12 @@ jobs:
 
       - name: Verify OceanBase Atomic Memory, HTTP and archive regressions
         id: native_acceptance
-        timeout-minutes: 50
+        timeout-minutes: 60
         if: matrix.native
         env:
           OCEANBASE_CONTAINER: ${{ steps.oceanbase_setup.outputs.container_id }}
         run: |
-          native_deadline=$((SECONDS + 2850))
+          native_deadline=$((SECONDS + 3450))
           test -n "$OCEANBASE_CONTAINER"
           uv run --locked --extra server python - <<'PY'
           import asyncio

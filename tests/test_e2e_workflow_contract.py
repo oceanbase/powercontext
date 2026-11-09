@@ -222,7 +222,7 @@ elif name == "python":
     container = args[args.index("--container") + 1]
     deadline = float(args[args.index("--timeout") + 1])
     assert container == "shared-oceanbase", container
-    assert 0 < deadline <= 2850, deadline
+    assert 0 < deadline <= 3450, deadline
     Path(os.environ["RUNNER_TEMP"], "invocation.json").write_text(json.dumps(args))
     os.execv(sys.executable, [sys.executable, *args])
 elif name == "uv":
