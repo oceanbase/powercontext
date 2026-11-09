@@ -667,7 +667,8 @@ jobs:
     needs: [quality, seekdb-managed-startup, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     name: Atomic Memory clean migration (SeekDB)
-    timeout-minutes: 55
+    # Reserve 10m beyond the two test steps for setup and diagnostics.
+    timeout-minutes: 80
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -694,14 +695,16 @@ jobs:
             seekdb --output "$MIGRATION_REPORTS"
 
       - name: Test long-query retrieval and admission without skips
-        timeout-minutes: 10
+        # Ten cases at 180s each, plus collection and termination grace.
+        timeout-minutes: 35
         env:
           TMPDIR: ${{ runner.temp }}/am-seekdb
         run: |
           uv run --locked --extra seekdb python scripts/run_atomic_memory_clean_migration.py \
             seekdb --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
-            tests/e2e/test_atomic_memory_long_fts_query.py
+            tests/e2e/test_atomic_memory_long_fts_query.py \
+            tests/e2e/test_atomic_memory_fts_coverage.py
 
       - name: Collect native diagnostics
         if: always()
