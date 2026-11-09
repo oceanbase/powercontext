@@ -183,6 +183,64 @@ def _failure():
     return WorkFailure(category="generation", code="provider_unavailable", retryable=False)
 
 
+def test_repeated_cancellation_of_a_running_operation_is_idempotent(tmp_path) -> None:
+    """The contract promises a replay with the current version repeats no effect."""
+
+    async def scenario() -> None:
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'replay.db'}"))
+        async with open_builtin_contexts(config) as contexts:
+            manager = OperationManager(
+                contexts=contexts,
+                operations=OperationsConfig(),
+                worker=WorkerConfig(),
+                local_worker=None,
+                payload_version=1,
+            )
+            repository = WorkRepository()
+            async with contexts.database.transaction() as connection:
+                enqueued = await repository.enqueue(connection, _spec(MEMORY_WORK_KIND, SCOPE, "e"))
+                claims = await repository.claim(
+                    connection,
+                    worker_id="test-worker",
+                    supported={MEMORY_WORK_KIND: frozenset({1})},
+                    lease_seconds=120,
+                    limit=1,
+                )
+                assert len(claims) == 1
+                running = await repository.get(connection, enqueued.work.work_id)
+            assert running.status is WorkStatus.RUNNING
+
+            app = create_app(application=SimpleNamespace(operations=manager))
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://server") as client:
+                accepted = await client.post(
+                    f"/v1/scopes/{SCOPE}/operations/{running.work_id}/cancel",
+                    json={"expected_version": running.state_version},
+                )
+                assert accepted.status_code == 200, accepted.text
+                assert accepted.json()["status"] == "cancelling"
+                cancelling = accepted.json()["state_version"]
+
+                replay = await client.post(
+                    f"/v1/scopes/{SCOPE}/operations/{running.work_id}/cancel",
+                    json={"expected_version": cancelling},
+                )
+                assert replay.status_code == 200, replay.text
+                assert replay.json()["status"] == "cancelling"
+                assert replay.json()["cancel_requested"] is True
+                # The replay reports the same state instead of a second transition.
+                assert replay.json()["state_version"] == cancelling
+
+                stale = await client.post(
+                    f"/v1/scopes/{SCOPE}/operations/{running.work_id}/cancel",
+                    json={"expected_version": cancelling + 1},
+                )
+                assert stale.status_code == 409, stale.text
+                assert stale.json()["error"]["code"] == "operation_conflict"
+
+    asyncio.run(scenario())
+
+
 def test_operation_routes_require_a_composed_ledger() -> None:
     app = create_app(application=SimpleNamespace(operations=None))
     transport = httpx.ASGITransport(app=app)
