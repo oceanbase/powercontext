@@ -76,8 +76,8 @@ jobs:
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Bounded tests total about 106m; allow separate image pull/startup and final evidence.
-    timeout-minutes: 145
+    # Bounded tests total about 131m; allow separate image pull/startup and final evidence.
+    timeout-minutes: 170
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       POWERCONTEXT_TEST_OCEANBASE_URL: >-
@@ -183,7 +183,7 @@ jobs:
           python scripts/oceanbase_ci.py run --container recall-effort-oceanbase \
             --timeout 600 --output .powercontext/recall-effort-ci/full-server-initialization-process -- uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_full_server_resumes_interrupted_initialization_before_manifest_seed \
-            -o faulthandler_timeout=180 --durations=0 \
+            -o faulthandler_timeout=0 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-initialization.xml
 
       - name: Upgrade historical Memory and recover normalization on real OceanBase
@@ -194,22 +194,23 @@ jobs:
           python scripts/oceanbase_ci.py run --container recall-effort-oceanbase \
             --timeout 1800 --output .powercontext/recall-effort-ci/historical-server-upgrade-process -- uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_historical_memory_upgrades_and_resumes_native_ddl \
-            -o faulthandler_timeout=180 --durations=0 \
+            -o faulthandler_timeout=0 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/historical-server-upgrade.xml
 
       # Each group keeps a hard deadline. The six independent recovery scenarios
       # must not consume a single shared deadline before client-exit recovery runs.
       # One scenario reloads the baseline, upgrades the full Server chain, recovers
-      # it, and verifies history, so the group budget covers 6 x ~110s plus collection.
+      # it, and verifies history. CI observed roughly five minutes per scenario;
+      # allow six scenarios plus collection and cleanup within a 40-minute bound.
       - name: Recover committed Server DDL and domain checkpoints on real OceanBase without skips
         env:
           POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
           python scripts/oceanbase_ci.py run --container recall-effort-oceanbase \
-            --timeout 900 --output .powercontext/recall-effort-ci/full-server-checkpoints-process -- uv run --locked pytest -vv -s -rs \
+            --timeout 2400 --output .powercontext/recall-effort-ci/full-server-checkpoints-process -- uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_full_server_interruption_preserves_history_and_original_maintenance \
-            -o faulthandler_timeout=180 --durations=0 \
+            -o faulthandler_timeout=0 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-checkpoints.xml
 
       - name: Recover an exited Server migration client on real OceanBase without skips
@@ -220,7 +221,7 @@ jobs:
           python scripts/oceanbase_ci.py run --container recall-effort-oceanbase \
             --timeout 600 --output .powercontext/recall-effort-ci/full-server-client-exit-process -- uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_oceanbase_full_server_client_exit_requires_acknowledgement_and_preserves_recovery \
-            -o faulthandler_timeout=180 --durations=0 \
+            -o faulthandler_timeout=0 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-client-exit.xml
 
       - name: Maintain the registered Server chain on real OceanBase without skips
@@ -236,7 +237,7 @@ jobs:
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_projection_repair_preserves_authority_and_revision \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_topic_bundle_refuses_managed_server_storage \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_managed_identity_initialization_requires_no_ddl \
-            -o faulthandler_timeout=180 --durations=0 \
+            -o faulthandler_timeout=0 --durations=0 \
             -k oceanbase --junitxml=.powercontext/recall-effort-ci/full-server-maintenance.xml
           uv run --locked python - <<'PY'
           from pathlib import Path

@@ -372,3 +372,23 @@ def test_recall_job_preserves_startup_and_cleanup_beyond_command_deadlines():
         if step["name"] in {"Pull the OceanBase image", "Start the isolated OceanBase test instance"}
     )
     assert job["timeout-minutes"] >= test_seconds / 60 + setup_minutes + 10
+
+
+@pytest.mark.parametrize("backend", ["oceanbase", "sqlite", "seekdb"])
+def test_candidate_replay_deadline_leaves_time_for_diagnostics_and_cleanup(backend):
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load((root / ".github/workflows/candidate-schema-replay.yml").read_text())
+    job = workflow["jobs"]["replay"]
+    step = next(step for step in job["steps"] if step["name"].startswith("Replay and recover"))
+    command = step["run"]
+    process_deadlines = [int(value) for value in re.findall(r"--timeout (\d+)", command) if value]
+    process_deadlines += [int(value) for value in re.findall(r"--kill-after=10s (\d+)s", command)]
+    assert len(process_deadlines) == 2
+    assert step["timeout-minutes"] * 60 >= max(process_deadlines) + 30
+    budgets = re.search(r"&& (\d+) \|\| (\d+)", job["timeout-minutes"])
+    assert budgets is not None
+    job_minutes = int(budgets[1 if backend == "oceanbase" else 2])
+    # OceanBase startup allows 25m; namespace and diagnostics get 2m each,
+    # leaving another 5m for Python setup and artifact/cache publication.
+    reserve = 34 if backend == "oceanbase" else 10
+    assert job_minutes >= step["timeout-minutes"] + reserve
