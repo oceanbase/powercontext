@@ -115,8 +115,8 @@ jobs:
     if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Bounded tests total about 131m; allow separate image pull/startup and final evidence.
-    timeout-minutes: 170
+    # Bounded tests total about 146m; allow separate image pull/startup and final evidence.
+    timeout-minutes: 185
     env:
       OCEANBASE_IMAGE: ghcr.io/oceanbase/oceanbase-ce:4.3.5.6-106000012026040916
       POWERCONTEXT_TEST_OCEANBASE_URL: >-
@@ -268,9 +268,10 @@ jobs:
           POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: >-
             mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_server_recovery?charset=utf8mb4
         run: |
-          # Allow the five native cases to finish fixture cleanup and write the JUnit report.
+          # Four cases upgrade the complete Server schema; the fifth checks refusal.
+          # Cover the observed multi-minute initializations, cleanup and JUnit output.
           python scripts/oceanbase_ci.py run --container recall-effort-oceanbase \
-            --timeout 900 --output .powercontext/recall-effort-ci/full-server-maintenance-process -- uv run --locked pytest -vv -s -rs \
+            --timeout 1800 --output .powercontext/recall-effort-ci/full-server-maintenance-process -- uv run --locked pytest -vv -s -rs \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_processing_mode_switch_preserves_revision_and_history \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_atomic_compatibility_command_uses_shared_server_upgrade \
             tests/builtin/persistence/test_mysql_migration_runner.py::test_mysql_registered_projection_repair_preserves_authority_and_revision \
