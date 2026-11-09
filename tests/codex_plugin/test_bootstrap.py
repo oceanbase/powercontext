@@ -19,11 +19,13 @@ import json
 import os
 import sys
 from contextlib import suppress
+from email.message import Message
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Thread
 from types import ModuleType
 from typing import cast
+from urllib.error import HTTPError
 
 import pytest
 
@@ -559,3 +561,42 @@ def test_session_start_classifies_http_failures_without_blocking(
     assert diagnostic["outcome"] == outcome
     assert diagnostic["http_status"] == http_status
     assert "content" not in diagnostic
+
+
+def test_bootstrap_error_body_shares_the_request_deadline_with_its_headers(
+    session_binding_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    elapsed = 0.0
+    content = b'{"error":{"code":"overloaded","message":"' + b"x" * 64 + b'"}}'
+
+    class SlowErrorBody(io.BytesIO):
+        def read(self, size: int | None = -1, /) -> bytes:
+            nonlocal elapsed
+            chunk = super().read(1)
+            elapsed += 0.02
+            return chunk
+
+    body = SlowErrorBody(content)
+    error = HTTPError("http://127.0.0.1/v1/context/bootstrap", 503, "unavailable", Message(), body)
+
+    def open_error(*_args: object, **_kwargs: object) -> None:
+        nonlocal elapsed
+        # The response headers take most of the per-request timeout.
+        elapsed += 0.9
+        raise error
+
+    # Advance only transport time so scheduler pauses cannot masquerade as deadline overruns.
+    monkeypatch.setattr(session_binding_module, "monotonic", lambda: elapsed)
+    monkeypatch.setattr(sys.modules[session_binding_module.read_error_code.__module__], "monotonic", lambda: elapsed)
+    monkeypatch.setattr(session_binding_module, "open_bounded", open_error)
+    with pytest.raises(session_binding_module.ScopeBindingUnavailableError):
+        session_binding_module._post_json(
+            "/v1/context/bootstrap",
+            {},
+            settings=session_binding_module.CodexPluginSettings(request_timeout_seconds=1.0),
+            deadline=10.0,
+        )
+
+    assert elapsed == pytest.approx(1.0, abs=0.03)
+    assert body.tell() < len(content)

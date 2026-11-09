@@ -291,6 +291,12 @@ jobs:
           PYTEST_ADDOPTS: --require-dsh-config-runtime --require-claude-code-python-floor
         run: make unit-test
 
+      - name: Check Source serialization with minimum Pydantic
+        if: matrix.suite == 'unit' && matrix.python-version == '3.11'
+        run: >-
+          uv run --with 'pydantic==2.12.0' python -m pytest
+          tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
+
       - name: Run the ZCode service chain with native Hook deadlines
         if: matrix.suite == 'e2e'
         # Preserve the real Hook deadlines without competing with xdist workers.
@@ -337,6 +343,22 @@ jobs:
           wheel="$(find "$RUNNER_TEMP/role-wheel" -name '*.whl' -print -quit)"
           python scripts/ci_installation_roles.py --wheel "$wheel" \
             --python "$(command -v python)" --output-dir "$RUNNER_TEMP/installation-roles"
+
+      - name: Verify standalone LangChain adapter with released core
+        run: |
+          uv venv --python "$(command -v python)" "$RUNNER_TEMP/langchain-standalone"
+          adapter_python="$RUNNER_TEMP/langchain-standalone/bin/python"
+          # Fixed released-core floor regression: keep 1.5.0 even after later releases.
+          # It reproduces the missing-helper import bug; this is not a latest-release check.
+          uv pip install --python "$adapter_python" ./integrations/langchain "powercontext==1.5.0"
+          "$adapter_python" -I - <<'PYCODE'
+          from importlib.metadata import version
+          from powercontext_langchain import PowerContextMiddleware
+          assert version("powercontext") == "1.5.0"
+          PowerContextMiddleware()
+          PowerContextMiddleware(trace_content=True, auto_capture=True)
+          print("Standalone adapter imports with released core 1.5.0")
+          PYCODE
 
       - name: Summarize installation roles
         if: always()
@@ -397,9 +419,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Test worker traces and metrics without skips
+      - name: Test worker and LangChain tracing without skips
         run: |
-          uv run --locked --extra tracing-otlp python -m pytest -q -ra \
+          uv run --locked --extra tracing-otlp --group tracing-tests python -m pytest -q -ra \
+            tests/langchain_middleware/test_tracing.py \
+            tests/langchain_middleware/test_default_langfuse_tracing.py \
             tests/e2e/test_worker_otlp.py \
             tests/e2e/test_worker_model_usage.py \
             tests/test_observability_health.py \
@@ -414,8 +438,8 @@ jobs:
           report = Path(os.environ["RUNNER_TEMP"]) / "worker-observability.xml"
           cases = list(ET.parse(report).iter("testcase"))
           if not cases or any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error")):
-              raise SystemExit("Worker traces and metrics must execute and pass without skips")
-          print(f"Worker observability: {len(cases)} cases passed without skips.")
+              raise SystemExit("Worker and LangChain tracing must execute and pass without skips")
+          print(f"Worker and LangChain observability: {len(cases)} cases passed without skips.")
           PY
 
       - name: Save worker observability results
@@ -643,7 +667,8 @@ jobs:
     needs: [quality, seekdb-managed-startup, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     name: Atomic Memory clean migration (SeekDB)
-    timeout-minutes: 55
+    # Reserve 10m beyond the two test steps for setup and diagnostics.
+    timeout-minutes: 80
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -670,14 +695,16 @@ jobs:
             seekdb --output "$MIGRATION_REPORTS"
 
       - name: Test long-query retrieval and admission without skips
-        timeout-minutes: 10
+        # Ten cases at 180s each, plus collection and termination grace.
+        timeout-minutes: 35
         env:
           TMPDIR: ${{ runner.temp }}/am-seekdb
         run: |
           uv run --locked --extra seekdb python scripts/run_atomic_memory_clean_migration.py \
             seekdb --output "$MIGRATION_REPORTS/long-query" --tests \
             tests/e2e/test_atomic_artifact_search_http.py \
-            tests/e2e/test_atomic_memory_long_fts_query.py
+            tests/e2e/test_atomic_memory_long_fts_query.py \
+            tests/e2e/test_atomic_memory_fts_coverage.py
 
       - name: Collect native diagnostics
         if: always()

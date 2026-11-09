@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
+from pydantic import BaseModel, ConfigDict, JsonValue, RootModel, ValidationError
 from sqlalchemy import and_, insert, literal, select, true, tuple_, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction
@@ -55,6 +55,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
+    ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACTS_TABLE,
 )
 from powercontext.builtin.source_eligibility import ArtifactLineageTarget, require_source_eligible
@@ -63,7 +64,11 @@ from powercontext.errors import (
     RevisionConflictError,
 )
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
-from powercontext.sources import SourceRef
+from powercontext.sources import SourceLocator, SourceRef
+
+
+class _StoredSourceLocator(RootModel[SourceLocator]):
+    pass
 
 
 def with_artifact_content(statement: Select[Any], heads: FromClause = ARTIFACT_HEADS_TABLE) -> Select[Any]:
@@ -752,7 +757,7 @@ class ArtifactRepository:
         scope_id: str,
         revisions: Sequence[tuple[type[Artifact[Any]], ArtifactRef, object, ArtifactLineage]],
     ) -> tuple[Artifact[Any], ...]:
-        bodies, sources, artifact_refs, artifacts = [], [], [], []
+        bodies, sources, source_locators, artifact_refs, artifacts = [], [], [], [], []
         for artifact_type, ref, content, lineage in revisions:
             if not isinstance(content, BaseModel):
                 raise TypeError("artifact content must be a BaseModel")  # noqa: TRY003
@@ -774,6 +779,15 @@ class ArtifactRepository:
                 {**identity, "ordinal": ordinal, "source_type": source.source_type, "source_id": source.source_id}
                 for ordinal, source in enumerate(lineage.sources)
             )
+            source_locators.extend(
+                {
+                    **identity,
+                    "ordinal": ordinal,
+                    "locator": dump_model(_StoredSourceLocator(source.locator), kind="source", name="locator"),
+                }
+                for ordinal, source in enumerate(lineage.sources)
+                if source.locator is not None
+            )
             artifact_refs.extend(
                 {
                     **identity,
@@ -794,6 +808,8 @@ class ArtifactRepository:
         await connection.execute(insert(ARTIFACTS_TABLE), bodies)
         if sources:
             await connection.execute(insert(ARTIFACT_LINEAGE_SOURCES_TABLE), sources)
+        if source_locators:
+            await connection.execute(insert(ARTIFACT_SOURCE_LOCATORS_TABLE), source_locators)
         if artifact_refs:
             await connection.execute(insert(ARTIFACT_LINEAGE_ARTIFACTS_TABLE), artifact_refs)
         return tuple(artifacts)
@@ -844,6 +860,15 @@ class ArtifactRepository:
             ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c,
             ARTIFACT_PUBLICATIONS_TABLE.c,
         )
+        located_sources = ARTIFACT_LINEAGE_SOURCES_TABLE.outerjoin(
+            ARTIFACT_SOURCE_LOCATORS_TABLE,
+            and_(
+                *(
+                    source[name] == ARTIFACT_SOURCE_LOCATORS_TABLE.c[name]
+                    for name in ("scope_id", "family", "artifact_id", "revision", "ordinal")
+                )
+            ),
+        )
         columns = (
             "relation",
             "family",
@@ -855,21 +880,33 @@ class ArtifactRepository:
             "ref_id",
             "ref_revision",
             "digest",
+            "locator",
         )
 
-        def project(relation, table, *, prefix="", **references):
+        def project(relation, table, *, prefix="", from_clause=None, **references):
             fields = {
                 "relation": literal(relation),
                 **{name: table[prefix + name] for name in ("family", "artifact_id", "revision")},
                 **references,
             }
-            return select(*(fields.get(name, literal(None)).label(name) for name in columns)).where(
+            statement = select(*(fields.get(name, literal(None)).label(name) for name in columns))
+            if from_clause is not None:
+                statement = statement.select_from(from_clause)
+            return statement.where(
                 table[prefix + "scope_id"] == scope_id,
                 tuple_(*(table[prefix + name] for name in ("family", "artifact_id", "revision"))).in_(keys),
             )
 
         relations = union_all(
-            project("source", source, ordinal=source.ordinal, ref_family=source.source_type, ref_id=source.source_id),
+            project(
+                "source",
+                source,
+                ordinal=source.ordinal,
+                ref_family=source.source_type,
+                ref_id=source.source_id,
+                from_clause=located_sources,
+                locator=ARTIFACT_SOURCE_LOCATORS_TABLE.c.locator,
+            ),
             project(
                 "artifact",
                 artifact,
@@ -907,7 +944,23 @@ class ArtifactRepository:
         for row in rows:
             key = (str(row["family"]), str(row["artifact_id"]), int(row["revision"]))
             if row["relation"] == "source":
-                sources[key].append(SourceRef(source_type=str(row["ref_family"]), source_id=str(row["ref_id"])))
+                locator = (
+                    None
+                    if row["locator"] is None
+                    else load_model(
+                        _StoredSourceLocator,
+                        stored_bytes(row["locator"], column="locator"),
+                        kind="source",
+                        name="locator",
+                    ).root
+                )
+                sources[key].append(
+                    SourceRef(
+                        source_type=str(row["ref_family"]),
+                        source_id=str(row["ref_id"]),
+                        locator=locator,
+                    )
+                )
             elif row["relation"] == "artifact":
                 artifacts[key].append(
                     ArtifactRef(
@@ -1093,6 +1146,7 @@ class ArtifactRepository:
             stored = None if source_read_set is None else source_read_set.find(connection, scope_id, source_ref)
             if stored is None:
                 stored = fetched[(source_ref.source_type, source_ref.source_id)]
+            stored.validate_locator(source_ref)
             require_source_eligible(
                 source_ref,
                 stored.value,
