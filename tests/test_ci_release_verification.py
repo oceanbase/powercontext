@@ -188,12 +188,17 @@ def test_release_preserves_github_prerelease_for_npm_channel(resolve_publication
     assert run()["prerelease"] == "true"
 
 
-def test_manual_upgrade_bypass_does_not_require_release_body_boilerplate(resolve_publication, monkeypatch):
+def test_upgrade_bypass_requires_explicit_new_database_notice(resolve_publication, monkeypatch):
     run, release, root = resolve_publication
     monkeypatch.setenv("SKIP_UPGRADE_ACCEPTANCE", "true")
-    release["body"] = "Release highlights."
+    with pytest.raises(SystemExit, match="Add this exact notice"):
+        run()
+    assert not (root / "output").exists()
+    release["body"] += (
+        "\nUpgrade acceptance was skipped for this release. "
+        "Use only new databases; upgrades of existing databases are not supported."
+    )
     assert run()["source_sha"] == "a" * 40
-    assert json.loads((root / "release-metadata/event.json").read_text())["release"] == release
 
 
 @pytest.mark.parametrize("invalid", ["automatic-bypass", "branch", "tag", "draft", "moved-tag"])

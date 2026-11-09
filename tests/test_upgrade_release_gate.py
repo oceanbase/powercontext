@@ -436,7 +436,6 @@ def test_publishing_jobs_require_upgrade_acceptance_unless_manually_bypassed():
     assert build["uses"] == "./.github/workflows/upgrade-release.yml"
     assert build["with"]["release"] is True
     assert build["with"]["selection"] == "full"
-    assert build["with"]["gate_ref"] == "${{ github.sha }}"
     assert build["with"]["skip_upgrade_acceptance"] == (
         "${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}"
     )
@@ -444,6 +443,12 @@ def test_publishing_jobs_require_upgrade_acceptance_unless_manually_bypassed():
     assert events["workflow_dispatch"]["inputs"]["skip_upgrade_acceptance"]["default"] is False
     assert not build.get("continue-on-error")
     shared = yaml.safe_load((root / ".github/workflows/upgrade-release.yml").read_text())["jobs"]
+    for job in shared.values():
+        checkouts = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
+        assert checkouts[0]["with"]["ref"] == "${{ inputs.source_ref }}"
+        tooling = checkouts[1]
+        assert tooling["if"] == "inputs.release && !inputs.skip_upgrade_acceptance"
+        assert tooling["with"]["ref"] == "${{ github.sha }}"
     prepare = shared["prepare"]["steps"]
     freeze = next(step for step in prepare if "parallel_upgrade_release_gate.py prepare" in step.get("run", ""))
     assert "args+=(--release)" in freeze["run"]
@@ -1222,16 +1227,6 @@ def test_parallel_publication_requires_actual_acceptance_without_support_prose(p
         verdict = json.loads((root / "accepted/result.json").read_text())
         assert verdict["complete"] and verdict["status"] == "passed"
         assert verdict["mode"] == "upgrade-required"
-
-
-def test_parallel_workers_reject_a_changed_gate_commit(parallel_reports, monkeypatch):
-    root, prepared, reports, _ = parallel_reports
-    monkeypatch.setenv("PC_UPGRADE_GATE_SHA", "different-gate-commit")
-    with pytest.raises(gate.GateError, match="gate changed"):
-        parallel.execute_case(root, prepared, 0, root / "unexpected-case")
-    with pytest.raises(gate.GateError, match="gate changed"):
-        parallel.collect(root, prepared, reports, root / "accepted")
-    assert not (root / "accepted/validated-dist").exists()
 
 
 def test_parallel_worker_rejects_artifact_changed_during_execution(release, monkeypatch):

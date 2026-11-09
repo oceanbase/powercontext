@@ -1,9 +1,8 @@
 # Installed-release upgrade acceptance
 
 `release/upgrade-support.json` requires **positive** 1.3.0 upgrades on SQLite, embedded seekDB, and OceanBase.
-Both `upgrade-required` and `supported-upgrades` require every automatic case to run and pass, including both embedded
-seekDB Code configurations. Missing full migration integration (#2154) fails the gate. Complete passing acceptance
-allows publication in either mode, without a separate support-declaration approval. `fresh-install-only` is rejected.
+Both `upgrade-required` and `supported-upgrades` allow publication after every automatic case passes, including both
+embedded seekDB Code configurations. Missing full migration integration (#2154) fails the gate. `fresh-install-only` is rejected.
 
 ## Reviewed sources and current target
 
@@ -168,9 +167,9 @@ Server identity and authorization, and shared limits used in table definitions. 
 changes, but does not infer semantic compatibility or replace real upgrade tests.
 
 Build one wheel and its matching `.tar.gz` source distribution into `dist/`, then run `make upgrade-release-test`. Before release, additionally run
-`uv run python scripts/run_upgrade_release_gate.py --release`. No release-notes file or support declaration is required.
-The release workflow gates both PyPI publication and release assets on the same tested wheel. It pins gate tooling
-to the workflow commit and builds packages and runs acceptance suites from the selected tag commit.
+`uv run python scripts/run_upgrade_release_gate.py --release`. The release workflow uses its own commit for gate
+tooling and the selected tag for package builds and acceptance suites. It gates both PyPI publication and release
+assets on the same tested wheel, without requiring a support declaration in the Release body.
 
 Repository administrators must require **Upgrade release gate** in branch protection. Workflow code cannot configure
 that setting. Because the release workflow starts on `release.published`, it can block package/asset publication,

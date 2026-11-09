@@ -179,7 +179,7 @@ pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
 作为固定基线，显式 `cases` 为空。共登记 12 个组合：一个来源 × 三种后端 × 向量开关 × Code 开关。
 常规发布要求十二个自动验收组合全部通过，包括两个启用 Code 的嵌入式 seekDB 配置。
 失败、跳过或缺失任一组合都阻止验收；仅用于诊断的 `seekdb-code` 子集不能授权发布。
-发布以实际验收证据为准，不另设支持声明审批。
+发布不再要求额外的升级支持声明。
 目标始终是本次 CI 构建的实际 wheel；后续目标发布版本继续测试 1.3.0，不自动加入中间发行版。
 1.4.0 桥接实现和登记仍保留，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。来源 wheel 的公开 PyPI 地址和 SHA-256 与目标产物一起记录。
 
@@ -190,8 +190,7 @@ pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
 登记其他来源需要精确采集、明确桥接和真实验收；这两条已登记路径不能证明其间及目标之前所有发行版均兼容。
 当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，支持范围以通过完整 Server 验收的组合为准。
 所有配置均使用 `tests/release_upgrades/test_full_server.py`，迁移能力缺失必须失败。仅支持新建数据库的声明或
-正确拒绝旧库，都不能满足门禁。`upgrade-required` 和 `supported-upgrades` 运行相同的必测矩阵，
-全部通过后均允许发布，无须切换策略模式或在 Release 正文中添加支持范围声明。
+正确拒绝旧库，都不能满足门禁。`upgrade-required` 和 `supported-upgrades` 两种模式均在相同必测矩阵通过后允许发布。
 验收契约和证据要求见仓库中的 `tests/release_upgrades/README.md`。
 
 `make check` 和 `make release-check` 会核对策略及双语安装说明。受管持久化文件变化时，必须审查兼容性影响，
@@ -203,7 +202,7 @@ pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
 
 ```bash
 make upgrade-release-test
-uv run python scripts/run_upgrade_release_gate.py --release
+uv run python scripts/run_upgrade_release_gate.py --release --release-notes /path/to/release-notes.md
 ```
 
 发布输入目录必须只有一个 wheel 和一个配套的 `.tar.gz` 源码包；残留发行包和其他文件都会使检查失败，
@@ -215,7 +214,7 @@ uv run python scripts/run_upgrade_release_gate.py --release
 下的 `validated-dist/`，供 CI 上传。`make publish` 使用 `--release --publish` 在同一次调用中上传这些确切路径；
 验收期间原 `dist/` 的变化不会混入上传。未指定 `--publish` 的验收命令不会发布软件包。
 
-发布检查要求实际 wheel 版本与策略一致，不要求发布说明包含支持范围声明或配置表。每个组合分别安装准确的
+发布检查要求实际 wheel 版本与策略一致，Release 正文不要求支持范围声明。每个组合分别安装准确的
 旧版发行包和目标 wheel。测试缺失、后端跳过、执行失败或证据缺失都会阻断检查。仅通过静态策略检查不表示
 存在升级路径。普通 PR 构建允许使用开发版本；`--release` 必须验证最终 tag 构建的 wheel，不能覆盖版本号。
 
@@ -228,39 +227,43 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十二个必�
 仓库管理员需要在分支保护中将该检查设为必需。
 默认发布工作流只有验收通过才会上传发行包、发布 PyPI 和上传 Release 附件，并归档验收证据。工作流在
 `release.published` 后运行，无法阻止之前手动发布 GitHub Release 页面，因此必须先运行上述命令再发布页面。
-`make publish` 在上传软件包之前执行相同门禁，无须提供 Release 说明文件。
+`make publish` 要求提供 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md`，并在上传软件包之前执行相同门禁。
 
-### 发布已有标签
+### 在 GitHub 页面触发发布
 
-工作流改动合并后，在 **Actions → Release → Run workflow** 选择 `master`，在 `release_tag` 中填写
-已有的已发布标签。保持 `skip_upgrade_acceptance` 不勾选即可执行完整升级验收：
-
-```bash
-gh workflow run release.yml --repo oceanbase/powercontext --ref master \
-  -f release_tag=powercontext-v1.5.1
-```
-
-工作流固定本次提交中的验收工具，包构建和验收测试使用所选标签的提交，使已有标签可以直接使用修复后的
-发布流程，无须移动标签或修改包内容。准备、执行和汇总阶段使用相同的工具提交，证据中记录两份提交。
-发布不要求填写支持表、固定文案、切换策略模式或增加审批参数。
+对于已有的已发布 Release，打开 **Actions → Release → Run workflow**，分支选择 `master`，
+在 `release_tag` 中填写 `powercontext-v1.5.1`，保持 `skip_upgrade_acceptance` 不勾选，点击 **Run workflow**。
+工作流修改须先合并到 `master`。本次运行使用工作流提交中的验收脚本，从所选标签构建安装包并执行验收套件。
+十二个组合全部通过后才发布软件包，无需支持范围表格、固定 Release 文案或修改策略模式。
 
 ### 手动跳过升级验收发布
 
 **Release** 工作流提供 `workflow_dispatch` 参数 `skip_upgrade_acceptance`，默认 `false`。
 只有明确按“仅供新建数据库使用”发布、不声明已有数据库可升级时，才启用此选项。它不修改
 `release/upgrade-support.json`，不证明迁移路径可用，也不放宽默认发布流程和 PR 的升级门禁。
+启用时，目标版本的策略必须仍为 `upgrade-required`。
 
-打开 **Actions → Release → Run workflow**，选择仓库默认分支 `master`，填写已有的已发布标签，例如
-`release_tag=powercontext-v1.4.1`，勾选 `skip_upgrade_acceptance`。工作流修改需要先合并到默认分支。
-通过参数指定目标 tag，工作流分支选择器仍选默认分支。
+对于已经发布的 GitHub Release，例如 `powercontext-v1.4.1`：
 
-```bash
-gh workflow run release.yml --repo oceanbase/powercontext --ref master \
-  -f release_tag=powercontext-v1.4.1 -f skip_upgrade_acceptance=true
-```
+1. 在 Release 正文中加入以下英文原文；工作流会检查该声明：
 
-工作流将已有 tag 解析为提交并构建该提交，不移动 tag，也不打包当前默认分支。该手动选项不校验 Release
-正文的固定文案。版本一致性、发版引用同步、策略一致性、发行包元数据、源码包
+   ```text
+   Upgrade acceptance was skipped for this release. Use only new databases; upgrades of existing databases are not supported.
+   ```
+
+   中文可同时写明：本次发布跳过了升级验收，仅供新建数据库使用，不支持已有数据库升级。
+
+2. 打开 **Actions → Release → Run workflow**，选择仓库默认分支 `master`，填写
+   `release_tag=powercontext-v1.4.1`，勾选 `skip_upgrade_acceptance`。工作流修改需要先合并到默认分支。
+   通过参数指定目标 tag，工作流分支选择器仍选默认分支。
+
+   ```bash
+   gh workflow run release.yml --repo oceanbase/powercontext --ref master \
+     -f release_tag=powercontext-v1.4.1 -f skip_upgrade_acceptance=true
+   ```
+
+工作流将已有 tag 解析为提交并构建该提交，不移动 tag，也不打包当前默认分支。声明从 GitHub Release
+实时读取，不复用失败运行的旧事件正文。版本一致性、发版引用同步、策略一致性、发行包元数据、源码包
 重建对比、干净环境安装、依赖检查以及新库 Server/MCP/Memory 冒烟验证仍须通过，之后才会将这些确切产物
 发布到 PyPI 并上传 Release 附件。发布后验证和官网部署继续执行，并使用选定的发布目标。
 

@@ -69,6 +69,12 @@ jobs:
           release = get(f"releases/tags/{quoted_tag}")
           if release["tag_name"] != tag or release["draft"] or not release["published_at"]:
               raise SystemExit("Select an existing published GitHub Release")
+          notice = (
+              "Upgrade acceptance was skipped for this release. "
+              "Use only new databases; upgrades of existing databases are not supported."
+          )
+          if skip and notice not in (release["body"] or ""):
+              raise SystemExit("Add this exact notice to the GitHub Release before skipping upgrades: " + notice)
           commit = get(f"commits/{urllib.parse.quote('refs/tags/' + tag, safe='')}")["sha"]
           if not re.fullmatch(r"[0-9a-f]{40}", commit):
               raise SystemExit("Release tag did not resolve to a commit")
@@ -97,7 +103,6 @@ jobs:
       release: true
       selection: full
       source_ref: ${{ needs.resolve-release.outputs.source_sha }}
-      gate_ref: ${{ github.sha }}
       release_tag: ${{ needs.resolve-release.outputs.tag }}
       skip_upgrade_acceptance: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_upgrade_acceptance }}
       internal_runner: false

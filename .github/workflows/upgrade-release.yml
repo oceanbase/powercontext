@@ -15,10 +15,6 @@ on:
         description: Pinned release commit; empty uses the calling workflow checkout
         type: string
         default: ''
-      gate_ref:
-        description: Calling workflow commit supplying release gate tooling; package builds use source_ref
-        type: string
-        default: ''
       release_tag:
         description: Published Release tag selected by the release workflow
         type: string
@@ -37,7 +33,6 @@ permissions:
 
 env:
   PC_UPGRADE_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
-  PC_UPGRADE_GATE_SHA: ${{ inputs.gate_ref }}
   UPGRADE_GATE_ROOT: .
 
 jobs:
@@ -59,27 +54,21 @@ jobs:
         env:
           SKIP_UPGRADE_ACCEPTANCE: ${{ inputs.skip_upgrade_acceptance }}
           RELEASE: ${{ inputs.release }}
-          SOURCE_REF: ${{ inputs.source_ref }}
         run: |
           if [ "$SKIP_UPGRADE_ACCEPTANCE" = true ]; then
             test "$GITHUB_EVENT_NAME" = workflow_dispatch
             test "$RELEASE" = true
           fi
-          if [ -n "$PC_UPGRADE_GATE_SHA" ]; then
-            test "$RELEASE" = true
-            test "$PC_UPGRADE_GATE_SHA" = "$GITHUB_SHA"
-            [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]
-          fi
 
       - name: Check out the pinned release gate tooling
-        if: inputs.gate_ref != '' && !inputs.skip_upgrade_acceptance
+        if: inputs.release && !inputs.skip_upgrade_acceptance
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.gate_ref }}
+          ref: ${{ github.sha }}
           path: .release-gate
           persist-credentials: false
       - name: Keep gate tooling outside the tagged build tree
-        if: inputs.gate_ref != '' && !inputs.skip_upgrade_acceptance
+        if: inputs.release && !inputs.skip_upgrade_acceptance
         run: |
           mv .release-gate "$RUNNER_TEMP/release-gate"
           echo "UPGRADE_GATE_ROOT=$RUNNER_TEMP/release-gate" >> "$GITHUB_ENV"
@@ -157,11 +146,9 @@ jobs:
           if [ "$RELEASE" = true ]; then
             args+=(--release)
           fi
-          if [ -n "$PC_UPGRADE_GATE_SHA" ]; then
-            args+=(--root "$GITHUB_WORKSPACE")
-          fi
           uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py prepare \
-            --output "$RUNNER_TEMP/upgrade-prepared" --selection "$SELECTION" "${args[@]}"
+            --root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/upgrade-prepared" \
+            --selection "$SELECTION" "${args[@]}"
 
       - name: Share the exact prepared inputs
         if: ${{ !inputs.skip_upgrade_acceptance }}
@@ -191,6 +178,7 @@ jobs:
           from upgrade_release_gate import ROOT, load_policy, require, sha256, wheel_version
 
           policy = load_policy(ROOT)
+          require(policy["mode"] == "upgrade-required", "The bypass must not declare supported upgrades")
           output = Path(os.environ["RUNNER_TEMP"]) / "release-without-upgrades"
           output.mkdir()
           wheel, files = stage_distributions(Path("dist"), output / "validated-dist", release=True)
@@ -284,14 +272,14 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
       - name: Check out the pinned release gate tooling
-        if: inputs.gate_ref != '' && !inputs.skip_upgrade_acceptance
+        if: inputs.release && !inputs.skip_upgrade_acceptance
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.gate_ref }}
+          ref: ${{ github.sha }}
           path: .release-gate
           persist-credentials: false
       - name: Keep gate tooling outside the tagged build tree
-        if: inputs.gate_ref != '' && !inputs.skip_upgrade_acceptance
+        if: inputs.release && !inputs.skip_upgrade_acceptance
         run: |
           mv .release-gate "$RUNNER_TEMP/release-gate"
           echo "UPGRADE_GATE_ROOT=$RUNNER_TEMP/release-gate" >> "$GITHUB_ENV"
@@ -309,14 +297,12 @@ jobs:
       - name: Run this configuration exactly once
         env:
           CASE_INDEX: ${{ matrix.index }}
-        run: |
-          args=()
-          if [ -n "$PC_UPGRADE_GATE_SHA" ]; then
-            args+=(--root "$GITHUB_WORKSPACE")
-          fi
-          uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py case \
-            --prepared "$RUNNER_TEMP/upgrade-prepared" --index "$CASE_INDEX" \
-            --output "$RUNNER_TEMP/upgrade-case" "${args[@]}"
+        run: >-
+          uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py case
+          --root "$GITHUB_WORKSPACE"
+          --prepared "$RUNNER_TEMP/upgrade-prepared"
+          --index "$CASE_INDEX"
+          --output "$RUNNER_TEMP/upgrade-case"
       - name: Preserve OceanBase diagnostics and stop the owned container
         if: always() && matrix.backend == 'oceanbase'
         run: |
@@ -348,14 +334,14 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
       - name: Check out the pinned release gate tooling
-        if: inputs.gate_ref != '' && !inputs.skip_upgrade_acceptance
+        if: inputs.release && !inputs.skip_upgrade_acceptance
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.gate_ref }}
+          ref: ${{ github.sha }}
           path: .release-gate
           persist-credentials: false
       - name: Keep gate tooling outside the tagged build tree
-        if: inputs.gate_ref != '' && !inputs.skip_upgrade_acceptance
+        if: inputs.release && !inputs.skip_upgrade_acceptance
         run: |
           mv .release-gate "$RUNNER_TEMP/release-gate"
           echo "UPGRADE_GATE_ROOT=$RUNNER_TEMP/release-gate" >> "$GITHUB_ENV"
@@ -373,14 +359,12 @@ jobs:
           pattern: upgrade-case-*
           path: ${{ runner.temp }}/upgrade-case-reports/
       - name: Require all selected evidence for the exact prepared distributions
-        run: |
-          args=()
-          if [ -n "$PC_UPGRADE_GATE_SHA" ]; then
-            args+=(--root "$GITHUB_WORKSPACE")
-          fi
-          uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py collect \
-            --prepared "$RUNNER_TEMP/upgrade-prepared" --reports "$RUNNER_TEMP/upgrade-case-reports" \
-            --output "$RUNNER_TEMP/upgrade-release-evidence" "${args[@]}"
+        run: >-
+          uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py collect
+          --root "$GITHUB_WORKSPACE"
+          --prepared "$RUNNER_TEMP/upgrade-prepared"
+          --reports "$RUNNER_TEMP/upgrade-case-reports"
+          --output "$RUNNER_TEMP/upgrade-release-evidence"
       - name: Require successful provisioning, execution, cleanup and evidence upload
         env:
           CASE_JOBS_RESULT: ${{ needs.cases.result }}
