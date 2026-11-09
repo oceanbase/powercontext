@@ -264,7 +264,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Cache DSH configuration dependencies
         if: matrix.suite == 'unit'
@@ -892,7 +892,7 @@ jobs:
           cache-dependency-path: .artifacts/dify-daemon/go.sum
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Check daemon serialization, host casting, Workflow selectors and SDK HTTP readback
         env:
@@ -942,7 +942,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Cache DSH dependencies
         uses: ./.github/actions/cache-pnpm
@@ -992,7 +992,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Cache shared JavaScript build tooling
         uses: ./.github/actions/cache-pnpm
@@ -1035,7 +1035,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up project tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Cache Pi dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1061,7 +1061,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
       - name: Cache OpenCode dependencies
         uses: ./.github/actions/cache-pnpm
         with:
@@ -1085,7 +1085,7 @@ jobs:
       - name: Set up the Python environment
         uses: ./.github/actions/setup-python-env
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
       # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
       - run: mise install node@24.15.0
       - name: Cache OpenClaw dependencies
@@ -1131,7 +1131,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up website tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm
@@ -1160,7 +1160,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Set up website tools
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Cache website dependencies
         uses: ./.github/actions/cache-pnpm

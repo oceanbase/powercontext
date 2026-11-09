@@ -112,7 +112,7 @@ jobs:
         run: |
           uv run --no-sync python scripts/desktop_candidate.py prepare --resources build/resources \
             --version "$DESKTOP_VERSION" --server-version "$SERVER_VERSION" --source-sha "$SOURCE_SHA" --server-source-sha "$SERVER_SOURCE_SHA"
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           working_directory: desktop
       - name: Install pinned Rust target

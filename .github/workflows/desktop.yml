@@ -58,7 +58,7 @@ jobs:
           if ((git rev-parse refs/tags/powercontext-v1.0.0) -ne 'ec97efba5f26fc972e9d8bf5027d8233acab3ca1') {
             throw 'Unexpected Server version baseline tag'
           }
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           working_directory: desktop
       - name: Install pinned Windows Rust toolchain
@@ -184,7 +184,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           working_directory: desktop
       - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
@@ -314,7 +314,7 @@ jobs:
             libxdo-dev \
             openjdk-17-jre-headless \
             pkg-config
-      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           working_directory: desktop
       - name: Install pinned Linux Rust toolchain

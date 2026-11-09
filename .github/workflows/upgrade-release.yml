@@ -102,7 +102,7 @@ jobs:
 
       - name: Set up website tools
         if: inputs.release
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
 
       - name: Cache website dependencies
         if: inputs.release
