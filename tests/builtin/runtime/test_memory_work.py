@@ -142,6 +142,43 @@ def test_memory_work_handler_defers_publication_to_the_fenced_commit(tmp_path, m
     asyncio.run(scenario())
 
 
+def test_memory_work_handler_prepares_and_publishes_as_the_background_principal(tmp_path, monkeypatch) -> None:
+    class _Security:
+        principal = object()
+        access = object()
+        context = object()
+
+    async def scenario() -> None:
+        async with open_builtin_contexts(_config(tmp_path)) as contexts:
+            context = await contexts.get("project")
+            await context.sources.capture(ContentCapture(source_id="one", content="remember this"))
+            spec = await memory_work_spec(contexts, "project", limit=10, max_attempts=3, payload_version=1)
+            assert spec is not None
+            claim = await _claim(contexts, spec)
+
+            seen: dict[str, object] = {}
+            published: list[object] = []
+
+            async def prepare_memory(scope_id: str, limit: int, **kwargs: object) -> _StubPreparedWindow:
+                seen.update(kwargs)
+                return _StubPreparedWindow(contexts, published)
+
+            monkeypatch.setattr(contexts, "prepare_memory", prepare_memory)
+            security = _Security()
+            prepared = await MemoryWorkHandler(contexts, window_limit=10, security=security).prepare(claim)
+
+            # Publication rechecks read/create/Source access and records the owner
+            # from this context, so preparation must carry the worker's identity and
+            # not fall back to the anonymous local policy.
+            execution = seen["atomic_context"]
+            assert execution.principal is security.principal
+            assert execution.access is security.access
+            assert execution.audit is security.context
+            assert prepared.commit is not None
+
+    asyncio.run(scenario())
+
+
 def test_memory_publication_is_fenced_by_a_cancellation_before_commit(tmp_path, monkeypatch) -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(_config(tmp_path)) as contexts:

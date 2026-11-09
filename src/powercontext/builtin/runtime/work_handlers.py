@@ -21,13 +21,14 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.artifacts.search import ArtifactSearchExecutionContext
 from powercontext.builtin.artifacts.atomic_memory.errors import AtomicMemoryConflictError
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import (
@@ -65,6 +66,9 @@ MEMORY_WORK_KIND = "powercontext.memory.source-window"
 EXPERIENCE_WORK_KIND = "powercontext.experience.incubation"
 PROFILE_WORK_KIND = "powercontext.profile.source-window"
 MAINTENANCE_WORK_KIND = "powercontext.maintenance.operations"
+# Internal maintenance has no business Scope: it expires terminal Work rows and
+# rate-limit windows for the deployment that scheduled it.
+INTERNAL_MAINTENANCE_SCOPE = "system:operations"
 CURRENT_WORK_PAYLOAD_VERSION = 1
 
 ProfileWorkRunner = Callable[[str, int, RelationalProfileService], Awaitable[PreparedProfileFlush]]
@@ -255,7 +259,7 @@ class OperationMaintenanceDiscoverer:
                 WorkSpec(
                     kind=MAINTENANCE_WORK_KIND,
                     payload_version=CURRENT_WORK_PAYLOAD_VERSION,
-                    scope_id="system:operations",
+                    scope_id=INTERNAL_MAINTENANCE_SCOPE,
                     lane_key=_digest("maintenance:operations"),
                     logical_key=_digest(MAINTENANCE_WORK_KIND),
                     payload={},
@@ -264,6 +268,14 @@ class OperationMaintenanceDiscoverer:
             ),
             continuation=None,
         )
+
+
+class BackgroundSecurity(Protocol):
+    """The opened worker security a ledger handler must publish under."""
+
+    principal: Any
+    access: Any
+    context: Any
 
 
 class MemoryWorkHandler:
@@ -282,9 +294,28 @@ class MemoryWorkHandler:
     kind = MEMORY_WORK_KIND
     supported_versions = frozenset({CURRENT_WORK_PAYLOAD_VERSION})
 
-    def __init__(self, contexts: RelationalContexts, *, window_limit: int) -> None:
+    def __init__(
+        self, contexts: RelationalContexts, *, window_limit: int, security: BackgroundSecurity | None = None
+    ) -> None:
         self._contexts = contexts
         self._window_limit = window_limit
+        self._security = security
+
+    def _atomic_context(self) -> ArtifactSearchExecutionContext | None:
+        """Attest as the configured background principal for preparation and publication.
+
+        Publication rechecks ``read``/``create``/Source access and records the owner from
+        this context, so an omitted context would let a revoked ``scope.contribute`` grant
+        still publish and would leave the written Memory without an owner record.
+        """
+
+        if self._security is None:
+            return None
+        return ArtifactSearchExecutionContext(
+            principal=self._security.principal,
+            access=self._security.access,
+            audit=self._security.context,
+        )
 
     async def prepare(self, claim: WorkClaim, /) -> PreparedWork:
         payload = _payload(claim)
@@ -324,6 +355,7 @@ class MemoryWorkHandler:
             prepared = await self._contexts.prepare_memory(
                 claim.scope_id,
                 self._window_limit,
+                atomic_context=self._atomic_context(),
                 window=(payload.after, payload.through),
             )
         except MemoryWindowReducedError as reduced:
@@ -848,6 +880,8 @@ def _digest(value: str) -> str:
 __all__ = [
     "CURRENT_WORK_PAYLOAD_VERSION",
     "EXPERIENCE_WORK_KIND",
+    "INTERNAL_MAINTENANCE_SCOPE",
+    "MAINTENANCE_WORK_KIND",
     "MEMORY_WORK_KIND",
     "PROFILE_WORK_KIND",
     "ExperienceWorkDiscoverer",

@@ -34,6 +34,7 @@ from powercontext.builtin.runtime.composition import (
     _ledger_families,
     _open_work_background,
     _supervisor_bindings,
+    _work_authorizer,
     _work_background_requested,
     _work_discoverers,
     _work_handlers,
@@ -49,6 +50,7 @@ from powercontext.builtin.runtime.config import (
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.work_handlers import (
     EXPERIENCE_WORK_KIND,
+    INTERNAL_MAINTENANCE_SCOPE,
     MAINTENANCE_WORK_KIND,
     MEMORY_WORK_KIND,
     PROFILE_WORK_KIND,
@@ -275,7 +277,7 @@ def test_distributed_ledger_wires_the_work_observer_into_every_component(monkeyp
         monkeypatch.setattr("powercontext.builtin.runtime.durable_scheduler.DurableScheduler", _SpyScheduler)
         monkeypatch.setattr("powercontext.builtin.runtime.worker.DurableWorker", _SpyWorker)
         monkeypatch.setattr("powercontext.builtin.runtime.composition._work_discoverers", lambda config, contexts: ())
-        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_handlers", lambda config, contexts: ())
+        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_handlers", lambda config, contexts, **_: ())
 
         config = cast(
             "BuiltinConfig",
@@ -471,7 +473,7 @@ def test_distributed_worker_authorizes_every_claimed_scope(monkeypatch) -> None:
         monkeypatch.setattr("powercontext.builtin.runtime.durable_scheduler.DurableScheduler", _SpyScheduler)
         monkeypatch.setattr("powercontext.builtin.runtime.worker.DurableWorker", _SpyWorker)
         monkeypatch.setattr("powercontext.builtin.runtime.composition._work_discoverers", lambda config, contexts: ())
-        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_handlers", lambda config, contexts: ())
+        monkeypatch.setattr("powercontext.builtin.runtime.composition._work_handlers", lambda config, contexts, **_: ())
 
         config = cast(
             "BuiltinConfig",
@@ -496,3 +498,30 @@ def test_distributed_worker_authorizes_every_claimed_scope(monkeypatch) -> None:
             assert constructed["worker"]["authorizer"] is None
 
     asyncio.run(scenario())
+
+
+def test_internal_maintenance_is_authorized_outside_business_scope_grants() -> None:
+    """Retention must not require a grant on the synthetic ``system:operations`` Scope."""
+
+    class _Security:
+        def __init__(self) -> None:
+            self.scopes: list[str] = []
+
+        async def authorize_scope(self, scope_id: str) -> None:
+            self.scopes.append(scope_id)
+
+    security = _Security()
+    authorize = _work_authorizer(security)
+    assert authorize is not None
+    maintenance = SimpleNamespace(kind=MAINTENANCE_WORK_KIND, scope_id=INTERNAL_MAINTENANCE_SCOPE)
+    business = SimpleNamespace(kind=MAINTENANCE_WORK_KIND, scope_id="scope-1")
+    memory = SimpleNamespace(kind=MEMORY_WORK_KIND, scope_id=INTERNAL_MAINTENANCE_SCOPE)
+
+    asyncio.run(authorize(maintenance))
+    asyncio.run(authorize(business))
+    asyncio.run(authorize(memory))
+
+    # Only the exact internal maintenance pair skips the business Scope grant; a
+    # business Scope carrying the marker, or a ledger claim on the marker, is still
+    # authorized normally.
+    assert security.scopes == ["scope-1", INTERNAL_MAINTENANCE_SCOPE]

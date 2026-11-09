@@ -1389,7 +1389,12 @@ def _work_discoverers(config: BuiltinConfig, contexts: RelationalContexts) -> tu
     return tuple(discoverers)
 
 
-def _work_handlers(config: BuiltinConfig, contexts: RelationalContexts) -> tuple[Any, ...]:
+def _work_handlers(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    *,
+    security: Any | None = None,
+) -> tuple[Any, ...]:
     from powercontext.builtin.runtime.work_handlers import (
         ExperienceWorkHandler,
         MemoryWorkHandler,
@@ -1399,7 +1404,7 @@ def _work_handlers(config: BuiltinConfig, contexts: RelationalContexts) -> tuple
 
     runtime = config.runtime
     return (
-        MemoryWorkHandler(contexts, window_limit=runtime.source_window_limit),
+        MemoryWorkHandler(contexts, window_limit=runtime.source_window_limit, security=security),
         ExperienceWorkHandler(contexts),
         ProfileWorkHandler(
             contexts.profiles,
@@ -1421,16 +1426,15 @@ def _build_version() -> str:
         return "unknown"
 
 
-async def _work_authorizer(
+async def _work_security(
     stack: AsyncExitStack,
     security: dict[str, Any] | None,
     contexts: RelationalContexts,
-) -> Callable[[Any], Any] | None:
-    """Authorize every claimed Scope with the configured background principal.
+) -> Any | None:
+    """Open the configured background principal once for the ledger components.
 
-    The Work Ledger replaces the process-local supervisor in a distributed
-    deployment, so this check is the only place a Worker can refuse a Scope its
-    background principal may not contribute to.
+    The same object authorizes the claim and answers the publication recheck, so a
+    grant revoked during generation is seen by the write that publishes it.
     """
 
     if security is None:
@@ -1438,11 +1442,33 @@ async def _work_authorizer(
     from powercontext.server.processing_security import open_worker_security
 
     opened = await stack.enter_async_context(open_worker_security(security, contexts.database))
-    if opened is None:  # pragma: no cover - the caller passed a specification
+    return opened
+
+
+def _work_authorizer(worker_security: Any | None) -> Callable[[Any], Any] | None:
+    """Authorize every claimed Scope with the configured background principal.
+
+    The Work Ledger replaces the process-local supervisor in a distributed
+    deployment, so this check is the only place a Worker can refuse a Scope its
+    background principal may not contribute to.
+    """
+
+    if worker_security is None:
         return None
-    worker_security = opened
+
+    from powercontext.builtin.runtime.work_handlers import (
+        INTERNAL_MAINTENANCE_SCOPE,
+        MAINTENANCE_WORK_KIND,
+    )
 
     async def authorize(claim: Any) -> None:
+        if getattr(claim, "kind", None) == MAINTENANCE_WORK_KIND and claim.scope_id == INTERNAL_MAINTENANCE_SCOPE:
+            # Retention and rate-limit expiry act on expired rows for the whole
+            # deployment and are scheduled by this deployment, so they belong to
+            # the worker's own identity rather than a business Scope grant. The
+            # marker alone is not enough: both the kind and the internal Scope
+            # must match, so a business Scope can never take this path.
+            return
         await worker_security.authorize_scope(claim.scope_id)
 
     return authorize
@@ -1521,13 +1547,14 @@ async def _open_work_background(
             if runs_scheduler
             else None
         )
+        opened_security = await _work_security(stack, worker_security, contexts) if runs_worker else None
         worker = (
             DurableWorker(
                 database=contexts.database,
                 worker_id=f"{membership.instance_id}:worker",
-                handlers=_work_handlers(config, contexts),
+                handlers=_work_handlers(config, contexts, security=opened_security),
                 config=config.worker,
-                authorizer=await _work_authorizer(stack, worker_security, contexts) if runs_worker else None,
+                authorizer=_work_authorizer(opened_security),
                 observer=observer,
                 tracing=tracing,
             )
