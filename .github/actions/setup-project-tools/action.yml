@@ -30,14 +30,25 @@ runs:
         archive="$(mktemp)"
         binary="$(mktemp)"
         trap 'rm -f "$archive" "$binary"' EXIT
+        mise_directory="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
+        # Tool installation can fail after mise itself was verified and installed.
+        # Reuse that binary while keeping the pinned digest check.
+        if printf 'c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b  %s\n' \
+            "$mise_directory/bin/mise" | sha256sum --check --status; then
+          printf '2026.11.3' > "$mise_directory/bin/mise-version"
+          exit 0
+        fi
         # These archive and binary hashes were verified against the release's signed SHASUMS256.txt.
         # The API asset is the same v2026.11.3 Linux x64 tarball as the primary download.
-        timeout --kill-after=10s 180s gh api -H 'Accept: application/octet-stream' \
-          repos/jdx/mise/releases/assets/716895278 > "$archive"
+        # Internal runners need not have gh; keep the token off process arguments.
+        printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" | \
+          timeout --kill-after=10s 180s curl --config - --fail --silent --show-error \
+            --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 180 \
+            --header 'Accept: application/octet-stream' \
+            https://api.github.com/repos/jdx/mise/releases/assets/716895278 --output "$archive"
         printf '837acae6defb8c9ad74823f6e38856633bacb04c65c1ac67d952749847543bd9  %s\n' "$archive" | sha256sum --check
         tar -xOzf "$archive" mise/bin/mise > "$binary"
         printf 'c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b  %s\n' "$binary" | sha256sum --check
-        mise_directory="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
         mkdir -p "$mise_directory/bin"
         install -m 755 "$binary" "$mise_directory/bin/mise"
         printf '2026.11.3' > "$mise_directory/bin/mise-version"
