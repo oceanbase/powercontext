@@ -458,10 +458,12 @@ def test_bub_runtime_install_does_not_use_the_task_images_pip_index(
 
     asyncio.run(PowerContextBubAcpAgent(logs_dir=tmp_path, powercontext=False).install(environment))
 
-    (install_env,) = [
+    install_envs = [
         env for command, env in zip(environment.commands, environment.envs, strict=True) if "pip install" in command
     ]
-    assert install_env["PIP_INDEX_URL"] == expected
+    # Harbor's dependency step and the runner pin both install with pip, and neither may reach the image's index.
+    assert install_envs
+    assert {env["PIP_INDEX_URL"] for env in install_envs} == {expected}
 
 
 def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:
