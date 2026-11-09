@@ -45,6 +45,12 @@ def test_python_image_bootstrap_avoids_system_install_and_preserves_package_fail
     binaries = tmp_path / "bin"
     binaries.mkdir()
     (binaries / "python3").symlink_to(sys.executable)
+    # This scenario models an image without uv. Keep a matching host uv from
+    # selecting the reuse path instead of the package-installation path.
+    for name in ("dirname", "mkdir", "tee"):
+        executable = shutil.which(name)
+        assert executable is not None
+        (binaries / name).symlink_to(executable)
     runner, log = tmp_path / "runner", tmp_path / "logs" / "bootstrap.log"
     # A prepared Python image must work even when system package installation is unavailable.
     command = runner_setup_command(str(runner), "echo unexpected-system-install; exit 67", log_path=str(log))
@@ -54,7 +60,7 @@ def test_python_image_bootstrap_avoids_system_install_and_preserves_package_fail
         [shell, "-c", command],
         env={
             **os.environ,
-            "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
+            "PATH": str(binaries),
             "PIP_NO_INDEX": "1",
             "PIP_FIND_LINKS": str(wheels),
         },
