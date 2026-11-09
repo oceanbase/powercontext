@@ -24,6 +24,18 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, ServerSettings
 
+# Tables registered by the Work Ledger revision appended after the locator revision.
+_WORK_LEDGER_TABLES = (
+    "pc_work_attempts",
+    "pc_work_keys",
+    "pc_work_items",
+    "pc_work_lanes",
+    "pc_scheduler_scans",
+    "pc_scheduler_leases",
+    "pc_runtime_members",
+    "pc_rate_limit_windows",
+)
+
 
 def _handoff(refs):
     return {
@@ -67,13 +79,16 @@ def test_locators_survive_upgrade_reopen_http_and_mcp(tmp_path):
         legacy_id = legacy.json()["artifact_id"]
 
     # Reconstruct the previous registered layout, preserving its real historical evidence.
+    # The Work Ledger is appended after the locator revision, so a database stamped
+    # v1_5_0_003 cannot retain either the locators or the ledger tables.
     with sqlite3.connect(database) as connection:
-        connection.execute("DROP TABLE pc_artifact_source_locators")
+        for table in ("pc_artifact_source_locators", *_WORK_LEDGER_TABLES):
+            connection.execute(f"DROP TABLE {table}")
         connection.execute("UPDATE pc_schema_revision SET version_num = 'v1_5_0_003'")
 
     runner = deployment_runner(_settings(database))
     plan = runner.plan()
-    assert plan.revisions == ("v1_5_0_004",)
+    assert plan.revisions == ("v1_5_0_004", "v1_5_0_005")
     runner.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
 
     locators = [

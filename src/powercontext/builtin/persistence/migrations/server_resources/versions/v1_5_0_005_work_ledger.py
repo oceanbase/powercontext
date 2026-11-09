@@ -14,7 +14,7 @@
 
 """Add the durable Work Ledger and its scheduler coordination tables.
 
-The revision is appended after master's published ``v1_5_0_003`` head rather
+The revision is appended after master's published ``v1_5_0_004`` head rather
 than being inserted before it: databases already migrated by a released binary
 are stamped at that head, and re-parenting a published revision would leave them
 with no upgrade path to create the ledger tables.
@@ -26,7 +26,7 @@ from pathlib import Path
 from alembic import op
 
 revision = "v1_5_0_005"
-down_revision = "v1_5_0_003"
+down_revision = "v1_5_0_004"
 
 
 def upgrade():

@@ -35,16 +35,6 @@ from powercontext.builtin.runtime.processing_registry import canonical_processin
 EVIDENCE_REVISION = "v1_5_0_002"
 PROJECTION_REVISION = "v1_5_0_003"
 LEDGER_REVISION = "v1_5_0_005"
-LEDGER_TABLES = {
-    "pc_work_lanes",
-    "pc_work_items",
-    "pc_work_keys",
-    "pc_work_attempts",
-    "pc_scheduler_leases",
-    "pc_scheduler_scans",
-    "pc_runtime_members",
-    "pc_rate_limit_windows",
-}
 EVIDENCE_TABLES = {
     "pc_atomic_memory_evidence_schema",
     "pc_atomic_memory_evidence_history",
@@ -170,7 +160,6 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
     plan = upgraded.plan()
     assert plan.state == "migration_required"
     assert plan.source_revision == "v1_4_1_004"
-    assert plan.target_revision == current.head
     assert plan.revisions == (
         "v1_4_1_005",
         "v1_4_1_006",
@@ -178,9 +167,9 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
         EVIDENCE_REVISION,
         PROJECTION_REVISION,
         "v1_5_0_004",
+        LEDGER_REVISION,
     )
     assert plan.target_revision == LEDGER_REVISION
-        LEDGER_REVISION,
     assert plan.domain_steps == (
         "artifact_storage",
         "atomic_memory_evidence",
@@ -189,7 +178,6 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
     assert upgraded.evidence_path.read_bytes() == old_evidence_bytes
     result = upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True)
     assert result.changed
-    assert result.revision == current.head
     assert result.revision == LEDGER_REVISION
     assert result.backup_state == "completed"
 
@@ -214,7 +202,6 @@ def test_evidence_upgrade_accepts_upstream_history_and_preserves_data(tmp_path, 
     assert ready.state == "ready"
     assert ready.revisions == ()
     assert reopened.verify().revision == current.head
-    assert reopened.verify().revision == LEDGER_REVISION
     assert not apply(reopened).changed
     assert reopened.evidence_path.read_bytes() == completed_evidence_bytes
     with closing(sqlite3.connect(database)) as connection:
@@ -252,30 +239,10 @@ def test_evidence_projection_upgrade_preserves_registered_evidence_revision(tmp_
     from tests.builtin.persistence.test_portable_storage_migration import previous_bundle
 
     current = server_bundle(embedding_profile=embedding)
+    # The projection, the source locators and the Work Ledger were all appended
+    # after the evidence revision; pruning there keeps this copy where the older
+    # released bundle ended while later revisions keep being appended upstream.
     previous = previous_bundle(tmp_path / "evidence-bundle", embedding, through=EVIDENCE_REVISION)
-    directory = tmp_path / "evidence-bundle"
-    shutil.copytree(current.directory, directory, ignore=shutil.ignore_patterns("__pycache__"))
-    manifest_path = directory / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    # Drop every step appended after the evidence revision: the projection and the
-    # Work Ledger, so this copy ends where the older released bundle ended.
-    removed: list[str] = []
-    for dropped in (PROJECTION_REVISION, LEDGER_REVISION):
-        removed.extend(manifest["revision_resources"].pop(dropped))
-        revision = current.script.get_revision(dropped)
-        removed.append(Path(revision.path).relative_to(current.snapshot_directory).as_posix())
-        removed.append(f"mysql/versions/{dropped}.py")
-        del manifest["sqlite_fingerprints"][dropped]
-        del manifest["domain_readiness"][dropped]
-        manifest["domain_steps"] = [step for step in manifest["domain_steps"] if step["revision"] != dropped]
-    for resource in removed:
-        (directory / resource).unlink()
-    manifest["mysql_state_layouts"] = [name for name in manifest["mysql_state_layouts"] if name not in removed]
-    manifest["affected_objects"].remove("pc_atomic_memory_evidence")
-    for table in LEDGER_TABLES:
-        manifest["affected_objects"].remove(table)
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    previous = MigrationBundle(directory, embedding_profile=embedding)
     assert previous.head == EVIDENCE_REVISION
     assert {revision: current.checksums[revision] for revision in previous.revisions} == previous.checksums
 
@@ -286,12 +253,11 @@ def test_evidence_projection_upgrade_preserves_registered_evidence_revision(tmp_
     before = old.evidence_path.read_bytes()
     upgraded = SQLiteMigrationRunner(database, current, configuration=config)
     plan = upgraded.plan()
-    assert plan.revisions == (PROJECTION_REVISION, "v1_5_0_004")
-    assert plan.revisions == (PROJECTION_REVISION, LEDGER_REVISION)
+    assert plan.revisions == (PROJECTION_REVISION, "v1_5_0_004", LEDGER_REVISION)
     assert plan.domain_steps == ("atomic_memory_evidence_projection",)
     assert old.evidence_path.read_bytes() == before
+    assert current.head == LEDGER_REVISION
     assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == current.head
-    assert upgraded.apply(plan_id=plan.plan_id, accepted=True, maintenance_confirmed=True).revision == LEDGER_REVISION
     assert upgraded.verify().state == "ready"
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM pc_atomic_memory_evidence").fetchone() == (0,)

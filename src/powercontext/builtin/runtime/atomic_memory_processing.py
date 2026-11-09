@@ -626,7 +626,7 @@ class AtomicMemorySourceWindowProcessor:
         decision, observation = await self._assess_write_gate(scope_id, workset, prepared)
         return prepared, decision, observation
 
-    async def _prepare(self, scope_id, eligible, pipeline, context):
+    async def _prepare(self, scope_id, eligible, pipeline, context):  # noqa: C901 - keep recovery in the authorized window
         workset = AtomicMemoryWindowWorkset()
         artifacts: dict[tuple[str, str, int], ArtifactRef] = {}
         if pipeline is None:

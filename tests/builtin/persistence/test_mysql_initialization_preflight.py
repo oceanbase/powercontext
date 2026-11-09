@@ -253,7 +253,7 @@ def test_evidence_recovery_resumes_before_final_schema_marker(tmp_path, monkeypa
             before = database.read_bytes(), journal.path.read_bytes()
             plan = runner.plan()
             assert plan.state == "recovery_required" and plan.source_revision == predecessor
-            assert plan.revisions == ("v1_5_0_002", "v1_5_0_003", "v1_5_0_005")
+            assert plan.revisions == ("v1_5_0_002", "v1_5_0_003", "v1_5_0_004", "v1_5_0_005")
             assert (database.read_bytes(), journal.path.read_bytes()) == before
             assert connection.exec_driver_sql("SELECT schema_version FROM pc_atomic_memory_evidence_schema").all() == []
 

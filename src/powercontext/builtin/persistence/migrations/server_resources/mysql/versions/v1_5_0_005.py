@@ -14,7 +14,7 @@
 
 """Register the Work Ledger tables through the shared MySQL DDL executor.
 
-The revision follows master's published ``v1_5_0_003`` head so databases
+The revision follows master's published ``v1_5_0_004`` head so databases
 already migrated by a released binary keep an upgrade path, and both the
 SQLite and MySQL histories stay linear with the same release-based name.
 """
@@ -22,7 +22,7 @@ SQLite and MySQL histories stay linear with the same release-based name.
 from alembic import context
 
 revision = "v1_5_0_005"
-down_revision = "v1_5_0_003"
+down_revision = "v1_5_0_004"
 
 
 def upgrade() -> None:
