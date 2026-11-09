@@ -63,6 +63,7 @@ the website lists stable releases only. `make docs-test` also runs this check as
 | `docs/en/docs/get-started/manual-start.md`, `docs/zh/docs/get-started/manual-start.md` | CLI/Server and Python Client installation pins, and the matching Agent integration tag. |
 | `docs/en/docs/get-started/install-and-run.md`, `docs/zh/docs/get-started/install-and-run.md` | Page description, current release prose, package/tag pins, upgrade target, and Python Client installation. |
 | `integrations/dsh/plugins/powercontext/README.md` | Server installation pin and the matching `setup dsh --ref` tag. |
+| `docs/{en,zh}/docs/operate/database-migrations.md`, `tests/release_upgrades/README.md` | Current target release only; frozen schema revision names and their original software versions remain unchanged. |
 
 The installation guides also contain historical migration versions. Those references are preserved. When adding
 another current-release installation example, include it in the version tooling's managed paths and patterns so
@@ -199,15 +200,15 @@ CI upgrade acceptance, so a passing gate does not certify its upgrade path. Sour
 from public PyPI and recorded with the target artifact.
 
 The source-specific chains start at `s1300` for 1.3.0 and `r1400` for 1.4.0, join the shared
-`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`.
+`s1400 → s1401 → s1402` path, and continue through `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`.
 They share the target contract while preserving their frozen execution
 history and journal lineage for subsequent registered upgrades. Application versions do not identify schema
 checkpoints. In particular, 1.4.0 already has current Candidate envelopes: its bridge preserves those records and
 creates empty retained tables for the common target shape, without inventing old Candidate history. Adding other
 sources requires exact captures, a registered bridge and actual acceptance; the two registered paths do not certify
 all releases between them or the target.
-The current `upgrade-required` policy mandates positive acceptance on all three backends while keeping upgrade
-support unverified. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
+The current `upgrade-required` policy mandates positive acceptance on all three backends with support limited to combinations
+that pass full Server acceptance. Every profile points to `tests/release_upgrades/test_full_server.py`; missing migration support
 must fail. Neither a fresh-install-only declaration nor correct rejection of an old database satisfies this gate.
 After the full migration implementation and acceptance pass, review the declaration, set `supported-upgrades`, and
 regenerate the installation notices before publication. Both modes run the same mandatory acceptance matrix.

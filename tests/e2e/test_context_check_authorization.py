@@ -28,10 +28,10 @@ from tests.e2e.test_access_control_regressions import _grant, _scope, _server
 from tests.e2e.test_atomic_memory_prepare_lifecycle import _change, _remember, _revoke
 
 
-def _inference():
+def _inference(mode="enforcing"):
     return InferenceConfig(
         protection=InferenceProtectionConfig(
-            mode="enforcing",
+            mode=mode,
             forbidden_values=(SecretStr("synthetic-forbidden-value"),),
             targets={
                 "model": UpstreamProfile(
@@ -71,6 +71,22 @@ def _send(scope_id, content, binding=None):
             }
         ],
     }
+
+
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory"])
+def test_non_enforcing_check_rejects_invalid_json_without_server_error(tmp_path, mode):
+    async def scenario():
+        async with _server(tmp_path, inference=_inference(mode)) as (_, client, _):
+            scope_id = await _scope(client)
+            request = _send(scope_id, "safe")
+            for body in ('{"private-value":', '{"model":"one","model":"two"}', "[]"):
+                request["payload"]["body"] = body
+                response = await client.post("/v1/context/check", json=request)
+                assert response.status_code == 422, response.text
+                assert response.json()["error"]["code"] == "invalid_request"
+                assert "private-value" not in response.text
+
+    asyncio.run(scenario())
 
 
 def test_public_responses_check_requires_explicit_non_storing_input(tmp_path):
@@ -198,9 +214,10 @@ async def _prepare(client, scope_id, *, headers=None, reuse=True, receipt=False,
 
 @pytest.mark.parametrize("receipt", [False, True])
 @pytest.mark.parametrize("assembled", [False, True], ids=["context", "text"])
-def test_public_envelope_send_release_and_exact_revision_invalidation(tmp_path, receipt, assembled):
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+def test_public_envelope_send_release_and_exact_revision_invalidation(tmp_path, receipt, assembled, mode):
     async def scenario():
-        async with _server(tmp_path, inference=_inference()) as (_, client, _):
+        async with _server(tmp_path, inference=_inference(mode)) as (_, client, _):
             scope_id = await _scope(client)
             record = await _remember(client, scope_id, "Alpha deployment uses port 8123.")
             ordinary = await _prepare(client, scope_id, reuse=False, assembled=assembled)
@@ -225,7 +242,7 @@ def test_public_envelope_send_release_and_exact_revision_invalidation(tmp_path, 
             sent = await client.post("/v1/context/check", json=request)
             assert sent.status_code == 200, sent.text
             assert sent.json()["decision"] == "allow"
-            assert sent.json()["coverage"]["complete"] is True
+            assert sent.json()["coverage"]["complete"] is (mode == "enforcing")
             release = {
                 "scope_id": scope_id,
                 "phase": "before_release",
@@ -249,6 +266,7 @@ def test_public_envelope_send_release_and_exact_revision_invalidation(tmp_path, 
             response = await client.post("/v1/context/check", json=release)
             assert response.status_code == 200, response.text
             assert response.json()["decision"] == "allow"
+            assert response.json()["coverage"]["complete"] is (mode == "enforcing")
             assert "correlate_until" not in response.json()
             await _change(client, scope_id, record, "revise")
             stale = await client.post("/v1/context/check", json=request)
@@ -261,9 +279,10 @@ def test_public_envelope_send_release_and_exact_revision_invalidation(tmp_path, 
     asyncio.run(scenario())
 
 
-def test_current_authorization_and_identity_are_required_for_each_check(tmp_path):
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory", "enforcing"])
+def test_current_authorization_and_identity_are_required_for_each_check(tmp_path, mode):
     async def scenario():
-        async with _server(tmp_path, inference=_inference()) as (_, client, _):
+        async with _server(tmp_path, inference=_inference(mode)) as (_, client, _):
             scope_id = await _scope(client)
             await _remember(client, scope_id, "Alpha uses isolated deployment.")
             grant = await _grant(client, scope_id, "alice", "scope.viewer")

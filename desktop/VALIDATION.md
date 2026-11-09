@@ -2630,3 +2630,49 @@ uv run --no-sync python desktop/tests/real_server.py \
   --product-qualification sqlite-source-plugins-c00dbf14-v1 \
   --wheel desktop/.artifacts/source-framework-upgrade/powercontext-0.1.dev1509+gc00dbf145-py3-none-any.whl
 ```
+
+## Server bcc0d93a v1.5.1 protocol qualification
+
+`sqlite-release-1-5-1-bcc0d93a-v1` qualifies all thirteen bundled Desktop protocol operations
+against Server source `bcc0d93a202396340d3724a13def1efffb2223b3`, with the API prepared for 1.5.1.
+The 62 historical qualification records retain their original identities and evidence.
+
+- Normalized OpenAPI SHA-256: `93b733bda25ab4db0e883f63a2571334c7c1dfb3af68a18b330384fd344c2d4c`.
+- Wheel: `powercontext-1.5.1.dev226+gbcc0d93a2-py3-none-any.whl`.
+- Wheel SHA-256: `7d79e1cbb79463b2ff80bb2321873e69e4e43665220a47942bf666f6185eb9d4`.
+- Native debug probe SHA-256: `b7d37cb00549873ff6c9537f1488b5ea84cdc350f1daad6db2db309af593c47e`.
+- Harness source SHA-256: `5c2e3b98f2ee6dfbace1d01189d20932ffe6f19a59d815fc89636bc800b3ccb7`.
+
+All 745 packaged runtime files match the exact Git source archive after CRLF normalization,
+with no missing or extra runtime files. The wheel uses the actual VCS development version;
+it is not a tagged stable artifact. No runtime source changed in the qualification follow-up.
+
+On 2026-11-09, Linux x86_64 (kernel 5.10.134, glibc 2.32), Python 3.14.6 and Rust 1.96.0
+passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and enforced
+authentication Provider modes against independent real HTTP/SQLite Servers. The ordinary product
+ConnectionManager selected this bundled record without `ci-fixtures`. The unchanged native probe
+exercised discovery and identity, exact Scope selection, Memory save/search/revision reads,
+statistics, committed writes with lost responses without replay, Principal changes, revocation,
+scoped authorization without Server observation permission, and same-title Scope pagination.
+
+The probe was compiled in a standalone wrapper linking the actual product protocol modules and
+the unchanged `server_probe.rs`, because this host lacks the WebKitGTK development dependencies
+for the full Tauri shell. All 307 resolved dependencies match the product Cargo lock, including
+their versions, sources and checksums. No protocol implementation or assertion was substituted.
+
+The default harness startup polling exhausted its wait in different modes on this host. The
+successful complete run allowed 60 seconds for each Server to become ready; native assertions,
+request timeouts, operation sets, authentication and payload checks were unchanged. This is
+protocol evidence, not a pass for the default startup budget or a startup-performance claim.
+The local runner changes only the readiness polling loop to a 60-second monotonic deadline.
+The repository harness retains its default behavior. Reports, the runner and exact artifacts
+are retained under `/data/codex-tmp/release-v1.5.1/` on the validation host.
+
+This record does not qualify the installed WebView, credential persistence, Windows/macOS,
+native database upgrades, signing, or stable release publication. The full Tauri build and
+installed-platform acceptance remain separate requirements.
+
+本记录绑定上述精确源码、契约和 wheel，745 个运行时文件与源码归档一致，四种真实 HTTP／SQLite
+连接模式均通过。原生协议模块和业务断言保持不变；本机验收将 Server 启动就绪等待设为 60 秒，
+不代表默认启动预算通过，也不构成启动性能承诺。该记录不替代安装后 GUI、原生凭据持久化、
+Windows／macOS、数据库升级、签名或正式发行验收。

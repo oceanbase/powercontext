@@ -40,10 +40,19 @@ test('the prepared stable release has a bilingual changelog with matching instal
   assert.equal(release.githubUrl, `https://github.com/oceanbase/powercontext/releases/tag/powercontext-v${version}`);
   assert.match(release.date, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(new Date(`${release.date}T00:00:00Z`).toISOString().slice(0, 10), release.date);
+  const notes = await readFile(new URL(`../../release/notes/powercontext-v${version}.md`, import.meta.url), 'utf8');
   for (const language of ['en', 'zh'] as const) {
     assert.ok(release.title[language].trim(), `Missing ${language} title`);
     assert.ok(release.summary[language].trim(), `Missing ${language} summary`);
     assert.ok(release.changes[language].length > 0, `Missing ${language} release notes`);
     assert.ok(release.changes[language].every((change) => change.trim()), `Empty ${language} release note`);
+    const installation = await readFile(
+      new URL(`../../docs/${language}/docs/get-started/install-and-run.md`, import.meta.url),
+      'utf8',
+    );
+    const declaration = installation.match(/<!-- upgrade-support:start -->\n([\s\S]+?)\n<!-- upgrade-support:end -->/)?.[1];
+    assert.ok(declaration, `Missing ${language} installation upgrade declaration`);
+    assert.ok(release.changes[language].includes(declaration), `Website upgrade declaration differs in ${language}`);
+    assert.ok(notes.includes(declaration), `GitHub Release upgrade declaration differs in ${language}`);
   }
 });
