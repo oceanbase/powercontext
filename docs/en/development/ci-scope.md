@@ -100,6 +100,8 @@ These rules reduce unnecessary work for local changes. Shared-runtime and CI-pol
 | Historical schema capture | 2 | Preserve every configuration result |
 | Managed resource candidates | 2 | Preserve all three native targets |
 
+OceanBase migration scheduling uses measured durations while limiting each shard to `ceil(collected cases / shards)` cases. Missing timings use the median estimate for balancing; they never increase the case-count ceiling. Budget checks collect the current tests for every OceanBase migration step, including native FTS, and require time for each case deadline, collection and termination grace. Adding cases therefore requires rechecking the enclosing step and job budgets. Refresh timing baselines only from actual execution evidence.
+
 `max-parallel` bounds one matrix run, not the repository or organization. Do not place unrelated PRs in a normal concurrency group as a global semaphore: the default group retains only one pending run and replaces other waiting work. Release publication must not share a cancellable PR group.
 
 A concurrency cap does not remove work and can lengthen one PR's completion time. Queue reduction comes from skipping unrelated scopes, eliminating duplicate entries, grouping short checks on one runner, reusing installation builds, using the smaller PR compatibility matrix and cancelling superseded runs. Runtime and CI-policy changes still require broad acceptance, so their completion time remains sensitive to organization capacity.

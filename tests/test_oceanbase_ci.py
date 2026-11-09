@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shlex
@@ -183,6 +184,16 @@ def test_duration_assignment_balances_work_and_includes_unknown_nodes():
     assert assigned_nodes(nodes, 1, 3, None) == nodes[1::3]
 
 
+@pytest.mark.parametrize("shards", [2, 3])
+def test_duration_estimates_cannot_exceed_the_per_shard_case_budget(shards):
+    nodes = ["slow", *(f"fast-{index}" for index in range(11)), "unmeasured"]
+    durations = dict.fromkeys(nodes[:-1], 1.0)
+    durations["slow"] = 1000.0
+    groups = [assigned_nodes(nodes, index, shards, durations) for index in range(shards)]
+    assert max(map(len, groups)) <= math.ceil(len(nodes) / shards)
+    assert sorted(node for group in groups for node in group) == sorted(nodes)
+
+
 @pytest.mark.parametrize("corruption", [None, "missing", "duplicate", "incomplete", "collection"])
 def test_balanced_shards_must_cover_every_collected_node_exactly_once(tmp_path, corruption):
     nodes = ["slow", "fast", "new"]
@@ -224,24 +235,48 @@ def test_invalid_duration_baseline_cannot_silently_change_scheduling(tmp_path):
         read_durations(path)
 
 
-def test_clean_migration_shard_budget_covers_slow_cases_and_keeps_cleanup_time():
+def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup():
     root = Path(__file__).parents[1]
     workflow = yaml.safe_load((root / ".github/workflows/e2e-harness.yml").read_text())
-    job = workflow["jobs"]["atomic-memory-clean-oceanbase-shards"]
-    steps = [step for step in job["steps"] if "run_atomic_memory_clean_migration.py" in step.get("run", "")]
-    clean = next(step for step in steps if '--output "$MIGRATION_REPORTS/clean-migration"' in step["run"])
-    args = shlex.split(clean["run"].replace("\\\n", ""))
-    case_timeout = int(args[args.index("--test-timeout") + 1])
-    durations = read_durations(root / ".github/oceanbase-migration-durations.json")
-    assert durations is not None
-    nodes = [node for node in durations if node.split("::")[0] in SUITES]
-    shard_count = len(job["strategy"]["matrix"]["shard"])
-    largest_shard = max(len(assigned_nodes(nodes, index, shard_count, durations)) for index in range(shard_count))
-    # Slow, passing cases can approach their deadline before the final case times out.
-    # Include the runner's 180s collection timeout and 10s process termination grace.
-    assert clean["timeout-minutes"] * 60 >= largest_shard * (case_timeout + 10) + 180 + 10
-    pull = next(step for step in job["steps"] if step["name"] == "Pull the OceanBase image")
-    assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in steps) + pull["timeout-minutes"] + 25
+    budgets = []
+    for job in workflow["jobs"].values():
+        steps = [step for step in job.get("steps", []) if "run_atomic_memory_clean_migration.py" in step.get("run", "")]
+        for step in steps:
+            command = next(
+                line
+                for line in step["run"].replace("\\\n", "").splitlines()
+                if "run_atomic_memory_clean_migration.py" in line
+            )
+            args = shlex.split(command)
+            suites = args[args.index("--tests") + 1 :] if "--tests" in args else list(SUITES)
+            case_timeout = int(args[args.index("--test-timeout") + 1]) if "--test-timeout" in args else 180
+            shard_count = len(job["strategy"]["matrix"]["shard"]) if "--shard" in args else 1
+            budgets.append((step, suites, case_timeout, shard_count))
+        if steps:
+            # Keep bounded pull/startup and ten minutes for other setup/evidence outside test ceilings.
+            setup = [
+                step
+                for step in job["steps"]
+                if step.get("name") in {"Pull the OceanBase image", "Start the isolated OceanBase test instance"}
+            ]
+            assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in [*steps, *setup]) + 10
+    files = sorted({suite for _, suites, _, _ in budgets for suite in suites})
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", *files, "-k", "oceanbase"],
+        cwd=root,
+        env={**os.environ, "PYTEST_ADDOPTS": ""},
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=True,
+    )
+    nodes = [line for line in result.stdout.splitlines() if line.startswith(tuple(f"{suite}::" for suite in files))]
+    for step, suites, case_timeout, shard_count in budgets:
+        selected = [node for node in nodes if node.split("::")[0] in suites]
+        assert selected, step["name"]
+        largest_shard = math.ceil(len(selected) / shard_count)
+        # Collection, termination grace, and every slow passing case must fit regardless of timing estimates.
+        assert step["timeout-minutes"] * 60 >= largest_shard * (case_timeout + 10) + 190, step["name"]
 
 
 @pytest.mark.parametrize("caller", ["recall-effort", "atomic-memory-clean-oceanbase-shards", "upgrade"])

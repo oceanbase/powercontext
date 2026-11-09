@@ -65,15 +65,21 @@ def read_durations(path: Path | None) -> dict[str, float] | None:
 
 
 def assigned_nodes(nodes: list[str], index: int, count: int, durations: dict[str, float] | None) -> list[str]:
-    """Pack expensive cases first; unknown cases remain covered using the median estimate."""
+    """Pack expensive cases first within an equal per-shard case ceiling."""
     if durations is None:
         return nodes[index::count]
     fallback = statistics.median(durations.values())
     loads = [0.0] * count
+    sizes = [0] * count
+    capacity = math.ceil(len(nodes) / count)
     assignments: dict[str, int] = {}
     for node in sorted(nodes, key=lambda node: (-durations.get(node, fallback), node)):
-        shard = min(range(count), key=lambda shard: (loads[shard], shard))
+        shard = min(
+            (shard for shard in range(count) if sizes[shard] < capacity),
+            key=lambda shard: (loads[shard], shard),
+        )
         assignments[node] = shard
+        sizes[shard] += 1
         loads[shard] += durations.get(node, fallback)
     # Preserve collection order within each independent database instance.
     return [node for node in nodes if assignments[node] == index]
