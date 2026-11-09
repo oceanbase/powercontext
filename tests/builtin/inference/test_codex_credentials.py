@@ -18,6 +18,7 @@ import asyncio
 import json
 import multiprocessing
 import os
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -131,6 +132,17 @@ def _worker(path: Path, name: str, connection) -> None:
         connection.close()
 
 
+# Every worker re-imports this module in a fresh interpreter, and the CI matrix shares two cores among eight pytest
+# workers, so the exit can trail the reply it already sent by more than ten seconds. A slow exit is not what this test
+# is about; a worker that never exits still fails the assertion below.
+_WORKER_EXIT_SECONDS = 60
+
+
+def _require_clean_exit(process: BaseProcess, worker: str) -> None:
+    process.join(_WORKER_EXIT_SECONDS)
+    assert process.exitcode == 0, f"{worker} exited with {process.exitcode}"
+
+
 @pytest.mark.parametrize("access_token", ["expired-access", "e30.eyJleHAiOjB9.signature"])
 def test_codex_rejected_credentials_do_not_consume_the_cli_refresh_grant(tmp_path: Path, access_token: str) -> None:
     path = tmp_path / "auth.json"
@@ -159,19 +171,18 @@ def test_codex_workers_and_restart_observe_cli_renewal(tmp_path: Path) -> None:
         current = _write_login(path, "renewed-access", "renewed-account")
         for _, connection in workers:
             connection.send("probe")
-        for process, connection in workers:
+        for index, (process, connection) in enumerate(workers):
             assert connection.poll(30), "worker did not finish"
             status, requests = connection.recv()
             assert status == "ready"
             assert requests == [
                 ("https://chatgpt.com/backend-api/codex/responses", "Bearer renewed-access", "renewed-account")
             ]
-            process.join(10)
-            assert process.exitcode == 0
+            _require_clean_exit(process, f"worker {index}")
         status, requests = _probe(path, "restart")
         assert status == "ready"
         assert requests == [
-            ("https://chatgpt.com/backend-api/codex/responses", "Bearer renewed-access", "renewed-account")
+            ("https://chatgpt.com/backend-api/codex/responses", "Bearer renewed-access", "renewed-account"),
         ]
         assert path.read_bytes() == current
     finally:
