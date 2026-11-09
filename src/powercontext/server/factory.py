@@ -108,7 +108,7 @@ from powercontext.server.context import current_principal, current_request_id
 from powercontext.server.cursor_secret import resolve_cursor_secret
 from powercontext.server.dashboard import mount_dashboard
 from powercontext.server.dream_access import DreamAccess
-from powercontext.server.http_limits import HttpResourceLimitsMiddleware
+from powercontext.server.http_limits import HttpAdmissionMiddleware, HttpRequestBodyLimitMiddleware
 from powercontext.server.identity import ServerIdentityRepository
 from powercontext.server.info import server_info
 from powercontext.server.logging import worker_logging
@@ -445,6 +445,9 @@ def create_server_app(  # noqa: C901
         _log_lifecycle("server.stopped", "PowerContext Server stopped")
 
     configured_middleware = list(middleware)
+    configured_middleware.insert(
+        0, Middleware(HttpRequestBodyLimitMiddleware, max_request_body_bytes=resolved.http.max_request_body_bytes)
+    )
     if configured_authentication is not None:
         configured_middleware.insert(
             0,
@@ -469,11 +472,7 @@ def create_server_app(  # noqa: C901
     )
     # Admission must see the outward send; only non-buffering instrumentation
     # wraps it so early rejections retain the same correlation and observations.
-    app.add_middleware(
-        HttpResourceLimitsMiddleware,
-        max_request_body_bytes=resolved.http.max_request_body_bytes,
-        max_concurrent_requests=resolved.http.max_concurrent_requests,
-    )
+    app.add_middleware(HttpAdmissionMiddleware, max_concurrent_requests=resolved.http.max_concurrent_requests)
     app.add_middleware(HttpRequestIdMiddleware)
     if metrics is not None:
         app.add_api_route(

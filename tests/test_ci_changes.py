@@ -48,6 +48,8 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["deploy/helm/powercontext/README.md"], {"helm"}),
         (["tests/test_helm_chart.py"], {"tests", "helm"}),
         (["tests/e2e/helm_probe.py"], {"tests", "helm"}),
+        (["integrations/langchain/src/powercontext_langchain/middleware.py"], {"tests", "packaging", "observability"}),
+        (["tests/langchain_middleware/test_default_langfuse_tracing.py"], {"tests", "observability"}),
         (["integrations/pi/plugins/powercontext/index.ts"], {"tests", "pi", "zcode"}),
         (["integrations/kimi-code/plugins/powercontext/skills/context/SKILL.md"], {"tests", "kimi"}),
         (["evaluation/coding/work_continuity/run.py"], {"evaluation"}),
