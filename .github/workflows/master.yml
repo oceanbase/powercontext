@@ -200,21 +200,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_changes.py
 
-      - name: Prepare a writable license-eye prefix
-        # Install license-eye via the action's supported INSTALL_DIR override,
-        # using a user-writable path that the action resolves from PATH.
-        env:
-          LICENSE_EYE_BIN: ${{ runner.temp }}/license-eye-bin
-        run: |
-          mkdir -p "$LICENSE_EYE_BIN"
-          echo "$LICENSE_EYE_BIN" >> "$GITHUB_PATH"
-
       - name: Check License Header
         timeout-minutes: 10
         uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4 # v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INSTALL_DIR: ${{ runner.temp }}/license-eye-bin
+          INSTALL_DIR: ${{ runner.temp }}
+          PATH: ${{ runner.temp }}:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         with:
           config: .licenserc.yaml
           mode: check
@@ -242,8 +234,8 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    # Allow the Python 3.14 end-to-end suite's subprocess tail to finish.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && matrix.python-version == '3.14' && 55 || 40 }}
+    # Allow end-to-end suites' subprocess tails to finish on internal runners.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 40 }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
@@ -1149,7 +1141,7 @@ jobs:
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').website) }}
     timeout-minutes: 20
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
