@@ -37,6 +37,7 @@ from powercontext.builtin.runtime import (
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.sources import SourceSequenceLocator
 
 _FORBIDDEN = "synthetic-gate-forbidden-rationale"
 _MEMORY = "The user prefers SQLite restart regression tests."
@@ -173,7 +174,9 @@ def test_privacy_refusal_keeps_memory_unpublished_and_source_retryable_after_res
             assert flushed.processed and flushed.source_count == 1
             records = (await memory.list()).items
             assert len(records) == 1 and records[0].artifact.content.text == _MEMORY
-            assert records[0].artifact.lineage.sources == (receipt.source_ref,)
+            assert records[0].artifact.lineage.sources == (
+                receipt.source_ref.model_copy(update={"locator": SourceSequenceLocator(sequence=receipt.sequence)}),
+            )
             assert not (await memory.flush()).processed
 
     try:

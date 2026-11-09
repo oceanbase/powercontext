@@ -28,7 +28,12 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemory, AtomicMemoryRecord, AtomicMemoryStateValue
+from powercontext.builtin.artifacts.atomic_memory.models import (
+    AtomicMemory,
+    AtomicMemoryContent,
+    AtomicMemoryRecord,
+    AtomicMemoryStateValue,
+)
 from powercontext.builtin.artifacts.memory.canonical import canonical_json
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import EmbeddingModel
@@ -60,7 +65,12 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase.atomic_memory_index import OceanBaseAtomicMemoryIndex
 from powercontext.builtin.persistence.revision_metadata_schema import ensure_artifact_revision_metadata_schema
 from powercontext.builtin.persistence.sources import SourceRepository
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_HEADS_TABLE,
+    ARTIFACT_LINEAGE_SOURCES_TABLE,
+    ARTIFACTS_TABLE,
+)
+from powercontext.sources import SourceRef
 
 
 class AtomicMemoryProjectionRebuildReport(BaseModel):
@@ -138,9 +148,7 @@ async def _evidence_history(
     evidence = AtomicMemoryEvidenceRepository()
     after: tuple[str, str, int] | None = None
     while True:
-        statement = select(table.c.scope_id, table.c.artifact_id, table.c.revision).where(
-            table.c.family == AtomicMemory.family
-        )
+        statement = select(table).where(table.c.family == AtomicMemory.family)
         if selected_scope is not None:
             statement = statement.where(table.c.scope_id == selected_scope)
         if after is not None:
@@ -154,13 +162,43 @@ async def _evidence_history(
             break
         # Rows are ordered by scope, so one page holds contiguous per-scope groups.
         for scope_id, group in groupby(rows, key=lambda row: str(row.scope_id)):
-            references = tuple(
-                ArtifactRef(family=AtomicMemory.family, artifact_id=str(row.artifact_id), revision=int(row.revision))
-                for row in group
+            revisions = tuple(group)
+            lineage = ARTIFACT_LINEAGE_SOURCES_TABLE
+            keys = tuple((str(row.artifact_id), int(row.revision)) for row in revisions)
+            source_rows = (
+                (
+                    await connection.execute(
+                        select(lineage)
+                        .where(
+                            lineage.c.scope_id == scope_id,
+                            lineage.c.family == AtomicMemory.family,
+                            tuple_(lineage.c.artifact_id, lineage.c.revision).in_(keys),
+                        )
+                        .order_by(lineage.c.artifact_id, lineage.c.revision, lineage.c.ordinal)
+                    )
+                )
+                .mappings()
+                .all()
             )
-            loaded = await artifacts.get_many(connection, scope_id, references)
-            for reference, artifact in zip(references, loaded, strict=True):
-                yield await evidence.verify(connection, scope_id, reference, artifact.lineage.sources, sources=sources)
+            by_revision: dict[tuple[str, int], list[SourceRef]] = {}
+            for row in source_rows:
+                by_revision.setdefault((str(row["artifact_id"]), int(row["revision"])), []).append(
+                    SourceRef(source_type=row["source_type"], source_id=row["source_id"])
+                )
+            for row in revisions:
+                reference = ArtifactRef(
+                    family=AtomicMemory.family, artifact_id=str(row.artifact_id), revision=int(row.revision)
+                )
+                AtomicMemoryContent.model_validate(artifacts.decode_content(row._mapping))
+                # Evidence binds exact Source identities, independently of citation
+                # positions introduced by a later schema revision.
+                yield await evidence.verify(
+                    connection,
+                    scope_id,
+                    reference,
+                    by_revision.get((reference.artifact_id, reference.revision), ()),
+                    sources=sources,
+                )
                 after = scope_id, reference.artifact_id, reference.revision
 
 
@@ -243,9 +281,33 @@ async def _record(
     state = await state_repository.get(connection, scope_id, artifact_id)
     if for_update:
         await state_repository.require_summary(connection, scope_id, artifact_id, state)
-    artifact = await artifacts.latest(connection, scope_id, AtomicMemory.family, artifact_id)
-    if not isinstance(artifact, AtomicMemory):
-        raise AtomicMemoryIndexError("authority-content", "Atomic Memory has an unsupported authoritative content type")
+    # Projection repair needs only exact content and authoritative state. Historical
+    # migration checkpoints must not depend on lineage tables added by later steps.
+    heads, bodies = ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE
+    statement = (
+        select(heads.c.artifact_id, heads.c.family, heads.c.revision, bodies.c.content)
+        .select_from(
+            heads.outerjoin(
+                bodies,
+                and_(*(heads.c[name] == bodies.c[name] for name in ("scope_id", "family", "artifact_id", "revision"))),
+            )
+        )
+        .where(
+            heads.c.scope_id == scope_id,
+            heads.c.family == AtomicMemory.family,
+            heads.c.artifact_id == artifact_id,
+        )
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    row = (await connection.execute(statement)).mappings().one_or_none()
+    if row is None or row["content"] is None:
+        raise AtomicMemoryIndexError("authority-content", "Atomic Memory head has no authoritative content")
+    artifact = AtomicMemory(
+        artifact_id=str(row["artifact_id"]),
+        revision=int(row["revision"]),
+        content=AtomicMemoryContent.model_validate(artifacts.decode_content(row)),
+    )
     return AtomicMemoryRecord(artifact=artifact, state=state)
 
 
