@@ -3407,6 +3407,7 @@ REPLACE_ARTIFACT = Operation[ReplaceArtifactRequest, ArtifactRevision](
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         412: {"$ref": "#/components/responses/PreconditionFailed"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         428: {"$ref": "#/components/responses/PreconditionRequired"},

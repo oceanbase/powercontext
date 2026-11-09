@@ -4532,6 +4532,8 @@ paths:
       summary: Replace the current Artifact head
       description: >-
         Commit a complete next revision when If-Match identifies the current head.
+        Replacing merged or retired Atomic Memory returns 409 invalid_memory_state even when If-Match
+        matches the current content revision.
         Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring
         an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation.
         Topic Memory replacement also requires scope.admin and preserves independently versioned tags.
@@ -4596,6 +4598,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
         "422":

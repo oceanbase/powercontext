@@ -2140,7 +2140,7 @@ export interface paths {
         get: operations["get_artifact"];
         /**
          * Replace the current Artifact head
-         * @description Commit a complete next revision when If-Match identifies the current head. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation. Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill, Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted canonical content matches that revision and differs from the current head, then commits a new revision. Atomic Memory replacement rejects both fields; restore Atomic Memory through its restoration flow.
+         * @description Commit a complete next revision when If-Match identifies the current head. Replacing merged or retired Atomic Memory returns 409 invalid_memory_state even when If-Match matches the current content revision. Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation. Topic Memory replacement also requires scope.admin and preserves independently versioned tags. Complete title, summary, and detail text replaces the head without semantic generation. Profile replacement uses the same conditional write. To roll back Profile, Prompt, Experience, Skill, Handoff, or Topic Memory, set restored_from_revision and reason. The server checks that the submitted canonical content matches that revision and differs from the current head, then commits a new revision. Atomic Memory replacement rejects both fields; restore Atomic Memory through its restoration flow.
          */
         put: operations["replace_artifact"];
         post?: never;
@@ -10194,6 +10194,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["InvalidRequest"];
             428: components["responses"]["PreconditionRequired"];
