@@ -38,7 +38,7 @@ Scope
 └── Topic Memory      # 由符合条件的 Source 后台提取
 ```
 
-*下方录屏使用实际运行的 Dashboard 和原生桌面预览的暗色主题，内容为合成演示记录。*
+*下方录屏使用实际运行的 Dashboard 和原生桌面预览的浅色主题，内容为合成演示记录。*
 
 ### Memory —— 活得比会话更久的决定与约束
 
@@ -47,7 +47,7 @@ Memory 是一个带版本的 Artifact 家族，存放可以复用的决定、约
 > "别重构老的 auth 模块 —— 移动端还在用。"
 > 这么贵的上下文，不应该依赖有人每个会话都重讲一遍。
 
-![暗色 Dashboard 操作录屏：搜索项目记忆并查看已保存版本](docs/assets/readme-dashboard-demo-zh.gif)
+![浅色 Dashboard 操作录屏：搜索项目记忆并查看已保存版本](docs/assets/readme-dashboard-demo-zh.gif)
 
 ### Handoff —— 当前状态，不是整段对话记录
 
@@ -59,7 +59,7 @@ Handoff 用一个四步循环记录工作接续：
 
 `handoff_current_work` 抓取一个已经检查过的边界，返回一份临时的 Prepared Handoff。只有在你希望留下里程碑时，提交它才会生成持久的 Revision。接收方解析这份 Handoff 并记录确认回执；任务结果则作为 Source 证据保存最终状态与检查项。[Handoff Report](https://powercontext.oceanbase.io/zh/docs/workflows/use-handoff-report/) 会把每个选定 Scope 中最新的一份 Handoff Revision 投影出来供查看与导出——只读，且从不改写 Memory。
 
-![暗色 Dashboard 操作录屏：打开交接记录并查看已保存版本](docs/assets/readme-dashboard-handoff-zh.gif)
+![浅色 Dashboard 操作录屏：打开交接记录并查看已保存版本](docs/assets/readme-dashboard-handoff-zh.gif)
 
 ### Experience —— 有用的做法，评审后再复用
 
@@ -73,7 +73,7 @@ Experience 记录一个场景、一次动作、观察到的结果，以及可复
 
 连接 Server、选择精确的 Scope 后，即可搜索其中的记忆，打开结果读取已保存的具体版本，或为下次会话记录便签。[桌面预览](desktop/README.zh.md)用于内部验证；签名分发和各平台的发行验收仍需单独完成。
 
-![暗色原生桌面端操作录屏：搜索项目记忆并读取已保存的精确版本](docs/assets/readme-desktop-demo-zh.gif)
+![浅色原生桌面端操作录屏：搜索项目记忆并读取已保存的精确版本](docs/assets/readme-desktop-demo-zh.gif)
 
 [运行指标](docs/zh/docs/operate/observability.md)提供依赖状态观察、处理进度新鲜度和执行尝试延迟；独立后台部署也可使用受保护的专用指标端点。
 
@@ -127,7 +127,7 @@ PowerContext 把可长期复用的项目上下文放在单次对话之外。一�
 Agent 输入 → Source 证据 → Memory / Topic Memory → PreparedContext → 新会话或新 Agent
 ```
 
-PowerContext 1.5.0 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](docs/zh/docs/get-started/install-and-run.md)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](docs/zh/docs/get-started/install-and-run.md#使用推荐安装脚本)。
+PowerContext 1.5.1 包含交互式配置向导。需要 Python 3.11+、Git 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)；需要时 uv 可以按需提供 Python。要接入 Agent，还需要安装对应的 CLI。向导中选择“基础记忆”即可在没有模型 API 的情况下显式保存与召回；选择“完整记忆能力”则需要独立的 Generation、Embedding API 凭据。只想启动不依赖模型 API 的本地 Server 时，请参考[安装与运行](docs/zh/docs/get-started/install-and-run.md)。支持 macOS 和 Linux；Windows 支持为 `experimental`。需要自动安装 Python 和 uv 时，使用[安装脚本](docs/zh/docs/get-started/install-and-run.md#使用推荐安装脚本)。
 
 请选择与你目标匹配的路径：
 
@@ -140,7 +140,7 @@ PowerContext 1.5.0 包含交互式配置向导。需要 Python 3.11+、Git 和 [
 ### 1. 安装并运行配置向导
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language zh --output .env
 ```
@@ -170,7 +170,7 @@ powercontext capabilities
 接着按 `.env.next-steps.md` 创建并绑定 Scope。使用创建请求返回的真实 `scope_id`；向导规划的 `codex-...` 标题不是 ID。切换目录不会创建隔离；Dashboard 和 Agent 要使用同一个 Server 和 Scope。修改 `.env` 后，重新执行 `powercontext service install --env-file .env` 使修改后的配置生效。然后安装相同版本的插件，再打开新 Agent 会话。[完整安装流程](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)包含 Codex、Claude Code、Dashboard 登录、SSH 隧道、HTTPS 前提及逐项验收。例如，匹配本版本的 Codex 安装命令是：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.5.0
+powercontext setup codex --ref powercontext-v1.5.1
 powercontext doctor codex
 ```
 

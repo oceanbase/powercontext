@@ -29,6 +29,54 @@ export interface Release {
 // Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
   {
+    version: 'v1.5.1',
+    date: '2026-11-09',
+    title: {
+      en: 'Traceable memory evidence · Subscription providers · Gateway and deployment improvements',
+      zh: '可追溯的记忆证据 · 订阅模型接入 · Gateway 与部署体验改进',
+    },
+    summary: {
+      en: 'PowerContext 1.5.1 retains versioned Source evidence and citation positions, protects time qualifiers during automatic Memory processing, and reduces unrelated reconciliation work. It adds Codex and GitHub Copilot subscription providers, managed monitoring, release-aware installers, and clearer Desktop connection and Scope guidance. Gateway alpha gains stronger authentication, bounded request handling, code-evidence reuse, and content-free call records.',
+      zh: 'PowerContext 1.5.1 保留版本化 Source 证据与引用位置，在自动记忆处理中保护时间限定信息，并减少无关内容的协调调用。新增 Codex 与 GitHub Copilot 订阅模型接入、托管监控和按版本安装脚本，完善桌面端连接与 Scope 引导。Gateway alpha 加强认证与请求限制，支持代码证据复用，并输出不含正文的调用记录。',
+    },
+    changes: {
+      en: [
+        'Retain Source evidence declarations and snapshots bound to exact Atomic Memory revisions. Historical declarations remain inspectable after registration changes and projection rebuilds; undeclared or unverifiable declarations stay neutral. This adds no trust-based ranking or write authority. Preserve Source sequence or line-range locators through citations and readback.',
+        'Declare complete, partial or unknown coverage for supported Hermes and Gateway capture projections, with bounded reason codes. Coverage describes the projected content, not completeness of the original conversation, authority, consent or generation eligibility. Historical captures are not backfilled.',
+        'Require automatic extraction and reconciliation to retain supported ISO time qualifiers from selected evidence. Reject exact redundant revisions and recover within the existing correction policy without discarding genuinely new facts. Existing undated memories are not backfilled; semantic equivalence and other date formats still depend on model judgment.',
+        'With built-in prompts, compare earlier candidates from the same Source window only when they meet the existing related-memory threshold. Vector mode can add embedding work, so fewer reconciliation calls do not establish lower total cost. OceanBase uses native minimum_should_match filtering when supported and retains the legacy path otherwise.',
+        'Use openai-codex:<model> with an existing file-backed Codex CLI login or github-copilot:<model> with an existing OAuth token and a Chat Completions model for Memory, Experience and Profile generation. Topic Memory, Dream and built-in inference protection are unsupported for these providers. Codex CLI owns credential renewal; Server and workers reload its login file without refreshing or modifying it.',
+        'Strengthen Gateway alpha model-route authentication: non-loopback listeners require a valid key and rejected credentials are handled before body consumption. Core fallback retains its own authentication. Align rendered-request and buffered-response limits with Core inspection capacity, preserve native protocol behavior, and export bounded body-free JSONL records with explicit attempts, release outcomes and unknown usage.',
+        'Allow prepared-context reuse to include code evidence, revalidating only the cited files before sending. Gateway code injection remains opt-in and can refresh stale evidence once before a provider send. Gateway alpha still buffers complete responses for inspection; it does not provide real-time token streaming or guarantee client receipt from its delivery observations.',
+        'Add opt-in managed monitoring with Grafana, Prometheus, Loki, Tempo and the OpenTelemetry Collector, plus an optional Phoenix profile. The observability CLI installs, checks or connects monitoring for existing Servers and exposes service, Scope, processing and Provider diagnostics without content or credentials. Gateway stdout evidence requires separate collection.',
+        'Guide Desktop users from Overview through an existing Server connection, exact Scope selection and the Memory workspace. Add current-Scope inventory and usage, session diagnostics and Runtime observations. Explicit readiness probes are separate from lightweight identity validation and authorized Memory operations. Local setup integration, signed installers and native distribution acceptance remain separate release requirements.',
+        'Provide Bash and PowerShell installers that provision prerequisites, select an exact or latest stable release, support independent download mirrors, and align selected Agent integrations with the installed release. Windows remains experimental. Add DSH npm packaging and Desktop v4 message support; registry availability requires successful package publication and first-publisher setup.',
+        'Add experimental MiniMax setup, configuration and diagnostics, target Bub 0.6.1, and allow Codex and OpenCode users to disable prompt-time recall independently of capture. Share packaged Skills and Python helpers, preserve explicit Memory kinds, improve Scope failure reporting, and remove duplicate adapter trust notices while retaining Server trust policy and historical-context boundaries. Official MiniMax 0.6.9/0.7.2 plugin-only invocation remains unqualified in the documented affected environment.',
+        'Authenticate protected Server requests before reading bodies, reject blank Scope identifiers on Dream, tag and state routes, drain failed SQLite connection workers, and support ownership migration when enabling access enforcement. Add safe Topic Memory failure diagnostics and improve website Markdown exports, SEO, build resource use and release packaging checks.',
+        'Upgrade Server, SDK, CLI and integrations together. Source evidence and locator storage add registered migrations through v1_5_0_004; these immutable schema revision names retain their original 1.5.0 numbering. The HTTPX2 provider transition also affects SDK callers injecting MiniMax embedding or Jev reranking clients. The upgrade policy remains upgrade-required, with all twelve installed-1.3.0 backend/configuration cases required for normal publication; no intermediate release is certified automatically.',
+        'Database upgrade support is limited to source-version, target-artifact, backend and configuration combinations that pass full Server acceptance.',
+      ],
+      zh: [
+        '保留绑定到 Atomic Memory 精确版本的 Source 证据声明与快照。登记信息变化或投影重建后，仍可核查历史声明；缺少声明或声明无法验证时保持中性，不增加基于信任的排序权重或写入权限。引用与读回保留 Source 序号或行范围定位信息。',
+        'Hermes 与 Gateway 为受支持的采集投影声明完整、部分或未知的覆盖状态，并提供有界原因码。覆盖声明只描述投影内容，不代表原始对话完整、内容权威、用户同意或生成资格；历史采集记录不回填。',
+        '自动提取和协调必须保留所选证据中受支持的 ISO 时间限定信息。拒绝内容完全相同的冗余修订，并按已有纠正策略恢复，保留真正新增的事实。已有无日期记忆不回填；语义等价判断及其他日期格式仍依赖模型判断。',
+        '使用内置 Prompt 时，同一 Source 窗口中的前序候选仅在满足已有相关记忆阈值时参与比较。向量模式可能增加 Embedding 工作，因此协调调用减少不等于总成本降低。OceanBase 在支持时使用原生 minimum_should_match 过滤，否则保留原有路径。',
+        '通过 openai-codex:<model> 复用已有、保存在文件中的 Codex CLI 登录，或通过 github-copilot:<model> 使用已有 OAuth token 与 Chat Completions 模型，支持 Memory、Experience 和 Profile 生成。这两类 Provider 不支持 Topic Memory、Dream 及内置推理保护。凭据续期由 Codex CLI 负责；Server 与 Worker 每次请求重新读取登录文件，不刷新或改写凭据。',
+        '加强 Gateway alpha 模型路由认证：非回环监听必须配置有效密钥，在读取请求正文前拒绝无效凭据；转发到 Core 的请求仍遵守 Core 自身认证。最终请求与响应缓冲限制对齐 Core 检查容量，保留原生协议行为，并输出有界、不含正文的 JSONL 调用记录，明确尝试、放行结果及未知用量。',
+        '上下文复用支持代码证据，发送前仅重新验证被引用的文件。Gateway 代码注入仍需显式启用，证据过期时可在发送到 Provider 前刷新一次。Gateway alpha 仍缓冲完整响应以完成检查，不提供实时逐 token 流式输出；交付观测也不证明客户端已收到内容。',
+        '提供可选的托管监控，包括 Grafana、Prometheus、Loki、Tempo、OpenTelemetry Collector 和可选 Phoenix。observability CLI 为已有 Server 安装、检查或连接监控，展示服务、Scope、处理进度及 Provider 诊断，不记录正文或凭据。Gateway 标准输出中的调用证据需单独采集。',
+        '桌面端 Overview 引导用户连接已有 Server、选择精确 Scope 并进入记忆工作区，增加当前 Scope 的库存与用量、会话诊断及 Runtime 观测。显式就绪检查与轻量身份验证、获授权的记忆操作分开。本地安装整合、签名安装包及原生发行验收仍需独立完成。',
+        '新增 Bash 与 PowerShell 安装脚本，准备依赖、选择精确版本或最新稳定版、分别配置下载镜像，并让所选 Agent 集成与已安装发行版本一致。Windows 仍为试验性支持。增加 DSH npm 打包和 Desktop v4 消息兼容；npm 可用性取决于成功发布及首次发布者配置。',
+        '新增试验性 MiniMax 安装、配置与诊断，适配 Bub 0.6.1，允许 Codex、OpenCode 单独关闭提示时召回而保留采集。共享打包的 Skill 和 Python 辅助代码，保留显式 Memory 类型，完善 Scope 失败提示，并在保留 Server 信任策略与历史上下文边界的前提下移除重复的适配器提示。官方 MiniMax 0.6.9/0.7.2 在已记录的受影响环境中，仍未通过仅插件路径的调用验收。',
+        'Server 对受保护请求先认证再读取正文；Dream、标签和状态路由拒绝空白 Scope 标识；清理失败的 SQLite 连接 Worker；启用访问强制检查时支持所有权迁移。增加安全的 Topic Memory 失败诊断，并改进网站 Markdown 导出、SEO、构建资源使用和发布打包检查。',
+        'Server、SDK、CLI 与集成需协调升级。Source 证据和定位信息增加登记迁移，推进至 v1_5_0_004；这些不可变 schema revision 保留原始 1.5.0 编号。HTTPX2 Provider 迁移也影响自行注入 MiniMax Embedding 或 Jev 重排客户端的 SDK 调用方。升级策略仍为 upgrade-required，正常发布必须通过已安装 1.3.0 的全部十二种后端与配置验收，不自动认定中间版本已受支持。',
+        '数据库升级支持以通过完整 Server 验收的来源版本、目标产物、后端和配置组合为准。',
+      ],
+    },
+    installCommand: 'uv tool install --force "powercontext[cli,server]==1.5.1"',
+    githubUrl: 'https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.5.1',
+  },
+  {
     version: 'v1.5.0',
     date: '2026-11-02',
     title: {

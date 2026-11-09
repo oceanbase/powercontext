@@ -60,6 +60,7 @@ beta 和 RC 跳过网站条目检查。`make docs-test` 也会通过网站测试
 | `docs/en/docs/get-started/manual-start.md`、`docs/zh/docs/get-started/manual-start.md` | CLI/Server 和 Python Client 安装版本及配套 Agent 集成 tag。 |
 | `docs/en/docs/get-started/install-and-run.md`、`docs/zh/docs/get-started/install-and-run.md` | 页面描述、当前版本介绍、包版本和 tag、升级目标及 Python Client 安装命令。 |
 | `integrations/dsh/plugins/powercontext/README.md` | Server 安装版本及对应的 `setup dsh --ref` tag。 |
+| `docs/{en,zh}/docs/operate/database-migrations.md`、`tests/release_upgrades/README.md` | 仅同步当前目标发布版本；冻结的 schema revision 名称及原始软件版本保持不变。 |
 
 安装指南也包含历史迁移版本，这些引用会保留。新增表示当前发布版本的安装示例时，应同时将其纳入版本工具的
 管理路径及匹配规则，使下次发布可以自动更新和检查。
@@ -183,11 +184,11 @@ pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
 1.4.0 桥接实现和登记仍保留，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。来源 wheel 的公开 PyPI 地址和 SHA-256 与目标产物一起记录。
 
 1.3.0 和 1.4.0 的来源链分别从 `s1300` 和 `r1400` 开始，汇入共同的 `s1400 → s1401 → s1402` 路径，
-再经过 `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`。两者共享目标契约，分别保留冻结的执行历史及日志来源链，
+再经过 `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`。两者共享目标契约，分别保留冻结的执行历史及日志来源链，
 以便后续已登记版本继续升级。应用版本不等于 schema 检查点；1.4.0
 的 Candidate 已是当前格式，桥接原样保留记录，并创建空保留表以统一目标结构，不虚构旧 Candidate 历史。
 登记其他来源需要精确采集、明确桥接和真实验收；这两条已登记路径不能证明其间及目标之前所有发行版均兼容。
-当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，同时保持“升级支持尚未验证”的声明。
+当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，支持范围以通过完整 Server 验收的组合为准。
 所有配置均使用 `tests/release_upgrades/test_full_server.py`，迁移能力缺失必须失败。仅支持新建数据库的声明或
 正确拒绝旧库，都不能满足门禁。完整迁移实现和验收通过后，审查支持范围，将模式改为 `supported-upgrades`，
 并在发布前重新生成安装说明；两种模式都运行相同的必测矩阵。

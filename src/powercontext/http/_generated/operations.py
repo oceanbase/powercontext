@@ -246,7 +246,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.5.0"
+API_VERSION = "1.5.1"
 FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
     "connection.identity": {"version": {"major": 1, "minor": 0}, "operations": ["get_connection_identity"]},
     "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
