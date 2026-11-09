@@ -24,6 +24,9 @@ from dataclasses import dataclass, replace
 from itertools import chain
 from typing import Literal, TypeVar
 
+from pydantic import ConfigDict
+from typing_extensions import override
+
 from powercontext.artifacts import ArtifactAddress, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchHit, render_experience
 from powercontext.builtin.artifacts.profile.models import Profile
@@ -143,6 +146,38 @@ class PreparedContextBuild:
 
 
 PreparedContextOrigin = ArtifactRef | ArtifactAddress
+
+
+class _BudgetArtifactRef(ArtifactRef):
+    """Immutable budget evidence with the same identity as the original reference."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        # Pydantic normally compares model types too; freezing must not change origin equality.
+        return isinstance(other, ArtifactRef) and (self.family, self.artifact_id, self.revision) == (
+            other.family,
+            other.artifact_id,
+            other.revision,
+        )
+
+
+class _BudgetArtifactAddress(ArtifactAddress):
+    """Immutable budget address, including its nested reference."""
+
+    model_config = ConfigDict(frozen=True)
+    artifact: _BudgetArtifactRef
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ArtifactAddress) and (self.scope_id, self.artifact) == (other.scope_id, other.artifact)
+
+
+def _budget_origin(origin: PreparedContextOrigin) -> PreparedContextOrigin:
+    snapshot_type = _BudgetArtifactAddress if isinstance(origin, ArtifactAddress) else _BudgetArtifactRef
+    return snapshot_type.model_validate(origin.model_dump())
+
 
 PreparedContextBudgetDisposition = Literal[
     "full",
@@ -1045,7 +1080,7 @@ def _budget_records(ledger: _BudgetLedger, assembly: ContextAssembly | None) -> 
             fragment_bytes = _entry_fragment_bytes(delivered)
         records.append(
             PreparedContextBudgetRecord(
-                origin=entry.origin,
+                origin=_budget_origin(entry.origin),
                 kind=entry.kind,
                 rank=visit.rank,
                 disposition=visit.disposition,
