@@ -239,6 +239,7 @@ function parseStatusPayload(value) {
 		session: parseSession(value.session),
 		runtime,
 		server: {
+			package_version: packageVersion(server.package_version),
 			liveness,
 			readiness,
 			capabilities: capabilityProbe
@@ -251,6 +252,10 @@ function parseStatusPayload(value) {
 		},
 		notices
 	};
+}
+/** Only a bounded package version may cross the Host/browser allowlist. */
+function packageVersion(value) {
+	return typeof value === "string" && /^[0-9][0-9A-Za-z.+_-]{0,127}$/.test(value) ? value : null;
 }
 
 //#endregion
@@ -586,12 +591,210 @@ var StatusController = class {
 };
 
 //#endregion
+//#region src/ui/locale.ts
+const LOCALE_KEY = "powercontext.dsh.locale";
+const texts = {
+	"zh-CN": {
+		"status": "状态",
+		"diagnostics": "连接诊断",
+		"language": "切换语言",
+		"refresh": "刷新状态",
+		"close": "关闭诊断",
+		"retry": "重试",
+		"ready": "已连接",
+		"failed": "需要处理",
+		"connecting": "连接中",
+		"unconfigured": "未配置",
+		"stale": "状态已过期，重试中",
+		"auth": "需要认证",
+		"connectingHelp": "正在检查 PowerContext Server。",
+		"staleHelp": "正在重新检查连接。",
+		"unconfiguredHelp": "请检查本机插件配置。",
+		"authHelp": "请检查 Server 认证配置；若 DSH 登录已过期，请重新登录后重试。",
+		"readinessHelp": "Server 尚未就绪，请检查服务日志与详情中的依赖状态。",
+		"networkHelp": "无法连接 Server，请检查服务是否启动以及地址和网络。",
+		"timeoutHelp": "Server 响应超时，请检查服务负载并稍后刷新。",
+		"protocolHelp": "Server 响应格式不兼容，请检查 Server 与插件版本及代理配置。",
+		"forbiddenHelp": "当前认证没有访问权限，请检查 Server 授权配置。",
+		"failureHelp": "请确认 Server 正在运行并检查地址与配置，随后刷新。可运行 /pc doctor 查看诊断。",
+		"bridgeHelp": "请使用本机 DSH 所有者会话，并检查插件是否已启用。仅在自己的本地 Web 主机配置 ownerLocal。",
+		"schemaHelp": "请安装相互兼容的 PowerContext Server 和 DSH 插件版本。",
+		"notChecked": "尚未检查",
+		"server": "服务器",
+		"address": "地址",
+		"serverVersion": "PowerContext Server 版本",
+		"unknown": "未知",
+		"session": "会话与 Scope",
+		"conversation": "当前会话",
+		"workspace": "工作目录",
+		"scope": "当前 Scope",
+		"unresolved": "未解析",
+		"noSession": "暂无活动会话。",
+		"scopeHelp": "无法解析当前 Scope，请检查工作目录绑定或运行 /pc doctor。",
+		"details": "技术详情",
+		"connection": "连接检查",
+		"deployment": "运行环境",
+		"explicit": "显式本机配置",
+		"automatic": "自动处理链路",
+		"automaticOwner": "自动识别 Desktop",
+		"reason": "诊断信息",
+		"endpointSource": "地址来源",
+		"pathPrefix": "（含路径前缀）",
+		"authentication": "认证",
+		"configured": "已配置",
+		"disabled": "已禁用",
+		"liveness": "存活检查",
+		"readiness": "就绪检查",
+		"capabilities": "能力检查",
+		"dependencies": "就绪依赖",
+		"scopeSource": "Scope 来源",
+		"schema": "上下文协议",
+		"memory": "记忆提取",
+		"handoff": "交接生成",
+		"ok": "已验证",
+		"noObservation": "尚未观察到本会话的自动处理；发送消息后刷新。",
+		"prepare": "召回",
+		"capture": "Source 捕获",
+		"flush": "记忆处理",
+		"injection": "上下文注入",
+		"not_yet_observed": "尚未观察",
+		"running": "处理中",
+		"resolved": "已解析",
+		"empty": "无内容",
+		"accepted": "已接收",
+		"completed": "已完成",
+		"incomplete": "未完成",
+		"appended": "已注入",
+		"skipped": "已跳过",
+		"unavailable": "不可用",
+		"operationHelp": "请运行 /pc doctor 检查配置与服务状态。",
+		"coverage": "本地观察时间不代表记忆新鲜度。Source 接收与处理进度不证明记忆已生成；注入仅表示加入消息，不证明模型已使用。未确认的写入可能已生效，失败也不会回滚之前的工作。使用 /pc doctor 检查当前配置。",
+		"no_active_session": "暂无活动会话。",
+		"session_unavailable": "所选会话已不可用。",
+		"session_service_unavailable": "主机未提供会话列表。",
+		"scope_unresolved": "当前 Scope 未解析。"
+	},
+	"en": {
+		"status": "status",
+		"diagnostics": "Connection diagnostics",
+		"language": "Change language",
+		"refresh": "Refresh status",
+		"close": "Close diagnostics",
+		"retry": "Retry",
+		"ready": "Connected",
+		"failed": "Action needed",
+		"connecting": "Connecting",
+		"unconfigured": "Not configured",
+		"stale": "Status stale, retrying",
+		"auth": "Authentication required",
+		"connectingHelp": "Checking the PowerContext Server.",
+		"staleHelp": "Rechecking the connection.",
+		"unconfiguredHelp": "Check the local plugin configuration.",
+		"authHelp": "Check Server authentication; if the DSH session expired, sign in again and retry.",
+		"readinessHelp": "The Server is not ready. Check its logs and the dependency states in details.",
+		"networkHelp": "Cannot reach the Server. Check that it is running and verify its address and network.",
+		"timeoutHelp": "The Server timed out. Check its load and refresh again shortly.",
+		"protocolHelp": "The Server response is incompatible. Check Server/plugin versions and proxy configuration.",
+		"forbiddenHelp": "This credential lacks access. Check Server authorization configuration.",
+		"failureHelp": "Check that the Server is running and its address and configuration are correct, then refresh. Run /pc doctor for diagnostics.",
+		"bridgeHelp": "Use the local DSH owner session and check that the plugin is enabled. Configure ownerLocal only on your own local Web host.",
+		"schemaHelp": "Install compatible PowerContext Server and DSH plugin versions.",
+		"notChecked": "Not checked",
+		"server": "Server",
+		"address": "Address",
+		"serverVersion": "PowerContext Server version",
+		"unknown": "Unknown",
+		"session": "Conversation and Scope",
+		"conversation": "Conversation",
+		"workspace": "Workspace",
+		"scope": "Active Scope",
+		"unresolved": "Unresolved",
+		"noSession": "No active conversation.",
+		"scopeHelp": "Unable to resolve Scope. Check the workspace binding or run /pc doctor.",
+		"details": "Technical details",
+		"connection": "Connection checks",
+		"deployment": "Deployment",
+		"explicit": "explicit owner config",
+		"automatic": "Automatic path",
+		"automaticOwner": "automatic desktop signal",
+		"reason": "Diagnostic information",
+		"endpointSource": "Endpoint source",
+		"pathPrefix": " (with path prefix)",
+		"authentication": "Authentication",
+		"configured": "Configured",
+		"disabled": "Disabled",
+		"liveness": "Liveness",
+		"readiness": "Readiness",
+		"capabilities": "Capabilities",
+		"dependencies": "Readiness dependencies",
+		"scopeSource": "Scope source",
+		"schema": "Context schema",
+		"memory": "Memory extraction",
+		"handoff": "Handoff generation",
+		"ok": "Verified",
+		"noObservation": "No automatic attempt observed for this conversation. Send a prompt, then refresh.",
+		"prepare": "Recall",
+		"capture": "Source capture",
+		"flush": "Memory flush",
+		"injection": "Context injection",
+		"not_yet_observed": "Not yet observed",
+		"running": "Running",
+		"resolved": "Resolved",
+		"empty": "Empty",
+		"accepted": "Accepted",
+		"completed": "Completed",
+		"incomplete": "Incomplete",
+		"appended": "Injected",
+		"skipped": "Skipped",
+		"unavailable": "Unavailable",
+		"operationHelp": "Run /pc doctor to check configuration and service status.",
+		"coverage": "Local observation age is not Memory freshness. Source acceptance and flush progress do not prove Memory production. Injection means appended messages, not model consumption. Unconfirmed writes may have taken effect; failures do not roll back earlier work. Use /pc doctor to check current configuration.",
+		"no_active_session": "No active conversation.",
+		"session_unavailable": "The selected conversation is no longer available.",
+		"session_service_unavailable": "The host did not expose its session registry.",
+		"scope_unresolved": "The current Scope is unresolved."
+	}
+};
+function readLocale() {
+	try {
+		return localStorage.getItem(LOCALE_KEY) === "en" ? "en" : "zh-CN";
+	} catch {
+		return "zh-CN";
+	}
+}
+function saveLocale(locale) {
+	try {
+		localStorage.setItem(LOCALE_KEY, locale);
+	} catch {}
+}
+function failureTextKey(code, status) {
+	if (status === 401 || /authentication|unauthorized/.test(code ?? "")) return "authHelp";
+	if (status === 403) return "forbiddenHelp";
+	if (code === "unsupported_context_schema" || code === "version_mismatch") return "schemaHelp";
+	if (code === "not_ready" || code === "degraded") return "readinessHelp";
+	if (/timeout/.test(code ?? "")) return "timeoutHelp";
+	if (/connection|unreachable|dns|tls/.test(code ?? "")) return "networkHelp";
+	if (/invalid_response|invalid_json|protocol/.test(code ?? "")) return "protocolHelp";
+	return "failureHelp";
+}
+
+//#endregion
 //#region src/ui/styles.ts
 /**
 * Sidebar status and diagnostics styles. Every surface reads DSH's semantic
 * theme tokens, so light/dark and collapsed/rail layouts share one rule set.
 */
 const STATUS_STYLES = `
+/* finesse · component: diagnostics · register=product · tokens: inherited DSH theme */
+.pc-language { margin: 8px 14px 0; border: 1px solid var(--dsw-alias-border-l1, GrayText); border-radius: 8px; }
+.pc-language label { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; margin-inline-end: 12px; cursor: pointer; }
+.pc-details { margin-top: 14px; }
+.pc-details summary { cursor: pointer; padding: 10px 0; color: var(--dsw-alias-label-secondary, CanvasText); }
+.pc-details summary:focus-visible, .pc-language input:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
+.pc-detail-row { display: contents; }
+.pc-section-title { margin-bottom: 8px !important; }
+.pc-icon-button:active, .pc-text-button:active { background: var(--dsw-alias-interactive-bg-hover, Canvas); }
+@media (pointer: coarse) { .pc-icon-button { min-width: 44px; min-height: 44px; } }
 .pc-status { position: relative; display: flex; align-items: center; width: 100%; min-width: 0; }
 .pc-trigger {
   display: flex; align-items: center; gap: 8px; width: calc(100% + 4px); min-width: 0;
@@ -635,7 +838,7 @@ const STATUS_STYLES = `
 .pc-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary, CanvasText); font: inherit; font-size: 16px; cursor: pointer; }
 @media (hover: hover) { .pc-icon-button:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.12)); } }
 .pc-icon-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 1px; }
-.pc-icon-button:disabled { opacity: .5; cursor: default; }
+.pc-icon-button:disabled { opacity: .5; cursor: not-allowed; }
 .pc-panel-body { min-height: 0; overflow: auto; padding: 12px 14px 14px; overscroll-behavior: contain; }
 .pc-summary { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); border-radius: 10px; background: var(--dsw-alias-bg-l2, rgba(127,127,127,.05)); }
 .pc-summary .pc-dot { position: static; margin-top: 5px; }
@@ -671,6 +874,8 @@ const STATUS_STYLES = `
 .pc-stage-message { margin: 2px 0 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
 .pc-stage-meta { margin: 2px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 14px; }
 .pc-coverage { margin: 7px 0 0; color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 15px; overflow-wrap: anywhere; }
+.pc-panel-foot > span { min-width: 0; overflow-wrap: anywhere; }
+.pc-panel-foot .pc-mono { text-align: end; flex: 1; }
 .pc-panel-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px 10px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); color: var(--dsw-alias-label-tertiary, GrayText); font-size: 10px; line-height: 14px; }
 .pc-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes pc-pulse { 0%,100% { opacity: 1; } 50% { opacity: .42; } }
@@ -682,30 +887,13 @@ const STATUS_STYLES = `
 
 //#endregion
 //#region src/ui/client.tsx
+const LocaleContext = (0, react.createContext)("zh-CN");
+function useText() {
+	const locale = (0, react.useContext)(LocaleContext);
+	return (key) => texts[locale][key] ?? key;
+}
 const STYLE_ID = "powercontext-dsh-status-styles";
 const inject = ["slots"];
-const STAGE_ROWS = [
-	{
-		key: "scope",
-		label: "Scope resolution"
-	},
-	{
-		key: "prepare",
-		label: "Recall"
-	},
-	{
-		key: "capture",
-		label: "Source capture"
-	},
-	{
-		key: "flush",
-		label: "Memory flush"
-	},
-	{
-		key: "injection",
-		label: "Context injection"
-	}
-];
 function PowerContextMark({ size = 20 }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
 		width: size,
@@ -738,372 +926,261 @@ function Dot({ state }) {
 	});
 }
 function StatusLabel({ state, snapshot }) {
-	if (state === "failed" && snapshot.error?.kind === "authentication") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: "Authentication required" });
-	switch (state) {
-		case "unconfigured": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: "Not configured" });
-		case "connecting": return snapshot.error === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: "Connecting" }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: "Retrying" });
-		case "stale": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: "Stale, retrying" });
-		case "ready": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: "Connected" });
-		case "failed": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: "Action needed" });
-	}
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: useText()(state === "failed" && snapshot.error?.kind === "authentication" ? "auth" : state) });
 }
-function triggerLabel(state, snapshot) {
-	const label = state === "ready" ? "Connected" : state === "connecting" ? "Connecting" : state === "stale" ? "Status stale, retrying" : state === "failed" ? "Action needed" : "Not configured";
-	const error = snapshot.error;
-	return error === null ? label : `${label}: ${error.message}`;
-}
-function summaryDetail(state, snapshot) {
-	if (state === "failed") return snapshot.error?.message ?? snapshot.data?.connection.message ?? "PowerContext is not ready.";
-	if (state === "unconfigured") return snapshot.error?.message ?? "The status bridge is unavailable in this host. Existing tools still work.";
-	if (state === "stale") return "The last observation expired; re-verifying with the Server.";
-	if (state === "connecting") return "Contacting the PowerContext Server and checking readiness.";
-	if (snapshot.data?.session === null) return "Readiness verified. There is no active conversation to observe.";
-	return "Connectivity, readiness, and the required context capability are verified.";
-}
-function ago(milliseconds, now) {
-	if (milliseconds === null || milliseconds === void 0) return "not observed";
-	const seconds = Math.max(0, Math.round(milliseconds / 1e3));
-	if (seconds < 5) return "just now";
-	if (seconds < 60) return `${String(seconds)}s ago`;
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return `${String(minutes)}m ago`;
-	return `${String(Math.round(minutes / 60))}h ago`;
-}
-function clock(iso) {
-	if (iso === null) return "not yet";
-	try {
-		return new Date(iso).toLocaleTimeString([], {
-			hour: "2-digit",
-			minute: "2-digit",
-			second: "2-digit"
-		});
-	} catch {
-		return iso;
-	}
-}
-function probeLabel(probe) {
-	if (probe.state === "ok") return "Verified";
-	if (probe.state === "failed") return "Failed";
-	return "Not checked";
-}
-function stageLabel(stage) {
-	switch (stage.state) {
-		case "not_yet_observed": return "Not yet observed";
-		case "running": return "Running";
-		case "resolved": return "Resolved";
-		case "ready": return "Ready";
-		case "empty": return "Empty";
-		case "accepted": return "Accepted";
-		case "completed": return "Completed";
-		case "incomplete": return "Incomplete";
-		case "appended": return "Injected";
-		case "skipped": return "Skipped";
-		case "unavailable": return "Unavailable";
-	}
-}
-function stageTone(stage) {
-	if (stage.state === "unavailable") return "failed";
-	if (stage.state === "running") return "connecting";
-	if ([
-		"resolved",
-		"ready",
-		"empty",
-		"accepted",
-		"completed",
-		"appended"
-	].includes(stage.state)) return "ready";
-	return "unconfigured";
-}
-function StageRow({ stage, label, now }) {
-	const tone = stageTone(stage);
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-		className: "pc-stage",
-		"data-pc-stage": stage.operation,
-		"data-pc-stage-state": stage.state,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-			className: `pc-dot pc-dot-${tone}`,
-			"aria-hidden": "true"
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: "pc-stage-main",
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: "pc-stage-head",
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "pc-stage-name",
-						children: label
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "pc-stage-state",
-						children: stageLabel(stage)
-					})]
-				}),
-				stage.code !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-					className: "pc-stage-message pc-mono",
-					children: stage.code
-				}),
-				stage.message !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-					className: "pc-stage-message",
-					children: stage.message
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-					className: "pc-stage-meta",
-					children: ago(stage.age_ms ?? (stage.observed_at === null ? null : now - Date.parse(stage.observed_at)), now)
-				})
-			]
-		})]
-	});
-}
-function Section({ title, note, children }) {
+function Section({ title, children }) {
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 		className: "pc-section",
 		"aria-label": title,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: "pc-section-head",
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
-				className: "pc-section-title",
-				children: title
-			}), note !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: "pc-section-note",
-				children: note
-			})]
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h3", {
+			className: "pc-section-title",
+			children: title
 		}), children]
 	});
 }
-function ConnectionSection({ data }) {
-	const readinessDependencies = data.server.readiness.dependencies;
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Section, {
-		title: "Connection",
-		note: "read-only checks",
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: "pc-kv",
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Deployment"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: "pc-value",
-					children: [data.deployment.mode === "desktop" ? "DSH Desktop" : "Local Web", /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: "pc-muted",
-						children: [" · ", data.deployment.owner_local === "explicit" ? "explicit owner config" : "automatic desktop signal"]
-					})]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Endpoint"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-value pc-mono",
-					children: data.configuration.endpoint_origin || "unavailable"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Endpoint source"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: "pc-value",
-					children: [data.configuration.endpoint_source, data.configuration.path_prefix ? " (with path prefix)" : ""]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Authentication"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: "pc-value",
-					children: [data.configuration.authorization_configured ? `Configured (${data.configuration.authorization_source})` : "Not configured", /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "pc-muted",
-						children: " · value never displayed"
-					})]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Liveness"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: "pc-value",
-					children: [probeLabel(data.server.liveness), data.server.liveness.code ? ` · ${data.server.liveness.code}` : ""]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Readiness"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: "pc-value",
-					children: [
-						probeLabel(data.server.readiness),
-						data.server.readiness.code ? ` · ${data.server.readiness.code}` : "",
-						readinessDependencies !== void 0 && Object.keys(readinessDependencies).length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-							className: "pc-muted",
-							children: [
-								" (",
-								Object.entries(readinessDependencies).map(([name, value]) => `${name}=${value}`).join(", "),
-								")"
-							]
-						})
-					]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Required capability"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-value",
-					children: data.server.capabilities.state === "unknown" ? "Not checked (liveness or readiness failed)" : data.capabilities.prepared_context ? "PreparedContext schema verified" : "PreparedContext schema missing"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Scope source"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-value",
-					children: data.configuration.scope_source
-				})
-			]
-		})
-	});
-}
 function SessionSection({ data }) {
-	if (data.session === null) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Section, {
-		title: "Scope and conversation",
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-			className: "pc-empty",
-			children: "No active conversation. This panel reads status only; it does not create a conversation or change Scope."
-		})
-	});
+	const t = useText();
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Section, {
-		title: "Scope and conversation",
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		title: t("session"),
+		children: data.session === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+			className: "pc-muted",
+			children: t("noSession")
+		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: "pc-kv",
 			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				data.session.cwd && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: "pc-key",
-					children: "Conversation"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-value pc-mono",
-					children: data.session.id
-				}),
-				data.session.cwd !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Workspace"
+					children: t("workspace")
 				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: "pc-value pc-mono",
 					children: data.session.cwd
 				})] }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: "pc-key",
-					children: "Active Scope"
+					children: t("scope")
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: "pc-value pc-mono",
-					children: data.session.scope_state === "resolved" && data.session.scope_id !== null ? data.session.scope_id : "unresolved"
+					children: data.session.scope_id ?? t("unresolved")
 				}),
-				data.session.scope_state === "unresolved" && data.session.scope_message !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Scope detail"
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: "pc-value",
-					children: [data.session.scope_message, data.session.scope_code !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: "pc-muted",
-						children: [" · ", data.session.scope_code]
-					})]
-				})] })
+				data.session.scope_state === "unresolved" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: "pc-alert-text",
+					children: t("scopeHelp")
+				})
 			]
 		})
 	});
 }
-function RuntimeSection({ data, now }) {
-	const runtime = data.runtime;
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Section, {
-		title: "Automatic path",
-		note: runtime.freshness === "stale" ? "stale observation" : void 0,
+function TechnicalDetails({ data }) {
+	const t = useText();
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("details", {
+		className: "pc-details",
 		children: [
-			runtime.freshness === "not_yet_observed" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-				className: "pc-empty",
-				children: "No automatic-path attempt has been observed for this conversation. Send a prompt in DSH, then refresh."
-			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: "pc-stage-list",
-				children: STAGE_ROWS.map((row) => {
-					const stage = runtime.stages[row.key];
-					return stage === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StageRow, {
-						stage,
-						label: row.label,
-						now
-					}, row.key);
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("summary", { children: t("details") }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Section, {
+				title: t("connection"),
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "pc-kv",
+					children: [
+						data.session && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("conversation")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-value pc-mono",
+							children: data.session.id
+						})] }),
+						data.connection.code && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("reason")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: "pc-value pc-mono",
+							children: [
+								data.connection.code,
+								" ",
+								data.connection.http_status
+							]
+						})] }),
+						data.connection.message && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: "pc-value",
+							children: data.connection.message
+						}),
+						data.connection.recovery && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							className: "pc-value",
+							children: data.connection.recovery
+						}),
+						data.session?.scope_message && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+							className: "pc-value",
+							children: [
+								data.session.scope_code,
+								" · ",
+								data.session.scope_message
+							]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("deployment")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: "pc-value",
+							children: [
+								data.deployment.mode === "desktop" ? "DSH Desktop" : "Local Web",
+								" · ",
+								t(data.deployment.owner_local === "automatic" ? "automaticOwner" : "explicit")
+							]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("endpointSource")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: "pc-value",
+							children: [data.configuration.endpoint_source, data.configuration.path_prefix ? t("pathPrefix") : ""]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("authentication")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: "pc-value",
+							children: [
+								t(data.configuration.authorization_configured ? "configured" : "unconfigured"),
+								" · ",
+								data.configuration.authorization_source
+							]
+						}),
+						[
+							"liveness",
+							"readiness",
+							"capabilities"
+						].map((key) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "pc-detail-row",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "pc-key",
+								children: t(key)
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+								className: "pc-value",
+								children: [
+									t(data.server[key].state),
+									" ",
+									data.server[key].code
+								]
+							})]
+						}, key)),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("dependencies")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-value pc-mono",
+							children: Object.entries(data.server.readiness.dependencies ?? {}).map(([key, value]) => `${key}=${value}`).join(", ") || t("unknown")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("scopeSource")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-value",
+							children: data.configuration.scope_source
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("schema")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-value pc-mono",
+							children: data.capabilities.context_versions.join(", ") || t("unknown")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("memory")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-value",
+							children: t(data.capabilities.memory_extraction === null ? "unknown" : data.capabilities.memory_extraction ? "configured" : "disabled")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-key",
+							children: t("handoff")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: "pc-value",
+							children: t(data.capabilities.handoff_generation === null ? "unknown" : data.capabilities.handoff_generation ? "configured" : "disabled")
+						})
+					]
 				})
 			}),
-			runtime.freshness === "stale" && runtime.stale_reason !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
-				className: "pc-coverage",
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Section, {
+				title: t("automatic"),
 				children: [
-					"Stale reason: ",
-					runtime.stale_reason,
-					". The sidebar will not present this as a fresh connection."
+					data.runtime.freshness === "not_yet_observed" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "pc-muted",
+						children: t("noObservation")
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: "pc-stage-list",
+						children: Object.entries(data.runtime.stages).map(([key, stage]) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "pc-stage",
+							"data-pc-stage": stage.operation,
+							"data-pc-stage-state": stage.state,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Dot, { state: stage.state === "unavailable" ? "failed" : stage.state === "running" ? "connecting" : [
+								"resolved",
+								"ready",
+								"empty",
+								"accepted",
+								"completed",
+								"appended"
+							].includes(stage.state) ? "ready" : "unconfigured" }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", { children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: "pc-stage-head",
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t(key) }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t(stage.state) })]
+								}),
+								stage.code && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: "pc-stage-message pc-mono",
+									children: stage.code
+								}),
+								stage.message && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: "pc-stage-message",
+									children: stage.message
+								}),
+								stage.recovery && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: "pc-stage-message",
+									children: stage.recovery
+								}),
+								(stage.http_status || stage.request_id || stage.protocol_issue || stage.confirmation) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+									className: "pc-stage-meta pc-mono",
+									children: [
+										stage.http_status,
+										stage.request_id,
+										stage.protocol_issue,
+										stage.confirmation
+									].filter(Boolean).join(" · ")
+								}),
+								stage.observed_at && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("time", {
+									className: "pc-stage-meta",
+									children: stage.observed_at
+								})
+							] })]
+						}, key))
+					}),
+					data.runtime.freshness === "stale" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+						className: "pc-coverage",
+						children: [
+							t("stale"),
+							" · ",
+							data.runtime.stale_reason
+						]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "pc-coverage",
+						children: t("coverage")
+					})
 				]
 			}),
-			runtime.coverage !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+			data.notices.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 				className: "pc-coverage",
-				children: runtime.coverage
+				"data-pc-notices": data.notices.join(","),
+				children: data.notices.map((code) => t(code)).join(" ")
 			})
 		]
-	});
-}
-function CapabilitySection({ data }) {
-	const memory = data.capabilities.memory_extraction;
-	const handoff = data.capabilities.handoff_generation;
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Section, {
-		title: "Server capabilities",
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: "pc-kv",
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Memory extraction"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-value",
-					children: memory === null ? "Unknown" : memory ? "Configured" : "Disabled"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Handoff generation"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-value",
-					children: handoff === null ? "Unknown" : handoff ? "Configured" : "Disabled"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-key",
-					children: "Context versions"
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: "pc-value pc-mono",
-					children: data.capabilities.context_versions.length === 0 ? "unknown" : data.capabilities.context_versions.join(", ")
-				})
-			]
-		})
-	});
-}
-function Notices({ notices }) {
-	const messages = notices.map((notice) => {
-		switch (notice) {
-			case "no_active_session": return "No active conversation; none was created.";
-			case "session_unavailable": return "The selected conversation is no longer available to this host.";
-			case "session_service_unavailable": return "DSH did not expose its session registry to the status bridge.";
-			case "scope_unresolved": return "The current Scope could not be resolved; Scope-dependent work may be unavailable.";
-			default: return notice;
-		}
-	});
-	if (messages.length === 0) return null;
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-		className: "pc-alert",
-		role: "status",
-		"data-pc-notices": notices.join(","),
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-			className: "pc-alert-title",
-			children: "Attention"
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-			className: "pc-alert-text",
-			children: messages.join(" ")
-		})]
 	});
 }
 /**
@@ -1112,6 +1189,23 @@ function Notices({ notices }) {
 * credential, calls a model, or invokes `/pc doctor`.
 */
 function PowerContextStatus(props) {
+	const [locale, setLocale] = (0, react.useState)(readLocale);
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LocaleContext.Provider, {
+		value: locale,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StatusPanel, {
+			...props,
+			locale,
+			changeLocale: (value) => {
+				saveLocale(value);
+				setLocale(value);
+			}
+		})
+	});
+}
+function StatusPanel(props) {
+	const t = useText();
+	const [languageOpen, setLanguageOpen] = (0, react.useState)(false);
+	const languageRef = (0, react.useRef)(null);
 	const { wide, useSessions, useStatus, setSession, refresh } = props;
 	const sessionId = useSessions((state$1) => activeSessionId(state$1));
 	const snapshot = useStatus((value) => value);
@@ -1124,8 +1218,7 @@ function PowerContextStatus(props) {
 	const triggerRef = (0, react.useRef)(null);
 	const panelRef = (0, react.useRef)(null);
 	const panelId = (0, react.useId)();
-	const now = Math.max(clockTick, snapshot.last_success_at ?? 0);
-	const state = displayState(snapshot, now);
+	const state = displayState(snapshot, Math.max(clockTick, snapshot.last_success_at ?? 0));
 	const data = snapshot.data;
 	(0, react.useEffect)(() => {
 		setSession(sessionId);
@@ -1191,6 +1284,11 @@ function PowerContextStatus(props) {
 			if (event.key !== "Escape") return;
 			event.preventDefault();
 			event.stopPropagation();
+			if (languageOpen) {
+				setLanguageOpen(false);
+				languageRef.current?.focus();
+				return;
+			}
 			close$1();
 		};
 		document.addEventListener("pointerdown", onPointerDown, true);
@@ -1199,14 +1297,14 @@ function PowerContextStatus(props) {
 			document.removeEventListener("pointerdown", onPointerDown, true);
 			document.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [open]);
+	}, [open, languageOpen]);
 	const close = () => {
 		setOpen(false);
 		triggerRef.current?.focus();
 	};
 	const onPanelKeyDown = (event) => {
 		if (event.key !== "Tab") return;
-		const focusable = [...panelRef.current?.querySelectorAll("button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])") ?? []];
+		const focusable = [...panelRef.current?.querySelectorAll("button:not([disabled]), summary, [href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])") ?? []].filter((element) => element.getClientRects().length > 0);
 		if (focusable.length === 0) return;
 		const first = focusable[0];
 		const last = focusable[focusable.length - 1];
@@ -1218,14 +1316,15 @@ function PowerContextStatus(props) {
 			first.focus();
 		}
 	};
-	const label = triggerLabel(state, snapshot);
+	const label = t(state);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: "pc-status",
+		lang: props.locale,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 			ref: triggerRef,
 			type: "button",
 			className: `pc-trigger${wide ? " pc-trigger-wide" : " pc-trigger-rail"}`,
-			"aria-label": `PowerContext status: ${label}`,
+			"aria-label": `PowerContext ${t("status")}: ${label}`,
 			"aria-haspopup": "dialog",
 			"aria-expanded": open,
 			"aria-controls": open ? panelId : void 0,
@@ -1286,30 +1385,78 @@ function PowerContextStatus(props) {
 							children: "PowerContext"
 						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 							className: "pc-subtitle",
-							children: "Connection diagnostics"
+							children: t("diagnostics")
 						})] })]
 					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: "pc-actions",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "pc-icon-button",
-							"aria-label": "Refresh status",
-							title: "Refresh status",
-							disabled: snapshot.loading,
-							onClick: () => {
-								setClockTick(Date.now());
-								refresh();
-							},
-							children: "↻"
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "pc-icon-button",
-							"aria-label": "Close diagnostics",
-							title: "Close",
-							onClick: close,
-							children: "×"
-						})]
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								ref: languageRef,
+								type: "button",
+								className: "pc-icon-button",
+								"aria-label": t("language"),
+								title: t("language"),
+								"aria-expanded": languageOpen,
+								"aria-controls": `${panelId}-language`,
+								onClick: () => setLanguageOpen((value) => !value),
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+									width: "18",
+									height: "18",
+									viewBox: "0 0 24 24",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "1.6",
+									"aria-hidden": "true",
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
+											cx: "12",
+											cy: "12",
+											r: "9"
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("ellipse", {
+											cx: "12",
+											cy: "12",
+											rx: "4",
+											ry: "9"
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M3 12h18" })
+									]
+								})
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "pc-icon-button",
+								"aria-label": t("refresh"),
+								title: t("refresh"),
+								disabled: snapshot.loading,
+								onClick: () => {
+									setClockTick(Date.now());
+									refresh();
+								},
+								children: "↻"
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "pc-icon-button",
+								"data-pc-close": true,
+								"aria-label": t("close"),
+								title: t("close"),
+								onClick: close,
+								children: "×"
+							})
+						]
 					})]
+				}),
+				languageOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("fieldset", {
+					id: `${panelId}-language`,
+					className: "pc-language",
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("legend", { children: t("language") }), ["zh-CN", "en"].map((value) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+						type: "radio",
+						name: `${panelId}-locale`,
+						value,
+						checked: props.locale === value,
+						onChange: () => props.changeLocale(value)
+					}), value === "zh-CN" ? "简体中文" : "English"] }, value))]
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: "pc-panel-body",
@@ -1323,45 +1470,44 @@ function PowerContextStatus(props) {
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Dot, { state }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 									className: "pc-summary-copy",
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-										className: "pc-summary-label",
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StatusLabel, {
-											state,
-											snapshot
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+											className: "pc-summary-label",
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(StatusLabel, {
+												state,
+												snapshot
+											})
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+											className: "pc-summary-detail",
+											children: state === "failed" ? t(failureTextKey(snapshot.error?.code ?? data?.connection.code, snapshot.error?.http_status ?? data?.connection.http_status)) : state === "ready" ? null : t(state + "Help")
+										}),
+										state === "failed" && data?.connection.code && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+											className: "pc-stage-message pc-mono",
+											children: data.connection.code
 										})
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-										className: "pc-summary-detail",
-										children: summaryDetail(state, snapshot)
-									})]
+									]
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: "pc-summary-time",
-									children: snapshot.last_success_at === null ? "not checked" : clock(data?.observed_at ?? null)
+									children: snapshot.last_success_at === null ? t("notChecked") : new Date(data?.observed_at ?? snapshot.last_success_at).toLocaleTimeString(props.locale, {
+										hour: "2-digit",
+										minute: "2-digit"
+									})
 								})
 							]
 						}),
-						snapshot.error !== null && (state === "failed" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						snapshot.error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: "pc-alert",
 							role: "alert",
 							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: "pc-alert-title",
-									children: "Status read failed"
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 									className: "pc-alert-text",
-									children: [
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: "pc-mono",
-											children: snapshot.error.code
-										}),
-										" · ",
-										snapshot.error.message
-									]
+									children: t(snapshot.error.kind === "authentication" ? "authHelp" : snapshot.error.kind === "forbidden" || snapshot.error.kind === "bridge" ? "bridgeHelp" : "failureHelp")
 								}),
-								snapshot.error.recovery !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-									className: "pc-alert-text",
-									children: snapshot.error.recovery
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "pc-mono",
+									children: snapshot.error.code
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 									className: "pc-alert-actions",
@@ -1372,48 +1518,39 @@ function PowerContextStatus(props) {
 											setClockTick(Date.now());
 											refresh();
 										},
-										children: "Retry"
+										children: t("retry")
 									})
 								})
 							]
-						}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: "pc-empty",
-							role: "status",
-							"data-pc-status-unconfigured": snapshot.error.code,
-							children: [snapshot.error.recovery, /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-								className: "pc-alert-actions",
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: "pc-text-button",
-									onClick: () => {
-										setClockTick(Date.now());
-										refresh();
-									},
-									children: "Retry"
-								})
-							})]
-						})),
+						}),
 						data !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Notices, { notices: data.notices }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ConnectionSection, { data }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionSection, { data }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(RuntimeSection, {
-								data,
-								now
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Section, {
+								title: t("server"),
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: "pc-kv",
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: "pc-key",
+										children: t("address")
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: "pc-value pc-mono",
+										children: data.configuration.endpoint_origin || t("unknown")
+									})]
+								})
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(CapabilitySection, { data })
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(SessionSection, { data }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TechnicalDetails, { data })
 						] }),
 						data === null && snapshot.error === null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 							className: "pc-empty",
-							children: "Reading the local status bridge. No model request is made."
+							children: t("connectingHelp")
 						})
 					]
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
 					className: "pc-panel-foot",
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: "Local DSH owner only · read-only checks" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("serverVersion") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: "pc-mono",
-						children: data?.plugin_version ?? "checking"
+						children: snapshot.error !== null || state === "stale" ? t("unknown") : data?.server.package_version ?? t("unknown")
 					})]
 				})
 			]

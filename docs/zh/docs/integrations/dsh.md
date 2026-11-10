@@ -135,10 +135,12 @@ Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powerc
 | 绿色 | 已通过 liveness、readiness 和所需 PreparedContext 能力 |
 | 红色 | 连接、DSH 认证或必要能力失败 |
 
-点击后打开只读诊断面板，显示已验证的部署方式、Server origin 和配置来源、是否已配置 Authorization
-（不显示值）、liveness、readiness 及其依赖、所需 context schema、当前会话和 Scope，并分别显示最近的
-自动召回、采集、flush 和注入观测。它复用 `/pc` 使用的内存 `RuntimeStatus`，不从日志重建历史，也不调用模型、
-发送诊断 prompt 或轮询 `/pc doctor`。
+点击后打开只读诊断面板，默认使用简体中文。右上角语言图标可切换 English；明确选择会保存在当前浏览器的
+本地存储中，无法读取偏好时回退到中文。默认视图保留连接状态、Server 地址、工作目录和 Scope；会话 ID、
+部署方式、认证配置来源（不显示认证值）、就绪依赖、context schema 和自动处理观测放在可展开的“技术详情”中。
+页脚通过 Host 读取 `GET /v1/server-info` 的 `package_version`，显示当前 Server 包版本。旧 Server 不支持该接口、
+读取失败或连接观测过期时显示“未知”，不会替换为插件版本或 API 合约版本。版本读取有界且不影响就绪判断。
+面板复用 `/pc` 使用的内存 `RuntimeStatus`，不从日志重建历史，也不调用模型、发送诊断 prompt 或轮询 `/pc doctor`。
 
 桥接接口是插件自有、经 DSH 认证的 `GET /powercontext/status`。DSH 原有 `requestRejection` 始终先执行，不会被削弱；
 此外还必须到达已验证的本机所有者界面：

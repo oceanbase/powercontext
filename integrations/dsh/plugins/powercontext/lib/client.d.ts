@@ -124,6 +124,7 @@ interface StatusPayload {
   session: StatusSessionPayload | null;
   runtime: StatusRuntimePayload;
   server: {
+    package_version?: string | null;
     liveness: StatusProbePayload;
     readiness: StatusProbePayload;
     capabilities: StatusProbePayload;

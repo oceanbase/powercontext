@@ -14,14 +14,20 @@
  * limitations under the License.
  */
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  STATUS_STALE_AFTER_MS, STATUS_REFRESH_INTERVAL_MS, type DisplayState, type StatusPayload,
-  type StatusProbePayload, type StatusStagePayload,
+  type DisplayState, type StatusPayload,
 } from '../status-contract.ts'
 import { activeSessionId, displayState, StatusController, type StatusSnapshot } from './status-controller.ts'
+import { readLocale, saveLocale, texts, failureTextKey, type Locale, type TextKey } from './locale.ts'
 import { STATUS_STYLES } from './styles.ts'
+
+const LocaleContext = createContext<Locale>('zh-CN')
+function useText() {
+  const locale = useContext(LocaleContext)
+  return (key: string): string => texts[locale][key as TextKey] ?? key
+}
 
 const STYLE_ID = 'powercontext-dsh-status-styles'
 
@@ -61,14 +67,6 @@ declare module '@deepseek-ai/cordis' {
 
 export const inject = ['slots']
 
-const STAGE_ROWS = [
-  { key: 'scope', label: 'Scope resolution' },
-  { key: 'prepare', label: 'Recall' },
-  { key: 'capture', label: 'Source capture' },
-  { key: 'flush', label: 'Memory flush' },
-  { key: 'injection', label: 'Context injection' },
-] as const
-
 function PowerContextMark({ size = 20 }: { size?: number }) {
   return (
     <svg
@@ -95,259 +93,64 @@ function Dot({ state }: { state: DisplayState }) {
 }
 
 function StatusLabel({ state, snapshot }: { state: DisplayState; snapshot: StatusSnapshot }) {
-  if (state === 'failed' && snapshot.error?.kind === 'authentication') return <>Authentication required</>
-  switch (state) {
-    case 'unconfigured': return <>Not configured</>
-    case 'connecting': return snapshot.error === null ? <>Connecting</> : <>Retrying</>
-    case 'stale': return <>Stale, retrying</>
-    case 'ready': return <>Connected</>
-    case 'failed': return <>Action needed</>
-  }
+  const t = useText()
+  return <>{t(state === 'failed' && snapshot.error?.kind === 'authentication' ? 'auth' : state)}</>
 }
 
-function triggerLabel(state: DisplayState, snapshot: StatusSnapshot): string {
-  const label = state === 'ready' ? 'Connected'
-    : state === 'connecting' ? 'Connecting'
-      : state === 'stale' ? 'Status stale, retrying'
-        : state === 'failed' ? 'Action needed'
-          : 'Not configured'
-  const error = snapshot.error
-  return error === null ? label : `${label}: ${error.message}`
-}
-
-function summaryDetail(state: DisplayState, snapshot: StatusSnapshot): string {
-  if (state === 'failed') return snapshot.error?.message ?? snapshot.data?.connection.message ?? 'PowerContext is not ready.'
-  if (state === 'unconfigured') {
-    return snapshot.error?.message ?? 'The status bridge is unavailable in this host. Existing tools still work.'
-  }
-  if (state === 'stale') return 'The last observation expired; re-verifying with the Server.'
-  if (state === 'connecting') return 'Contacting the PowerContext Server and checking readiness.'
-  if (snapshot.data?.session === null) return 'Readiness verified. There is no active conversation to observe.'
-  return 'Connectivity, readiness, and the required context capability are verified.'
-}
-
-function ago(milliseconds: number | null | undefined, now: number): string {
-  if (milliseconds === null || milliseconds === undefined) return 'not observed'
-  const seconds = Math.max(0, Math.round(milliseconds / 1_000))
-  if (seconds < 5) return 'just now'
-  if (seconds < 60) return `${String(seconds)}s ago`
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${String(minutes)}m ago`
-  return `${String(Math.round(minutes / 60))}h ago`
-}
-
-function clock(iso: string | null): string {
-  if (iso === null) return 'not yet'
-  try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch {
-    return iso
-  }
-}
-
-function probeLabel(probe: StatusProbePayload): string {
-  if (probe.state === 'ok') return 'Verified'
-  if (probe.state === 'failed') return 'Failed'
-  return 'Not checked'
-}
-
-function stageLabel(stage: StatusStagePayload): string {
-  switch (stage.state) {
-    case 'not_yet_observed': return 'Not yet observed'
-    case 'running': return 'Running'
-    case 'resolved': return 'Resolved'
-    case 'ready': return 'Ready'
-    case 'empty': return 'Empty'
-    case 'accepted': return 'Accepted'
-    case 'completed': return 'Completed'
-    case 'incomplete': return 'Incomplete'
-    case 'appended': return 'Injected'
-    case 'skipped': return 'Skipped'
-    case 'unavailable': return 'Unavailable'
-  }
-}
-
-function stageTone(stage: StatusStagePayload): DisplayState {
-  if (stage.state === 'unavailable') return 'failed'
-  if (stage.state === 'running') return 'connecting'
-  if (['resolved', 'ready', 'empty', 'accepted', 'completed', 'appended'].includes(stage.state)) return 'ready'
-  return 'unconfigured'
-}
-
-function StageRow({ stage, label, now }: { stage: StatusStagePayload; label: string; now: number }) {
-  const tone = stageTone(stage)
-  return (
-    <div className="pc-stage" data-pc-stage={stage.operation} data-pc-stage-state={stage.state}>
-      <span className={`pc-dot pc-dot-${tone}`} aria-hidden="true" />
-      <div className="pc-stage-main">
-        <div className="pc-stage-head">
-          <span className="pc-stage-name">{label}</span>
-          <span className="pc-stage-state">{stageLabel(stage)}</span>
-        </div>
-        {stage.code !== undefined && <p className="pc-stage-message pc-mono">{stage.code}</p>}
-        {stage.message !== undefined && <p className="pc-stage-message">{stage.message}</p>}
-        <p className="pc-stage-meta">{ago(stage.age_ms ?? (stage.observed_at === null ? null : now - Date.parse(stage.observed_at)), now)}</p>
-      </div>
-    </div>
-  )
-}
-
-function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
-  return (
-    <section className="pc-section" aria-label={title}>
-      <div className="pc-section-head">
-        <h3 className="pc-section-title">{title}</h3>
-        {note !== undefined && <span className="pc-section-note">{note}</span>}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function ConnectionSection({ data }: { data: StatusPayload }) {
-  const readinessDependencies = data.server.readiness.dependencies
-  return (
-    <Section title="Connection" note="read-only checks">
-      <div className="pc-kv">
-        <span className="pc-key">Deployment</span>
-        <span className="pc-value">
-          {data.deployment.mode === 'desktop' ? 'DSH Desktop' : 'Local Web'}
-          <span className="pc-muted"> · {data.deployment.owner_local === 'explicit' ? 'explicit owner config' : 'automatic desktop signal'}</span>
-        </span>
-        <span className="pc-key">Endpoint</span>
-        <span className="pc-value pc-mono">{data.configuration.endpoint_origin || 'unavailable'}</span>
-        <span className="pc-key">Endpoint source</span>
-        <span className="pc-value">{data.configuration.endpoint_source}{data.configuration.path_prefix ? ' (with path prefix)' : ''}</span>
-        <span className="pc-key">Authentication</span>
-        <span className="pc-value">
-          {data.configuration.authorization_configured ? `Configured (${data.configuration.authorization_source})` : 'Not configured'}
-          <span className="pc-muted"> · value never displayed</span>
-        </span>
-        <span className="pc-key">Liveness</span>
-        <span className="pc-value">{probeLabel(data.server.liveness)}{data.server.liveness.code ? ` · ${data.server.liveness.code}` : ''}</span>
-        <span className="pc-key">Readiness</span>
-        <span className="pc-value">
-          {probeLabel(data.server.readiness)}{data.server.readiness.code ? ` · ${data.server.readiness.code}` : ''}
-          {readinessDependencies !== undefined && Object.keys(readinessDependencies).length > 0 && (
-            <span className="pc-muted"> ({Object.entries(readinessDependencies).map(([name, value]) => `${name}=${value}`).join(', ')})</span>
-          )}
-        </span>
-        <span className="pc-key">Required capability</span>
-        <span className="pc-value">
-          {data.server.capabilities.state === 'unknown'
-            ? 'Not checked (liveness or readiness failed)'
-            : data.capabilities.prepared_context
-              ? 'PreparedContext schema verified'
-              : 'PreparedContext schema missing'}
-        </span>
-        <span className="pc-key">Scope source</span>
-        <span className="pc-value">{data.configuration.scope_source}</span>
-      </div>
-    </Section>
-  )
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="pc-section" aria-label={title}><h3 className="pc-section-title">{title}</h3>{children}</section>
 }
 
 function SessionSection({ data }: { data: StatusPayload }) {
-  if (data.session === null) {
-    return (
-      <Section title="Scope and conversation">
-        <p className="pc-empty">
-          No active conversation. This panel reads status only; it does not create a conversation or change Scope.
-        </p>
-      </Section>
-    )
-  }
-  return (
-    <Section title="Scope and conversation">
-      <div className="pc-kv">
-        <span className="pc-key">Conversation</span>
-        <span className="pc-value pc-mono">{data.session.id}</span>
-        {data.session.cwd !== undefined && (
-          <>
-            <span className="pc-key">Workspace</span>
-            <span className="pc-value pc-mono">{data.session.cwd}</span>
-          </>
-        )}
-        <span className="pc-key">Active Scope</span>
-        <span className="pc-value pc-mono">
-          {data.session.scope_state === 'resolved' && data.session.scope_id !== null
-            ? data.session.scope_id
-            : 'unresolved'}
-        </span>
-        {data.session.scope_state === 'unresolved' && data.session.scope_message !== undefined && (
-          <>
-            <span className="pc-key">Scope detail</span>
-            <span className="pc-value">
-              {data.session.scope_message}
-              {data.session.scope_code !== undefined && <span className="pc-muted"> · {data.session.scope_code}</span>}
-            </span>
-          </>
-        )}
-      </div>
-    </Section>
-  )
+  const t = useText()
+  return <Section title={t('session')}>
+    {data.session === null ? <p className="pc-muted">{t('noSession')}</p> : <div className="pc-kv">
+      {data.session.cwd && <><span className="pc-key">{t('workspace')}</span><span className="pc-value pc-mono">{data.session.cwd}</span></>}
+      <span className="pc-key">{t('scope')}</span><span className="pc-value pc-mono">{data.session.scope_id ?? t('unresolved')}</span>
+      {data.session.scope_state === 'unresolved' && <p className="pc-alert-text">{t('scopeHelp')}</p>}
+    </div>}
+  </Section>
 }
 
-function RuntimeSection({ data, now }: { data: StatusPayload; now: number }) {
-  const runtime = data.runtime
-  return (
-    <Section title="Automatic path" note={runtime.freshness === 'stale' ? 'stale observation' : undefined}>
-      {runtime.freshness === 'not_yet_observed' ? (
-        <p className="pc-empty">
-          No automatic-path attempt has been observed for this conversation. Send a prompt in DSH, then refresh.
-        </p>
-      ) : (
-        <div className="pc-stage-list">
-          {STAGE_ROWS.map(row => {
-            const stage = runtime.stages[row.key]
-            return stage === undefined ? null : <StageRow key={row.key} stage={stage} label={row.label} now={now} />
-          })}
-        </div>
-      )}
-      {runtime.freshness === 'stale' && runtime.stale_reason !== undefined && (
-        <p className="pc-coverage">Stale reason: {runtime.stale_reason}. The sidebar will not present this as a fresh connection.</p>
-      )}
-      {runtime.coverage !== '' && <p className="pc-coverage">{runtime.coverage}</p>}
+function TechnicalDetails({ data }: { data: StatusPayload }) {
+  const t = useText()
+  return <details className="pc-details"><summary>{t('details')}</summary>
+    <Section title={t('connection')}><div className="pc-kv">
+      {data.session && <><span className="pc-key">{t('conversation')}</span><span className="pc-value pc-mono">{data.session.id}</span></>}
+      {data.connection.code && <><span className="pc-key">{t('reason')}</span><span className="pc-value pc-mono">{data.connection.code} {data.connection.http_status}</span></>}
+      {data.connection.message && <p className="pc-value">{data.connection.message}</p>}
+      {data.connection.recovery && <p className="pc-value">{data.connection.recovery}</p>}
+      {data.session?.scope_message && <p className="pc-value">{data.session.scope_code} · {data.session.scope_message}</p>}
+      <span className="pc-key">{t('deployment')}</span><span className="pc-value">{data.deployment.mode === 'desktop' ? 'DSH Desktop' : 'Local Web'} · {t(data.deployment.owner_local === 'automatic' ? 'automaticOwner' : 'explicit')}</span>
+      <span className="pc-key">{t('endpointSource')}</span><span className="pc-value">{data.configuration.endpoint_source}{data.configuration.path_prefix ? t('pathPrefix') : ''}</span>
+      <span className="pc-key">{t('authentication')}</span><span className="pc-value">{t(data.configuration.authorization_configured ? 'configured' : 'unconfigured')} · {data.configuration.authorization_source}</span>
+      {(['liveness', 'readiness', 'capabilities'] as const).map(key => <div className="pc-detail-row" key={key}>
+        <span className="pc-key">{t(key)}</span><span className="pc-value">{t(data.server[key].state)} {data.server[key].code}</span>
+      </div>)}
+      <span className="pc-key">{t('dependencies')}</span><span className="pc-value pc-mono">{Object.entries(data.server.readiness.dependencies ?? {}).map(([key, value]) => `${key}=${value}`).join(', ') || t('unknown')}</span>
+      <span className="pc-key">{t('scopeSource')}</span><span className="pc-value">{data.configuration.scope_source}</span>
+      <span className="pc-key">{t('schema')}</span><span className="pc-value pc-mono">{data.capabilities.context_versions.join(', ') || t('unknown')}</span>
+      <span className="pc-key">{t('memory')}</span><span className="pc-value">{t(data.capabilities.memory_extraction === null ? 'unknown' : data.capabilities.memory_extraction ? 'configured' : 'disabled')}</span>
+      <span className="pc-key">{t('handoff')}</span><span className="pc-value">{t(data.capabilities.handoff_generation === null ? 'unknown' : data.capabilities.handoff_generation ? 'configured' : 'disabled')}</span>
+    </div></Section>
+    <Section title={t('automatic')}>
+      {data.runtime.freshness === 'not_yet_observed' ? <p className="pc-muted">{t('noObservation')}</p> :
+        <div className="pc-stage-list">{Object.entries(data.runtime.stages).map(([key, stage]) =>
+          <div key={key} className="pc-stage" data-pc-stage={stage.operation} data-pc-stage-state={stage.state}>
+            <Dot state={stage.state === 'unavailable' ? 'failed' : stage.state === 'running' ? 'connecting' : ['resolved', 'ready', 'empty', 'accepted', 'completed', 'appended'].includes(stage.state) ? 'ready' : 'unconfigured'} />
+            <div><div className="pc-stage-head"><span>{t(key)}</span><span>{t(stage.state)}</span></div>
+              {stage.code && <p className="pc-stage-message pc-mono">{stage.code}</p>}
+              {stage.message && <p className="pc-stage-message">{stage.message}</p>}
+              {stage.recovery && <p className="pc-stage-message">{stage.recovery}</p>}
+              {(stage.http_status || stage.request_id || stage.protocol_issue || stage.confirmation) && <p className="pc-stage-meta pc-mono">{[stage.http_status, stage.request_id, stage.protocol_issue, stage.confirmation].filter(Boolean).join(' · ')}</p>}
+              {stage.observed_at && <time className="pc-stage-meta">{stage.observed_at}</time>}
+            </div>
+          </div>)}</div>}
+      {data.runtime.freshness === 'stale' && <p className="pc-coverage">{t('stale')} · {data.runtime.stale_reason}</p>}
+      <p className="pc-coverage">{t('coverage')}</p>
     </Section>
-  )
-}
-
-function CapabilitySection({ data }: { data: StatusPayload }) {
-  const memory = data.capabilities.memory_extraction
-  const handoff = data.capabilities.handoff_generation
-  return (
-    <Section title="Server capabilities">
-      <div className="pc-kv">
-        <span className="pc-key">Memory extraction</span>
-        <span className="pc-value">{memory === null ? 'Unknown' : memory ? 'Configured' : 'Disabled'}</span>
-        <span className="pc-key">Handoff generation</span>
-        <span className="pc-value">{handoff === null ? 'Unknown' : handoff ? 'Configured' : 'Disabled'}</span>
-        <span className="pc-key">Context versions</span>
-        <span className="pc-value pc-mono">
-          {data.capabilities.context_versions.length === 0 ? 'unknown' : data.capabilities.context_versions.join(', ')}
-        </span>
-      </div>
-    </Section>
-  )
-}
-
-function Notices({ notices }: { notices: string[] }) {
-  const messages = notices.map(notice => {
-    switch (notice) {
-      case 'no_active_session': return 'No active conversation; none was created.'
-      case 'session_unavailable': return 'The selected conversation is no longer available to this host.'
-      case 'session_service_unavailable': return 'DSH did not expose its session registry to the status bridge.'
-      case 'scope_unresolved': return 'The current Scope could not be resolved; Scope-dependent work may be unavailable.'
-      default: return notice
-    }
-  })
-  if (messages.length === 0) return null
-  return (
-    <div className="pc-alert" role="status" data-pc-notices={notices.join(',')}>
-      <div className="pc-alert-title">Attention</div>
-      <p className="pc-alert-text">{messages.join(' ')}</p>
-    </div>
-  )
+    {data.notices.length > 0 && <p className="pc-coverage" data-pc-notices={data.notices.join(',')}>{data.notices.map(code => t(code)).join(' ')}</p>}
+  </details>
 }
 
 /**
@@ -356,6 +159,14 @@ function Notices({ notices }: { notices: string[] }) {
  * credential, calls a model, or invokes `/pc doctor`.
  */
 export function PowerContextStatus(props: StatusProps) {
+  const [locale, setLocale] = useState<Locale>(readLocale)
+  return <LocaleContext.Provider value={locale}><StatusPanel {...props} locale={locale} changeLocale={value => { saveLocale(value); setLocale(value) }} /></LocaleContext.Provider>
+}
+
+function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (locale: Locale) => void }) {
+  const t = useText()
+  const [languageOpen, setLanguageOpen] = useState(false)
+  const languageRef = useRef<HTMLButtonElement>(null)
   const { wide, useSessions, useStatus, setSession, refresh } = props
   const sessionId = useSessions(state => activeSessionId(state))
   const snapshot = useStatus(value => value)
@@ -432,6 +243,7 @@ export function PowerContextStatus(props: StatusProps) {
       if (event.key !== 'Escape') return
       event.preventDefault()
       event.stopPropagation()
+      if (languageOpen) { setLanguageOpen(false); languageRef.current?.focus(); return }
       close()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
@@ -440,7 +252,7 @@ export function PowerContextStatus(props: StatusProps) {
       document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('keydown', onKeyDown, true)
     }
-  }, [open])
+  }, [open, languageOpen])
 
   const close = (): void => {
     setOpen(false)
@@ -450,8 +262,8 @@ export function PowerContextStatus(props: StatusProps) {
   const onPanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== 'Tab') return
     const focusable = [...(panelRef.current?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    ) ?? [])]
+      'button:not([disabled]), summary, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ) ?? [])].filter(element => element.getClientRects().length > 0)
     if (focusable.length === 0) return
     const first = focusable[0]!
     const last = focusable[focusable.length - 1]!
@@ -464,14 +276,14 @@ export function PowerContextStatus(props: StatusProps) {
     }
   }
 
-  const label = triggerLabel(state, snapshot)
+  const label = t(state)
   return (
-    <div className="pc-status">
+    <div className="pc-status" lang={props.locale}>
       <button
         ref={triggerRef}
         type="button"
         className={`pc-trigger${wide ? ' pc-trigger-wide' : ' pc-trigger-rail'}`}
-        aria-label={`PowerContext status: ${label}`}
+        aria-label={`PowerContext ${t("status")}: ${label}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
@@ -510,74 +322,67 @@ export function PowerContextStatus(props: StatusProps) {
               <span className="pc-mark"><PowerContextMark size={22} /></span>
               <div>
                 <h2 className="pc-title" id={`${panelId}-title`}>PowerContext</h2>
-                <div className="pc-subtitle">Connection diagnostics</div>
+                <div className="pc-subtitle">{t('diagnostics')}</div>
               </div>
             </div>
             <div className="pc-actions">
+              <button ref={languageRef} type="button" className="pc-icon-button" aria-label={t('language')} title={t('language')} aria-expanded={languageOpen} aria-controls={`${panelId}-language`} onClick={() => setLanguageOpen(value => !value)}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg>
+              </button>
               <button
                 type="button"
                 className="pc-icon-button"
-                aria-label="Refresh status"
-                title="Refresh status"
+                aria-label={t('refresh')}
+                title={t('refresh')}
                 disabled={snapshot.loading}
                 onClick={() => { setClockTick(Date.now()); refresh() }}
               >
                 ↻
               </button>
-              <button type="button" className="pc-icon-button" aria-label="Close diagnostics" title="Close" onClick={close}>
+              <button type="button" className="pc-icon-button" data-pc-close aria-label={t('close')} title={t('close')} onClick={close}>
                 ×
               </button>
             </div>
           </header>
+          {languageOpen && <fieldset id={`${panelId}-language`} className="pc-language"><legend>{t('language')}</legend>
+            {(['zh-CN', 'en'] as const).map(value => <label key={value}><input type="radio" name={`${panelId}-locale`} value={value} checked={props.locale === value} onChange={() => props.changeLocale(value)} />{value === 'zh-CN' ? '简体中文' : 'English'}</label>)}
+          </fieldset>}
 
           <div className="pc-panel-body">
             <div className={`pc-summary pc-summary-${state}`} role="status" aria-live="polite" aria-busy={snapshot.loading}>
               <Dot state={state} />
               <div className="pc-summary-copy">
                 <div className="pc-summary-label"><StatusLabel state={state} snapshot={snapshot} /></div>
-                <div className="pc-summary-detail">{summaryDetail(state, snapshot)}</div>
+                <div className="pc-summary-detail">{state === 'failed' ? t(failureTextKey(snapshot.error?.code ?? data?.connection.code, snapshot.error?.http_status ?? data?.connection.http_status)) : state === 'ready' ? null : t(state + 'Help')}</div>
+                {state === 'failed' && data?.connection.code && <div className="pc-stage-message pc-mono">{data.connection.code}</div>}
               </div>
               <span className="pc-summary-time">
-                {snapshot.last_success_at === null ? 'not checked' : clock(data?.observed_at ?? null)}
+                {snapshot.last_success_at === null ? t('notChecked') : new Date(data?.observed_at ?? snapshot.last_success_at).toLocaleTimeString(props.locale, { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
 
-            {snapshot.error !== null && (state === 'failed' ? (
-              <div className="pc-alert" role="alert">
-                <div className="pc-alert-title">Status read failed</div>
-                <p className="pc-alert-text"><span className="pc-mono">{snapshot.error.code}</span> · {snapshot.error.message}</p>
-                {snapshot.error.recovery !== undefined && <p className="pc-alert-text">{snapshot.error.recovery}</p>}
-                <div className="pc-alert-actions">
-                  <button type="button" className="pc-text-button" onClick={() => { setClockTick(Date.now()); refresh() }}>Retry</button>
-                </div>
-              </div>
-            ) : (
-              <div className="pc-empty" role="status" data-pc-status-unconfigured={snapshot.error.code}>
-                {snapshot.error.recovery}
-                <div className="pc-alert-actions">
-                  <button type="button" className="pc-text-button" onClick={() => { setClockTick(Date.now()); refresh() }}>Retry</button>
-                </div>
-              </div>
-            ))}
+            {snapshot.error !== null && <div className="pc-alert" role="alert">
+              <p className="pc-alert-text">{t(snapshot.error.kind === 'authentication' ? 'authHelp' : snapshot.error.kind === 'forbidden' || snapshot.error.kind === 'bridge' ? 'bridgeHelp' : 'failureHelp')}</p>
+              <span className="pc-mono">{snapshot.error.code}</span>
+              <div className="pc-alert-actions"><button type="button" className="pc-text-button" onClick={() => { setClockTick(Date.now()); refresh() }}>{t('retry')}</button></div>
+            </div>}
 
             {data !== null && (
               <>
-                <Notices notices={data.notices} />
-                <ConnectionSection data={data} />
+                <Section title={t('server')}><div className="pc-kv"><span className="pc-key">{t('address')}</span><span className="pc-value pc-mono">{data.configuration.endpoint_origin || t('unknown')}</span></div></Section>
                 <SessionSection data={data} />
-                <RuntimeSection data={data} now={now} />
-                <CapabilitySection data={data} />
+                <TechnicalDetails data={data} />
               </>
             )}
 
             {data === null && snapshot.error === null && (
-              <p className="pc-empty">Reading the local status bridge. No model request is made.</p>
+              <p className="pc-empty">{t('connectingHelp')}</p>
             )}
           </div>
 
           <footer className="pc-panel-foot">
-            <span>Local DSH owner only · read-only checks</span>
-            <span className="pc-mono">{data?.plugin_version ?? 'checking'}</span>
+            <span>{t('serverVersion')}</span>
+            <span className="pc-mono">{snapshot.error !== null || state === 'stale' ? t('unknown') : data?.server.package_version ?? t('unknown')}</span>
           </footer>
         </div>
       )}

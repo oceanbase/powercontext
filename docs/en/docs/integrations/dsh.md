@@ -168,12 +168,16 @@ The sidebar control appears above the account area. Its color and accessible lab
 | Green | Liveness, readiness, and the required PreparedContext capability were verified |
 | Red | Connection, DSH authentication, or a required capability failed |
 
-Clicking the control opens a read-only diagnostics panel. It shows the verified deployment mode, endpoint origin
-and configuration source, whether an Authorization value is configured (never the value), liveness, readiness and
-its dependency states, the required context schema, the active conversation and Scope, and the latest automatic
-recall/capture/flush/injection observations independently. It reuses the same in-memory `RuntimeStatus` as `/pc`
-rather than reconstructing history from logs. It never calls a model, sends a diagnostic prompt, or polls
-`/pc doctor`.
+Clicking the control opens a read-only diagnostics panel in Simplified Chinese by default. The language icon
+switches to English; an explicit choice persists in the current browser's local storage, with Chinese as the
+fallback. The compact view shows connection state, Server address, workspace and Scope. Expand **Technical details**
+for the conversation ID, deployment mode, authentication source (never the credential), readiness dependencies,
+context schema and automatic-path observations.
+The footer reads `package_version` from `GET /v1/server-info` through the Host and shows the current Server package
+version. Unsupported metadata endpoints, failed reads or expired connection observations show **Unknown**, never
+the plugin version or API contract version. The bounded metadata read does not determine readiness.
+The panel reuses the same in-memory `RuntimeStatus` as `/pc`, rather than reconstructing history from logs.
+It never calls a model, sends a diagnostic prompt, or polls `/pc doctor`.
 
 The bridge is the plugin-owned authenticated route `GET /powercontext/status`. DSH's existing `requestRejection`
 runs first and is never weakened. The route must also reach a verified local owner surface:

@@ -227,6 +227,9 @@ try {
   })
   if (!existingTarget) await cdp.send('Page.navigate', { url: `${webUrl}/?token=${token}` }, 20_000)
   await waitFor(cdp, 'document.readyState === "complete" && !!document.querySelector(".pc-trigger")', 45_000)
+  await evaluate(cdp, `localStorage.removeItem('powercontext.dsh.locale')`)
+  await cdp.send('Page.reload')
+  await waitFor(cdp, 'document.readyState === "complete" && !!document.querySelector(".pc-trigger")', 45_000)
   evidence.checks.onboarding = await dismissOnboarding(cdp)
   await waitFor(cdp, 'document.querySelector(".pc-trigger").getAttribute("data-pc-status-trigger") === "ready"', 20_000, 'ready')
   evidence.checks.ready = await evaluate(cdp, `(() => {
@@ -244,7 +247,7 @@ try {
     JSON.stringify(evidence.checks.ready))
 
   if (await evaluate(cdp, `!!document.querySelector('.pc-panel')`)) {
-    await evaluate(cdp, `document.querySelector('.pc-panel button[aria-label="Close diagnostics"]')?.click()`)
+    await evaluate(cdp, `document.querySelector('.pc-panel button[data-pc-close]')?.click()`)
     await waitFor(cdp, '!document.querySelector(".pc-panel")', 10_000, 'initial close')
   }
   await evaluate(cdp, `document.querySelector('.pc-trigger').click()`)
@@ -265,14 +268,49 @@ try {
       hasBearer: /Bearer\\s/i.test(panel.innerText),
     }
   })()`)
+  evidence.checks.compact = await evaluate(cdp, `(() => {
+    const panel = document.querySelector('.pc-panel')
+    const details = panel.querySelector('details')
+    return { language: document.querySelector('.pc-status').lang, text: panel.innerText,
+      closed: details && !details.open, fits: panel.scrollWidth <= panel.clientWidth }
+  })()`)
+  check('Chinese compact panel is default', evidence.checks.compact.language === 'zh-CN'
+    && evidence.checks.compact.closed && evidence.checks.compact.text.includes('技术详情')
+    && !evidence.checks.compact.text.includes('就绪依赖') && evidence.checks.compact.fits,
+    JSON.stringify(evidence.checks.compact))
+  evidence.checks.serverVersion = await evaluate(cdp, `(async () => {
+    const payload = await (await fetch('/powercontext/status')).json()
+    return { version: payload.server.package_version, plugin: payload.plugin_version,
+      footer: document.querySelector('.pc-panel-foot').innerText }
+  })()`)
+  check('footer uses live Server package version', !!evidence.checks.serverVersion.version
+    && evidence.checks.serverVersion.footer.includes(evidence.checks.serverVersion.version),
+    JSON.stringify(evidence.checks.serverVersion))
+  await clickByLabel(cdp, '切换语言')
+  await evaluate(cdp, `document.querySelector('.pc-language input[value="en"]').focus()`)
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 })
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 })
+  await waitFor(cdp, `document.querySelector('.pc-status').lang === 'en'`, 5_000, 'English language selection')
+  check('English preference persists', await evaluate(cdp, `localStorage.getItem('powercontext.dsh.locale') === 'en'`), 'local preference')
+  await cdp.send('Page.reload')
+  await waitFor(cdp, `!!document.querySelector('.pc-trigger') && document.querySelector('.pc-status').lang === 'en'`, 45_000, 'persisted English')
+  await evaluate(cdp, `document.querySelector('.pc-trigger').click()`)
+  await waitFor(cdp, `!!document.querySelector('.pc-panel details')`, 10_000)
+  await evaluate(cdp, `document.querySelector('.pc-panel details summary').focus()`)
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  await waitFor(cdp, `document.querySelector('.pc-panel details').open`, 5_000, 'keyboard details')
+  const expandedText = await evaluate(cdp, `document.querySelector('.pc-panel').innerText`)
+  check('expanded English details retain diagnostic fields', expandedText.includes('Readiness dependencies')
+    && expandedText.includes('Automatic path'), expandedText)
   const expectedDeployment = mode === 'desktop' ? 'DSH Desktop' : 'Local Web'
   check('panel is a focused dialog', evidence.checks.panel.expanded === 'true'
     && evidence.checks.panel.role === 'dialog'
     && evidence.checks.panel.focusInside === true
     && evidence.checks.panel.visibility === 'visible', JSON.stringify(evidence.checks.panel))
-  check('panel shows the verified deployment', evidence.checks.panel.text.includes(expectedDeployment),
+  check('panel shows the verified deployment', expandedText.includes(expectedDeployment),
     `expected ${expectedDeployment}`)
-  check('panel shows a live Scope', /Active Scope\n[^\n]+/.test(evidence.checks.panel.text),
+  check('panel shows a live Scope', /当前 Scope\n[^\n]+/.test(evidence.checks.panel.text),
     evidence.checks.panel.text.slice(0, 300))
   check('panel does not expose launch token or Bearer value',
     evidence.checks.panel.hasLaunchToken === false && evidence.checks.panel.hasBearer === false,
@@ -337,7 +375,7 @@ try {
   check('diagnostics panel remains visible and focused from the rail',
     evidence.checks.railPanel.visibility === 'visible' && evidence.checks.railPanel.focusInside === true
     && evidence.checks.railPanel.rect.x >= 0, JSON.stringify(evidence.checks.railPanel))
-  await evaluate(cdp, `document.querySelector('.pc-panel button[aria-label="Close diagnostics"]')?.click()`)
+  await evaluate(cdp, `document.querySelector('.pc-panel button[data-pc-close]')?.click()`)
   await clickByLabel(cdp, '打开侧边栏')
   await new Promise(resolve => setTimeout(resolve, 300))
 
@@ -371,7 +409,7 @@ try {
   check('dark DSH palette is applied to the panel', evidence.checks.dark.darkAttribute === true
     && evidence.checks.dark.bodyBg !== 'rgb(255, 255, 255)'
     && evidence.checks.dark.panelBg !== 'rgba(252, 253, 254, 0.7)', JSON.stringify(evidence.checks.dark))
-  await evaluate(cdp, `document.querySelector('.pc-panel button[aria-label="Close diagnostics"]')?.click()`)
+  await evaluate(cdp, `document.querySelector('.pc-panel button[data-pc-close]')?.click()`)
   if (mode === 'desktop') {
     const restored = await desktopSettings(cdp, '^(浅色|Light)$')
     check('Desktop appearance can restore light mode', restored === true, 'settings menu/theme row not found')
@@ -407,8 +445,9 @@ try {
       await evaluate(cdp, `document.querySelector('.pc-trigger').click()`)
       await waitFor(cdp, '!!document.querySelector(".pc-panel")', 10_000, 'session panel')
       await new Promise(resolve => setTimeout(resolve, 500))
+      await evaluate(cdp, `document.querySelector('.pc-panel details').open = true`)
       const text = await evaluate(cdp, `document.querySelector('.pc-panel').innerText`)
-      await evaluate(cdp, `document.querySelector('.pc-panel button[aria-label="Close diagnostics"]')?.click()`)
+      await evaluate(cdp, `document.querySelector('.pc-panel button[data-pc-close]')?.click()`)
       return {
         text,
         id: /(session-[0-9a-zA-Z-]+)/.exec(text)?.[1] ?? null,

@@ -48,12 +48,14 @@ function success(value: unknown, status = 200): ClientSuccess {
 }
 
 function clientWith(overrides: {
+  info?: () => Promise<ClientSuccess>
   liveness?: () => Promise<ClientSuccess>
   readiness?: () => Promise<ClientSuccess>
   capabilities?: () => Promise<ClientSuccess>
 } = {}) {
   return {
     request: vi.fn(async (operation: string) => {
+      if (operation === 'get_server_info') return overrides.info?.() ?? success({ package_version: '1.5.2.dev0+server' })
       if (operation === 'get_liveness') {
         return overrides.liveness?.() ?? success({ status: 'ok' })
       }
@@ -238,13 +240,13 @@ describe('status bridge', () => {
     const client = clientWith()
     const bridge = new StatusBridge(options({ client: client as unknown as StatusBridgeOptions['client'], now: () => now }))
     await bridge.status()
-    expect(client.request).toHaveBeenCalledTimes(3)
+    expect(client.request).toHaveBeenCalledTimes(4)
     now += 5_000
     await bridge.status()
-    expect(client.request).toHaveBeenCalledTimes(3)
+    expect(client.request).toHaveBeenCalledTimes(4)
     now += 10_000
     await bridge.status()
-    expect(client.request).toHaveBeenCalledTimes(6)
+    expect(client.request).toHaveBeenCalledTimes(8)
     bridge.dispose()
   })
 
@@ -428,5 +430,32 @@ describe('optional host services', () => {
     } as unknown as PluginRuntime
     expect(() => registerStatusBridge(ctx, runtime)).not.toThrow()
     expect(ctx.effect).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Server package version', () => {
+  it('reads the Server package version and clears it after a failed metadata refresh without failing readiness', async () => {
+    let now = 1_000
+    const info = vi.fn().mockResolvedValueOnce(success({ package_version: '1.5.2.dev0+server', version: '1.5.1', secret: 'private-value' }))
+      .mockRejectedValueOnce(new Error('older server'))
+    const bridge = new StatusBridge(options({ client: clientWith({ info }) as unknown as StatusBridgeOptions['client'], now: () => now, pluginVersion: '0.1.0' }))
+    const first = await bridge.status()
+    expect(first.server.package_version).toBe('1.5.2.dev0+server')
+    expect(first.plugin_version).toBe('0.1.0')
+    expect(JSON.stringify(first)).not.toContain('private-value')
+    now += 11_000
+    const second = await bridge.status()
+    expect(second.server.package_version).toBeNull()
+    expect(second.connection.state).toBe('ready')
+    bridge.dispose()
+  })
+
+  it('does not substitute an API version or accept arbitrary metadata as a package version', async () => {
+    for (const value of [{ version: '1.5.1' }, { package_version: 'Bearer secret' }, { package_version: '9'.repeat(129) }]) {
+      const bridge = new StatusBridge(options({ client: clientWith({ info: async () => success(value) }) as unknown as StatusBridgeOptions['client'] }))
+      expect((await bridge.status()).server.package_version).toBeNull()
+      bridge.dispose()
+    }
   })
 })

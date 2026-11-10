@@ -17,7 +17,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PowerContextClient } from './client.ts'
+import { combineSignals, type PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { operationFailure } from './doctor.ts'
 import { PLUGIN_VERSION } from './errors.ts'
@@ -25,7 +25,7 @@ import { PREPARED_CONTEXT_SCHEMA } from './prepared-context.ts'
 import type { PluginRuntime } from './invoke.ts'
 import { RuntimeStatus } from './status.ts'
 import {
-  STATUS_SCHEMA, STATUS_STALE_AFTER_MS,
+  STATUS_SCHEMA, STATUS_STALE_AFTER_MS, packageVersion,
   type BridgeConnectionState, type ProbeState, type StatusCapabilitiesPayload, type StatusPayload,
   type StatusProbePayload, type StatusRuntimePayload, type StatusSessionPayload,
 } from './status-contract.ts'
@@ -261,6 +261,7 @@ function readEndpoint(config: ResolvedConfig): { origin: string; pathPrefix: boo
 export class StatusBridge {
   private readonly options: StatusBridgeOptions
   private readonly now: () => number
+  private packageVersion: string | null = null
   private liveness = unknownProbe()
   private readiness = unknownProbe()
   private capabilities = unknownProbe()
@@ -331,6 +332,7 @@ export class StatusBridge {
       session: this.sessionPayload(session, scope),
       runtime,
       server: {
+        package_version: this.packageVersion,
         liveness: probePayload(this.liveness, now),
         readiness: probePayload(this.readiness, now),
         capabilities: probePayload(this.capabilities, now),
@@ -461,6 +463,7 @@ export class StatusBridge {
 
   private async probe(): Promise<void> {
     this.generation += 1
+    this.packageVersion = null
     try {
       const liveness = await this.probeLiveness()
       if (this.disposed) return
@@ -471,6 +474,8 @@ export class StatusBridge {
         this.connectionState = 'failed'
         return
       }
+      // Optional metadata: old Servers and failed metadata reads must not break readiness.
+      await this.readPackageVersion()
       const readiness = await this.probeReadiness()
       if (this.disposed) return
       this.readiness = readiness
@@ -497,6 +502,17 @@ export class StatusBridge {
         this.nextProbeAt = now + (this.connectionState === 'ready' ? READY_PROBE_TTL_MS : FAILED_PROBE_TTL_MS)
       }
       this.inFlight = null
+    }
+  }
+
+  private async readPackageVersion(): Promise<void> {
+    try {
+      const response = await this.options.client.request('get_server_info', {},
+        combineSignals([this.abort.signal, AbortSignal.timeout(1_000)]))
+      if (!this.disposed) this.packageVersion = response.status === 200 && record(response.value)
+        ? packageVersion(response.value.package_version) : null
+    } catch {
+      this.packageVersion = null
     }
   }
 

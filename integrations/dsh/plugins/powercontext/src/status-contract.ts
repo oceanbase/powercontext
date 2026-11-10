@@ -136,6 +136,7 @@ export interface StatusPayload {
   session: StatusSessionPayload | null
   runtime: StatusRuntimePayload
   server: {
+    package_version?: string | null
     liveness: StatusProbePayload
     readiness: StatusProbePayload
     capabilities: StatusProbePayload
@@ -320,7 +321,7 @@ export function parseStatusPayload(value: unknown): StatusPayload | null {
     },
     session: parseSession(value.session),
     runtime,
-    server: { liveness, readiness, capabilities: capabilityProbe },
+    server: { package_version: packageVersion(server.package_version), liveness, readiness, capabilities: capabilityProbe },
     capabilities: {
       prepared_context: capabilities.prepared_context === true,
       context_versions: contextVersions,
@@ -329,4 +330,9 @@ export function parseStatusPayload(value: unknown): StatusPayload | null {
     },
     notices,
   }
+}
+
+/** Only a bounded package version may cross the Host/browser allowlist. */
+export function packageVersion(value: unknown): string | null {
+  return typeof value === 'string' && /^[0-9][0-9A-Za-z.+_-]{0,127}$/.test(value) ? value : null
 }

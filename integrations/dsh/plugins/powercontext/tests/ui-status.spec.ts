@@ -413,3 +413,13 @@ describe('status helpers', () => {
     expect(parseStatusPayload(invalid)).toBeNull()
   })
 })
+
+
+describe('version allowlist', () => {
+  it('retains only the package version and accepts older bridges without metadata', () => {
+    const payload = statusPayload()
+    expect(parseStatusPayload(payload)?.server.package_version).toBeNull()
+    expect(parseStatusPayload({ ...payload, server: { ...payload.server, package_version: '1.5.2.dev0+server', secret: 'private-value' } })?.server)
+      .toEqual({ ...parseStatusPayload(payload)!.server, package_version: '1.5.2.dev0+server' })
+  })
+})
