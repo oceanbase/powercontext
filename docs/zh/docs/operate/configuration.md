@@ -190,7 +190,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Profile Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | 每个 Runtime 排队的模型用量记录数，不含正在写入的批次；超出的记录会被丢弃并留下诊断日志 |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 一个用量批次自身统计事务的预算，按片消耗，使争锁的写入者获得多次尝试机会 |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | 每个用量批次的总写入预算；只有确认未应用的尝试才可在剩余预算内重试 |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | 统计读取和显式 flush 等待本进程已接收用量的有界时长；普通请求不等待 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
@@ -257,6 +257,8 @@ Scope、家族、条数限制和上下文预算，并复用已经生成的查询
 相同 Scope、日期、purpose、operation 的记录合并累加，同时保留已知 Token 小计和用量缺失标记。
 统计故障、队列写满或批次预算耗尽会留下安全诊断，不会让业务操作失败；批次写入失败或结果不确定时按原始记录数计数，
 提交结果不确定的事务不会重试。
+OceanBase 的首次事务使用完整写入预算，因为超时可能丢失提交确认；SQLite 首次尝试使用较短预算，
+确认回滚后可在剩余总预算内重试。
 
 普通 Scope 操作（包括 HTTP 查询和 Source 接收）返回时不等待用量落库。统计读取在打开数据库快照前，
 按 flush 预算等待本进程已经接收的记录；显式 Worker flush 和关闭仍保留有界排空。

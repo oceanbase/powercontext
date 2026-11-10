@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -24,9 +25,11 @@ from datetime import date
 from pathlib import Path
 from threading import Event as ThreadEvent
 from typing import cast
+from uuid import uuid4
 
 import pytest
 from aiosqlite import Connection as SQLiteConnection
+from pydantic import SecretStr
 from sqlalchemy import delete, event, insert, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
@@ -36,6 +39,7 @@ from sqlalchemy.util import await_only
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.inference.models import InputEncodingReport
 from powercontext.builtin.persistence.database import AsyncDatabase, ModelUsageAttemptExpired
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.statistics import StatisticsRepository, StoredModelUsage
 from powercontext.builtin.persistence.tables import MODEL_USAGE_DAILY_TABLE, SCOPES_TABLE
@@ -487,6 +491,58 @@ def test_a_body_that_outlives_its_slice_is_repeated_not_dropped(tmp_path: Path) 
                 await _assert_connection_restored(database)
             finally:
                 await recorder.close()
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_slow_batch_keeps_the_configured_write_budget() -> None:
+    url = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
+    if not url:
+        pytest.skip("set POWERCONTEXT_TEST_OCEANBASE_URL to a dedicated OceanBase test database")
+
+    async def scenario() -> None:
+        scope = f"usage-budget-{uuid4().hex}"
+        async with OceanBaseProfile.open(
+            OceanBaseConfig(url=SecretStr(url)), tables=(SCOPES_TABLE, MODEL_USAGE_DAILY_TABLE)
+        ) as profile:
+            database = profile.database
+            async with database.transaction() as connection:
+                await connection.execute(
+                    insert(SCOPES_TABLE).values(
+                        scope_id=scope,
+                        title="usage budget",
+                        summary="",
+                        scope_id_search=scope,
+                        title_search="usage budget",
+                        summary_search="",
+                        version=1,
+                    )
+                )
+            # A 1.5s body fits the configured 5s budget. A shorter socket deadline
+            # can lose the commit reply, so repeating after it is not safe on OB.
+            recorder = _ModelUsageRecorder(
+                database, _SlowBodyRepository(delay=1.5), write_timeout_seconds=5, flush_timeout_seconds=5
+            )
+            try:
+                for _ in range(9):
+                    recorder.offer(scope, _PURPOSE, _OPERATION, InferenceUsage(requests=1), _DAY)
+                await recorder.flush()
+                async with database.transaction() as connection:
+                    requests = (
+                        await connection.execute(
+                            select(MODEL_USAGE_DAILY_TABLE.c.requests).where(
+                                MODEL_USAGE_DAILY_TABLE.c.scope_id == scope
+                            )
+                        )
+                    ).scalar_one_or_none()
+                assert requests == 9
+            finally:
+                await recorder.close()
+                async with database.transaction() as connection:
+                    await connection.execute(
+                        delete(MODEL_USAGE_DAILY_TABLE).where(MODEL_USAGE_DAILY_TABLE.c.scope_id == scope)
+                    )
+                    await connection.execute(delete(SCOPES_TABLE).where(SCOPES_TABLE.c.scope_id == scope))
 
     asyncio.run(scenario())
 

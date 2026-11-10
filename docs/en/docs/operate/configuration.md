@@ -203,7 +203,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Total Experience Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Total Profile Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Queued model-usage records per Runtime, excluding its in-flight batch; further records are dropped with a diagnostic |
-| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Budget for one usage batch's statistics transaction, spent in slices so a busy writer gets several attempts |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Total write budget per usage batch; only provably unapplied attempts may retry within it |
 | `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted local usage at statistics reads and explicit flush boundaries; ordinary requests do not wait |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider default | Custom generation provider base URL |
@@ -283,6 +283,8 @@ an idle queue to fill a batch. Matching Scope/date/purpose/operation records are
 subtotals and incomplete-usage flags. A statistics outage, a full queue, or an expired batch budget produces a safe diagnostic
 instead of failing the business operation. Failed or indeterminate batches are counted by their original record count;
 transactions whose commit outcome is unknown are not retried.
+OceanBase gives the initial transaction the full write budget because a deadline can lose the commit acknowledgement.
+SQLite starts with a shorter attempt and may retry a proven rollback within the remaining budget.
 
 Ordinary Scope operations, including HTTP queries and Source captures, return without waiting for usage persistence.
 Statistics reads drain the already-accepted local prefix within the flush budget before opening their read snapshot;

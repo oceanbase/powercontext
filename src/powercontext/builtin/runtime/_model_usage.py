@@ -286,14 +286,18 @@ class _ModelUsageRecorder:
         scopes = sorted({record.scope_id for record in grouped})
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._write_timeout_seconds
-        # The first attempt gets a fixed slice rather than the whole budget, so
-        # one attempt that really does wait cannot consume all of it before any
-        # repeat happens. Contended attempts normally return immediately, so the
-        # backoff interval, not this slice, is what decides how many attempts fit
-        # inside the deadline.
-        attempt_timeout = max(self._write_timeout_seconds / _WRITE_ATTEMPT_SLICES, _MIN_WRITE_ATTEMPT_SECONDS)
+        # SQLite can prove that an expired body rolled back, so its first attempt
+        # gets a slice that leaves time for a repeat. Contended attempts normally
+        # return immediately, so backoff determines how many fit in the budget.
+        # MySQL's deadline closes the socket and may lose a COMMIT reply. That
+        # timeout cannot be retried, so give the batch its full configured budget.
+        attempt_timeout = (
+            self._write_timeout_seconds
+            if self._database.engine.dialect.name == "mysql"
+            else max(self._write_timeout_seconds / _WRITE_ATTEMPT_SLICES, _MIN_WRITE_ATTEMPT_SECONDS)
+        )
         # Every repeat gets what the batch has left. Repeating is only reached
-        # once a slice-sized attempt has already failed, and that failure is the
+        # after a provably unapplied attempt. On SQLite, that expiry is the
         # evidence that a slice is not what this batch needs: handing the repeat
         # the same slice reaches the same wall and drops a batch that still owns
         # most of its budget. The budget, not the slice, is what bounds the total.
