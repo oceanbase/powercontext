@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`powercontext` is a Python package built with `uv` and Hatchling. Runtime code lives in `src/powercontext/`; keep public package exports in `src/powercontext/__init__.py` and place new modules beside related code. Tests live in `tests/`; organize focused tests around observable behavior and keep cross-component acceptance scenarios in `tests/e2e/`. Documentation is split by locale under `docs/en/` and `docs/zh/`, with RFC material in each locale's `rfcs/` directory. The Fumadocs site lives in `website/`; its generated `content/docs/`, `.generated/`, and `out/` directories are not source material.
+`powercontext` is a Python package built with `uv` and Hatchling. Runtime code lives in `src/powercontext/`; keep public package exports in `src/powercontext/__init__.py` and place new modules beside related code. Tests live in `tests/`; organize focused tests around observable behavior and keep cross-component acceptance scenarios in `tests/e2e/`. Documentation is split by locale under `docs/en/` and `docs/zh/`, with RFC material in each locale's `rfcs/` directory. The Fumadocs site lives in `website/`; its generated `content/docs/`, `.generated/`, and `out/` directories are not source material. `gateway/` and `desktop/` are separate Cargo workspaces that the Python build never touches; see [Rust Gateway](#rust-gateway) below.
 
 ## Build, Test, and Development Commands
 
@@ -14,6 +14,32 @@
 - `make build`: clean `dist/` and build the wheel.
 - `make docs-test`: lint and build the static website, including API references.
 - `make docs`: serve the Fumadocs website locally.
+- `make gateway-tck`: run the pinned upstream protocol compatibility suites against the real gateway binary; requires Node, Go, Python 3.11, and network access.
+
+## Rust Gateway
+
+`gateway/` is an independent Cargo workspace of seven crates behind its own manifest. Every command needs `--manifest-path gateway/Cargo.toml`; `gateway/Cargo.lock` is checked in, so add `--locked` to every build, test, and lint invocation. CI pins the toolchain to 1.95.0, and the workspace is edition 2021.
+
+```bash
+cargo fmt --manifest-path gateway/Cargo.toml --all --check
+cargo clippy --locked --manifest-path gateway/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path gateway/Cargo.toml --workspace
+```
+
+`gateway/README.md` is the authoritative description of the per-request pipeline, the crate layout, the environment contract, and the test boundaries. Read it before changing ingress, transport, or the two-phase gate.
+
+The gateway owns the model traffic boundary and nothing else. These invariants are not implementation preferences:
+
+- **No policy in the gateway.** Core decides admission, privacy, and capacity; the gateway executes a verdict and never infers one. HTTP success from an upstream call is not approval, and an unknown or unparseable verdict never becomes allow.
+- **Two-phase gating with bound identities.** `check(before_send)` gates the bytes that leave and `check(before_release)` gates what the client sees; the release call must carry the binding the send phase returned. A block or withhold sends zero bytes, and a refuse releases nothing and cancels upstream.
+- **Retries are deterministic-failure-only.** Connection-refused-class failures retry under a single owner. An indeterminate outcome after hand-off (timeout, truncated response) is surfaced as indeterminate and never re-sent, because a re-send may be billed twice.
+- **Injected context is byte-exact.** Prepared context is injected verbatim and its exact byte range declared; changing one byte invalidates Core's reuse binding. Injection stays tail-only so the client-owned history prefix remains byte-stable for upstream prefix caching.
+- **Credentials are server-side only.** They come from environment variables, are never read from request fields, and never enter a check payload. `PC_GATEWAY_API_KEY` protects only the two model routes and does not replace Core authentication.
+- **Evidence is body-free.** Never add request or response bodies, prompts, model output, vectors, credentials, or socket paths to evidence records or tracing.
+
+A panic on a request path is a defect: a malformed upstream or Core response must produce a handled error, never a crash. Prefer `?`, or an `expect` whose message states the invariant. Return upstream status codes and `Content-Type` unchanged; masking a provider error as 200 is a correctness failure.
+
+Scripted Core verdicts and fixture provider responses verify local handling only. They do not establish real-Core, real-provider, or host acceptance, so state which of these a change was actually exercised against.
 
 ## Agent Skills
 
@@ -22,6 +48,8 @@ Use an available skill only when it matches the current task, and read its `SKIL
 ## Coding Style & Naming Conventions
 
 Target Python 3.11+. Use PEP 8 naming: modules and functions in `snake_case`, classes in `PascalCase`, constants in `UPPER_SNAKE_CASE`. Ruff enforces formatting and linting with a 120-character line length; run `uv run prek run -a` before committing if you do not use the installed hooks. Keep comments focused on non-obvious intent rather than restating code.
+
+Rust formatting is plain `rustfmt` with no project overrides, and clippy must pass with `-D warnings`. Every Rust source file carries the Apache-2.0 header that `.licenserc.yaml` checks. Keep module boundaries aligned with the crate responsibilities in `gateway/README.md` instead of reaching across crates.
 
 ## Observability Changes
 
