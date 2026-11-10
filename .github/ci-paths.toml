@@ -12,7 +12,7 @@ full = [
 
 # These files still receive the always-running preflight checks.
 ignore = [
-  "AGENTS.md", "REVIEW.md", "CONTRIBUTING.md", "GOVERNANCE.md", "LICENSE", "LICENSES/**",
+  "AGENTS.md", "REVIEW.md", "CLAUDE.md", "CONTRIBUTING.md", "GOVERNANCE.md", "LICENSE", "LICENSES/**",
   ".github/ISSUE_TEMPLATE/**", ".github/pull_request_template.md", ".github/CODEOWNERS",
   ".github/dependabot.yml", ".licenserc.yaml",
   "scripts/ci_queue_report.py",
