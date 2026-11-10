@@ -60,9 +60,6 @@ jobs:
           }
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # Version and binary hashes are pinned from the verified, minisign-signed release checksums.
-          version: "2026.11.3"
-          sha256: 4f796228c826ad6225d608e2029278b31677c8919508574498877543ed3431d8
           working_directory: desktop
       - name: Install pinned Windows Rust toolchain
         run: rustup toolchain install 1.95.0-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
@@ -138,12 +135,6 @@ jobs:
       - name: Test native diagnostics with isolated real CLI
         working-directory: .
         run: uv run --no-sync python desktop/tests/real_cli.py
-      - name: Prepare checksum-pinned Windows bundler tools
-        working-directory: .
-        timeout-minutes: 11
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: uv run --no-sync python scripts/prepare_windows_ci_tools.py
       - name: Build fixture-qualified unsigned internal Windows installer
         run: pnpm desktop:build:windows:ci
       - name: Prepare matching WebView2 driver
@@ -195,9 +186,6 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          version: "2026.11.3"
-          sha256: >-
-            ${{ runner.arch == 'ARM64' && '6d39119ab914c54ab865204dee9337c71b83a7ed1e730f663c2fc3453e38fe9c' || '49f32abd93f54147af0599a1c9583d2092df8e7250c9fe635783a7932c4087ef' }}
           working_directory: desktop
       - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -326,9 +314,9 @@ jobs:
             libxdo-dev \
             openjdk-17-jre-headless \
             pkg-config
-      - uses: ./.github/actions/setup-project-tools
+      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
         with:
-          working-directory: desktop
+          working_directory: desktop
       - name: Install pinned Linux Rust toolchain
         run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
       - name: Cache desktop dependencies

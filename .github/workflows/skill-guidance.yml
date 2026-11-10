@@ -36,32 +36,18 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.11'
-      - name: Set up uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: "0.10.12"
-          enable-cache: true
-          cache-suffix: skill-guidance-py311
-          cache-dependency-glob: evaluation/skills/skill-up/requirements-dev.txt
+          cache: pip
+          cache-dependency-path: evaluation/skills/skill-up/requirements-dev.txt
       - name: Install validation dependencies
-        run: |
-          uv venv --python "$(command -v python)" "$RUNNER_TEMP/skill-guidance-env"
-          uv pip install --python "$RUNNER_TEMP/skill-guidance-env/bin/python" \
-            -r evaluation/skills/skill-up/requirements-dev.txt
-          echo "$RUNNER_TEMP/skill-guidance-env/bin" >> "$GITHUB_PATH"
+        run: python -m pip install -r evaluation/skills/skill-up/requirements-dev.txt
       - name: Install checksum-pinned skill-up
         shell: bash
-        timeout-minutes: 6
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/skill-up"
-          python scripts/download_ci_asset.py \
-            --url https://github.com/alibaba/skill-up/releases/download/v0.12.0/skill-up_0.12.0_linux_amd64.tar.gz \
-            --sha256 ec2631e45702d460b69cd700e1847f5562ef2e971f09c23be2efcec4e0f583c6 \
-            --output "$RUNNER_TEMP/skill-up/skill-up.tar.gz" --timeout 300
           cd "$RUNNER_TEMP/skill-up"
+          curl -fsSL https://github.com/alibaba/skill-up/releases/download/v0.12.0/skill-up_0.12.0_linux_amd64.tar.gz -o skill-up.tar.gz
+          echo 'ec2631e45702d460b69cd700e1847f5562ef2e971f09c23be2efcec4e0f583c6  skill-up.tar.gz' | sha256sum --check -
           tar -xzf skill-up.tar.gz
           echo "$RUNNER_TEMP/skill-up" >> "$GITHUB_PATH"
       - name: Verify pin, fixtures, reports and native schema

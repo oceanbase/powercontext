@@ -31,10 +31,6 @@ Draft PRs allocate no automatic CI runners. Marking a PR ready validates its com
 
 ## Validation profiles
 
-Preflight keeps the complete commit history and tags using a `blob:none` partial clone; historical file contents are fetched only when needed. This preserves merge-base scope selection and version calculation while reducing historical file transfers. The checkout has a ten-minute limit.
-
-License validation caches a native license-eye executable built from the pinned v0.9.0 commit. The cache key includes the source commit, Go version, runner OS and architecture; cache hits skip source fetching, Go setup and compilation. Cold starts use pinned Go 1.25.14 and cache dependencies against the fetched repository's root `go.sum`. The checker is installed under the runner's temporary directory, verified as executable, and saved before source-header validation so a license violation does not discard the tool. Tool preparation and header validation have separate fifteen-minute and six-minute limits; preflight allows forty minutes for a cold start plus the remaining checks. These are ceilings, not added work. Cold builds still depend on network availability, and measured savings require CI observations.
-
 | Entry point or input | Python validation | Other acceptance |
 | --- | --- | --- |
 | Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations | Complete selected backend, upgrade, installation-role, platform and host acceptance |
@@ -46,8 +42,6 @@ License validation caches a native license-eye executable built from the pinned 
 | Published release | Independent installed-package and publication checks | Complete upgrade evidence and validated publication bytes; PR scope cannot bypass acceptance |
 
 Ordinary PR Python combinations drop from eight to three, a 62.5% reduction in combination count. This is not a measured reduction in runner minutes or queue latency. Dependency and CI-policy changes keep the full matrix, so a PR editing CI itself may still run eight combinations.
-
-Each Python E2E job restores the Gateway Rust cache and builds the locked Gateway executable before starting pytest. Dependency downloads and cold compilation have a separate ten-minute limit instead of consuming the authentication fixture's five-minute setup limit. The E2E job allows ten minutes for the build, fifty minutes for tests and ten minutes for setup and cache cleanup; unit jobs retain their sixty-minute limit. Authentication cases still run on every selected E2E Python version, and build failures remain mandatory failures.
 
 When packaging is selected, installation validation uses two jobs, one each for Python 3.11 and 3.14. Each job builds its wheel once and verifies five roles: `core` without extras, plus `builtin`, `cli`, `builtin,cli` and `server,cli`. Each role gets its own virtual environment, application state and temporary directory, and runs against the installed wheel with checkout imports excluded. The core role checks public imports without optional dependencies. The CLI role also verifies that adding unrelated SQLAlchemy and FastAPI packages does not enable optional roles. Every role produces a result; any failed role fails its job. All ten Python/role combinations remain covered while eight runner allocations and eight duplicate wheel builds are removed. The job-count reduction does not establish a queue-latency or throughput improvement without measurements.
 
@@ -101,8 +95,6 @@ These rules reduce unnecessary work for local changes. Shared-runtime and CI-pol
 | Candidate replay | 2 | Preserve every backend result |
 | Historical schema capture | 2 | Preserve every configuration result |
 | Managed resource candidates | 2 | Preserve all three native targets |
-
-OceanBase migration scheduling uses measured durations while limiting each shard to `ceil(collected cases / shards)` cases. Missing timings use the median estimate for balancing; they never increase the case-count ceiling. Budget checks collect the current tests for every OceanBase migration step, including native FTS, and require time for each case deadline, collection and termination grace. Adding cases therefore requires rechecking the enclosing step and job budgets. Refresh timing baselines only from actual execution evidence.
 
 `max-parallel` bounds one matrix run, not the repository or organization. Do not place unrelated PRs in a normal concurrency group as a global semaphore: the default group retains only one pending run and replaces other waiting work. Release publication must not share a cancellable PR group.
 

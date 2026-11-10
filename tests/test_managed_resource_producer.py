@@ -29,7 +29,6 @@ import zipfile
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-import download_ci_asset
 import httpx
 import pytest
 from build_intel_managed_wheel import _check_linkage, native_build_environment, verify_backend
@@ -245,60 +244,6 @@ def test_acquire_retries_windows_curl_crash_with_fresh_partial(
         assert error.value.returncode == 0xC0000005
         assert not artifact.exists()
     assert next(results, None) is None
-
-
-@pytest.mark.parametrize("curl_error", [22, 56])
-@pytest.mark.parametrize("corrupt_asset", [False, True])
-@pytest.mark.parametrize("consumer", ["producer", "ci-tool"])
-def test_acquire_release_asset_after_gateway_failure_preserves_digest_and_budget(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, curl_error: int, corrupt_asset: bool, consumer: str
-) -> None:
-    content = b"locked candidate bytes"
-    item: dict[str, Any] = {
-        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/python%2Bbuild.tar.gz",
-        "sha256": hashlib.sha256(content).hexdigest(),
-        "size": len(content),
-    }
-    elapsed = 0.0
-    monkeypatch.setattr(download_ci_asset.time, "monotonic", lambda: elapsed)
-    monkeypatch.setattr(shutil, "which", lambda _name: "/tools/gh")
-    monkeypatch.setenv("GH_TOKEN", "test-token-not-for-command-line")
-
-    def download(command: list[str], **options: Any) -> subprocess.CompletedProcess[str]:
-        nonlocal elapsed
-        assert "test-token-not-for-command-line" not in " ".join(command)
-        assert 0 < options["timeout"] <= 1900 - elapsed
-        if command[0] == "curl":
-            Path(command[command.index("--output") + 1]).write_bytes(b"partial gateway response")
-            elapsed += 1800
-            raise subprocess.CalledProcessError(curl_error, command)
-        assert command[:4] == ["gh", "api", "--hostname", "github.com"]
-        assert options["env"]["GH_TOKEN"] == os.environ["GH_TOKEN"]
-        if command[4].endswith("/tags/20261026"):
-            elapsed += 20
-            return subprocess.CompletedProcess(
-                command, 0, json.dumps({"assets": [{"id": 42, "name": "python+build.tar.gz"}]})
-            )
-        assert command[4].endswith("/assets/42")
-        options["stdout"].write(b"corrupt" if corrupt_asset else content)
-        return subprocess.CompletedProcess(command, 0, "")
-
-    monkeypatch.setattr(subprocess, "run", download)
-    artifact = tmp_path / "python.tar.gz"
-
-    def acquire_candidate() -> None:
-        if consumer == "producer":
-            acquire(item, artifact)
-        else:
-            download_ci_asset.acquire_asset(item["url"], artifact, item["sha256"], timeout=1900)
-
-    if corrupt_asset:
-        with pytest.raises(ValueError, match=r"locked digest and size|pinned SHA256"):
-            acquire_candidate()
-        assert not artifact.exists()
-    else:
-        acquire_candidate()
-        assert artifact.read_bytes() == content
 
 
 def test_windows_layout_requires_console_and_windowless_interpreters(tmp_path: Path) -> None:

@@ -5,7 +5,6 @@ full = [
   ".mise.toml", ".pre-commit-config.yaml", ".github/actions/setup-python-env/**",
   ".github/workflows/ci-changes.yml", ".github/workflows/master.yml",
   ".github/ci-paths.toml", "scripts/ci_changes.py", "tests/test_ci_changes.py", "tests/test_ci_pipeline.py",
-  ".github/actions/setup-license-eye/**", "tests/test_ci_license_eye.py",
   "tests/conftest.py", "tests/**/conftest.py", "tests/fixtures/**", "integrations/capabilities.toml",
   "integrations/langchain/pyproject.toml", "integrations/langgraph/pyproject.toml",
   "integrations/opendal/pyproject.toml",
@@ -123,12 +122,10 @@ packaging = [
   ".github/workflows/build-docker.yml", "docker/**",
 ]
 desktop = [
-  "scripts/download_ci_asset.py", "scripts/prepare_windows_ci_tools.py",
   "desktop/**", "tests/test_desktop_fixture_qualification.py", "website/assets/**",
   ".github/workflows/desktop.yml",
 ]
 managed_resources = [
-  "scripts/download_ci_asset.py",
   "scripts/*managed_resource*", "scripts/build_ops_bundle.py", "scripts/ci_ops_bundle_smoke.py",
   "scripts/build_intel_managed_wheel.py", "tests/test_managed_resource_producer.py", "tests/test_ops_resources.py",
   ".github/workflows/managed-resource-candidates.yml",
@@ -153,7 +150,6 @@ seekdb_lock = [
   "src/powercontext/builtin/persistence/**", "pyproject.toml", "uv.lock",
 ]
 skill_guidance = [
-  "scripts/download_ci_asset.py",
   "evaluation/skills/skill-up/**",
   "integrations/agent-plugin/powercontext/skills/powercontext-project-context/**",
   ".github/workflows/skill-guidance.yml",

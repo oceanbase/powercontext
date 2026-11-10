@@ -110,10 +110,6 @@ jobs:
       - name: Set up website tools
         if: inputs.release
         uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          # Version and binary hashes are pinned from the verified, minisign-signed release checksums.
-          version: "2026.11.3"
-          sha256: c2f7e814cb39f60b7f67a0ff36cb805e94128bf2dff09d175309d0f095b8cc3b
 
       - name: Cache website dependencies
         if: inputs.release

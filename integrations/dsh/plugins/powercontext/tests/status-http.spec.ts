@@ -34,8 +34,6 @@ const FLUSH = '/v1/memory/flush'
 const PREPARE = '/v1/context/prepare'
 const REQUEST_ID = 'req-review-http'
 const PRIVATE = 'private-http-body-marker'
-// Healthy setup requests must tolerate runner scheduling delays before the fault under test.
-const REQUEST_TIMEOUT_MS = 1000
 const cleanup: Array<() => Promise<void>> = []
 
 function json(res: ServerResponse, value: unknown, status = 200) {
@@ -54,7 +52,7 @@ function fault(status: number, mode: 'complete' | 'stall' | 'disconnect' | 'over
   }
 }
 
-async function fixture(target: string, respond: (res: ServerResponse, occurrence: number) => void, scopeDelayMs = 0) {
+async function fixture(target: string, respond: (res: ServerResponse, occurrence: number) => void) {
   const requests: string[] = []
   const logs: Record<string, unknown>[] = []
   let occurrence = 0
@@ -63,10 +61,6 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
     const path = new URL(req.url!, 'http://localhost').pathname
     requests.push(path)
     if (path === target) { respond(res, ++occurrence); return }
-    if (path === '/v1/scope-bindings/resolve' && scopeDelayMs > 0) {
-      setTimeout(() => json(res, { scope_id: 'review-scope' }), scopeDelayMs)
-      return
-    }
     json(res, path === '/v1/scope-bindings/resolve' ? { scope_id: 'review-scope' }
       : path === PREPARE ? { schema: 'powercontext.prepared-context.v1', status: 'ready', content: 'fixture', content_bytes: 7 }
       : path === CAPTURE ? { position: 2 } : path === FLUSH ? { current_cursor: 2 } : { status: 'ok' }, path === CAPTURE ? 202 : 200)
@@ -91,7 +85,7 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
     on: (name: string, listener: Hook) => { if (name === 'agent/pre-step') hook = listener },
     logger: { debug: () => {}, warn: (line: string) => logs.push(JSON.parse(line)) },
   } as unknown as Context, { baseUrl, authorization: 'Bearer http-fixture', timeoutMs: 10000,
-    requestTimeoutMs: REQUEST_TIMEOUT_MS, flushOnCapture: true, flushMaxCalls: 3 })
+    requestTimeoutMs: 250, flushOnCapture: true, flushMaxCalls: 3 })
   const agent = { session: { header: { id: 'http-review', cwd: '/review-workspace' } } }
   const messages = [{ content: [{ type: 'text', text: 'fixture prompt' }], source: { kind: 'user' } }]
   const run = (signal = new AbortController().signal) => hook({ agent, signal, turn: 1, messages },
@@ -99,7 +93,7 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
   const command = (rawInput = '') => pc({ agent, rawInput, signal: new AbortController().signal })
   const status = async () => JSON.parse((await command()).text.split('\nautomatic=')[1])
   return { run, status, command, requests, logs, baseUrl,
-    client: new PowerContextClient({ baseUrl, requestTimeoutMs: REQUEST_TIMEOUT_MS }) }
+    client: new PowerContextClient({ baseUrl, requestTimeoutMs: 250 }) }
 }
 
 afterEach(async () => {
@@ -109,7 +103,7 @@ afterEach(async () => {
 
 describe('registered /pc with real HTTP response failures', () => {
   it.each([CAPTURE, FLUSH])('distinguishes a complete 401 rejection at %s from an unknown write', async path => {
-    const h = await fixture(path, fault(401), 350)
+    const h = await fixture(path, fault(401))
     await h.run()
     const stages = (await h.status()).stages
     expect(stages[path === CAPTURE ? 'capture' : 'flush']).toMatchObject({ state: 'unavailable',

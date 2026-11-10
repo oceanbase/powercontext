@@ -24,7 +24,7 @@ from pathlib import Path
 
 from run_atomic_memory_clean_migration import assigned_nodes, read_durations
 
-GROUPS = ("scope-search", "background-metrics", "clean-migration", "startup-snapshot", "long-query")
+GROUPS = ("scope-search", "background-metrics", "clean-migration", "grant-migration", "startup-snapshot", "long-query")
 
 
 def verify_group(paths: list[Path], shards: int, durations: dict[str, float] | None = None) -> int:

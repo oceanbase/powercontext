@@ -157,12 +157,12 @@ class TextFileEvidenceProjection:
             metadata["provider_version"] = source.provider_version
         if source.modified_at is not None:
             metadata["modified_at"] = source.modified_at.isoformat()
-        return _TEXT_EVIDENCE_MODEL.model_validate({
-            "source_type": TEXT_FILE_SNAPSHOT_SOURCE_NAME,
-            "source_id": source.name,
-            "content": source.content,
-            "metadata": metadata,
-        })
+        return _TEXT_EVIDENCE_MODEL(
+            source_type=TEXT_FILE_SNAPSHOT_SOURCE_NAME,
+            source_id=source.name,
+            content=source.content,
+            metadata=metadata,
+        )
 
 
 def _snapshot_id(namespace: str, path: str, content_digest: str) -> str:
