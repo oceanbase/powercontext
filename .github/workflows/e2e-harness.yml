@@ -570,8 +570,9 @@ jobs:
     # Main supplies scope, so the detector ancestor is intentionally skipped.
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # OceanBase: 15m setup + 60m native + 15m replay + 10m diagnostics/evidence/cleanup.
-    timeout-minutes: ${{ matrix.database == 'oceanbase' && 100 || 40 }}
+    # OceanBase: 15m setup + 60m native + 40m replay + 10m diagnostics/evidence/cleanup.
+    # Replay includes image builds and a separate full Server schema migration.
+    timeout-minutes: ${{ matrix.database == 'oceanbase' && 125 || 50 }}
     strategy:
       fail-fast: false
       matrix:
@@ -675,7 +676,7 @@ jobs:
             --output "$RUNNER_TEMP/oceanbase-acceptance/diagnostics"
 
       - name: Run deterministic scenarios
-        timeout-minutes: ${{ matrix.database == 'oceanbase' && 15 || 40 }}
+        timeout-minutes: 40
         id: acceptance_scenarios
         env:
           POWERCONTEXT_E2E_OCEANBASE_DIAGNOSTICS: ${{ runner.temp }}/oceanbase-acceptance/replay-failure

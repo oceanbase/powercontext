@@ -33,7 +33,7 @@ def test_python_image_bootstrap_avoids_system_install_and_preserves_package_fail
         pytest.skip("Harbor task images use Linux bash")
     wheels = tmp_path / "wheels"
     wheels.mkdir()
-    packages = [("agent_client_protocol", "1.0.0rc2")]
+    packages = [("agent_client_protocol", "0.12.1")]
     if complete:
         packages.append(("uv", "0.10.12"))
     for name, version in packages:
@@ -78,7 +78,7 @@ def test_python_image_bootstrap_avoids_system_install_and_preserves_package_fail
                 str(runner / "bin/python"),
                 "-c",
                 "from importlib.metadata import version; "
-                "assert version('agent-client-protocol') == '1.0.0rc2'; assert version('uv') == '0.10.12'",
+                "assert version('agent-client-protocol') == '0.12.1'; assert version('uv') == '0.10.12'",
             ],
             check=True,
         )
@@ -102,7 +102,7 @@ def test_matching_image_uv_bootstraps_offline_without_downloading_uv(tmp_path, m
     monkeypatch.setattr(agent_bootstrap, "UV_VERSION", installed)
     wheels = tmp_path / "wheels"
     wheels.mkdir()
-    name, version = "agent_client_protocol", "1.0.0rc2"
+    name, version = "agent_client_protocol", "0.12.1"
     dist = f"{name}-{version}.dist-info"
     with zipfile.ZipFile(wheels / f"{name}-{version}-py3-none-any.whl", "w") as wheel:
         wheel.writestr(f"{dist}/METADATA", f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n")
@@ -135,7 +135,7 @@ def test_matching_image_uv_bootstraps_offline_without_downloading_uv(tmp_path, m
         [
             str(runner / "bin/python"),
             "-c",
-            "from importlib.metadata import version; assert version('agent-client-protocol') == '1.0.0rc2'",
+            "from importlib.metadata import version; assert version('agent-client-protocol') == '0.12.1'",
         ],
         check=True,
     )
