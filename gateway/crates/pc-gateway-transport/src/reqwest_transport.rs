@@ -33,6 +33,7 @@ pub struct ReqwestTransport {
     max_buffer_bytes: usize,
     subscription_responses_sse: bool,
     codeassist_chat: bool,
+    copilot_chat: bool,
 }
 
 impl ReqwestTransport {
@@ -48,6 +49,7 @@ impl ReqwestTransport {
             max_buffer_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
             subscription_responses_sse: false,
             codeassist_chat: false,
+            copilot_chat: false,
         }
     }
 
@@ -63,6 +65,11 @@ impl ReqwestTransport {
 
     pub fn with_codeassist_chat(mut self, enabled: bool) -> Self {
         self.codeassist_chat = enabled;
+        self
+    }
+
+    pub fn with_copilot_chat(mut self, enabled: bool) -> Self {
+        self.copilot_chat = enabled;
         self
     }
 }
@@ -157,6 +164,24 @@ impl Transport for ReqwestTransport {
                 }
             }
             let complete_ms = start.elapsed().as_millis() as u64;
+            if self.copilot_chat
+                && send.target_url.ends_with("/chat/completions")
+                && (200..300).contains(&status)
+            {
+                match pc_gateway_protocol::copilot_chat_response(&body) {
+                    Some(normalized) => {
+                        body = normalized;
+                        content_type = "application/json".into();
+                    }
+                    None => {
+                        return SendOutcome::IncompleteResponse {
+                            reason: SendIndeterminateReason::LostAfterHandoff,
+                            status,
+                            response_first_byte_ms: first_byte,
+                        }
+                    }
+                }
+            }
             if self.codeassist_chat && (200..300).contains(&status) {
                 match model
                     .as_deref()
@@ -179,15 +204,10 @@ impl Transport for ReqwestTransport {
                 && send.target_url.ends_with("/responses")
                 && (200..300).contains(&status)
             {
-                let is_sse = content_type
-                    .split(';')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .eq_ignore_ascii_case("text/event-stream");
-                let terminal = is_sse
-                    .then(|| pc_gateway_protocol::buffered_subscription_response(&body))
-                    .flatten();
+                // These subscription routes explicitly request SSE. Like the upstream SDK,
+                // decode that protocol even when a peer omits Content-Type; a complete
+                // terminal response is still mandatory before Core can check release.
+                let terminal = pc_gateway_protocol::buffered_subscription_response(&body);
                 match terminal {
                     Some(terminal) => {
                         body = terminal;

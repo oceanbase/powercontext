@@ -8,7 +8,10 @@ use tokio::{
     net::TcpListener,
 };
 
-async fn send(body: String) -> SendOutcome {
+async fn send(body: String, content_type: Option<&str>) -> SendOutcome {
+    let content_type = content_type
+        .map(|value| format!("Content-Type: {value}\r\n"))
+        .unwrap_or_default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let peer = tokio::spawn(async move {
@@ -23,7 +26,16 @@ async fn send(body: String) -> SendOutcome {
                 break;
             }
         }
-        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n",body.len()).as_bytes()).await.unwrap();
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\n{content_type}Content-Length: {}\r\n\r\n",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
         for chunk in body.as_bytes().chunks(17) {
             socket.write_all(chunk).await.unwrap();
             tokio::task::yield_now().await;
@@ -51,18 +63,20 @@ async fn buffered_terminal_response_contains_tools_reasoning_and_usage_for_relea
     ],"usage":{"input_tokens":10,"output_tokens":3}});
     let body=format!("event: response.created\r\ndata: {{\"type\":\"response.created\",\"response\":{{}}}}\r\n\r\nevent: response.completed\r\ndata: {}\r\n\r\ndata: [DONE]\r\n\r\n",
         json!({"type":"response.completed","response":response}));
-    let SendOutcome::Delivered(raw) = send(body).await else {
-        panic!("complete Response was lost");
-    };
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&raw.body).unwrap(),
-        response
-    );
-    assert_eq!(raw.content_type, "application/json");
-    assert_eq!(
-        raw.usage,
-        Some(json!({"input_tokens":10,"output_tokens":3}))
-    );
+    for content_type in [Some("text/event-stream"), None] {
+        let SendOutcome::Delivered(raw) = send(body.clone(), content_type).await else {
+            panic!("complete Response was lost");
+        };
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&raw.body).unwrap(),
+            response
+        );
+        assert_eq!(raw.content_type, "application/json");
+        assert_eq!(
+            raw.usage,
+            Some(json!({"input_tokens":10,"output_tokens":3}))
+        );
+    }
 }
 
 #[tokio::test]
@@ -71,7 +85,7 @@ async fn missing_or_conflicting_terminal_response_is_indeterminate() {
         "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n".into(),
         "data: {\"type\":\"response.completed\",\"response\":{\"output\":[]}}\n\ndata: {\"type\":\"error\",\"message\":\"late error\"}\n\n".into(),
     ] {
-        assert!(matches!(send(body).await,SendOutcome::IncompleteResponse { .. }));
+        assert!(matches!(send(body, Some("text/event-stream")).await,SendOutcome::IncompleteResponse { .. }));
     }
 }
 
@@ -91,7 +105,7 @@ async fn republic_codex_original_event_vectors_preserve_text_tools_and_reasoning
             };
             body.push_str(&format!("data: {data}\n\n"));
         }
-        let SendOutcome::Delivered(raw) = send(body).await else {
+        let SendOutcome::Delivered(raw) = send(body, Some("text/event-stream")).await else {
             panic!("{key} was lost");
         };
         let response: serde_json::Value = serde_json::from_slice(&raw.body).unwrap();

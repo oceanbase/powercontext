@@ -22,6 +22,7 @@ mod canonical;
 mod claude;
 mod codex;
 mod content;
+mod copilot;
 mod gemini;
 mod grok;
 mod render;
@@ -31,6 +32,7 @@ mod subscription;
 
 pub use canonical::*;
 pub use content::{first_model_content_offset, OutputProtocol};
+pub use copilot::chat_response as copilot_chat_response;
 pub use gemini::codeassist_chat_response;
 pub use render::*;
 pub use responses::buffered_subscription_response;

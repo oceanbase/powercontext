@@ -73,6 +73,15 @@ cargo test --locked --workspace -- --skip live_
 
 These tests use local HTTP peers, synthetic credentials and subprocess fixtures. They cover admission, release, protocol conversion, credential rotation and cancellation. [OAuth fixtures](../tests/fixtures/oauth/README.md) and [protocol fixture notes](crates/pc-gateway-app/tests/fixtures/republic/README.md) record their sources and scope.
 
+For live subscription acceptance, run from the repository root with an existing Codex CLI login and GitHub CLI authentication:
+
+```bash
+cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
+uv run python tests/e2e/oauth_subscription_acceptance.py
+```
+
+The harness uses GPT-6 Luna for Codex and Claude Haiku 5.5 for Copilot Chat, spending subscription usage without starting a login flow. It creates disposable authenticated Core and Gateway processes, temporary SQLite storage and a private UDS. Checks cover native generation and artifact readback, recall injection, conversation capture, API authentication and generation through the Gateway with automatic recall and capture disabled. Inference protection is disabled for native subscription adapters. Select one channel with `--channel codex` or `--channel copilot`; results are written to `.powercontext/oauth-live/report.json`.
+
 The four `live_context_check` tests require a separate Core configured with enforcing protection and a `coding` profile. Their current helper targets `127.0.0.1:8000` without a Bearer token; use an isolated test deployment rather than an authenticated personal service.
 
 `make gateway-tck`, run from the repository root, checks pinned upstream SDKs and Open Responses behavior against a direct baseline and the Gateway. Its prerequisites and coverage are in the [TCK README](tck/README.md). Controlled tests do not establish live provider, account or CLI compatibility.

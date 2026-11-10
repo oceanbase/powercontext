@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    http::{self, bearer, checked_header, TokenHttp},
+    http::{self, bearer, TokenHttp},
     oauth::{authorize_device, DeviceClient},
-    store::{lock_new, new_owned_record, persist_store, read_store, text, STORE_LIMIT},
+    store::{lock_new, new_owned_record, persist_store, read_store, text},
     AuthError,
 };
 use oauth2::{
@@ -21,21 +21,12 @@ pub(super) fn validate_target(target: &str) -> Result<(), AuthError> {
 }
 
 pub(super) struct Copilot {
-    pub(super) session_url: String,
     pub(super) oauth: DeviceClient,
-    session: tokio::sync::Mutex<Option<Session>>,
-}
-
-struct Session {
-    github_token: String,
-    token: String,
-    expires_at: i64,
 }
 
 impl Copilot {
     pub(super) fn new() -> Result<Self, AuthError> {
         Ok(Self {
-            session_url: "https://api.github.com/copilot_internal/v2/token".into(),
             oauth: BasicClient::new(ClientId::new("Iv1.b507a08c87ecfe98".into()))
                 .set_auth_type(AuthType::RequestBody)
                 .set_token_uri(
@@ -46,7 +37,6 @@ impl Copilot {
                     DeviceAuthorizationUrl::new("https://github.com/login/device/code".into())
                         .map_err(|_| AuthError::Configuration)?,
                 ),
-            session: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -73,65 +63,11 @@ impl Copilot {
         persist_store(path, &data, false)
     }
 
-    pub(super) async fn headers(
-        &self,
-        path: &Path,
-        client: &reqwest::Client,
-        now: i64,
-    ) -> Result<Vec<(String, String)>, AuthError> {
+    pub(super) fn headers(&self, path: &Path) -> Result<Vec<(String, String)>, AuthError> {
+        // Match the public Pydantic AI provider: current Copilot accepts the GitHub
+        // OAuth token directly, including grants managed by an existing gh login.
         let data = read_store(path)?;
-        let github = text(&data, "oauth_token")?;
-        let mut session = self.session.lock().await;
-        if let Some(current) = session
-            .as_ref()
-            .filter(|s| s.github_token == github && s.expires_at > now.saturating_add(120))
-        {
-            return copilot_headers(&current.token);
-        }
-        // This GitHub-specific session exchange is not an RFC 6749 token grant.
-        let mut request = client
-            .get(&self.session_url)
-            .header(
-                "authorization",
-                checked_header("authorization", &format!("token {github}"))?.1,
-            )
-            .header("accept", "application/json");
-        for (name, value) in copilot_metadata() {
-            request = request.header(name, value);
-        }
-        let response = request.send().await.map_err(|_| AuthError::Refresh)?;
-        if response.status() != reqwest::StatusCode::OK {
-            return Err(AuthError::Refresh);
-        }
-        let mut response = response;
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| AuthError::Refresh)? {
-            if chunk.len() > (STORE_LIMIT as usize).saturating_sub(bytes.len()) {
-                return Err(AuthError::Refresh);
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let body: Value = serde_json::from_slice(&bytes).map_err(|_| AuthError::Refresh)?;
-        let token = text(&body, "token").map_err(|_| AuthError::Refresh)?;
-        let expires_at = body["expires_at"]
-            .as_i64()
-            .filter(|v| *v > now.saturating_add(120))
-            .ok_or(AuthError::Refresh)?;
-        // Never trust an arbitrary endpoint from a token response as a credential destination.
-        if body
-            .pointer("/endpoints/api")
-            .and_then(Value::as_str)
-            .is_some_and(|v| v.trim_end_matches('/') != "https://api.githubcopilot.com")
-        {
-            return Err(AuthError::Target);
-        }
-        let headers = copilot_headers(token).map_err(|_| AuthError::Refresh)?;
-        *session = Some(Session {
-            github_token: github.into(),
-            token: token.into(),
-            expires_at,
-        });
-        Ok(headers)
+        copilot_headers(text(&data, "oauth_token")?)
     }
 }
 

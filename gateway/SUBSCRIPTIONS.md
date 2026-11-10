@@ -7,7 +7,7 @@ Configure one subscription channel per Gateway process. Clients still choose a m
 | `PC_GATEWAY_SUBSCRIPTION` | Login and renewal | Supported routes and limits |
 | --- | --- | --- |
 | `codex` | Read-only Codex CLI `auth.json`; the CLI renews it. | Responses only. Requests use `store:false` and `stream:true`; Core checks the complete response before release. |
-| `copilot` | Gateway device login or a private file containing `oauth_token`; the Gateway exchanges short-lived Copilot sessions. | Chat Completions and Responses, subject to model support. Default github.com service only; GHE and Auto model negotiation are unsupported. |
+| `copilot` | Gateway device login or an existing GitHub OAuth token in a private file as `oauth_token`; the token is sent directly, following Pydantic AI. | Chat Completions and Responses, subject to model support. Default github.com service only; GHE and Auto model negotiation are unsupported. |
 | `grok` | Grok CLI `auth.json`; the Gateway refreshes it under the CLI's `auth.json.lock`. | Chat Completions and Responses at `api.x.ai/v1`. This does not provide Magpie's separate SuperGrok proxy path. |
 | `qwen` | Independent Gateway device login with automatic refresh. | Qwen Code Plus/Pro Chat Completions at `api.qwen.ai/compatible-mode/v1`. Legacy free OAuth and API-key plans are separate products. |
 | `kimi` | Independent Gateway device login with automatic refresh. | Coding Chat Completions and Responses at the supported `.com` or `.ai` endpoint. Account, region and model access must match. |

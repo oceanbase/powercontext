@@ -4,12 +4,7 @@
 use super::*;
 use crate::store::{expiry, lock_file, read_store, write_store};
 use axum::{
-    body::Bytes,
-    extract::State,
-    http::HeaderMap,
-    response::IntoResponse,
-    routing::{get, post},
-    Router,
+    body::Bytes, extract::State, http::HeaderMap, response::IntoResponse, routing::post, Router,
 };
 use oauth2::{DeviceAuthorizationUrl, TokenUrl};
 use serde_json::{json, Value};
@@ -26,7 +21,6 @@ impl SubscriptionAuth {
     fn token_peer(&mut self, endpoint: String) {
         match &mut self.provider {
             Provider::Grok(provider) => provider.token_url = endpoint,
-            Provider::Copilot(provider) => provider.session_url = endpoint,
             Provider::Qwen(provider) => {
                 provider.oauth = provider
                     .oauth
@@ -73,7 +67,6 @@ struct Peer {
     resource_response: Value,
     device_reply: Mutex<Value>,
     device_forms: Mutex<Vec<Value>>,
-    github_tokens: Mutex<Vec<String>>,
 }
 
 async fn token(
@@ -117,28 +110,6 @@ async fn device(
         .collect();
     peer.device_forms.lock().unwrap().push(json!(form));
     axum::Json(peer.device_reply.lock().unwrap().clone()).into_response()
-}
-
-async fn copilot_token(
-    State(peer): State<Arc<Peer>>,
-    headers: HeaderMap,
-) -> axum::response::Response {
-    assert_eq!(headers["editor-version"], "vscode/1.140.0");
-    assert!(headers["user-agent"]
-        .to_str()
-        .unwrap()
-        .starts_with("PowerContextGateway/"));
-    peer.github_tokens
-        .lock()
-        .unwrap()
-        .push(headers["authorization"].to_str().unwrap().into());
-    let reply = peer
-        .replies
-        .lock()
-        .unwrap()
-        .pop_front()
-        .expect("unexpected Copilot session exchange");
-    scripted_response(&reply)
 }
 
 async fn discovery(
@@ -216,7 +187,6 @@ impl Server {
         let router = Router::new()
             .route("/token", post(token))
             .route("/device", post(device))
-            .route("/copilot-token", get(copilot_token))
             .route("/load", post(discovery))
             .route("/resource", post(resource))
             .with_state(peer.clone());
@@ -607,60 +577,25 @@ async fn managed_device_login_then_refresh_and_readback() {
 }
 
 #[tokio::test]
-async fn copilot_session_exchange_cache_and_credential_reload() {
-    let response = |token: &str| {
-        json!({"status":200,"json":{"token":token,"expires_at":3600,
-        "endpoints":{"api":"https://api.githubcopilot.com"}}})
-    };
-    let server = Server::new(
-        &json!({"token_responses":[response("session-one"),response("session-two")],
-        "resource_response":{"status":200,"json":{"choices":[]}}}),
-    )
+async fn copilot_uses_current_github_credentials_and_preserves_resource_401() {
+    let server = Server::new(&json!({"token_responses":[],
+        "resource_response":{"status":401,"json":{"error":"expired-token"}}}))
     .await;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("github.json");
     let initial = replace(&path, &json!({"oauth_token":"github-one"}));
-    let mut auth = server.auth(Subscription::Copilot, &path);
-    auth.token_peer(format!("{}/copilot-token", server.base));
+    let auth = server.auth(Subscription::Copilot, &path);
     let url = "https://api.githubcopilot.com/chat/completions";
-    let (first, second) = tokio::join!(auth.headers(url, 0), auth.headers(url, 0));
-    for result in [first, second] {
-        let headers = result.unwrap();
-        assert!(headers
-            .iter()
-            .any(|(k, v)| k == "authorization" && v == "Bearer session-one"));
-        assert!(headers
-            .iter()
-            .any(|(k, v)| k == "editor-version" && v == "vscode/1.140.0"));
-    }
+    let action = json!({"outcome":"http_error","status":401});
+    request(&auth, &server, url, 0, &action).await;
     assert_eq!(std::fs::read(&path).unwrap(), initial);
-    replace(&path, &json!({"oauth_token":"github-two"}));
-    let headers = auth.headers(url, 0).await.unwrap();
-    assert!(headers
-        .iter()
-        .any(|(k, v)| k == "authorization" && v == "Bearer session-two"));
+    let rotated = replace(&path, &json!({"oauth_token":"github-two"}));
+    request(&auth, &server, url, 0, &action).await;
+    assert_eq!(std::fs::read(&path).unwrap(), rotated);
     assert_eq!(
-        *server.peer.github_tokens.lock().unwrap(),
-        ["token github-one", "token github-two"]
+        *server.peer.tokens.lock().unwrap(),
+        ["github-one", "github-two"]
     );
-}
-
-#[tokio::test]
-async fn copilot_refuses_untrusted_session_endpoint_before_inference() {
-    let server = Server::new(&json!({"token_responses":[{"status":200,"json":{
-        "token":"secret", "expires_at":3600,"endpoints":{"api":"https://api.githubcopilot.com.attacker.test"}
-    }}],"resource_response":{"status":200,"json":{}}})).await;
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("github.json");
-    replace(&path, &json!({"oauth_token":"github-one"}));
-    let mut auth = server.auth(Subscription::Copilot, &path);
-    auth.token_peer(format!("{}/copilot-token", server.base));
-    assert!(matches!(
-        auth.headers("https://api.githubcopilot.com/chat/completions", 0)
-            .await,
-        Err(AuthError::Target)
-    ));
-    assert!(server.peer.tokens.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

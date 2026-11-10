@@ -149,7 +149,7 @@ impl SubscriptionAuth {
         match &self.provider {
             Provider::Grok(provider) => provider.headers(&self.path, &self.client, now).await,
             Provider::Codex => codex::headers(&self.path),
-            Provider::Copilot(provider) => provider.headers(&self.path, &self.client, now).await,
+            Provider::Copilot(provider) => provider.headers(&self.path),
             Provider::Qwen(provider) => provider.headers(&self.path, &self.client, now).await,
             Provider::Kimi(provider) => provider.headers(&self.path, &self.client, now).await,
             Provider::Gemini(provider) => provider

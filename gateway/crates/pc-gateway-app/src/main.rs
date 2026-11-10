@@ -226,7 +226,8 @@ async fn main() {
                 subscription_kind,
                 Some(pc_gateway_auth::Subscription::Codex | pc_gateway_auth::Subscription::Kimi)
             ))
-            .with_codeassist_chat(subscription_kind == Some(pc_gateway_auth::Subscription::Gemini)),
+            .with_codeassist_chat(subscription_kind == Some(pc_gateway_auth::Subscription::Gemini))
+            .with_copilot_chat(subscription_kind == Some(pc_gateway_auth::Subscription::Copilot)),
     )
     .with_claude(
         (subscription_kind == Some(pc_gateway_auth::Subscription::Claude))
