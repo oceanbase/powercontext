@@ -797,8 +797,8 @@ const STATUS_STYLES = `
 @media (pointer: coarse) { .pc-icon-button { min-width: 44px; min-height: 44px; } }
 .pc-status { position: relative; display: flex; align-items: center; width: 100%; min-width: 0; }
 .pc-trigger {
-  display: flex; align-items: center; gap: 8px; width: calc(100% + 4px); min-width: 0;
-  height: 42px; margin: 8px -2px 0; padding: 0 10px 0 8px;
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; box-sizing: border-box;
+  height: 42px; margin: 8px 0 0; padding: 0 var(--dsh-sidebar-row-padding, 12px);
   border: 0; border-radius: 12px; corner-shape: round;
   background: transparent; color: var(--dsw-alias-label-primary, CanvasText);
   font: inherit; text-align: start; cursor: pointer;
@@ -814,10 +814,9 @@ const STATUS_STYLES = `
 [data-ds-dark-theme] .pc-brand-icon .pc-brand-icon-color { display: none; }
 [data-ds-dark-theme] .pc-brand-icon .pc-brand-icon-reverse { display: block; }
 .pc-mark { position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--dsw-alias-label-secondary, currentColor); }
-.pc-trigger-rail .pc-mark { width: 36px; height: 36px; }
+.pc-trigger-rail .pc-mark { width: 20px; height: 20px; }
 .pc-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; corner-shape: round; background: var(--dsw-alias-state-idle-primary, GrayText); box-shadow: 0 0 0 2px var(--dsw-alias-bg-l1, Canvas); }
-.pc-trigger .pc-dot { position: absolute; right: 1px; bottom: 1px; }
-.pc-trigger-wide .pc-dot { position: static; margin-inline-start: auto; }
+.pc-trigger .pc-dot { position: absolute; right: 0; bottom: 0; width: 6px; height: 6px; box-shadow: 0 0 0 1.5px var(--dsw-alias-bg-l1, Canvas); }
 .pc-dot-ready { background: var(--dsw-alias-state-success-primary, #2f9e63); }
 .pc-dot-connecting, .pc-dot-stale { background: var(--dsw-alias-state-warn-primary, #c58a12); }
 .pc-dot-failed { background: var(--dsw-alias-state-error-primary, #cf3d3d); }
@@ -1347,7 +1346,7 @@ function StatusPanel(props) {
 			children: [
 				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 					className: "pc-mark",
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(PowerContextMark, { size: wide ? 20 : 18 }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Dot, { state })]
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(PowerContextMark, { size: 16 }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Dot, { state })]
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: "pc-trigger-label",

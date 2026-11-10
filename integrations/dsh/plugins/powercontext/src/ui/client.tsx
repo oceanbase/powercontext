@@ -287,7 +287,7 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
           setOpen(true)
         }}
       >
-        <span className="pc-mark"><PowerContextMark size={wide ? 20 : 18} /><Dot state={state} /></span>
+        <span className="pc-mark"><PowerContextMark size={16} /><Dot state={state} /></span>
         <span className="pc-trigger-label">PowerContext</span>
         {wide && <span className="pc-trigger-state"><StatusLabel state={state} snapshot={snapshot} /></span>}
       </button>
