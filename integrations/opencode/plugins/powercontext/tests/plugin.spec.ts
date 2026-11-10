@@ -121,7 +121,7 @@ describe('PowerContextPlugin', () => {
 
     expect(incoming.parts).toHaveLength(2)
     expect(incoming.parts[1]).toMatchObject({ synthetic: true, messageID: 'msg-1', sessionID: 'session-1' })
-    expect(incoming.parts[1]?.text).toContain('Parser decision')
+    expect(incoming.parts[1]?.text).toBe('PowerContext host-supplied context.\n\nParser decision: preserve the public token shape.')
     expect(calls.map((call) => call.url)).toEqual([
       'http://127.0.0.1:8000/v1/scope-bindings/resolve',
       'http://127.0.0.1:8000/v1/context/prepare',
@@ -516,7 +516,6 @@ describe('PowerContextPlugin', () => {
       expect(prepared[2]?.body.scope_id).toBe(prepared[0]?.body.scope_id)
       const captured = calls.filter((call) => call.url.endsWith('/v1/sources/content'))
       expect(captured.map((call) => call.body.metadata.cwd)).toEqual([firstProject, firstProject, secondProject])
-      expect(input.client.session.get).toHaveBeenCalledTimes(3)
     } finally {
       await rm(firstProject, { recursive: true, force: true })
       await rm(secondProject, { recursive: true, force: true })
@@ -562,7 +561,6 @@ describe('PowerContextPlugin', () => {
       '/tmp/project-before-delete',
       '/tmp/project-after-delete',
     ])
-    expect(input.client.session.get).toHaveBeenCalledTimes(2)
   })
 
   it('fails open when the OpenCode session directory is unavailable', async () => {

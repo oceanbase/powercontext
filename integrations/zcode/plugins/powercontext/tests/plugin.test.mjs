@@ -165,7 +165,8 @@ test('hook resolves Scope, injects prepared context and captures one Source', as
   assert.equal(result.stderr, '')
   const output = JSON.parse(result.stdout)
   assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit')
-  assert.match(output.hookSpecificOutput.additionalContext, /Remember the blue deployment/)
+  assert.match(output.hookSpecificOutput.additionalContext,
+    /\}\n\nPowerContext context for this request\.\n\nRemember the blue deployment\.$/)
   assert.deepEqual(requests.map(request => request.path), [
     '/v1/scope-bindings/resolve', '/v1/context/prepare', '/v1/sources/content',
   ])
@@ -285,14 +286,46 @@ test('large multibyte prompts are captured without changing their content', asyn
   assert.equal(requests.find(request => request.path === '/v1/sources/content')?.body.source_id, firstId)
 })
 
+for (const event of ['UserPromptSubmit', 'SessionStart']) {
+  test(`${event} accepts context preparation taking longer than one second`, { timeout: 10_000 }, async () => {
+    const content = 'Remember the blue deployment.'
+    override['/v1/context/prepare'] = {
+      status: 200, delayMs: 1500,
+      body: { schema: 'powercontext.prepared-context.v1', status: 'ready',
+        content, content_bytes: Buffer.byteLength(content) },
+    }
+    const result = await invoke({ hookEventName: event, source: 'resume', sessionId: `slow-${event}`,
+      cwd: pluginRoot, prompt: 'Recall the deployment.' }, {},
+    join(pluginRoot, 'hooks', event === 'SessionStart' ? 'session_start.mjs' : 'user_prompt_submit.mjs'))
+    assert.equal(result.code, 0)
+    assert.equal(result.stderr, '')
+    assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /blue deployment/)
+    assert.equal(requests.filter(request => request.path === '/v1/sources/content').length,
+      event === 'UserPromptSubmit' ? 1 : 0)
+  })
+}
+
 test('slow prepare times out without losing independent Source capture', async () => {
-  override['/v1/context/prepare'] = { status: 200, body: {}, delayMs: 1400 }
+  override['/v1/context/prepare'] = { status: 200, body: {}, delayMs: 3500 }
   const result = await invoke({ hookEventName: 'UserPromptSubmit', sessionId: 'session-7', turnId: 'turn-8',
     cwd: pluginRoot, prompt: 'Keep working after slow recall.' })
   assert.equal(result.code, 0)
   assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /current-request binding/)
   assert.match(result.stderr, /"stage":"prepare","code":"timeout"/)
   assert.ok(requests.some(request => request.path === '/v1/sources/content'))
+})
+
+test('sequential requests share the four-second Hook budget', { timeout: 10_000 }, async () => {
+  override['/v1/scope-bindings/resolve'] = { status: 200, body: { scope_id: 'scope-test' }, delayMs: 2000 }
+  override['/v1/context/prepare'] = { status: 200, body: {}, delayMs: 2500 }
+  const started = performance.now()
+  const result = await invoke({ hookEventName: 'UserPromptSubmit', sessionId: 'shared-budget',
+    cwd: pluginRoot, prompt: 'Keep working after the Hook budget expires.' })
+  assert.ok(performance.now() - started < 5000, 'Hook must finish within the host timeout')
+  assert.equal(result.code, 0)
+  assert.match(result.stderr, /"stage":"prepare","code":"timeout"/)
+  assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /current-request binding/)
+  assert.ok(!requests.some(request => request.path === '/v1/sources/content'), 'Expired budget must not send a write')
 })
 
 test('installed Server URL keeps Hook aligned with MCP despite a stale environment override', async () => {

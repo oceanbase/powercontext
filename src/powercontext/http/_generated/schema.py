@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "1.5.0",
+        "version": "1.5.1",
     },
     "paths": {
         "/v1/recall/manifest": {
@@ -258,7 +258,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5053,7 +5053,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "family",
@@ -5123,7 +5123,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "family",
@@ -5199,7 +5199,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5269,7 +5269,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5339,7 +5339,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     }
                 ],
                 "requestBody": {
@@ -5673,6 +5673,46 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+            }
+        },
+        "/v1/connection/identity": {
+            "get": {
+                "tags": ["access"],
+                "summary": "Observe the current connection identity without readiness probes",
+                "description": "Returns the actual deployment, "
+                "access mode and request "
+                "authentication identity. Does not "
+                "invoke model, "
+                "authentication-provider or "
+                "access-provider readiness probes, "
+                "require server.observe, or grant "
+                "resource permissions. Anonymous "
+                "identity is explicit only when "
+                "authentication and access "
+                "enforcement are disabled. "
+                "Authentication errors and "
+                "unavailable enforced access remain "
+                "errors, never anonymous fallback.",
+                "operationId": "get_connection_identity",
+                "responses": {
+                    "200": {
+                        "description": "Current "
+                        "request "
+                        "identity; not "
+                        "an operation "
+                        "authorization "
+                        "or binary "
+                        "attestation.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectionIdentity"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-feature-contracts": ["connection.identity"],
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
             }
         },
         "/v1/access/me": {
@@ -7766,6 +7806,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -14108,6 +14149,61 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["items", "next_cursor"],
             },
+            "SourceSequenceLocator": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["sequence"]},
+                    "sequence": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "sequence"],
+                "description": "Position of this exact Source in its scope journal; zero is distinct from absence.",
+            },
+            "SourceLineRangeLocator": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["line_range"]},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "end_line": {"type": "integer", "minimum": 1.0},
+                    "heading_path": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Optional "
+                        "adapter-supplied "
+                        "heading "
+                        "path, "
+                        "bounded "
+                        "in "
+                        "Unicode "
+                        "characters "
+                        "rather "
+                        "than "
+                        "UTF-8 "
+                        "bytes.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "start_line", "end_line"],
+                "description": "Inclusive one-based lines "
+                "in adapter-supplied text, "
+                "at most 200 lines. Never a "
+                "revision redirect.",
+                "x-powercontext-source-line-range": True,
+            },
+            "SourceLocator": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/SourceSequenceLocator"},
+                    {"$ref": "#/components/schemas/SourceLineRangeLocator"},
+                ],
+                "discriminator": {
+                    "propertyName": "kind",
+                    "mapping": {
+                        "sequence": "#/components/schemas/SourceSequenceLocator",
+                        "line_range": "#/components/schemas/SourceLineRangeLocator",
+                    },
+                },
+            },
             "SourceTypeReference": {
                 "properties": {
                     "source_type": {
@@ -14130,6 +14226,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "interior "
                         "spaces.",
                     },
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -14139,6 +14236,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "name": {"type": "string", "description": "Stable Source type."},
                     "source_id": {"type": "string"},
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -14280,6 +14378,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["family", "enabled", "share_unit", "actions", "grantable_roles"],
+            },
+            "ConnectionAuthentication": {"type": "string", "enum": ["disabled", "authenticated"]},
+            "ConnectionIdentity": {
+                "properties": {
+                    "server_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "authentication": {"$ref": "#/components/schemas/ConnectionAuthentication"},
+                    "access_mode": {"$ref": "#/components/schemas/AccessControlMode"},
+                    "principal": {"allOf": [{"$ref": "#/components/schemas/AccessPrincipal"}], "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["server_id", "authentication", "access_mode", "principal"],
             },
             "AccessMeResponse": {
                 "properties": {
@@ -15396,6 +15506,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "security": [{"BearerAuth": []}, {}],
     "x-powercontext-feature-contracts": {
+        "connection.identity": {"major": 1, "minor": 0},
         "access.principal": {"major": 1, "minor": 0},
         "scope.selection": {"major": 1, "minor": 0},
         "memory.explicit": {"major": 1, "minor": 0},

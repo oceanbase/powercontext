@@ -19,7 +19,7 @@ Every processing failure keeps the existing identity and outcome fields (`family
 | `processing_stage` | The stage that owned the failure | `generation`, `embedding`, `output_parsing`, `business_validation`, `persistence`, `usage_accounting` (reserved for usage reporting or persistence) |
 | `failure_reason` | A bounded reason, only when evidence supports it | `context_overflow`, `output_truncated`, `rate_limit`, `timeout`, `schema_invalid`, `provider_unavailable`, `configuration`, `invalid_output`, `storage_failure`, `usage_limit` |
 | `input_item_count` | Number of input items in the failing call | Non-negative integer |
-| `estimated_input_tokens` | Estimated input tokens | Non-negative integer |
+| `estimated_input_tokens` | Estimated input tokens; for a window token ceiling, the charged or reserved token count | Non-negative integer |
 | `token_estimator_id` | Identity of the estimator that produced the estimate | Bounded string |
 | `effective_budget` | Budget applied to the call | Non-negative integer |
 | `provider_request_id` | Provider request identity, when reported | Bounded string |
@@ -34,6 +34,8 @@ domain block names such as `topic_memory`, and the child Worker's `worker` fallb
 carries no stage. A child failure without a domain block may omit `stage` entirely. `processing_stage`
 is the bounded domain stage. Counts and identifiers are bounded before they reach a log record, and
 unknown or unsupported values are omitted rather than guessed.
+
+For Topic Memory window budgets, request and attempt ceilings retain the usage-limit reason and failure location without token-specific fields. A rejected reservation does not persist its proposed charges. Later reads omit token-specific fields when the committed counters cannot establish the limiting dimension; they never reconstruct token overflow from the failure code alone.
 
 ## Privacy boundary
 
@@ -52,14 +54,14 @@ in its processing path.
 | Family | Generation | Embedding | Output parsing | Business validation | Persistence | Usage accounting |
 |---|---|---|---|---|---|---|
 | Memory / Atomic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
-| Topic Memory | Partial | Partial | Partial | Missing | Missing | Missing |
+| Topic Memory | Partial | Covered | Partial | Covered | Partial | Missing |
 | Experience | Partial | N/A | Partial | Missing | Missing | Missing |
 | Profile | Partial | N/A | Partial | Missing | Missing | Missing |
 | Skill | Partial | N/A | Partial | Missing | Missing | Missing |
 | Handoff | Partial | N/A | Partial | Missing | Missing | Missing |
 | Prompt | Partial | N/A | Partial | Missing | Missing | Missing |
 
-Memory / Atomic Memory is tracked at operation granularity while it is the active slice:
+Memory / Atomic Memory and Topic Memory are tracked at operation granularity while they are the active slices:
 
 | Operation | Stage | Status | Notes |
 |---|---|---|---|
@@ -73,16 +75,27 @@ Memory / Atomic Memory is tracked at operation granularity while it is the activ
 | Publish / index | Persistence | Partial | `AtomicMemoryIndexError` codes are mapped; other storage failures keep unknown. |
 | Usage accounting | Usage accounting | Missing | Usage-reporting and persistence failures are not classified; inference usage limits are reported in their originating stage (generation, or embedding when an adapter reports the limit). |
 
-The first rollout slice covers Memory / Atomic Memory: provider failures, budget exhaustion, and
-extraction/reconciliation validation are classified, and safe accounting fields travel from the
-child Worker to the supervisor log. Other Families keep their current behavior until their own slice
-lands; the matrix is updated in the same change as each slice.
+Topic Memory operation-level coverage:
+
+| Operation | Stage | Status | Notes |
+|---|---|---|---|
+| `topic-memory` stages (`probe`, `global`, `planner`, `evolve`, `temporary`, `reconcile`) | Generation | Partial | Provider timeout, unavailability, rate limit, and configuration are classified; a provider finish reason is only visible where the adapter exposes it. |
+| `topic-memory` stages | Output parsing | Partial | Provider schema failures use the shared mapping; semantic rejections are business validation. |
+| `topic-memory` stages | Business validation | Covered | Every `TopicMemoryGenerationError` code maps to bounded diagnostics: domain and model rejections carry a stage and, when evidence supports it, a reason; control-flow rejections carry only `failure_location`. Input-budget failures carry input counts, token estimates, estimator identity, and the effective budget; the window token ceiling carries the charged tokens and the ceiling, while attempt and request ceilings are reported through their block details. |
+| `topic-memory.index` and query embedding | Embedding | Covered | A missing embedding adapter and a wrong vector count are classified. |
+| Publish / persistence | Persistence | Partial | Projection content and vector-completeness rules are business validation; storage-invariant failures map to `persistence` / `storage_failure`; unsupported capabilities report `configuration`; publisher conflicts keep their domain outcomes, and other storage failures keep unknown. |
+| Usage accounting | Usage accounting | Missing | The window provider budget is reported as `generation` / `usage_limit`; accounting failures are not classified. |
+
+The first two rollout slices cover Memory / Atomic Memory and Topic Memory: provider failures,
+budget exhaustion, and extraction/reconciliation/domain validation are classified, and safe
+accounting fields travel from the child Worker to the supervisor log. Other Families keep their
+current behavior until their own slice lands; the matrix is updated in the same change as each slice.
 
 ## Rollout
 
 1. Shared diagnostics contract, allowlisted fields, Worker propagation, and the Memory / Atomic
-   Memory slice (this change).
-2. Topic Memory: tag its staged generation, index/embedding, and persistence failures.
+   Memory slice.
+2. Topic Memory: tag its staged generation, index/embedding, and persistence failures (this change).
 3. Experience, Profile, and Skill: tag generation output validation and persistence entry points.
 4. Handoff and Prompt: tag generation and publication failures, then add usage-accounting
    classification and complete the matrix.

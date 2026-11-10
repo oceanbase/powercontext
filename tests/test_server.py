@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
@@ -1047,11 +1048,11 @@ def test_server_provider_cache_shares_refreshes_and_retries_transient_failures_s
 def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog, monkeypatch, tmp_path) -> None:
     now = [0.0]
     monkeypatch.setattr("powercontext.builtin.runtime.readiness.monotonic", lambda: now[0])
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def reject(request: httpx.Request) -> httpx.Response:
+    def reject(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return httpx.Response(
+        return httpx2.Response(
             404,
             json={
                 "error": {
@@ -1065,7 +1066,7 @@ def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog,
     provider = OpenAIProvider(
         base_url="https://provider.example",
         api_key="secret-api-key",
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(reject)),
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(reject)),
     )
     monkeypatch.setattr("pydantic_ai.providers.infer_provider", lambda _name: provider)
     app = create_server_app(

@@ -36,6 +36,7 @@ const contractUrl = new URL("../openapi/powercontext.yaml", root);
 const raw = await readFile(contractUrl, "utf8");
 const contract = YAML.parse(raw);
 const wanted = [
+  "get_connection_identity",
   "get_server_info",
   "get_liveness",
   "get_readiness",
@@ -178,6 +179,29 @@ async function generateRustModels() {
     const input = structuredClone(contract);
     for (const name of ["ServerInfo", "ContractVersion", "FeatureContract"]) {
       input.components.schemas[name]["x-rust-allow-unknown-fields"] = true;
+    }
+    // Child singleton enums already validate the discriminator. Let them own
+    // its serde encoding too: an internal tag would consume the required field
+    // on decode and emit it twice on encode.
+    for (const schema of Object.values(input.components.schemas)) {
+      const tag = schema.discriminator?.propertyName;
+      if (!tag || !schema.oneOf?.length) continue;
+      const tags = schema.oneOf.map((variant) => {
+        const child = input.components.schemas[variant.$ref?.split("/").at(-1)];
+        const values = child?.properties?.[tag]?.enum;
+        return child?.required?.includes(tag) &&
+          values?.length === 1 &&
+          (!schema.discriminator.mapping ||
+            schema.discriminator.mapping[values[0]] === variant.$ref)
+          ? values[0]
+          : undefined;
+      });
+      if (
+        tags.every((value) => typeof value === "string") &&
+        new Set(tags).size === tags.length
+      ) {
+        schema["x-rust-untagged-discriminator"] = true;
+      }
     }
     const inputPath = join(temporary, "openapi.yaml");
     await writeFile(inputPath, YAML.stringify(input));

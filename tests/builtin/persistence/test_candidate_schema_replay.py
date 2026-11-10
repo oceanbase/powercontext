@@ -159,14 +159,14 @@ def test_candidate_replay_sqlite(sqlite_source, tmp_path, scenario):
             original = _history(connection, runner.bundle)
             baseline = replay.begin(connection)
         if scenario != "complete":
-            with replay.sqlite(), pytest.raises(ReplayInterrupted):
+            with replay.sqlite(runner), pytest.raises(ReplayInterrupted):
                 sqlite_fixtures.apply(runner)
             interrupted = json.loads(runner.evidence_path.read_text())
             with engine.connect() as connection:
                 assert replay.capture(connection, "after rollback") == baseline
                 assert _history(connection, runner.bundle) == original
             assert runner.plan().state == "recovery_required"
-        with replay.sqlite():
+        with replay.sqlite(runner):
             result = sqlite_fixtures.apply(runner)
         if scenario != "complete":
             assert interrupted is not None

@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shlex
 import shutil
 import sqlite3
 import subprocess
+import sys
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -433,11 +435,15 @@ class CrossHostRun(AcceptanceRun):
                 )
                 assert self.coverage()["outcome_state"] == "awaiting_outcome", "unlinked_outcome_covered_receipt"
                 # The native host executes the actual command; the fixture never runs it itself.
-                command = "python verify.py"
+                # The native shell may resolve a different Python after login-shell setup.
+                # Forward slashes and shell quoting also work in the pinned host's Windows Git Bash.
+                command = shlex.join([Path(sys.executable).as_posix(), "verify.py"])
 
                 def outcome() -> dict[str, Any]:
                     assert self.model is not None
-                    result = json.loads((self.workspace / "receiver-action.json").read_text())
+                    result_path = self.workspace / "receiver-action.json"
+                    assert result_path.is_file(), "receiver_action_result_missing"
+                    result = json.loads(result_path.read_text())
                     assert result == {
                         "status": "passed",
                         "implementation_digest": sha256((self.workspace / "task.py").read_bytes()).hexdigest(),

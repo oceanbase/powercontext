@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 from pydantic import SecretStr
-from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 from sqlalchemy.engine import make_url
 
@@ -1506,7 +1506,9 @@ def test_extraction_corrects_invalid_json_within_the_configured_request_budget(
     async def extract(messages, info):
         nonlocal requests
         requests += 1
-        correcting = any(isinstance(part, RetryPromptPart) for message in messages for part in message.parts)
+        correcting = any(
+            isinstance(part, TextPart) and part.content == malformed for message in messages for part in message.parts
+        )
         request = next(
             AtomicMemoryExtractionInput.model_validate_json(part.content)
             for message in messages

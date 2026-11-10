@@ -172,11 +172,23 @@ async fn setup() -> Fixture {
                             "package_version":"synthetic",
                             "api_contract_version":{"major":1,"minor":4},
                             "feature_contracts":{
+                                "connection.identity":{
+                                    "version":{"major":1,"minor":0},
+                                    "operations":["get_connection_identity"]
+                                },
                                 "scope.selection":{
                                     "version":{"major":1,"minor":0},
                                     "operations":["get_scope","list_scopes","get_default_scope"]
                                 }
                             }
+                        }),
+                    )
+                } else if request.contains("/v1/connection/identity ") {
+                    (
+                        200,
+                        serde_json::json!({
+                            "server_id":if changed.load(Ordering::Relaxed) { "replacement-statistics-server" } else { "synthetic-statistics-server" },
+                            "authentication":"disabled","access_mode":"disabled","principal":null
                         }),
                     )
                 } else if request.contains("/v1/access/me ") {

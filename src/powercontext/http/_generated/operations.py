@@ -59,6 +59,7 @@ from powercontext.http._generated.models import (
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectionIdentity,
     ConnectorCheckpointState,
     ContextCheckResult,
     ContinueHandoffRequest,
@@ -241,8 +242,9 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.5.0"
+API_VERSION = "1.5.1"
 FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
+    "connection.identity": {"version": {"major": 1, "minor": 0}, "operations": ["get_connection_identity"]},
     "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
     "scope.selection": {
         "version": {"major": 1, "minor": 0},
@@ -3680,6 +3682,27 @@ GENERATE_PROMPT_DEMONSTRATIONS = Operation[GeneratePromptDemonstrationsRequest, 
         500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action="scope.admin", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_CONNECTION_IDENTITY = Operation[None, ConnectionIdentity](
+    method="GET",
+    path="/v1/connection/identity",
+    operation_id="get_connection_identity",
+    request_type=None,
+    request_location=None,
+    path_parameters=(),
+    response_type=ConnectionIdentity,
+    success_status=200,
+    summary="Observe the current connection identity without readiness probes",
+    tags=("access",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Current request identity; not an operation authorization or binary attestation."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="access.self", resource="server", scope_id_field=None, resolver="static"),
 )
 
 GET_ACCESS_PRINCIPAL = Operation[None, AccessMeResponse](

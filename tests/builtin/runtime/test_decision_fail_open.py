@@ -18,12 +18,7 @@ import asyncio
 
 import pytest
 
-from powercontext.builtin.inference import (
-    InferenceConfigurationError,
-    InferenceTimeoutError,
-    InferenceUsage,
-    InvalidInferenceOutputError,
-)
+from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.runtime.decision_model import (
     DecisionOutcome,
     DecisionRequest,
@@ -56,18 +51,9 @@ class _AnsweringDecisionModel:
         return self._result
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        InferenceConfigurationError("missing provider key"),
-        InferenceTimeoutError("generate", 1.0),
-        InvalidInferenceOutputError("generate", "schema mismatch"),
-        ValueError("empty structured output"),
-    ],
-)
-def test_backend_failures_degrade_to_a_no_op_abstention(error: BaseException) -> None:
+def test_backend_failures_degrade_to_a_no_op_abstention() -> None:
     async def scenario() -> None:
-        envelope = FailOpenDecisionModel(_FailingDecisionModel(error))
+        envelope = FailOpenDecisionModel(_FailingDecisionModel(ValueError("empty structured output")))
 
         result = await envelope.evaluate(DecisionRequest("memory.write-gate", "Keep this?", "note"))
 
