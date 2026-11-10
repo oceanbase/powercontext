@@ -37,7 +37,7 @@ Draft PRs allocate no automatic CI runners. Marking a PR ready validates its com
 | PR changes dependencies, shared fixtures, CI policy or unclassified files | 3.11–3.14 × unit/E2E: 8 combinations | Conservative affected or full selection within the SQLite-only database policy |
 | PR update/reopen already carrying `ci:full` | 8 combinations | Complete PR scope with SQLite-only database execution |
 | `master` push | 8 combinations | Compare with a successful trunk baseline; database execution remains SQLite-only |
-| Daily at 20:17 UTC | 8 combinations | Full SQLite, seekDB and OceanBase acceptance, including schema capture and short lock probes |
+| Daily at 18:00 UTC (02:00 the following day in Asia/Shanghai) | 8 combinations | Full SQLite, seekDB and OceanBase acceptance, including schema capture and short lock probes |
 | Manual Main | 8 combinations | Full scope including native databases; upgrade selection defaults to `full`, with an explicit diagnostic subset available |
 | Published release | Independent installed-package and publication checks | Complete upgrade evidence and validated publication bytes; PR scope cannot bypass acceptance |
 
@@ -49,7 +49,7 @@ When packaging is selected, installation validation uses two jobs, one each for 
 
 ## Database execution schedule
 
-Regular PRs and `master` pushes run selected SQLite checks. seekDB and OceanBase regression jobs run through Main's existing daily schedule at 20:17 UTC (04:17 the following day in Asia/Shanghai), or through an explicit manual run. The schedule validates the default branch, so a nightly result does not certify an unmerged PR head. The policy takes effect after the workflow reaches the default branch.
+Regular PRs and `master` pushes run selected SQLite checks. seekDB and OceanBase regression jobs run through Main's daily schedule at 18:00 UTC (02:00 the following day in Asia/Shanghai), or through an explicit manual run. The schedule validates the default branch, so a nightly result does not certify an unmerged PR head. The policy takes effect after the workflow reaches the default branch.
 
 | Workload | PR / `master` push | Nightly Main | Manual Main |
 | --- | --- | --- | --- |

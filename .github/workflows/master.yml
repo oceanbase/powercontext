@@ -8,8 +8,8 @@ on:
     branches: [master]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   schedule:
-    # 04:17 Asia/Shanghai; native database acceptance runs once per night.
-    - cron: '17 20 * * *'
+    # 02:00 Asia/Shanghai; native database acceptance runs once per night.
+    - cron: '0 18 * * *'
   workflow_dispatch:
     inputs:
       upgrade_selection:
