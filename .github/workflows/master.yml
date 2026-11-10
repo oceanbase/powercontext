@@ -242,8 +242,9 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    # E2E: 50m + 10m setup/cleanup. Unit: 40m + 5m floor check + 15m setup/cleanup.
-    timeout-minutes: 60
+    # E2E: 10m Gateway build + 50m tests + 10m setup/cleanup.
+    # Unit: 40m tests + 5m floor check + 15m setup/cleanup.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 70 || 60 }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true
@@ -298,6 +299,19 @@ jobs:
         run: >-
           uv run --with 'pydantic==2.12.0' python -m pytest
           tests/test_source_locators.py tests/test_source_observations.py tests/test_api_contract.py -q
+
+      - name: Cache Gateway dependencies and compilation
+        if: matrix.suite == 'e2e'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: gateway -> target
+          cache-bin: false
+
+      - name: Prepare Gateway for end-to-end tests
+        if: matrix.suite == 'e2e'
+        timeout-minutes: 10
+        # Download and compile before pytest starts, outside the fixture's 300s budget.
+        run: cargo build --locked --manifest-path gateway/Cargo.toml -p pc-gateway-app
 
       - name: Run end-to-end tests
         if: matrix.suite == 'e2e'

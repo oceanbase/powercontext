@@ -47,6 +47,8 @@ flowchart TD
 
 普通 PR 的 Python 测试组合数由 8 降至 3，减少 62.5%。这是组合数量的变化，不是已经测得的 runner 分钟或等待时间降幅。依赖和 CI 策略变更保持全矩阵，因此修改 CI 的 PR 本身可能仍运行 8 个组合。
 
+每个 Python E2E 任务在启动 pytest 前恢复 Gateway Rust 缓存，并按锁文件构建 Gateway 程序。依赖下载和冷编译单独限制为十分钟，不再占用鉴权测试夹具的五分钟准备预算。E2E 任务为构建、测试、环境准备及缓存收尾分别预留十分钟、五十分钟、十分钟；单元测试任务仍限制为六十分钟。所有选中的 E2E Python 版本继续执行鉴权用例，构建失败仍使任务失败。
+
 安装验证在 packaging 范围选中时运行两个任务，分别使用 Python 3.11 和 3.14。每个任务只构建一次 wheel，依次验证不带 extras 的 `core`，以及 `builtin`、`cli`、`builtin,cli`、`server,cli`，共五种角色。每个角色使用独立的虚拟环境、应用状态和临时目录，针对已安装 wheel 验证，排除 checkout 源码导入。core 角色检查未安装可选依赖时的公共导入。CLI 角色还检查安装无关的 SQLAlchemy、FastAPI 包后不会启用可选角色。各角色分别产生结果，任何角色失败都会使所属任务失败。全部十个 Python/角色组合仍受验证，同时减少八次 runner 分配和八次重复 wheel 构建。任务数量减少不代表已测得等待时间或吞吐量改善。
 
 `ci:full` 在 PR 的 opened/synchronize/reopened/ready 事件中读取。给一个正在运行的 PR 添加标签不会再触发一套流水线；需要随后更新提交或重新打开 PR。手动 Main 使用 Actions 界面选择的仓库内 ref；fork PR 应在其来源仓库选择对应分支，不能把默认分支的通过结果当成 PR head 的通过结果。
