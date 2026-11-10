@@ -1,0 +1,19 @@
+tests/test_check_atomic_memory_migration_shards.py
+  s_98c1bb9fbaf7be::t_90936be3a38675 32-39,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "77b22dc5c8451ef98fdfdbf61de93a716c719cdd",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
