@@ -398,3 +398,51 @@ def test_mcp_endpoint_is_absent_when_disabled_by_server_settings() -> None:
     response = asyncio.run(request_mcp())
 
     assert response.status_code == 404
+
+
+def test_native_mcp_preserves_legacy_memory_code_and_recovery_without_writing(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'legacy.db'}"))
+    )
+
+    def create_http_client(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+        **_: object,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            follow_redirects=True,
+        )
+
+    async def scenario() -> None:
+        transport = StreamableHttpTransport("http://testserver/mcp/", httpx_client_factory=create_http_client)
+        async with app.router.lifespan_context(app), Client(transport) as client, create_http_client() as http:
+            scope_id = (await http.get("/v1/scopes/default")).json()["scope_id"]
+            result = await client.call_tool(
+                "remember_memory",
+                {
+                    "scope_id": scope_id,
+                    "kind": "fact",
+                    "text": "Rejected collection CAS write",
+                    "description": "Legacy rejection probe",
+                    "expected_revision": 1,
+                },
+                raise_on_error=False,
+            )
+            assert result.is_error
+            text = "\n".join(item.text for item in result.content if isinstance(item, TextContent))
+            assert "legacy_memory_operation_unsupported" in text
+            assert "powercontext setup" in text
+            assert "fully restart the host" in text
+            assert "do not drop collection CAS" in text
+            inventory = await http.post("/v1/atomic-memory/list", json={"scope_id": scope_id})
+            inventory.raise_for_status()
+            assert inventory.json()["items"] == []
+
+    asyncio.run(scenario())

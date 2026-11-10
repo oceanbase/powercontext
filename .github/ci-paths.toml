@@ -12,7 +12,7 @@ full = [
 
 # These files still receive the always-running preflight checks.
 ignore = [
-  "AGENTS.md", "REVIEW.md", "CONTRIBUTING.md", "GOVERNANCE.md", "LICENSE", "LICENSES/**",
+  "AGENTS.md", "REVIEW.md", "CLAUDE.md", "CONTRIBUTING.md", "GOVERNANCE.md", "LICENSE", "LICENSES/**",
   ".github/ISSUE_TEMPLATE/**", ".github/pull_request_template.md", ".github/CODEOWNERS",
   ".github/dependabot.yml", ".licenserc.yaml",
   "scripts/ci_queue_report.py",
@@ -34,7 +34,7 @@ tests = [
   # Release tooling is covered by unit tests; the packaging and publication workflows are manual.
   ".github/workflows/desktop-candidate.yml", "scripts/desktop_candidate.py",
   ".github/workflows/desktop-release.yml", "scripts/desktop_publication_manifest.py",
-  "scripts/publish_desktop_release.py",
+  "scripts/publish_desktop_release.py", "scripts/prepare_desktop_product.py",
   # These evaluator suites still live under the root tests/ directory.
   "evaluation/memory/locomo/**", "evaluation/memory/locomo_plus/**", "evaluation/memory/write_gate/**",
   "evaluation/performance/input_encoding/**",
@@ -62,7 +62,11 @@ cindy = [
   "integrations/dsh/plugins/powercontext/pnpm-lock.yaml", "integrations/dsh/plugins/powercontext/pnpm-workspace.yaml",
   "integrations/dsh/plugins/powercontext/tsconfig.json",
 ]
-pi = ["integrations/pi/**", "tests/*pi_*"]
+# The Pi service chain reuses the cross-host Pi RPC client and the ZCode acceptance wire fixtures.
+pi = [
+  "integrations/pi/**", "tests/*pi_*", "tests/e2e/cross_host_work_continuity/pi.py",
+  "tests/e2e/zcode_acceptance/protocol.py", "tests/e2e/zcode_acceptance/runner.py",
+]
 opencode = ["integrations/opencode/**", "tests/*opencode*"]
 openclaw = ["integrations/openclaw/**", "tests/*openclaw*"]
 opendal = ["integrations/opendal/**"]
@@ -199,7 +203,7 @@ suites = ["zcode"]
 
 [shared.node_cache]
 patterns = [".github/actions/cache-pnpm/**"]
-suites = ["tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw"]
+suites = ["tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
 
 [shared.docs_deploy]
 patterns = [".github/workflows/deploy-docs.yml"]
