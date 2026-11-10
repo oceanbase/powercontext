@@ -1247,13 +1247,13 @@ def test_parallel_worker_rejects_artifact_changed_during_execution(release, monk
     assert json.loads((root / "reports/case-0/result.json").read_text())["status"] == "failed"
 
 
-@pytest.mark.parametrize("parallel_reports", ["automatic", "seekdb-code", "full"], indirect=True)
+@pytest.mark.parametrize("parallel_reports", ["automatic", "sqlite", "seekdb-code", "full"], indirect=True)
 def test_upgrade_selection_requires_all_cases_for_publication(parallel_reports):
     root, prepared, reports, policy = parallel_reports
     plan = json.loads((prepared / "plan.json").read_text())
     selection = plan["selection"]
-    complete = selection != "seekdb-code"
-    expected = 12 if complete else 2
+    complete = selection in {"full", "automatic"}
+    expected = 12 if complete else (4 if selection == "sqlite" else 2)
     if complete:
         # Model release metadata; real sdist validation is covered separately.
         plan["release"] = True
@@ -1275,11 +1275,14 @@ def test_upgrade_selection_requires_all_cases_for_publication(parallel_reports):
         assert publication["complete"] is True
         assert publication["deferred_cases"] == []
     else:
-        assert {result["case"]["configuration"] for result in verdict["cases"]} == {
-            "full-server-code",
-            "full-server-vector-code",
-        }
-        assert all(result["case"]["backend"] == "seekdb" for result in verdict["cases"])
+        configurations = {"full-server-code", "full-server-vector-code"}
+        if selection == "sqlite":
+            configurations |= {"full-server-no-vector", "full-server-vector"}
+        assert {result["case"]["configuration"] for result in verdict["cases"]} == configurations
+        assert all(
+            result["case"]["backend"] == ("sqlite" if selection == "sqlite" else "seekdb")
+            for result in verdict["cases"]
+        )
         assert not (root / "accepted/publication.json").exists()
         plan["release"] = True
         plan["release_notes"] = gate.support_text(policy, "en")
@@ -1416,3 +1419,33 @@ def test_parallel_collection_rejects_unproven_configuration(parallel_reports, co
     with pytest.raises(gate.GateError, match="Configuration evidence"):
         parallel.collect(root, prepared, reports, root / "accepted")
     assert not (root / "accepted/validated-dist").exists()
+
+
+@pytest.mark.parametrize("parallel_reports", ["sqlite"], indirect=True)
+@pytest.mark.parametrize("broken", ["missing", "failed", "skipped"])
+def test_sqlite_pr_upgrade_requires_every_selected_result(parallel_reports, broken):
+    root, prepared, reports, _ = parallel_reports
+    path = next(reports.glob("*/result.json"))
+    if broken == "missing":
+        path.unlink()
+    elif broken == "failed":
+        result = json.loads(path.read_text())
+        result["status"] = "failed"
+        parallel.write_json(path, result)
+    else:
+        junit = path.parent / "acceptance/junit.xml"
+        tree = ElementTree.parse(junit)  # noqa: S314 -- locally generated test fixture
+        ElementTree.SubElement(next(tree.iter("testcase")), "skipped")
+        tree.write(junit)
+    with pytest.raises(gate.GateError):
+        parallel.collect(root, prepared, reports, root / "accepted")
+    assert not (root / "accepted/publication.json").exists()
+
+
+@pytest.mark.parametrize("selection", ["sqlite", "seekdb-code"])
+def test_partial_upgrade_cannot_prepare_a_release(release, selection):
+    root, _wheel, _policy = release
+    output = root / "prepared"
+    with pytest.raises(gate.GateError, match="cannot authorize publication"):
+        parallel.prepare(root, root / "dist", output, release=True, release_notes=None, selection=selection)
+    assert not output.exists()

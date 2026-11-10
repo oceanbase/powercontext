@@ -8,11 +8,12 @@ on:
     branches: [master]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   schedule:
+    # 04:17 Asia/Shanghai; native database acceptance runs once per night.
     - cron: '17 20 * * *'
   workflow_dispatch:
     inputs:
       upgrade_selection:
-        description: Upgrade cases (full and automatic both run all 12 configurations)
+        description: Manual upgrade cases (full and automatic run all 12 configurations)
         type: choice
         default: full
         options:
@@ -31,7 +32,7 @@ concurrency:
 jobs:
   seekdb-managed-startup:
     needs: [quality, tests]
-    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
+    if: ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     name: SeekDB managed startup regression (priority)
     timeout-minutes: 20
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
@@ -90,7 +91,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     uses: ./.github/workflows/upgrade-release.yml
     with:
-      selection: ${{ github.event_name == 'workflow_dispatch' && inputs.upgrade_selection || 'full' }}
+      selection: ${{ github.event_name == 'workflow_dispatch' && inputs.upgrade_selection || github.event_name == 'schedule' && 'full' || 'sqlite' }}
       internal_runner: true
 
   upgrade-release-gate:

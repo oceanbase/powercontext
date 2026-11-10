@@ -251,7 +251,7 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
 @pytest.mark.parametrize(
     ("path", "required_jobs"),
     [
-        ("scripts/run_atomic_memory_clean_migration.py", {"seekdb-managed-startup", "upgrade-acceptance"}),
+        ("scripts/run_atomic_memory_clean_migration.py", {"upgrade-acceptance"}),
         (
             ".github/actions/cache-pnpm/action.yml",
             {"tests", "windows-unit-portability", "cindy-package", "zcode-acceptance"},
@@ -301,7 +301,7 @@ def test_harness_workflow_change_selects_acceptance_and_database_suites(reposito
 
     selected = run_selector(repository, "pull_request", base, head)
 
-    assert {suite for suite, enabled in selected.items() if enabled} == {"harness", "database", "oceanbase_acceptance"}
+    assert {suite for suite, enabled in selected.items() if enabled} == {"harness"}
 
 
 @pytest.mark.parametrize(
@@ -335,7 +335,7 @@ def test_native_acceptance_moves_and_deletions_preserve_coverage(repository: Pat
     git(repository, "rm", "tests/e2e/test_server_metrics_oceanbase.py")
     git(repository, "commit", "-m", "Move and remove native test inputs")
     selected = run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD"))
-    assert {suite for suite, enabled in selected.items() if enabled} == {"tests", "harness", "oceanbase_acceptance"}
+    assert {suite for suite, enabled in selected.items() if enabled} == {"tests", "harness"}
 
 
 def test_diff_covers_all_pr_commits_and_excludes_base_branch_changes(repository: Path) -> None:
@@ -381,25 +381,27 @@ def test_large_diff_includes_code_after_hundreds_of_docs(repository: Path) -> No
     base = git(repository, "rev-parse", "HEAD")
     head = commit(repository, *(f"docs/page-{index}.md" for index in range(350)), "src/powercontext/client.py")
     selected = run_selector(repository, "pull_request", base, head)
-    assert selected["tests"] and selected["database"] and selected["upgrade"]
+    assert selected["tests"] and selected["upgrade"]
+    assert not selected["database"]
     assert selected["desktop"] and selected["website"]
 
 
-@pytest.mark.parametrize("event", ["workflow_dispatch", "merge_group"])
+@pytest.mark.parametrize("event", ["workflow_dispatch"])
 def test_non_pr_events_run_every_suite(repository: Path, event: str) -> None:
     head = commit(repository, "docs/README.md")
     assert all(run_selector(repository, event, head, head).values())
 
 
-def test_nightly_keeps_full_acceptance_without_archive_generation_or_lock_experiments(repository: Path) -> None:
+def test_nightly_includes_schema_capture_and_short_lock_probes(repository: Path) -> None:
     head = commit(repository, "docs/README.md")
     selected = run_selector(repository, "schedule", head, head)
-    assert {suite for suite, enabled in selected.items() if not enabled} == {"release_schema", "seekdb_lock"}
+    assert all(selected.values())
 
 
 @pytest.mark.parametrize("base", ["", "not-a-commit", "0" * 40])
 def test_unavailable_diff_runs_every_suite(repository: Path, base: str) -> None:
-    assert all(run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD")).values())
+    selected = run_selector(repository, "pull_request", base, git(repository, "rev-parse", "HEAD"))
+    assert {suite for suite, enabled in selected.items() if not enabled} == set(RULES["nightly_suites"])
 
 
 def test_push_uses_two_dot_range_from_the_verified_baseline(repository: Path) -> None:
@@ -418,7 +420,8 @@ def test_rewritten_push_baseline_runs_every_suite(repository: Path) -> None:
     git(repository, "checkout", "-b", "rewritten", initial)
     head = commit(repository, "docs/new.md")
 
-    assert all(run_selector(repository, "push", old_head, head).values())
+    selected = run_selector(repository, "push", old_head, head)
+    assert {suite for suite, enabled in selected.items() if not enabled} == set(RULES["nightly_suites"])
 
 
 def test_successful_push_baseline_retains_changes_from_cancelled_runs(repository: Path, monkeypatch) -> None:
@@ -466,7 +469,8 @@ def test_successful_push_baseline_retains_changes_from_cancelled_runs(repository
 
 def test_no_successful_push_baseline_runs_every_suite(repository: Path) -> None:
     head = commit(repository, "docs/new.md")
-    assert all(run_selector(repository, "push", "", head).values())
+    selected = run_selector(repository, "push", "", head)
+    assert {suite for suite, enabled in selected.items() if not enabled} == set(RULES["nightly_suites"])
 
 
 def test_successful_baseline_ignores_a_newer_success_on_rewritten_history(repository: Path, monkeypatch) -> None:
@@ -494,7 +498,31 @@ def test_selector_cli_exposes_full_matrix_and_required_jobs_on_missing_baseline(
     matrix = json.loads(outputs["test-matrix"])
     assert set(matrix["python-version"]) == {"3.11", "3.12", "3.13", "3.14"}
     assert set(matrix["suite"]) == {"unit", "e2e"}
-    assert set(json.loads(outputs["required-jobs"])) == {job for jobs in RULES["checks"].values() for job in jobs} | {
+    assert set(json.loads(outputs["required-jobs"])) == {
+        job for suite, jobs in RULES["checks"].items() if suite not in RULES["nightly_suites"] for job in jobs
+    } | {
         "quality",
         "upgrade-release-gate",
     }
+
+
+@pytest.mark.parametrize("event", ["pull_request", "push", "merge_group", "schedule", "workflow_dispatch"])
+@pytest.mark.parametrize("full", [False, True])
+def test_database_execution_policy_controls_required_jobs_even_for_full_scope(repository, monkeypatch, event, full):
+    base = git(repository, "rev-parse", "HEAD")
+    head = commit(repository, ".github/workflows/master.yml")
+    monkeypatch.setenv("CI_FULL_VALIDATION", str(full).lower())
+    selected = run_selector(repository, event, base, head)
+    outputs = dict(line.split("=", 1) for line in (repository / "outputs.txt").read_text().splitlines())
+    required = set(json.loads(outputs["required-jobs"]))
+    native = event in {"schedule", "workflow_dispatch"}
+    assert selected["database"] is native
+    assert selected["oceanbase_acceptance"] is native
+    assert selected["harness"] and selected["upgrade"] and selected["candidate_replay"]
+    native_jobs = {"seekdb-managed-startup", "code-seekdb", "atomic-memory-clean-seekdb", "oceanbase-engine-recovery"}
+    assert required & native_jobs == (native_jobs if native else set())
+    assert {"harness-validation", "upgrade-acceptance", "candidate-replay"} <= required
+    assert ("seekdb-lock" in required) is native
+    assert "release-schema" in required
+    if not native:
+        assert "deferred to the nightly or manual run" in (repository / "summary.md").read_text()

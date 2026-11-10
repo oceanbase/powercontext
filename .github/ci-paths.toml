@@ -1,5 +1,7 @@
 # Shared runtime and dependency changes can affect every consumer.
 # Patterns use Python fnmatch semantics: * also matches path separators.
+nightly_suites = ["database", "oceanbase_acceptance", "seekdb_lock"]
+
 full = [
   "Makefile", "tox.ini",
   ".mise.toml", ".pre-commit-config.yaml", ".github/actions/setup-python-env/**",
@@ -235,7 +237,7 @@ harness = ["harness-validation"]
 oceanbase_acceptance = ["harness-validation"]
 zcode = ["zcode-acceptance"]
 kimi = ["kimi-acceptance"]
-upgrade = ["seekdb-managed-startup", "upgrade-acceptance"]
+upgrade = ["upgrade-acceptance"]
 observability = ["worker-observability"]
 packaging = ["isolated-installations", "script-installation"]
 desktop = ["desktop-validation"]
@@ -245,3 +247,7 @@ release_schema = ["release-schema"]
 seekdb_lock = ["seekdb-lock"]
 skill_guidance = ["skill-guidance"]
 gateway = ["gateway-validation"]
+
+# Native prerequisites join the result gate only on scheduled or manual runs.
+[nightly_checks]
+upgrade = ["seekdb-managed-startup"]

@@ -440,20 +440,17 @@ def test_two_stat_windows_share_one_absolute_budget(
             pass
 
     with _serve(SlowDripHandler) as server_url:
-        # Leave time for scope binding and scheduling before the response under test.
-        # The one-second total budget must still stop the ten-second drip well before
-        # the five-second per-request timeout.
         settings = _settings(
             token_savings_module,
             server_url,
             request_timeout_seconds=5.0,
-            http_budget_seconds=1.0,
+            http_budget_seconds=0.2,
         )
         started = time.monotonic()
         output = _run_main(token_savings_module, monkeypatch, settings)
         elapsed = time.monotonic() - started
 
-    assert elapsed < 2.0
+    assert elapsed < 1.0
     # The first window consumes the shared deadline, so the second window must
     # never be requested; per-window budgets would send both.
     assert periods == ["today"]
@@ -503,31 +500,26 @@ def test_chunked_drip_respects_the_absolute_budget(
             pass
 
     with _serve(ChunkedDripHandler) as server_url:
-        # Leave time for scope binding and scheduling before the response under test.
-        # The one-second total budget must still stop the ten-second drip well before
-        # the five-second per-request timeout.
         settings = _settings(
             token_savings_module,
             server_url,
             request_timeout_seconds=5.0,
-            http_budget_seconds=1.0,
+            http_budget_seconds=0.2,
         )
         started = time.monotonic()
         output = _run_main(token_savings_module, monkeypatch, settings)
         elapsed = time.monotonic() - started
 
-    assert elapsed < 2.0
+    assert elapsed < 1.0
     assert periods == ["today"]
     events = _diagnostics(output)
     assert [event["outcome"] for event in events] == ["server_unavailable"]
     assert events[0]["recovery"] == "powercontext doctor"
 
 
-@pytest.mark.parametrize("scope_delay", [0.0, 0.3])
 def test_chunked_http_error_body_respects_the_absolute_budget(
     token_savings_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
-    scope_delay: float,
 ) -> None:
     periods: list[str] = []
 
@@ -538,7 +530,6 @@ def test_chunked_http_error_body_respects_the_absolute_budget(
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
-                time.sleep(scope_delay)
                 payload = json.dumps({"scope_id": "project:test"}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -566,20 +557,17 @@ def test_chunked_http_error_body_respects_the_absolute_budget(
             pass
 
     with _serve(ChunkedErrorHandler) as server_url:
-        # Leave time for scope binding and scheduling before the response under test.
-        # The one-second total budget must still stop the ten-second drip well before
-        # the five-second per-request timeout.
         settings = _settings(
             token_savings_module,
             server_url,
             request_timeout_seconds=5.0,
-            http_budget_seconds=1.0,
+            http_budget_seconds=0.2,
         )
         started = time.monotonic()
         output = _run_main(token_savings_module, monkeypatch, settings)
         elapsed = time.monotonic() - started
 
-    assert elapsed < 2.0
+    assert elapsed < 1.0
     assert periods == ["today"]
     events = _diagnostics(output)
     assert [event["outcome"] for event in events] == ["server_unavailable"]

@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       selection:
-        description: full or automatic runs all 12 cases; seekdb-code is a diagnostic subset without publication
+        description: full or automatic runs all 12 cases; sqlite and seekdb-code are subsets without publication
         type: string
         default: full
       release:

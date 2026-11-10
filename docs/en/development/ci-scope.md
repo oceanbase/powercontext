@@ -33,12 +33,12 @@ Draft PRs allocate no automatic CI runners. Marking a PR ready validates its com
 
 | Entry point or input | Python validation | Other acceptance |
 | --- | --- | --- |
-| Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations | Complete selected backend, upgrade, installation-role, platform and host acceptance |
-| PR changes dependencies, shared fixtures, CI policy or unclassified files | 3.11–3.14 × unit/E2E: 8 combinations | Conservative affected or full selection |
-| PR update/reopen already carrying `ci:full` | 8 combinations | Complete PR scope, without forcing unrelated diagnostics |
-| `master` push | 8 combinations | Compare with a successful trunk baseline, retaining unverified changes |
-| Daily at 20:17 UTC | 8 combinations | Full ordinary acceptance, excluding historical schema generation and lock experiments |
-| Manual Main | 8 combinations | Full scope; upgrade selection defaults to `full`, with an explicit diagnostic subset available |
+| Ordinary ready PR | 3.11/3.14 unit tests and 3.12 E2E: 3 combinations | Selected SQLite, installation-role, platform and host acceptance; seekDB/OceanBase are deferred to nightly |
+| PR changes dependencies, shared fixtures, CI policy or unclassified files | 3.11–3.14 × unit/E2E: 8 combinations | Conservative affected or full selection within the SQLite-only database policy |
+| PR update/reopen already carrying `ci:full` | 8 combinations | Complete PR scope with SQLite-only database execution |
+| `master` push | 8 combinations | Compare with a successful trunk baseline; database execution remains SQLite-only |
+| Daily at 20:17 UTC | 8 combinations | Full SQLite, seekDB and OceanBase acceptance, including schema capture and short lock probes |
+| Manual Main | 8 combinations | Full scope including native databases; upgrade selection defaults to `full`, with an explicit diagnostic subset available |
 | Published release | Independent installed-package and publication checks | Complete upgrade evidence and validated publication bytes; PR scope cannot bypass acceptance |
 
 Ordinary PR Python combinations drop from eight to three, a 62.5% reduction in combination count. This is not a measured reduction in runner minutes or queue latency. Dependency and CI-policy changes keep the full matrix, so a PR editing CI itself may still run eight combinations.
@@ -47,40 +47,57 @@ When packaging is selected, installation validation uses two jobs, one each for 
 
 `ci:full` is read from opened/synchronize/reopened/ready PR events. Adding the label to a running PR does not dispatch another workflow: update the branch or reopen the PR afterward. Manual Main uses the repository ref selected in Actions. For a fork PR, select its branch in the source repository; a successful default-branch run is not evidence for the PR head.
 
+## Database execution schedule
+
+Regular PRs and `master` pushes run selected SQLite checks. seekDB and OceanBase regression jobs run through Main's existing daily schedule at 20:17 UTC (04:17 the following day in Asia/Shanghai), or through an explicit manual run. The schedule validates the default branch, so a nightly result does not certify an unmerged PR head. The policy takes effect after the workflow reaches the default branch.
+
+| Workload | PR / `master` push | Nightly Main | Manual Main |
+| --- | --- | --- | --- |
+| Harness replay | SQLite when selected | SQLite and OceanBase | SQLite and OceanBase |
+| Native migrations, recovery, full-text search and acceptance | Deferred | seekDB and OceanBase | seekDB and OceanBase |
+| Installed-release upgrade acceptance | All 4 SQLite configurations when selected | All 12 configurations | All 12 by default; `seekdb-code` is diagnostic only |
+| Candidate schema replay | SQLite when selected | All 3 backends | All 3 backends |
+| Historical schema capture | SQLite when selected | All 3 backends | All 3 backends |
+| Short lock probes | Deferred | seekDB | Explicit diagnostics |
+
+`ci:full`, shared inputs, unknown paths and unavailable change baselines retain broad ordinary coverage but never enable native database jobs on a PR or push. Native scopes and their required jobs are removed from the ordinary run plan together. Native workflow fallbacks and replay matrices also respect the event boundary.
+
+The `sqlite` upgrade selection requires every selected case and records the deferred seekDB/OceanBase cases. Its result is partial acceptance: it cannot produce publication artifacts or authorize a release. Nightly acceptance and release publication retain the full matrix, including failures, cleanup and evidence checks. Manual runs can validate a chosen PR branch before merge when native evidence is needed.
+
 ## Ownership and comparison baseline
 
-`.github/ci-paths.toml` declares independent scopes in `[suites]`, shared inputs in `[shared.*]`, and successful Main root jobs required for each selected scope in `[checks]`. A new scope must declare its required terminal jobs.
+`.github/ci-paths.toml` declares independent scopes in `[suites]`, shared inputs in `[shared.*]`, and successful Main root jobs required for each selected scope in `[checks]`. `nightly_suites` identifies native-only scopes; `[nightly_checks]` adds their prerequisites to scheduled/manual result gates. A new scope must declare its required terminal jobs.
 
 - PRs compare their merge base to the complete head, covering all commits and excluding unrelated base changes.
 - Trunk pushes compare with a successful ancestor from the same Main workflow and branch, examining up to 100 successful pushes. Failed or cancelled commits never become baselines; their unverified changes remain in the next comparison.
-- Missing history, unavailable APIs or failed diffs select every scope and the full Python matrix. Unknown paths also fall back conservatively.
+- Missing history, unavailable APIs or failed diffs select all scopes allowed by the event and the full Python matrix. Unknown paths also fall back conservatively.
 - Git supplies the full diff, without native path-filter truncation. Disabled rename detection includes both removed and added paths.
-- Runtime, API and root dependencies conservatively cover consumers. Websites and isolated integrations retain their ownership rules. Extended lock observation is manual. Historical schema capture and short lock probes run for their own changed inputs or manual requests, outside ordinary daily validation.
+- Runtime, API and root dependencies conservatively cover consumers. Websites and isolated integrations retain their ownership rules. Extended lock observation is manual. Historical schema capture runs SQLite for its changed inputs and all backends nightly or manually. Short seekDB lock probes run nightly or manually; extended lock observation remains manual.
 
-For example, documentation selects website and documentation-contract checks; Cindy changes select Python regression and Cindy-package checks; migrations and shared runtime changes retain relevant real-database and upgrade acceptance. A smaller PR Python matrix does not replace selected real backends with simulations.
+For example, documentation selects website and documentation-contract checks; Cindy changes select Python regression and Cindy-package checks; migrations and shared runtime changes retain SQLite regression and upgrade acceptance on PRs. Native database acceptance runs nightly or manually against real engines.
 
 Helm charts select deployment-contract checks. Managed resource producers select the Windows x86-64, macOS arm64 and macOS x86-64 candidate builds through Main, after quality and any selected Python tests succeed. Their native build matrix has no independent PR trigger. Shared runtime and dependency changes retain these candidate builds; unrelated website or Desktop UI changes do not start them. Candidate artifacts remain unqualified until the separate resource qualification process accepts them.
 
-Shared helpers select their actual consumers: the clean-migration runner also selects managed-startup and upgrade acceptance; the pnpm cache action also selects the Python test setup and Cindy package. A path filter must follow dependencies, not only directory names.
+Shared helpers select their actual consumers: the clean-migration runner also selects upgrade acceptance, with native managed-startup required on nightly/manual runs; the pnpm cache action also selects the Python test setup and Cindy package. A path filter must follow dependencies, not only directory names.
 
 ## Harness replay and OceanBase acceptance
 
 The reusable E2E workflow selects replay (`harness`) separately from native snapshot, HTTP, metrics and archive regressions (`oceanbase_acceptance`).
 
-| Changed input | Replay workers | Native OceanBase acceptance |
+| Changed input | PR / push replay workers | Native OceanBase acceptance |
 | --- | --- | --- |
-| Bub adapter or replay scenarios | SQLite and OceanBase | Not selected |
-| Native HTTP, metrics or archive test files | None | Selected |
-| Shared Compose definitions or harness startup script | SQLite and OceanBase | Selected |
-| Shared runtime, API or root dependencies | SQLite and OceanBase | Selected, alongside the other affected suites |
+| Bub adapter or replay scenarios | SQLite | Nightly/manual |
+| Native HTTP, metrics or archive test files | None | Nightly/manual |
+| Shared Compose definitions or harness startup script | SQLite | Nightly/manual |
+| Shared runtime, API or root dependencies | SQLite | Nightly/manual, alongside the other affected suites |
 
-When both scopes are selected, their OceanBase work shares one worker and container. Database startup and capacity configuration run for either scope. Native-only changes do not allocate a SQLite replay worker or install the Bub validation environment. Selected tests and evidence must succeed; missing reports and unexpected skips fail the acceptance gate. Native JUnit results are retained independently of replay artifacts.
+On nightly/manual runs, when both scopes are selected, their OceanBase work shares one worker and container. Database startup and capacity configuration run for either scope. Native-only changes do not allocate a SQLite replay worker or install the Bub validation environment. Selected tests and evidence must succeed; missing reports and unexpected skips fail the acceptance gate. Native JUnit results are retained independently of replay artifacts.
 
 The OceanBase acceptance job allows 125 minutes: 15 for shared startup, 60 for native regressions, 40 for replay, and 10 for diagnostics, evidence and cleanup. Replay includes image builds and a separate full Server schema migration. SQLite replay keeps the same 40-minute step and reserves ten additional minutes for setup, evidence and cleanup. These are ceilings; unselected work is skipped. The native process deadline starts in its own step, and the setup step passes the container ID explicitly. Native report validation and upload use the same JUnit file.
 
 Main's preflight covers repository-wide lint and formatting. Its harness validation runs `make harness-test`, retaining harness type checks, scenario tests and CLI validation, plus Compose validation. Standalone runs retain formatting through `make harness-lint`; local `make harness-check` runs both targets.
 
-The exact test paths in `[exclusions].database` use SQLite or in-memory behavior and retain ordinary Python coverage, plus any other matching scope. Their test-only edits do not start the broad database suite. Remove an exclusion if that file gains native database cases. Exclusions cannot suppress another changed file, shared fixtures, shared runtime selection or the full fallback. Selected upgrade acceptance still runs all 12 configurations automatically.
+The exact test paths in `[exclusions].database` use SQLite or in-memory behavior and retain ordinary Python coverage, plus any other matching scope. Their test-only edits do not start the broad database suite. Remove an exclusion if that file gains native database cases. Exclusions cannot suppress another changed file, shared fixtures, shared runtime selection or the full fallback. Selected upgrade acceptance runs all 4 SQLite configurations on PRs/pushes and all 12 configurations nightly.
 
 These rules reduce unnecessary work for local changes. Shared-runtime and CI-policy changes retain broad coverage; runner minutes and queue latency require measurement after rollout.
 
@@ -112,9 +129,9 @@ See GitHub's [concurrency semantics](https://docs.github.com/en/actions/how-tos/
 
 ## Terminal gates
 
-`CI result` depends on every Main root job. Any failure or cancellation blocks it. Root jobs required by selected scopes must succeed: unexpected skipping or missing results also block. Only explicitly unrelated jobs may skip.
+`CI result` depends on every Main root job. Any failure or cancellation blocks it. Root jobs required by selected scopes must succeed: unexpected skipping or missing results also block. Only jobs excluded by scope or by the database execution schedule may skip. A skipped nightly native prerequisite still fails the gate.
 
-`Upgrade release gate` accepts skipped acceptance only after successful preflight explicitly excludes upgrades. Selected acceptance must succeed. Cancelled runs allocate no new summary-gate runners; necessary in-job cleanup and diagnostics retain `always()`. Publication still checks the complete upgrade matrix and evidence files independently of path selection.
+`Upgrade release gate` accepts skipped acceptance only after successful preflight explicitly excludes upgrades. Selected acceptance must succeed: SQLite on PRs/pushes, the full matrix nightly. Cancelled runs allocate no new summary-gate runners; necessary in-job cleanup and diagnostics retain `always()`. Publication still checks the complete upgrade matrix and evidence files independently of path selection.
 
 The upgrade evidence collector runs after ordinary case failures so missing or failed evidence cannot pass; it stops on workflow cancellation. Harness acceptance explicitly checks successful validation with a cancellation-aware condition, so skipping the redundant child scope detector cannot silently skip its SQLite/OceanBase matrix.
 

@@ -63,10 +63,19 @@ def run_inline_python(step, env):
         ),
     ],
 )
-def test_acceptance_plan_only_allocates_selected_workers(tmp_path, suites, expected):
+@pytest.mark.parametrize("event", ["pull_request", "push", "schedule", "workflow_dispatch"])
+def test_acceptance_plan_only_allocates_selected_workers(tmp_path, suites, expected, event):
     step = next(step for step in yaml.safe_load(WORKFLOW)["jobs"]["validate"]["steps"] if step.get("id") == "plan")
     output = tmp_path / "output"
-    result = run_inline_python(step, {"CI_SUITES": json.dumps(suites), "GITHUB_OUTPUT": str(output)})
+    native = event in {"schedule", "workflow_dispatch"}
+    expected = [row for row in expected if native or row["database"] == "sqlite"]
+    result = run_inline_python(
+        step, {"CI_SUITES": json.dumps(suites), "GITHUB_OUTPUT": str(output), "NATIVE_DATABASES": str(native).lower()}
+    )
+    if not expected:
+        assert result.returncode != 0
+        assert not output.exists()
+        return
     assert result.returncode == 0, result.stderr
     values = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert json.loads(values["matrix"]) == {"include": expected}

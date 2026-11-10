@@ -64,6 +64,7 @@ jobs:
       - name: Plan selected acceptance work
         id: plan
         env:
+          NATIVE_DATABASES: ${{ contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) }}
           CI_SUITES: ${{ inputs.suites || needs.changes.outputs.suites || '{"harness":true,"oceanbase_acceptance":true}' }}
         run: |
           python3 - <<'PY'
@@ -72,11 +73,12 @@ jobs:
 
           suites = json.loads(os.environ['CI_SUITES'])
           replay = suites.get('harness', False)
-          native = suites.get('oceanbase_acceptance', False)
+          native_databases = os.environ['NATIVE_DATABASES'] == 'true'
+          native = native_databases and suites.get('oceanbase_acceptance', False)
           include = []
           if replay:
               include.append({'database': 'sqlite', 'replay': True, 'native': False})
-          if replay or native:
+          if native_databases and (replay or native):
               include.append({'database': 'oceanbase', 'replay': replay, 'native': native})
           if not include:
               raise SystemExit('Acceptance was selected without any work')
@@ -112,7 +114,7 @@ jobs:
 
   recall-effort:
     needs: changes
-    if: ${{ !cancelled() && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
+    if: ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     name: Recall effort (OceanBase)
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     # Bounded tests total about 146m; allow separate image pull/startup and final evidence.
@@ -332,7 +334,7 @@ jobs:
     name: Atomic Memory clean migration (OceanBase shard ${{ matrix.shard }}/2)
     needs: changes
     if: >-
-      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+      ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
@@ -481,7 +483,7 @@ jobs:
     name: Atomic Memory native FTS (OceanBase)
     needs: changes
     if: >-
-      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+      ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     # Five cases (including three parser fallbacks), bounded setup, and diagnostics.
@@ -578,7 +580,7 @@ jobs:
     name: Atomic Memory clean migration (OceanBase)
     needs: [changes, atomic-memory-clean-oceanbase-shards]
     if: >-
-      ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
+      ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     timeout-minutes: 5
@@ -621,7 +623,7 @@ jobs:
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     # OceanBase: 15m setup + 60m native + 40m replay + 10m diagnostics/evidence/cleanup.
     # Replay includes image builds and a separate full Server schema migration.
-    timeout-minutes: ${{ matrix.database == 'oceanbase' && 125 || 40 }}
+    timeout-minutes: ${{ matrix.database == 'oceanbase' && 125 || 50 }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}

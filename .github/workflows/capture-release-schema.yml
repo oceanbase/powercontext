@@ -34,7 +34,7 @@ jobs:
       max-parallel: 2
       fail-fast: false
       matrix:
-        backend: [sqlite, seekdb, oceanbase]
+        backend: ${{ fromJSON(contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && '["sqlite","seekdb","oceanbase"]' || '["sqlite"]') }}
         configuration: [full-server-no-vector, full-server-code, full-server-vector, full-server-vector-code]
     env:
       PC_UPGRADE_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_upgrade_test?charset=utf8mb4

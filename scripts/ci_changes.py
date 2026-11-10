@@ -120,6 +120,23 @@ def successful_baseline(workflow: str, repository: str, branch: str, head: str) 
     raise ValueError("No successful workflow ancestor found")  # noqa: TRY003
 
 
+def execution_plan(event: str, suites: dict[str, bool], rules: dict[str, Any]) -> tuple[dict[str, bool], list[str]]:
+    """Apply the database schedule to both selected work and its mandatory results."""
+    selected = suites.copy()
+    native_databases = event in {"schedule", "workflow_dispatch"}
+    if not native_databases:
+        for suite in rules["nightly_suites"]:
+            selected[suite] = False
+    if rules["checks"].keys() != selected.keys():
+        raise ValueError("Every CI scope must declare its required result jobs")  # noqa: TRY003
+    required = {"quality", "upgrade-release-gate"} | {
+        job for suite, jobs in rules["checks"].items() if selected[suite] for job in jobs
+    }
+    if native_databases:
+        required.update(job for suite, jobs in rules["nightly_checks"].items() if selected[suite] for job in jobs)
+    return selected, sorted(required)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-name", default=os.environ.get("GITHUB_EVENT_NAME", ""))
@@ -147,24 +164,16 @@ def main() -> None:
             selected = select_suites(paths, rules)
             reason = f"Compared {base} to {arguments.head} ({len(paths)} changed paths)."
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
-            reason = "A trustworthy change baseline is unavailable; running every CI suite."
+            reason = "A trustworthy change baseline is unavailable; running every CI suite allowed by this event."
             print(f"::warning::{reason}")
             selected = dict.fromkeys(rules["suites"], True)
             full = True
     else:
         selected = dict.fromkeys(rules["suites"], True)
-        if arguments.event_name == "schedule":
-            # Archive generation and lock experiments have explicit manual entries.
-            for suite in ("release_schema", "seekdb_lock"):
-                selected[suite] = False
 
     matrix = test_matrix(arguments.event_name, paths, rules, full=full)
-    if rules["checks"].keys() != selected.keys():
-        raise ValueError("Every CI scope must declare its required result jobs")  # noqa: TRY003
-    required = sorted(
-        {"quality", "upgrade-release-gate"}
-        | {job for suite, jobs in rules["checks"].items() if selected[suite] for job in jobs}
-    )
+    selected, required = execution_plan(arguments.event_name, selected, rules)
+    reason += " On PRs and pushes, seekDB and OceanBase acceptance is deferred to the nightly or manual run."
     print(json.dumps(selected, indent=2))
     if output_path := os.environ.get("GITHUB_OUTPUT"):
         with Path(output_path).open("a", encoding="utf-8") as output:
