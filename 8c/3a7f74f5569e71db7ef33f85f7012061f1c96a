@@ -1,0 +1,25 @@
+docs/zh/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_f84082f6bfd0a1 36
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_8880073ed765ec 214-216,220
+docs/en/development/ci-scope.md
+  s_98c1bb9fbaf7be::t_274a0a5eeba742 36
+tests/test_ci_pipeline.py
+  s_98c1bb9fbaf7be::t_6591e4e1892d74 208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8c3a7f74f5569e71db7ef33f85f7012061f1c96a",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
