@@ -5,7 +5,7 @@ description: Building on the host processes of plugin interfaces RFC #2549, plug
 
 - Proposal Name: `plugin_reload_and_apis`
 - Start Date: 2026-11-10
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#2579](https://github.com/oceanbase/powercontext/pull/2579)
 
 # Summary
 
