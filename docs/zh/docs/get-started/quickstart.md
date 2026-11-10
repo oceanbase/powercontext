@@ -5,14 +5,14 @@ description: 通过配置向导安装完整记忆能力，接入 Codex，并验�
 
 # 快速开始
 
-本页从安装开始，带你完成一次真实的记忆体验：在 Codex 中讨论项目，看到原始输入进入 Source、主题记忆生成并演进，再在新会话中找回决策。以下命令使用 PowerContext 1.5.0，Agent 插件使用对应的 `powercontext-v1.5.0` tag。
+本页从安装开始，带你完成一次真实的记忆体验：在 Codex 中讨论项目，看到原始输入进入 Source、主题记忆生成并演进，再在新会话中找回决策。以下命令使用 PowerContext 1.5.1，Agent 插件使用对应的 `powercontext-v1.5.1` tag。
 
 需要 macOS 或 Linux、Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和已安装的 Codex CLI。完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些 API。只有 Agent 登录、没有模型 API 时，仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。需要自动安装 Python 和 uv 时，使用[安装脚本](install-and-run.md#使用推荐安装脚本)。
 
 ## 1. 安装并进入配置向导
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 mkdir -p ~/powercontext-demo
 cd ~/powercontext-demo
 powercontext config init --language zh --output .env
@@ -80,7 +80,7 @@ powercontext service status
 set -a
 . ./.env
 set +a
-powercontext setup codex --ref powercontext-v1.5.0
+powercontext setup codex --ref powercontext-v1.5.1
 powercontext doctor codex
 codex
 ```

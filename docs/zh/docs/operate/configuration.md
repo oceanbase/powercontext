@@ -567,6 +567,13 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 URL 必须使用 `mysql+aoceanbase` 驱动、明确的端口，并设置 `charset=utf8mb4`。省略库名时使用 `powercontext`，
 显式库名保持有效。租户必须使用 MySQL 兼容模式。
 
+Atomic Memory 会在连接的 OceanBase 或 seekDB 引擎支持时，使用原生 `minimum_should_match` 过滤；旧版引擎继续使用
+完整词 `LOCATE` 覆盖检查。能力检测不会把查询超时、权限错误或连接错误当作功能不支持。两条路径使用相同的分析、去重后的
+查询词和准入阈值，也适用于恢复探测与完整关联记忆枚举。超过 256 个不同词的查询，仅在确认版本为 OceanBase 4.6 或更新版本时使用
+原生过滤；更早的 OceanBase、seekDB 和无法识别版本的引擎继续使用完整词覆盖检查，因为 OceanBase CE 4.4.2.1 虽然接受原生语法，
+但超过该词数时可能忽略匹配阈值。查询包含 `com` 等被 SPACE 分词器省略的 Analyzer 词时，检索、完整枚举和恢复探测
+也会保留完整词覆盖检查，阈值仍按所有不同的 Analyzer 词计算。该选择无需新增配置、表或索引迁移，沿用现有 `SPACE` 全文索引。
+
 seekDB 启动和 OceanBase Python SDK 初始化会先创建缺失的目标库，再初始化表；已有可用库不会执行建库语句。
 完整 OceanBase Server 需要先准备数据库并通过显式维护初始化 Server 表结构，再启动服务；自动建库不替代该准入规则。
 建库权限不足时会提供手动准备说明，其他连接错误不会触发回退。seekDB 未显式配置库名时，若在旧 `test` 中检测到

@@ -95,7 +95,9 @@ try:
     from pydantic_ai.exceptions import (
         ConcurrencyLimitExceeded,
         ModelAPIError,
+        ModelContextWindowExceededError,
         ModelHTTPError,
+        ModelRequestRejectedError,
         UnexpectedModelBehavior,
         UsageLimitExceeded,
         UserError,
@@ -678,13 +680,19 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
                     cause_exception_type=cause_type,
                 ),
             )
+    if isinstance(error, (ModelHTTPError, ModelRequestRejectedError)):
+        # Typed errors are authoritative; an uncategorized HTTP error still carries the provider's own
+        # words, so the body-based check keeps classifying a limit Pydantic AI did not tag as one.
         reason = (
             ProcessingFailureReason.CONTEXT_OVERFLOW
-            if _looks_like_context_overflow(error)
+            if isinstance(error, ModelContextWindowExceededError)
+            or (isinstance(error, ModelHTTPError) and _looks_like_context_overflow(error))
             else ProcessingFailureReason.CONFIGURATION
         )
         return attach_diagnostics(
-            PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}"),
+            PydanticAIConfigurationError(
+                "provider-rejected", detail=f"HTTP {error.status_code}" if isinstance(error, ModelHTTPError) else None
+            ),
             ProcessingDiagnostics(
                 stage=stage,
                 reason=reason,
