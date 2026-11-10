@@ -1,5 +1,44 @@
 # Desktop validation
 
+## Installed connection journey acceptance
+
+The Windows installed WebDriver entry point runs `installed_connections.py` before
+the existing Memory workflow. It checks saved profile → passive check → explicit
+activation → exact Scope selection through the packaged UI and native transport.
+Two real SQLite Scopes share one title. The test selects the second ID, saves and
+reads its Memory, and independently verifies that the first Scope has no matching
+Memory. Switching Scope clears private results, and the global connection menu
+opens the selected profile while retaining the exact active Scope.
+
+The disposable Server counts requests to `/health/ready`. Startup establishes the
+initial count. Saving, passive checking, activation, Scope selection, save/search/read
+and menu navigation must preserve it. An explicit readiness action must add exactly
+one request, so a disconnected counter cannot establish a passing result. Successful
+installed evidence appears under `connectionJourney` in `.artifacts/installed-ui.json`.
+
+The installed Server fixture validates its actual wheel against the disposable
+qualification before extraction/startup and extracts the captured immutable bytes.
+The replacement-wheel regression fails against the original fixture at ZIP extraction
+and passes with the qualification check.
+
+On 2026-11-10, local Windows 10 / Python 3.11.15 verified this fixture against Server
+source `cc752d8accb0bc4ffade2d4b84ef6e48206e122d`. All 745 packaged runtime files match
+the exact Git archive after CRLF normalization. Wheel SHA-256 is
+`df51abf71e54bd857962ed171cc8fe37a1f28182e8ccd8fc2851d37595dc4ec4`.
+Real identity/discovery, Memory save/search/exact read preserve readiness count 1;
+an explicit readiness HTTP request advances it to 2. This checks Server instrumentation.
+The new installed UI journey still requires execution on the disposable hosted runner.
+Local setup handoff remains tracked in #2306, and installed Windows 11/macOS acceptance
+remains with #2108/#2109.
+
+Ignored local evidence is retained in `.artifacts/nov10-connection-acceptance/`,
+`.artifacts/nov10-readiness-monitor.log` and `.artifacts/nov10-wheel-before.log`.
+
+Windows 安装版验收新增保存、被动检查、显式启用及同名 Scope 精确选择场景，通过真实服务端核对写入归属。
+普通操作保持 readiness 请求计数，显式探测增加一次，结果记录在安装版报告的 `connectionJourney` 中。
+本机已验证实际 Server 的计数以及替换 wheel 的拒绝行为，新增安装版 UI 场景待托管 runner 执行。
+本地安装移交及 Windows 11／macOS 完整验收继续由对应任务跟踪。
+
 ## Server 7d89a97a identity Runtime and statistics qualification
 
 `sqlite-identity-stats-7d89a97a-v1` qualifies thirteen Desktop operations against
