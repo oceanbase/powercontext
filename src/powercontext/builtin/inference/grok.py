@@ -23,7 +23,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import tempfile
 import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import AsyncExitStack
@@ -41,6 +40,8 @@ from pydantic_ai.exceptions import UserError
 from pydantic_ai.profiles.grok import grok_model_profile
 from pydantic_ai.providers.openai_compatible import OpenAICompatibleProvider
 from typing_extensions import override
+
+from powercontext.builtin.inference.oauth import apply_oauth_token, atomic_save_json
 
 _ISSUER = "https://auth.x.ai"
 _CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
@@ -94,7 +95,7 @@ class GrokCliAuth(httpx2.Auth):
         except (OSError, Timeout, ValueError, TypeError, OverflowError):
             message = "Grok CLI credentials are unavailable or malformed; run grok login"
             raise UserError(message) from None
-        request.headers["Authorization"] = f"Bearer {stored['key']}"
+        apply_oauth_token(request, {"access_token": stored["key"], "token_type": "Bearer"})
         yield request
 
     def _read(self) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -162,18 +163,7 @@ class GrokCliAuth(httpx2.Auth):
             raise UserError(message) from None
 
     def _save(self, data: dict[str, Any]) -> None:
-        # A same-directory replacement never exposes a partially written token set.
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._path.parent, delete=False) as handle:
-            temporary = Path(handle.name)
-            try:
-                json.dump(data, handle, ensure_ascii=False, indent=2)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-                handle.close()
-                temporary.replace(self._path)
-            finally:
-                temporary.unlink(missing_ok=True)
+        atomic_save_json(self._path, data)
 
 
 def _bearer_token(value: Any) -> bool:

@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from functools import partial
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -29,9 +28,9 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import UserError
 
-from powercontext.builtin.inference import coding_oauth
 from powercontext.builtin.inference.claude_cli import ClaudeCliModel
 from powercontext.builtin.inference.gemini_cli import GeminiCliTransport
+from powercontext.builtin.inference.qwen import login_qwen
 
 _VECTORS = json.loads((Path(__file__).parents[2] / "fixtures/oauth/upstream/provider-vectors.json").read_text())
 
@@ -70,8 +69,10 @@ def test_goose_codeassist_wrap_and_unwrap_vectors(tmp_path: Path, monkeypatch) -
     assert len(sent) == 2
 
 
-@pytest.mark.parametrize("subscription", ["qwen", "kimi"])
-def test_official_coding_refresh_vectors_restore_rotated_tokens(subscription, tmp_path: Path, monkeypatch) -> None:
+def test_official_coding_refresh_vectors_restore_rotated_tokens(
+    coding_subscription, tmp_path: Path, oauth_http
+) -> None:
+    subscription, auth_type, _, endpoint = coding_subscription
     vector = _VECTORS[subscription]
     path = tmp_path / "tokens.json"
     store = {
@@ -96,14 +97,7 @@ def test_official_coding_refresh_vectors_restore_rotated_tokens(subscription, tm
         resource_tokens.append(request.headers["authorization"])
         return httpx2.Response(200, json={})
 
-    monkeypatch.setattr(
-        coding_oauth,
-        "AsyncOAuth2Client",
-        partial(
-            coding_oauth.AsyncOAuth2Client,
-            transport=httpx.MockTransport(token_response),
-        ),
-    )
+    oauth_http(token_response)
 
     async def run() -> None:
         for _ in vector["responses"]:
@@ -112,9 +106,9 @@ def test_official_coding_refresh_vectors_restore_rotated_tokens(subscription, tm
             saved = json.loads(path.read_text())
             saved["expires_at"] = 0
             path.write_text(json.dumps(saved))
-            auth = coding_oauth.CodingOAuthAuth(subscription, path, clock=lambda: 2_000_000_000)
+            auth = auth_type(path, clock=lambda: 2_000_000_000)
             async with httpx2.AsyncClient(auth=auth, transport=httpx2.MockTransport(resource)) as client:
-                await client.post(auth.base_url + "/chat/completions")
+                await client.post(endpoint)
         assert json.loads(path.read_text())["refresh_token"] == vector["expected_refresh_token"]
 
     asyncio.run(run())
@@ -122,8 +116,10 @@ def test_official_coding_refresh_vectors_restore_rotated_tokens(subscription, tm
     assert resource_tokens == [f"Bearer {response['access_token']}" for response in vector["responses"]]
 
 
-@pytest.mark.parametrize("subscription", ["qwen", "kimi"])
-def test_official_missing_refresh_token_vectors_do_not_replace_store(subscription, tmp_path: Path, monkeypatch) -> None:
+def test_official_missing_refresh_token_vectors_do_not_replace_store(
+    coding_subscription, tmp_path: Path, oauth_http
+) -> None:
+    subscription, auth_type, _, endpoint = coding_subscription
     path = tmp_path / "tokens.json"
     original = json.dumps({
         "schema": "powercontext.oauth.v1",
@@ -135,50 +131,32 @@ def test_official_missing_refresh_token_vectors_do_not_replace_store(subscriptio
         "token_type": "Bearer",
     })
     path.write_text(original)
-    monkeypatch.setattr(
-        coding_oauth,
-        "AsyncOAuth2Client",
-        partial(
-            coding_oauth.AsyncOAuth2Client,
-            transport=httpx.MockTransport(
-                lambda _: httpx.Response(200, json=_VECTORS[subscription]["malformed_token"])
-            ),
-        ),
-    )
+    oauth_http(lambda _: httpx.Response(200, json=_VECTORS[subscription]["malformed_token"]))
 
     async def run() -> None:
-        auth = coding_oauth.CodingOAuthAuth(subscription, path)
+        auth = auth_type(path)
         async with httpx2.AsyncClient(
             auth=auth, transport=httpx2.MockTransport(lambda _: pytest.fail("inference sent"))
         ) as client:
             with pytest.raises(UserError, match="renewal failed"):
-                await client.post(auth.base_url + "/chat/completions")
+                await client.post(endpoint)
 
     asyncio.run(run())
     assert path.read_text() == original
 
 
-def test_qwen_zero_interval_vector_fails_before_presenting_or_polling(tmp_path: Path, monkeypatch) -> None:
+def test_qwen_zero_interval_vector_fails_before_presenting_or_polling(tmp_path: Path, oauth_http) -> None:
     seen = []
 
     def response(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         return httpx.Response(200, json=_VECTORS["qwen"]["malformed_device"])
 
-    monkeypatch.setattr(
-        coding_oauth,
-        "AsyncOAuth2Client",
-        partial(
-            coding_oauth.AsyncOAuth2Client,
-            transport=httpx.MockTransport(response),
-        ),
-    )
+    oauth_http(response)
 
     async def run() -> None:
         with pytest.raises(UserError, match="device authorization failed"):
-            await coding_oauth.login_coding_subscription(
-                "qwen", lambda *_: pytest.fail("invalid device displayed"), path=tmp_path / "tokens.json"
-            )
+            await login_qwen(lambda *_: pytest.fail("invalid device displayed"), path=tmp_path / "tokens.json")
 
     asyncio.run(run())
     assert len(seen) == 1
