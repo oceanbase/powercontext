@@ -19,13 +19,13 @@ from __future__ import annotations
 import asyncio
 import json
 
-import httpx
+import httpx2
 import pytest
-from openai import APIConnectionError, AsyncOpenAI
+from openai import AsyncOpenAI
 from openai.types.responses.response_create_params import ResponseCreateParamsNonStreaming
 from pydantic import SecretStr
 
-from powercontext.builtin.inference.errors import find_privacy_error
+from powercontext.builtin.inference.errors import InferencePrivacyError, find_privacy_error
 from powercontext.builtin.inference.privacy import InferenceProtectionConfig, UpstreamProfile
 from powercontext.builtin.inference.protected_transport import ProtectedAsyncTransport
 from tests.e2e.test_rfc2086_transport_acceptance import RecordingServer, upstream
@@ -110,10 +110,10 @@ def test_responses_sdk_assembled_output_is_inspected_before_release(case):
             api_key="synthetic",
             base_url=base_url,
             max_retries=0,
-            http_client=httpx.AsyncClient(transport=transport),
+            http_client=httpx2.AsyncClient(transport=transport),
         ) as protected:
             if blocked:
-                with pytest.raises(APIConnectionError) as rejected:
+                with pytest.raises(InferencePrivacyError) as rejected:
                     await protected.responses.create(**request)
                 privacy = find_privacy_error(rejected.value)
                 assert privacy is not None and privacy.phase == "before_release"

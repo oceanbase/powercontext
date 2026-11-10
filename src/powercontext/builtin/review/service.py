@@ -1391,10 +1391,10 @@ def _candidate_draft(candidate: ReviewedCandidate) -> ReviewedDraft:
 
 
 def _unique_sources(values: tuple[SourceRef, ...]) -> tuple[SourceRef, ...]:
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     result: list[SourceRef] = []
     for value in values:
-        key = (value.source_type, value.source_id)
+        key = value.model_dump_json()
         if key not in seen:
             seen.add(key)
             result.append(value)

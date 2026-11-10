@@ -114,7 +114,7 @@ class PiHost:
                 assert value.get("success"), "pi_rpc_command_failed"
                 return value.get("data", {})
 
-    def prompt(self, text: str) -> str:
+    def prompt(self, text: str, *, allow_tool_errors: bool = False) -> str:
         state = self.request("get_state")
         before = len(self.events)
         self.request("prompt", message=text)
@@ -126,7 +126,7 @@ class PiHost:
             for event in self.events[before:]
             if event.get("type") == "tool_execution_end" and event.get("isError")
         ]
-        assert not failures, "pi_native_tool_failed"
+        assert allow_tool_errors or not failures, "pi_native_tool_failed"
         assert state.get("sessionId"), "pi_session_identity_missing"
         return state["sessionId"]
 

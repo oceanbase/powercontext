@@ -220,3 +220,19 @@ describe("PowerContext tools", () => {
     expect(requests[1].body).toMatchObject({ scope_id: "scp_resolved", text: "durable fact" });
   });
 });
+
+
+it("preserves legacy Memory rejection and replaces retry advice with recovery", async () => {
+  const client = { async post() {
+    throw new PowerContextRequestError("/v1/memory/remember", "private-response-marker", 422,
+      "legacy_memory_operation_unsupported");
+  } } as unknown as PowerContextClient;
+  const tool = createMemoryStoreTool({ agentId: "main", sessionKey: "session" } as OpenClawPluginToolContext, {
+    client, getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
+    isPrivateSession: () => true,
+  });
+  const result = await tool!.execute("call-legacy", { text: "fact", kind: "fact" });
+  expect(result.details).toMatchObject({ code: "legacy_memory_operation_unsupported",
+    action: expect.stringContaining("powercontext setup openclaw") });
+  expect(JSON.stringify(result)).not.toContain("private-response-marker");
+});

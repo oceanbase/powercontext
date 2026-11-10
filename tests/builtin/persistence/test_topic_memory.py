@@ -76,6 +76,11 @@ from powercontext.builtin.persistence.topic_memory_index import (
     TopicMemoryIndex,
     topic_memory_embedding_profile_fingerprint,
 )
+from powercontext.builtin.processing_diagnostics import (
+    ProcessingFailureReason,
+    ProcessingStage,
+    classify_processing_error,
+)
 from powercontext.builtin.records import InvalidBaseAccessRequestError
 from powercontext.sources import SourceMaterialization, SourceRef
 from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
@@ -1610,6 +1615,33 @@ def test_startup_rejects_a_chunk_that_is_not_part_of_the_current_head() -> None:
     asyncio.run(scenario())
 
 
+def test_publication_without_fts_reports_configuration_failure() -> None:
+    async def scenario() -> None:
+        repository = TopicMemoryRepository()
+        content = _content("Missing", "FTS")
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile,
+            profile.database.transaction() as connection,
+        ):
+            with pytest.raises(TopicMemoryProjectionError) as raised:
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-missing-fts",
+                    _draft(content),
+                    prepare_topic_memory_projection(content),
+                )
+            assert raised.value.code == "fts"
+            diagnostics = classify_processing_error(raised.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.PERSISTENCE
+            assert diagnostics.reason is ProcessingFailureReason.CONFIGURATION
+            assert diagnostics.failure_location == "fts"
+            assert await connection.scalar(select(func.count()).select_from(ARTIFACTS_TABLE)) == 0
+
+    asyncio.run(scenario())
+
+
 def test_sqlite_vector_and_hybrid_require_complete_active_embeddings() -> None:
     async def scenario() -> None:
         embedding_profile = EmbeddingProfile(
@@ -1632,7 +1664,9 @@ def test_sqlite_vector_and_hybrid_require_complete_active_embeddings() -> None:
             async with profile.database.transaction() as connection:
                 await repository.initialize(connection)
                 incomplete_content = _content("Missing", "vector")
-                with pytest.raises(TopicMemoryProjectionError, match="requires the topic and every detail chunk"):
+                with pytest.raises(
+                    TopicMemoryProjectionError, match="requires the topic and every detail chunk"
+                ) as raised:
                     await repository.publish_create(
                         connection,
                         "scope-a",
@@ -1640,6 +1674,11 @@ def test_sqlite_vector_and_hybrid_require_complete_active_embeddings() -> None:
                         _draft(incomplete_content),
                         prepare_topic_memory_projection(incomplete_content),
                     )
+                diagnostics = classify_processing_error(raised.value)
+                assert diagnostics is not None
+                assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+                assert diagnostics.reason is ProcessingFailureReason.INVALID_OUTPUT
+                assert diagnostics.failure_location == "vector-incomplete"
                 assert (
                     int(
                         await connection.scalar(

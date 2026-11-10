@@ -193,11 +193,21 @@ def test_atomic_public_fusion_requires_backend_raw_even_without_requested_metada
 def test_atomic_backend_sql_returns_raw_separately_without_changing_legacy_order(dialect, raw, metric) -> None:
     import asyncio
 
+    class Pool:
+        pass
+
     class Connection:
         def __init__(self):
             self.dialect = SimpleNamespace(name=dialect)
+            self.sync_engine = SimpleNamespace(pool=Pool())
             self.sql = ""
             self.parameters = {}
+
+        async def run_sync(self, function):
+            return function(SimpleNamespace(engine=self.sync_engine))
+
+        async def exec_driver_sql(self, _statement):
+            return SimpleNamespace(close=lambda: None)
 
         async def execute(self, statement, parameters):
             self.sql, self.parameters = str(statement), parameters
