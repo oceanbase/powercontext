@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import shlex
 
-# Match bub-acp-server's SDK pin and the harness container's uv release.
-ACP_SDK_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
+# Harbor 0.16 uses the pre-1.0 client API (including text_block). The Bub
+# server has its own SDK pin in a separate environment; the pins are not interchangeable.
+ACP_RUNNER_REQUIREMENT = "agent-client-protocol==0.12.1"
 UV_VERSION = "0.10.12"
 UV_REQUIREMENT = f"uv=={UV_VERSION}"
 
@@ -48,11 +49,11 @@ mkdir -p "$(dirname {log})"
     [ "$(command -v uv)" -ef {runner}/bin/uv ] || cp "$(command -v uv)" {runner}/bin/uv
     [ "$(command -v uvx)" -ef {runner}/bin/uvx ] || cp "$(command -v uvx)" {runner}/bin/uvx
     UV_DEFAULT_INDEX="${{PIP_INDEX_URL:-https://pypi.org/simple}}" {runner}/bin/uv pip install --python {python} \
-      {shlex.quote(ACP_SDK_REQUIREMENT)}
+      {shlex.quote(ACP_RUNNER_REQUIREMENT)}
   else
     echo 'ACP bootstrap: install pinned SDK and uv'
     {python} -m pip install --disable-pip-version-check --no-input --retries 1 --timeout 30 \
-      {shlex.quote(ACP_SDK_REQUIREMENT)} {shlex.quote(UV_REQUIREMENT)}
+      {shlex.quote(ACP_RUNNER_REQUIREMENT)} {shlex.quote(UV_REQUIREMENT)}
   fi
   echo 'ACP bootstrap: ready'
 }} 2>&1 | tee {log}

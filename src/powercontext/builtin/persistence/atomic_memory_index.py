@@ -404,24 +404,17 @@ def sqlite_fts_coverage_sql(terms: tuple[str, ...], /) -> tuple[str, dict[str, o
 
 
 def oceanbase_fts_coverage_sql(terms: tuple[str, ...], /) -> tuple[str, dict[str, object]]:
-    """Count whole terms with logarithmic expression depth on OceanBase and seekdb."""
+    """Count whole terms without growing the SQL expression with query length."""
 
-    parameters: dict[str, object] = {}
-    coverage: list[str] = []
-    for index, term in enumerate(terms):
-        key = f"fts_term_{index}"
-        parameters[key] = f" {term} "
-        coverage.append(
-            f"CASE WHEN LOCATE(BINARY :{key}, BINARY CONCAT(' ', searchable_text, ' ')) > 0 THEN 1 ELSE 0 END"
-        )
-    # A flat sum becomes a left-deep expression and can exceed the backend's
-    # expression limit for valid long queries. Pair terms without dropping any.
-    while len(coverage) > 1:
-        coverage = [
-            f"({coverage[index]} + {coverage[index + 1]})" if index + 1 < len(coverage) else coverage[index]
-            for index in range(0, len(coverage), 2)
-        ]
-    return coverage[0] if coverage else "0", parameters
+    # A balanced sum still makes the optimizer compile thousands of LOCATE
+    # expressions, repeated by hybrid/recovery subqueries. Expand the bound
+    # terms as rows instead; binary matching preserves Analyzer term identity.
+    return (
+        "(SELECT COUNT(*) FROM JSON_TABLE(:fts_terms, '$[*]' "
+        "COLUMNS (term LONGTEXT PATH '$' ERROR ON ERROR)) AS query_term "
+        "WHERE LOCATE(BINARY query_term.term, BINARY CONCAT(' ', searchable_text, ' ')) > 0)",
+        {"fts_terms": json.dumps([f" {term} " for term in terms], ensure_ascii=False)},
+    )
 
 
 def atomic_memory_filter_sql(
