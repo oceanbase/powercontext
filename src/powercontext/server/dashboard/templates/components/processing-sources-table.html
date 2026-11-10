@@ -15,15 +15,15 @@ limitations under the License.
 -->
 <div class="table-responsive" role="region" aria-label="{{ t.processing_sources }}" tabindex="0">
 <table class="processing-attempts-table processing-sources-table">
-  <thead><tr><th scope="col">{{ t.processing_table_source_id }}</th><th scope="col">{{ t.processing_table_original }}</th><th scope="col">{{ t.processing_source_type }}</th><th scope="col">{{ t.processing_table_status }}</th><th scope="col">{{ t.processing_attempt_result_heading }}</th><th scope="col">{{ t.processing_source_latest_time }}</th><th scope="col">{{ t.processing_source_attempt_count }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
+  <thead><tr><th scope="col">{{ t.processing_source_saved_time }}</th><th scope="col">{{ t.processing_table_source_id }}</th><th scope="col">{{ t.processing_table_original }}</th><th scope="col">{{ t.processing_source_type }}</th><th scope="col">{{ t.processing_table_status }}</th><th scope="col">{{ t.processing_attempt_result_heading }}</th><th scope="col">{{ t.processing_source_attempt_count }}</th><th scope="col">{{ t.home_record_action }}</th></tr></thead>
   <tbody>{% for item in processing_items %}{% set result=processing_summaries.get(item.source_id) %}{% set count=processing_counts.get(item.source_id) %}
     <tr class="processing-source-row">
+      <td>{% if item.saved_at %}<time>{{ item.saved_at|display_time }}</time>{% else %}<span class="text-secondary">{{ t.unknown_value }}</span>{% endif %}</td>
       <td><span class="processing-source-id">{{ t.source_label }} #{{ item.position }}</span></td>
       <td><div class="processing-table-input">{{ item.preview|truncate(80,true) }}</div></td>
       <td>{{ t.processing_source_content if item.source_type == 'content' else item.source_type }}</td>
       <td><span class="badge {{ result.badge if result else 'bg-secondary-lt' }}">{{ result.label if result else t.processing_summary_error if errors.get('processing_summaries') else t.processing_summary_unknown }}</span></td>
       <td>{% for result in processing_results.get(item.source_id, []) %}{% set ref = result.ref %}{% set preview = processing_memory_previews.get(ref.family ~ '/' ~ ref.artifact_id ~ '@' ~ ref.revision) %}{% if preview and (preview.title or preview.text) %}<p class="processing-result-preview mb-0"><span class="text-secondary small">{{ t.get('processing_action_' ~ result.action, result.action) }}</span> · {{ (preview.title or preview.text)|truncate(120,true) }}</p>{% endif %}{% endfor %}</td>
-      <td>{% if result and result.at %}<time>{{ result.at|display_time }}</time>{% else %}<span class="text-secondary">{{ t.unknown_value }}</span>{% endif %}</td>
       <td data-processing-count>{% if count is none %}<span class="text-secondary">{{ t.unknown_value }}</span>{% elif count.count > 1 %}<span class="badge bg-blue-lt processing-count-highlight">{{ count.count }}{{ '+' if count.more else '' }}</span>{% elif count.count %}{{ count.count }}{{ '+' if count.more else '' }}{% else %}<span class="text-secondary">{{ t.processing_source_no_history }}</span>{% endif %}</td>
       <td><a class="btn btn-sm btn-primary" href="{{ link(source_id=item.source_id) }}">{{ t.home_record_details }}</a></td>
     </tr>

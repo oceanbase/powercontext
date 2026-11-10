@@ -321,12 +321,12 @@ limitations under the License.
 
 .topics-view { max-width: none; margin-inline: 0; }
 
-.processing-sources-table th:first-child { width: 10rem; }
-.processing-sources-table th:nth-child(2) { width: auto; }
-.processing-sources-table th:nth-child(3) { width: 7rem; }
-.processing-sources-table th:nth-child(4) { width: 8rem; }
-.processing-sources-table th:nth-child(5) { width: 22rem; }
-.processing-sources-table th:nth-child(6) { width: 12rem; }
+.processing-sources-table th:first-child { width: 12rem; }
+.processing-sources-table th:nth-child(2) { width: 10rem; }
+.processing-sources-table th:nth-child(3) { width: auto; }
+.processing-sources-table th:nth-child(4) { width: 7rem; }
+.processing-sources-table th:nth-child(5) { width: 8rem; }
+.processing-sources-table th:nth-child(6) { width: 22rem; }
 .processing-sources-table th:nth-child(7) { width: 6rem; }
 .processing-sources-table th:nth-child(8) { width: 5rem; }
 .processing-result-preview { color: var(--tblr-body-color); font-size: .8125rem; line-height: 1.6; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

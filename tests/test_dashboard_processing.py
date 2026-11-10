@@ -101,7 +101,7 @@ def test_processing_sources_page_in_scope_and_links_exact_result(dashboard):
     first = dashboard.get("/dashboard/processing", params={"scope": scope, "record_type": "sources"})
     assert first.status_code == 200, first.text
     assert '<table class="processing-attempts-table processing-sources-table">' in first.text
-    assert LABELS["processing_source_latest_time"] in first.text
+    assert LABELS["processing_source_saved_time"] in first.text
     assert LABELS["processing_table_source_id"] in first.text
     assert f'<th scope="col">{LABELS["processing_table_original"]}</th>' in first.text
     assert LABELS["processing_source_type"] in first.text and LABELS["processing_table_status"] in first.text
@@ -421,3 +421,22 @@ def test_source_processing_count_distinguishes_truncated_and_unavailable_history
     assert len(cells) == 1
     assert ("20+" in cells[0]) if not unavailable else ("Not reported" in cells[0])
     assert len(re.findall(r'<tr class="processing-source-row">', page.text)) == 1
+
+
+def test_processing_sources_show_save_time_before_processing(dashboard):
+    from datetime import UTC, datetime
+
+    scope = create_scope(dashboard, "Source save time")["scope_id"]
+    before = datetime.now(UTC).replace(second=0, microsecond=0)
+    saved = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Source saved without processing."})
+    assert saved.status_code == 201, saved.text
+    page = dashboard.get("/dashboard/processing", params={"scope": scope, "record_type": "sources", "lang": "en"})
+    assert page.status_code == 200
+    assert '<th scope="col">Saved at</th>' in page.text
+    row = re.search(r'<tr class="processing-source-row">(.*?)</tr>', page.text, re.S)
+    assert row is not None
+    timestamp = re.search(r"<time[^>]*>(.*?)</time>", row[1])
+    assert timestamp is not None
+    at = datetime.strptime(timestamp[1], "%Y-%m-%d %H:%M UTC").replace(tzinfo=UTC)
+    assert before <= at <= datetime.now(UTC)
+    assert "Latest processing time" not in page.text

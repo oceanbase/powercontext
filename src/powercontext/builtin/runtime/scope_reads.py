@@ -425,7 +425,9 @@ class ScopeReadSnapshot:
         items = []
         for row in rows[:limit]:
             stored = self._records._sources.decode_source(row)
-            items.append(_source_record(self.scope_id, stored).model_dump(mode="json"))
+            item = _source_record(self.scope_id, stored).model_dump(mode="json")
+            item["saved_at"] = stored.saved_at.isoformat() if stored.saved_at else None
+            items.append(item)
         following = (
             application.cursor.encode(bound, str(rows[limit - 1]["journal_position"])) if len(rows) > limit else None
         )
