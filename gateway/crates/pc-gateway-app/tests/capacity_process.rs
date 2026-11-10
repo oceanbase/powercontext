@@ -526,7 +526,7 @@ async fn response_ceiling_is_independent_of_input_capacity_and_never_releases_a_
         let (status, result) = gateway
             .request(CHAT, chat("SYNTHETIC_CAPACITY_PROMPT_SECRET"), false)
             .await;
-        assert_eq!(status, 409);
+        assert_eq!(status, 400);
         assert!(result.contains("response_buffer_limit_exceeded"));
         assert!(result.len() < 256, "no response prefix released");
         // Read the real process's JSONL, not only its HTTP result or local snapshot.
