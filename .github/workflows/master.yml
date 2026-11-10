@@ -211,11 +211,13 @@ jobs:
 
       - name: Check License Header
         id: license_check
-        timeout-minutes: 3
+        # Complete scans took 182s on the shared worker; keep room for load
+        # variation while recording wall/CPU time without weakening coverage.
+        timeout-minutes: 6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LICENSE_EYE: ${{ steps.license_tool.outputs.executable }}
-        run: '"$LICENSE_EYE" -v info -c .licenserc.yaml header check'
+        run: 'time "$LICENSE_EYE" -v info -c .licenserc.yaml header check'
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env

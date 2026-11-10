@@ -205,7 +205,7 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"
     assert license_tool["uses"] == "./.github/actions/setup-license-eye"
-    assert license_check["run"] == '"$LICENSE_EYE" -v info -c .licenserc.yaml header check'
+    assert license_check["run"] == 'time "$LICENSE_EYE" -v info -c .licenserc.yaml header check'
     assert license_check["env"]["LICENSE_EYE"] == "${{ steps.license_tool.outputs.executable }}"
     for step in (selection, license_tool, license_check, quality, contract):
         assert not step.get("continue-on-error")
