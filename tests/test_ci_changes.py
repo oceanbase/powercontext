@@ -87,7 +87,7 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["tests/test_ops_resources.py"], {"tests", "managed_resources"}),
         (
             [".github/actions/cache-pnpm/action.yml"],
-            {"tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw"},
+            {"tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"},
         ),
         ([".github/workflows/native-service.yml"], {"native"}),
         ([".github/workflows/kimi-code-acceptance.yml"], {"kimi"}),
@@ -227,7 +227,10 @@ def run_selector(repository: Path, event: str, base: str = "", head: str = "") -
     ("path", "required_jobs"),
     [
         ("scripts/run_atomic_memory_clean_migration.py", {"seekdb-managed-startup", "upgrade-acceptance"}),
-        (".github/actions/cache-pnpm/action.yml", {"tests", "windows-unit-portability", "cindy-package"}),
+        (
+            ".github/actions/cache-pnpm/action.yml",
+            {"tests", "windows-unit-portability", "cindy-package", "zcode-acceptance"},
+        ),
         ("deploy/helm/powercontext/values.yaml", {"helm"}),
         ("scripts/produce_managed_resources.py", {"managed-resource-candidates"}),
     ],
