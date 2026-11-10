@@ -1,0 +1,71 @@
+e2e/bub/tasks/acceptance-01-project-database-decision.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 25
+tests/e2e/test_worker_otlp.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 309-316
+e2e/bub/paired-tasks/project-decision-continuation.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 23
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_c17bcaf8fe82bd 397,407
+tests/test_ci_pipeline.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 201,205-208,224-228
+.github/workflows/skill-guidance.yml
+  s_98c1bb9fbaf7be::t_2424c02d714069 39-40,42,49-50
+e2e/bub/tasks/locomo-open-pastries.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 32
+.github/workflows/master.yml
+  s_98c1bb9fbaf7be::t_71c895a9eb3e30 179,186,204-205,208-212,237-238,259,292,294-295,297,299-300,887,937,987,1030,1056,1080,1126,1155
+tests/e2e/test_background_metrics.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 94-96,106
+integrations/dsh/plugins/powercontext/scripts/e2e-server.mjs
+  s_98c1bb9fbaf7be::t_2424c02d714069 129
+e2e/bub/tasks/acceptance-03-failure-policy-followup.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 24
+integrations/opendal/src/powercontext_connector_opendal/source.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 160-165
+e2e/bub/tasks/acceptance-02-failure-policy-timeout.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 24
+src/powercontext/builtin/persistence/atomic_memory_index.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 407-424
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 42,44-47,106,191
+e2e/bub/paired-tasks/revised-decision-continuation.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 23
+integrations/dsh/plugins/powercontext/tests/status-http.spec.ts
+  s_98c1bb9fbaf7be::t_2424c02d714069 55,88,96,106
+e2e/bub/tasks/locomo-temporal-banker.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 32
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_2424c02d714069 6-7
+e2e/bub/tests/test_harbor_agent.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 25,70
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_71c895a9eb3e30 575
+.github/workflows/desktop.yml
+  s_98c1bb9fbaf7be::t_2424c02d714069 317,319
+e2e/bub/Dockerfile
+  s_98c1bb9fbaf7be::t_2424c02d714069 54
+e2e/bub/paired-tasks/api-contract-continuation.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 23
+scripts/prepare_managed_resources.py
+  s_98c1bb9fbaf7be::t_2424c02d714069 54,108-139,159
+e2e/bub/tasks/locomo-support-group.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 32
+e2e/bub/tasks/locomo-multihop-football.yaml
+  s_98c1bb9fbaf7be::t_2424c02d714069 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8e9bf23f313fda631384ae04d81dab3e371f4f13",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
