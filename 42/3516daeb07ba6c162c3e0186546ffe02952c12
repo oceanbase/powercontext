@@ -1,0 +1,54 @@
+e2e/bub/tests/test_agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 36,81,105,138
+docs/en/development/releasing.md
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 196,213,241-242,260-267,301
+e2e/bub/src/powercontext_e2e/agent_bootstrap.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 21-23,52,56
+tests/release_upgrades/README.md
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 4-5,91,170-172
+.github/workflows/e2e-harness.yml
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 612-614,718
+tests/test_seekdb_test_runner.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 1-39,41-60
+  s_98c1bb9fbaf7be::t_3373e3d21813e7 40
+website/src/lib/releases.ts
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 56,71
+scripts/parallel_upgrade_release_gate.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 243-244,252,264,266-268
+e2e/bub/src/powercontext_e2e/harbor_agent.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 29,44,46,131-136,196
+release/upgrade-support.json
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 6-7
+.github/scripts/run_seekdb_migration_test.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 139-146,173-176,185,193
+docs/zh/development/releasing.md
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 182,193,217,232-238,272
+src/powercontext/builtin/persistence/atomic_memory_index.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 407-417
+tests/test_oceanbase_ci.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 397-398,406,408,415-416
+website/tests/releases.test.ts
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 49
+.github/workflows/upgrade-release.yml
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 36,63-75,151,153-155,278-290,305-306,340-352,367-368
+tests/test_upgrade_release_gate.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 94-96,98-99,105-106,108-109,112,117,122,446-451,454,1197-1199,1204,1210-1229
+e2e/bub/tests/test_harbor_agent.py
+  s_98c1bb9fbaf7be::t_cc549035e79a1c 25,70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "423516daeb07ba6c162c3e0186546ffe02952c12",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
