@@ -23,6 +23,7 @@ from powercontext.server.dashboard.presenters import artifact_destination, sourc
 
 def present_source(value):
     source = cast(dict[str, Any], source_view(value))
+    source.setdefault("saved_at", None)
     content = value["content"]
     preview = (
         next(
@@ -310,7 +311,14 @@ async def _load_list_context(api, ctx, scope):
             }
             records = history["items"]
             latest_results = (records[0].get("results") or []) if records else []
-            results = [{"action": result["action"], "ref": result["artifact"]} for result in latest_results]
+            results = [
+                {"action": result["action"], "ref": result["artifact"]}
+                for result in latest_results
+                if any(
+                    ref["source_type"] == item["source_type"] and ref["source_id"] == item["source_id"]
+                    for ref in result["source_refs"]
+                )
+            ]
             ctx["processing_results"][item["source_id"]] = results[:2]
             for result in results[:2]:
                 await _load_memory_preview(api, ctx, result["ref"])
@@ -363,7 +371,9 @@ async def load_processing(api, request, ctx):
             ctx["processing_items"] = [present_source(item) for item in result["items"]]
         else:
             result = await api.read(f"/v1/scopes/{scope}/{path}?{urlencode(params)}")
-            ctx["processing_items"] = result["runs"] if kind == "dreams" else result["items"]
+            ctx["processing_items"] = (
+                result["runs"] if kind == "dreams" else [present_source(item) for item in result["items"]]
+            )
         ctx["processing_pager"] = cursor_links(request, ctx, family, result.get("next_cursor"))
         await _load_list_context(api, ctx, scope)
     except ReadError as error:

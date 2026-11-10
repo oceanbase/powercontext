@@ -158,6 +158,7 @@ def test_processing_sources_show_latest_memory_result_preview(dashboard, monkeyp
                             {
                                 "action": "revise",
                                 "artifact": {"family": "atomic-memory", "artifact_id": artifact, "revision": 2},
+                                "source_refs": [{"source_type": "content", "source_id": source_id}],
                             }
                         ]
                     }
@@ -423,20 +424,81 @@ def test_source_processing_count_distinguishes_truncated_and_unavailable_history
     assert len(re.findall(r'<tr class="processing-source-row">', page.text)) == 1
 
 
-def test_processing_sources_show_save_time_before_processing(dashboard):
+@pytest.mark.parametrize("public_reads", [False, True])
+def test_processing_sources_show_save_time_before_processing(dashboard, monkeypatch, public_reads):
     from datetime import UTC, datetime
 
     scope = create_scope(dashboard, "Source save time")["scope_id"]
     before = datetime.now(UTC).replace(second=0, microsecond=0)
     saved = dashboard.post(f"/v1/scopes/{scope}/sources", json={"content": "Source saved without processing."})
     assert saved.status_code == 201, saved.text
+    if public_reads:
+        monkeypatch.setattr("powercontext.server.dashboard.api._builtin_runtime", lambda request: None)
     page = dashboard.get("/dashboard/processing", params={"scope": scope, "record_type": "sources", "lang": "en"})
     assert page.status_code == 200
     assert '<th scope="col">Saved at</th>' in page.text
     row = re.search(r'<tr class="processing-source-row">(.*?)</tr>', page.text, re.S)
     assert row is not None
     timestamp = re.search(r"<time[^>]*>(.*?)</time>", row[1])
+    if public_reads:
+        assert timestamp is None
+        assert "Not reported" in row[1]
+        return
     assert timestamp is not None
     at = datetime.strptime(timestamp[1], "%Y-%m-%d %H:%M UTC").replace(tzinfo=UTC)
     assert before <= at <= datetime.now(UTC)
     assert "Latest processing time" not in page.text
+
+
+@pytest.mark.parametrize("public_reads", [False, True])
+def test_source_result_preview_excludes_sibling_outputs(tmp_path, monkeypatch, public_reads):
+    from powercontext.builtin.artifacts.atomic_memory.extraction import AtomicMemoryExtractionOutput
+    from powercontext.builtin.inference import GenerationResult
+    from powercontext.builtin.runtime import CaptureSource
+    from powercontext.builtin.scope import ScopeDraft
+
+    class SelectivePipeline(MemoryPipeline):
+        async def generate(self, request, /):
+            result = await super().generate(request)
+            return GenerationResult(output=AtomicMemoryExtractionOutput(candidates=result.output.candidates[:1]))
+
+    async def scenario():
+        async with open_dream_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/sources.db")),
+            candidate_pipeline=atomic_memory_pipeline(SelectivePipeline()),
+        ) as runtime:
+            scope = (
+                await runtime.scopes.create(
+                    ScopeDraft(title="Batch attribution", summary="Exact evidence", idempotency_key="batch")
+                )
+            ).scope_id
+            for source_id in ("has-fact", "no-candidate"):
+                await runtime.sources.for_scope(scope).capture(
+                    CaptureSource(source_id=source_id, content=f"Input {source_id}", metadata={})
+                )
+            await runtime.atomic_memory.for_scope(scope).flush()
+            app = create_app(application=runtime)
+            app.include_router(router, prefix="/dashboard")
+            if not public_reads:
+                app.state.dashboard_runtime = runtime
+            if public_reads:
+                monkeypatch.setattr("powercontext.server.dashboard.api._builtin_runtime", lambda request: None)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as client:
+                history = (await client.get(f"/v1/scopes/{scope}/sources/content/no-candidate/processing")).json()
+                assert len(history["items"][0]["results"]) == 1
+                assert [
+                    (ref["source_type"], ref["source_id"]) for ref in history["items"][0]["results"][0]["source_refs"]
+                ] == [("content", "has-fact")]
+                page = await client.get(
+                    "/dashboard/processing", params={"scope": scope, "record_type": "sources", "lang": "en"}
+                )
+                assert page.status_code == 200, page.text
+                rows = re.findall(r'<tr class="processing-source-row">(.*?)</tr>', page.text, re.S)
+                assert len(rows) == 2
+                for source_id in ("has-fact", "no-candidate"):
+                    row = next(row for row in rows if f"Input {source_id}" in row)
+                    assert ("The replay test passed without duplicate writes." in row) == (source_id == "has-fact")
+
+    asyncio.run(scenario())
