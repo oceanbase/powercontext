@@ -37,7 +37,7 @@ def test_native_test_runner_preserves_exit_and_deadline_outcomes(tmp_path, progr
     # The checked-in watchdog still launches, diagnoses and terminates a real process.
     (tmp_path / "pytest.py").write_text(program)
     script = Path(__file__).parents[1] / ".github/scripts/run_seekdb_migration_test.py"
-    result = subprocess.run(  # noqa: S603 -- checked-in watchdog and a disposable fixed child
+    result = subprocess.run(
         [
             sys.executable,
             str(script),
