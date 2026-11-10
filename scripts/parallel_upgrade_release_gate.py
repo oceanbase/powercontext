@@ -37,17 +37,22 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-SELECTIONS = ("full", "automatic", "seekdb-code")
+SELECTIONS = ("full", "automatic", "sqlite", "seekdb-code")
 
 
 def selected_indexes(cases: list[dict[str, Any]], selection: str, *, release: bool) -> list[int]:
     gate.require(selection in SELECTIONS, "Unknown upgrade selection")
-    gate.require(not release or selection != "seekdb-code", "Manual-only acceptance cannot authorize publication")
+    gate.require(not release or selection in {"full", "automatic"}, "Partial acceptance cannot authorize publication")
     selected = [
         index
         for index, case in enumerate(cases)
         if selection in {"full", "automatic"}
-        or (case["backend"] == "seekdb" and case["configuration"] in {"full-server-code", "full-server-vector-code"})
+        or (selection == "sqlite" and case["backend"] == "sqlite")
+        or (
+            selection == "seekdb-code"
+            and case["backend"] == "seekdb"
+            and case["configuration"] in {"full-server-code", "full-server-vector-code"}
+        )
     ]
     gate.require(selected, "No cases match the upgrade selection")
     return selected
@@ -57,7 +62,7 @@ def prepare(
     root: Path, dist: Path, output: Path, *, release: bool, release_notes: str | None, selection: str = "full"
 ) -> dict[str, Any]:
     """Freeze the distributions and source discovery before scheduling any cases."""
-    gate.require(not release or selection != "seekdb-code", "Manual-only acceptance cannot authorize publication")
+    gate.require(not release or selection in {"full", "automatic"}, "Partial acceptance cannot authorize publication")
     output.mkdir(parents=True, exist_ok=False)
     wheel, files = stage_distributions(dist, output / "inputs", release=release)
     policy = gate.validate_target(root, wheel, release=release, release_notes=release_notes)
@@ -198,7 +203,7 @@ def collect(root: Path, prepared: Path, reports: Path, output: Path) -> list[Pat
         # Verify the originals once more before exposing a publication set.
         read_plan(root, prepared)
         evidence["complete"] = len(selected) == len(cases)
-        if plan["selection"] == "seekdb-code":
+        if plan["selection"] not in {"full", "automatic"}:
             evidence["status"] = "selected-cases-passed"
             return []
         validated = output / "validated-dist"
