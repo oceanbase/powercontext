@@ -22,7 +22,7 @@ from collections import deque
 from collections.abc import Callable
 from contextlib import suppress
 from contextvars import Context
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 from sqlalchemy import select
@@ -48,6 +48,7 @@ _LOGGER = logging.getLogger(__name__)
 _WRITE_ATTEMPT_SLICES = 4
 _MIN_WRITE_ATTEMPT_SECONDS = 0.02
 _RETRY_BACKOFF_SECONDS = 0.02
+_WRITE_BATCH_SIZE = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +72,42 @@ def _snapshot(
     return _ModelUsageRecord(scope_id, usage_date, purpose, operation, counts)
 
 
+def _coalesce(records: tuple[_ModelUsageRecord, ...]) -> tuple[_ModelUsageRecord, ...]:
+    # Keep each completeness combination separate: merging a known token count
+    # with None into one InferenceUsage would discard the known subtotal. The
+    # repository adds these groups and ANDs their completeness flags atomically.
+    grouped: dict[tuple[str, date, ModelUsagePurpose, ModelUsageOperation, bool, bool], _ModelUsageRecord] = {}
+    for record in records:
+        usage = record.usage
+        key = (
+            record.scope_id,
+            record.usage_date,
+            record.purpose,
+            record.operation,
+            usage.input_tokens is not None,
+            usage.output_tokens is not None,
+        )
+        previous = grouped.get(key)
+        if previous is None:
+            grouped[key] = record
+        else:
+            grouped[key] = replace(
+                record,
+                usage=InferenceUsage(
+                    requests=previous.usage.requests + usage.requests,
+                    input_tokens=None
+                    if usage.input_tokens is None
+                    else (previous.usage.input_tokens or 0) + usage.input_tokens,
+                    output_tokens=None
+                    if usage.output_tokens is None
+                    else (previous.usage.output_tokens or 0) + usage.output_tokens,
+                ),
+            )
+    return tuple(grouped.values())
+
+
 class _ModelUsageRecorder:
-    """Offer without I/O; serialize independent writes on one owned consumer.
+    """Offer without I/O; coalesce bounded writes on one owned consumer.
 
     Checkpoints identify accepted records, not successful writes. A failed or
     indeterminate transaction is settled once and is never retried; only a
@@ -183,8 +218,8 @@ class _ModelUsageRecorder:
         if consumer is None:
             return
         self._ready.set()
-        # Each accepted record already carries a bounded write budget, so waiting
-        # one record plus one flush window lets an in-flight write finish instead
+        # Each batch already carries a bounded write budget, so waiting
+        # one batch plus one flush window lets an in-flight write finish instead
         # of abandoning it to a database that is about to close underneath it.
         budget = self._write_timeout_seconds + self._flush_timeout_seconds
         try:
@@ -213,35 +248,42 @@ class _ModelUsageRecorder:
                     self._ready.clear()
                     await self._ready.wait()
                     continue
-                sequence, record = self._pending.popleft()
+                batch = tuple(self._pending.popleft() for _ in range(min(len(self._pending), _WRITE_BATCH_SIZE)))
+                sequence = batch[-1][0]
                 self._report()
                 try:
-                    # The record is already accepted, so it must survive whoever
+                    # These records are already accepted, so they must survive whoever
                     # cancels this consumer: nothing else will ever retry it, and
                     # `_settle` reports it as settled either way.
-                    await asyncio.shield(self._write(record))
+                    await asyncio.shield(self._write(tuple(record for _, record in batch)))
                 except Exception:
-                    self._write_failures += 1
+                    # Count original records, not coalesced groups or physical
+                    # transactions, so batching does not conceal usage losses.
+                    self._write_failures += len(batch)
                     self._report()
                     log_safely(_LOGGER, logging.WARNING, "Model usage write failed; record will not be retried")
                 finally:
                     self._settle(sequence)
         finally:
             self._closed = True
+            self._dropped += len(self._pending)
             self._pending.clear()
+            self._report()
             self._settle(self._offered)
 
-    async def _write(self, record: _ModelUsageRecord) -> None:
-        """Write one record, retrying only a failure that rolled back cleanly.
+    async def _write(self, records: tuple[_ModelUsageRecord, ...]) -> None:
+        """Write one batch, retrying only a failure that rolled back cleanly.
 
         A busy or conflict error leaves nothing applied, so repeating it cannot
-        double count and is worth the rest of this record's budget. An attempt
+        double count and is worth the rest of this batch's budget. An attempt
         that expired before its body committed is the same shape and is worth the
-        same: a slow body must be allowed to finish rather than take the record's
+        same: a slow body must be allowed to finish rather than take the batch's
         usage with it. Any other failure may have committed with an unknown
         outcome and is never retried.
         """
 
+        grouped = _coalesce(records)
+        scopes = sorted({record.scope_id for record in grouped})
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._write_timeout_seconds
         # The first attempt gets a fixed slice rather than the whole budget, so
@@ -250,13 +292,13 @@ class _ModelUsageRecorder:
         # backoff interval, not this slice, is what decides how many attempts fit
         # inside the deadline.
         attempt_timeout = max(self._write_timeout_seconds / _WRITE_ATTEMPT_SLICES, _MIN_WRITE_ATTEMPT_SECONDS)
-        # Every repeat gets what the record has left. Repeating is only reached
+        # Every repeat gets what the batch has left. Repeating is only reached
         # once a slice-sized attempt has already failed, and that failure is the
-        # evidence that a slice is not what this record needs: handing the repeat
-        # the same slice reaches the same wall and drops a record that still owns
+        # evidence that a slice is not what this batch needs: handing the repeat
+        # the same slice reaches the same wall and drops a batch that still owns
         # most of its budget. The budget, not the slice, is what bounds the total.
         # On SQLite a retry after an interrupted body can hold the shared
-        # connection guard for the record's entire remaining budget, delaying a
+        # connection guard for the batch's entire remaining budget, delaying a
         # competing business write by up to the full write_timeout_seconds
         # (at most 30 seconds) plus transaction settlement/cleanup. The guard is
         # released between attempts; the first-attempt slice is not a retry cap.
@@ -268,15 +310,19 @@ class _ModelUsageRecorder:
             allowance = attempt_timeout if first_attempt else remaining
             try:
                 async with self._database.statistics_transaction(min(remaining, allowance)) as connection:
-                    # Lock the Scope row on MySQL so delete cannot race the
+                    # Lock Scope rows in a stable order so delete cannot race the
                     # increment. SQLite ignores FOR UPDATE; its real snapshot
                     # makes a competing delete fail the write upgrade instead.
                     scope = (
                         select(SCOPES_TABLE.c.scope_id)
-                        .where(SCOPES_TABLE.c.scope_id == record.scope_id)
+                        .where(SCOPES_TABLE.c.scope_id.in_(scopes))
+                        .order_by(SCOPES_TABLE.c.scope_id)
                         .with_for_update()
                     )
-                    if (await connection.execute(scope)).first() is not None:
+                    existing = set((await connection.execute(scope)).scalars())
+                    for record in grouped:
+                        if record.scope_id not in existing:
+                            continue
                         await self._repository.record(
                             connection,
                             record.scope_id,
@@ -297,7 +343,7 @@ class _ModelUsageRecorder:
                     # waits one write window for this consumer, so a repeat
                     # cannot be counted on, and failing now ends it as expected.
                     raise
-                # Unapplied and still inside the record's own budget, so hand the
+                # Unapplied and still inside the batch's own budget, so hand the
                 # loop over rather than let a slow machine decide its fate, and
                 # stop slicing: this attempt is the evidence that the body, not a
                 # wait, is what takes the time.

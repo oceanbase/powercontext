@@ -69,7 +69,7 @@ class SourceCaptureCoalescer:
                             item for item in reversed(batch) if item is not pending and not item.result.done()
                         )
                         raise
-            return await pending.result
+                return await pending.result
         finally:
             if pending.result.done() and not pending.result.cancelled():
                 # A caller cancelled while waiting for its lock may already

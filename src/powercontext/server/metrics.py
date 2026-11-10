@@ -194,7 +194,7 @@ class _ModelUsageMetricsCollector:
             losses,
             (
                 "Dropped records from the local recorder and received child reports; resets on restart.",
-                "Failed/indeterminate writes from the local recorder and received child reports; resets on restart.",
+                "Records with failed/indeterminate writes from the local recorder and child reports; resets on restart.",
             ),
             strict=True,
         ):

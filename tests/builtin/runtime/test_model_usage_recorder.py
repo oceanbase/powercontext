@@ -143,6 +143,80 @@ def test_flush_persists_copied_usage_with_unknown_tokens_and_original_date(tmp_p
     asyncio.run(scenario())
 
 
+def test_backlogged_usage_coalesces_without_losing_known_token_subtotals() -> None:
+    async def scenario() -> None:
+        async with _database() as database:
+            writes = 0
+
+            def observe_write(_connection, _cursor, statement, _parameters, _context, _executemany):
+                nonlocal writes
+                if statement.startswith("INSERT INTO pc_model_usage_daily"):
+                    writes += 1
+
+            event.listen(database.engine.sync_engine, "before_cursor_execute", observe_write)
+            recorder = _ModelUsageRecorder(database, StatisticsRepository(), flush_timeout_seconds=5)
+            try:
+                for _ in range(40):
+                    _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
+                    _offer(recorder, InferenceUsage(requests=2, input_tokens=None, output_tokens=7))
+                    _offer(recorder, InferenceUsage(requests=3, input_tokens=11, output_tokens=None))
+                    _offer(recorder, InferenceUsage(requests=4))
+                await recorder.flush()
+                (row,) = await _rows(database)
+                assert (row.requests, row.input_tokens, row.output_tokens) == (400, 560, 480)
+                assert not row.input_complete and not row.output_complete
+                # A backlog must reduce physical database writes, without
+                # prescribing a particular batch size or private call order.
+                assert writes < 80
+            finally:
+                await recorder.close()
+                event.remove(database.engine.sync_engine, "before_cursor_execute", observe_write)
+
+    asyncio.run(scenario())
+
+
+def test_batch_preserves_scope_date_purpose_and_operation_boundaries() -> None:
+    async def scenario() -> None:
+        async with _database() as database:
+            other = "other-usage-scope"
+            async with database.transaction() as connection:
+                await connection.execute(
+                    insert(SCOPES_TABLE).values(
+                        scope_id=other,
+                        title="other",
+                        summary="",
+                        scope_id_search=other,
+                        title_search="other",
+                        summary_search="",
+                        version=1,
+                    )
+                )
+            recorder = _ModelUsageRecorder(database, StatisticsRepository(), flush_timeout_seconds=5)
+            try:
+                expected = {}
+                for scope in (_SCOPE, other):
+                    for day in (_DAY, date(2026, 1, 3)):
+                        for purpose in (_PURPOSE, ModelUsagePurpose.MEMORY_RECALL):
+                            for operation in (_OPERATION, ModelUsageOperation.EMBEDDING):
+                                count = len(expected) + 1
+                                expected[scope, day, purpose.value, operation.value] = count * 2
+                                for _ in range(2):
+                                    recorder.offer(scope, purpose, operation, InferenceUsage(requests=count), day)
+                # Closing must drain accepted batches even without a prior read.
+                await recorder.close()
+                async with database.transaction() as connection:
+                    rows = (await connection.execute(select(MODEL_USAGE_DAILY_TABLE))).mappings()
+                    actual = {
+                        (row["scope_id"], row["usage_date"], row["purpose"], row["operation"]): row["requests"]
+                        for row in rows
+                    }
+                assert actual == expected
+            finally:
+                await recorder.close()
+
+    asyncio.run(scenario())
+
+
 def test_queue_capacity_drops_without_sql_or_sensitive_logs(caplog: pytest.LogCaptureFixture) -> None:
     async def scenario() -> None:
         async with _database() as database:
@@ -811,7 +885,10 @@ class _SlowQueryRepository(StatisticsRepository):
 
 
 @pytest.mark.parametrize("file_backed", [False, True])
-def test_native_deadline_before_commit_retries_usage_without_double_counting(tmp_path: Path, file_backed: bool) -> None:
+@pytest.mark.parametrize("records", [1, 9])
+def test_native_deadline_before_commit_retries_usage_without_double_counting(
+    tmp_path: Path, file_backed: bool, records: int
+) -> None:
     class InterruptedOnceRepository(StatisticsRepository):
         slow = True
 
@@ -838,11 +915,16 @@ def test_native_deadline_before_commit_retries_usage_without_double_counting(tmp
                 database, InterruptedOnceRepository(), write_timeout_seconds=5.0, flush_timeout_seconds=6.0
             )
             try:
-                _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
+                for _ in range(records):
+                    _offer(recorder, InferenceUsage(requests=1, input_tokens=3, output_tokens=5))
                 await recorder.flush()
                 rows = await _rows(database)
                 assert len(rows) == 1
-                assert (rows[0].requests, rows[0].input_tokens, rows[0].output_tokens) == (1, 3, 5)
+                assert (rows[0].requests, rows[0].input_tokens, rows[0].output_tokens) == (
+                    records,
+                    records * 3,
+                    records * 5,
+                )
                 await _assert_connection_restored(database)
             finally:
                 await recorder.close()
@@ -1059,14 +1141,15 @@ class _GatedRepository(StatisticsRepository):
         /,
     ) -> None:
         # Retried attempts belong to the same logical record and gate.
-        index = usage.requests - 1
+        index = usage.output_tokens or 0
         self.entered[index].set()
         await self.release[index].wait()
         await super().record(connection, scope_id, usage_date, purpose, operation, usage)
 
 
 @pytest.mark.parametrize("explicit_checkpoint", [False, True])
-def test_flush_waits_only_for_its_entry_prefix(explicit_checkpoint: bool) -> None:
+@pytest.mark.parametrize("prefix_records", [1, 8])
+def test_flush_waits_only_for_its_entry_prefix(explicit_checkpoint: bool, prefix_records: int) -> None:
     async def scenario() -> None:
         async with asyncio.timeout(10), _database() as database:
             repository = _GatedRepository()
@@ -1074,19 +1157,20 @@ def test_flush_waits_only_for_its_entry_prefix(explicit_checkpoint: bool) -> Non
             # best-effort flush can time out and imitate successful completion.
             recorder = _ModelUsageRecorder(database, repository, write_timeout_seconds=5, flush_timeout_seconds=30)
             try:
-                _offer(recorder)
+                for _ in range(prefix_records):
+                    _offer(recorder, InferenceUsage(requests=1, output_tokens=0))
                 await repository.entered[0].wait()
                 prefix = recorder.checkpoint()
                 waiter = asyncio.create_task(recorder.flush(prefix if explicit_checkpoint else None))
                 await asyncio.sleep(0)
-                _offer(recorder, InferenceUsage(requests=2))
+                _offer(recorder, InferenceUsage(requests=2, output_tokens=1))
                 repository.release[0].set()
                 await repository.entered[1].wait()
                 await asyncio.wait_for(waiter, 2)
                 assert not repository.release[1].is_set()
                 repository.release[1].set()
                 await recorder.flush()
-                assert (await _rows(database))[0].requests == 3
+                assert (await _rows(database))[0].requests == prefix_records + 2
             finally:
                 for gate in repository.release:
                     gate.set()
@@ -1111,7 +1195,10 @@ def test_deleted_scope_is_not_resurrected_by_queued_usage() -> None:
     asyncio.run(scenario())
 
 
-def test_commit_unknown_is_not_retried(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+@pytest.mark.parametrize("records", [1, 9])
+def test_commit_unknown_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, records: int
+) -> None:
     async def scenario() -> None:
         async with _database() as database:
             transaction = database.statistics_transaction
@@ -1123,12 +1210,17 @@ def test_commit_unknown_is_not_retried(monkeypatch: pytest.MonkeyPatch, caplog: 
                 raise RuntimeError("secret credentials and SQL that must not reach logs")  # noqa: TRY003
 
             monkeypatch.setattr(database, "statistics_transaction", lost_commit_reply)
-            recorder = _ModelUsageRecorder(database, StatisticsRepository())
+            observations = []
+            recorder = _ModelUsageRecorder(
+                database, StatisticsRepository(), observer=lambda *snapshot: observations.append(snapshot)
+            )
             try:
-                _offer(recorder)
+                for _ in range(records):
+                    _offer(recorder)
                 await recorder.flush()
                 await recorder.flush()
-                assert (await _rows(database))[0].requests == 1
+                assert (await _rows(database))[0].requests == records
+                assert observations[-1][3] == records
             finally:
                 await recorder.close()
 
