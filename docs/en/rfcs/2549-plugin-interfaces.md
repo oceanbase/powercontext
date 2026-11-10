@@ -1077,8 +1077,8 @@ Server stops
   newly dispatched Workers use the new code. Deployers should restart Server after a change.
 - Server instances in the read-only API role also check plugins and register families and Source types for reads, search,
   Source writes, and user changes; they start host processes on demand but do not dispatch Workers.
-- Adding or removing plugins at runtime (hot reload) and plugin-defined APIs are left to a separate proposal built on
-  host processes.
+- Adding or removing plugins at runtime (hot reload) and plugin-defined APIs are covered by
+  [RFC #2579](https://github.com/oceanbase/powercontext/pull/2579), built on host processes.
 
 ## 9. Execution constraints
 
@@ -1280,7 +1280,7 @@ Reasons for this choice:
 
 # Future possibilities
 
-- Hot reload and plugin-defined APIs (including plugin pages): built on host processes, in a separate proposal.
+- Hot reload and plugin-defined APIs (including plugin pages): built on host processes, see [RFC #2579](https://github.com/oceanbase/powercontext/pull/2579).
 - Long-lived processes for background calls too, reusing connections and initialization while keeping the interfaces
   unchanged.
 - More plugin types, such as candidate content for Recall or text fragments for Prepared Context.

@@ -939,7 +939,7 @@ Server 停止
   只改了实现代码时，新派发的 Worker 会使用新代码。部署者应在修改后重启 Server。
 - 只读 API 角色的 Server 实例也会检查插件并注册 family 和 Source 类型，用于读取、检索、Source 写入和用户修改；它会按需
   启动宿主进程，但不派发 Worker。
-- 运行中增减插件（热加载）和插件自定义 API 另行提案，建立在宿主进程之上。
+- 运行中增减插件（热加载）和插件自定义 API 见 [RFC #2579](https://github.com/oceanbase/powercontext/pull/2579)，建立在宿主进程之上。
 
 ## 9. 执行约束
 
@@ -1114,7 +1114,7 @@ Server 停止
 
 # 后续可能
 
-- 热加载与插件自定义 API（含插件页面）：建立在宿主进程之上，另行提案。
+- 热加载与插件自定义 API（含插件页面）：建立在宿主进程之上，见 [RFC #2579](https://github.com/oceanbase/powercontext/pull/2579)。
 - 后台调用也改用常驻进程，在保持接口不变的前提下复用连接和初始化结果。
 - 更多插件类型，例如为 Recall 提供候选内容、为 Prepared Context 提供文本片段。
 - 插件打包与安装工具，例如从 Git 地址或 wheel 安装到插件目录。
