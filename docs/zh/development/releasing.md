@@ -60,6 +60,7 @@ beta 和 RC 跳过网站条目检查。`make docs-test` 也会通过网站测试
 | `docs/en/docs/get-started/manual-start.md`、`docs/zh/docs/get-started/manual-start.md` | CLI/Server 和 Python Client 安装版本及配套 Agent 集成 tag。 |
 | `docs/en/docs/get-started/install-and-run.md`、`docs/zh/docs/get-started/install-and-run.md` | 页面描述、当前版本介绍、包版本和 tag、升级目标及 Python Client 安装命令。 |
 | `integrations/dsh/plugins/powercontext/README.md` | Server 安装版本及对应的 `setup dsh --ref` tag。 |
+| `docs/{en,zh}/docs/operate/database-migrations.md`、`tests/release_upgrades/README.md` | 仅同步当前目标发布版本；冻结的 schema revision 名称及原始软件版本保持不变。 |
 
 安装指南也包含历史迁移版本，这些引用会保留。新增表示当前发布版本的安装示例时，应同时将其纳入版本工具的
 管理路径及匹配规则，使下次发布可以自动更新和检查。
@@ -178,19 +179,18 @@ pnpm --dir integrations/dsh/plugins/powercontext pack:release 1.6.0-rc.1
 作为固定基线，显式 `cases` 为空。共登记 12 个组合：一个来源 × 三种后端 × 向量开关 × Code 开关。
 常规发布要求十二个自动验收组合全部通过，包括两个启用 Code 的嵌入式 seekDB 配置。
 失败、跳过或缺失任一组合都阻止验收；仅用于诊断的 `seekdb-code` 子集不能授权发布。
-矩阵通过也不替代对升级支持声明的审查。
+发布不再要求额外的升级支持声明。
 目标始终是本次 CI 构建的实际 wheel；后续目标发布版本继续测试 1.3.0，不自动加入中间发行版。
 1.4.0 桥接实现和登记仍保留，但不纳入 CI 升级验收；门禁通过不能证明该路径已通过验收。来源 wheel 的公开 PyPI 地址和 SHA-256 与目标产物一起记录。
 
 1.3.0 和 1.4.0 的来源链分别从 `s1300` 和 `r1400` 开始，汇入共同的 `s1400 → s1401 → s1402` 路径，
-再经过 `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001`。两者共享目标契约，分别保留冻结的执行历史及日志来源链，
+再经过 `v1_4_1_004 → v1_4_1_005 → v1_4_1_006 → v1_5_0_001 → v1_5_0_002 → v1_5_0_003 → v1_5_0_004`。两者共享目标契约，分别保留冻结的执行历史及日志来源链，
 以便后续已登记版本继续升级。应用版本不等于 schema 检查点；1.4.0
 的 Candidate 已是当前格式，桥接原样保留记录，并创建空保留表以统一目标结构，不虚构旧 Candidate 历史。
 登记其他来源需要精确采集、明确桥接和真实验收；这两条已登记路径不能证明其间及目标之前所有发行版均兼容。
-当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，同时保持“升级支持尚未验证”的声明。
+当前 `upgrade-required` 策略强制执行三种后端的正向升级验收，支持范围以通过完整 Server 验收的组合为准。
 所有配置均使用 `tests/release_upgrades/test_full_server.py`，迁移能力缺失必须失败。仅支持新建数据库的声明或
-正确拒绝旧库，都不能满足门禁。完整迁移实现和验收通过后，审查支持范围，将模式改为 `supported-upgrades`，
-并在发布前重新生成安装说明；两种模式都运行相同的必测矩阵。
+正确拒绝旧库，都不能满足门禁。`upgrade-required` 和 `supported-upgrades` 两种模式均在相同必测矩阵通过后允许发布。
 验收契约和证据要求见仓库中的 `tests/release_upgrades/README.md`。
 
 `make check` 和 `make release-check` 会核对策略及双语安装说明。受管持久化文件变化时，必须审查兼容性影响，
@@ -214,7 +214,7 @@ uv run python scripts/run_upgrade_release_gate.py --release --release-notes /pat
 下的 `validated-dist/`，供 CI 上传。`make publish` 使用 `--release --publish` 在同一次调用中上传这些确切路径；
 验收期间原 `dist/` 的变化不会混入上传。未指定 `--publish` 的验收命令不会发布软件包。
 
-发布检查要求实际 wheel 版本与策略一致，发布说明包含安装指南中的完整英文支持声明。每个组合分别安装准确的
+发布检查要求实际 wheel 版本与策略一致，Release 正文不要求支持范围声明。每个组合分别安装准确的
 旧版发行包和目标 wheel。测试缺失、后端跳过、执行失败或证据缺失都会阻断检查。仅通过静态策略检查不表示
 存在升级路径。普通 PR 构建允许使用开发版本；`--release` 必须验证最终 tag 构建的 wheel，不能覆盖版本号。
 
@@ -228,6 +228,13 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十二个必�
 默认发布工作流只有验收通过才会上传发行包、发布 PyPI 和上传 Release 附件，并归档验收证据。工作流在
 `release.published` 后运行，无法阻止之前手动发布 GitHub Release 页面，因此必须先运行上述命令再发布页面。
 `make publish` 要求提供 `UPGRADE_RELEASE_NOTES=/path/to/release-notes.md`，并在上传软件包之前执行相同门禁。
+
+### 在 GitHub 页面触发发布
+
+对于已有的已发布 Release，打开 **Actions → Release → Run workflow**，分支选择 `master`，
+在 `release_tag` 中填写 `powercontext-v1.5.1`，保持 `skip_upgrade_acceptance` 不勾选，点击 **Run workflow**。
+工作流修改须先合并到 `master`。本次运行使用工作流提交中的验收脚本，从所选标签构建安装包并执行验收套件。
+十二个组合全部通过后才发布软件包，无需支持范围表格、固定 Release 文案或修改策略模式。
 
 ### 手动跳过升级验收发布
 
@@ -262,7 +269,7 @@ CI 中的 **Upgrade release gate** 要求真实 1.3.0 数据库在十二个必�
 
 `release-without-upgrades` 附件记录 tag、源码提交、操作者、运行编号、发行包哈希及
 `upgrade_acceptance: skipped`；运行摘要也会注明已有数据库升级不受支持。
-未勾选该选项时，仍执行常规自动升级矩阵及支持声明检查。
+未勾选该选项时，仍执行常规自动升级矩阵。
 
 ### 通用发布验证
 

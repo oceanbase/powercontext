@@ -47,6 +47,8 @@ struct OpenAiChatRequest {
     tool_choice: Option<serde_json::Value>,
     #[serde(default)]
     stream: Option<bool>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,12 +60,15 @@ struct OpenAiMessage {
     tool_calls: Option<Vec<serde_json::Value>>,
     #[serde(default)]
     tool_call_id: Option<String>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Responses API 入口请求（同格式进出，不与 chat 互转）。
 #[derive(Debug, Deserialize)]
 struct OpenAiResponsesRequest {
     model: String,
+    #[serde(deserialize_with = "deserialize_responses_input")]
     input: Vec<serde_json::Value>,
     #[serde(default)]
     instructions: Option<String>,
@@ -93,6 +98,22 @@ struct OpenAiResponsesRequest {
     /// parallel_tool_calls 等）。原样透传，由 Core 的请求字段白名单裁决。
     #[serde(flatten)]
     extra: serde_json::Map<String, serde_json::Value>,
+}
+
+fn deserialize_responses_input<'de, D>(deserializer: D) -> Result<Vec<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Input {
+        Text(String),
+        Items(Vec<serde_json::Value>),
+    }
+    Ok(match Input::deserialize(deserializer)? {
+        Input::Text(text) => vec![serde_json::json!({"role": "user", "content": text})],
+        Input::Items(items) => items,
+    })
 }
 
 pub async fn chat_completions(
@@ -434,6 +455,55 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     push("response.created", json!({"response": created}));
     let items = resp.get("output").and_then(Value::as_array);
     for (output_index, item) in items.into_iter().flatten().enumerate() {
+        if item.get("type").and_then(Value::as_str) == Some("reasoning") {
+            let mut added = item.clone();
+            added["summary"] = json!([]);
+            push(
+                "response.output_item.added",
+                json!({"output_index": output_index, "item": added}),
+            );
+            let item_id = item.get("id").cloned().unwrap_or(Value::Null);
+            for (summary_index, part) in item
+                .get("summary")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                let text = part.get("text").cloned().unwrap_or(json!(""));
+                let mut empty = part.clone();
+                empty["text"] = json!("");
+                push(
+                    "response.reasoning_summary_part.added",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "part": empty,
+                    }),
+                );
+                push(
+                    "response.reasoning_summary_text.delta",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "delta": text,
+                    }),
+                );
+                push(
+                    "response.reasoning_summary_text.done",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "text": text,
+                    }),
+                );
+                push(
+                    "response.reasoning_summary_part.done",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "part": part,
+                    }),
+                );
+            }
+            push(
+                "response.output_item.done",
+                json!({"output_index": output_index, "item": item}),
+            );
+            continue;
+        }
         let parts = match (
             item.get("type").and_then(Value::as_str),
             item.get("content"),
@@ -442,10 +512,31 @@ fn responses_sse(resp: &serde_json::Value) -> String {
             _ => None,
         };
         let Some(parts) = parts else {
+            let function_call = item.get("type").and_then(Value::as_str) == Some("function_call");
+            let mut added = item.clone();
+            if function_call {
+                added["arguments"] = json!("");
+                added["status"] = json!("in_progress");
+            }
             push(
                 "response.output_item.added",
-                json!({"output_index": output_index, "item": item}),
+                json!({"output_index": output_index, "item": added}),
             );
+            if function_call {
+                let item_id = item.get("id").cloned().unwrap_or(Value::Null);
+                let arguments = item.get("arguments").cloned().unwrap_or(json!(""));
+                push(
+                    "response.function_call_arguments.delta",
+                    json!({"item_id": item_id, "output_index": output_index, "delta": arguments}),
+                );
+                push(
+                    "response.function_call_arguments.done",
+                    json!({
+                        "item_id": item_id, "output_index": output_index,
+                        "arguments": arguments, "name": item.get("name").cloned().unwrap_or(Value::Null),
+                    }),
+                );
+            }
             push(
                 "response.output_item.done",
                 json!({"output_index": output_index, "item": item}),
@@ -504,6 +595,25 @@ fn responses_sse(resp: &serde_json::Value) -> String {
                     done = with(done, logprobs);
                 }
                 push(&format!("{prefix}.delta"), delta);
+                if is_text {
+                    for (annotation_index, annotation) in part
+                        .get("annotations")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .enumerate()
+                    {
+                        push(
+                            "response.output_text.annotation.added",
+                            with(
+                                at.clone(),
+                                json!({
+                                    "annotation_index": annotation_index, "annotation": annotation,
+                                }),
+                            ),
+                        );
+                    }
+                }
                 push(&format!("{prefix}.done"), done);
             }
             push(
@@ -598,6 +708,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
     for m in chat.messages {
         let role = match m.role.as_str() {
             "system" => Role::System,
+            "developer" => Role::Developer,
             "user" => Role::User,
             "assistant" => Role::Assistant,
             "tool" => Role::Tool,
@@ -615,6 +726,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
             content,
             content_null,
             tool_calls: m.tool_calls,
+            extra_fields: m.extra,
             tool_call_id: m.tool_call_id,
         });
     }
@@ -632,7 +744,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
         tool_choice: chat.tool_choice,
         store: None,
         previous_response_id: None,
-        passthrough_fields: None,
+        passthrough_fields: (!chat.extra.is_empty()).then_some(chat.extra),
         token_limit_field: if chat.max_completion_tokens.is_some() {
             Some("max_completion_tokens".into())
         } else if chat.max_tokens.is_some() {
@@ -664,6 +776,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
                 content: vec![item],
                 content_null: false,
                 tool_calls: None,
+                extra_fields: Default::default(),
                 tool_call_id: None,
             });
             continue;
@@ -678,6 +791,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
             content,
             content_null: false,
             tool_calls: None,
+            extra_fields: Default::default(),
             tool_call_id: None,
         });
     }

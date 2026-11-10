@@ -14,37 +14,27 @@
 
 """Hosts that recall with the end of a long prompt bound the query the same way.
 
-Claude Code, Codex, and WorkBuddy share the helper tested here. The TypeScript hosts, Kimi Code,
+Claude Code, Codex, and WorkBuddy ship generated copies of the helper tested here. The TypeScript hosts, Kimi Code,
 ZCode, and the Bub harness tests read the same fixture.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
 import yaml
 
+from powercontext_integration_lifecycle import prepared_context
+
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = json.loads((ROOT / "tests/fixtures/recall_query_bound.json").read_text(encoding="utf-8"))
-# Codex and WorkBuddy ship identical copies of this module; test_integration_shared_files.py keeps them so.
-HOOK_MODULE = ROOT / "integrations/claude-code/plugins/powercontext/hooks/prepared_context.py"
 
 
 def _expand(segments: list[dict[str, Any]]) -> str:
     return "".join(segment["text"] * segment.get("repeat", 1) for segment in segments)
-
-
-def _hook_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("powercontext_hook_prepared_context", HOOK_MODULE)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def test_fixture_character_bound_is_the_prepare_contract_limit() -> None:
@@ -56,7 +46,7 @@ def test_fixture_character_bound_is_the_prepare_contract_limit() -> None:
 
 @pytest.mark.parametrize("case", FIXTURE["cases"], ids=[case["id"] for case in FIXTURE["cases"]])
 def test_hook_recall_query_keeps_the_end_of_the_prompt(case: dict[str, Any]) -> None:
-    module = _hook_module()
+    limits = (prepared_context.MAX_QUERY_CHARACTERS, prepared_context.MAX_QUERY_BYTES)
 
-    assert (FIXTURE["max_characters"], FIXTURE["max_bytes"]) == (module.MAX_QUERY_CHARACTERS, module.MAX_QUERY_BYTES)
-    assert module.bounded_recall_query(_expand(case["prompt"])) == _expand(case["query"])
+    assert (FIXTURE["max_characters"], FIXTURE["max_bytes"]) == limits
+    assert prepared_context.bounded_recall_query(_expand(case["prompt"])) == _expand(case["query"])

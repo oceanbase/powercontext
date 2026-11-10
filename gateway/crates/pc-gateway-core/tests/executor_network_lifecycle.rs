@@ -65,6 +65,7 @@ fn call(base: &str) -> ManagedCall {
                 content: vec![json!("hello")],
                 content_null: false,
                 tool_calls: None,
+                extra_fields: Default::default(),
                 tool_call_id: None,
             }],
             tools: vec![],

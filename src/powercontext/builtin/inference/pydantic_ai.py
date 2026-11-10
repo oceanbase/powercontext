@@ -95,7 +95,9 @@ try:
     from pydantic_ai.exceptions import (
         ConcurrencyLimitExceeded,
         ModelAPIError,
+        ModelContextWindowExceededError,
         ModelHTTPError,
+        ModelRequestRejectedError,
         UnexpectedModelBehavior,
         UsageLimitExceeded,
         UserError,
@@ -123,12 +125,22 @@ OutputT = TypeVar("OutputT")
 logger = logging.getLogger(__name__)
 
 
+# Sampling settings the Anthropic adapter drops for models that reject them (pydantic_ai ANTHROPIC_SAMPLING_PARAMS).
+_ANTHROPIC_SAMPLING_PARAMS = ("temperature", "top_p", "top_k")
+
+
 def _receipt_model_settings(model: Model, settings: ModelSettings | None) -> dict[str, object]:
     """Return settings that the pinned provider will pass to its request builder."""
 
     effective = dict(settings or {})
     profile = getattr(model, "profile", None)
-    if not hasattr(profile, "get") or not profile.get("openai_supports_reasoning", False):
+    if not hasattr(profile, "get"):
+        return effective
+    if profile.get("anthropic_disallows_sampling_settings", False):
+        for setting in _ANTHROPIC_SAMPLING_PARAMS:
+            effective.pop(setting, None)
+        return effective
+    if not profile.get("openai_supports_reasoning", False):
         return effective
 
     reasoning_effort = effective.get("openai_reasoning_effort")
@@ -668,13 +680,19 @@ def _map_error(  # noqa: C901 - bounded mapping across status codes and provider
                     cause_exception_type=cause_type,
                 ),
             )
+    if isinstance(error, (ModelHTTPError, ModelRequestRejectedError)):
+        # Typed errors are authoritative; an uncategorized HTTP error still carries the provider's own
+        # words, so the body-based check keeps classifying a limit Pydantic AI did not tag as one.
         reason = (
             ProcessingFailureReason.CONTEXT_OVERFLOW
-            if _looks_like_context_overflow(error)
+            if isinstance(error, ModelContextWindowExceededError)
+            or (isinstance(error, ModelHTTPError) and _looks_like_context_overflow(error))
             else ProcessingFailureReason.CONFIGURATION
         )
         return attach_diagnostics(
-            PydanticAIConfigurationError("provider-rejected", detail=f"HTTP {error.status_code}"),
+            PydanticAIConfigurationError(
+                "provider-rejected", detail=f"HTTP {error.status_code}" if isinstance(error, ModelHTTPError) else None
+            ),
             ProcessingDiagnostics(
                 stage=stage,
                 reason=reason,

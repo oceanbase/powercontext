@@ -108,6 +108,12 @@ Credentials live only in server-side environment variables; they are never accep
 
 `cargo test` covers failure semantics (gate unavailable, withhold, fresh admission on bounded retry, indeterminate no-resend, and blocked turns never sediment), renderer fidelity, byte-range declarations, lifecycle control, and UDS framing. The suite includes mandatory spawned Python Core UDS recovery acceptance and separate optional TCP binding tests. See the retry section below for the Python prerequisite and evidence limits.
 
+`cargo test --locked -p pc-gateway-app --test gateway_behaviors` verifies the public proxy contract through a real gateway subprocess and loopback HTTP peers: Chat fields and the developer role, Responses text input, tool continuations, streamed arguments and usage, error statuses, and the exact bytes submitted to both check phases. See the [fixture notes](crates/pc-gateway-app/tests/fixtures/republic/README.md) for sources and licenses. Core verdicts and provider responses are scripted; real Core and provider compatibility require separate acceptance checks.
+
+`make gateway-tck` runs pinned upstream SDK compatibility and Open Responses compliance tests against a direct baseline and the actual Rust gateway. It requires Node/npm, Go 1.26+, Python 3.11+, and network access to fetch pinned test sources and dependencies. See [protocol test coverage](tck/README.md) for the selected suites and execution boundary.
+
+`cargo test --locked --workspace` exercises executor outcomes and pending-future destruction, actual HTTP transport fixtures, strict release/framework order, queue overflow, slow/failing writers and privacy markers. The `live_context_check` tests return early when no real Core is reachable; a green workspace run alone is not real-Core/provider/host acceptance. No hosted-model calls are required.
+
 ## Execution deadline and cancellation
 
 Model ingress establishes one absolute monotonic deadline of 180 seconds before reading the body.

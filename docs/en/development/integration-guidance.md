@@ -32,6 +32,9 @@ The shared entry and its distribution are described in [Layered PowerContext Ski
 | Temporary handoff | Return the complete prepared carrier with exact evidence. Commit only for an explicitly requested durable milestone. |
 | Candidate inspection | Read the supported queue or candidate. A decision requires authorization for the exact candidate and version, plus any host approval. |
 
+For Hermes and Gateway projection boundaries and loss declarations, see the
+[capture coverage contract](capture-coverage.md).
+
 Automatic hooks handle bounded recall and Source capture separately from these explicit operations. Source acceptance does not establish that Memory was generated, and preparing context does not establish that the host injected it. An explicit save request still requires a Memory write.
 
 ## Host adaptation

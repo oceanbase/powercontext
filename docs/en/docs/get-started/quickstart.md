@@ -5,14 +5,14 @@ description: Configure full memory, connect Codex, and verify Source capture, To
 
 # Quick Start
 
-Start with installation, discuss a project in Codex, watch its input become Source evidence and an evolving topic, then recover the decisions in a new session. These instructions use PowerContext 1.5.0, with the Agent plugin from the matching `powercontext-v1.5.0` tag.
+Start with installation, discuss a project in Codex, watch its input become Source evidence and an evolving topic, then recover the decisions in a new session. These instructions use PowerContext 1.5.1, with the Agent plugin from the matching `powercontext-v1.5.1` tag.
 
 You need macOS or Linux, Python 3.11+, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), and an installed Codex CLI. Full memory also needs working Generation and Embedding model APIs: prepare their base URLs, model names, and API keys. Signing into a Codex or Claude subscription does not automatically provide these APIs to the PowerContext Server. Without separate model APIs, select basic memory to test explicit saves and recall; that does not enable automatic Topic Memory. To provision Python and uv automatically, use the [installation script](install-and-run.md#install-with-the-recommended-script).
 
 ## 1. Install and open the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 mkdir -p ~/powercontext-demo
 cd ~/powercontext-demo
 powercontext config init --language en --output .env
@@ -80,7 +80,7 @@ powercontext service status
 set -a
 . ./.env
 set +a
-powercontext setup codex --ref powercontext-v1.5.0
+powercontext setup codex --ref powercontext-v1.5.1
 powercontext doctor codex
 codex
 ```

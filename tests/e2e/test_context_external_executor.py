@@ -61,6 +61,49 @@ def _response(text: str) -> bytes:
     ).encode()
 
 
+@pytest.mark.parametrize("mode", ["disabled", "shadow", "advisory"])
+def test_external_executor_requires_privacy_coverage_even_when_core_allows(tmp_path, mode):
+    async def scenario(server):
+        endpoint = f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
+        async with _server(tmp_path, inference=_inference(mode)) as (_, http, _):
+            scope_id = await _scope(http)
+            client = PowerContextClient("http://localhost", http_client=http)
+            payload = ModelJsonPayload.model_validate({
+                "schema": "powercontext.model-json-payload.v1",
+                "headers": {"content-type": "application/json"},
+                "body": json.dumps({
+                    "model": "test",
+                    "max_tokens": 64,
+                    "messages": [{"role": "user", "content": "safe"}],
+                }),
+            })
+            admission = await http.post(
+                "/v1/context/check",
+                json={
+                    "scope_id": scope_id,
+                    "phase": "before_send",
+                    "target_profile": "model",
+                    "payload": payload.model_dump(mode="json", by_alias=True),
+                    "prepared_contexts": [],
+                },
+            )
+            assert admission.status_code == 200, admission.text
+            assert admission.json()["decision"] == "allow" and admission.json()["binding"]
+            assert admission.json()["coverage"]["complete"] is False
+            # The SDK already rejects incomplete allow results before model I/O.
+            with pytest.raises(ExecutionRefused, match="execution_unavailable_or_uncertain"):
+                await execute_checked_json(
+                    powercontext=client,
+                    target=TrustedTarget(profile_id="model", endpoint=endpoint),
+                    scope_id=scope_id,
+                    payload=payload,
+                )
+            assert server.received == []
+
+    with upstream(_response("safe")) as server:
+        asyncio.run(scenario(server))
+
+
 def test_external_executor_preserves_approved_bytes_and_withholds_blocked_content(tmp_path):
     safe_output = _response("继续使用端口 8123。保留字面模板 {{PROJECT_abcdefgh}}。不推测其真实值。")
 

@@ -73,6 +73,8 @@ def managed(tmp_path, monkeypatch):
         # This fixture always has a database, so missing-database admission has no effect.
         del allow_missing_database
         assert not writable, "Admission must fail before requesting a write connection"
+        # This fixture always supplies an existing database, so the policy for
+        # missing databases does not change the connection passed to admission.
         engine = create_engine(f"sqlite:///{database}")
         try:
             with engine.connect() as connection:

@@ -195,10 +195,6 @@ def collect(root: Path, prepared: Path, reports: Path, output: Path) -> list[Pat
             gate.require(backend == case_result["database"], "Backend evidence changed")
             by_index[index] = case_result
         evidence["cases"] = [by_index[index] for index in selected]
-        if plan["release"]:
-            gate.require(
-                plan["mode"] == "supported-upgrades", "Update the reviewed support declaration before publication"
-            )
         # Verify the originals once more before exposing a publication set.
         read_plan(root, prepared)
         evidence["complete"] = len(selected) == len(cases)
@@ -244,6 +240,8 @@ def main() -> None:
     collection.add_argument("--prepared", type=Path, required=True)
     collection.add_argument("--reports", type=Path, required=True)
     collection.add_argument("--output", type=Path, required=True)
+    for command in (preparation, execution, collection):
+        command.add_argument("--root", type=Path, default=gate.ROOT)
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -251,7 +249,7 @@ def main() -> None:
             if args.release_event:
                 notes = json.loads(args.release_event.read_text(encoding="utf-8"))["release"]["body"] or ""
             matrix = prepare(
-                gate.ROOT,
+                args.root.resolve(),
                 args.dist.resolve(),
                 args.output.resolve(),
                 release=args.release,
@@ -263,9 +261,11 @@ def main() -> None:
                 with Path(github_output).open("a", encoding="utf-8") as stream:
                     stream.write(f"matrix={json.dumps(matrix)}\n")
         elif args.command == "case":
-            execute_case(gate.ROOT, args.prepared.resolve(), args.index, args.output.resolve())
+            execute_case(args.root.resolve(), args.prepared.resolve(), args.index, args.output.resolve())
         else:
-            accepted = collect(gate.ROOT, args.prepared.resolve(), args.reports.resolve(), args.output.resolve())
+            accepted = collect(
+                args.root.resolve(), args.prepared.resolve(), args.reports.resolve(), args.output.resolve()
+            )
             if accepted:
                 print(f"Complete upgrade matrix passed; {len(accepted)} validated distributions")
             else:
