@@ -2043,3 +2043,49 @@ All 736 packaged runtime files match the recorded Git source bytes. Evidence is 
 under ignored `desktop/.artifacts/real-server.json` and `desktop/.artifacts/server-wheel/`.
 This record covers local SQLite protocol behavior. It does not establish installed UI,
 native credential persistence, Windows execution, external production acceptance or release readiness.
+
+## Task stop reason contract protocol qualification
+
+`sqlite-task-stop-reason-0b434770-v1` qualifies all twelve Desktop protocol operations against
+Server source `0b43477001e3453a79b310b40fc3e3e7e648c2a6`. Its OpenAPI contract adds the optional
+Task Outcome stop reason; the Desktop operation set and runtime behavior are unchanged.
+
+- Normalized OpenAPI SHA-256: `34cc6572321296c6d67d2a8ca1dffd93d8ebb187a54af8f6dcdb5cd489a0926c`.
+- Wheel: `powercontext-1.5.1.dev129+g0b4347700-py3-none-any.whl`.
+- Wheel SHA-256: `f572a91a6796d645c6545eaaa8278a2c4b1598b83fa8392df754e187277ab490`.
+- Native debug probe SHA-256: `584859ac181e7abe9d6fc84e69c9d8993446837788c630280c0780744fd4f023`.
+
+All 738 packaged runtime files match the recorded Git source byte for byte, with no missing or
+extra runtime files. The wheel was built from the clean Server commit before Desktop generation
+and qualification changes. The native probe was built from that commit with the regenerated
+Desktop contract and new bundled profile present as working-tree changes, using the product
+Cargo lock and Rust 1.95.0, without `ci-fixtures`.
+
+On 2026-11-10, macOS 26.5.1 ARM64 and Python 3.13.15 passed all four modes in the unchanged
+`desktop/tests/real_server.py`: anonymous loopback, static Bearer, HTTPS with explicit CA/base
+path, and enforced Provider access. Each case reports `bundled product records` qualification
+through the ordinary product ConnectionManager. Checks cover discovery, Scope selection,
+statistics, Memory save/search/exact revision reads, committed writes with lost responses
+without replay, and independent Server survival after client exit. Provider mode also checks
+Principal changes, same-identity revocation, scoped authorization, and 51 same-title Scopes.
+Statistics usage is controlled fixture input, not an external model-provider execution claim.
+
+The source verification, exact wheel, native build log, probe identity and real-Server report
+are retained under ignored `desktop/.artifacts/issue-2544/`. Historical qualification records
+retain their exact source, contract, artifact identities and operation sets. This run qualifies
+the observed local SQLite protocol, not installed WebView behavior, native credential persistence,
+other operating systems, external databases, production deployment, or release acceptance.
+The Desktop probe exercises its existing operations; the new stop reason's recording and
+readback are covered by the separate Work/HTTP SQLite tests, not by a Desktop UI flow.
+
+Reproduce against the recorded Server source and artifact:
+
+```sh
+pnpm --dir desktop generate
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+# The harness requires exactly this wheel under desktop/.artifacts/server-wheel/.
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-task-stop-reason-0b434770-v1
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml \
+  --test session bundled_product_qualification_covers_every_desktop_operation
+```
