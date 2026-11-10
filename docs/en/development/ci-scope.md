@@ -64,6 +64,22 @@ Regular PRs and `master` pushes run selected SQLite checks. seekDB and OceanBase
 
 The `sqlite` upgrade selection requires every selected case and records the deferred seekDB/OceanBase cases. Its result is partial acceptance: it cannot produce publication artifacts or authorize a release. Nightly acceptance and release publication retain the full matrix, including failures, cleanup and evidence checks. Manual runs can validate a chosen PR branch before merge when native evidence is needed.
 
+## Manual runs and daily reports
+
+Open **Actions → Main → Run workflow**, select the branch, and leave `upgrade_selection` at `full` for complete acceptance, including SQLite, seekDB and OceanBase. The equivalent CLI command is:
+
+```bash
+gh workflow run master.yml --repo oceanbase/powercontext --ref master -f upgrade_selection=full
+```
+
+Replace `master` with a repository branch to validate that branch. `automatic` also selects all 12 upgrade configurations; `seekdb-code` selects only the diagnostic upgrade subset and does not establish full upgrade acceptance. This input changes only the upgrade matrix, not the other Main suites. Manual execution does not change the daily 02:00 Beijing schedule.
+
+After scheduled or manually dispatched **Main** finishes, **Nightly CI report** generates a report even if Main failed or was cancelled. Find it under **Actions → Nightly CI report**, open the corresponding run, and read the job summary or download `nightly-ci-report-<run-id>-attempt-<attempt>-report-<report-attempt>`. The artifact contains UTF-8 `report.md` and machine-readable `report.json`, retained for 30 days.
+
+The report records the source run/attempt, commit, branch, Beijing timestamps, Main's conclusion, job results and execution durations, abnormal steps, and links to logs and retained artifacts. Job counts are not test-case counts. Skipped/cancelled jobs remain visible; incomplete API collection produces an explicitly incomplete report and fails the report job. A successful report job means reporting succeeded, not that Main passed. Rerun jobs are scoped to the exact source attempt; the artifact inventory is run-wide and can include earlier attempts. Original evidence retains its own expiry dates.
+
+Reporting uses a separate `workflow_run: completed` listener with read-only permissions, checks out the default branch's report implementation, and does not execute or download code from the source run. PR and push completions do not allocate a report runner. This listener becomes active after it is merged into the default branch. It does not send email or chat notifications.
+
 ## Ownership and comparison baseline
 
 `.github/ci-paths.toml` declares independent scopes in `[suites]`, shared inputs in `[shared.*]`, and successful Main root jobs required for each selected scope in `[checks]`. `nightly_suites` identifies native-only scopes; `[nightly_checks]` adds their prerequisites to scheduled/manual result gates. A new scope must declare its required terminal jobs.

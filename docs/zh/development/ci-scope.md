@@ -64,6 +64,22 @@ flowchart TD
 
 升级选择 `sqlite` 要求所有选中的用例通过，并记录延后运行的 seekDB/OceanBase 用例。该结果属于部分验收，不能生成发布产物或批准发布。夜间验收和正式发布继续要求完整矩阵，以及失败、清理和证据检查。需要合并前的原生数据库证据时，可以手动选择 PR 分支运行。
 
+## 手动运行和每日报告
+
+打开 **Actions → Main → Run workflow**，选择分支，将 `upgrade_selection` 保持为 `full`，即可执行包含 SQLite、seekDB 和 OceanBase 的完整验收。等价命令为：
+
+```bash
+gh workflow run master.yml --repo oceanbase/powercontext --ref master -f upgrade_selection=full
+```
+
+将 `master` 替换为仓库中的其他分支即可验证该分支。`automatic` 同样选择全部 12 个升级配置；`seekdb-code` 只选择诊断用升级子集，不能证明完整升级验收通过。该输入仅控制升级矩阵，不影响 Main 的其他测试范围。手动执行不会改变每日北京时间 02:00 的定时设置。
+
+定时或手动触发的 **Main** 结束后，**Nightly CI report** 会生成报告，即使 Main 失败或被取消也会触发。查看入口是 **Actions → Nightly CI report**：打开对应运行，查看任务摘要，或下载 `nightly-ci-report-<run-id>-attempt-<attempt>-report-<report-attempt>`。产物包含 UTF-8 的 `report.md` 和机器可读的 `report.json`，保留 30 天。
+
+报告记录源运行及执行次数、提交、分支、北京时间、Main 结论、各任务结果和执行耗时、异常步骤，以及日志和保留产物的链接。任务数量不是测试用例数量。跳过和取消会明确列出；API 数据获取不全时，报告会标为不完整，报告任务也会失败。报告任务成功只表示报告生成成功，不表示 Main 验收通过。重跑的任务结果限定在对应执行次数，产物清单则属于整个源运行，可能包含此前执行的产物。原始证据仍按各自产物的到期时间保留。
+
+报告由独立的 `workflow_run: completed` 工作流生成，只使用只读权限，检出默认分支上的报告脚本，不执行或下载源运行中的代码。PR 和 push 结束时不会分配报告 runner。此监听工作流合入默认分支后生效，不发送邮件或聊天通知。
+
 ## 变更归属与基线
 
 `.github/ci-paths.toml` 是归属表：`[suites]` 声明独立范围，`[shared.*]` 声明共同输入，`[checks]` 声明该范围选中后必须成功的 Main 根任务。`nightly_suites` 标记原生专属范围，`[nightly_checks]` 将其前置任务加入定时或手动运行的门禁。新增范围必须同时声明终态任务。
