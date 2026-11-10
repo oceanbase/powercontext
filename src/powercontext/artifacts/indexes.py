@@ -27,7 +27,7 @@ SearchMode = Literal["text", "vector", "hybrid"]
 
 
 class EmbeddingProfile(BaseModel):
-    """The embedding index contract for one deployment."""
+    """The Memory embedding index contract for one deployment."""
 
     profile_id: str
     model: str
