@@ -42,6 +42,8 @@ from powercontext.artifacts.search import (
 from powercontext.builtin.artifacts.atomic_memory.models import (
     AtomicMemoryContent,
     AtomicMemoryMutationResult,
+    AtomicMemoryRecord,
+    AtomicMemoryState,
 )
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_WINDOW_LIMIT,
@@ -160,11 +162,13 @@ from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
     ArtifactLifecycleState,
 )
+from powercontext.builtin.persistence.atomic_memory_idempotency import KEY_PATTERN as IDEMPOTENCY_KEY_PATTERN
 from powercontext.builtin.persistence.bootstrap_receipts import (
     BootstrapReceiptRepository,
     StoredBootstrapReceipt,
 )
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.skill_publications import SkillPublication
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.records import (
@@ -174,6 +178,8 @@ from powercontext.builtin.records import (
     ArtifactRevisionPage,
     ArtifactWrite,
     BaseValueConflictError,
+    BaseValueNotFoundError,
+    InvalidBaseAccessRequestError,
     LogicalArtifactRecord,
     RecordService,
     ScopeSummaryPage,
@@ -3830,13 +3836,21 @@ class ScopedAtomicMemoryApplication:
                     })
                 return result
 
-    async def create(self, contents: Sequence[AtomicMemoryContent], /, *, context=None) -> AtomicMemoryMutationResult:
-        """Create explicit Atomic Memories in one all-or-nothing batch."""
+    async def create(
+        self, contents: Sequence[AtomicMemoryContent], /, *, idempotency_key: str | None = None, context=None
+    ) -> AtomicMemoryMutationResult:
+        """Create explicit Atomic Memories in one all-or-nothing batch.
+
+        With ``idempotency_key``, exactly one memory is created per key namespace; a retry
+        of the same content returns revision 1 with the state recorded at its creation.
+        """
         values = tuple(content.model_dump(mode="json", by_alias=True, exclude_none=True) for content in contents)
         async with self._runtime._scoped_operation(
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
         ):
+            if idempotency_key is not None:
+                return await self._create_keyed(values, idempotency_key, context)
             created = await self._runtime._records().create_atomic_memories(
                 self.scope_id, values, execution_context=context
             )
@@ -3844,6 +3858,34 @@ class ScopedAtomicMemoryApplication:
         return AtomicMemoryMutationResult(
             changed=True, records=records, primary_artifact_id=records[0].artifact.artifact_id
         )
+
+    async def _create_keyed(self, values, idempotency_key: str, context) -> AtomicMemoryMutationResult:
+        if len(values) != 1:
+            raise InvalidBaseAccessRequestError("idempotency_key", "applies to exactly one memory")
+        if not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
+            raise InvalidBaseAccessRequestError(
+                "idempotency_key", "must be 1 to 256 printable ASCII characters, no spaces"
+            )
+        principal = None if context is None or context.principal is None else context.principal
+        receipt = await self._runtime._records().create_keyed_atomic_memory(
+            self.scope_id,
+            values[0],
+            idempotency_key=idempotency_key,
+            principal=None if principal is None else (principal.type, principal.id),
+            execution_context=context,
+        )
+        # Both a new creation and a replay read the exact revision with the caller's
+        # current authorization, so a concurrent later revision changes neither result.
+        try:
+            exact = await self._scoped.get(receipt.artifact_id, revision=receipt.revision, context=context)
+        except RepositoryNotFoundError:
+            raise BaseValueNotFoundError(
+                "artifact", (self.scope_id, "atomic-memory", receipt.artifact_id, receipt.revision)
+            ) from None
+        record = AtomicMemoryRecord(
+            artifact=exact.artifact, state=AtomicMemoryState(state_version=receipt.state_version)
+        )
+        return AtomicMemoryMutationResult(changed=True, records=(record,), primary_artifact_id=receipt.artifact_id)
 
     async def flush(self, /, *, limit: int | None = None, context=None) -> MemoryFlushResult:
         """Process the next scoped Source window into Atomic Memory."""

@@ -2332,6 +2332,7 @@ const PUBLIC_ERROR_CODES = new Set([
 	"scope_idempotency_conflict",
 	"scope_binding_target_missing",
 	"artifact_publication_conflict",
+	"idempotency_conflict",
 	"connector_checkpoint_conflict",
 	"generation_conflict",
 	"external_skill_snapshot_unavailable",

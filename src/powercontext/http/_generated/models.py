@@ -2673,6 +2673,15 @@ class RememberMemoryRequest(BaseModel):
             pattern="^[^\\r\\n\\u0085\\u2028\\u2029]*\\S[^\\r\\n\\u0085\\u2028\\u2029]*$",
         ),
     ] = None
+    idempotency_key: Annotated[
+        StrictStr | None,
+        Field(
+            description="Optional retry key, unique per operation, Scope and authenticated principal. Generate a fresh unguessable value for each logical write and reuse it only to retry that write. Keys are compared byte for byte and retained for 24 hours. Omit it or pass null for no key.",
+            max_length=256,
+            min_length=1,
+            pattern="^[!-~]{1,256}$",
+        ),
+    ] = None
 
 
 class RetireMemoryEntryRequest(BaseModel):

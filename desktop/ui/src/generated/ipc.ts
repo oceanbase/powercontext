@@ -355,7 +355,11 @@ text: string, reason?: string | null, expected_revision?: number | null,
 /**
  * Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model.
  */
-description?: string | null, };
+description?: string | null,
+/**
+ * Optional retry key, unique per operation, Scope and authenticated principal. Generate a fresh unguessable value for each logical write and reuse it only to retry that write. Keys are compared byte for byte and retained for 24 hours. Omit it or pass null for no key.
+ */
+idempotency_key?: string | null, };
 export type ResolvedUsagePeriod = { preset: StatsPeriod, start_date: string, end_date: string, timezone: Timezone, };
 export type Role = "leader" | "standby";
 export type ScopeDescriptor = { scope_id: string, title: string, summary: string, parent_scope_id?: string | null, context_references: Array<string>, external_references: Array<ScopeExternalReference>, version: number, };

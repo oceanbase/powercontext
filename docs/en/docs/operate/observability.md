@@ -92,6 +92,11 @@ declaration bodies, or requested content. Its `unit` is the retained fact (`sour
 `evidence_mismatch`. Integrity causes are emitted at `WARNING`; expected historical gaps stay at `INFO` or `DEBUG`.
 Integrity causes such as `manifest_conflict` are alertable and distinct from an absent declaration.
 
+The `atomic_memory.idempotency.cleanup_failed` event reports that a keyed `remember_memory` creation committed but
+the bounded removal of expired retry keys that follows it failed. The creation and its response are unaffected, and a
+later keyed creation retries the removal. It is emitted at `WARNING` with `operation` `remember_memory`, `unit`
+`atomic-memory`, `outcome` `failure`, and `exception_type`; it never carries keys, principals, or memory content.
+
 Server roles are `all` (API and supervisor), `api`, and `background`; child processes use `worker`. Explicit logging
 configuration without a deployment role uses `server`. JSON identity fields correspond to trace resource attributes
 `service.name`, `service.version`, `service.instance.id`, and `powercontext.service.role`. `service_version` is absent

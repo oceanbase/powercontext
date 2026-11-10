@@ -506,6 +506,7 @@ impl ServerApi {
             reason: None,
             expected_revision: None,
             description: None,
+            idempotency_key: None,
         };
         let body = serde_json::to_value(request)
             .map_err(|_| ApiFailure::before(SafeError::InvalidInput))?;

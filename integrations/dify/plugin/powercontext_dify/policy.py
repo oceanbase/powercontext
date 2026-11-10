@@ -19,6 +19,8 @@ HIDDEN_PARAMETERS = frozenset(
         "scope_id",
         "tag_filter",
         "expected_revision",
+        # A Dify tool call cannot carry one logical write's key across its retries.
+        "idempotency_key",
         "max_bytes",
         "include_code",
         "include_reuse",

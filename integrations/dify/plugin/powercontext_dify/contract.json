@@ -4257,6 +4257,20 @@
                 "type": "null"
               }
             ]
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[!-~]{1,256}$",
+                "description": "Optional retry key, unique per operation, Scope and authenticated principal. Generate a fresh unguessable value for each logical write and reuse it only to retry that write. Keys are compared byte for byte and retained for 24 hours. Omit it or pass null for no key."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },

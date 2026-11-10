@@ -193,6 +193,163 @@ During restoration, the server checks current content versions, states, and merg
 transaction. A preview identifier adds validation against the preview; requests without one use current state.
 The checked conditions must still hold at commit, without overwriting intervening updates.
 
+## Idempotent explicit creation
+
+`remember_memory` is the only Atomic Memory creation entry point that accepts an idempotency key. It lets a caller
+that lost a response retry one explicit creation without creating a second memory. Requests without a key keep their
+existing behavior: every successful call creates a new memory. Revision, forgetting, restoration, merging, extraction,
+Source processing, and RFC 1437's generic Artifact Create accept no key. The server never deduplicates by content and
+never retries on a caller's behalf.
+
+### Request field and namespace
+
+`RememberMemoryRequest` adds optional `idempotency_key`: 1 to 256 printable ASCII characters other than space,
+matching `^[!-~]{1,256}$`. The server compares keys byte for byte without trimming, case folding, or other
+normalization. Omitting the field or passing `null` means no key. A key that does not match the pattern is rejected
+with `422` under the common request-validation policy before any lookup or write: `invalid_request`, or
+`invalid_access_request` when enforced access control validates the request body first.
+
+A key is unique within one namespace: the operation `remember_memory`, `scope_id`, and the authenticated principal's
+type and ID. When access control is disabled, the principal component is empty, so all callers of that deployment share
+one namespace per Scope. The same key in another Scope, from another principal, or for another operation names an
+independent write. The HTTP API, Python SDK, and MCP tool carry the field unchanged; none of them generates keys or
+retries automatically. Callers generate a fresh unguessable key, such as a UUID, for each logical write and reuse it
+only to retry that write. The MCP server instructions and the shared Skill reference give models the same guidance,
+and tell them to use a new key after a conflict. The Dify `pc_remember` tool does not expose the field.
+
+The server stores only a SHA-256 digest of the namespace and key, never the raw key or the principal ID in clear.
+
+### Request digest
+
+The request digest identifies a logical write by the revision 1 content it produces. Version 1 is the lowercase
+hexadecimal SHA-256 of the RFC 8785 serialization of a JSON object with exactly these four members, matching the
+`AtomicMemoryContent` the writer would store:
+
+- `schema` is `powercontext.atomic-memory.v1`.
+- `kind` is the submitted value, unchanged, as the writer stores it.
+- `text` is the result of the writer's `normalize_text`: Unicode NFC, then removal of leading and trailing whitespace.
+- `description` is the submitted value when present. When the field is omitted or `null`, it is the default
+  description the writer derives from the normalized text.
+
+The object has no `creation` member, because an explicit creation never carries merge metadata. Strings are hashed as
+they would be stored: apart from `text`, no Unicode normalization is applied, so a helper that normalizes every string
+must not compute this digest. Changing the member set or the behavior of `normalize_text` or of the default
+description requires a new digest version.
+
+Omitting `description`, passing `null`, and passing exactly the default description therefore produce one digest,
+because they store the same content. `reason` is not part of the written content and is ignored. `expected_revision`
+must be omitted or `null`; a non-null value is rejected before lookup. `scope_id` and the principal belong to the
+namespace, not the digest.
+
+The Source written for revision 1 records the command of the request that performed the creation. A retry whose text
+differs only by normalization replays that creation and does not rewrite its Source. Each key record stores its digest
+version. A new digest version applies only to new keys; the server keeps computing every version that can still appear
+within the retention period.
+
+### Results
+
+| Lookup in the key's namespace | Result |
+| --- | --- |
+| No unexpired record | Create the memory as without a key, and bind the key in the same transaction. |
+| Record with the same digest | Replay the original result. Prepare no Embedding and write nothing. |
+| Record with a different digest | Return `409 idempotency_conflict` with details `{"kind": "memory_idempotency_key"}`. Write nothing. |
+
+A replay returns the same `MemoryMutationResponse` as the original creation: `changed: true` and one record with the
+exact `ArtifactRef` of revision 1, its `kind` and `text`, `state: active`, the state version recorded at creation, and
+`merged_into_id: null`. Content comes from the immutable revision 1, and the creation-time state comes from the key
+record. A creation currently always yields revision 1, state version 0, and no merge target; the key record stores the
+revision and state version so that a replay does not depend on that invariant. Later revision, forgetting, merging,
+restoration, or retirement does not change the replay, and a replay never substitutes the current head. Callers read
+current state through the Atomic Memory read operations.
+
+For a keyed creation, the original response is built through the same exact-revision read, so a revision committed
+concurrently between creation and response changes neither result. Requests without a key keep their existing response
+construction. The response carries no replay marker; a caller that must distinguish a replay compares the returned
+identity with its own records.
+
+### Authorization
+
+The `scope.contribute` check runs before key lookup, as for any creation. A denied caller receives `403` without
+learning whether the key exists. Because the principal is part of the namespace, another principal cannot hit or probe
+a key.
+
+A replay reads revision 1 with the caller's current context through the same authorized exact-revision read as Get
+Artifact Revision for the `atomic-memory` Family. If the caller can no longer read that memory, for example after its
+access was revoked, the request returns that read's error under the common security policy: `403 forbidden` for a
+denial, or `503 artifact_owner_pending` while ownership is not yet established. `404 artifact_not_found` occurs only if
+revision 1 cannot be found, which does not happen in normal operation because revision 1 is immutable and is never
+physically deleted. It neither discloses the record nor creates a new memory, and the key stays bound until it expires.
+
+A conflict discloses only that the caller's own key in that Scope was already used for different content. Other
+operations also return `idempotency_conflict`, so callers identify this case by `details.kind`.
+
+### Atomicity and failures
+
+Request validation, authorization, writer validation, and digest computation finish before lookup. Lookup is one
+primary-key read in its own read transaction and uses the database clock. Only a miss proceeds to the existing
+preparation outside the write transaction, including Embedding generation.
+
+The write transaction first deletes the record for the same namespace only if its `expires_at` is not later than the
+current database time, so a live key committed concurrently is never removed. It then inserts the key record, writes
+the Sources, revision 1, governance state, Owner, and search and evidence projections as before, and commits everything
+together. The key record holds the namespace digest, request digest and its version,
+`scope_id`, `artifact_id`, revision, creation-time state version, `created_at`, and `expires_at`. It stores no memory
+body.
+
+- A validation, authorization, or preparation failure, or cancellation before commit, leaves no key, Source,
+  Artifact, Owner, or projection. A retry with the key runs the creation again.
+- A failure inside the write transaction rolls back the key with everything else.
+- A response lost after commit, including a cancellation whose outcome the caller cannot observe, leaves the key bound.
+  A retry replays the committed result.
+- Concurrent requests with one key race on the key record's primary key. The loser rolls back, rereads the key in a
+  new transaction, and returns the replay or conflict from the table above. If the reread finds no record, the
+  integrity error was unrelated and is returned unchanged. The loser's prepared Embedding is discarded.
+
+Uniqueness comes from the database constraint rather than an in-process lock, so it holds across connections,
+processes, and Server instances on SQLite and on OceanBase/seekdb.
+
+### Retention and cleanup
+
+A key is retained for 24 hours from the database time at which its creating transaction inserts it. Replays do not
+extend retention. A record whose `expires_at` is not later than the current database time is treated as absent: the
+same key then starts a new creation and replaces the expired record inside that creation's transaction. A caller must
+not expect a replay after 24 hours.
+
+After a keyed creation commits, the server deletes at most 32 expired records in a separate short transaction: one
+range read on the `expires_at` index with a limit of 32, then one delete by primary key that rechecks expiry. Cleanup
+failure does not change the creation result. Each keyed creation adds one record and removes up to 32 expired ones, so
+an expired backlog shrinks while keyed writes continue. Requests without a key do not touch the table. No operation
+scans the whole table: lookup and binding use the primary key, and cleanup uses the expiry index.
+
+### Storage and upgrade
+
+Key records live in the new table `pc_atomic_memory_idempotency`, with the namespace digest as the primary key and a
+secondary index on `expires_at`. Fixed-width digests keep the key within MySQL-compatible index limits. A new revision
+of the server-resource migration chain adds the table with SQLite and MySQL schemas, manifest resources, and SQLite
+fingerprint. Published revisions do not change.
+
+At Server startup, an empty persistent SQLite or seekdb database is initialized through the full revision chain,
+including the new revision. OceanBase requires an explicit `powercontext server db-migrate` job even for an empty
+database. A managed database at an earlier revision makes Server startup fail with a migration-required error until
+`powercontext server db-migrate apply` succeeds; startup never upgrades it implicitly. Only unmanaged storage, such as
+in-memory SQLite, creates the table from the built-in table registry. Restarting or applying the upgrade again
+preserves existing records.
+
+### Acceptance
+
+| Scenario | Expected result |
+| --- | --- |
+| Same key and digest | One Artifact and Source, plus one Owner when access control is enabled; every response equals the first. |
+| Same key, different digest | `409 idempotency_conflict`; the original memory, Source, Owner, and projections are unchanged. |
+| No key; one key in another Scope or from another principal; different keys | Independent creations. |
+| `description` omitted, `null`, or equal to the default; text differing only by NFC or outer whitespace | One digest; replay. |
+| Concurrent requests on separate connections or processes | Exactly one creation; the others replay or conflict by digest. |
+| Failure or cancellation before commit; response lost after commit | No orphaned rows; a retry creates once or replays the commit. |
+| Restart, then later revision, forgetting, merging, or retirement | The replay still returns revision 1 and the creation-time state. |
+| Revoked access; another principal | No disclosure and no write: the exact-read error, or an independent namespace. |
+| Retention boundary and expired-key reuse | Expired at `expires_at`; reuse creates a new memory; cleanup removes at most 32 indexed records per keyed write. |
+| Fresh database; upgraded managed database | Real Server startup and `db-migrate` succeed; repeated startup or upgrade keeps records. |
+
 ## Upgrade and compatibility
 
 Existing deployments upgrade offline under [RFC #1771](https://github.com/oceanbase/powercontext/pull/1771). Its unified
@@ -231,7 +388,7 @@ Atomic identities and revisions:
   the new `ArtifactRef`.
 - `list` and `search` query Atomic Memory in the Scope using the new model's listing, state, and search semantics.
 - `remember` supports simple creation only, without legacy entry updates, collection revision appends, or evidence
-  referring to old objects.
+  referring to old objects. It accepts an optional idempotency key, as described in Idempotent explicit creation.
 - `flush` continues extraction into Atomic Memory using the preserved Source processing progress.
 
 All other legacy entry points explicitly stop accepting the old model. These include generic `family=memory`
@@ -266,6 +423,8 @@ already migrated to Atomic Memory.
   revisions do not automatically roll back.
 - Old clients must update their references and calls. Five legacy server entry points still need adapters, while
   online reading and tracing of old collections end.
+- Idempotent creation adds a key table and a fixed 24-hour retention period. A retry after expiry creates a second
+  memory, and a replay reports creation-time state rather than current state.
 
 # Rationale and alternatives
 
@@ -289,6 +448,13 @@ retained history, correction, and undo to handle mistakes without requiring user
 each contradiction for users to resolve would accumulate maintenance work. The model updates current memories using
 time, with history and restoration supporting correction, without a separate unresolved-conflict workflow.
 
+**Idempotency key on explicit creation only.** A lost `remember_memory` response is the case in which a caller cannot
+tell whether its write happened. Content-based deduplication would merge writes the caller intended to keep separate,
+and a cross-Family idempotency framework would have to define replay for revision, merge, and restoration, whose
+results depend on current state. A digest over stored content treats requests that write the same memory as the same
+request. Replaying revision 1 with its creation-time state keeps a retry's result independent of later changes;
+replaying the current head would let a retry return content the caller never wrote.
+
 # Prior art
 
 - [RFC 1345](1345_scope_organization_and_agent_integration.md) and [1549](1549_artifact_family_unification.md) provide
@@ -309,8 +475,8 @@ time, with history and restoration supporting correction, without a separate unr
   and merged? This RFC defines Atomic Memory behavior; adoption and adaptation by other families remain separate decisions.
 
 Physical deletion of Atomic content history, automatic merging across Scopes, and whole-Scope snapshot rollback are
-outside this proposal. Table schemas, API parameters, locking, and transaction implementation belong in the implementation
-design. Migration follows RFC #1771.
+outside this proposal. Apart from the idempotent creation protocol above, table schemas, API parameters, locking, and
+transaction implementation belong in the implementation design. Migration follows RFC #1771.
 
 # Future possibilities
 

@@ -261,7 +261,8 @@ so the previous database remains available for recovery:
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
    `pc_skill_publications`), the Profile tables, `pc_topic_memory_work_budgets`, `pc_topic_memory_work_blocks`,
    `pc_recall_effort_daily`, `pc_receipt_migration_review`, `pc_context_bootstrap_receipts`,
-   `pc_decision_observations`, or `pc_artifact_source_locators`, remove the absent tables from their respective layers.
+   `pc_decision_observations`, `pc_artifact_source_locators`, or `pc_atomic_memory_idempotency`, remove the absent
+   tables from their respective layers.
    When a work-budget table exists, restore it together with Cursors so failure allowances survive the migration.
    Restore work-attempt records as well to preserve block identities, diagnostics and accepted retry receipts.
 
@@ -269,7 +270,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_portable_restore_receipts,pc_source_cursors,pc_memory_source_windows,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_work_blocks,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_source_write_plugins,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_recall_effort_daily,pc_receipt_migration_review,pc_decision_observations,pc_lexical_projection_versions,pc_artifact_family_schemas,pc_artifact_vector_spaces,pc_artifact_search_states' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_portable_restore_receipts,pc_source_cursors,pc_memory_source_windows,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_work_blocks,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_source_write_plugins,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_recall_effort_daily,pc_receipt_migration_review,pc_decision_observations,pc_lexical_projection_versions,pc_artifact_family_schemas,pc_artifact_vector_spaces,pc_artifact_search_states,pc_atomic_memory_idempotency' \
      -f <export-directory>
    ```
 

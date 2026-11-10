@@ -2630,7 +2630,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "or pass null. Non-null legacy "
                 "collection revision preconditions are "
                 "unsupported before any write. Response "
-                "records use true Atomic ArtifactRefs.",
+                "records use true Atomic ArtifactRefs. "
+                "With idempotency_key, a retry of the "
+                "same creation within 24 hours replays "
+                "the original response, and reuse of "
+                "the key for different content returns "
+                "409 idempotency_conflict with "
+                "details.kind memory_idempotency_key.",
                 "operationId": "remember_memory",
                 "requestBody": {
                     "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RememberMemoryRequest"}}},
@@ -12872,6 +12878,59 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "a "
                         "generation "
                         "model.",
+                        "nullable": True,
+                    },
+                    "idempotency_key": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "pattern": "^[!-~]{1,256}$",
+                        "description": "Optional "
+                        "retry "
+                        "key, "
+                        "unique "
+                        "per "
+                        "operation, "
+                        "Scope "
+                        "and "
+                        "authenticated "
+                        "principal. "
+                        "Generate "
+                        "a "
+                        "fresh "
+                        "unguessable "
+                        "value "
+                        "for "
+                        "each "
+                        "logical "
+                        "write "
+                        "and "
+                        "reuse "
+                        "it "
+                        "only "
+                        "to "
+                        "retry "
+                        "that "
+                        "write. "
+                        "Keys "
+                        "are "
+                        "compared "
+                        "byte "
+                        "for "
+                        "byte "
+                        "and "
+                        "retained "
+                        "for "
+                        "24 "
+                        "hours. "
+                        "Omit "
+                        "it "
+                        "or "
+                        "pass "
+                        "null "
+                        "for "
+                        "no "
+                        "key.",
                         "nullable": True,
                     },
                 },

@@ -52,6 +52,34 @@ Submit complete content to `PUT /v1/scopes/S/artifacts/atomic-memory/M`, sending
 Success creates the next content revision. Missing `If-Match` returns `428 precondition_required`; a stale value
 returns `412 revision_conflict`. Read and reconcile the content before submitting again.
 
+## Retry remember_memory safely
+
+`POST /v1/memory/remember` (`remember_memory`) creates a new memory on every call. To retry a call whose response was
+lost without creating a duplicate, send an `idempotency_key`: 1 to 256 printable ASCII characters other than space.
+Generate a fresh unguessable key, such as a UUID, for each logical write, and reuse it only to retry that write:
+
+```json
+{
+  "scope_id": "S",
+  "kind": "preference",
+  "text": "Prefer short pull requests.",
+  "idempotency_key": "3f0c8f5e-7a51-4c1e-9a43-0f1e2b7d9c60"
+}
+```
+
+Keys are scoped to the Scope and the authenticated principal; with access control disabled, all callers share one
+namespace per Scope. Within 24 hours of the creation, a request with the same key and the same stored content returns
+the original response: the same `ArtifactRef` of revision 1 and the state recorded at creation, even if the memory has
+since been revised, forgotten or merged. Read current state through the Atomic Memory read operations. Content is the
+same when the normalized `text`, `kind`, `description` (an omitted description equals the default derived from the
+text) and content schema match; `reason` is not compared. The same key with different content returns
+`409 idempotency_conflict` with `error.details.kind: "memory_idempotency_key"` and writes nothing; use a new key for
+the new content. After 24 hours the key behaves as unused and creates a new memory.
+
+Each replay rechecks the caller's current authorization. The server stores only digests of the key namespace and
+content, never the raw key or memory body. Neither the server, the Python SDK nor the MCP tool generates keys or
+retries automatically, and `expected_revision` keeps its existing behavior.
+
 ## Current state and forgetting
 
 `GET /v1/scopes/S/artifacts/atomic-memory/M/state` returns the current exact `artifact` reference, `state`,

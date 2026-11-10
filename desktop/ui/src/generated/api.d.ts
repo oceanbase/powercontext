@@ -1154,7 +1154,7 @@ export interface paths {
         put?: never;
         /**
          * Create Atomic Memory through the legacy remember input
-         * @description Create a standalone Atomic Memory and formal Owner. Omit expected_revision or pass null. Non-null legacy collection revision preconditions are unsupported before any write. Response records use true Atomic ArtifactRefs.
+         * @description Create a standalone Atomic Memory and formal Owner. Omit expected_revision or pass null. Non-null legacy collection revision preconditions are unsupported before any write. Response records use true Atomic ArtifactRefs. With idempotency_key, a retry of the same creation within 24 hours replays the original response, and reuse of the key for different content returns 409 idempotency_conflict with details.kind memory_idempotency_key.
          */
         post: operations["remember_memory"];
         delete?: never;
@@ -5299,6 +5299,8 @@ export interface components {
             expected_revision?: number | null;
             /** @description Optional supplied single-line summary. When omitted, the Server stores a whitespace-collapsed text prefix of at most 200 Unicode characters, including a trailing ellipsis when truncated. Explicit writes do not invoke a generation model. */
             description?: string | null;
+            /** @description Optional retry key, unique per operation, Scope and authenticated principal. Generate a fresh unguessable value for each logical write and reuse it only to retry that write. Keys are compared byte for byte and retained for 24 hours. Omit it or pass null for no key. */
+            idempotency_key?: string | null;
         };
         RetireMemoryEntryRequest: {
             scope_id: string;
