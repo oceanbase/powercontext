@@ -111,6 +111,21 @@ class TestProcessingStatusInspector:
         assert result.progress.source_cursor == 10
         assert result.progress.source_head == 15
 
+    def test_source_consumption_pending_when_requested_ahead_of_handled(self) -> None:
+        """Acknowledged request with unhandled work must report PENDING."""
+        intent = _make_intent(dirty_generation=4, clean_generation=4, requested_generation=4, handled_generation=3)
+        intents = MagicMock()
+        intents.load = AsyncMock(return_value=intent)
+        inspector = ProcessingStatusInspector(intents=intents)
+
+        result = _run(
+            inspector._source_consumption_snapshot(Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC))
+        )
+
+        assert result.state is ProcessingStatusState.PENDING
+        assert result.progress.pending_inputs is False
+        assert result.progress.outstanding_work is False
+
     def test_source_consumption_idle_when_caught_up(self) -> None:
         intent = _make_intent(dirty_generation=10, clean_generation=10)
         intents = MagicMock()

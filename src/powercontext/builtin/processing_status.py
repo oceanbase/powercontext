@@ -196,7 +196,11 @@ class ProcessingStatusInspector:
             requested_generation=intent.requested_generation,
             handled_generation=intent.handled_generation,
         )
-        if progress.pending_inputs or progress.outstanding_work:
+        if (
+            progress.requested_generation > progress.handled_generation
+            or progress.pending_inputs
+            or progress.outstanding_work
+        ):
             state = ProcessingStatusState.PENDING
         else:
             state = ProcessingStatusState.IDLE
@@ -239,12 +243,12 @@ class ProcessingStatusInspector:
         raw_block = getattr(raw, "block", None)
         if raw_block is not None:
             block_id = getattr(raw_block, "block_id", None) or ""
-            stage = getattr(raw_block, "stage", None) or None
             error_code = getattr(raw_block, "error_code", None) or None
-            diagnostics = classify_block_code(stage, error_code)
+            # TopicMemoryWorkBlock has no stage field; classify with the known stage.
+            diagnostics = classify_block_code("topic_memory", error_code)
             block = ProcessingStatusBlock(
                 block_id=str(block_id),
-                stage=stage,
+                stage="topic_memory",
                 error_code=error_code,
                 diagnostics=diagnostics,
             )
