@@ -190,6 +190,27 @@ class TestProcessingStatusInspector:
         assert result.block.error_code == "window_attempt_limit"
         assert result.block.diagnostics is not None
 
+    def test_topic_memory_maps_pending_state(self) -> None:
+        raw = Mock(state=Mock(value="pending"), block=None, source_cursor=3, source_head=8, target_source_through=None)
+        status_fn = AsyncMock(return_value=raw)
+        inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
+
+        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
+
+        assert result.state is ProcessingStatusState.PENDING
+        assert result.progress is not None
+        assert result.progress.source_cursor == 3
+        assert result.progress.source_head == 8
+
+    def test_topic_memory_unknown_state_fallback(self) -> None:
+        raw = Mock(state=Mock(value="future_state"), block=None, source_cursor=0, source_head=0, target_source_through=None)
+        status_fn = AsyncMock(return_value=raw)
+        inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
+
+        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
+
+        assert result.state is ProcessingStatusState.UNKNOWN
+
     def test_dream_idle_when_no_matching_runs(self) -> None:
         dream = MagicMock()
         dream.list = AsyncMock(return_value=Mock(runs=()))
