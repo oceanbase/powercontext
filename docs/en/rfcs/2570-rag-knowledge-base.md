@@ -1,11 +1,11 @@
 ---
-title: "RFC 0000: Document knowledge bases with rag Artifacts"
+title: "RFC 2570: Document knowledge bases with rag Artifacts"
 description: "A proposal for plugin-based knowledge bases with immutable document Sources, versioned chunks, hybrid retrieval, and recoverable processing."
 ---
 
 - Proposal Name: `rag_knowledge_base`
 - Start Date: 2026-11-10
-- RFC PR: [#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [#2570](https://github.com/oceanbase/powercontext/pull/2570)
 - Tracking Issue: [#2440](https://github.com/oceanbase/powercontext/issues/2440)
 - Related Issues: [#2441](https://github.com/oceanbase/powercontext/issues/2441), [#2442](https://github.com/oceanbase/powercontext/issues/2442), [#2443](https://github.com/oceanbase/powercontext/issues/2443), [#2444](https://github.com/oceanbase/powercontext/issues/2444)
 

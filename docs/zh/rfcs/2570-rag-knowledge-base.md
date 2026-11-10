@@ -1,11 +1,11 @@
 ---
-title: "RFC 0000：基于 rag Artifact 的文档知识库"
+title: "RFC 2570：基于 rag Artifact 的文档知识库"
 description: "通过插件实现文档知识库，保留不可变 Source、分块版本、混合检索与可恢复的后台处理。"
 ---
 
 - Proposal Name: `rag_knowledge_base`
 - Start Date: 2026-11-10
-- RFC PR: [#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [#2570](https://github.com/oceanbase/powercontext/pull/2570)
 - Tracking Issue: [#2440](https://github.com/oceanbase/powercontext/issues/2440)
 - Related Issues: [#2441](https://github.com/oceanbase/powercontext/issues/2441), [#2442](https://github.com/oceanbase/powercontext/issues/2442), [#2443](https://github.com/oceanbase/powercontext/issues/2443), [#2444](https://github.com/oceanbase/powercontext/issues/2444)
 
