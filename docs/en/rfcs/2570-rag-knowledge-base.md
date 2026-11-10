@@ -1,6 +1,6 @@
 ---
 title: "RFC 2570: Document knowledge bases with rag Artifacts"
-description: "A proposal for OpenDAL document ingestion, simple Markdown chunking, plugin-owned retrieval, and versioned knowledge bases using existing Source and Artifact facilities."
+description: "OpenDAL ingestion, versioned document chunks, and knowledge-base retrieval using Source journals, shared Workers, and Source lifecycle metadata."
 ---
 
 - Proposal Name: `rag_knowledge_base`
@@ -11,43 +11,44 @@ description: "A proposal for OpenDAL document ingestion, simple Markdown chunkin
 
 # Summary
 
-Provide knowledge bases through a document Source plugin and the `document` and `rag` Artifact families. A Scope
-contains multiple user-created rags; each document Source and document belongs to exactly one rag. OpenDAL captures
-local files, Markdown and image OCR share a simple Markdown chunker, and existing Artifact Workers prepare content
-and indexes before committing a document revision together. Reuse existing core metadata schemas, CRUD, supervision,
-and generic index storage; add only document-specific detail and target records. This is a proposed contract, not
-released functionality.
+Provide document knowledge bases through a Source plugin and the `document` and `rag` Artifact families. A Scope
+contains multiple user-created rags; each document Source and whole-document Artifact belongs to exactly one rag.
+OpenDAL captures immutable originals. Markdown and image OCR share simple chunking. Asynchronous operation requests
+are immutable Sources consumed through the existing journal, cursor, and Worker framework. Commit each document
+revision, its chunks, lineage, indexes, and consumption cursor atomically.
+
+Add one document chunk table and generic soft-deletion fields to `pc_sources`. Reuse Artifact storage and processing
+schemas without a separate import/task/state platform. Expose content availability rather than durable per-file
+execution status. This RFC proposes a contract; it does not describe released functionality.
 
 # Motivation
 
 Business descriptions and SOPs need passage retrieval over complete documents, exact provenance, explicit updates,
-and predictable deletion. Memory extraction does not preserve every passage. The first implementation should cover
-that workflow without a second task platform, a per-rag index-generation system, or duplicate Artifact master tables.
+and predictable deletion. Memory extraction does not preserve every passage. The first phase should cover that
+workflow with existing Source/Artifact infrastructure and explicit failure semantics.
 
-Source snapshots and historical document revisions remain evidence. Knowledge-base retrieval is a derived projection,
-maintained independently of existing Memory retrieval data and defaults. Reuse infrastructure without treating the
-current plugin declaration as already sufficient for targeted ingestion, separate chunk storage, or deletion checks.
+Source snapshots, accepted operation requests, and successful Artifact revisions serve different purposes. Keep
+those distinctions without mutable task state in Source payloads. Retrieval is derived from committed chunks and
+isolated from Memory indexes and configuration. Reuse requires actual family, read, projection, and Worker integration.
 
 # Guide-level explanation
 
-1. Create a `rag` through standard Artifact creation in an existing Scope.
-2. Select the rag and a local directory/file. The client uses a configured local OpenDAL Source plugin; users do not
-   supply Source IDs, namespaces, hashes, or document IDs.
-3. Inspect the latest per-file processing status. Accepted input is not yet searchable content.
-4. Search documents owned by the selected rag, or explicitly select multiple authorized rags.
-5. Change a file and import again. Identical successfully processed input is skipped; changed content creates a new
-   Source and revision of the same logical document.
-6. Edit or remove a chunk. Both create a new document revision; old revisions and their chunk content remain intact.
+1. Create an empty `rag` through standard Artifact creation in an existing Scope.
+2. Select the rag and a local directory/file through the configured OpenDAL Source plugin.
+3. View whether a usable document exists: generated, update needed, or not yet generated. No result does not prove failure.
+4. Search selected authorized rags. A failed update leaves the previous committed content searchable.
+5. Import changed files or explicitly reparse. Parsing restarts from a fixed original and commits a whole new revision.
+6. Edit or remove a chunk asynchronously. The request is accepted first; a successful new revision retains old history.
 
-Scope remains the authorization boundary. Source/document ownership is exclusive to a rag, not cross-rag sharing.
-Importing the same file into two rags creates different Sources/documents even if their physical snapshots are deduplicated.
-The initial release supports Markdown and independently imported text images using RapidOCR with ONNX Runtime.
-Markdown image references are retained without fetching or OCR-processing them. SQLite, SeekDB, and OceanBase must
-support the workflow, with one selected persistence backend per deployment.
+Users need not supply file hashes, namespaces, or document IDs. Scope remains the authorization boundary. Importing
+the same file into two rags creates different logical Sources/documents, with optional physical snapshot deduplication.
+Support Markdown and independently imported text images using RapidOCR with ONNX Runtime. Markdown image references
+are retained without fetching or OCR. SQLite, SeekDB, and OceanBase must support the workflow, one selected backend
+per deployment.
 
-PDF, Office, plain TXT ingestion, semantic/LLM chunking, complex layout/table reconstruction, scheduled directory
-synchronization, per-rag embedding spaces, independent online rag index cutovers, a full management UI, and a
-large-corpus performance gate are out of scope. The UI can later use the per-file status contract.
+PDF, Office, plain TXT ingestion, semantic/LLM chunking, complex layout reconstruction, scheduled directory sync,
+per-rag embedding spaces, zero-downtime index cutovers, a task-management UI, durable per-file failure details,
+restoration/permanent erasure, and large-corpus performance acceptance are outside the first phase.
 
 # Reference-level explanation
 
@@ -55,386 +56,398 @@ large-corpus performance gate are out of scope. The UI can later use the per-fil
 
 ```text
 Scope
-  +-- rag K1 -- owns --> original Sources -- derive --> document revisions -- chunks
-  +-- rag K2 -- owns --> different Sources/documents, even for the same local file
+  rag R1
+    original Source S1 -> operation Source Q1 (import) -> document D@1 -> chunks
+    operation Source Q2 (edit D@1) -> document D@2 + successful edit evidence E2
+    original Source S2 -> operation Source Q3 (reparse) -> document D@3
+  rag R2
+    separate original Sources, requests, and documents
 
-Source plugin: OpenDAL capture and immutable snapshot access
-Document plugin: Markdown / OCR -> Markdown -> chunks, revisions and provenance
-rag plugin: collection management, retrieval policy and index adaptation
-Shared facilities: Source/Artifact APIs, Supervisor/Worker, transactions, database/search adapters
+Source plugin: OpenDAL capture, snapshot access, original and trusted operation Source types
+Document plugin: Markdown / OCR, chunks, revision writes, operation consumption and provenance
+rag plugin: collection configuration, retrieval policy and chunk index adaptation
+Shared facilities: Source/Artifact APIs, Supervisor/Worker, cursor, transactions, database/model adapters
 ```
 
-A rag is configuration and collection identity, not a Source-generated output. It can be empty. Its name/configuration
-uses Artifact revisions; deletion uses existing head governance. There is no separate rag runtime table or runtime
-status API. Parsing progress belongs to the imported file, not to rag configuration revisions.
+The three logical plugins may ship in one package. The application service coordinates them; it is not a fourth
+plugin. A rag can exist without Sources. Its configuration uses Artifact revisions, and deletion uses head governance.
+There is no rag runtime table. Ownership is explicit in immutable Source payloads and document manifests, not inferred
+from tags or evidence lineage. Each original, request, and document has one owner rag.
 
-`document` represents a whole document. Its stable identity is scoped by `(scope, rag, collection, relative_path)`;
-chunks are internal revision details. The server derives `collection` from the registered storage binding/instance
-and normalized root, not a fresh scan ID. Source payloads contain immutable owner rag identity, original path,
-relative path, media type, content digest, and a managed snapshot reference. Tasks snapshot processing configuration;
-mutable task status and parsed text never enter Source payloads. Only the document pipeline directly consumes this
-Source type, enforced at selection, execution, and commit.
+The package owns independent embedding/index configuration. Explicit plugin settings win; installation may initialize
+compatible missing values from the main path and persist the resolved profile and credential references. Do not copy
+secrets into Artifacts or follow subsequent main-path changes. Parser/OCR/chunker configuration may vary by rag;
+the initial embedding/index profile is plugin-level, shared by the document family within each Scope. Isolate indexes
+by family, definition, and vector-space identity. Model/dimension changes use the existing family rebuild mechanism.
 
-The three logical plugins may ship in one package. The knowledge-base package owns its embedding/index configuration,
-separately from Memory or other main-path configuration. Explicit plugin settings win; otherwise installation may
-initialize compatible values from the main path and persist a resolved configuration snapshot. Keep credential
-references rather than copying secrets into Artifact content. Later main-path changes do not silently change the
-plugin profile. Missing/incompatible settings fail activation. Parser/chunker settings may vary by rag; the initial
-embedding/index profile is plugin-level, shared by its document family within each Scope.
+Only the document pipeline may directly consume document originals; only its operation processor may execute
+operation Sources. Enforce eligibility during selection, execution, and commit. Registering a new Source type alone
+does not exclude it from existing generic consumers. Requests are neither ordinary generation input nor searchable text.
 
-Reuse model invocation and SQL adapters, but isolate by family, index definition, and vector-space/profile identity.
-No queries implicitly mix Memory rows with document rows. A plugin model/dimension change uses the existing family
-rebuild mechanism, with its availability limitations, not a new per-rag publication protocol.
+## 2. OpenDAL ingestion, identity, and duplicate detection
 
-## 2. OpenDAL ingestion and duplicate detection
-
-Use the existing OpenDAL/`opendalfs` integration for local listing and reads. The plugin instance must run where the
-selected local path exists; a remote Server cannot interpret an arbitrary client-local path. Resolve relative paths
-against the configured root, reject escapes, and keep a stable normalization/symlink policy. Original Markdown bytes
-and images are captured into managed immutable snapshots before Source acceptance. Hash the exact bytes saved;
-never hash one read and process a later read of a changing file. Read errors or detected unstable capture are retryable.
+Use OpenDAL/`opendalfs` for local listing/reads and immutable snapshots in a managed directory. The plugin instance
+must run where the selected path exists. Fix root, relative-path, and symlink normalization; reject escapes. Capture
+before acceptance, hash the exact saved bytes, and parse that snapshot, not a later read of a changing file. mtime/size
+are hints, not proof of equality. Preserve the first canonical capture metadata when reusing an existing Source.
 
 ```text
 file_key       = (scope_id, rag_id, collection_id, normalized_relative_path)
+document_id    = stable_hash(identity_version, file_key)
 content_digest = SHA256(captured raw bytes)
-source_key     = hash(source schema version, file_key, content_digest)
-processing_key = hash(content_digest, parser/OCR/model versions and settings,
-                      Markdown normalizer version, chunker version and settings)
+source_key     = stable_hash(source_schema_version, file_key, content_digest)
+processing_key = hash(parser/OCR/model/normalizer/chunker versions and settings)
 index_key      = hash(complete embedding inputs, plugin profile and projection versions)
 ```
 
-mtime/size may help select work but are not proof of identical content. Compare full identity fields on hash collision;
-never truncate paths or merge them by digest alone. User-visible Source IDs are generated by the Source framework
-using the plugin's deterministic identity rules. Reusing an existing immutable Source preserves its first canonical
-capture metadata rather than rewriting mtime or annotations.
+Derive collection from the registered storage instance/binding and normalized root, not a scan token. Verify full
+identity fields on hash matches; never truncate paths or merge documents by digest alone. Original payloads store
+owner rag, file identity, original path, document ID, media type, digest, and snapshot reference. The same document ID
+is available before an Artifact exists; no reservation row is required.
 
 | Observation | Required behavior |
 | --- | --- |
-| Same file/content/processing key, successful result | Reuse Source and document; no new revision; check index readiness separately |
-| Same target already pending/running | Coalesce; do not launch another parse |
-| Same input, previous processing failed | Retain pinned Source and allow bounded retry; a capture checkpoint is not processing success |
-| Same path, changed bytes | Accept new Source; process a new revision of the same document |
-| Same bytes, changed parser/OCR/chunker | Reuse Source; explicitly reprocess to a new revision |
-| Only embedding/index profile changed | Reindex committed chunks without rerunning OCR |
-| Different path or different rag, identical bytes | Different logical document and Source; optional physical snapshot reuse only |
-| Deleted identity encountered | Reject implicit resurrection; no restore in phase one; require an explicitly new identity |
+| Same file/content/processing profile, usable successful result | Reuse Source/document; skip parsing, check index readiness separately |
+| Equivalent request still unconsumed | Coalesce when found in the unconsumed journal; racing duplicate imports recheck success before writing |
+| Same input, no successful result | An explicit retry may create a new request; a capture checkpoint is not processing success |
+| Same path, changed bytes | New original Source, same document ID, whole-document revision on success |
+| Parser/OCR/chunker changes | Reuse original Source; explicitly request reprocessing |
+| Only embedding/index changes | Reindex committed chunks without OCR |
+| Different path/rag, same bytes | Different logical Source/document; optional physical snapshot reuse |
+| Unchanged original after manual edits/removal | Preserve the manual revision; do not compare its edited text hash as if it were the original hash |
+| Reprocessing an edited document | Require explicit `manual_edits_policy=discard`; otherwise retain current content and reject the conflict |
 
-Returning to previously seen bytes still compares against the current target/result: finding an old Source is not
-proof the current document already represents it. Renames are new paths initially; missing files do not imply deletion.
-Manual edits/removals must not be overwritten by an unchanged-file scan. Changed input or explicit reprocessing of
-an edited document requires `manual_edits_policy=discard`; without it, retain the old committed revision and report
-an actionable conflict. The input Source can already be captured while content processing remains blocked.
+Reverting to old bytes can reuse an older Source, so desired input follows the latest accepted import/reprocess request,
+not the largest original Source journal position. Finding a Source is not proof that the current document matches it.
+Renames create new identities initially; absent files do not imply deletion. Deleted Source identities and retired
+document heads must not be silently resurrected.
 
-Use Source `collect` capability discovery and existing add/status/control operations. A plugin-specific `scan_token`
-in the capability input identifies one explicit scan target, generated by the client. A retried add with the same
-input reuses that target; a new explicit import uses a new token but the same collection/file identities. The plugin
-scans once per token and remains available for future targets; it does not periodically rescan. Existing Source
-status describes collection, not full document processing or a batch history. New scans must consult document
-processing state as well as capture checkpoints, so unchanged capture cannot hide downstream failures.
+Reuse Source `collect` discovery/add/status/control. A client-generated `scan_token` in plugin input identifies one
+explicit scan; retrying that input reuses its collection target. A new explicit scan has a new token but the same
+file identities. Scan once per token; do not imply periodic sync or that repeated add restarts a stopped target.
+Collection status describes acquisition only. Scans consult successful document results as well as capture checkpoints.
 
-## 3. Markdown normalization and simple chunking
-
-Both inputs produce a common Markdown view:
+## 3. Markdown normalization and chunking
 
 ```text
-Markdown bytes -> markdown-it-py structure / original-byte mapping --+
-                                                                  +-> rule-based chunks
-Image -> RapidOCR -> text lines/regions -> normalized Markdown -----+
+Markdown bytes -> markdown-it-py structure / byte mapping ----+
+                                                             +-> rule-based chunks
+Image -> RapidOCR text/regions -> normalized Markdown --------+
 ```
 
-For OCR, preserve actual text, order, confidence and original-image regions, accounting for preprocessing transforms.
-Markdown conversion escapes syntax and groups lines/paragraphs; it does not invent headings, repair text with an LLM,
-or reconstruct complex tables. Keep normalized-text spans mapped to OCR lines and image regions. Normalized Markdown
-is derived processing content, never a replacement for the image Source. A locator must state its actual precision.
+OCR preserves actual text, order, confidence, and original-image regions, including preprocessing transforms.
+Normalization escapes Markdown syntax and groups lines/paragraphs; it does not invent headings, use LLM correction,
+or reconstruct complex tables. Map normalized spans back to OCR lines and image regions, stating locator precision.
+Derived Markdown never replaces the original image Source.
 
-Use headings, paragraphs, lists, and code blocks; merge short blocks up to `max_chunk_chars`, split oversized blocks
-at sentence/length boundaries, and optionally retain `overlap_chars` at split boundaries. Validate overlap is smaller
-than the maximum. Preserve heading paths, order and continuation flags; do not require a standalone section-tree
-subsystem. Before embedding, enforce the actual model token budget, including any heading/prefix context; do not
-silently truncate. Chunker changes that alter boundaries are versioned configuration changes.
+Use headings, paragraphs, lists, and code blocks. Merge short blocks up to `max_chunk_chars`; split oversized blocks
+by sentence/length, optionally using `overlap_chars`. Preserve heading paths, language, and continuation flags.
+Overlap must be smaller than the maximum. Example values 1200/100 need validation; actual embedding token limits,
+including heading/prefix context, must be enforced without silent truncation.
 
-Source media validation, UTF-8 errors, bad/unsupported images, no recognized text, missing OCR models, excessive
-pixels, and timeouts have explicit outcomes. Pin/test real RapidOCR and ONNX/model versions. Normalized Markdown may
-be computed transiently; an independent parsed-document cache is not required. Chunks store effective text and
-bounded source mappings, not vectors. The Artifact manifest remains bounded and does not embed all chunks.
+Validate formats, UTF-8, image decoding/pixel limits, OCR models, timeouts, and no-text outcomes. Pin/test real RapidOCR,
+ONNX, and model versions. Empty OCR is not successful empty-document ingestion. An explicit removal of the last chunk
+is allowed. No separate section-tree, parsed-node table, or complete Markdown cache is required. Store bounded source
+mappings in chunk metadata; keep vectors out of canonical chunks and full text out of the Artifact manifest.
 
-## 4. Persistence: unchanged core schemas and three supporting tables
+## 4. Persistence: one detail table and Source lifecycle fields
 
-Existing core metadata table definitions are unchanged by this proposal. New family records, declarations, and
-indexes use their established schemas. This is a constraint on migrations, not a claim that code changes are unnecessary.
+Do not add `pc_document_imports` or `pc_document_source_states`. Source payloads carry immutable identities/requests;
+Artifacts carry successful revisions; existing processing tables coordinate consumption. Do not replace the removed
+tables with unbounded maps in rag content, Scope settings, checkpoints, or cursors.
 
-| Reuse | Purpose and required code integration |
+| Reuse | Responsibility and structural change |
 | --- | --- |
-| `pc_sources`, Source journal, connector checkpoints | Immutable inputs, capture identity and acquisition progress |
-| `pc_artifacts`, `pc_artifact_heads` | rag configuration, document revision manifest, active/retired state and governance CAS |
-| `pc_artifact_lineage_sources`, locators, Artifact lineage, tags | Root input, system edit Source, base revision and tags; not mutable membership |
-| `pc_artifact_processing_intents`, leases, binding state | Durable wakeup, explicit request generations, execution ownership and registration fences |
-| `pc_artifact_search_states`, coverage, changes | Existing Scope/family build coordination and current-revision index maintenance |
-| `pc_artifact_search_text`, vectors, vector spaces/index definitions | Fragment-level retrieval projections; `family=document`, `fragment_id=chunk_id` |
+| `pc_sources` | Originals, operation requests, successful edit evidence; add generic lifecycle fields below |
+| Source journal/heads, connector checkpoints | Acceptance order and acquisition progress; unchanged schema |
+| `pc_source_cursors` | Document binding's contiguous scan position and CAS generation; unchanged schema |
+| Processing intents, leases, binding state | Scope/binding wakeup, invocation generations, execution fences; unchanged schema, not per-file tasks |
+| `pc_artifacts`, `pc_artifact_heads` | rag configuration, document manifests, current revision and retirement/governance; unchanged schema |
+| Source/Artifact lineage, locators, tags | Original input, request, base revision, successful edit evidence; existing schema |
+| Artifact search states/coverage/changes/text/vectors | Current-revision fragment indexes and build coordination; existing facilities plus a chunk projection adapter |
 
-Do not add `pc_rag_runtime`, per-rag generations/publications, a general jobs/receipts system, or separate nodes/directory
-master tables. Do not store state in unrelated Scope settings or change Source payloads to simulate mutable metadata.
-Document ownership is explicit, not inferred from tags or evidence lineage.
+Add these columns to `pc_sources`:
 
-The three supporting tables below are a proposed implementation baseline. Include UTC timestamps, byte-exact
-identity comparison, bounded JSON metadata and backend-safe key lengths. Migrations must check actual layouts on
-all three backends; equivalent existing storage may replace a table only with matching uniqueness and recovery semantics.
-
-| Table | Primary/unique keys | Minimum fields and role |
+| Column | Type/default | Meaning |
 | --- | --- | --- |
-| `pc_document_imports` | PK `(scope_id, document_id)`; UQ `(scope_id, rag_id, collection_id, path_hash)` | Full relative path, binding name, current/target SourceRef and digest, processing/configuration snapshot and fingerprint, target generation, operation (`import/reprocess/edit`), bounded pending edit, request ID/digest, state/stage, attempt, retry time, lease token/expiry, result revision and error; combines identity reservation, membership and latest per-file work |
-| `pc_document_chunks` | PK `(scope_id, document_id, revision, chunk_id)`; UQ `(scope_id, document_id, revision, ordinal)` | Text, content digest, heading path, continuation/overlap metadata, normalized spans and original byte/image locators, origin, edit/base references; complete immutable revision snapshot |
-| `pc_document_source_states` | PK `(scope_id, source_type, source_id)` | Immutable owner `rag_id`, document/file identity, `state=active/deleted`, deletion generation/time; mutable lifecycle alongside the original Source, including its system edit Sources |
+| `lifecycle_state` | Short string, NOT NULL, default `active` | `active` or `deleted`, one-way transition initially |
+| `deleted_at` | Nullable UTC timestamp | First deletion time; repeat deletion does not refresh it |
 
-Reserve a document ID before parsing without requiring an Artifact head to exist. Once committed, all detail keys
-resolve to `family=document` in the same Scope; each Source's owner matches the reservation and immutable payload.
-The manifest contains owner rag, root SourceRef, schema/processing fingerprint, chunk count/digest and manual-change
-indicator. A revision with 100 chunks has one manifest and 100 rows; removing a chunk creates a new manifest and 99
-rows without touching the original 100. Copies of unchanged rows may be prepared efficiently, but incomplete snapshots
-must never become visible. Old revisions are addressed exactly, not by interpreting today's head.
+Backfill existing Sources as active. Payload, identity, and journal position remain immutable. Lifecycle metadata is
+excluded from content hashing. Use row locking/conditional updates and consistent lock ordering against document
+commits; no separate Source deletion-generation column is required initially. Adapt add/get/list, evidence and generation
+access, and family reads. Duplicate add of a deleted identity must not return usable content or reactivate it. Internal
+migration/cascade scans may include deleted rows; public reads cannot bypass deletion. Verify additive migrations on
+SQLite, SeekDB, and OceanBase rather than treating Artifact retirement as existing Source soft-deletion support.
 
-Index imports by `(scope, rag, document_id)`, pending work by binding/state/retry time, chunks by revision/ordinal,
-and Source state by `(scope, rag, document_id)` for deletion fan-out. Verify existing reverse lineage access paths
-for root-source revocation. Hash keys retain and compare full original identities. Source row ownership is immutable;
-status/progress never changes it. The imports table preserves the latest target/result, not an unlimited batch or
-command history. Errors before a Source is accepted belong to collection diagnostics. A complete durable batch
-history would require an explicitly scoped extension, not an unbounded JSON array in a metadata row.
+The only new domain table is `pc_document_chunks`:
 
-## 5. Existing Workers and atomic content/index commit
+| Constraint/fields | Design |
+| --- | --- |
+| Primary key | `(scope_id, document_id, revision, chunk_id)` |
+| Unique order | `(scope_id, document_id, revision, ordinal)` |
+| Content | `text`, `content_digest` |
+| Structure | Heading path, continuation/overlap metadata |
+| Provenance | Normalized spans, original byte/image locators, origin/verbatim, base/edit references |
 
-The application service coordinates the three plugins; it is not another plugin or service. Source acceptance/reuse,
-Source lifecycle initialization, document target reservation/update, and `processing_intents.request()` commit
-atomically. A durable target can therefore be recovered even if a wakeup notification is lost. The source-only
-submission paths must call this same acceptance capability; they cannot bypass target validation.
+Use backend-safe keys and bounded metadata. Each revision is a complete immutable chunk snapshot: removing one of
+100 chunks produces a new manifest and 99 rows, preserving the original 100. Manifest fields include owner rag,
+file identity, root SourceRef, schema/processing fingerprint, chunk count/digest, manual-change flag, and
+`applied_request_ref`. History uses exact revisions, not today's head.
 
-Supervisor dispatch remains Scope/binding based. The document processor selects pending import rows rather than
-broadcasting every Source to every rag. Explicit requests handle retry/reprocess with no new Source journal entry;
-do not fabricate a positive `source_through` or advance a Source cursor for target-only work.
+Initially, membership and availability may require paginated Scope/type scans and payload decoding plus exact
+Artifact reads by deterministic document ID. Do not assume canonical payloads already have queryable JSON owner/path
+indexes. Filtered pagination tracks the scan position without losing later matches. Validate ownership and full identity
+at writes/reads. These scans have costs; no large-scale performance claim is made. Additional projections require measured
+need, not an implicit reintroduction of a task table.
+
+## 5. Operation Sources, Workers, and transaction boundaries
+
+A trusted application service creates a dedicated operation Source type, illustrated as `document_operation`;
+originals are illustrated as `document_file`. These are plugin registrations, not new storage tables. A request stores
+owner rag, document ID, operation, root SourceRef, fixed processing configuration/fingerprint, request ID, base revision,
+and bounded edit/discard parameters. Initial import may have no base; edit requires an existing base. Do not store
+mutable state, attempts, errors, or a future output revision in its payload. Ordinary user metadata cannot forge commands.
+
+Import/reprocess regenerates the whole document from a fixed original. Edit supports `replace_text` and `remove`.
+Existing `ContentSourceInternal` binds successful `artifact_create`/`artifact_replace` evidence to an exact revision;
+it cannot represent an unexecuted command. Preserve that successful-result contract and use the separate request type.
+
+Accept/reuse the original, insert the request, and call the document binding's `processing_intents.request()` in one
+transaction. Only a newly accepted request schedules new work. Extend Source/binding notification integration explicitly;
+the current SourceRepository does not automatically discover this proposed processor.
+
+Request identity is deterministic within Scope/rag/document/operation and client `request_id`. Identical canonical
+payload replays return the accepted request; different payload under the same identity conflicts. Replaying a consumed
+request never reruns it. An explicit retry uses a new request ID, possibly the same original Source. Incrementing an
+invocation counter alone cannot rerun an input already passed by the cursor.
 
 ```text
-pending -> running -> succeeded
-              +--> retry_wait -> pending
-              +--> failed / blocked
-new target -> increment target generation; an old attempt becomes superseded
-rag/document/Source deletion -> affected target cancelled; no further commit
+accept request Source + processing intent atomically
+                       |
+existing Worker scans the document binding's journal window in order
+                       |
+prepare chunks/embeddings outside the transaction
+                       |
+commit document + chunks + lineage + indexes + cursor atomically
 ```
 
-Only one active target is processed per logical document. Identical pending input coalesces; a newer accepted file
-version can supersede an older parse. Manual edits require no conflicting pending mutation. Persist the operation,
-pinned input/configuration, base revision, and latest request token so restart can retry the same work. Replay of the
-current token/digest returns current status; different content under that token conflicts. Superseded token versions
-cannot recreate work. There is no promise of indefinite historical receipt replay.
+Process sequentially within a Scope/document binding, using bounded windows and existing fences/cursor CAS. Ignore
+unrelated Sources while advancing the contiguous scan boundary. No per-file queue or latest-request-wins cancellation
+is promised. Requests pin their base; if an earlier operation changes the head, a later request may conflict instead
+of silently rebasing. Users refresh and submit a new request. Source acceptance during execution does not mutate the
+running request. Scope invocation acknowledgement follows existing `ScopeInvocation` rules; partial work must not
+mark an entire window clean.
+
+The cursor records consumption, including skips, not success. Successful revisions identify their request through
+`applied_request_ref` and lineage. There is no durable per-request failure receipt.
+
+| Outcome | Cursor and recovery |
+| --- | --- |
+| Input-specific parse/OCR/configuration failure or base conflict | Log sanitized identifiers/error, advance past that request under the execution fence, retain old content, continue other inputs |
+| Transient request-local error | Optional bounded in-process retry, then the same failure/skip rule; no durable attempt counter |
+| Database failure, index rebuild, or system-wide model unavailability | Do not advance this request; reuse Supervisor backoff/recovery and report binding-level unavailability |
+| Process exits before commit | Cursor has not advanced; re-execute the fixed request after recovery |
+| Process exits after successful commit | Content and cursor are already committed; do not create another revision |
+| Crash between failure logging and skip commit | The request may run again; duplicate diagnostics are allowed |
+
+Logs follow existing observability contracts and exclude content, credentials, and sensitive paths. Logs are not a
+recovery dependency. A consumed failed request requires a new explicit request to retry. Runtime task status or a
+request timeout cannot establish permanent failure.
 
 | Boundary | Work |
 | --- | --- |
-| Outside transaction | OpenDAL snapshot capture; parsing/OCR; Markdown/chunk construction; embedding and prepared index projections |
-| Acceptance transaction | Validate owner/lifecycle and preconditions; accept/reuse Source and target state; request existing processing intent |
-| Content transaction | Recheck target generation, base head, owner/Source lifecycle, plugin profile/build and Worker fences; commit manifest, complete chunks, lineage, any system edit Source, head, prepared indexes and successful target state together |
-| Deletion transaction | Retire parent Artifact or mark Source deleted; invalidate the owned targets; record recoverable fan-out state using existing invocation plus target rows |
+| Outside transaction | Snapshot capture; parsing/OCR; complete chunk snapshot; embedding and index projection preparation |
+| Acceptance transaction | Authorization, ownership/lifecycle/base checks, Source/request acceptance, processing intent |
+| Successful content transaction | Recheck Worker/cursor/base/owner/root/index fences; commit manifest, chunks, lineage, successful edit evidence when needed, head, indexes, and cursor |
+| Failure-skip transaction | Revalidate execution/cursor fences and advance the contiguous boundary; no document write or successful edit evidence |
+| Deletion transaction | Mark Source lifecycle or retire Artifact head; parent/root checks block concurrent publication |
 
-Models and DDL do not run while holding the content transaction. The chunk projection adapter prepares from the
-chunk snapshot rather than expanding the bounded manifest as if it contained full text; validate both snapshot
-and projection fingerprints at commit. Existing generic JSON-field projection is not sufficient without this adapter.
+Models and DDL run outside the content transaction. Chunk projections are prepared from chunks, not full-text JSON
+inside the manifest. Validate snapshot and projection fingerprints. New content and indexes become visible together;
+failed updates retain the previous head/indexes. During family rebuild defer new document commits, not the generic
+content-only path. Rebuild committed chunks without OCR, with explicit unavailability rather than Memory/full-text
+fallback or a zero-downtime promise. Verify real transaction behavior on all backends, including SQLite write locking;
+ANN limitations need filtered exact retrieval or a clear capability failure.
 
-A failed normal update leaves the previous committed head and indexes; no new readable-but-unindexed revision is
-created. History may be read independently but retrieval uses the current indexed revision. If the shared document
-family index is rebuilding or unavailable, defer new document commits and expose unavailability. Do not silently
-use the generic content-only-during-rebuild path, fall back to Memory retrieval, or promise zero-downtime cutover.
-Rebuild reads committed chunks, not OCR again. SQLite, SeekDB and OceanBase must prove the transaction/read behavior
-through their real adapters; native ANN limitations require filtered exact retrieval or an explicit capability failure.
+## 6. Editing, chunk removal, and deletion
 
-## 6. Editing, chunk removal, and soft deletion
+Validate edit `If-Match` both at acceptance and commit. A successful edit writes a whole new snapshot. Unchanged chunks
+keep logical IDs; rechunking assigns new ones; citations always include revision. Removing the last chunk leaves a
+readable zero-chunk manifest and no current index fragments. No removal physically deletes old chunk rows.
 
-An edit command supports `replace_text` and `remove` for an existing chunk, with document `If-Match`. The worker
-constructs a complete new revision, revalidates count/order/digest, prepares changed indexes, and commits atomically.
-Deleting the last chunk is allowed: an empty effective document has zero indexed fragments but remains a readable
-manifest with provenance. Unchanged chunks keep logical IDs; rechunking assigns new IDs. Every citation includes
-revision. A remove operation affects the current snapshot only, never physically deletes historical chunk rows.
+At success, create a system Content Source with `role=lineage_only`, `operation=artifact_replace`, and the exact new
+revision, recording request/base/root provenance. Preserve the original Source dependency explicitly. Mark edited
+text `origin=manual_edit`, `verbatim=false`; old image coordinates are edit evidence, not verbatim proof. Removal
+also counts as manual modification. Explicit reparse must authorize discarding manual changes. Unchanged complete
+embedding inputs may reuse computation, but index mappings must identify the new current revision.
 
-At successful commit create the system Content Source with `role=lineage_only`, `operation=artifact_replace`, exact
-new revision, base revision and edit/removal command. It records the modification and is not ordinary parser input.
-Preserve the root document Source dependency explicitly; generic replacement does not imply this automatically.
-Mark changed text `origin=manual_edit`, `verbatim=false`; original coordinates are edit evidence, not proof those
-words occur in the image. Removing a chunk also counts as a manual change, protected against silent reparse overwrite.
-Unchanged actual embedding input/profile may reuse computation, but new revision mappings still replace old entries.
-
-| Delete operation | Persisted state and consequences |
+| Delete operation | Behavior |
 | --- | --- |
-| Source | Mark sidecar state deleted without mutating payload. Retire a document whose current input is that Source; revoke all matching historical revisions and edit-Source reads. A current revision solely derived from a replacement Source survives |
-| Document | Retire its Artifact head; block all its revisions/chunks and pending work; original Source is not deleted |
-| rag | Retire its head, immediately block all owned content, then durably mark all owned Source versions and document heads deleted/retired, including documents that never finished processing |
-| Chunk | Create a new document revision without that chunk; historical content stays intact |
+| Original Source | Set Source lifecycle deleted; retire a document still rooted in it and revoke dependent history. A revision fully reparsed from another root survives |
+| Document | Retire its head; block all revisions/chunks and future commands, leaving original Sources active |
+| rag | Retire its head, immediately block all owned content, then recoverably mark all owned Sources (including requests/edit evidence) and document heads deleted/retired |
+| Chunk | Commit a new revision without that chunk, retaining history |
 
-Retirement uses existing `lifecycle_state=retired` and governance CAS; do not add a second rag/document deletion flag.
-Source deletion uses the sidecar because `pc_sources.payload` is immutable. Repeated deletion is idempotent.
-A reserved document with no head is cancelled in its import row with terminal reason `document_deleted`; do not
-create an empty Artifact just to retire it. That identity cannot be silently revived by another scan. Deleting a
-pending replacement Source cancels its target but does not retire a committed revision based on a different Source.
-Large cascades may finish in bounded batches: the retired rag and persistent ownership make incomplete fan-out
-rediscoverable, while parent checks immediately prevent reads/commits. Source ownership is never shared across rags,
-so deleting one rag cannot delete another's Source. Keep OpenDAL snapshots and canonical/historical content; do not
-delete user files. Restore and permanent erasure are not offered initially.
+Reuse Artifact `lifecycle_state=retired` and governance CAS. Original Source payloads/snapshots and historical business
+content remain stored; user files are untouched. No restore or permanent erase initially. An imported file without a
+head is deleted through its original Source; document DELETE returns not found rather than manufacturing a placeholder
+Artifact. A deleted pending replacement Source must not retire an older committed version based on a different root.
 
-Search and generic exact/history/chunk reads check owner rag, document head and that revision's root Source.
-Historical base-revision links do not make a fully reparsed replacement transitively dependent on an old Source.
-System edit Sources also check their target document/rag. Original Source access checks its own state and owning
-rag; deleting only a document leaves that original Source readable, deleting its rag does not. Family-specific read
-validation must enforce these rules; generic retirement alone can otherwise leave exact reads available.
+Check owner rag, document head, and the exact revision's root on search and generic/exact/history/chunk reads.
+Historical base links do not transitively revoke a full reparse from a replacement root. Original Source reads check
+its state/owner; deleting just a document does not hide its original. Request/edit evidence reads also check the target
+document to prevent retained manual text from bypassing deletion. Deleting a request blocks unconsumed execution,
+not an already committed edit: content validity is governed by root/document/rag, not a retroactive cancellation.
 
-Search indexes are derived, not historical evidence. Reuse their existing replacement/removal/rebuild maintenance;
-soft deletion preserves business data, not a promise that every historical index entry is retained. Retained stale
-entries must be excluded before ranking, including during cascade recovery. Parent/Source checks and commit fences
-are mandatory regardless of physical index cleanup. Already delivered responses cannot be recalled.
+Generic retirement alone may still allow exact reads; add family guards. Large rag cascades rediscover remaining work
+from the retired parent and immutable ownership, including deleted rows internally, without a cascade job table.
+Exclude invalid rows before ranking even while fan-out is incomplete. Derived indexes retain existing replacement,
+removal, and rebuild semantics; preserving business history does not promise every historical index entry stays intact.
 
-## 7. Unified API contract
+## 7. Availability and unified APIs
 
-All routes below are design proposals or extensions; current schemas do not already support every family/filter.
-Implement changes in `openapi/powercontext.yaml` and regenerate bindings. Reuse existing permissions, error envelopes,
-Artifact/Source references, pagination, ETags and SDK/MCP operation mappings. Do not route document files through the
-current generic create-Source command, whose schema only accepts built-in content; use the Source plugin protocol.
+| Display | Derivation |
+| --- | --- |
+| Generated | A usable committed revision matches the selected original/configuration; valid manual changes are preserved |
+| Update needed | A usable older revision exists but desired original/configuration differs; it may still be searchable |
+| Not yet generated | Source accepted, no usable successful revision; could be unstarted, running, or failed |
+| Deleted | Source or owning Artifact lifecycle invalid; no retained text, normally excluded from lists |
 
-Let `R=/v1/scopes/{s}/artifacts/rag/{r}` and `D=/v1/scopes/{s}/artifacts/document/{d}`.
+Desired input uses the latest accepted import/reprocess request, or the accepted original if none exists. Manual edits
+are not raw-file mismatches. Rag configuration changes affect future requests and may indicate reprocessing is needed;
+they do not automatically enqueue it. Do not expose per-file stages, percentages, attempt counts, durable errors, or
+infer success from collection completion/cursor advancement. Binding diagnostics and index availability stay separate.
 
-| Operation | Reuse or narrow extension | Semantics |
-| --- | --- | --- |
-| Create/configure rag | Existing POST `/v1/scopes/{s}/artifacts`, GET/PUT `R`, revisions/tags | `family=rag`; complete config replacement and existing If-Match; no parser work for empty creation |
-| Import directory/file | Existing POST `/v1/source-management/add` with discovered collect capability and instance | Plugin input carries owner rag and local root/file; Source receipt retains its existing collection semantics, not a new rag import/job envelope |
-| Collection status/control | Existing source-management status and target/instance controls | Do not claim collect add reschedules a stopped target or status is full batch history |
-| Sources/documents | Existing Source list/get; Artifact list/get/history | Add validated owner-rag filtering where missing; document GET returns bounded manifest, not all chunks |
-| Current file progress | New GET `R/processing`, cursor and state filter | Latest per-file target, stage, attempts/error, request generation and committed revision, including unprocessed reservations |
-| Retry/reprocess | New POST `D/processing`; failed first imports use reserved document ID even without a head | `action`, `expected_target_generation`, `request_id`, optional discard policy; `202` current target receipt |
-| Read chunks | New GET `D/revisions/{rev}/chunks` | Existing items/next_cursor convention; exact-revision effective chunks and source locators |
-| Edit/remove chunk | New POST `D/edits` | Document If-Match, bounded typed operation and request_id; `202` pending target, new revision only after atomic success |
-| Retrieve | Existing POST `/v1/scopes/{s}/artifacts/document/search` | Existing query/mode/limit/fusion; required validated `filters.rag_ids`; extend optional matched fragments without replacing complete Artifact results |
-| Soft-delete Artifact/Source | Add DELETE to existing exact Artifact/Source resource routes | Family writer/Source lifecycle service validates ownership; Artifact `expected_generation` (governance CAS); reuse scope.contribute for document, scope.admin for rag/Source |
+Reuse existing permissions, errors, references, pagination, ETags, and SDK/MCP operations. Implement necessary contract
+changes in `openapi/powercontext.yaml` and regenerate bindings. The current generic create-Source accepts built-in
+content; document files go through the Source plugin protocol. Let `R=/v1/scopes/{s}/artifacts/rag/{r}` and
+`D=/v1/scopes/{s}/artifacts/document/{d}`.
 
-Rag config stores title/summary and parser/OCR/chunker settings or references, not runtime progress, members, or
-main-path embedding configuration. A config change affects subsequent accepted targets; existing documents change
-only through explicit reprocessing. Manual change protection still applies.
+| Operation | Existing route or necessary extension |
+| --- | --- |
+| Create/configure rag | Existing POST `/v1/scopes/{s}/artifacts`, GET/PUT `R`, revisions/tags; full replacement and existing preconditions |
+| Import/control | Existing POST `/v1/source-management/add`, collect capability/instance, existing status/target/instance controls |
+| List files and available results | Existing Source list/get and Artifact list/get/history, validated owner-rag filters, helper join by document ID; no `R/processing` task list |
+| Explicit reparse | POST `D/processing`, `source_ref`, `action=reprocess`, `request_id`, optional configuration/discard; 202 request acceptance |
+| Edit/remove chunk | POST `D/edits`, current `If-Match`, typed bounded operation and request ID; 202 request acceptance |
+| Read chunks | GET `D/revisions/{rev}/chunks`, exact revision, `items/next_cursor` |
+| Search | Existing POST `/v1/scopes/{s}/artifacts/document/search`, existing query/mode/limit/fusion, validated `filters.rag_ids` |
+| Soft-delete | DELETE on existing exact Source/Artifact routes; Artifact governance `expected_generation`, one-way Source lifecycle |
 
-Create example, using the standard Artifact envelope:
+Reparse with an existing head requires `If-Match`; without a head, use the deterministic document ID and
+`If-None-Match: *`. Validate that Source ownership/file identity resolves to that ID, and recheck the base at execution.
+Do not return Scope invocation generations as document target generations. Reuse `scope.contribute` for document
+operations and `scope.admin` for rag/Source deletion, with existing read authorization.
+
+Create rag:
 
 ```json
-{"family":"rag","content":{"title":"Operations SOPs","summary":"Runbooks and screenshots","parser":"markdown-v1","ocr":"rapidocr-local-v1","chunker":{"max_chunk_chars":1200,"overlap_chars":100}}}
+{"family":"rag","content":{"title":"Operations SOPs","parser":"markdown-v1","ocr":"rapidocr-local-v1","chunker":{"max_chunk_chars":1200,"overlap_chars":100}}}
 ```
 
-Directory collection example; capability/instance names and settings are illustrative discovered deployment values:
+Directory collection; capability/instance names are illustrative deployment-discovered values:
 
 ```json
 {"scope_id":"project-p","capability":"knowledge-documents.collect","capability_version":"1","instance_id":"local-documents","input":{"rag":{"family":"rag","artifact_id":"ops","revision":1},"root":"/work/docs","scan_token":"scan-01"}}
 ```
 
-The target rag reference is validated at acceptance; ownership persists by rag ID, while processing pins accepted
-configuration. A scan token is not a document identity and does not change the Source protocol's top-level schema.
-A client retries a scan with the same token; a deliberate rescan uses a new one.
-
-Chunk removal example, POST `D/edits` with the current document ETag:
+Remove a chunk with POST `D/edits` and the current document ETag:
 
 ```json
 {"request_id":"edit-03","operation":{"kind":"remove","chunk_id":"chunk-3"},"reason":"Remove an obsolete instruction"}
 ```
 
+The 202 receipt states durable acceptance, not pending status or a future revision:
+
 ```json
-{"document_id":"doc-1","request_id":"edit-03","target_generation":4,"state":"pending","committed_revision":2}
+{"accepted":true,"document_id":"doc-1","request_source":{"source_type":"document_operation","source_id":"request-03"},"current_revision_at_accept":2}
 ```
 
-The receipt does not invent revision 3 before commit. GET processing later reports success and the committed new
-revision, or failure with revision 2 unchanged. For replacement, use `kind=replace_text` plus `text`; do not represent
-partial operations as complete content in generic PUT. Repeating the current request ID/digest reuses its target;
-conflicting or superseded requests return conflict/precondition errors rather than silently reapply.
+`current_revision_at_accept` is an observation, not the output. Confirm success through a revision's
+`applied_request_ref`; no matching revision does not prove failure. For a new execution, refresh preconditions and
+use a new request ID. Identical replay returns the original acceptance fact, not a fresh execution result.
 
-Single-Scope retrieval reuses the generic request:
+Explicit reparse, with `If-Match` for an existing document and authorization to discard manual changes:
+
+```json
+{"action":"reprocess","request_id":"reparse-04","source_ref":{"source_type":"document_file","source_id":"source-1"},"manual_edits_policy":"discard"}
+```
+
+Search selected rags in one Scope:
 
 ```json
 {"query":"How should I restart a follower?","mode":"hybrid","limit":10,"filters":{"rag_ids":["ops"]},"include_scores":true}
 ```
 
-`results` still contains complete document Artifact manifests and lineage. Add an optional typed `matches` field to
-search items for bounded exact chunk hits: chunk ID, text, locator, origin/verbatim, and fragment scores. It is a
-response projection, not part of persisted Artifact content. `limit` continues to bound returned Artifacts;
-per-document fragment count has a separate capability limit. Validate only advertised document filters/options;
-unsupported rerank is an explicit capability error. Neither unknown filters nor omitted rag selection may widen scope.
+Search results retain complete bounded document manifests and lineage. Add optional typed `matches` for bounded exact
+chunk hits, including revision/chunk ID, text, locator, origin/verbatim, and scores. This projection is not stored in
+Artifact content. `limit` counts documents; fragments per document have a separate cap. Reject unsupported filters or
+rerank options explicitly; missing rag selection must not broaden the search. Cross-Scope helpers authorize explicit
+`(scope, rag)` targets, invoke the same per-Scope search, rank-fuse, and retain target errors/identities. Do not compare
+incompatible raw scores or introduce a separate `/rag/query` protocol.
 
-For cross-Scope queries, the client/helper accepts explicit `(scope, rag)` targets, authorizes all of them, groups
-calls to the same existing search operation and fuses ranks. Preserve document/chunk identity and per-target errors;
-do not compare incompatible raw scores or silently return no matches on failure. This phase does not add a separate
-`/rag/query` wire protocol. HTTP, Python and MCP use the same family operations, with bounded orchestration where needed.
-
-| Condition | Response |
-| --- | --- |
-| Missing/stale document/config ETag | Existing 428/412 precondition errors |
-| Conflicting target generation/request, pending edit or discarded-edit policy missing | 409 with actionable code |
-| Deleted resource or evidence | 410 after authorization; no retained text in errors |
-| Invalid format/config/oversized input | 422; transport may reject oversized bodies with 413 |
-| Index/model unavailable or rebuilding | 503; no silent full-text-only downgrade or alternate-family search |
-| Accepted processing fails | Latest target becomes failed/blocked/retry_wait; Source acceptance remains distinct from success |
-
-Use the existing error shape, for example:
-
-```json
-{"error":{"code":"resource_deleted","message":"The requested document is unavailable.","details":null}}
-```
+At acceptance use existing 428/412 preconditions, 409 payload/discard conflicts, authorized 410 deletion, 422 validation
+(or transport 413), and 503 service unavailability with the existing `error.code/message/details` envelope. After 202,
+request-local failures/conflicts follow the log-and-consume rule; there is no durable error-status endpoint.
 
 ## 8. Implementation and acceptance
 
-Framework reuse still requires a typed document Source acceptance hook, per-file selection in Workers, a
-chunk-backed projection adapter, filtered retrieval before top-k, lifecycle checks on all reads, and same-transaction
-family writers. Reuse tables does not justify storing full documents in manifests or treating generic JSON projection
-as already sufficient. No changes to core metadata columns are planned; additive domain migrations and OpenAPI
-extensions must be reviewed if the implementation discovers a genuine gap.
+Reuse requires Source lifecycle migrations/read guards, trusted request admission, consumer eligibility, document
+binding notification, journal selection/cursor transactions, chunk projection, and ownership filtering before top-k.
+It does not imply a zero-change framework or existing support for all proposed routes.
 
-On each of SQLite, SeekDB and OceanBase, test the following through public operations:
+Run the same public workflow against SQLite, SeekDB, and OceanBase:
 
-- Create two rags in one Scope and another in a different Scope; same file imports have exclusive owners and no query leakage.
-- Capture Markdown from a pinned `oceanbase/oceanbase` commit and real OCR fixtures; preserve image references and accurate locators.
-- Identical success skips, failed identical input retries, changed bytes revise, config changes reprocess, and embedding-only changes do not OCR.
-- Reject stale workers and conflicting edits; restart from durable current targets; content/index failure exposes no half-published revision.
-- Delete a chunk by revision replacement, including the last chunk; old snapshots remain complete and current indexes exclude it.
-- Source/document/rag soft deletion, cascading completion after restart, historical/edit-Source read checks, and new-Source revisions surviving old-Source deletion.
-- Plugin config initialization from compatible main settings without live coupling; isolated indexes and explicit unavailable rebuild behavior.
-- Core schema compatibility, filtered hybrid search, pagination and contract generation; mocks alone do not establish real backend/OCR support.
+- Multiple rags and Scopes, exclusive file ownership, authorized selection and no cross-rag results.
+- Markdown from a pinned `oceanbase/oceanbase` commit and real OCR fixtures with accurate provenance.
+- Source migration backfill, immutable payload, deleted replay rejection, and exact/history/evidence read guards.
+- Successful duplicate skipping, failed-input retry with a new request, configuration reparse, embedding-only rebuild.
+- Atomic request/intent admission, restart recovery, atomic content/cursor commit, no rerun on request replay.
+- Input-local failure consumption versus system-wide failure retention; cursor advancement never means file success.
+- Async base conflicts/late Workers, no successful edit evidence on failure, manual-edit protection.
+- Versioned chunk removal including the last chunk, complete history and correct current indexes.
+- Source/document/rag deletion races, recoverable cascade, replacement-root independence.
+- Independent plugin configuration, index isolation, rebuild unavailability, pagination, contract generation and SDK/MCP parity.
 
-Use existing #2441 for ownership/ingestion, #2442 for processing/content/index integration, #2443 for retrieval/interfaces,
-and #2444 for diagnostics/three-backend acceptance. One implementation branch/PR may deliver these four review stages.
-This RFC PR does not close implementation issues. Do not add issues or claim large-corpus capacity from functional fixtures.
+Mocks do not establish real backend/OCR support. Use #2441 for ingestion/ownership/Source lifecycle, #2442 for processing,
+requests/chunks/atomic writes, #2443 for retrieval/interfaces, and #2444 for diagnostics/acceptance. One implementation
+branch/PR may deliver these stages. This RFC does not close implementation issues or establish large-corpus capacity.
 
 # Drawbacks
 
-Complete chunk snapshots amplify storage and writes. Retaining soft-deleted originals/history requires capacity
-monitoring. Shared document-family rebuilds can interrupt retrieval across rags in one Scope. Latest per-file state
-is simpler than a task center but lacks complete batch/command history. Plugin-specific read/projection/acceptance
-integration is still substantive work even with unchanged core schemas. OCR packaging/platform support needs testing.
+Operation Sources grow the journal; complete chunk snapshots and retained deleted data consume storage. Sequential
+consumption can cause head-of-line waiting. Availability lacks durable per-request failures, and initial owner/request
+filtering may scan payloads. Family rebuilds can interrupt several rags. These are explicit first-phase tradeoffs;
+Source lifecycle and consumer/projection integration still require meaningful implementation work.
 
 # Rationale and alternatives
 
-- A Scope per knowledge base couples collection organization to authorization; multiple rag Artifacts preserve project grouping.
-- Sharing one logical Source across rags makes deleting a rag affect others; share only physical snapshot bytes if desired.
-- Storing chunks in Sources violates immutable evidence; one Artifact per chunk obscures whole-document revision semantics.
-- Whole-document JSON arrays simplify serialization but make retrieval/detail reads unnecessarily large.
-- Separate rag runtime, publication generations and general job tables support advanced features but are unnecessary for atomic revision/index commits.
-- Direct SQL deletion of a chunk breaks old revision counts, digests and citations; revision replacement preserves evidence.
-- A live fallback to main-path embedding settings can silently change vector space; plugin-owned resolved configuration avoids it.
+- Multiple rag Artifacts preserve project-level Scopes without coupling collections to authorization.
+- Source journals persist accepted operations without a new mutable task table; in-memory-only commands lose work on restart.
+- Request Sources preserve intent; exact successful edit Sources preserve results. Reusing the latter before success misstates provenance.
+- Source lifecycle columns express generic deletion while payloads remain immutable; a document-only state sidecar duplicates this responsibility.
+- Whole-document manifests plus chunk rows avoid giant content JSON and per-chunk Artifact identities.
+- Immutable revision replacement preserves old counts/digests/citations; direct chunk deletion does not.
+- Separate task/publication systems could provide richer status/cutovers, but are outside the accepted scope.
 
 # Prior art
 
 Build on [Source plugins](2012-source-plugin-system.md), [Artifact plugins](2175-artifact-plugin-system.md),
 [Source identity](1400_source_definition_and_observation_model.md), [processing supervision](1515_artifact_processing_supervisor.md),
-and [Source/Artifact APIs](1437_source_artifact_rest_api.md). Existing OpenDAL capture already compares path/content hashes;
-Artifact head governance and generic fragment indexes provide reuse foundations, not a complete knowledge-base implementation.
-Atomic Memory retirement is a useful lifecycle pattern but is not already a Source-to-document cascade contract.
+and [Source/Artifact APIs](1437_source_artifact_rest_api.md). Existing OpenDAL hashing, Source cursor CAS, Artifact
+head governance, and fragment indexes provide foundations, not a complete knowledge-base implementation. Existing
+Atomic Memory retirement is not already a Source-to-document cascade contract.
 
 # Unresolved questions
 
-Implementation must fix precise capability signatures, supported image formats/model versions, resource limits,
-backend migrations/transaction behavior, and defaults validated against actual embedding token limits. The three-table
-baseline must be verified rather than expanded preemptively. Any core schema change needs a demonstrated gap and review.
-
-Permanent erasure, restoration, retention/GC, renamed-file identity, complete batch history, independent per-rag
-embedding/rebuilds and full edited-Markdown export need separate contracts. Overlapping chunks cannot simply be
-concatenated into an accurate edited document.
+Fix exact Source/capability signatures, supported image/model versions, limits/chunker defaults, bounded retry error
+classification, and backend migration/index transaction behavior during implementation. Additional query projections
+must be justified by measured costs. Durable per-request outcomes, restore/erasure/GC, rename identity, per-rag vector
+spaces, and full edited-Markdown export need separate contracts; overlapping chunks cannot simply reconstruct a full edit.
 
 # Future possibilities
 
-Additional OpenDAL providers, parsers, richer chunkers, rerankers and bounded agentic retrieval may extend the component
-boundaries. Measured storage pressure may justify shared immutable chunk bodies. None is required for first-phase
-ownership, duplicate detection, atomic commits or exact evidence.
+Extend OpenDAL providers, parsers, chunkers, rerankers, and bounded agentic retrieval through component boundaries.
+Measure before adding shared immutable chunk bodies, richer task state, or collection-scale projections. None is
+required for the first phase's ownership, recoverable requests, versioned content, and exact evidence.
