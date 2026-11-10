@@ -2826,3 +2826,32 @@ installed-platform acceptance remain separate requirements.
 连接模式均通过。原生协议模块和业务断言保持不变；本机验收将 Server 启动就绪等待设为 60 秒，
 不代表默认启动预算通过，也不构成启动性能承诺。该记录不替代安装后 GUI、原生凭据持久化、
 Windows／macOS、数据库升级、签名或正式发行验收。
+
+## Server 6a20aa88 merged contract protocol qualification
+
+`sqlite-core-target-release-6a20aa88-v1` binds the merged Core target and v1.5.1
+Desktop contract to Server source `6a20aa887cb64a2204bedab962c7e1a4400ef0bd`.
+
+- Normalized OpenAPI SHA-256: `82e9d8dcaf1f5ddd02892ae13c3f1d77c16595ce67f09c0f7cff4c6c878fa3ad`.
+- Wheel: `powercontext-1.5.1.dev254+g6a20aa887-py3-none-any.whl`.
+- Wheel SHA-256: `964b88ae76ee1bcfcc83a9c1c461d79cedc9f113334b1c888d8749a70ffaea3f`.
+
+All 745 packaged Server and service-bootstrap runtime files match the exact Git source
+archive after CRLF normalization. On 2026-11-10, the built-wheel SQLite harness
+passed four isolated real HTTP modes: anonymous loopback, static Bearer, HTTPS with
+explicit CA/base path, and enforced Provider. The native `server_probe` exercised
+identity, exact Scope selection, Memory save/search/revision reads, statistics,
+uncertain writes without replay, Principal change and revocation. Its Provider case
+confirmed scoped authorization without Server observation permission. The first run
+used a disposable client profile from a clean merge commit. After adding this
+record and rebuilding the native probe, all four modes passed again through the
+ordinary product `ConnectionManager` with `--product-qualification
+sqlite-core-target-release-6a20aa88-v1`; the wheel and client assertions were
+unchanged.
+
+Evidence is retained under ignored `desktop/.artifacts/real-server.json`,
+`desktop/.artifacts/real-server-merge-fixture.log`,
+`desktop/.artifacts/real-server-merge-product.log` and `desktop/.artifacts/server-wheel/`.
+This qualifies local SQLite protocol behavior only, not installed UI, native credential
+persistence, other operating systems, native database upgrades, signing or release
+publication. Earlier qualification identities, digests and evidence remain unchanged.
