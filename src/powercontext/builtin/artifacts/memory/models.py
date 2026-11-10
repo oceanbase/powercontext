@@ -22,6 +22,7 @@ from typing import Literal, TypeAlias
 from pydantic import BaseModel, Field, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactRef
+from powercontext.artifacts.indexes import EmbeddingProfile
 from powercontext.builtin.artifacts.search import AdmissionCounts
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.sources import Source, SourceRef
@@ -32,16 +33,6 @@ MemoryCapacityDimension: TypeAlias = Literal["active_entries", "manifest_entries
 MemorySearchMode: TypeAlias = Literal["fts", "vector", "hybrid", "auto"]
 MemoryUsedSearchMode: TypeAlias = Literal["fts", "vector", "hybrid"]
 MemoryMatchedBy: TypeAlias = Literal["fts", "vector"]
-
-
-class EmbeddingProfile(BaseModel):
-    """The Memory embedding index contract for one deployment."""
-
-    profile_id: str
-    model: str
-    dimension: int
-    distance: Literal["l2"] = "l2"
-    normalization: Literal["none", "unit"] = "unit"
 
 
 @dataclass(frozen=True)

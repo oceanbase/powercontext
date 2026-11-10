@@ -20,12 +20,20 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from powercontext.builtin.artifacts.memory.models import EmbeddingProfile
-
 Name = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9-]*$")]
 FieldName = Annotated[str, Field(min_length=1, max_length=128)]
 Version = Annotated[str, Field(min_length=1, max_length=128, pattern=r".*\S.*")]
 SearchMode = Literal["text", "vector", "hybrid"]
+
+
+class EmbeddingProfile(BaseModel):
+    """The embedding index contract for one deployment."""
+
+    profile_id: str
+    model: str
+    dimension: int
+    distance: Literal["l2"] = "l2"
+    normalization: Literal["none", "unit"] = "unit"
 
 
 class _Declaration(BaseModel):
