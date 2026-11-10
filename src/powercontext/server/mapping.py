@@ -173,6 +173,7 @@ from powercontext.builtin.work import ReceiverChecks as RuntimeReceiverChecks
 from powercontext.builtin.work import RecordTaskOutcome as RuntimeRecordTaskOutcome
 from powercontext.builtin.work import TaskCheck as RuntimeTaskCheck
 from powercontext.builtin.work import TaskOutcome as RuntimeTaskOutcome
+from powercontext.builtin.work import TaskStopReason as RuntimeTaskStopReason
 from powercontext.builtin.work import WorkClaim as RuntimeWorkClaim
 from powercontext.builtin.work import WorkContract as RuntimeWorkContract
 from powercontext.builtin.work import WorkSourceReceipt as RuntimeWorkSourceReceipt
@@ -452,6 +453,18 @@ def record_task_outcome_request(value: RecordTaskOutcomeRequest) -> RuntimeRecor
                 checks=tuple(_runtime_task_check(check) for check in value.outcome.checks),
                 produced_artifacts=tuple(runtime_artifact_reference(ref) for ref in value.outcome.produced_artifacts),
                 remaining_work=tuple(item.root for item in value.outcome.remaining_work),
+                stop_reason=(
+                    None
+                    if value.outcome.stop_reason is None
+                    else RuntimeTaskStopReason(
+                        kind=value.outcome.stop_reason.kind.value,
+                        condition=value.outcome.stop_reason.condition,
+                        basis=value.outcome.stop_reason.basis.value,
+                        evidence=tuple(
+                            runtime_handoff_citation(citation) for citation in value.outcome.stop_reason.evidence
+                        ),
+                    )
+                ),
             ),
         )
     except ValidationError as error:

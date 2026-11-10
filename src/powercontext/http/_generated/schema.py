@@ -9472,6 +9472,57 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["name", "status", "basis", "evidence"],
             },
+            "TaskStopReasonKind": {
+                "type": "string",
+                "enum": ["safety", "authorization", "capability", "missing_evidence", "scope"],
+            },
+            "TaskStopReason": {
+                "properties": {
+                    "kind": {"$ref": "#/components/schemas/TaskStopReasonKind"},
+                    "condition": {
+                        "type": "string",
+                        "maxLength": 8192,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "description": "The "
+                        "circumstance "
+                        "under "
+                        "which "
+                        "continuing "
+                        "would "
+                        "have "
+                        "been "
+                        "wrong; "
+                        "must "
+                        "be "
+                        "trimmed.",
+                    },
+                    "basis": {"$ref": "#/components/schemas/WorkClaimBasis"},
+                    "evidence": {
+                        "items": {"$ref": "#/components/schemas/HandoffCitation"},
+                        "type": "array",
+                        "maxItems": 31,
+                        "description": "Use [] "
+                        "with "
+                        "declared. "
+                        "verified "
+                        "requires "
+                        "exact "
+                        "previously "
+                        "returned "
+                        "same-scope "
+                        "citations.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "condition", "basis", "evidence"],
+                "description": "A caller-recorded judgement about "
+                "why continuing would have been "
+                "wrong. It grants no permission, "
+                "approval, or retry budget and is "
+                "not success or failure evidence.",
+            },
             "TaskOutcome": {
                 "properties": {
                     "schema": {"type": "string", "enum": ["powercontext.task-outcome.v1"]},
@@ -9480,6 +9531,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "status": {"$ref": "#/components/schemas/TaskOutcomeStatus"},
                     "summary": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
                     "handoff_receipt_ref": {"$ref": "#/components/schemas/SourceReference", "nullable": True},
+                    "stop_reason": {
+                        "$ref": "#/components/schemas/TaskStopReason",
+                        "description": "Optional "
+                        "deliberate-stop "
+                        "reason, "
+                        "accepted "
+                        "only "
+                        "with "
+                        "blocked "
+                        "or "
+                        "cancelled "
+                        "status.",
+                        "nullable": True,
+                    },
                     "observations": {
                         "items": {"$ref": "#/components/schemas/WorkClaim"},
                         "type": "array",
