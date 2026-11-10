@@ -26,6 +26,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -271,6 +272,9 @@ def test_all_oceanbase_migration_step_budgets_cover_collected_cases_and_cleanup(
         check=True,
     )
     nodes = [line for line in result.stdout.splitlines() if line.startswith(tuple(f"{suite}::" for suite in files))]
+    # Splitting heavy grant cases into their own step must neither omit nor repeat any migration suite.
+    migration_suites = [suite for _, suites, _, _ in budgets for suite in suites if suite in SUITES]
+    assert Counter(migration_suites) == Counter(SUITES)
     for step, suites, case_timeout, shard_count in budgets:
         selected = [node for node in nodes if node.split("::")[0] in suites]
         assert selected, step["name"]

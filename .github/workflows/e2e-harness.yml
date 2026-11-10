@@ -296,8 +296,8 @@ jobs:
       ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.suite != 'recall-effort') &&
           ((inputs.suites == '' && needs.changes.result != 'success') || fromJSON(inputs.suites || needs.changes.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    # Test steps total 240m; reserve 40m for image pull, setup, diagnostics and artifact upload.
-    timeout-minutes: 280
+    # Test steps total 255m; reserve 40m for image pull, setup, diagnostics and artifact upload.
+    timeout-minutes: 295
     strategy:
       max-parallel: 2
       fail-fast: false
@@ -357,12 +357,22 @@ jobs:
             oceanbase --test-timeout 600 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/background-metrics" --tests \
             tests/e2e/test_background_metrics.py
 
-      - name: Run clean migration evidence, grants and vectors without skips
-        # The count cap allows at most 24 cases: 24 * (360s + 10s grace) + 190s collection < 160m.
-        timeout-minutes: 160
+      - name: Run clean migration evidence and vectors without skips
+        # At most 17 cases: 17 * (360s + 10s grace) + 190s collection < 110m.
+        timeout-minutes: 110
         run: |
           uv run --locked python scripts/run_atomic_memory_clean_migration.py \
-            oceanbase --test-timeout 360 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration"
+            oceanbase --test-timeout 360 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/clean-migration" --tests \
+            tests/e2e/test_atomic_memory_migration_evidence.py tests/e2e/test_atomic_memory_migration_vector.py
+
+      - name: Run grant migration with full Server schema cleanup without skips
+        # Grant cases prepare a full Server schema; the process deadline includes DROP DATABASE.
+        # At most 7 cases: 7 * (480s + 10s grace) + 190s collection < 65m.
+        timeout-minutes: 65
+        run: |
+          uv run --locked python scripts/run_atomic_memory_clean_migration.py \
+            oceanbase --test-timeout 480 --shard "${{ matrix.shard }}/2" --durations .github/oceanbase-migration-durations.json --output "$MIGRATION_REPORTS/grant-migration" --tests \
+            tests/e2e/test_atomic_memory_grant_migration.py
 
       - name: Test concurrent managed startup without skips
         # Up to two full Server cases (300s each), plus collection (180s).
