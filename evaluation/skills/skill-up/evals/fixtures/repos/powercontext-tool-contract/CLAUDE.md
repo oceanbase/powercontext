@@ -163,7 +163,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 ## mcp__powercontext__list_atomic_memories
 
 - Required: `scope_id: string`.
-- Optional: `cursor: string | null`, `kind: string | null`, `limit: integer = 50`, `states: array<"active" | "forgotten" | "merged" | "retired">`, `tag_match: "all" | "any"`, `tags: array<string>`.
+- Optional: `artifact_ids: array<string> | null`, `cursor: string | null`, `kind: string | null`, `limit: integer = 50`, `period: "today" | "7d" | "30d" = "7d"`, `sort_by: "identity" | "recall_count" = "identity"`, `states: array<"active" | "forgotten" | "merged" | "retired">`, `tag_match: "all" | "any"`, `tags: array<string>`.
 
 ## mcp__powercontext__list_candidates
 

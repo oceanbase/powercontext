@@ -155,6 +155,11 @@ output_schema:
         next_cursor:
           $ref: '#/definitions/Result/properties/next_cursor'
           type: string
+        recall_counts:
+          $ref: '#/definitions/Result/properties/recall_counts'
+          type: object
+          description: Per-memory preparation counts for this page when sorting by
+            recall_count.
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.
   required:
@@ -223,6 +228,15 @@ output_schema:
         next_cursor:
           anyOf:
           - type: string
+          - type: 'null'
+        recall_counts:
+          anyOf:
+          - type: object
+            description: Per-memory preparation counts for this page when sorting
+              by recall_count.
+            additionalProperties:
+              type: integer
+              minimum: 0
           - type: 'null'
       description: Complete successful HTTP response; empty object on error or unknown
         outcome.

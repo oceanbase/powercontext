@@ -3031,6 +3031,42 @@
           "tag_match": {
             "$ref": "#/components/schemas/TagMatch"
           },
+          "artifact_ids": {
+            "anyOf": [
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "description": "Restrict this page to these Atomic Memory identities before ordering and pagination.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7E]+$"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "recall_count"
+            ],
+            "default": "identity",
+            "description": "Order current memories by identity or readable context preparations across all revisions."
+          },
+          "period": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StatsPeriod"
+              }
+            ],
+            "default": "7d"
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,
@@ -3068,6 +3104,21 @@
             "anyOf": [
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recall_counts": {
+            "anyOf": [
+              {
+                "type": "object",
+                "description": "Per-memory preparation counts for this page when sorting by recall_count.",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               },
               {
                 "type": "null"
@@ -5173,6 +5224,14 @@
             ]
           }
         }
+      },
+      "StatsPeriod": {
+        "type": "string",
+        "enum": [
+          "today",
+          "7d",
+          "30d"
+        ]
       },
       "TagFilter": {
         "type": "object",
