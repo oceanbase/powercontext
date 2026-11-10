@@ -43,7 +43,7 @@ RULES = tomllib.loads((ROOT / ".github/ci-paths.toml").read_text(encoding="utf-8
         (["tests/native/test_installation.py"], {"tests", "native", "packaging"}),
         (["tests/native/test_install_sources.py"], {"tests", "native", "packaging"}),
         (["tests/e2e/test_blog_site.py"], {"website", "tests"}),
-        (["AGENTS.md", "CONTRIBUTING.md"], set()),
+        (["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"], set()),
         (["deploy/helm/powercontext/templates/deployments.yaml"], {"helm"}),
         (["deploy/helm/powercontext/README.md"], {"helm"}),
         (["tests/test_helm_chart.py"], {"tests", "helm"}),
