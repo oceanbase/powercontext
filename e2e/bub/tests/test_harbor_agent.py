@@ -22,6 +22,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from powercontext_e2e.harbor_agent import (
+    ACP_RUNNER_SDK_REQUIREMENT,
     ACP_SDK_REQUIREMENT,
     BUB_ACP_SERVER_VERSION,
     REMOTE_BIN_DIR,
@@ -73,13 +74,17 @@ def test_acp_server_install_names_the_pre_release_sdk_and_keeps_the_harness_bub(
     }
 
 
-def test_runner_venv_is_pinned_to_the_sdk_the_acp_server_names() -> None:
-    # Harbor installs the SDK in its runner venv without a version, so a release that reorganizes the package can
-    # remove the symbols its own runner imports and every step ends before the agent starts.
+def test_runner_venv_is_pinned_to_the_last_sdk_release_with_the_runner_symbols() -> None:
+    # Harbor installs the SDK in its runner venv without a version, so the reorganized 1.x releases resolve there
+    # and the runner dies on ImportError before the agent starts. The runner pin must name a release that still
+    # exports the runner's symbols, which is not the pre-release the ACP server pins in its own environment.
     command = _pin_runner_acp_sdk_command()
 
-    assert f"pip install --disable-pip-version-check --no-input {ACP_SDK_REQUIREMENT}" in command
+    assert f"pip install --disable-pip-version-check --no-input {ACP_RUNNER_SDK_REQUIREMENT}" in command
+    assert ACP_SDK_REQUIREMENT not in command
     assert "'text_block'" in command
+    # The probe must fail the setup when a runner symbol is still missing, not merely print it.
+    assert "raise SystemExit(bool(missing))" in command
 
 
 def test_codex_plugin_accepts_the_server_url_the_harness_writes(monkeypatch, tmp_path: Path) -> None:

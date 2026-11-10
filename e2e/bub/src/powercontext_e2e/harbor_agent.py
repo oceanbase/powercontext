@@ -45,13 +45,18 @@ BUB_ACP_SERVER_VERSION = "0.1.3"
 # install must repeat the pin or it cannot resolve the server at all. A server release that pins another SDK version
 # conflicts with this requirement and fails to install.
 ACP_SDK_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
-# The runner venv reports the SDK it resolves and the symbols Harbor's acp_runner.py imports, so a mismatched
-# install shows up in the setup log rather than as a missing summary after the first step.
+# The runner venv is a separate interpreter from Bub's plugin environment, and Harbor's acp_runner.py imports the
+# helper symbols (text_block, spawn_agent_process) that the reorganized 1.x SDK no longer exports; 0.12.1 is the last
+# release that ships them. The runner pin therefore names that release, not the server's pre-release.
+ACP_RUNNER_SDK_REQUIREMENT = "agent-client-protocol==0.12.1"
+# The runner venv reports the SDK it resolves and fails the setup when a symbol Harbor's acp_runner.py imports is
+# missing, so a mismatched install surfaces here instead of as an ImportError in every step's acp.txt.
 _RUNNER_SDK_PROBE = (
     "import acp; from importlib.metadata import version; "
-    "print('acp-sdk', version('agent-client-protocol'), "
-    "[name for name in ('text_block', 'spawn_agent_process', 'RequestError', 'PROTOCOL_VERSION') "
-    "if hasattr(acp, name)])"
+    "missing = [name for name in ('text_block', 'spawn_agent_process', 'RequestError', 'PROTOCOL_VERSION') "
+    "if not hasattr(acp, name)]; "
+    "print('acp-sdk', version('agent-client-protocol'), 'missing:', missing); "
+    "raise SystemExit(bool(missing))"
 )
 STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 # Harbor uploads each step's tests to this directory before running the step's verifier and leaves them there.
@@ -210,15 +215,16 @@ def _pin_runner_acp_sdk_command() -> str:
     """Name the ACP SDK in Harbor's runner venv, whose own install leaves it unpinned.
 
     Harbor builds that venv with a bare ``pip install agent-client-protocol`` and then runs its ``acp_runner.py``
-    from it. A release that reorganizes the package turns the unpinned install into a runner that cannot import
-    what Harbor wrote against ``text_block``, and every step then ends with "No ACP summary file found" before the
-    agent starts. Pin the venv to the SDK the ACP server already pins, and print what the venv resolves so the
-    setup log identifies the version instead of leaving the failure to the first step.
+    from it. The 1.x releases reorganize the package and no longer export the helper symbols the runner imports,
+    so the unpinned install resolves to a runner that dies on ``ImportError: cannot import name 'text_block'``
+    and every step ends with "No ACP summary file found" before the agent starts. Pin the venv to the last
+    release that still ships those symbols, and let the probe exit non-zero when anything is still missing so the
+    failure surfaces in the setup log instead of in every step.
     """
 
     python = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin/python"
     return (
         "set -eu; "
-        f"{python} -m pip install --disable-pip-version-check --no-input {shlex.quote(ACP_SDK_REQUIREMENT)}; "
+        f"{python} -m pip install --disable-pip-version-check --no-input {shlex.quote(ACP_RUNNER_SDK_REQUIREMENT)}; "
         f"{python} -c {shlex.quote(_RUNNER_SDK_PROBE)}"
     )
