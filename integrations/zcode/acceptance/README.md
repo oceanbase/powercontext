@@ -37,6 +37,16 @@ To upgrade the supported host, change `ZCODE_REF` in the workflow to an exact re
 build requirements, and run the complete job. Keep the host pin and this guide consistent. Scheduled runs check the
 fixed host against current master and dependency availability; they do not silently adopt newer ZCode releases.
 
+Main's Python E2E jobs also run the real Server/SQLite service chain serially before their parallel tests:
+
+```sh
+uv run python -m pytest -n 0 tests/e2e/test_zcode_service_chain.py
+```
+
+Run this chain when changing Hook deadlines. Its prepare/capture fault responses must exceed the 3-second request
+limit, while Stop faults target its separate 800 ms network budget. It invokes Hook processes directly and complements
+the actual CLI acceptance below; neither suite substitutes for the other.
+
 ## Prerequisites
 
 - Install this checkout with its development dependencies and Server extras.
