@@ -1,0 +1,21 @@
+docs/en/rfcs/0000-rag-knowledge-base.md
+  s_13fec9a57c9104::t_bafc0fef98ff8c 1-319
+docs/zh/rfcs/0000-rag-knowledge-base.md
+  s_13fec9a57c9104::t_bafc0fef98ff8c 1-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3a43eaa4169c83f1f5afa4dde7f6ccb3b7fd9a4e",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
