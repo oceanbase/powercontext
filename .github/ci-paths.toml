@@ -173,7 +173,7 @@ suites = ["zcode"]
 
 [shared.node_cache]
 patterns = [".github/actions/cache-pnpm/**"]
-suites = ["tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw"]
+suites = ["tests", "desktop", "website", "dsh", "cindy", "pi", "opencode", "openclaw", "zcode"]
 
 [shared.docs_deploy]
 patterns = [".github/workflows/deploy-docs.yml"]

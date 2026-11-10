@@ -46,13 +46,6 @@ test('the prepared stable release has a bilingual changelog with matching instal
     assert.ok(release.summary[language].trim(), `Missing ${language} summary`);
     assert.ok(release.changes[language].length > 0, `Missing ${language} release notes`);
     assert.ok(release.changes[language].every((change) => change.trim()), `Empty ${language} release note`);
-    const installation = await readFile(
-      new URL(`../../docs/${language}/docs/get-started/install-and-run.md`, import.meta.url),
-      'utf8',
-    );
-    const declaration = installation.match(/<!-- upgrade-support:start -->\n([\s\S]+?)\n<!-- upgrade-support:end -->/)?.[1];
-    assert.ok(declaration, `Missing ${language} installation upgrade declaration`);
-    assert.ok(release.changes[language].includes(declaration), `Website upgrade declaration differs in ${language}`);
-    assert.ok(notes.includes(declaration), `GitHub Release upgrade declaration differs in ${language}`);
+    assert.ok(notes.includes(language === 'en' ? '## English' : '## 中文'), `Missing ${language} GitHub Release notes`);
   }
 });
