@@ -76,8 +76,6 @@ jobs:
           uv run --no-sync ruff format --check scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
           uv run --no-sync ty check scripts/prepare_managed_resources.py scripts/produce_managed_resources.py scripts/ci_managed_resource_smoke.py scripts/build_intel_managed_wheel.py tests/test_managed_resource_producer.py
       - name: Acquire pinned interpreter and freeze native wheel closure
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           uv run --no-sync python scripts/prepare_managed_resources.py --target "$RESOURCE_TARGET" --source-ref "$PACKAGE_SOURCE_SHA" --server-version "$PACKAGE_VERSION" --output build/resource-inputs --download-cache build/resource-downloads
           uv run --no-sync python - <<'PY'

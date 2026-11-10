@@ -20,7 +20,7 @@ categories:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: api-contract-continuation
-  checksum: 7a995cb29a78ab2063deb2bad2aed764702f4a4e0b0a022a1f5548c42da61184
+  checksum: 2c3f4a3f951509d86c6d8da6eae6005335aece25d6610f0e4c794e0ebc7a2e22
 execution:
   type: bub
   model: true

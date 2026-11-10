@@ -13,7 +13,5 @@
 # limitations under the License.
 
 FROM python:3.12-slim-bookworm
-
-COPY --from=docker.io/astral/uv:0.10.12 /uv /uvx /usr/local/bin/
 WORKDIR /workspace
 RUN printf '# Ledger service\n\nSettlements are posted once the invoice is aproved.\n' > /workspace/README.md

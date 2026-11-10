@@ -22,7 +22,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from powercontext_e2e.harbor_agent import (
-    ACP_SERVER_REQUIREMENT,
+    ACP_SDK_REQUIREMENT,
     BUB_ACP_SERVER_VERSION,
     REMOTE_BIN_DIR,
     REMOTE_SOURCE_OVERRIDE,
@@ -67,7 +67,7 @@ def test_acp_server_install_names_the_pre_release_sdk_and_keeps_the_harness_bub(
     assert command[install_index] == "install"
     assert set(command[install_index + 1 :]) == {
         f"bub-acp-server=={BUB_ACP_SERVER_VERSION}",
-        ACP_SERVER_REQUIREMENT,
+        ACP_SDK_REQUIREMENT,
         f"bub[app]=={version('bub')}",
     }
 

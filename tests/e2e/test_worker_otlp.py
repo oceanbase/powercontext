@@ -306,24 +306,14 @@ def test_builtin_spawned_worker_exports_model_and_execution_spans_to_otlp(
                 )
                 if timeout:
                     assert outcomes["powercontext.operation.outcome"] == "failure"
-                    # Spans finish before the supervisor reaps the worker and publishes
-                    # its failure state. Wait for this execution within the original deadline.
-                    while True:
-                        stats = client.post(
-                            "/v1/stats",
-                            json={"selection": {"mode": "exact", "scope_ids": [scope]}, "include_processing": True},
-                        )
-                        assert stats.status_code == 200
-                        failed = next(
-                            row for row in stats.json()["by_scope"][0]["processing"] if row["family"] == family
-                        )
-                        if (
-                            failed["last_error_worker_id"] and failed["last_error_trace_id"] == execution.trace_id.hex()
-                        ) or time.monotonic() >= deadline:
-                            break
-                        time.sleep(min(0.05, max(0, deadline - time.monotonic())))
-                    assert failed["last_error_worker_id"], failed
-                    assert failed["last_error_trace_id"] == execution.trace_id.hex(), failed
+                    stats = client.post(
+                        "/v1/stats",
+                        json={"selection": {"mode": "exact", "scope_ids": [scope]}, "include_processing": True},
+                    )
+                    assert stats.status_code == 200
+                    failed = next(row for row in stats.json()["by_scope"][0]["processing"] if row["family"] == family)
+                    assert failed["last_error_worker_id"]
+                    assert failed["last_error_trace_id"] == execution.trace_id.hex()
                     assert outcomes["powercontext.error.category"] == "timeout"
                 else:
                     assert outcomes["powercontext.operation.outcome"] == "success", [

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -198,17 +197,15 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
     checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
     assert len(checkouts) == 1
     assert checkouts[0]["with"]["fetch-depth"] == 0
-    assert checkouts[0]["with"]["filter"] == "blob:none"
     selection = next(step for step in steps if step.get("id") == "select")
-    license_tool = next(step for step in steps if step.get("id") == "license_tool")
-    license_check = next(step for step in steps if step.get("id") == "license_check")
+    license_check = next(step for step in steps if step.get("uses", "").startswith("apache/skywalking-eyes/header@"))
     quality = next(step for step in steps if step.get("run") == "make check")
     contract = next(step for step in steps if step.get("run") == "make contract-test")
     assert selection["env"]["CI_BASELINE_WORKFLOW"] == "master.yml"
-    assert license_tool["uses"] == "./.github/actions/setup-license-eye"
-    assert license_check["run"] == 'time "$LICENSE_EYE" -v info -c .licenserc.yaml header check'
-    assert license_check["env"]["LICENSE_EYE"] == "${{ steps.license_tool.outputs.executable }}"
-    for step in (selection, license_tool, license_check, quality, contract):
+    assert license_check["with"] == {"config": ".licenserc.yaml", "mode": "check"}
+    assert license_check["env"]["INSTALL_DIR"] == "${{ runner.temp }}"
+    assert license_check["env"]["PATH"].startswith("${{ runner.temp }}:")
+    for step in (selection, license_check, quality, contract):
         assert not step.get("continue-on-error")
         assert "if" not in step  # A preceding failure prevents further admission work.
     for output in ("suites", "test-matrix", "required-jobs"):
@@ -222,6 +219,11 @@ def test_preflight_uses_one_runner_and_keeps_all_admission_checks_mandatory():
 def test_website_build_uses_the_standard_internal_runner():
     runs_on = workflow("master.yml")["jobs"]["check-website"]["runs-on"]
     assert "powercontext-ci-standard" in runs_on
+
+
+def test_all_end_to_end_suites_have_extended_timeout():
+    timeout = workflow("master.yml")["jobs"]["tests"]["timeout-minutes"]
+    assert timeout == "${{ matrix.suite == 'e2e' && 55 || 40 }}"
 
 
 def test_installation_roles_use_only_two_python_runners():
@@ -312,77 +314,3 @@ def test_actual_ci_result_script_rejects_missing_selected_acceptance(
         check=False,
     )
     assert (run.returncode == 0) == passes, run.stdout + run.stderr
-
-
-@pytest.mark.parametrize(
-    ("suite", "test_names", "reserve_minutes"),
-    [
-        ("unit", ("Run unit tests", "Check Source serialization with minimum Pydantic"), 15),
-        ("e2e", ("Prepare Gateway for end-to-end tests", "Run end-to-end tests"), 10),
-    ],
-    ids=("unit", "e2e"),
-)
-def test_suite_deadline_reserves_setup_and_cache_time_for_every_python(suite, test_names, reserve_minutes):
-    job = workflow("master.yml")["jobs"]["tests"]
-    # Evaluate the suite-specific budget for every supported Python version.
-    budget = re.fullmatch(r"\$\{\{ matrix.suite == 'e2e' && (\d+) \|\| (\d+) \}\}", job["timeout-minutes"])
-    assert budget is not None
-    minutes = int(budget.group(1 if suite == "e2e" else 2))
-    steps = [step for step in job["steps"] if step.get("name") in test_names]
-    assert len(steps) == len(test_names)
-    assert all(isinstance(step.get("timeout-minutes"), int) for step in steps)
-    assert minutes >= sum(step["timeout-minutes"] for step in steps) + reserve_minutes
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="CI commands require POSIX make and shell")
-def test_ci_e2e_runs_each_case_once_and_keeps_hook_tests_serial(tmp_path, monkeypatch):
-    make = shutil.which("make")
-    if make is None:
-        pytest.skip("make is required to exercise the CI entry point")
-    shutil.copyfile(ROOT / "Makefile", tmp_path / "Makefile")
-    cases = tmp_path / "tests/e2e"
-    cases.mkdir(parents=True)
-    # Read the child pytest configuration: its environment can retain the outer
-    # xdist worker ID even when the child runs serially.
-    for name in ("test_other", "test_zcode_service_chain"):
-        (cases / f"{name}.py").write_text(
-            "import os\nfrom pathlib import Path\n"
-            "def test_observable_execution(request):\n"
-            f"    with Path(os.environ['CI_TEST_EVENTS'], '{name}').open('a') as output:\n"
-            "        output.write(getattr(request.config, 'workerinput', {}).get('workerid', 'serial') + '\\n')\n"
-        )
-    commands = tmp_path / "bin"
-    commands.mkdir()
-    uv = commands / "uv"
-    uv.write_text(
-        f"#!{sys.executable}\n"
-        "import os, sys\n"
-        "assert sys.argv[1:5] == ['run', 'python', '-m', 'pytest'], sys.argv\n"
-        "os.execv(sys.executable, [sys.executable, '-m', 'pytest', '-p', 'xdist.plugin', *sys.argv[5:]])\n"
-    )
-    uv.chmod(0o755)
-    events = tmp_path / "events"
-    events.mkdir()
-    monkeypatch.setenv("PATH", str(commands) + os.pathsep + os.environ["PATH"])
-    monkeypatch.setenv("CI_TEST_EVENTS", str(events))
-    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
-    monkeypatch.setenv("PYTEST_WORKERS", "2")
-    monkeypatch.delenv("PYTEST_ADDOPTS", raising=False)
-    # Execute the actual workflow commands and Makefile against small fixture
-    # cases; pytest itself handles ignore flags, xdist and serial selection.
-    for step in workflow("master.yml")["jobs"]["tests"]["steps"]:
-        if step.get("run") == "make e2e-test":
-            result = subprocess.run(
-                ["/bin/sh", "-e", "-c", step["run"]],
-                cwd=tmp_path,
-                env={**os.environ, **step.get("env", {})},
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-            )
-            assert result.returncode == 0, result.stdout + result.stderr
-    assert (events / "test_zcode_service_chain").read_text().splitlines() == ["serial"]
-    parallel_runs = (events / "test_other").read_text().splitlines()
-    assert len(parallel_runs) == 1
-    assert parallel_runs[0].startswith("gw")

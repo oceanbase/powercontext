@@ -21,7 +21,7 @@ categories:
 dataset:
   path: e2e/bub/harbor-tasks
   task_id: failure-policy-timeout
-  checksum: c70beb51f0f122332124bebc1ee20bf02322e37d39c7edbeda97bfbf1fdb7e96
+  checksum: d0f01c9a9f1b331ff3904ddc864c4aa5ec673fa2179d9947b853827fb54714d4
 execution:
   type: bub
   model: false

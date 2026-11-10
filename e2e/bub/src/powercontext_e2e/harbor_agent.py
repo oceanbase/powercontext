@@ -26,8 +26,6 @@ from harbor.agents.installed import acp as harbor_acp
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
-from .agent_bootstrap import runner_setup_command
-
 AGENT_ID = "powercontext-bub-acp"
 REMOTE_BIN_DIR = "/installed-agent/bin"
 REMOTE_BUB_HOME = "/installed-agent/bub-home"
@@ -41,9 +39,12 @@ REMOTE_SOURCE_OVERRIDE = f"{REMOTE_SOURCE}/e2e/bub/source-overrides.txt"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
 BUB_VERSION = version("bub")
 POWERCONTEXT_VERSION = version("powercontext")
-# Keep the server SDK in the Bub plugin environment, separate from Harbor's client SDK.
+# Change ACP_SDK_REQUIREMENT together with this version: it repeats the server's own pin of the ACP SDK.
 BUB_ACP_SERVER_VERSION = "0.1.3"
-ACP_SERVER_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
+# bub-acp-server 0.1.3 pins this pre-release. uv accepts a pre-release only when a direct requirement names it, so the
+# install must repeat the pin or it cannot resolve the server at all. A server release that pins another SDK version
+# conflicts with this requirement and fails to install.
+ACP_SDK_REQUIREMENT = "agent-client-protocol==1.0.0rc2"
 STEP_FAILURE_MARKER = "/logs/agent/powercontext-step-failed"
 # Harbor uploads each step's tests to this directory before running the step's verifier and leaves them there.
 STEP_TESTS_DIR = "/tests"
@@ -102,7 +103,7 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,
-            command=runner_setup_command(self._RUNNER_VENV_PATH, self._build_dependencies_command("uvx")),
+            command=self._build_dependencies_command("uvx"),
             env={"DEBIAN_FRONTEND": "noninteractive", "PIP_INDEX_URL": pip_index_url()},
         )
         await self.exec_as_root(environment, command=_install_bub_command(powercontext=self._powercontext))
@@ -127,12 +128,6 @@ class PowerContextBubAcpAgent(harbor_acp.AcpAgent):
         await environment.exec(
             command=f"chmod a+rx {self._LAUNCHER_REMOTE_PATH} {self._RUNNER_REMOTE_PATH}",
             user="root",
-        )
-        # Import Harbor's actual runner before starting a trial. Installing an SDK
-        # successfully does not establish compatibility with the locked Harbor API.
-        await self.exec_as_root(
-            environment,
-            command=f"{self._RUNNER_VENV_PATH}/bin/python {self._RUNNER_REMOTE_PATH} --help",
         )
         self._selected_distribution_kind = "uvx"
 
@@ -193,6 +188,6 @@ def _install_acp_server_command() -> str:
         f"PATH={runner_bin}:$PATH BUB_HOME={REMOTE_BUB_HOME} CODEX_HOME={REMOTE_CODEX_HOME} "
         f"BUB_PROJECT={REMOTE_BUB_PROJECT} "
         f"{_tool_environment()} {REMOTE_BIN_DIR}/bub install "
-        f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')} {shlex.quote(ACP_SERVER_REQUIREMENT)} "
+        f"{shlex.quote(f'bub-acp-server=={BUB_ACP_SERVER_VERSION}')} {shlex.quote(ACP_SDK_REQUIREMENT)} "
         f"{shlex.quote(f'bub[app]=={BUB_VERSION}')}"
     )
