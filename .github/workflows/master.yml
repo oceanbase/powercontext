@@ -1191,6 +1191,7 @@ jobs:
       # Windows and macOS are the required managed-resource platforms. Linux
       # qualification runs in a separate optional caller below.
       targets: '["windows-x86_64","macos-arm64","macos-x86_64"]'
+      concurrency_suffix: required
 
   managed-resource-candidates-linux:
     needs: [quality, tests]
@@ -1204,6 +1205,7 @@ jobs:
       # Linux is optional under #2112. Its diagnostics and artifacts remain
       # visible, but it is deliberately outside the required result gate.
       targets: '["linux-x86_64"]'
+      concurrency_suffix: linux
 
   script-installation:
     needs: [quality, tests]

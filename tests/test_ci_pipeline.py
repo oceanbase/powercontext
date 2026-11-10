@@ -278,6 +278,8 @@ def test_managed_resource_linux_is_outside_required_main_result_gate():
     optional = main["managed-resource-candidates-linux"]
     assert required["with"]["targets"] == '["windows-x86_64","macos-arm64","macos-x86_64"]'
     assert optional["with"]["targets"] == '["linux-x86_64"]'
+    assert required["with"]["concurrency_suffix"] == "required"
+    assert optional["with"]["concurrency_suffix"] == "linux"
     assert "managed-resource-candidates-linux" not in main["ci-result"]["needs"]
     assert main["ci-result"]["needs"].count("managed-resource-candidates") == 1
 
@@ -287,6 +289,7 @@ def test_managed_resource_workflow_filters_called_targets():
     candidate = jobs["candidate"]
     assert "matrix.target" not in candidate["if"]
     assert "inputs.targets" in jobs["select-targets"]["steps"][0]["env"]["TARGETS"]
+    assert "inputs.concurrency_suffix" in workflow("managed-resource-candidates.yml")["concurrency"]["group"]
 
 
 def test_ci_result_ignores_only_the_separate_optional_linux_call():

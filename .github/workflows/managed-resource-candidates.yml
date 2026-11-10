@@ -12,14 +12,25 @@ on:
         required: false
         type: string
         default: ''
+      concurrency_suffix:
+        description: Suffix that isolates independent callers of this reusable workflow
+        required: false
+        type: string
+        default: default
   workflow_dispatch:
+    inputs:
+      concurrency_suffix:
+        description: Suffix that isolates this manual run from other callers
+        required: false
+        type: string
+        default: manual
 
 permissions:
   actions: read
   contents: read
 
 concurrency:
-  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  group: managed-resource-candidates-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}-${{ inputs.concurrency_suffix || 'default' }}
   cancel-in-progress: true
 
 jobs:
