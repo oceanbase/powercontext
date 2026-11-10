@@ -2676,3 +2676,46 @@ installed-platform acceptance remain separate requirements.
 连接模式均通过。原生协议模块和业务断言保持不变；本机验收将 Server 启动就绪等待设为 60 秒，
 不代表默认启动预算通过，也不构成启动性能承诺。该记录不替代安装后 GUI、原生凭据持久化、
 Windows／macOS、数据库升级、签名或正式发行验收。
+
+## Server df79da6b memory idempotency protocol qualification
+
+`sqlite-memory-idempotency-df79da6b-v1` qualifies all thirteen bundled Desktop protocol operations
+against Server source `df79da6b74cd146980154732272da44bf028469f`, whose contract adds the optional
+`idempotency_key` to `remember_memory`. The 63 earlier qualification records retain their original
+identities and evidence.
+
+- Normalized OpenAPI SHA-256: `e0e147b69008320adfe9d8d46183fa73b3f3ede6f815205fdf51b920438e14d7`.
+- Wheel: `powercontext-1.5.2.dev10+gdf79da6b7-py3-none-any.whl`.
+- Wheel SHA-256: `58ab4068f0267a876d00a7513869f959546eb749fe8a534d554da6c1f9a5b49b`.
+- Native debug probe SHA-256: `508fdd4ba4470f9913937afc627dad9574f6d76129cf20c48e2afa80e8c88b3c`.
+
+The wheel was built from a clean checkout of that commit. All 751 packaged runtime files match
+the exact Git source archive after CRLF normalization, with no missing or extra runtime files.
+The wheel uses the actual VCS development version; it is not a tagged stable artifact. The
+qualification follow-up changes only this record and its catalog entry.
+
+On 2026-11-11, Linux x86_64 (kernel 6.5.0, glibc 2.36, Debian 12 container), Python 3.11.2 and
+Rust 1.95.0 passed anonymous loopback, static Bearer, HTTPS with an explicit CA/base path, and
+enforced authentication Provider modes against independent real HTTP/SQLite Servers.
+`python desktop/tests/real_server.py --product-qualification sqlite-memory-idempotency-df79da6b-v1`
+reported `bundled product records` with the matching wheel and contract digests. The unchanged
+`server_probe` example was built from the product crate with `cargo build --locked` and the
+repository harness ran with its default startup budget. Every mode kept the Server alive after
+the client exited and reported a committed write with a lost response as unknown without replay.
+The Provider mode also covered Principal changes, revocation, scoped authorization without Server
+observation permission, and same-title Scope pagination. `cargo test --locked --test session`
+passed 9 tests, including bundled product coverage of every Desktop operation.
+
+Python dependencies were installed from the versions and hashes in `uv.lock` through a package
+mirror, and the wheel was built with `python -m build`; the run did not use `uv sync` or `uv build`.
+The probe does not send `idempotency_key`; keyed replay and conflict behavior is covered by
+`tests/e2e/test_remember_memory_idempotency.py`.
+
+This record does not qualify the installed WebView, credential persistence, Windows/macOS,
+native database upgrades, signing, or stable release publication. The full Tauri build and
+installed-platform acceptance remain separate requirements.
+
+本记录绑定上述精确源码、契约和 wheel，751 个运行时文件与源码归档一致，四种真实 HTTP／SQLite
+连接模式均以测试工具的默认启动预算通过，原生协议模块和业务断言保持不变。探针不发送
+`idempotency_key`，带键重放与冲突行为由 `tests/e2e/test_remember_memory_idempotency.py` 覆盖。
+该记录不替代安装后 GUI、原生凭据持久化、Windows／macOS、数据库升级、签名或正式发行验收。
