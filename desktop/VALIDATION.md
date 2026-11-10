@@ -1,5 +1,41 @@
 # Desktop validation
 
+## Server 5fb2b2d1 Gateway contract qualification
+
+`sqlite-gateway-5fb2b2d1-v1` qualifies the thirteen generated Desktop operations against
+SQLite Server source `5fb2b2d149dee376adb1bb09b73bb3d6f015b192`, including the Gateway
+lifecycle schemas and the v1.5.1 API additions.
+
+- Normalized OpenAPI SHA-256: `d2c3b84ad4e6206bd911acf5d2652dcaa881a6039c217dcd7f066ffc12fb1a72`.
+- Wheel: `powercontext-1.5.2.dev0+g5fb2b2d1-py3-none-any.whl`.
+- Wheel SHA-256: `6e8f523146999243404d71e96b735a597dc9e5d64e081fed6778bda5e389ece2`.
+
+All 750 packaged runtime files match that exact Git archive after CRLF normalization.
+The wheel was built from the archive with an explicit development version. Historical
+qualification records retain their original source, contract, artifact and operation identities.
+
+On 2026-11-10, Linux x86_64 / WSL2 / Python 3.14.4 / Rust 1.97.1 passed anonymous
+loopback, static Bearer, HTTPS with explicit CA/base path, and enforced Provider modes
+through the native `server_probe` and ordinary product `ConnectionManager`.
+The harness selected the bundled product record and verified the actual wheel hash before
+starting isolated real Python Server processes. All four modes preserve committed-write
+response loss as unknown without replay and leave the Server alive after client exit.
+The Provider mode additionally passes identity-change invalidation, same-identity revocation,
+51-Scope pagination, and scoped native authorization when Server discovery is denied.
+These checks establish local native protocol behavior; installed GUI, system credentials,
+Windows/macOS, external providers, and production deployment require separate acceptance.
+
+```sh
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-gateway-5fb2b2d1-v1 \
+  --wheel desktop/.artifacts/server-5fb2b2d1/powercontext-1.5.2.dev0+g5fb2b2d1-py3-none-any.whl
+```
+
+The wheel, aggregate report, and source-equivalence report are retained under ignored
+`desktop/.artifacts/server-5fb2b2d1/`. Per-mode process artifacts remain under ignored
+`desktop/.artifacts/real-server-*/`.
+
 ## Server 58dda714 Gateway contract qualification
 
 `sqlite-gateway-58dda714-v1` qualifies the thirteen generated Desktop operations against
