@@ -29,10 +29,12 @@ from pydantic_ai.exceptions import UserError
 
 from powercontext.builtin.inference import gemini_cli
 from powercontext.builtin.inference.claude_cli import ClaudeCliModel
+from powercontext.builtin.inference.errors import InvalidInferenceOutputError
 from powercontext.builtin.inference.pydantic_ai import (
     InferenceLimits,
     PydanticAIStructuredGenerator,
 )
+from powercontext.builtin.processing_diagnostics import ProcessingFailureReason, classify_processing_error
 from powercontext.builtin.runtime.composition import _open_pydantic_ai_model
 
 
@@ -50,7 +52,7 @@ async def _generate(model) -> _Output:
         instructions="Extract the value as JSON",
         input_type=_Input,
         output_type=_Output,
-        limits=InferenceLimits(timeout_seconds=10, max_requests=1),
+        limits=InferenceLimits(timeout_seconds=10, max_requests=1, allow_continuations=False),
     )
     result = await generator.generate(_Input(text="synthetic-input"))
     return result.output
@@ -129,7 +131,9 @@ with Path({str(record)!r}).open("a") as handle:
 if sys.argv[1:] == ["auth", "status"]:
     print(json.dumps({{"authMethod":os.getenv("SYNTHETIC_CLAUDE_AUTH", "claude.ai")}}))
 else:
-    print(json.dumps({{"is_error":False,"result":'{{"value":"synthetic-output"}}',"usage":{{"input_tokens":2,"output_tokens":3}}}}))
+    print(json.dumps({{"is_error":False,"result":'{{"value":"synthetic-output"}}',
+        "stop_reason":os.getenv("SYNTHETIC_CLAUDE_STOP_REASON", "end_turn"),
+        "usage":{{"input_tokens":2,"output_tokens":3}}}}))
 """)
     executable.chmod(0o700)
     for key in (
@@ -146,8 +150,12 @@ else:
     return executable, record
 
 
-def test_claude_cli_real_process_is_consumed_by_structured_generator(claude_executable) -> None:
+@pytest.mark.parametrize("stop_reason", ["end_turn", "max_tokens", "model_context_window_exceeded"])
+def test_claude_cli_real_process_is_consumed_by_structured_generator(
+    claude_executable, monkeypatch, stop_reason
+) -> None:
     _, record = claude_executable
+    monkeypatch.setenv("SYNTHETIC_CLAUDE_STOP_REASON", stop_reason)
 
     async def run() -> None:
         async with AsyncExitStack() as resources:
@@ -158,7 +166,15 @@ def test_claude_cli_real_process_is_consumed_by_structured_generator(claude_exec
                 resources=resources,
                 instrumentation=None,
             )
-            assert await _generate(model) == _Output(value="synthetic-output")
+            if stop_reason == "end_turn":
+                assert await _generate(model) == _Output(value="synthetic-output")
+            else:
+                with pytest.raises(InvalidInferenceOutputError) as error:
+                    await _generate(model)
+                diagnostics = classify_processing_error(error.value)
+                assert diagnostics is not None
+                assert diagnostics.reason is ProcessingFailureReason.OUTPUT_TRUNCATED
+                assert diagnostics.finish_reason == "length"
 
     asyncio.run(run())
     calls = [json.loads(line) for line in record.read_text().splitlines()]

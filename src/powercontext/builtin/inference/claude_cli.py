@@ -132,6 +132,11 @@ class ClaudeCliModel(Model):
         if result.get("is_error") or not isinstance(result.get("result"), str):
             message = "Claude CLI did not complete a text response"
             raise UserError(message)
+        stop_reason = result.get("stop_reason")
+        truncated = stop_reason in ("max_tokens", "model_context_window_exceeded")
+        if not truncated and stop_reason not in (None, "end_turn", "stop_sequence"):
+            message = "Claude CLI did not finish a text response"
+            raise UserError(message)
         usage = result.get("usage") or {}
         return ModelResponse(
             parts=[TextPart(result["result"])],
@@ -146,7 +151,9 @@ class ClaudeCliModel(Model):
                 cache_read_tokens=usage.get("cache_read_input_tokens", 0),
                 cache_write_tokens=usage.get("cache_creation_input_tokens", 0),
             ),
-            finish_reason="stop",
+            finish_reason="length" if truncated else "stop",
+            state="interrupted" if truncated else "complete",
+            provider_details={"finish_reason": stop_reason} if stop_reason is not None else None,
         )
 
     @staticmethod
