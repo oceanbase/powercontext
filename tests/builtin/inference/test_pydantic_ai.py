@@ -1049,14 +1049,15 @@ def test_embedding_adapter_classifies_a_provider_context_limit_without_leaking_t
     asyncio.run(scenario())
 
 
-def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output() -> None:
+@pytest.mark.parametrize("state", ["complete", "incomplete", "interrupted"])
+def test_structured_generator_classifies_a_length_finish_reason_as_truncated_output(state) -> None:
     async def truncated(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         del messages, info
         return ModelResponse(
-            parts=[TextPart("partial")],
+            parts=[TextPart('{"value":"partial"}')],
             provider_response_id="req-truncated",
             finish_reason="length",
-            state="incomplete",
+            state=state,
         )
 
     async def scenario() -> None:
