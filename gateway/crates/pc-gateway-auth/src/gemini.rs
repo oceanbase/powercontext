@@ -1,21 +1,45 @@
 // Copyright (c) 2026 OceanBase.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
+use crate::{
+    http::{self, bearer},
+    store::{read_store, text, STORE_LIMIT},
+    AuthError,
+};
+use serde_json::Value;
+use std::path::Path;
 
-impl SubscriptionAuth {
-    /// Existing, onboarded Gemini CLI account. The CLI retains renewal and onboarding ownership.
-    /// Resolve a project with the same token used for inference; never combine two file versions.
-    pub async fn gemini_context(
+pub(super) const CHAT_TARGET: &str =
+    "https://cloudcode-pa.googleapis.com/v1internal:generateContent";
+
+pub(super) fn validate_target(target: &str) -> Result<(), AuthError> {
+    http::validate_target(target, &[CHAT_TARGET])
+}
+
+pub(super) struct Gemini {
+    pub(super) codeassist_url: String,
+    pub(super) codeassist_project: Option<String>,
+}
+
+impl Gemini {
+    pub(super) fn new() -> Self {
+        Self {
+            codeassist_url: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist".into(),
+            codeassist_project: std::env::var("GOOGLE_CLOUD_PROJECT")
+                .or_else(|_| std::env::var("GOOGLE_CLOUD_PROJECT_ID"))
+                .ok(),
+        }
+    }
+
+    // Resolve a project with the same read-only CLI token used for inference.
+    // Renewal and onboarding remain owned by the CLI.
+    pub(super) async fn context(
         &self,
-        target: &str,
+        path: &Path,
+        client: &reqwest::Client,
         now: i64,
     ) -> Result<(Vec<(String, String)>, String), AuthError> {
-        if self.kind != Subscription::Gemini {
-            return Err(AuthError::Configuration);
-        }
-        self.kind.validate_target(target)?;
-        let data = read_store(&self.path)?;
+        let data = read_store(path)?;
         let token = text(&data, "access_token")?;
         if data
             .get("type")
@@ -35,8 +59,7 @@ impl SubscriptionAuth {
                 concat!("PowerContextGateway/", env!("CARGO_PKG_VERSION")).into(),
             ),
         ];
-        let response = self
-            .client
+        let response = client
             .post(&self.codeassist_url)
             .header("authorization", &headers[0].1)
             .json(&serde_json::json!({

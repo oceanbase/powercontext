@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
+use crate::store::{expiry, lock_file, read_store, write_store};
 use axum::{
     body::Bytes,
     extract::State,
@@ -10,12 +11,56 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde_json::json;
+use oauth2::{DeviceAuthorizationUrl, TokenUrl};
+use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, VecDeque},
     future::Future,
+    io::Write,
+    path::Path,
     sync::{Arc, Mutex},
+    time::Duration,
 };
+
+impl SubscriptionAuth {
+    fn token_peer(&mut self, endpoint: String) {
+        match &mut self.provider {
+            Provider::Grok(provider) => provider.token_url = endpoint,
+            Provider::Copilot(provider) => provider.session_url = endpoint,
+            Provider::Qwen(provider) => {
+                provider.oauth = provider
+                    .oauth
+                    .clone()
+                    .set_token_uri(TokenUrl::new(endpoint).unwrap())
+            }
+            Provider::Kimi(provider) => {
+                provider.oauth = provider
+                    .oauth
+                    .clone()
+                    .set_token_uri(TokenUrl::new(endpoint).unwrap())
+            }
+            _ => {}
+        }
+    }
+
+    fn device_peer(&mut self, endpoint: String) {
+        match &mut self.provider {
+            Provider::Qwen(provider) => {
+                provider.oauth = provider
+                    .oauth
+                    .clone()
+                    .set_device_authorization_url(DeviceAuthorizationUrl::new(endpoint).unwrap())
+            }
+            Provider::Kimi(provider) => {
+                provider.oauth = provider
+                    .oauth
+                    .clone()
+                    .set_device_authorization_url(DeviceAuthorizationUrl::new(endpoint).unwrap())
+            }
+            _ => unreachable!("device fixture requires a managed grant"),
+        }
+    }
+}
 
 #[derive(Default)]
 struct Peer {
@@ -183,7 +228,7 @@ impl Server {
         let mut auth = SubscriptionAuth::new(kind, path.into()).unwrap();
         // Tests replace only the fixed token peer. Original resource URLs still pass the
         // production destination validator before any file or HTTP operation.
-        auth.token_url = format!("{}/token", self.base);
+        auth.token_peer(format!("{}/token", self.base));
         auth.client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -330,10 +375,13 @@ async fn scenario_case(contract: &Value, scenario: &Value) {
                 task.abort();
                 assert!(task.await.unwrap_err().is_cancelled());
                 server.peer.release_token.notify_one();
-                let lock = tokio::time::timeout(Duration::from_secs(1), lock_store(&path))
-                    .await
-                    .unwrap()
-                    .unwrap();
+                let lock = tokio::time::timeout(
+                    Duration::from_secs(1),
+                    lock_file(&path.with_file_name("auth.json.lock")),
+                )
+                .await
+                .unwrap()
+                .unwrap();
                 drop(lock);
                 // A late token response cannot resume a cancelled future and overwrite the file.
                 tokio::time::sleep(Duration::from_millis(30)).await;
@@ -419,7 +467,7 @@ fn oauth_process_worker() {
         .unwrap();
     runtime.block_on(async {
         let mut auth = SubscriptionAuth::new(Subscription::Grok, path.into()).unwrap();
-        auth.token_url = endpoint;
+        auth.token_peer(endpoint);
         auth.client = reqwest::Client::builder().no_proxy().build().unwrap();
         let headers = auth
             .headers("https://api.x.ai/v1/responses", 2_000_000_000)
@@ -495,7 +543,7 @@ async fn managed_device_login_then_refresh_and_readback() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gateway.json");
         let mut auth = server.auth(kind, &path);
-        auth.device_url = format!("{}/device", server.base);
+        auth.device_peer(format!("{}/device", server.base));
         tokio::time::timeout(
             Duration::from_secs(5),
             auth.login_device(|uri, code| {
@@ -573,7 +621,7 @@ async fn copilot_session_exchange_cache_and_credential_reload() {
     let path = directory.path().join("github.json");
     let initial = replace(&path, &json!({"oauth_token":"github-one"}));
     let mut auth = server.auth(Subscription::Copilot, &path);
-    auth.token_url = format!("{}/copilot-token", server.base);
+    auth.token_peer(format!("{}/copilot-token", server.base));
     let url = "https://api.githubcopilot.com/chat/completions";
     let (first, second) = tokio::join!(auth.headers(url, 0), auth.headers(url, 0));
     for result in [first, second] {
@@ -606,7 +654,7 @@ async fn copilot_refuses_untrusted_session_endpoint_before_inference() {
     let path = directory.path().join("github.json");
     replace(&path, &json!({"oauth_token":"github-one"}));
     let mut auth = server.auth(Subscription::Copilot, &path);
-    auth.token_url = format!("{}/copilot-token", server.base);
+    auth.token_peer(format!("{}/copilot-token", server.base));
     assert!(matches!(
         auth.headers("https://api.githubcopilot.com/chat/completions", 0)
             .await,
@@ -627,8 +675,11 @@ async fn gemini_cli_uses_one_read_only_login_for_project_discovery_and_inference
     let mut credentials = json!({"access_token":"google-access","refresh_token":"never-exchange-cli-refresh", "expiry_date":2_000_003_600_000i64});
     let original = replace(&path, &credentials);
     let mut auth = server.auth(Subscription::Gemini, &path);
-    auth.codeassist_url = format!("{}/load", server.base);
-    auth.codeassist_project = None;
+    let Provider::Gemini(provider) = &mut auth.provider else {
+        unreachable!()
+    };
+    provider.codeassist_url = format!("{}/load", server.base);
+    provider.codeassist_project = None;
     let target = "https://cloudcode-pa.googleapis.com/v1internal:generateContent";
     let (headers, project) = auth.gemini_context(target, 2_000_000_000).await.unwrap();
     assert_eq!(project, "project-123");
@@ -702,7 +753,7 @@ async fn shared_upstream_qwen_and_kimi_rotation_vectors() {
         if key == "qwen" {
             *server.peer.device_reply.lock().unwrap() = vector["malformed_device"].clone();
             let mut auth = server.auth(kind, &directory.path().join("new-login.json"));
-            auth.device_url = format!("{}/device", server.base);
+            auth.device_peer(format!("{}/device", server.base));
             assert!(auth
                 .login_device(|_, _| panic!("malformed device response was presented"))
                 .await

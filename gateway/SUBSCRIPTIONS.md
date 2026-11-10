@@ -76,6 +76,11 @@ Core 必须批准对应 `PC_GATEWAY_UPSTREAM_PROFILE`。认证及固定产品元
 401、403、429、5xx 和请求送达不确定都不会触发认证层自动重放模型请求。
 标准 OAuth 兑换和设备码轮询由 `oauth2` 5.x 执行；Copilot 的 GitHub session 交换是单独的非标准接口。
 
+`pc-gateway-auth` 的各 provider 模块维护自己的目标、SDK 配置、身份字段及凭据解释；入口只分发操作。
+HTTP 安全约束、文件锁和原子落盘共享；Qwen/Kimi 仅共享相同所有权与刷新契约的凭据流程。
+协议层的 Grok、Codex、Gemini、Claude 适配分别维护，Codex/Kimi 共用标准 Responses 终态累积；
+Claude 子进程及取消回收由传输层的 Claude 模块维护。公开入口和已有凭据格式保持兼容。
+
 Gemini 的 Core profile 使用 `protocol=google-codeassist-chat`、实际 Code Assist endpoint 和模型；
 最终预算位于 `request.generationConfig.maxOutputTokens`，由 Chat 的 `max_tokens` 或
 `max_completion_tokens` 转换。响应转换在 `before_release` 之前完成。文本、普通函数工具及工具回传可转换；

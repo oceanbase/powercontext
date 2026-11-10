@@ -123,33 +123,9 @@ async fn main() {
         std::process::exit(2);
     });
     let subscription_kind = subscription.as_ref().map(|auth| auth.kind());
-    let (default_chat, default_responses) = match subscription_kind {
-        Some(pc_gateway_auth::Subscription::Grok) => (
-            "https://api.x.ai/v1/chat/completions",
-            "https://api.x.ai/v1/responses",
-        ),
-        Some(pc_gateway_auth::Subscription::Codex) => {
-            ("", "https://chatgpt.com/backend-api/codex/responses")
-        }
-        Some(pc_gateway_auth::Subscription::Copilot) => (
-            "https://api.githubcopilot.com/chat/completions",
-            "https://api.githubcopilot.com/responses",
-        ),
-        Some(pc_gateway_auth::Subscription::Qwen) => (
-            "https://api.qwen.ai/compatible-mode/v1/chat/completions",
-            "",
-        ),
-        Some(pc_gateway_auth::Subscription::Kimi) => (
-            "https://api.kimi.com/coding/v1/chat/completions",
-            "https://api.kimi.com/coding/v1/responses",
-        ),
-        Some(pc_gateway_auth::Subscription::Gemini) => (
-            "https://cloudcode-pa.googleapis.com/v1internal:generateContent",
-            "",
-        ),
-        Some(pc_gateway_auth::Subscription::Claude) => ("claude-cli://execute", ""),
-        None => ("http://127.0.0.1:9000/v1/chat/completions", ""),
-    };
+    let (default_chat, default_responses) = subscription_kind
+        .map(pc_gateway_auth::Subscription::default_targets)
+        .unwrap_or(("http://127.0.0.1:9000/v1/chat/completions", ""));
     let upstream_chat = std::env::var("PC_GATEWAY_UPSTREAM_URL_CHAT")
         .or_else(|_| std::env::var("PC_GATEWAY_UPSTREAM_URL"))
         .unwrap_or_else(|_| default_chat.into());

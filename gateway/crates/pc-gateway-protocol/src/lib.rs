@@ -19,9 +19,13 @@
 //! 不任意合并旧消息、不静默重映射目标。
 
 mod canonical;
+mod claude;
+mod codex;
 mod content;
 mod gemini;
+mod grok;
 mod render;
+mod responses;
 mod sse;
 mod subscription;
 
@@ -29,5 +33,6 @@ pub use canonical::*;
 pub use content::{first_model_content_offset, OutputProtocol};
 pub use gemini::codeassist_chat_response;
 pub use render::*;
+pub use responses::buffered_subscription_response;
 pub use sse::*;
 pub use subscription::*;
