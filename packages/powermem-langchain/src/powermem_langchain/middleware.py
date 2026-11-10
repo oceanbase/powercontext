@@ -5,30 +5,24 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain_core.messages import (
-    AIMessage,
-    HumanMessage,
-    RemoveMessage,
-    SystemMessage,
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    AgentState,
+    ModelRequest,
+    ModelResponse,
 )
-from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 logger = logging.getLogger(__name__)
 
-_CONTEXT_MESSAGE_ID = "powermem-context"
 
+class PowerMemMiddleware(AgentMiddleware[AgentState[Any], Any, Any]):
+    """Use PowerMem as a long-term memory layer for LangChain agents."""
 
-class PowerMemState(AgentState):
-    """State schema used by the PowerMem middleware."""
-
-
-class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
-    """Load relevant PowerMem memories into a LangChain agent run."""
-
-    state_schema = PowerMemState
+    state_schema = AgentState
 
     def __init__(
         self,
@@ -63,8 +57,8 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
         return "\n".join(part for part in parts if part).strip()
 
     @classmethod
-    def _latest_user_text(cls, state: PowerMemState) -> str:
-        for message in reversed(state.get("messages", [])):
+    def _latest_user_text(cls, messages: list[Any]) -> str:
+        for message in reversed(messages):
             if isinstance(message, HumanMessage):
                 return cls._content_text(message.content)
         return ""
@@ -109,37 +103,10 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
             return await result
         return result
 
-    @staticmethod
-    def _replace_context_message(
-        state: PowerMemState,
-        context: str,
-    ) -> dict[str, Any] | None:
-        messages = list(state.get("messages", []))
-        had_context_message = any(
-            isinstance(message, SystemMessage) and message.id == _CONTEXT_MESSAGE_ID
-            for message in messages
-        )
-        messages = [
-            message
-            for message in messages
-            if not (
-                isinstance(message, SystemMessage) and message.id == _CONTEXT_MESSAGE_ID
-            )
-        ]
-
-        if not context and not had_context_message:
-            return None
-
-        replacement: list[Any] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
-        if context:
-            replacement.append(SystemMessage(content=context, id=_CONTEXT_MESSAGE_ID))
-        replacement.extend(messages)
-        return {"messages": replacement}
-
-    def _load_context(self, state: PowerMemState) -> dict[str, Any] | None:
-        query = self._latest_user_text(state)
+    def _search_context(self, messages: list[Any]) -> str:
+        query = self._latest_user_text(messages)
         if not query:
-            return self._replace_context_message(state, "")
+            return ""
 
         try:
             result = self.memory.search(
@@ -149,20 +116,17 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
             )
         except Exception:
             logger.warning(
-                "PowerMem search failed; continuing without memory", exc_info=True
+                "PowerMem search failed; continuing without memory",
+                exc_info=True,
             )
-            return self._replace_context_message(state, "")
+            return ""
 
-        context = self._format_context(self._memory_texts(result))
-        return self._replace_context_message(state, context)
+        return self._format_context(self._memory_texts(result))
 
-    async def _aload_context(
-        self,
-        state: PowerMemState,
-    ) -> dict[str, Any] | None:
-        query = self._latest_user_text(state)
+    async def _asearch_context(self, messages: list[Any]) -> str:
+        query = self._latest_user_text(messages)
         if not query:
-            return self._replace_context_message(state, "")
+            return ""
 
         try:
             result = await self._acall(
@@ -173,31 +137,52 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
             )
         except Exception:
             logger.warning(
-                "PowerMem search failed; continuing without memory", exc_info=True
+                "PowerMem search failed; continuing without memory",
+                exc_info=True,
             )
-            return self._replace_context_message(state, "")
+            return ""
 
-        context = self._format_context(self._memory_texts(result))
-        return self._replace_context_message(state, context)
+        return self._format_context(self._memory_texts(result))
 
-    def before_model(
+    @staticmethod
+    def _with_context(request: ModelRequest[Any], context: str) -> ModelRequest[Any]:
+        if not context:
+            return request
+
+        system_message = request.system_message
+        if system_message is None:
+            system_message = SystemMessage(content=context)
+        elif isinstance(system_message.content, str):
+            existing = system_message.content.rstrip()
+            combined = f"{existing}\n\n{context}" if existing else context
+            system_message = system_message.model_copy(update={"content": combined})
+        else:
+            content = [*system_message.content, {"type": "text", "text": context}]
+            system_message = system_message.model_copy(update={"content": content})
+
+        return request.override(system_message=system_message)
+
+    def wrap_model_call(
         self,
-        state: PowerMemState,
-        runtime: Any,
-    ) -> dict[str, Any] | None:
-        del runtime
-        return self._load_context(state)
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
+    ) -> ModelResponse[Any] | AIMessage:
+        context = self._search_context(request.messages)
+        return handler(self._with_context(request, context))
 
-    async def abefore_model(
+    async def awrap_model_call(
         self,
-        state: PowerMemState,
-        runtime: Any,
-    ) -> dict[str, Any] | None:
-        del runtime
-        return await self._aload_context(state)
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any] | AIMessage:
+        context = await self._asearch_context(request.messages)
+        return await handler(self._with_context(request, context))
 
     @classmethod
-    def _interaction_messages(cls, state: PowerMemState) -> list[dict[str, str]]:
+    def _interaction_messages(
+        cls,
+        state: AgentState[Any],
+    ) -> list[dict[str, str]]:
         messages = list(state.get("messages", []))
         user_index = -1
         user_text = ""
@@ -226,7 +211,7 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
             {"role": "assistant", "content": assistant_text},
         ]
 
-    def after_agent(self, state: PowerMemState, runtime: Any) -> None:
+    def after_agent(self, state: AgentState[Any], runtime: Any) -> None:
         del runtime
         if not self.save_interactions:
             return
@@ -239,7 +224,7 @@ class PowerMemMiddleware(AgentMiddleware[PowerMemState, Any, Any]):
                 infer=False,
             )
 
-    async def aafter_agent(self, state: PowerMemState, runtime: Any) -> None:
+    async def aafter_agent(self, state: AgentState[Any], runtime: Any) -> None:
         del runtime
         if not self.save_interactions:
             return
