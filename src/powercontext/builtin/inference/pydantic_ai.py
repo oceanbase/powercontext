@@ -168,7 +168,7 @@ class InferenceLimits(BaseModel):
 
 
 class _CompleteResponseModel(WrapperModel):
-    """Do not let Agent fold separately billed continuations into one request."""
+    """Reject partial output before structured validation or continuation."""
 
     @override
     async def request(
@@ -178,9 +178,9 @@ class _CompleteResponseModel(WrapperModel):
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
         response = await self.wrapped.request(messages, model_settings, model_request_parameters)
-        if response.state != "complete":
-            finish_reason = getattr(response, "finish_reason", None)
-            truncated = str(finish_reason or "").lower() in {"length", "max_tokens"}
+        finish_reason = getattr(response, "finish_reason", None)
+        truncated = str(finish_reason or "").lower() in {"length", "max_tokens"}
+        if response.state != "complete" or truncated:
             raise attach_diagnostics(
                 InvalidInferenceOutputError("generate", "provider continuation is not allowed"),
                 ProcessingDiagnostics(
