@@ -97,8 +97,8 @@ Anthropic 兼容网关需要分别认证网关和上游时，配置网关的 `Au
 | Grok CLI OAuth | `grok:<model>` | 异步 HTTPX 客户端上的 `GrokCliAuth` 与 Pydantic AI Responses 模型 | 重读 CLI 文件；在 `auth.json.lock` 下续期并原子替换文件 |
 | Claude Code 订阅 | `claude-cli:<model>` | `ClaudeCliModel` | 真实已登录 CLI；每次创建只接受文本的 print 进程，CLI 负责续期与内部重试 |
 | Gemini CLI / Code Assist | `gemini-cli:<model>` | 原生 `GoogleModel` 与 Code Assist transport | 只读 CLI OAuth 缓存，发现项目与 tier；CLI 负责续期与 onboarding |
-| Qwen Code Plus/Pro | `qwen:<model>` | 原生 OpenAI Chat 模型与 `CodingOAuthAuth` | PowerContext 自有设备授权，持锁续期与原子持久化 |
-| Kimi Code | `kimi:<model>` | 原生 OpenAI Chat 模型与 `CodingOAuthAuth` | PowerContext 自有设备授权，持锁续期与原子持久化 |
+| Qwen Code Plus/Pro | `qwen:<model>` | 原生 OpenAI Chat 模型与 `QwenProvider` / `QwenOAuthAuth` | PowerContext 自有设备授权，持锁续期与原子持久化 |
+| Kimi Code | `kimi:<model>` | 原生 OpenAI Chat 模型与 `KimiProvider` / `KimiOAuthAuth` | PowerContext 自有设备授权，持锁续期与原子持久化 |
 
 `xai:<model>` 是 Pydantic AI 原生的 xAI SDK/API Key provider，不是 Grok CLI OAuth，需要额外安装 Pydantic AI 的 `xai` extra。这些集成不提供交互式登录界面。
 
@@ -194,6 +194,10 @@ export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="kimi:<coding-model>"
 命令显示验证 URL 与用户码，轮询官方 token 端点，再保存私有凭据（POSIX 权限为 `0600`）。默认文件为 `~/.config/powercontext/oauth/qwen.json` 和 `kimi.json`；可在登录与服务启动前通过 `POWERCONTEXT_QWEN_CREDENTIALS_PATH` 或 `POWERCONTEXT_KIMI_CREDENTIALS_PATH` 指定文件。不覆盖已有文件；重新授权使用新路径。这些是 PowerContext 自有的独立授权，不是复制的 CLI 刷新令牌。
 
 Qwen 使用当前 Plus/Pro 的设备端点 `auth.qwen.ai/api/oauth/device/code`、client `qwen-code-cli`、scope `model:invoke profile:read`，模型请求发送至 `https://api.qwen.ai/compatible-mode/v1/chat/completions`；已退役的免费 OAuth 与使用 API Key 的 Coding/Token Plan 是不同产品。Kimi 使用 `auth.kimi.com/api/oauth/device_authorization`、client `17e5f671-d194-4dfb-9706-5516cb48c098`，模型请求发送至 `https://api.kimi.com/coding/v1/chat/completions`。此适配器只使用该地区端点，不推测地区或接受任意 API 主机。Kimi 的 `kimi_cli` / `0.1.0` platform/version 字段沿用 Goose 的兼容实现；User-Agent 标识 PowerContext，设备 UUID 属于新授权。这些是协议兼容字段，不能证明上游已接受订阅调用。
+
+`QwenProvider`、`KimiProvider` 分别位于 `powercontext.builtin.inference` 下的 `qwen`、`kimi` 模块，继承 Pydantic AI 公开的 `OpenAICompatibleProvider`，通过 `openai_client=` 接收已认证的 `AsyncOpenAI`。Runtime factory 关闭自建客户端；SDK 调用者负责所注入客户端的生命周期。各模块维护自身 endpoint、scope、凭据路径和身份字段；`coding_oauth` 分发登录命令。
+
+Authlib 公开的 `AsyncOAuth2Client` 负责 token grant 和响应解析，`OAuth2Auth.prepare` 只提供认证 headers，不重建 HTTPX2 推理请求或修改 body。共享 `oauth` 模块维护凭据文件事务及有界 RFC 8628 轮询，后者没有现成的 Authlib 异步高层 client。Pydantic AI 2.64 的私有通用 OAuth 生命周期会在 401 后刷新和重放，CredentialSource 也不使跨进程 load/refresh/save 互斥；这里保留应用自有 OS 锁和不重放策略。
 
 两者每次重读自有文件，在距到期 60 秒内通过 Authlib、OS 文件锁、持锁重读执行续期，再原子持久化完整凭据。续期被拒、token 响应畸形或等待续期时取消，均不修改凭据、不发送推理。没有自动模型重放或 SDK 重试。不支持自定义 base URL、静态 generation headers、内置推理保护、Topic Memory 与 Dream。来源：[Qwen 订阅 OAuth client](https://github.com/QwenLM/qwen-code/blob/main/packages/core/src/qwen/subscription-oauth-client.ts)、[Kimi 当前 OAuth package](https://github.com/MoonshotAI/kimi-code/tree/main/packages/oauth)、[Goose Kimi provider 与测试](https://github.com/block/goose/blob/main/crates/goose/src/providers/kimicode.rs)。
 

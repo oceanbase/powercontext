@@ -2260,10 +2260,14 @@ def _unbounded_provider_factory(  # noqa: C901 - provider-specific SDK and authe
 
     def create_provider(provider_name: str) -> Provider[Any]:  # noqa: C901 - provider-specific construction
         if base_url is None and not headers:
-            if provider_name in {"qwen", "kimi"} and workload == "generation":
-                from powercontext.builtin.inference.coding_oauth import coding_oauth_provider
+            if provider_name == "qwen" and workload == "generation":
+                from powercontext.builtin.inference.qwen import qwen_provider
 
-                return coding_oauth_provider("qwen" if provider_name == "qwen" else "kimi", resources)
+                return qwen_provider(resources)
+            if provider_name == "kimi" and workload == "generation":
+                from powercontext.builtin.inference.kimi import kimi_provider
+
+                return kimi_provider(resources)
             if provider_name == "gemini-cli" and workload == "generation":
                 from powercontext.builtin.inference.gemini_cli import gemini_cli_provider
 
