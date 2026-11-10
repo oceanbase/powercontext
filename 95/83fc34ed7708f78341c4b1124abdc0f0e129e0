@@ -1,0 +1,21 @@
+.github/scripts/run_seekdb_migration_test.py
+  s_98c1bb9fbaf7be::t_fac472ee2f5567 139-146,173-176,185,193
+tests/test_seekdb_test_runner.py
+  s_98c1bb9fbaf7be::t_fac472ee2f5567 1-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9583fc34ed7708f78341c4b1124abdc0f0e129e0",
+  "prompts": {},
+  "sessions": {
+    "s_98c1bb9fbaf7be": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123af-9843-7113-adf2-5fedb6b4126f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
