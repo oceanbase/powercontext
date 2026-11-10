@@ -2722,3 +2722,47 @@ uv run --no-sync python desktop/tests/real_server.py \
 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml \
   --test session bundled_product_qualification_covers_every_desktop_operation
 ```
+
+## Task stop reason merged contract protocol qualification
+
+`sqlite-task-stop-reason-4cb70619-v1` qualifies all thirteen bundled Desktop protocol operations
+against Server source `4cb7061913f5484c3b848551c1d570e59bab846f`, including connection identity.
+
+- Normalized OpenAPI SHA-256: `e1ff2e3ad1d6a09a9288c4c66e111a54c4979026e29806ff70543988b8e29220`.
+- Wheel: `powercontext-1.5.2.dev5+g4cb706191-py3-none-any.whl`.
+- Wheel SHA-256: `e4c0d3f7549fe28abfd09669c3dc53ded66d79a4711b1e89da93611717b64a76`.
+- Native debug probe SHA-256: `6685c55fac1cacf45292757767283851f242b2cdfbfe6f4a16d73795ad150844`.
+
+All 750 packaged runtime files match the clean recorded Git source byte for byte, with no missing,
+extra or changed runtime files. The wheel uses its actual VCS development version. The native probe
+was built with the product Cargo lock and Rust 1.95.0, without `ci-fixtures`. Its working tree contained
+the added bundled profile; no runtime implementation or harness assertion was substituted.
+
+On 2026-11-10, macOS 26.5.1 ARM64 and Python 3.13.15 passed all four modes of the unchanged
+`desktop/tests/real_server.py`: anonymous loopback, static Bearer, HTTPS with explicit CA/base path,
+and enforced Provider access. The ordinary product ConnectionManager selected the bundled profile.
+Checks cover discovery and connection identity, exact Scope selection, statistics, Memory save/search/
+exact revision reads, committed writes with lost responses without replay, independent Server survival,
+Principal changes, same-identity revocation, scoped authorization and 51 same-title Scopes.
+Statistics usage is controlled fixture input, not an external model-provider execution claim.
+
+The exact wheel, source verification, native build log, probe identity and real-Server report are retained
+under ignored `desktop/.artifacts/issue-2544-merged/`. Historical profiles retain their original identities,
+operation sets and evidence. The complete contract gate passes 67 tests; the focused stop-reason Work/HTTP
+suite passes 23 tests. Desktop generation, TypeScript checking and native bundled-operation coverage pass.
+This record qualifies local SQLite protocol behavior, not installed WebView behavior, native credential
+persistence, other operating systems, external databases, production deployment or release acceptance.
+Stop-reason recording and readback use the Work/HTTP tests; Desktop has no outcome UI flow.
+
+Reproduce using the recorded wheel and the client containing this bundled profile:
+
+```sh
+pnpm --dir desktop generate:check
+cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml --example server_probe
+uv run --no-sync python desktop/tests/real_server.py \
+  --product-qualification sqlite-task-stop-reason-4cb70619-v1 \
+  --wheel desktop/.artifacts/issue-2544-merged/server-wheel/powercontext-1.5.2.dev5+g4cb706191-py3-none-any.whl
+cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml \
+  --test session bundled_product_qualification_covers_every_desktop_operation
+make contract-test
+```
