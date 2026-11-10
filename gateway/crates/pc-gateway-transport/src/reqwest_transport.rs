@@ -168,16 +168,22 @@ impl Transport for ReqwestTransport {
                 && send.target_url.ends_with("/chat/completions")
                 && (200..300).contains(&status)
             {
-                match pc_gateway_protocol::copilot_chat_response(&body) {
-                    Some(normalized) => {
-                        body = normalized;
-                        content_type = "application/json".into();
-                    }
-                    None => {
-                        return SendOutcome::IncompleteResponse {
-                            reason: SendIndeterminateReason::LostAfterHandoff,
-                            status,
-                            response_first_byte_ms: first_byte,
+                if send.stream {
+                    // Copilot's SDK also consumes streamed deltas directly. Completion
+                    // metadata defaults apply to JSON responses, not SSE framing.
+                    content_type = "text/event-stream".into();
+                } else {
+                    match pc_gateway_protocol::copilot_chat_response(&body) {
+                        Some(normalized) => {
+                            body = normalized;
+                            content_type = "application/json".into();
+                        }
+                        None => {
+                            return SendOutcome::IncompleteResponse {
+                                reason: SendIndeterminateReason::LostAfterHandoff,
+                                status,
+                                response_first_byte_ms: first_byte,
+                            }
                         }
                     }
                 }

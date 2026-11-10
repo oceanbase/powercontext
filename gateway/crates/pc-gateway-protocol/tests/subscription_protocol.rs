@@ -115,32 +115,3 @@ fn codex_request_settings_and_unsupported_output_budget_are_explicit() {
     request.output_limits.max_output_tokens = Some(100);
     assert!(renderer.render(&request, None).is_err());
 }
-
-#[test]
-fn copilot_fixture_metadata_is_consumable_by_standard_openai_clients() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/oauth/upstream/provider-vectors.json"
-    ))
-    .unwrap();
-    let case = &fixture["copilot"];
-    let mut original = case["response"].clone();
-    // The upstream vector is intentionally minimal. Keep its content unchanged;
-    // supply only its documented SDK defaults unrelated to this regression.
-    for field in ["id", "model"] {
-        original[field] = case["adapter_response_defaults"][field].clone();
-    }
-    original["choices"][0]["message"]["role"] = case["adapter_message_defaults"]["role"].clone();
-    let bytes = serde_json::to_vec(&original).unwrap();
-    let normalized: Value =
-        serde_json::from_slice(&pc_gateway_protocol::copilot_chat_response(&bytes).unwrap())
-            .unwrap();
-    assert_eq!(normalized["object"], "chat.completion");
-    assert!(normalized["created"].as_u64().is_some());
-    assert_eq!(normalized["choices"][0]["index"], 0);
-    assert_eq!(
-        normalized["choices"][0]["message"]["content"],
-        case["expected_text"]
-    );
-    assert_eq!(normalized["id"], original["id"]);
-    assert_eq!(normalized["model"], original["model"]);
-}

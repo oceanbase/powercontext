@@ -37,9 +37,14 @@ import time
 from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
+import httpx2
+from openai import AsyncOpenAI, AsyncStream
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
+from openai.types.responses import Response as OpenAIResponse
+from openai.types.responses import ResponseStreamEvent
 
 from powercontext.client import PowerContextClient
 from powercontext.http import ApproveCandidateRequest, CaptureContentSourceRequest, GenerateExperienceRequest
@@ -177,6 +182,30 @@ async def generate(client: PowerContextClient, scope: str, source, key: str) -> 
     require(artifact is not None, f"{key}-artifact-unreadable")
 
 
+async def create_scope(bootstrap: httpx.AsyncClient) -> str:
+    created = await bootstrap.post(
+        "/v1/scopes",
+        json={
+            "title": "OAuth live acceptance",
+            "summary": "Disposable acceptance data",
+            "idempotency_key": "oauth-live-scope",
+        },
+    )
+    require(created.status_code == 201, "scope-creation-failed")
+    scope = created.json()["scope_id"]
+    granted = await bootstrap.post(
+        "/v1/access/bindings/create",
+        json={
+            "subject": {"type": "service", "id": "server-token"},
+            "resource": {"type": "scope", "scope_id": scope},
+            "role": "scope.contributor",
+            "idempotency_key": "oauth-live-grant",
+        },
+    )
+    require(granted.status_code == 201, "scope-grant-failed")
+    return scope
+
+
 async def exercise(directory: Path, channel: str, credentials: Path, github_token: str, result: dict[str, Any]) -> None:
     model, _, route, _ = CHANNELS[channel]
     core_token, gateway_token = secrets.token_hex(24), secrets.token_hex(24)
@@ -201,26 +230,7 @@ async def exercise(directory: Path, channel: str, credentials: Path, github_toke
                 # Capabilities are local; health/ready can make a billed model probe.
                 await wait_ready(core, bootstrap, "/v1/capabilities")
                 if scope is None:
-                    created = await bootstrap.post(
-                        "/v1/scopes",
-                        json={
-                            "title": "OAuth live acceptance",
-                            "summary": "Disposable acceptance data",
-                            "idempotency_key": "oauth-live-scope",
-                        },
-                    )
-                    require(created.status_code == 201, "scope-creation-failed")
-                    scope = created.json()["scope_id"]
-                    granted = await bootstrap.post(
-                        "/v1/access/bindings/create",
-                        json={
-                            "subject": {"type": "service", "id": "server-token"},
-                            "resource": {"type": "scope", "scope_id": scope},
-                            "role": "scope.contributor",
-                            "idempotency_key": "oauth-live-grant",
-                        },
-                    )
-                    require(granted.status_code == 201, "scope-grant-failed")
+                    scope = await create_scope(bootstrap)
                 gateway_env = environment() | {
                     "PC_GATEWAY_CORE_UDS": str(directory / "core.sock"),
                     "PC_GATEWAY_CORE_TOKEN": core_token,
@@ -361,7 +371,157 @@ async def exercise(directory: Path, channel: str, credentials: Path, github_toke
     result["phase"] = "completed"
 
 
-async def main(report: dict[str, Any], channels: Sequence[str]) -> None:
+async def chat_text(reply: ChatCompletion | AsyncStream[ChatCompletionChunk]) -> str:
+    if isinstance(reply, AsyncStream):
+        chunks = cast(AsyncStream[ChatCompletionChunk], reply)
+        parts = []
+        finished = False
+        async with chunks:
+            async for chunk in chunks:
+                if chunk.choices:
+                    parts.append(chunk.choices[0].delta.content or "")
+                    finished |= chunk.choices[0].finish_reason == "stop"
+        require(finished, "chat-stream-missing-successful-finish")
+        return "".join(parts)
+    complete = ChatCompletion.model_validate(reply.model_dump(warnings=False))
+    require(bool(complete.choices), "chat-response-has-no-choices")
+    require(complete.choices[0].finish_reason == "stop", "chat-response-not-complete")
+    return complete.choices[0].message.content or ""
+
+
+async def responses_text(reply: OpenAIResponse | AsyncStream[ResponseStreamEvent]) -> str:
+    if isinstance(reply, AsyncStream):
+        events = cast(AsyncStream[ResponseStreamEvent], reply)
+        parts = []
+        terminal = None
+        async with events:
+            async for event in events:
+                if event.type == "response.output_text.delta":
+                    parts.append(event.delta)
+                elif event.type == "response.completed":
+                    require(terminal is None, "responses-stream-has-duplicate-terminal")
+                    terminal = OpenAIResponse.model_validate(event.response.model_dump(warnings=False))
+                elif event.type in {"response.failed", "response.incomplete", "error"}:
+                    raise AcceptanceFailure("responses-stream-did-not-complete")
+        if terminal is None:
+            raise AcceptanceFailure("responses-stream-missing-terminal")
+        text = "".join(parts)
+        require(text == terminal.output_text, "responses-stream-and-terminal-disagree")
+        return text
+    complete = OpenAIResponse.model_validate(reply.model_dump(warnings=False))
+    require(complete.status == "completed", "responses-response-not-complete")
+    return complete.output_text
+
+
+async def check_route(sdk: AsyncOpenAI, route: str, model: str, stream: bool) -> dict[str, Any]:
+    marker = "PC_ROUTE_" + secrets.token_hex(4)
+    prompt = f"Respond exactly {marker}, with no other characters."
+    if route == "chat/completions":
+        reply = await sdk.chat.completions.create(
+            model=model, messages=[{"role": "user", "content": prompt}], max_completion_tokens=256, stream=stream
+        )
+        require(isinstance(reply, AsyncStream) == stream, "sdk-stream-mode-mismatch")
+        text = await chat_text(reply)
+    else:
+        reply = await sdk.responses.create(
+            model=model, input=prompt, store=False, reasoning={"effort": "low"}, stream=stream
+        )
+        require(isinstance(reply, AsyncStream) == stream, "sdk-stream-mode-mismatch")
+        text = await responses_text(reply)
+    require(text.strip() == marker, "route-output-marker-mismatch")
+    return {"status": "passed", "model": model, "format": "sse" if stream else "json"}
+
+
+async def exercise_routes(
+    directory: Path, channel: str, credentials: Path, _github: str, result: dict[str, Any]
+) -> None:
+    core_token, gateway_token = secrets.token_hex(24), secrets.token_hex(24)
+    with socket.socket() as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        port = reserved.getsockname()[1]
+    base = f"http://127.0.0.1:{port}"
+    env = core_environment(directory, channel, core_token, gateway_token, port, False)
+    env["POWERCONTEXT_SERVER_INFERENCE"] = json.dumps({
+        "protection": {
+            "mode": "disabled",
+            "targets": {
+                "oauth-live": {
+                    "endpoint": CHANNELS[channel][3],
+                    "model": CHANNELS[channel][0],
+                    "protocol": "openai-responses" if channel == "codex" else "openai-chat",
+                    "allow_streaming": True,
+                }
+            },
+        }
+    })
+    command = [sys.executable, "-c", "from powercontext.cli.app import main; main()", "server", "run", "--no-env-file"]
+    with process(command, env, directory, "core-routes") as core:
+        async with httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=str(directory / "core.sock"), retries=0),
+            base_url="http://localhost",
+            headers={"Authorization": f"Bearer {core_token}"},
+            trust_env=False,
+            timeout=5,
+        ) as bootstrap:
+            await wait_ready(core, bootstrap, "/v1/capabilities")
+            scope = await create_scope(bootstrap)
+            gateway_env = environment() | {
+                "PC_GATEWAY_CORE_UDS": str(directory / "core.sock"),
+                "PC_GATEWAY_CORE_TOKEN": core_token,
+                "PC_GATEWAY_LISTEN": f"127.0.0.1:{port}",
+                "PC_GATEWAY_API_KEY": gateway_token,
+                "PC_GATEWAY_DEFAULT_SCOPE": scope,
+                "PC_GATEWAY_UPSTREAM_PROFILE": "oauth-live",
+                "PC_GATEWAY_SUBSCRIPTION": channel,
+                "PC_GATEWAY_SUBSCRIPTION_CREDENTIALS": str(credentials),
+                "PC_GATEWAY_MAX_ATTEMPTS": "1",
+                "PC_GATEWAY_INJECTION": "off",
+                "PC_GATEWAY_SEDIMENT": "off",
+                "RUST_LOG": "warn",
+            }
+            with process([str(BINARY)], gateway_env, directory, "gateway-routes") as gateway:
+                async with httpx.AsyncClient(base_url=base, trust_env=False) as http:
+                    await wait_ready(gateway, http, "/healthz")
+                    if channel == "codex":
+                        response = await http.post(
+                            "/gateway/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {gateway_token}"},
+                            json={"model": "gpt-6-luna", "messages": [{"role": "user", "content": "hi"}]},
+                        )
+                        require(
+                            response.status_code == 501 and response.json().get("error") == "chat_route_disabled",
+                            "codex-chat-not-explicitly-rejected",
+                        )
+                        result["chat/completions"] = {"status": "unsupported", "http_status": 501}
+                async with AsyncOpenAI(
+                    base_url=f"{base}/gateway/v1",
+                    api_key=gateway_token,
+                    max_retries=0,
+                    timeout=60,
+                    http_client=httpx2.AsyncClient(trust_env=False),
+                ) as sdk:
+                    routes = [("responses", "gpt-6-luna")]
+                    if channel == "copilot":
+                        routes.insert(0, ("chat/completions", "claude-haiku-5.5"))
+                    cases = result["routes"] = {}
+                    for route, model in routes:
+                        for stream in [False, True]:
+                            key = f"{route}:{'sse' if stream else 'json'}"
+                            try:
+                                cases[key] = await check_route(sdk, route, model, stream)
+                            except Exception as error:
+                                cases[key] = {
+                                    "status": "failed",
+                                    "error_type": type(error).__name__,
+                                    "http_status": getattr(error, "status_code", None),
+                                }
+                                if isinstance(error, AcceptanceFailure):
+                                    cases[key]["error_code"] = str(error)
+                            print(json.dumps({"channel": channel, "case": key, "result": cases[key]}), flush=True)
+                    require(all(case["status"] == "passed" for case in cases.values()), "protocol-route-check-failed")
+
+
+async def main(report: dict[str, Any], channels: Sequence[str], *, routes_only: bool = False) -> None:
     require(BINARY.is_file(), "build-gateway-first")
     codex = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "auth.json"
     original_codex = hashlib.sha256(codex.read_bytes()).digest() if "codex" in channels else None
@@ -391,7 +551,8 @@ async def main(report: dict[str, Any], channels: Sequence[str]) -> None:
             directory = root / channel
             directory.mkdir(mode=0o700)
             result = report["channels"][channel] = {"model": CHANNELS[channel][0]}
-            await exercise(directory, channel, codex if channel == "codex" else copilot, github, result)
+            run = exercise_routes if routes_only else exercise
+            await run(directory, channel, codex if channel == "codex" else copilot, github, result)
             print(json.dumps({"channel": channel, "result": result}), flush=True)
         require(copilot.read_bytes() == original_copilot, "copilot-credentials-modified")
     report["codex_credentials_unchanged_during_test"] = (
@@ -403,10 +564,17 @@ async def main(report: dict[str, Any], channels: Sequence[str]) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--channel", choices=tuple(CHANNELS))
+    parser.add_argument("--routes-only", action="store_true", help="Check JSON and streamed Chat/Responses routes only")
     arguments = parser.parse_args()
+    if arguments.routes_only:
+        REPORT = REPORT.with_name("routes-report.json")
     report = {"channels": {}, "login_performed": False, "protection_mode": "disabled"}
     try:
-        asyncio.run(main(report, [arguments.channel] if arguments.channel else list(CHANNELS)))
+        asyncio.run(
+            main(
+                report, [arguments.channel] if arguments.channel else list(CHANNELS), routes_only=arguments.routes_only
+            )
+        )
         report["status"] = "passed"
     except Exception as error:
         report.update({"status": "failed", "error_type": type(error).__name__})
