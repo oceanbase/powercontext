@@ -356,42 +356,67 @@ def _directory_inode(path: Path) -> tuple[int, int]:
 def _oceanbase_identity(connection: Connection) -> BackendIdentity:
     try:
         mode = connection.exec_driver_sql("SHOW VARIABLES LIKE 'ob_compatibility_mode'").first()
-        if mode is None or len(mode) < 2 or str(mode[1]).upper() != "MYSQL":
-            raise MigrationError("unsupported_target", "OceanBase maintenance requires a MySQL user tenant.")
-        database_name, tenant_id = connection.exec_driver_sql("SELECT DATABASE(), effective_tenant_id()").one()
-        cluster_ids = (
-            connection
-            .exec_driver_sql("SELECT DISTINCT VALUE FROM oceanbase.GV$OB_PARAMETERS WHERE NAME = 'cluster_id'")
-            .scalars()
-            .all()
-        )
-        tenant_created, tenant_type = connection.exec_driver_sql(
-            "SELECT CREATE_TIME, TENANT_TYPE FROM oceanbase.DBA_OB_TENANTS WHERE TENANT_ID = effective_tenant_id()"
-        ).one()
-        if (
-            not isinstance(database_name, str)
-            or not database_name
-            or not isinstance(tenant_id, int)
-            or tenant_id <= 0
-            or len(cluster_ids) != 1
-            or int(cluster_ids[0]) <= 0
-            or not isinstance(tenant_created, datetime)
-        ):
-            raise MigrationError("target_identity_unavailable", "The database did not return a stable identity.")
-        if tenant_type != "USER":
-            raise MigrationError("unsupported_target", "OceanBase maintenance requires a MySQL user tenant.")
-        database_id = digest({
-            "backend": "oceanbase",
-            "cluster_id": int(cluster_ids[0]),
-            "tenant_id": tenant_id,
-            "tenant_created": tenant_created.isoformat(),
-            "database_name": database_name,
-        })
-        return BackendIdentity("oceanbase", database_id, database_name)
+        value = mode[1] if mode is not None and len(mode) >= 2 else None
+        compatibility = "" if value is None else str(value).upper()
+        if compatibility == "MYSQL":
+            return _oceanbase_mysql_tenant_identity(connection)
+        if not compatibility and _is_standalone_seekdb(connection):
+            return _standalone_seekdb_identity(connection)
+        raise MigrationError("unsupported_target", "OceanBase maintenance requires a MySQL user tenant.")
     except (SQLAlchemyError, ValueError, TypeError) as error:
         raise MigrationError(
             "target_identity_unavailable", "The connected OceanBase identity could not be verified."
         ) from error
+
+
+def _oceanbase_mysql_tenant_identity(connection: Connection) -> BackendIdentity:
+    database_name, tenant_id = connection.exec_driver_sql("SELECT DATABASE(), effective_tenant_id()").one()
+    cluster_ids = (
+        connection
+        .exec_driver_sql("SELECT DISTINCT VALUE FROM oceanbase.GV$OB_PARAMETERS WHERE NAME = 'cluster_id'")
+        .scalars()
+        .all()
+    )
+    tenant_created, tenant_type = connection.exec_driver_sql(
+        "SELECT CREATE_TIME, TENANT_TYPE FROM oceanbase.DBA_OB_TENANTS WHERE TENANT_ID = effective_tenant_id()"
+    ).one()
+    if (
+        not isinstance(database_name, str)
+        or not database_name
+        or not isinstance(tenant_id, int)
+        or tenant_id <= 0
+        or len(cluster_ids) != 1
+        or int(cluster_ids[0]) <= 0
+        or not isinstance(tenant_created, datetime)
+    ):
+        raise MigrationError("target_identity_unavailable", "The database did not return a stable identity.")
+    if tenant_type != "USER":
+        raise MigrationError("unsupported_target", "OceanBase maintenance requires a MySQL user tenant.")
+    database_id = digest({
+        "backend": "oceanbase",
+        "cluster_id": int(cluster_ids[0]),
+        "tenant_id": tenant_id,
+        "tenant_created": tenant_created.isoformat(),
+        "database_name": database_name,
+    })
+    return BackendIdentity("oceanbase", database_id, database_name)
+
+
+def _is_standalone_seekdb(connection: Connection) -> bool:
+    version = connection.exec_driver_sql("SELECT VERSION()").scalar_one()
+    return isinstance(version, str) and "-OceanBase seekdb-" in version
+
+
+def _standalone_seekdb_identity(connection: Connection) -> BackendIdentity:
+    database_name, server_uuid = connection.exec_driver_sql("SELECT DATABASE(), @@server_uuid").one()
+    if not isinstance(database_name, str) or not database_name or not isinstance(server_uuid, str) or not server_uuid:
+        raise MigrationError("target_identity_unavailable", "The connected seekdb identity could not be verified.")
+    database_id = digest({
+        "backend": "seekdb",
+        "server_uuid": str(server_uuid),
+        "database_name": database_name,
+    })
+    return BackendIdentity("seekdb", database_id, database_name)
 
 
 async def _dispose_engine(engine: AsyncEngine) -> None:

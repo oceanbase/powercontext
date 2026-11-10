@@ -242,6 +242,160 @@ def test_oceanbase_routes_to_different_database_identity_before_write_are_reject
     operation.assert_not_called()
 
 
+def _fake_seekdb_identity_connection(*, compatibility: object, version: str, database: object, server_uuid: object):
+    """Identity double for a standalone seekdb server reached through the OceanBase URL."""
+    connection = Mock(spec=Connection)
+
+    def query(statement: str):
+        result = Mock()
+        if "ob_compatibility_mode" in statement:
+            result.first.return_value = compatibility
+        elif "SELECT VERSION()" in statement:
+            result.scalar_one.return_value = version
+        elif "@@server_uuid" in statement:
+            result.one.return_value = (database, server_uuid)
+        else:
+            pytest.fail(f"Unexpected identity query: {statement}")
+        return result
+
+    connection.exec_driver_sql.side_effect = query
+    return connection
+
+
+def test_standalone_seekdb_identity_uses_server_uuid_and_database_name() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=None,
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    identity = connections._oceanbase_identity(connection)
+    assert identity.product == "seekdb"
+    assert identity.database_name == "pc_test"
+    assert len(identity.database_id) == 64
+
+
+def test_standalone_seekdb_identity_is_stable_and_unique_per_target() -> None:
+    def identity(**overrides: object) -> BackendIdentity:
+        kwargs: dict[str, object] = {
+            "compatibility": None,
+            "version": "5.7.25-OceanBase seekdb-v1.4.0.0",
+            "database": "pc_test",
+            "server_uuid": "uuid-1",
+        }
+        kwargs.update(overrides)
+        return connections._oceanbase_identity(_fake_seekdb_identity_connection(**kwargs))
+
+    assert identity() == identity()
+    assert identity(server_uuid="uuid-2").database_id != identity().database_id
+    assert identity(database="other_context").database_id != identity().database_id
+
+
+def test_standalone_seekdb_identity_accepts_an_empty_compatibility_mode() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=("ob_compatibility_mode", ""),
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    assert connections._oceanbase_identity(connection).product == "seekdb"
+
+
+@pytest.mark.parametrize(
+    ("database", "server_uuid"),
+    [
+        ("pc_test", ""),
+        ("pc_test", None),
+        ("", "uuid-1"),
+        (None, "uuid-1"),
+    ],
+)
+def test_standalone_seekdb_incomplete_identity_is_unavailable(database: object, server_uuid: object) -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=None,
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database=database,
+        server_uuid=server_uuid,
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "target_identity_unavailable"
+
+
+def test_plain_mysql_server_without_seekdb_version_is_unsupported() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=None,
+        version="8.0.36",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "unsupported_target"
+
+
+def test_seekdb_version_with_a_real_compatibility_mode_is_unsupported() -> None:
+    connection = _fake_seekdb_identity_connection(
+        compatibility=("ob_compatibility_mode", "ORACLE"),
+        version="5.7.25-OceanBase seekdb-v1.4.0.0",
+        database="pc_test",
+        server_uuid="uuid-1",
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "unsupported_target"
+
+
+def _fake_oceanbase_tenant_connection(
+    *, database: str, tenant_id: int, cluster_id: int, tenant_created: datetime, tenant_type: str
+):
+    connection = Mock(spec=Connection)
+
+    def query(statement: str):
+        result = Mock()
+        if "ob_compatibility_mode" in statement:
+            result.first.return_value = ("ob_compatibility_mode", "MYSQL")
+        elif "SELECT DATABASE()" in statement:
+            result.one.return_value = (database, tenant_id)
+        elif "GV$OB_PARAMETERS" in statement:
+            result.scalars.return_value.all.return_value = [str(cluster_id)]
+        elif "DBA_OB_TENANTS" in statement:
+            result.one.return_value = (tenant_created, tenant_type)
+        else:
+            pytest.fail(f"Unexpected identity query: {statement}")
+        return result
+
+    connection.exec_driver_sql.side_effect = query
+    return connection
+
+
+def test_oceanbase_mysql_tenant_identity_keeps_the_existing_shape() -> None:
+    connection = _fake_oceanbase_tenant_connection(
+        database="scratch",
+        tenant_id=1002,
+        cluster_id=7,
+        tenant_created=datetime(2026, 1, 1, tzinfo=UTC),
+        tenant_type="USER",
+    )
+    identity = connections._oceanbase_identity(connection)
+    assert identity.product == "oceanbase"
+    assert identity.database_name == "scratch"
+    assert len(identity.database_id) == 64
+
+
+def test_oceanbase_non_user_tenant_remains_unsupported() -> None:
+    connection = _fake_oceanbase_tenant_connection(
+        database="scratch",
+        tenant_id=1,
+        cluster_id=7,
+        tenant_created=datetime(2026, 1, 1, tzinfo=UTC),
+        tenant_type="SYSTEM",
+    )
+    with pytest.raises(MigrationError) as error:
+        connections._oceanbase_identity(connection)
+    assert error.value.code == "unsupported_target"
+
+
 @pytest.mark.skipif(os.environ.get("POWERCONTEXT_TEST_MIGRATION_SEEKDB") != "1", reason="real seekdb probe not enabled")
 def test_real_seekdb_maintenance_preserves_committed_data_without_initializing_business_tables(
     short_tmp_path: Path, caplog
