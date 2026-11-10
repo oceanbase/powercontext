@@ -203,7 +203,9 @@ class TestProcessingStatusInspector:
         assert result.progress.source_head == 8
 
     def test_topic_memory_unknown_state_fallback(self) -> None:
-        raw = Mock(state=Mock(value="future_state"), block=None, source_cursor=0, source_head=0, target_source_through=None)
+        raw = Mock(
+            state=Mock(value="future_state"), block=None, source_cursor=0, source_head=0, target_source_through=None
+        )
         status_fn = AsyncMock(return_value=raw)
         inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
 
