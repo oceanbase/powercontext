@@ -1,5 +1,5 @@
 {
-  "api_version": "1.5.0",
+  "api_version": "1.5.1",
   "operations": {
     "list_atomic_memories": {
       "method": "POST",
