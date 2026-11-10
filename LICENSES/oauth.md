@@ -1,19 +1,18 @@
-# OAuth 订阅适配第三方许可
+# OAuth subscription licenses
 
-订阅适配和迁移测试涉及以下上游来源。具体版本、文件和测试出处保留在对应 fixture 的来源字段及说明中。
-Apache-2.0 完整条款统一使用仓库根目录 [LICENSE](../LICENSE)；MIT 条款见下文。
+The subscription adapters and test vectors use the sources below. Fixture metadata records the source commits, files and tests. Apache-2.0 terms are in the repository's [LICENSE](../LICENSE); the MIT terms follow this table.
 
-| 来源 | 许可证 | 版权与归属 |
+| Source | License | Attribution |
 | --- | --- | --- |
-| [republic](https://github.com/bubbuild/republic) | Apache-2.0 | Chojan Shang、Frost Ming；上游 LICENSE 未单列 copyright 行 |
+| [republic](https://github.com/bubbuild/republic) | Apache-2.0 | Chojan Shang; Frost Ming |
 | [Magpie](https://github.com/yetone/magpie) | MIT | Copyright (c) 2026 yetone |
-| [Goose](https://github.com/aaif-goose/goose) | Apache-2.0 | Copyright 2024 Block, Inc. |
-| [Qwen Code](https://github.com/QwenLM/qwen-code) | Apache-2.0 | Copyright 2025 Google LLC；Copyright 2025 Qwen；Copyright 2026 Qwen Team |
+| [Goose](https://github.com/block/goose) | Apache-2.0 | Copyright 2024 Block, Inc. |
+| [Qwen Code](https://github.com/QwenLM/qwen-code) | Apache-2.0 | Copyright 2025 Google LLC; Copyright 2025 Qwen; Copyright 2026 Qwen Team |
 | [Kimi Code](https://github.com/MoonshotAI/kimi-code) | MIT | Copyright (c) 2026 Moonshot AI |
 
-## MIT 许可
+## MIT license
 
-以下许可共同适用于上表中标明 MIT 的迁移内容，版权声明同时保留：
+These terms apply to the adapted Magpie and Kimi Code content, with both copyright notices retained.
 
 ```text
 MIT License
