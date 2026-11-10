@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -314,21 +315,23 @@ def test_actual_ci_result_script_rejects_missing_selected_acceptance(
 
 
 @pytest.mark.parametrize(
-    ("test_names", "reserve_minutes"),
+    ("suite", "test_names", "reserve_minutes"),
     [
-        (("Run unit tests", "Check Source serialization with minimum Pydantic"), 15),
-        (("Run end-to-end tests",), 10),
+        ("unit", ("Run unit tests", "Check Source serialization with minimum Pydantic"), 15),
+        ("e2e", ("Prepare Gateway for end-to-end tests", "Run end-to-end tests"), 10),
     ],
     ids=("unit", "e2e"),
 )
-def test_suite_deadline_reserves_setup_and_cache_time_for_every_python(test_names, reserve_minutes):
+def test_suite_deadline_reserves_setup_and_cache_time_for_every_python(suite, test_names, reserve_minutes):
     job = workflow("master.yml")["jobs"]["tests"]
-    # One common job budget covers every supported Python version, including the floor check.
-    assert isinstance(job["timeout-minutes"], int)
+    # Evaluate the suite-specific budget for every supported Python version.
+    budget = re.fullmatch(r"\$\{\{ matrix.suite == 'e2e' && (\d+) \|\| (\d+) \}\}", job["timeout-minutes"])
+    assert budget is not None
+    minutes = int(budget.group(1 if suite == "e2e" else 2))
     steps = [step for step in job["steps"] if step.get("name") in test_names]
     assert len(steps) == len(test_names)
     assert all(isinstance(step.get("timeout-minutes"), int) for step in steps)
-    assert job["timeout-minutes"] >= sum(step["timeout-minutes"] for step in steps) + reserve_minutes
+    assert minutes >= sum(step["timeout-minutes"] for step in steps) + reserve_minutes
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="CI commands require POSIX make and shell")
@@ -368,7 +371,7 @@ def test_ci_e2e_runs_each_case_once_and_keeps_hook_tests_serial(tmp_path, monkey
     # Execute the actual workflow commands and Makefile against small fixture
     # cases; pytest itself handles ignore flags, xdist and serial selection.
     for step in workflow("master.yml")["jobs"]["tests"]["steps"]:
-        if step.get("if") == "matrix.suite == 'e2e'":
+        if step.get("run") == "make e2e-test":
             result = subprocess.run(
                 ["/bin/sh", "-e", "-c", step["run"]],
                 cwd=tmp_path,
