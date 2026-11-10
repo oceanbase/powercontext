@@ -2470,7 +2470,7 @@ Memory correction requires the requested change, exact current Atomic Memory art
 Use powercontext-project-context for a relevant detailed workflow if that Skill is available; no Skill detour is needed before every response.`;
 const CONTEXT_PREFIX = "PowerContext host-supplied context.";
 const PERMISSION = "powercontext";
-const DEFAULT_PERMISSION_RULE = `${PERMISSION.slice(0, -1)}?`;
+const DEFAULT_PERMISSION_KEYS = [...PERMISSION].map((_, index) => `${PERMISSION.slice(0, index)}?${PERMISSION.slice(index + 1)}`).reverse();
 const MAX_SOURCE_BYTES = 2e5;
 const MAX_SESSION_CACHE = 256;
 function promptText(parts, transportEncoded) {
@@ -3044,10 +3044,14 @@ const PowerContextPlugin = async (input) => {
 		config: async (config) => {
 			const settings = config;
 			const permission = settings.permission;
-			if (typeof permission === "string" || permission && DEFAULT_PERMISSION_RULE in permission) return;
-			settings.permission = {
-				[DEFAULT_PERMISSION_RULE]: "ask",
-				...permission
+			if (typeof permission === "string") return;
+			const rules = permission ?? {};
+			const [first] = Object.entries(rules);
+			if (first && DEFAULT_PERMISSION_KEYS.includes(first[0]) && first[1] === "ask") return;
+			const key = DEFAULT_PERMISSION_KEYS.find((candidate) => !(candidate in rules));
+			if (key) settings.permission = {
+				[key]: "ask",
+				...rules
 			};
 		},
 		tool: createTools(runtime),

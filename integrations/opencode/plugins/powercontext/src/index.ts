@@ -44,9 +44,12 @@ Use powercontext-project-context for a relevant detailed workflow if that Skill 
 
 const CONTEXT_PREFIX = 'PowerContext host-supplied context.'
 const PERMISSION = 'powercontext'
-// OpenCode matches permission names against rule keys as wildcards, where `?` stands for one character. This key
-// matches only the plugin's permission, yet it differs from a `powercontext` key the user writes.
-const DEFAULT_PERMISSION_RULE = `${PERMISSION.slice(0, -1)}?`
+// OpenCode matches permission names against rule keys as wildcards, where `?` stands for one character. A copy of the
+// permission with one letter replaced by `?` matches no other permission, yet differs from the `powercontext` key a
+// user writes. The default rule takes the first of these keys that the configuration does not use.
+const DEFAULT_PERMISSION_KEYS = [...PERMISSION]
+  .map((_, index) => `${PERMISSION.slice(0, index)}?${PERMISSION.slice(index + 1)}`)
+  .reverse()
 const MAX_SOURCE_BYTES = 200_000
 const MAX_SESSION_CACHE = 256
 
@@ -661,8 +664,12 @@ export const PowerContextPlugin: Plugin = async (input) => {
       // The SDK's Config type predates permissions keyed by name.
       const settings = config as { permission?: string | Record<string, unknown> }
       const permission = settings.permission
-      if (typeof permission === 'string' || (permission && DEFAULT_PERMISSION_RULE in permission)) return
-      settings.permission = { [DEFAULT_PERMISSION_RULE]: 'ask', ...permission }
+      if (typeof permission === 'string') return
+      const rules = permission ?? {}
+      const [first] = Object.entries(rules)
+      if (first && DEFAULT_PERMISSION_KEYS.includes(first[0]) && first[1] === 'ask') return
+      const key = DEFAULT_PERMISSION_KEYS.find((candidate) => !(candidate in rules))
+      if (key) settings.permission = { [key]: 'ask', ...rules }
     },
     tool: createTools(runtime),
     'chat.message': async (event, output) => {

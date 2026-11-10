@@ -318,6 +318,11 @@ describe('PowerContextPlugin', () => {
     expect(Object.entries(await configure(rules))).toEqual([['powercontex?', 'ask'], ...Object.entries(rules)])
     const configured = await configure({ powercontext: 'allow' })
     expect(Object.entries(await configure(configured))).toEqual([['powercontex?', 'ask'], ['powercontext', 'allow']])
+    // A user rule under the default's key keeps it, and the default takes the next key that matches the permission.
+    const wildcard = { 'powercontex?': { commit_handoff: 'allow' } }
+    const kept = await configure(wildcard)
+    expect(Object.entries(kept)).toEqual([['powerconte?t', 'ask'], ...Object.entries(wildcard)])
+    expect(Object.entries(await configure(kept))).toEqual(Object.entries(kept))
     expect(await configure('allow')).toBe('allow')
   })
 
