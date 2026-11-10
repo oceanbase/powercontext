@@ -807,6 +807,12 @@ const STATUS_STYLES = `
 .pc-trigger[aria-expanded="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.12)); }
 .pc-trigger:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 1px; }
 .pc-trigger-rail { justify-content: center; gap: 0; width: 36px; height: 36px; margin: 0; padding: 0; border-radius: 50%; corner-shape: round; }
+/* Official Dashboard favicon assets; DSH owns the active theme attribute. */
+.pc-brand-icon { display: inline-flex; flex: none; }
+.pc-brand-icon img { display: block; width: 100%; height: 100%; }
+.pc-brand-icon .pc-brand-icon-reverse { display: none; }
+[data-ds-dark-theme] .pc-brand-icon .pc-brand-icon-color { display: none; }
+[data-ds-dark-theme] .pc-brand-icon .pc-brand-icon-reverse { display: block; }
 .pc-mark { position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--dsw-alias-label-secondary, currentColor); }
 .pc-trigger-rail .pc-mark { width: 36px; height: 36px; }
 .pc-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; corner-shape: round; background: var(--dsw-alias-state-idle-primary, GrayText); box-shadow: 0 0 0 2px var(--dsw-alias-bg-l1, Canvas); }
@@ -895,28 +901,26 @@ function useText() {
 const STYLE_ID = "powercontext-dsh-status-styles";
 const inject = ["slots"];
 function PowerContextMark({ size = 20 }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
-		width: size,
-		height: size,
-		viewBox: "0 0 24 24",
-		fill: "none",
-		stroke: "currentColor",
-		strokeWidth: "1.7",
-		strokeLinecap: "round",
-		strokeLinejoin: "round",
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+		className: "pc-brand-icon",
+		style: {
+			width: size,
+			height: size
+		},
 		"aria-hidden": "true",
-		focusable: "false",
-		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" }),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
-				d: "m4 12 8 4.5 8-4.5",
-				opacity: ".72"
-			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", {
-				d: "m4 16.5 8 4.5 8-4.5",
-				opacity: ".45"
-			})
-		]
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+			className: "pc-brand-icon-color",
+			src: "/plugins/powercontext-dsh/assets/powercontext.svg",
+			width: size,
+			height: size,
+			alt: ""
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("img", {
+			className: "pc-brand-icon-reverse",
+			src: "/plugins/powercontext-dsh/assets/powercontext-reverse.svg",
+			width: size,
+			height: size,
+			alt: ""
+		})]
 	});
 }
 function Dot({ state }) {

@@ -41,6 +41,12 @@ export const STATUS_STYLES = `
 .pc-trigger[aria-expanded="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.12)); }
 .pc-trigger:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 1px; }
 .pc-trigger-rail { justify-content: center; gap: 0; width: 36px; height: 36px; margin: 0; padding: 0; border-radius: 50%; corner-shape: round; }
+/* Official Dashboard favicon assets; DSH owns the active theme attribute. */
+.pc-brand-icon { display: inline-flex; flex: none; }
+.pc-brand-icon img { display: block; width: 100%; height: 100%; }
+.pc-brand-icon .pc-brand-icon-reverse { display: none; }
+[data-ds-dark-theme] .pc-brand-icon .pc-brand-icon-color { display: none; }
+[data-ds-dark-theme] .pc-brand-icon .pc-brand-icon-reverse { display: block; }
 .pc-mark { position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; color: var(--dsw-alias-label-secondary, currentColor); }
 .pc-trigger-rail .pc-mark { width: 36px; height: 36px; }
 .pc-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; corner-shape: round; background: var(--dsw-alias-state-idle-primary, GrayText); box-shadow: 0 0 0 2px var(--dsw-alias-bg-l1, Canvas); }

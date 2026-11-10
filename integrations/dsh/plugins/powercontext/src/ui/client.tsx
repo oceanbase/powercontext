@@ -69,22 +69,10 @@ export const inject = ['slots']
 
 function PowerContextMark({ size = 20 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" />
-      <path d="m4 12 8 4.5 8-4.5" opacity=".72" />
-      <path d="m4 16.5 8 4.5 8-4.5" opacity=".45" />
-    </svg>
+    <span className="pc-brand-icon" style={{ width: size, height: size }} aria-hidden="true">
+      <img className="pc-brand-icon-color" src="/plugins/powercontext-dsh/assets/powercontext.svg" width={size} height={size} alt="" />
+      <img className="pc-brand-icon-reverse" src="/plugins/powercontext-dsh/assets/powercontext-reverse.svg" width={size} height={size} alt="" />
+    </span>
   )
 }
 
