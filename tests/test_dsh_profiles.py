@@ -66,7 +66,8 @@ def setup_boundary(tmp_path, monkeypatch):
 def test_setup_and_default_doctor_reuse_the_selected_native_target(
     tmp_path, monkeypatch, desktop_command, setup_boundary, profile, server_checks
 ):
-    plugin, _, _ = setup_boundary
+    plugin, _, inspect = setup_boundary
+    inspect.return_value = {"memoryProtocol": "atomic-artifact-v1"}
     desktop_dir = Path(os.environ["DSH_HOME"]) / "profiles/desktop"
     desktop_dir.mkdir(parents=True)
     (desktop_dir / "package.json").write_text("{}")

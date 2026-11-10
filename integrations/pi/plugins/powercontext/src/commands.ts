@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { MEMORY_PROTOCOL_RECOVERY, memoryProtocolCheck } from './memory-compatibility.ts'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import {
   confirmDurableWrite,
@@ -76,7 +77,11 @@ export async function handlePcCommand(
         invokeOperation(runtime.client, 'get_liveness', {}, scopeId, context.signal),
         invokeOperation(runtime.client, 'get_readiness', {}, scopeId, context.signal),
       ])
-      report(context, format({ ok: live.ok && ready.ok, live, ready }), !live.ok || !ready.ok)
+      const info = await invokeOperation(runtime.client, 'get_server_info', {}, scopeId, context.signal)
+      const memory = info.ok ? memoryProtocolCheck((info.data as { feature_contracts?: unknown })?.feature_contracts)
+        : { ...info, recovery: 'Memory compatibility is unverified. Check the discovery endpoint and its permissions. ' + MEMORY_PROTOCOL_RECOVERY }
+      const ok = live.ok && ready.ok && memory.ok
+      report(context, format({ ok, live, ready, memory }), !ok)
     } catch {
       report(context, format(unavailableResult()), true)
     }

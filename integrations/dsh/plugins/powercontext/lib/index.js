@@ -2276,6 +2276,27 @@ function requireService(ctx, name$1) {
 }
 
 //#endregion
+//#region src/memory-compatibility.ts
+const MEMORY_PROTOCOL_RECOVERY = "Update the PowerContext CLI/SDK and plugin to a release compatible with the Server; run powercontext setup dsh for the affected profile, then fully restart the host and rerun Doctor. Search again for an Atomic Memory artifact reference before retrying. Do not drop collection CAS preconditions or automatically replay writes.";
+function record$1(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function memoryProtocolCheck(contracts, projection = "server-info") {
+	const memory = record$1(contracts) ? contracts["memory.explicit"] : void 0;
+	const version = record$1(memory) ? projection === "openapi" ? memory : memory.version : void 0;
+	return record$1(version) && version.major === 1 && Number.isInteger(version.minor) && Number(version.minor) >= 0 ? {
+		ok: true,
+		code: "memory_protocol_compatible",
+		message: "The Server declares Atomic Memory protocol v1. Write behavior was not tested."
+	} : {
+		ok: false,
+		code: "memory_protocol_mismatch",
+		message: "The Server does not declare the Atomic Memory protocol required by this plugin. Health checks alone do not establish compatibility.",
+		recovery: MEMORY_PROTOCOL_RECOVERY
+	};
+}
+
+//#endregion
 //#region src/diagnostics.ts
 const COMPATIBILITY_OR_AVAILABILITY_PATHS = new Set([
 	"/health/live",
@@ -2339,7 +2360,8 @@ const PUBLIC_ERROR_CODES = new Set([
 	"invalid_target_state",
 	"publication_generation_conflict",
 	"invalid_skill_lifecycle",
-	"internal_error"
+	"internal_error",
+	"legacy_memory_operation_unsupported"
 ]);
 function publicErrorCode(code) {
 	return typeof code === "string" && PUBLIC_ERROR_CODES.has(code) ? code : void 0;
@@ -2360,6 +2382,7 @@ function responseDiagnostic(event, outcome, error) {
 		event,
 		outcome,
 		http_status: error.statusCode,
+		...error.statusCode === 422 && error.code === "legacy_memory_operation_unsupported" ? { recovery: MEMORY_PROTOCOL_RECOVERY } : {},
 		...error.requestId ? { request_id: error.requestId } : {},
 		...code ? { error_code: code } : {},
 		...error.statusCode === 409 && code === "scope_binding_target_missing" ? { recovery: SCOPE_BINDING_TARGET_MISSING_RECOVERY } : {}
@@ -2532,7 +2555,13 @@ const CORE_OPERATIONS = [
 	"prepare_context",
 	"capture_content_source",
 	"remember_memory",
-	"search_memory"
+	"search_memory",
+	"list_atomic_memories",
+	"get_artifact",
+	"get_artifact_revision",
+	"replace_artifact",
+	"get_atomic_memory_state",
+	"change_atomic_memory_lifecycle"
 ];
 const DEPENDENCY_RECOVERY = {
 	runtime: "Inspect the running Server startup and service logs for Runtime initialization failures.",
@@ -2648,6 +2677,7 @@ function operationFailure(operation, error) {
 		let result;
 		if (error.statusCode === 401) result = check(operation, "authentication_failed", "The Server rejected authentication for this operation.", "Set POWERCONTEXT_DSH_AUTHORIZATION to the intended Server credential and restart the DSH process so it receives the override.");
 		else if (error.statusCode === 403) result = check(operation, "authorization_failed", "The authenticated principal is not allowed to perform this operation.", "Check the principal permissions for this operation and selected Scope on the running Server.");
+		else if (error.statusCode === 422 && code === "legacy_memory_operation_unsupported") result = check(operation, code, "The request uses the unsupported legacy Memory collection protocol.", MEMORY_PROTOCOL_RECOVERY);
 		else if (error.statusCode === 404 && error.code === void 0) result = check(operation, "required_route_missing", "The required operation returned HTTP 404 without a domain error code.", "Check this operation in the Server API and proxy route table, the plugin base-path setting, and the installed Server/plugin refs. A 404 alone cannot identify which configuration is wrong.");
 		else if (error.statusCode === 404 && code === "scope_not_found") result = check(operation, code, "The Server could not find the requested Scope.", "Check POWERCONTEXT_DSH_SCOPE_ID first, then the session workspace binding and Server default Scope. Select an existing Scope explicitly; Doctor does not change bindings.");
 		else if (error.statusCode === 404) result = code ? check(operation, code, "The Server returned a recognized domain-level HTTP 404 for this operation.", "Inspect the selected resource and Scope in the Server. This domain response does not establish a missing HTTP route.") : check(operation, "unclassified_not_found", "The operation returned HTTP 404 with an unrecognized error code.", "Use the operation and request ID in the Server logs. This response cannot distinguish a missing resource from a missing route; inspect the contract check separately.");
@@ -2765,6 +2795,12 @@ function routes(response, flush) {
 	const operation = "openapi_document";
 	const body = response.value;
 	if (response.status !== 200 || !record(body) || typeof body.openapi !== "string" || !body.openapi.startsWith("3.") || !record(body.paths)) invalid(operation, response, "openapi");
+	const memory = memoryProtocolCheck(body["x-powercontext-feature-contracts"], "openapi");
+	if (!memory.ok) return {
+		...check(operation, memory.code, memory.message, memory.recovery),
+		http_status: response.status,
+		...requestId(response.requestId)
+	};
 	const required = [...CORE_OPERATIONS, ...flush ? ["flush_memory"] : []];
 	const paths = body.paths;
 	const missing = required.filter((id) => {
@@ -2796,6 +2832,7 @@ function nativeMcpCatalog(catalog, scope) {
 	if (!Array.isArray(schemas)) return check(operation, "tool_catalog_invalid", "The DSH tool catalog returned an invalid schema list.", "Update the active DSH tools runtime and inspect its tool registry.", "degraded");
 	const mcpTools = schemas.flatMap((schema) => record(schema) && typeof schema.name === "string" ? [schema.name] : []).filter((name$1) => name$1.startsWith("mcp__"));
 	const powerContextTools = mcpTools.filter((name$1) => name$1.startsWith("mcp__powercontext__"));
+	if (powerContextTools.some((name$1) => ["mcp__powercontext__revise_memory_entry", "mcp__powercontext__retire_memory_entry"].includes(name$1))) return check(operation, "legacy_memory_operation_unsupported", "The running tool catalog still exposes legacy Memory collection mutations.", MEMORY_PROTOCOL_RECOVERY);
 	if (powerContextTools.length) return {
 		...check(operation, "native_mcp_tools_visible", "The active DSH tool catalog exposes native PowerContext MCP tools.", void 0, "ok"),
 		tools: powerContextTools
@@ -2860,7 +2897,7 @@ async function diagnoseServer(runtime, cwd, signal, toolCatalog, toolScope) {
 	}) : check("prepare_context", "scope_unavailable", "Not checked because the current Scope could not be resolved.", "Resolve the Scope check first.", "skipped");
 	checks.mcp_catalog = nativeMcpCatalog(toolCatalog, toolScope);
 	return {
-		ok: Object.entries(checks).every(([name$1, value]) => name$1 === "mcp_catalog" || value.state === "ok"),
+		ok: Object.entries(checks).every(([name$1, value]) => name$1 === "mcp_catalog" && value.code !== "legacy_memory_operation_unsupported" || value.state === "ok"),
 		configuration: {
 			...config.summary,
 			readiness_request_timeout_ms: runtime.client.requestTimeoutMsFor("get_readiness")
@@ -3017,6 +3054,14 @@ function requestIdField(requestId$1) {
 * outcomes, not domain outcomes.
 */
 function mapServerErrorCore(error) {
+	if (error.statusCode === 422 && error.code === "legacy_memory_operation_unsupported") return {
+		ok: false,
+		code: error.code,
+		message: "This request uses the unsupported legacy Memory collection protocol.",
+		recovery: MEMORY_PROTOCOL_RECOVERY,
+		status: 422,
+		...requestIdField(error.requestId)
+	};
 	const code = publicErrorCode(error.code);
 	if (error.statusCode === 400) return {
 		ok: false,
@@ -3364,7 +3409,7 @@ var RuntimeStatus = class {
 		this.sessions.delete(key);
 		this.sessions.set(key, attempt);
 		if (this.sessions.size > STATUS_SESSION_LIMIT) this.sessions.delete(this.sessions.keys().next().value);
-		const record$1 = (stage, result) => {
+		const record$2 = (stage, result) => {
 			if (this.sessions.get(key) !== attempt) return;
 			attempt.stages[stage] = {
 				...result,
@@ -3377,10 +3422,10 @@ var RuntimeStatus = class {
 				if (this.sessions.get(key) !== attempt) return;
 				attempt.scope_key = fingerprint(scopeId);
 				attempt.scope_id = /^[a-zA-Z0-9_-]{1,128}$/.test(scopeId) ? scopeId : "(redacted)";
-				record$1("scope", { state: "resolved" });
+				record$2("scope", { state: "resolved" });
 			},
-			record: record$1,
-			skip: (stage, reason) => record$1(stage, {
+			record: record$2,
+			skip: (stage, reason) => record$2(stage, {
 				state: "skipped",
 				code: reason,
 				message: SKIP_REASONS[reason]
@@ -3393,7 +3438,7 @@ var RuntimeStatus = class {
 				}
 				const { state: _state, operation: _operation, ...failure } = operationFailure(OPERATIONS$1[stage], observedError);
 				const confirmation = writeAttempted ? writeFailureConfirmation(observedError) : void 0;
-				record$1(stage, {
+				record$2(stage, {
 					...failure,
 					state: "unavailable",
 					...confirmation ? { confirmation } : {}
