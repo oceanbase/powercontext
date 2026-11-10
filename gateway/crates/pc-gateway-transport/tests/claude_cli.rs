@@ -40,12 +40,25 @@ async fn goose_original_usage_and_errors_with_print_mode_adapter() {
         Some((
             vector["expected"]["input_tokens"].clone(),
             vector["expected"]["output_tokens"].clone(),
+            "stop",
         )),
     )];
     // Anthropic cache read/write counts are separate from uncached input.
-    let mut cached = result;
+    let mut cached = result.clone();
     cached["usage"] = json!({"input_tokens":10,"cache_read_input_tokens":100,"cache_creation_input_tokens":20,"output_tokens":3});
-    outputs.push((cached, Some((json!(130), json!(3)))));
+    outputs.push((cached, Some((json!(130), json!(3), "stop"))));
+    for stop_reason in ["max_tokens", "model_context_window_exceeded"] {
+        let mut truncated = result.clone();
+        truncated["stop_reason"] = json!(stop_reason);
+        outputs.push((
+            truncated,
+            Some((
+                vector["expected"]["input_tokens"].clone(),
+                vector["expected"]["output_tokens"].clone(),
+                "length",
+            )),
+        ));
+    }
     outputs.extend(
         vector["errors"]
             .as_array()
@@ -86,7 +99,7 @@ async fn goose_original_usage_and_errors_with_print_mode_adapter() {
         assert!(arguments.contains("--max-turns\n1"));
         assert!(arguments.contains("--no-session-persistence"));
         assert!(arguments.contains("--strict-mcp-config"));
-        if let Some((input, output)) = expected_usage {
+        if let Some((input, output, finish_reason)) = expected_usage {
             let SendOutcome::Delivered(raw) = result else {
                 panic!("original result lost");
             };
@@ -97,6 +110,7 @@ async fn goose_original_usage_and_errors_with_print_mode_adapter() {
             );
             assert_eq!(body["usage"]["prompt_tokens"], input);
             assert_eq!(body["usage"]["completion_tokens"], output);
+            assert_eq!(body["choices"][0]["finish_reason"], finish_reason);
         } else {
             assert!(matches!(result, SendOutcome::Indeterminate(_)));
         }

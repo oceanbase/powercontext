@@ -3,8 +3,73 @@
 
 // Grok shaping derives from Magpie (MIT); see LICENSES/oauth.md.
 
-use crate::RenderError;
+use crate::{CanonicalRequest, RenderError};
+use bytes::Bytes;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
+
+#[derive(PartialEq, Eq)]
+struct ToolIdentity {
+    namespace: String,
+    name: String,
+}
+
+// Magpie's namespacedIn/callTo retain identities per request, including history.
+fn tool_names<'a>(
+    tools: impl Iterator<Item = &'a Value>,
+    input: impl Iterator<Item = &'a Value>,
+    choice: Option<&'a Value>,
+) -> Result<BTreeMap<String, ToolIdentity>, RenderError> {
+    let mut names = BTreeMap::new();
+    let mut remember = |namespace: &str, name: &str| -> Result<(), RenderError> {
+        let flat = flat_name(namespace, name)?;
+        let identity = ToolIdentity {
+            namespace: if namespace == "functions" {
+                ""
+            } else {
+                namespace
+            }
+            .into(),
+            name: name.into(),
+        };
+        if names
+            .get(&flat)
+            .is_some_and(|previous| previous != &identity)
+        {
+            return Err(unsupported("ambiguous flattened tool name"));
+        }
+        names.insert(flat, identity);
+        Ok(())
+    };
+    for tool in tools {
+        if tool["type"] == "namespace" {
+            for function in tool["tools"].as_array().into_iter().flatten() {
+                if function["type"] == "function" {
+                    if let Some(name) = function["name"].as_str() {
+                        remember(tool["name"].as_str().unwrap_or(""), name)?;
+                    }
+                }
+            }
+        } else if tool["type"] == "function" {
+            if let Some(name) = tool["name"].as_str() {
+                remember("", name)?;
+            }
+        }
+    }
+    let selectors = choice
+        .filter(|choice| choice["type"] == "allowed_tools")
+        .and_then(|choice| choice["tools"].as_array())
+        .into_iter()
+        .flatten();
+    for item in input.chain(choice).chain(selectors) {
+        if matches!(item["type"].as_str(), Some("function" | "function_call")) {
+            if let Some(name) = item["name"].as_str() {
+                remember(item["namespace"].as_str().unwrap_or(""), name)?;
+            }
+        }
+    }
+    Ok(names)
+}
 
 fn supported_tool(value: &Value) -> bool {
     matches!(
@@ -57,6 +122,11 @@ fn flat_call(value: &mut Value) -> Result<(), RenderError> {
 }
 
 pub(super) fn adapt(body: &mut Value) -> Result<(), RenderError> {
+    tool_names(
+        body["tools"].as_array().into_iter().flatten(),
+        body["input"].as_array().into_iter().flatten(),
+        body.get("tool_choice"),
+    )?;
     if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
         let mut kept = Vec::new();
         for tool in tools.drain(..) {
@@ -97,18 +167,52 @@ pub(super) fn adapt(body: &mut Value) -> Result<(), RenderError> {
         }
         *tools = kept;
     }
+    if body["tool_choice"]["type"] == "allowed_tools" {
+        // Magpie's parseResponses filters declarations and retains the requested mode.
+        let mode = body["tool_choice"]["mode"]
+            .as_str()
+            .filter(|mode| matches!(*mode, "auto" | "required"))
+            .ok_or_else(|| unsupported("allowed_tools mode"))?
+            .to_owned();
+        let mut allowed = body["tool_choice"]["tools"]
+            .as_array()
+            .ok_or_else(|| unsupported("allowed_tools tools"))?
+            .clone();
+        for selector in &mut allowed {
+            if !supported_tool(&selector["type"])
+                || selector["type"] == "function" && !selector["name"].is_string()
+            {
+                return Err(unsupported("allowed_tools selector"));
+            }
+            flat_call(selector)?;
+        }
+        if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
+            tools.retain(|tool| {
+                allowed.iter().any(|selector| {
+                    selector.as_object().is_some_and(|fields| {
+                        fields
+                            .iter()
+                            .all(|(key, value)| tool.get(key) == Some(value))
+                    })
+                })
+            });
+        }
+        body["tool_choice"] = json!(mode);
+    }
     let has_tools = body["tools"].as_array().is_some_and(|v| !v.is_empty());
-    if !has_tools
-        || body
-            .get("tool_choice")
-            .filter(|v| v.is_object())
-            .is_some_and(|v| !supported_tool(&v["type"]))
-    {
-        body.as_object_mut()
-            .ok_or_else(invalid)?
-            .remove("tool_choice");
-    } else if let Some(choice) = body.get_mut("tool_choice") {
+    if let Some(choice) = body.get_mut("tool_choice") {
+        if choice.is_object() && !supported_tool(&choice["type"]) {
+            return Err(unsupported("tool_choice"));
+        }
         flat_call(choice)?;
+        if !has_tools {
+            if !choice.is_null() && !matches!(choice.as_str(), Some("auto" | "none")) {
+                return Err(unsupported("tool_choice requires supported tools"));
+            }
+            body.as_object_mut()
+                .ok_or_else(invalid)?
+                .remove("tool_choice");
+        }
     }
     if let Some(input) = body.get_mut("input").and_then(Value::as_array_mut) {
         for item in input {
@@ -159,6 +263,60 @@ fn invalid() -> RenderError {
     }
 }
 
+fn unsupported(field: &str) -> RenderError {
+    RenderError::UnsupportedField {
+        renderer: "grok-subscription",
+        field: field.into(),
+    }
+}
+
+pub(super) fn restore_response(request: &CanonicalRequest, body: Bytes) -> Option<Bytes> {
+    let names = tool_names(
+        request.tools.iter(),
+        request
+            .messages
+            .iter()
+            .flat_map(|message| message.content.iter()),
+        request.tool_choice.as_ref(),
+    )
+    .ok()?;
+    if names.values().all(|identity| identity.namespace.is_empty()) {
+        return Some(body);
+    }
+    let mut response: Value = serde_json::from_slice(&body).ok()?;
+    let mut changed = false;
+    if let Some(items) = response.get_mut("output").and_then(Value::as_array_mut) {
+        for item in items {
+            if item["type"] != "function_call" {
+                continue;
+            }
+            let identity =
+                if let Some(namespace) = item["namespace"].as_str().filter(|ns| !ns.is_empty()) {
+                    names.values().find(|identity| {
+                        identity.namespace == namespace && item["name"] == identity.name
+                    })
+                } else {
+                    item["name"].as_str().and_then(|name| names.get(name))
+                };
+            let Some(identity) = identity.filter(|identity| !identity.namespace.is_empty()) else {
+                continue;
+            };
+            item["name"] = json!(identity.name);
+            item["namespace"] = json!(identity.namespace);
+            // Magpie marks unsealed arguments explicitly for Codex sub-agent dispatch.
+            item.as_object_mut()?
+                .entry("encrypted_function_args")
+                .or_insert_with(|| json!([]));
+            changed = true;
+        }
+    }
+    if changed {
+        serde_json::to_vec(&response).ok().map(Bytes::from)
+    } else {
+        Some(body)
+    }
+}
+
 #[cfg(test)]
 mod migrated_vectors {
     #[test]
@@ -169,6 +327,13 @@ mod migrated_vectors {
         .unwrap();
         for case in fixture["cases"].as_array().unwrap() {
             let mut body = case["request"].clone();
+            // The upstream drops an explicitly selected custom tool; reject that loss of intent.
+            if case["id"] == "unsupported-tools" {
+                assert!(
+                    matches!(super::adapt(&mut body), Err(crate::RenderError::UnsupportedField {field, ..}) if field == "tool_choice")
+                );
+                continue;
+            }
             super::adapt(&mut body).unwrap();
             assert_eq!(
                 body, case["expected"],

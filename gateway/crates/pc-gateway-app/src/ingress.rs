@@ -953,6 +953,10 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
 fn _unused(_: Option<Bytes>) {}
 
 #[cfg(test)]
+#[path = "grok_tests.rs"]
+mod grok_tests;
+
+#[cfg(test)]
 mod tests {
     //! PR #2307 review P2：chat 工具元数据经入口 canonical 化的保真测试。
     use super::*;

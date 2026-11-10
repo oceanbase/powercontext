@@ -81,12 +81,18 @@ pub(super) async fn send(executable: &OsString, send: AdmittedSend) -> SendOutco
     }) else {
         return SendOutcome::Indeterminate(SendIndeterminateReason::LostAfterHandoff);
     };
+    let finish_reason = match output["stop_reason"].as_str() {
+        Some("max_tokens" | "model_context_window_exceeded") => "length",
+        Some("end_turn" | "stop_sequence") => "stop",
+        None if output["stop_reason"].is_null() => "stop",
+        _ => return SendOutcome::Indeterminate(SendIndeterminateReason::LostAfterHandoff),
+    };
     let created = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|v| v.as_secs())
         .unwrap_or(0);
     let mut body = json!({"id":format!("claude-cli-{}",uuid::Uuid::new_v4()),"object":"chat.completion","created":created,"model":model,
-        "choices":[{"index":0,"message":{"role":"assistant","content":text},"finish_reason":"stop"}]});
+        "choices":[{"index":0,"message":{"role":"assistant","content":text},"finish_reason":finish_reason}]});
     if let Some(usage) = output["usage"].as_object() {
         let mut normalized = serde_json::Map::new();
         for (source, target) in [

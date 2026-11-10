@@ -69,6 +69,20 @@ impl WireRenderer for SubscriptionRenderer {
             content_type: payload.content_type,
         })
     }
+
+    fn restore_response(
+        &self,
+        request: &CanonicalRequest,
+        body: bytes::Bytes,
+    ) -> Option<bytes::Bytes> {
+        if matches!(self.subscription, Some(SubscriptionProtocol::Grok))
+            && self.message_list_key() == "input"
+        {
+            crate::grok::restore_response(request, body)
+        } else {
+            Some(body)
+        }
+    }
 }
 
 fn invalid() -> RenderError {

@@ -3,7 +3,8 @@
 // Grok cases adapted from Magpie's grok_test.go (MIT); see LICENSES/oauth.md.
 
 use pc_gateway_protocol::{
-    CanonicalRequest, GatewayRenderer, SubscriptionProtocol, SubscriptionRenderer, WireRenderer,
+    CanonicalRequest, GatewayRenderer, RenderError, SubscriptionProtocol, SubscriptionRenderer,
+    WireRenderer,
 };
 use serde_json::{json, Value};
 
@@ -18,52 +19,48 @@ fn request(tools: Value, input: Vec<Value>, choice: Value) -> CanonicalRequest {
 }
 
 #[test]
-fn grok_namespaces_keep_call_pairing_and_unsupported_tools_do_not_reach_the_wire() {
-    let request = request(
-        json!([
-            {"type":"function", "name":"shell"},
-            {"type":"custom", "name":"apply_patch"},
-            {"type":"namespace","name":"collaboration","tools":[
-                {"type":"function","name":"spawn","parameters":{"type":"object"}},
-                {"type":"custom","name":"freeform"}
-            ]},
-            {"type":"namespace","name":"functions","tools":[{"type":"function","name":"view"}]},
-            {"type":"web_search","external_web_access":false}
-        ]),
-        vec![
-            json!({"type":"function_call","name":"spawn","namespace":"collaboration","call_id":"c1","arguments":"{}"}),
-            json!({"type":"function_call_output","call_id":"c1","output":"accepted"}),
-            json!({"type":"reasoning","content":null,"encrypted_content":"opaque"}),
-        ],
-        json!({"type":"function","name":"spawn","namespace":"collaboration"}),
-    );
+fn grok_rejects_ambiguous_identities_before_rendering_an_upstream_request() {
     let renderer = SubscriptionRenderer {
         inner: GatewayRenderer::Responses(Default::default()),
         subscription: Some(SubscriptionProtocol::Grok),
     };
-    let body: Value =
-        serde_json::from_slice(&renderer.render(&request, None).unwrap().bytes).unwrap();
-    assert_eq!(
-        body["tools"],
-        json!([
-            {"type":"function","name":"shell"},
-            {"type":"function","name":"collaboration__spawn","parameters":{"type":"object"}},
-            {"type":"function","name":"view"},
-            {"type":"web_search"},
-        ])
-    );
-    assert_eq!(
-        body["tool_choice"],
-        json!({"type":"function","name":"collaboration__spawn"})
-    );
-    assert_eq!(
-        body["input"],
-        json!([
-            {"type":"function_call","name":"collaboration__spawn","call_id":"c1","arguments":"{}"},
-            {"type":"function_call_output","call_id":"c1","output":"accepted"},
-            {"type":"reasoning","encrypted_content":"opaque"},
-        ])
-    );
+    for (tools, input, choice) in [
+        (
+            json!([
+                {"type":"namespace","name":"a","tools":[{"type":"function","name":"b__c"}]},
+                {"type":"namespace","name":"a__b","tools":[{"type":"function","name":"c"}]}
+            ]),
+            vec![],
+            Value::Null,
+        ),
+        (
+            json!([
+                {"type":"function","name":"a__b__c"},
+                {"type":"namespace","name":"a","tools":[{"type":"function","name":"b__c"}]}
+            ]),
+            vec![],
+            Value::Null,
+        ),
+        (
+            json!([{"type":"namespace","name":"a__b","tools":[{"type":"function","name":"c"}]}]),
+            vec![
+                json!({"type":"function_call","namespace":"a","name":"b__c","call_id":"c1","arguments":"{}"}),
+            ],
+            Value::Null,
+        ),
+        (
+            json!([{"type":"function","name":"a__b__c"}]),
+            vec![],
+            json!({"type":"allowed_tools","mode":"required","tools":[
+                {"type":"function","namespace":"a","name":"b__c"}
+            ]}),
+        ),
+    ] {
+        assert!(matches!(
+            renderer.render(&request(tools, input, choice), None),
+            Err(RenderError::UnsupportedField { field, .. }) if field == "ambiguous flattened tool name"
+        ));
+    }
 }
 
 #[test]

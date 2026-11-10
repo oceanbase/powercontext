@@ -68,7 +68,7 @@ Do not route Core's own generation calls back through a Gateway with automatic r
 
 ## Compatibility and tests
 
-Grok Responses supports function namespace flattening and the migrated Magpie tool conversions. Flattened names longer than 64 bytes and top-level union tool schemas are rejected. Claude CLI supports single-turn text execution rather than Magpie's persistent session and tool bridge.
+Grok Responses follows Magpie's tool adaptation: namespaced functions are flattened for the upstream and restored before Core release checks and client JSON/SSE delivery. `allowed_tools` restricts the forwarded declarations while preserving `auto` or `required`. Ambiguous flattened names, names longer than 64 bytes, unsupported explicit tool choices and top-level union tool schemas are rejected before sending. A required choice with no supported tools is rejected. Claude CLI supports single-turn text execution rather than Magpie's persistent session and tool bridge; token-limit stops are reported as truncated responses.
 
 Run the controlled workspace tests from `gateway/`:
 

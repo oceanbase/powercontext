@@ -43,6 +43,16 @@ pub trait WireRenderer: Send + Sync {
         request: &CanonicalRequest,
         cache_render_plan: Option<&serde_json::Value>,
     ) -> Result<RenderedPayload, RenderError>;
+
+    /// Restore caller-facing identities before release checking and client framing.
+    /// None withholds a response whose identities cannot be recovered safely.
+    fn restore_response(
+        &self,
+        _request: &CanonicalRequest,
+        body: bytes::Bytes,
+    ) -> Option<bytes::Bytes> {
+        Some(body)
+    }
 }
 
 /// OpenAI 兼容 chat-completions 渲染器。

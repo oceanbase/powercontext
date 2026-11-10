@@ -40,7 +40,9 @@ use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
 use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
-use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
+use pc_gateway_transport::{
+    AdmittedSend, RawResponse, SendIndeterminateReason, SendOutcome, Transport,
+};
 use pc_gateway_types::{
     parse_rfc3339_ms, CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, ModelJsonPayload, ModelJsonTextLocation, PrepareContextRequest,
@@ -430,6 +432,10 @@ where
 
         // 释放阶段。
         let (raw, send_binding_for_release) = raw;
+        let raw = match restore_protocol_response(&call.request, renderer, raw) {
+            Ok(raw) => raw,
+            Err(outcome) => return outcome,
+        };
         let release_body = match String::from_utf8(raw.body.clone().to_vec()) {
             Ok(text) => text,
             Err(_) => {
@@ -735,6 +741,10 @@ where
             SendOutcome::Delivered(raw) => {
                 recording.received(&raw);
                 execution.model_send(ModelSendState::ResponseReceived);
+                let raw = match restore_protocol_response(&call.request, renderer, raw) {
+                    Ok(raw) => raw,
+                    Err(outcome) => return outcome,
+                };
                 ManagedOutcome::Degraded {
                     status: raw.status,
                     content_type: raw.content_type,
@@ -761,6 +771,24 @@ where
             }
         }
     }
+}
+
+fn restore_protocol_response<R: WireRenderer>(
+    request: &CanonicalRequest,
+    renderer: &R,
+    mut raw: RawResponse,
+) -> Result<RawResponse, ManagedOutcome> {
+    raw.body = renderer
+        .restore_response(request, raw.body)
+        .ok_or_else(|| ManagedOutcome::Withheld {
+            reason_codes: vec!["response_identity_unavailable".into()],
+        })?;
+    if raw.body.len() > pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT {
+        return Err(indeterminate_outcome(
+            SendIndeterminateReason::BufferLimitExceeded,
+        ));
+    }
+    Ok(raw)
 }
 
 // Capacity failure withholds the incomplete body without clearing possible billing.
