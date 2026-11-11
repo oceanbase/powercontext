@@ -77,6 +77,8 @@ _FTS_IDENTITY_SQL = "'i' || lower(hex(scope_id)) || 'x' || lower(hex(artifact_id
 _VECTOR_TABLE = "pc_atomic_memory_current_vec"
 # Avoid reserving 1024 vector slots for every small Scope.
 _VECTOR_CHUNK_SIZE = 128
+# SQLite's legacy bind limit is 999 variables; one page identity binds one variable.
+_BODY_ID_CHUNK = 900
 _VECTOR_COLUMNS = "identity, scope_id, kind, embedding, artifact_id, revision, state_version, text"
 
 
@@ -488,19 +490,17 @@ class SQLiteAtomicMemoryIndex(RelationalAtomicMemoryIndex):
     ) -> AtomicMemoryRelatedPage | None:
         if not ranks:
             return None
-        parameters = {
-            "scope_id": scope_id,
-            "body_ids": [rank.artifact_ref.artifact_id for rank in ranks],
-        }
-        rows = tuple(
-            (
+        ids = [rank.artifact_ref.artifact_id for rank in ranks]
+        body_rows = []
+        for start in range(0, len(ids), _BODY_ID_CHUNK):
+            rows = (
                 await connection.execute(
                     text(atomic_memory_body_select()).bindparams(bindparam("body_ids", expanding=True)),
-                    parameters,
+                    {"scope_id": scope_id, "body_ids": ids[start : start + _BODY_ID_CHUNK]},
                 )
             ).mappings()
-        )
-        texts, heads = atomic_memory_bodies_from_rows(rows)
+            body_rows.extend(rows)
+        texts, heads = atomic_memory_bodies_from_rows(tuple(body_rows))
         return atomic_memory_page_from_ranks(ranks, texts, heads, cursor)
 
     async def _channels(
