@@ -1407,7 +1407,11 @@ async fn non_utf8_response_is_never_released() {
         )
         .await;
     match outcome {
-        ManagedOutcome::Withheld { reason_codes } => {
+        ManagedOutcome::Withheld {
+            reason_codes,
+            retryable,
+        } => {
+            assert!(!retryable);
             assert_eq!(reason_codes, ["invalid_response_encoding"])
         }
         other => panic!("expected Withheld, got {other:?}"),
@@ -3726,7 +3730,7 @@ async fn partial_response_facts_survive_without_claiming_complete_delivery_or_us
                 &evidence
             )
             .await,
-        ManagedOutcome::Withheld { reason_codes }
+        ManagedOutcome::Withheld { reason_codes, retryable: false }
             if reason_codes == ["response_buffer_limit_exceeded"]
     ));
     let call = &evidence.calls()[0];
@@ -3742,6 +3746,54 @@ async fn partial_response_facts_survive_without_claiming_complete_delivery_or_us
 }
 
 // ---------- #2405：复用证明的依赖变化后重新准备一次 ----------
+
+#[tokio::test]
+async fn withheld_recoverability_is_classified_by_the_executor() {
+    for (reasons, expected_retryable) in [
+        (vec!["context-refresh-required"], true),
+        (vec!["target_unsupported"], false),
+        (
+            vec!["context-refresh-required", "target_unsupported"],
+            false,
+        ),
+        (vec!["unknown-reason"], false),
+        (vec![], false),
+    ] {
+        for phase in [CheckPhase::BeforeSend, CheckPhase::BeforeRelease] {
+            let mut checks = vec![];
+            let responses = if phase == CheckPhase::BeforeRelease {
+                checks.push(Ok(result(
+                    CheckPhase::BeforeSend,
+                    CheckDecision::Allow,
+                    &[],
+                )));
+                vec![raw_response()]
+            } else {
+                vec![]
+            };
+            checks.push(Ok(result(phase, CheckDecision::Withhold, &reasons)));
+            let (executor, renderer, _, _) = harness(checks, responses, 2);
+            let outcome = executor
+                .run(
+                    request_control(),
+                    call(DegradePolicy::Pause),
+                    &RendererRef(renderer),
+                    &NoopEvidenceSink,
+                )
+                .await;
+            match outcome {
+                ManagedOutcome::Withheld {
+                    reason_codes,
+                    retryable,
+                } => {
+                    assert_eq!(reason_codes, reasons);
+                    assert_eq!(retryable, expected_retryable, "{phase:?}: {reasons:?}");
+                }
+                other => panic!("expected Withheld, got {other:?}"),
+            }
+        }
+    }
+}
 
 fn refresh_required() -> Result<ContextCheckResult, GateError> {
     Ok(result(
@@ -3830,7 +3882,7 @@ async fn a_request_refreshes_at_most_once() {
         )
         .await;
     assert!(
-        matches!(outcome, ManagedOutcome::Withheld { ref reason_codes } if reason_codes == &["context-refresh-required"]),
+        matches!(outcome, ManagedOutcome::Withheld { ref reason_codes, .. } if reason_codes == &["context-refresh-required"]),
         "{outcome:?}"
     );
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
@@ -3972,8 +4024,10 @@ async fn response_capacity_withholds_without_retry_and_preserves_possible_billin
             let outcome = executor
                 .run(control, call(degrade), &RendererRef(renderer), &evidence)
                 .await;
-            assert!(matches!(outcome, ManagedOutcome::Withheld { reason_codes }
-                if reason_codes == ["response_buffer_limit_exceeded"]));
+            assert!(
+                matches!(outcome, ManagedOutcome::Withheld { reason_codes, .. }
+                if reason_codes == ["response_buffer_limit_exceeded"])
+            );
             assert_eq!(
                 observation.snapshot().model_send,
                 ModelSendState::PossiblySent

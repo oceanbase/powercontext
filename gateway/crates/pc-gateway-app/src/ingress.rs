@@ -840,14 +840,13 @@ fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
             Json(serde_json::json!({ "decision": "block", "reason_codes": reason_codes })),
         )
             .into_response(),
-        ManagedOutcome::Withheld { reason_codes } => {
+        ManagedOutcome::Withheld {
+            reason_codes,
+            retryable,
+        } => {
             // Codex retries generic 403/409 errors as stream failures. A deterministic
             // refusal must be a bad request; only a context refresh remains recoverable.
-            let status = if !reason_codes.is_empty()
-                && reason_codes
-                    .iter()
-                    .all(|reason| reason == "context-refresh-required")
-            {
+            let status = if retryable {
                 StatusCode::CONFLICT
             } else {
                 StatusCode::BAD_REQUEST
@@ -898,6 +897,7 @@ mod tests {
     async fn deterministic_withholds_are_bad_requests_and_preserve_reasons() {
         for reasons in [
             vec!["target_unsupported"],
+            vec!["context-refresh-required"],
             vec!["invalid_response_encoding"],
             vec!["response_buffer_limit_exceeded"],
             vec!["context-refresh-required", "target_unsupported"],
@@ -906,6 +906,7 @@ mod tests {
             let response = respond(
                 ManagedOutcome::Withheld {
                     reason_codes: reasons.iter().map(|reason| (*reason).to_owned()).collect(),
+                    retryable: false,
                 },
                 OutputProtocol::OpenAiResponses,
             );
@@ -924,10 +925,11 @@ mod tests {
     }
 
     #[test]
-    fn context_refresh_withholds_and_expired_admissions_remain_conflicts() {
+    fn retryable_withholds_and_expired_admissions_remain_conflicts() {
         for outcome in [
             ManagedOutcome::Withheld {
-                reason_codes: vec!["context-refresh-required".into()],
+                reason_codes: vec!["executor-defined-recoverable-reason".into()],
+                retryable: true,
             },
             ManagedOutcome::AdmissionExpired,
         ] {
