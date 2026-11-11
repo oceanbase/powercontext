@@ -32,6 +32,7 @@ from powercontext.builtin.records import BaseAccessError, BaseArtifactFamily, In
 TaggableArtifactFamily = BaseArtifactFamily
 TagMatch = Literal["all", "any"]
 TagTargetType = Literal["artifact"]
+MAX_TARGET_TAGS = 32
 
 
 class _TagModel(BaseModel):
@@ -49,7 +50,9 @@ class ArtifactTagTarget(_TagModel):
 TagTarget = ArtifactTagTarget
 
 
-def normalize_tags(tags: tuple[str, ...], *, maximum: int = 32, allow_empty: bool = True) -> dict[str, str]:
+def normalize_tags(
+    tags: tuple[str, ...], *, maximum: int = MAX_TARGET_TAGS, allow_empty: bool = True
+) -> dict[str, str]:
     """Validate atomically and return display labels in UTF-8 key order.
 
     Invalid input is never included in an exception or diagnostic message.
