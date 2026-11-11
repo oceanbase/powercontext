@@ -374,7 +374,7 @@ class _HookBoundaryFaults:
         (0, 0, True, True, False),
         (0, 0, False, False, True),
         (1.2, 0, False, False, False),
-        (0, 1.2, False, False, False),
+        (0, SLOW_HOOK_RESPONSE_SECONDS, False, False, False),
     ],
 )
 def test_zcode_source_is_processed_and_recalled_in_a_new_session(
