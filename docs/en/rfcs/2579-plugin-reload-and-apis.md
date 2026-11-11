@@ -18,7 +18,8 @@ This proposal adds three capabilities on top of [plugin interfaces RFC #2549](ht
   never reads the new code.
 - **Plugin-defined APIs**: a plugin can declare its own HTTP routes. Core mounts them in a separate group under
   `/v1/plugins/{name}/api/...`, performs authentication and the required authorization, and then hands the request to the
-  plugin's host process. The plugin's Artifacts remain readable and searchable through the generic Artifact APIs.
+  plugin's host process. A plugin can choose to offer routes to Agents as MCP tools as well. The plugin's Artifacts remain
+  readable and searchable through the generic Artifact APIs.
 - **Plugin pages**: a plugin can ship static pages with its code, shown in the Dashboard in a sandboxed iframe. A page
   calls its own plugin's APIs through forwarding by the hosting page and never gets the user's session.
 
@@ -185,7 +186,9 @@ GET  /v1/plugins/documents/openapi.json                                         
 - A plugin can create Scopes as the caller, with the same permission as `POST /v1/scopes`, which requires `server.admin`.
 - Artifacts of a plugin family are still browsed, read, searched, and changed through the generic Artifact APIs; plugin
   APIs only add domain-specific operations.
-- Plugin APIs are not part of `openapi/powercontext.yaml`, and generated clients and MCP do not include them; core
+- When a route declares `mcp=True`, core also offers it as an MCP tool, and Agents call it like a built-in tool, for
+  example to search across knowledge bases.
+- Plugin APIs are not part of `openapi/powercontext.yaml`, and generated clients do not include them; core
   generates each plugin's API description from its declaration.
 
 ## 3. Plugin pages
@@ -323,6 +326,8 @@ class Route(BaseModel):
     request_model: type[BaseModel] | None = None    # validates a json body and describes the API
     response_model: type[BaseModel] | None = None
     timeout_seconds: float = 30
+    description: str | None = None              # API description and MCP tool description
+    mcp: bool = False                           # also offer the route as an MCP tool
 
 class PluginApi(BaseModel):
     routes: Sequence[Route]
@@ -414,7 +419,23 @@ Scopes created by plugins:
   after it; if writing the configuration fails, the caller retries with the same idempotency key, gets the same Scope,
   and writes again.
 
-### 2.4 API description
+### 2.4 MCP tools
+
+Core generates MCP tools from routes that declare `mcp=True`, on the same MCP endpoint as Server's existing tools:
+
+- Only routes whose `body` is `none` or `json` can opt in; binary routes cannot, and the check fails if they do.
+- The tool name is `<plugin name>_<handler>` (with `-` replaced by `_`), and its description comes from `description`,
+  which is required when opting in. Tool parameters combine path parameters, query parameters, and `request_model`; the
+  parameter named by `scope_param` is the Scope ID.
+- Calling the tool is the same as calling the route as the MCP session's identity, with the same authentication,
+  `access` authorization, time limits, and error handling as HTTP calls.
+- `GET` routes whose `access` is `scope.read` or `authenticated` are marked read-only, and others are marked as writes, so
+  hosts can decide whether to ask the user for confirmation.
+- When hot reload adds, updates, or removes a plugin, its tools are added or removed; MCP clients see the change the next
+  time they list tools, and sessions core can notify receive a tool-list-changed notification.
+- Only routes a plugin explicitly opts in become tools, so the number of tools does not crowd Agents' context.
+
+### 2.5 API description
 
 `GET /v1/plugins/{name}/openapi.json` (authentication required) returns the OpenAPI document core generates from the route
 declarations: paths, methods, permission requirements, JSON Schemas of `request_model` and `response_model`, and the
@@ -490,6 +511,7 @@ the same as in RFC #2549; Scopes created by plugins are ordinary Scopes; plugins
 | Added | `/v1/plugins/{name}/api/...`: routes plugins declare |
 | Added | `GET /v1/plugins/{name}/openapi.json` |
 | Added | `/dashboard/plugins/{name}`, `/dashboard/plugins/{name}/ui/...`, `/dashboard/plugins/{name}/api/...`, `/dashboard/plugins/_client.js` |
+| Added | Routes a plugin declares with `mcp=True` appear as MCP tools on Server's MCP endpoint |
 | Added | `powercontext.plugins`: `PluginApi`, `Route`, `ApiRequest`, `BinaryResponse`, `ApiError`, `Caller`, `PluginPages`; the context's `require`, `reads`, `writer`, `sources`, and `scopes` |
 | Changed | `SourcePlugin` and `ArtifactPlugin` gain `api` and `pages` fields |
 | Changed | Responses of `GET /v1/plugins` and `GET /v1/plugins/{name}` add `version_digest`, `declaration_digest`, `state`, `activated_at`, the category of the latest check failure, the route list, and page information |
@@ -527,8 +549,9 @@ plugins' own routes.
   versions are cleaned up once unused.
 - **Dependency changes are not detected**: plugin dependencies live in the shared Python environment, so deployers install
   dependency updates first; when dependencies and plugin code are incompatible, the check fails.
-- **Plugin APIs are outside the main contract**: plugin routes are not in `openapi/powercontext.yaml`, have no generated
-  clients, and do not appear in MCP; plugins own their compatibility.
+- **Plugin APIs are outside the main contract**: plugin routes are not in `openapi/powercontext.yaml` and have no generated
+  clients, and the names and parameters of routes offered as MCP tools change with the plugin; plugins own their
+  compatibility.
 - **Plugin pages must be single-page applications**: forwarding stops after a page navigates, so plugin pages that span
   several documents need to be reopened.
 - **Handlers are trusted code**: host processes isolate ordinary failures and are not a sandbox. Plugin APIs write core
@@ -555,7 +578,8 @@ plugins' own routes.
 | Forbidding plugin pages from reaching external sites | Requires restricting requests, forms, popups, and navigation together, which CSP cannot do completely; plugins are trusted code whose server side can reach external sites anyway, so forbidding it for pages gains nothing |
 | Plugin pages on a separate port or domain | Also isolates the origin, but deployers must configure extra ports, certificates, and reverse proxies; a sandboxed iframe needs no extra configuration |
 | Server-side rendering of plugin pages by plugin code | Pages get data directly, but every page request enters the host process, and templates and escaping rules would need to be defined; static pages plus API calls are simpler |
-| Exposing plugin APIs as MCP tools automatically | Convenient for Agents, but requires tool descriptions, parameter mapping, and budget constraints; discussed separately |
+| Making every plugin route an MCP tool automatically | Needs no extra declaration, but the number of tools grows with plugins and crowds Agents' context, and binary routes do not suit tools; instead routes opt in, and only JSON routes can |
+| No MCP tools for plugin APIs | Least to implement, but Agents are PowerContext's main users, and a plugin's domain operations (such as searching across knowledge bases) would be unavailable to them. Existing MCP tools are already generated from HTTP APIs, and plugin routes can reuse the same mechanism |
 
 # Prior art
 
@@ -585,14 +609,12 @@ plugins' own routes.
 | Immediate scans | Whether to provide `POST /v1/plugins/rescan` (`server.admin`) so deployers can trigger a scan of this instance now; with multiple instances it affects only the instance that receives it |
 | Default scan interval | Whether 60 seconds fits; whether to limit the bytes read per scan for large plugin directories |
 | API rate limits | Whether plugin APIs get per-route or per-caller rate limits, or keep Server's existing ingress limits |
-| MCP exposure | Whether and how plugin APIs are offered to Agents as MCP tools |
 | Plugin pages in Desktop | Whether the Desktop app embeds plugin pages, and how sandboxing and CSP behave in its WebView |
 | Browser behavior verification | How `'self'` matches subresources under the CSP `sandbox` directive, and how `SameSite` applies to opaque-origin requests, need verification in major browsers before the final headers are fixed |
 | Streaming binary requests | The first version reads the whole request body in the Server process before passing it to the host process; whether large files need streaming |
 
 # Future possibilities
 
-- Plugin APIs as MCP tools that Agents call directly.
 - Plugin pages shown in the Desktop app.
 - Plugins calling each other through declared APIs.
 - Generated clients or SDK helpers for plugin APIs.

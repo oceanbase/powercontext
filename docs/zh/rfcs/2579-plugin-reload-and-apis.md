@@ -15,7 +15,8 @@ description: 在插件接口 RFC #2549 的宿主进程之上，支持运行中�
   检查通过的每个版本都会被复制成一份按内容摘要命名的只读快照，宿主进程和 Worker 只从快照导入。更新插件就是让新的
   子进程使用新快照，不在已运行的 Python 进程中替换模块，正在执行的调用也不会读到新代码。
 - **插件自定义接口**：插件可以声明自己的 HTTP 路由，core 把它们挂载到独立的分组 `/v1/plugins/{name}/api/...` 下，
-  完成认证和所需的授权检查后，把请求交给插件的宿主进程处理。插件的 Artifact 仍然可以通过通用 Artifact 接口读取和检索。
+  完成认证和所需的授权检查后，把请求交给插件的宿主进程处理。插件可以选择把路由同时作为 MCP 工具提供给 Agent。插件的
+  Artifact 仍然可以通过通用 Artifact 接口读取和检索。
 - **插件页面**：插件可以随代码提供静态页面，在 Dashboard 中以沙箱 iframe 展示；页面通过宿主页面转发调用本插件的接口，
   拿不到用户的会话。
 
@@ -162,7 +163,8 @@ GET  /v1/plugins/documents/openapi.json                                         
 - 处理函数可以读写核心数据，规则与 RFC #2549 的用户修改相同：写入以调用者身份进行，core 检查权限并记录溯源。
 - 插件可以以调用者身份创建 Scope，权限与 `POST /v1/scopes` 相同，需要 `server.admin`。
 - 插件 family 的 Artifact 仍然通过通用 Artifact 接口浏览、读取、检索和修改；插件接口只补充领域专用的操作。
-- 插件接口不属于 `openapi/powercontext.yaml`，生成的客户端和 MCP 不包含它们；每个插件的接口描述由 core 根据声明生成。
+- 插件接口不属于 `openapi/powercontext.yaml`，生成的客户端不包含它们；每个插件的接口描述由 core 根据声明生成。
+- 路由声明 `mcp=True` 时，core 同时把它作为 MCP 工具提供，Agent 可以像调用内置工具一样调用，例如跨知识库检索。
 
 ## 3. 插件页面
 
@@ -275,6 +277,8 @@ class Route(BaseModel):
     request_model: type[BaseModel] | None = None    # body 为 json 时用于校验和生成接口描述
     response_model: type[BaseModel] | None = None
     timeout_seconds: float = 30
+    description: str | None = None              # 接口描述与 MCP 工具描述
+    mcp: bool = False                           # 同时作为 MCP 工具提供
 
 class PluginApi(BaseModel):
     routes: Sequence[Route]
@@ -353,7 +357,20 @@ RFC #2549 的上下文（专属存储、模型、日志），自定义接口调�
 - 插件的业务配置（例如知识库的分块策略）不写入 Scope，由插件以 `scope_id` 为键存进自己的存储。先创建 Scope，再写配置；
   写配置失败时，调用方以相同的幂等键重试，得到同一个 Scope 后重新写入。
 
-### 2.4 接口描述
+### 2.4 MCP 工具
+
+声明 `mcp=True` 的路由由 core 生成为 MCP 工具，与 Server 现有的 MCP 工具使用同一个 MCP 端点：
+
+- 只有 `body` 为 `none` 或 `json` 的路由可以开启；二进制路由不能开启，检查时报错。
+- 工具名为 `<插件名>_<handler>`（`-` 换成 `_`），描述取自 `description`，开启时必须填写。工具参数由路径参数、查询参数和
+  `request_model` 合成，`scope_param` 对应的参数就是 Scope ID。
+- 调用工具等同于以 MCP 会话的身份调用该路由，认证、`access` 授权、时限和错误处理与 HTTP 调用相同。
+- `GET` 且 `access` 为 `scope.read` 或 `authenticated` 的路由标为只读工具，其他标为写入工具，宿主据此决定是否需要用户确认。
+- 热加载新增、更新或移除插件时，工具随之增删；MCP 客户端下一次列出工具时看到变化，core 能通知的会话会收到工具列表
+  变化的通知。
+- 只有插件显式开启的路由会成为工具，避免工具数量过多占用 Agent 的上下文。
+
+### 2.5 接口描述
 
 `GET /v1/plugins/{name}/openapi.json`（需要认证）返回 core 根据路由声明生成的 OpenAPI 文档：路径、方法、权限要求、
 `request_model` 和 `response_model` 的 JSON Schema，以及统一的错误响应。插件接口的兼容性由插件自己负责，需要不兼容的
@@ -419,6 +436,7 @@ class PluginPages(BaseModel):
 | 新增 | `/v1/plugins/{name}/api/...`：插件声明的路由 |
 | 新增 | `GET /v1/plugins/{name}/openapi.json` |
 | 新增 | `/dashboard/plugins/{name}`、`/dashboard/plugins/{name}/ui/...`、`/dashboard/plugins/{name}/api/...`、`/dashboard/plugins/_client.js` |
+| 新增 | 插件声明 `mcp=True` 的路由作为 MCP 工具出现在 Server 的 MCP 端点 |
 | 新增 | `powercontext.plugins`：`PluginApi`、`Route`、`ApiRequest`、`BinaryResponse`、`ApiError`、`Caller`、`PluginPages`；上下文的 `require`、`reads`、`writer`、`sources`、`scopes` |
 | 调整 | `SourcePlugin`、`ArtifactPlugin` 增加 `api` 和 `pages` 字段 |
 | 调整 | `GET /v1/plugins`、`GET /v1/plugins/{name}` 的响应增加 `version_digest`、`declaration_digest`、`state`、`activated_at`、最近一次检查失败的分类、路由列表和页面信息 |
@@ -448,8 +466,8 @@ class PluginPages(BaseModel):
 - **扫描有持续开销**：每个 Server 进程定期读取插件目录的全部内容计算摘要，开销随插件目录总字节数增加。
 - **快照占用磁盘**：每个版本在数据目录下保存一份插件目录的副本，旧版本在不再使用后清理。
 - **依赖变化不会被检测**：插件依赖在共用的 Python 环境中，更新依赖需要部署者先安装；依赖与插件代码不兼容时，检查会失败。
-- **插件接口在主契约之外**：插件路由不进入 `openapi/powercontext.yaml`，没有生成的客户端，也不在 MCP 中出现；兼容性由插件
-  自己保证。
+- **插件接口在主契约之外**：插件路由不进入 `openapi/powercontext.yaml`，没有生成的客户端；作为 MCP 工具提供的路由，其名称
+  和参数也随插件变化。兼容性由插件自己保证。
 - **插件页面要做成单页应用**：页面跳转后宿主页面停止转发，多页面的插件页面需要重新打开。
 - **处理函数是可信代码**：宿主进程隔离普通故障，不是沙箱。插件接口以调用者身份写入核心数据，插件代码中的缺陷可能以用户
   名义写入错误数据，这一点与 RFC #2549 的用户修改相同。
@@ -475,7 +493,8 @@ class PluginPages(BaseModel):
 | 插件页面禁止访问外部站点 | 需要同时限制请求、表单、弹窗和导航，CSP 无法完整做到；插件本身是可信代码，服务端也能访问外部，禁止页面访问外部没有实际意义 |
 | 插件页面使用独立端口或域名 | 也能隔离来源，但部署者要额外配置端口、证书和反向代理；沙箱 iframe 不需要额外配置 |
 | 插件页面由插件代码在服务端渲染 | 页面能直接拿到数据，但每次页面请求都要进入宿主进程，并且要定义模板和转义规则；静态页面加接口调用更简单 |
-| 自动把插件接口暴露为 MCP 工具 | 方便 Agent 使用，但需要定义工具描述、参数映射和预算约束，另行讨论 |
+| 所有插件路由自动成为 MCP 工具 | 不需要额外声明，但工具数量随插件增长，占用 Agent 的上下文，二进制路由也不适合作为工具；改为按路由开启，只开放 JSON 路由 |
+| 插件接口不提供 MCP 工具 | 实现最少，但 Agent 是 PowerContext 的主要使用方，插件的领域操作（例如跨知识库检索）对 Agent 不可用。现有 MCP 工具本来就由 HTTP 接口生成，插件路由可以复用同一机制 |
 
 # 先例
 
@@ -498,14 +517,12 @@ class PluginPages(BaseModel):
 | 立即扫描 | 是否提供 `POST /v1/plugins/rescan`（`server.admin`）让部署者立即触发本实例扫描；多实例时只作用于收到请求的实例 |
 | 扫描间隔默认值 | 60 秒是否合适；是否需要在大插件目录下限制每次扫描的字节数 |
 | 接口限流 | 是否为插件接口提供按路由或按调用者的限流，还是沿用 Server 现有的入口限制 |
-| MCP 暴露 | 插件接口是否以及如何作为 MCP 工具提供给 Agent |
 | Desktop 中的插件页面 | Desktop 应用是否嵌入插件页面，以及其 WebView 中的沙箱和 CSP 行为 |
 | 浏览器行为验证 | CSP `sandbox` 指令下 `'self'` 对子资源的匹配，以及不透明来源请求的 `SameSite` 处理，需要在主流浏览器上验证后确定最终响应头 |
 | 二进制请求的流式处理 | 第一版在 Server 进程中完整读入请求体再转给宿主进程；大文件是否需要流式传输 |
 
 # 后续可能
 
-- 插件接口作为 MCP 工具，供 Agent 直接调用。
 - 插件页面在 Desktop 应用中展示。
 - 插件之间通过声明的接口互相调用。
 - 为插件接口提供生成的客户端或 SDK 辅助。
