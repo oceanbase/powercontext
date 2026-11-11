@@ -469,6 +469,7 @@ class AtomicMemorySourceWindowProcessor:
     async def _prepare(self, scope_id, eligible, pipeline, context):  # noqa: C901 - keep recovery in the authorized window
         workset = AtomicMemoryWindowWorkset()
         artifacts: dict[tuple[str, str, int], ArtifactRef] = {}
+        compared_keys: set[str] = set()
         if pipeline is None:
             return workset, ()
         evidence = tuple([
@@ -537,14 +538,23 @@ class AtomicMemorySourceWindowProcessor:
                 workset, key, related_request, window_vectors, related_only=skip_unrelated
             )
 
-            async def compare_pending(pending: list[str], *, required: bool) -> None:
+            compared_keys.clear()
+
+            def pending_comparisons(pending: list[str], current: str) -> list[str]:
+                known = {workset.resolve(value) for value in compared_keys}
+                known.add(workset.resolve(current))
+                return [value for value in dict.fromkeys(pending) if workset.resolve(value) not in known]
+
+            async def compare_pending(pending: list[str], *, required: bool) -> bool:
                 nonlocal key, prompt_refs
-                pending = list(dict.fromkeys(pending))
-                # An unrelated candidate is kept as extracted rather than reconciled alone.
-                compared = not required
-                while pending or not compared:
-                    related = workset.related(key, pending[: self.config.comparison_batch_size])
-                    selected_count = min(len(pending), self.config.comparison_batch_size)
+                reconciled = False
+                while True:
+                    pending = pending_comparisons(pending, key)
+                    if not pending and (reconciled or not required):
+                        return reconciled
+                    batch = pending[: self.config.comparison_batch_size]
+                    related = workset.related(key, batch)
+                    selected_count = len(batch)
                     while related and not self._fits(
                         pipeline, workset.request(key, related), "atomic_memory.reconcile"
                     ):
@@ -554,6 +564,7 @@ class AtomicMemorySourceWindowProcessor:
                             self._require_budget(pipeline, workset.request(key, related), "atomic_memory.reconcile")
                     value = workset.request(key, related)
                     self._require_budget(pipeline, value, "atomic_memory.reconcile")
+                    looked = pending[:selected_count]
                     reconciliation_prompt = current_prompt("atomic_memory.reconcile")
                     if reconciliation_prompt is not None and reconciliation_prompt.artifact is not None:
                         ref = reconciliation_prompt.artifact
@@ -579,15 +590,14 @@ class AtomicMemorySourceWindowProcessor:
                     except RedundantAtomicMemoryRevisionError as error:
                         key = workset.recover_redundant_revision(key, related, error)
                     del pending[:selected_count]
-                    compared = True
+                    compared_keys.update(workset.resolve(item) for item in looked)
+                    reconciled = True
 
-            await compare_pending(list(prior), required=False)
-            compared = bool(prior) or skip_unrelated
+            compared = await compare_pending(list(prior), required=False) or skip_unrelated
 
             async def compare_page(page_keys: tuple[str, ...]) -> str:
                 nonlocal compared
-                await compare_pending(list(page_keys), required=False)
-                compared = True
+                compared = await compare_pending(list(page_keys), required=False) or compared
                 return key  # noqa: B023 - the callback mutates the surrounding proposal key
 
             await self._recall_related_items(

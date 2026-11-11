@@ -1002,6 +1002,75 @@ def test_released_page_memory_revision_prevents_stale_commit(tmp_path):
     asyncio.run(scenario())
 
 
+def test_related_recall_does_not_recompare_a_published_origin_it_revised(tmp_path):
+    first = "Prefer the database deployment plan for primary hosts."
+    second = "Prefer the database deployment plan for standby hosts."
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.requests: list[AtomicMemoryReconciliationInput] = []
+
+        async def generate(self, request: AtomicMemoryReconciliationInput, /):
+            self.requests.append(request)
+            compared = tuple(item.item_id for item in request.related)
+            if not request.related:
+                output = AtomicMemoryReconciliationOutput(
+                    action="create",
+                    compared_ids=(),
+                    content=AtomicMemoryReconciliationContent(
+                        kind=request.proposal.kind,
+                        text=request.proposal.text,
+                        description="Fixture memory summary",
+                    ),
+                    evidence_ids=request.proposal.evidence_ids,
+                    reason="No published memory was recalled.",
+                )
+            elif request.proposal.text == second:
+                output = AtomicMemoryReconciliationOutput(
+                    action="noop",
+                    compared_ids=compared,
+                    target_ids=(request.related[0].item_id,),
+                    reason="The recalled identity already expresses this preference.",
+                )
+            else:
+                output = AtomicMemoryReconciliationOutput(
+                    action="revise",
+                    compared_ids=compared,
+                    target_ids=(request.related[0].item_id,),
+                    content=AtomicMemoryReconciliationContent(
+                        kind=request.proposal.kind, text=first, description="Fixture memory summary"
+                    ),
+                    evidence_ids=request.proposal.evidence_ids,
+                    reason="Retain the revised preference.",
+                )
+            return GenerationResult(output=output)
+
+    recorder = Recorder()
+    pipeline = AtomicMemoryGenerationPipeline(
+        extractor=_Extractor(), reconciler=recorder, estimator=character_token_estimator()
+    )
+
+    async def scenario():
+        async with open_builtin_contexts(
+            _config(tmp_path), embedding_model=_SymmetricEmbedding(), candidate_pipeline=pipeline
+        ) as contexts:
+            await contexts.records.create_source("project", "content", ORIGINAL)
+            await contexts.process_memory("project", 1)
+            await contexts.records.create_source("project", "content", first)
+            await contexts.records.create_source("project", "content", second)
+            await contexts.process_memory("project", 2)
+            return (await contexts.atomic_memory.for_scope("project").list(limit=10)).items
+
+    items = asyncio.run(scenario())
+
+    assert [(request.proposal.text, len(request.related)) for request in recorder.requests] == [
+        (ORIGINAL, 0),
+        (first, 1),
+        (second, 1),
+    ]
+    assert [item.artifact.content.text for item in items] == [first]
+
+
 @pytest.mark.parametrize("failure", [ValueError("query implementation defect"), asyncio.CancelledError()])
 def test_related_fts_fallback_propagates_programming_failure_and_cancellation(tmp_path, failure):
     class FailedQueryEmbedding(_SymmetricEmbedding):
