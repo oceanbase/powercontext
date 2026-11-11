@@ -89,6 +89,9 @@ PC Server by default; isolation cannot be claimed before admission is implemente
 The plugin owns its embedding/index profile. Installation may initialize compatible defaults from the main configuration,
 without following subsequent changes. Credentials remain deployment configuration. Initially, documents in a Scope share
 the plugin profile; parsing/chunking may vary by knowledge base. Jobs and result metadata pin the relevant profiles.
+Active profile references live in knowledge-base Artifact configuration and must agree across active knowledge bases in a
+Scope; new bases inherit that reference. Environment settings are initial defaults, not overrides for existing data. Model
+changes require switch_model_and_rebuild for the entire shared Scope, as specified in 8.1.
 
 ## 2. OpenDAL, identity, and deduplication
 
@@ -163,6 +166,7 @@ cache is not required initially.
 | pc_sources | Immutable original references and lineage_only evidence for successful user/deletion operations; no new columns |
 | pc_artifacts | Knowledge-base configuration, document manifests, immutable revisions |
 | pc_artifact_heads | Current revision, lifecycle_state, governance_generation |
+| pc_scopes | Reuse the existing Scope row for short core transaction serialization; no schema change or task counter in version |
 | pc_artifact_lineage_sources / pc_artifact_lineage_artifacts | Exact-revision input/operation evidence and base references |
 | Existing permissions, tags, and references | Shared semantics, without unbounded jobs or member JSON |
 
@@ -242,11 +246,14 @@ putting per-file jobs into its tables. Publication is serial per document, with 
 heartbeats, and updates check the token. New targets supersede old targets; lease recovery rotates the token. SQLite uses its
 actual transaction/CAS capabilities rather than assuming every backend supports SKIP LOCKED.
 
-After authorization/lifecycle checks, recognize accepted idempotent replays before checking the current base for new requests;
-a successful network retry must not fail solely because its original ETag is stale. Terminal jobs never revive. Automatic
-bounded retries remain within a job; user retries after terminal failure use a new key/job. Cancellation does not undo a
-published result. Edits/removals pin their base and reject conflicting active changes rather than silently queue or rebase.
-A failed file does not block the whole Scope.
+For ordinary requests, authorization/lifecycle checks precede replay recognition, which precedes current-base checks for new
+requests. A successful network retry must not fail solely because its original ETag is stale. The deletion entry point allows
+authorized inspection of bounded deleted-target state to finish cleanup instead of rejecting it with generic 410 first.
+Terminal jobs never revive. Automatic bounded retries remain within a job; ordinary user retries use a new key/job. Repeated
+deletion automatically creates successor cleanup jobs as specified in section 7. Cancellation cannot undo publication or any
+committed deletion tombstone/retirement; cancelled edges in the state machine are conditional on this cutoff.
+Edits/removals pin their base and reject conflicting active changes rather than silently queue or rebase. A failed file does
+not block the whole Scope.
 
 ## 6. Acceptance, publication, and cross-store recovery
 
@@ -263,17 +270,27 @@ commit.
 | Short core publication transaction | Check base, ownership, and execution eligibility; write document revision, required operation evidence Source, lineage, and head |
 | Plugin completion transaction | Record actual result_revision and succeeded; reconcile applied_job_id/result_id after lost acknowledgement rather than republish |
 
-Publication, deletion, target replacement, cancellation, and lease recovery must share a commit-eligibility gate. During short
-publication, lock/validate the relevant plugin resource/job records through completion of the core commit. The constrained
-writer also checks the knowledge-base head, document base, and lifecycle. Use a fixed lock order; no model calls, index builds,
-or DDL inside the gate. Releasing plugin locks before core revision CAS would allow an obsolete token or deleted Source to
-publish. Parent deletion must also serialize with the publication parent-state check, not merely an early task-start check.
+Core provides the commit gate using the existing `pc_scopes` row. OceanBase/SeekDB use a row lock in the same core transaction;
+SQLite uses a core-database `BEGIN IMMEDIATE` write transaction. No lock table or Scope field is added. Publication, deletion,
+new-target acceptance, cancellation, execution-token claim/replacement, lease recovery, and model-switch control all acquire
+this gate before plugin resource/job locks and then Artifact heads. Ordinary heartbeats only renew the matching token without
+transferring ownership. Ingestion and synchronous Artifact mutation entry points must obey the gate too.
 
-If core succeeds but the plugin transaction fails, recovery first reconciles the determined result in the manifest/lineage.
-Target replacement and cancellation also reconcile first so that a published success is not recorded as cancellation.
-Prepared results are never overwritten; recomputation producing different content uses a new result_id. Failed publication
-keeps the old head and its searchable index. Validate these short transactions and lock order on all three backends without
-introducing or pretending to provide distributed atomic transactions.
+After obtaining both sides' locks, reread target, token, lease, Source markers, parent lifecycle, and already-published core
+results. Publication uses the very same core connection/transaction holding the Scope lock, never another unlocked connection.
+Cancellation/target replacement/reclaim reconcile inside the gate, commit plugin state, then release the core lock. Publication
+commits core first and records plugin success afterward; missing acknowledgement is reconciled. These are separate commits,
+not a cross-store atomic transaction.
+
+Losing the plugin database connection does not release the core lock, so another executor cannot cancel or reclaim meanwhile.
+Losing the core connection prevents that transaction from publishing. Any connection error or uncertain commit outcome ends
+the attempt; automatic reconnect must not reuse old eligibility. Recovery obtains a fresh core gate before reconciliation and
+plugin-state validation. Every control path follows core-before-plugin lock order; never wait for core while holding plugin locks.
+
+Only short commits within a Scope are serialized. Parsing, OCR, embedding, index construction, and directory enumeration run
+concurrently outside the gate; no model calls, DDL, or long computation occurs inside it. Verify actual backend locks,
+connection failures, and timeouts rather than substituting memory locks or a one-time token check. Prepared output is immutable;
+different recomputation uses a new result_id. Ordinary publication failures retain the old head and usable old index.
 
 ## 7. Operation evidence, editing, and soft deletion
 
@@ -288,7 +305,7 @@ Jobs record intent/execution; operation Sources record success, linked through j
 | Parse/reprocess document | Publish a revision under the same document ID with original lineage; retain evidence for user-triggered changes |
 | Edit/remove chunk | Increment document revision, produce a complete result, link successful operation evidence, retain previous rows |
 | Delete document/knowledge-base | Create a deletion revision with a bounded deletion summary and retire the head in the same core transaction; link deletion evidence |
-| Delete original Source | Mark the source resource; cancel dependent work; if the current document depends on it, perform recoverable document deletion with evidence |
+| Delete original Source | Mark the source resource and immediately deny original/derived reads; finish document retirement, deletion evidence, and index cleanup asynchronously |
 
 Deletion revisions are a plugin convention, not a change to other families' governance. A deletion revision may reuse the
 previous result_id without copying chunk bodies. Its operation summary must actually create a revision rather than be skipped
@@ -302,16 +319,43 @@ result with no current retrieval hits. Duplicate import cannot overwrite manual 
 Knowledge-base deletion first commits its deletion revision/retirement, immediately hiding all children. An accepted cleanup
 job survives restart, marks Sources, deletes documents, and cancels processing in batches. Each changed Artifact gets its own
 evidence, sharing an operation ID for the cascade. Cleanup is allowed under a deleted parent and is not cancelled by ordinary
-processing parent checks. Its persisted cursor is plugin batch progress only. Persist the deletion/cleanup job before retiring the parent so cascade work cannot be lost.
+processing parent checks. Its cursor is plugin batch progress only. Persist the deletion/cleanup job before the first deletion
+effect. Once a Source tombstone or Artifact retirement commits, deletion is non-cancellable: failures require completion or
+recovery rather than reporting cancellation with unfinished side effects. Queued deletion without effects remains cancellable.
 
 Deleting a document leaves its original Source readable. Deleting an unpublished replacement Source preserves an old result
 based on another original. If S1 supplied an old revision and S2 supplied a complete reparse, deleting S1 preserves the current
-version based only on S2 but blocks history that depends on S1. Resource markers and Artifact retirement may finish in stages;
-reads check applicable parent, document, exact root, and Source markers without waiting for index cleanup. Generic Source,
+version based only on S2 but blocks history that depends on S1. A Source deletion response acknowledging an effective deletion,
+including 202 cleanup pending, requires a committed tombstone; job acceptance alone is not deletion. That tombstone is the visibility cutoff for
+that original and its derived content. Reads/retrieval starting afterward must check it even when the document head is still
+active or index entries remain. Content already returned before deletion is not recalled. Only document retirement,
+deletion revision/evidence, and index maintenance may be eventually consistent; content must not remain readable while cleanup
+is pending. Fail closed when visibility checks are unavailable. Resource markers and retirement may finish in stages, with
+reads checking applicable parent, document, exact root, and Source markers. Generic Source,
 exact/historical Artifact, and evidence reads require framework visibility extension points; plugin search filtering alone
 does not satisfy deletion. Missing ownership registration fails closed rather than returning unguarded content.
 Controlled internal recovery may inspect retired history for reconciliation; an authorized management route may expose bounded
 cleanup status after deletion without exposing bodies or a public bypass parameter.
+
+Repeated deletion uses the same deletion entry point/operation, without a repair/retry API. After authorization, inspect the
+original deletion and cleanup state even for a deleted target. A deletion marker or the original stale ETag does not prevent
+cleanup; still-active targets retain ordinary preconditions. Conflicting parameters under an idempotency key still return 409.
+
+The cleanup rules below apply after deletion effects exist. If the initial deletion failed or was cancelled before taking effect,
+a repeated deletion accepts a new deletion job under ordinary preconditions; the same idempotency key still replays its original receipt.
+
+| State when deletion is repeated | Result and action |
+| --- | --- |
+| Initial deletion or cleanup job remains active | Return the same deletion-operation identity and current job, 202; no duplicate |
+| Cleanup incomplete and previous job failed/terminated | Create a new background cleanup job with parent_job_id referring to the original deletion job, 202; never revive the old job |
+| Cleanup complete | Return 200 already_deleted; no new job, revision, or evidence |
+
+Serialize this check and successor creation under the core Scope gate so concurrent repeated deletes cannot create multiple
+active cleanup jobs. The internal job uses a fresh derived idempotency key while the client's deletion identity/input remains
+unchanged. Responses may refresh cleanup_job_id/status while referring to the same deletion operation. Reconcile tombstones,
+Artifact deletion summaries, and the original operation ID; skip completed objects and generate revisions/evidence only for
+Artifacts not yet changed. This applies to Sources, documents, and knowledge bases. A deleted parent permits authorized cleanup,
+not ordinary writes or content reads.
 
 ## 8. APIs and retrieval
 
@@ -328,9 +372,10 @@ Routes are proposed contracts. Plugin APIs follow #2579; registration syntax fol
 | Create knowledge base | POST `/v1/scopes/{s}/artifacts`, family=knowledge-base |
 | Knowledge-base/document overview and history | Generic Artifact GET/revisions, bounded manifest |
 | Import local files/directory | POST `P/imports`, explicit knowledge_base_id, root/paths, idempotency_key; 202 job receipt |
-| Reprocess/edit/delete/cleanup | POST `P/jobs`, typed operation, pinned target and preconditions; cleanup is internal-only; the same service handles existing synchronous deletion/governance entry points |
+| Reprocess/edit/delete | POST `P/jobs`, typed operation, pinned target and preconditions; repeating delete_source/delete_document/delete_knowledge_base repairs cleanup automatically; cleanup is internal-only |
+| Change model and rebuild index | POST `P/jobs`, operation=switch_model_and_rebuild, explicit confirmation of Scope-wide impact; existing job status APIs |
 | Job list/detail | GET `P/jobs`, GET `P/jobs/{job_id}`, pagination, stage, state, bounded error, successful revision |
-| Cancel | POST `P/jobs/{job_id}/cancel`, unpublished nonterminal work only |
+| Cancel | POST `P/jobs/{job_id}/cancel`, nonterminal work without publication or committed deletion effects; model switching is also non-cancellable after publication starts |
 | Chunk directory | GET `P/documents/{d}/revisions/{rev}/chunks`, paged metadata without body |
 | Single chunk | Append `/{chunk_id}`, body, provenance, edit metadata |
 | Batch chunks | Append `/batch-get`, POST bounded chunk_ids |
@@ -392,14 +437,55 @@ Retrieval limit counts chunks; optional snippets are bounded and bodies use chun
 Artifacts rather than chunk responses. Index candidates must match the current manifest result_id and index profile and pass
 ownership, authorization, and deletion checks. Refill after filtering so invalid candidates do not consume top-k. The adapter
 covers initial writes, revision replacement, rebuild, coverage/digest validation, zero chunks, deletion filtering, and locators.
-Historical bodies do not require every historical search index. Rebuild may pause publication, but new content cannot publish
-without its required index; retain the usable old index until replacement publication.
+Historical bodies do not require every historical search index. Same-profile rebuild retains the usable old index and cannot
+publish content missing its required index. Model changes use the controlled maintenance procedure in 8.1.
 
 Same-Scope retrieval may select multiple knowledge bases. Cross-Scope helpers authorize each explicit target, call the same
 per-Scope API, fuse ranks, and preserve target identity/errors rather than compare incompatible vector-space scores. Reject
 unsupported filters/rerank options. Python/MCP use the same service. Reuse Scope read/contribute and Artifact write/governance
 permissions, checking every affected object. Acceptance uses 428/412 preconditions, 409 conflicts, 410 deletion, 422 validation,
 413 limits, and 503 unavailability. After 202, failures are durable job states rather than conclusions inferred from logs.
+
+### 8.1 Change model and rebuild the index
+
+Existing data's active model, dimensions, and embedding parameters cannot be overwritten through configuration PUT, environment
+refresh, or restart. Use `switch_model_and_rebuild` with a pinned target_profile identifying model/version, dimensions, complete
+embedding-input rules, and index configuration; credentials remain configuration references. Because a Scope shares one profile,
+the operation requires Scope administration and explicit confirmation of all its knowledge bases, not merely the initiating base.
+
+```json
+{"knowledge_base_id":"ops","operation":"switch_model_and_rebuild","idempotency_key":"model-switch-01","input":{"expected_profile_id":"embedding-v1","target_profile_id":"embedding-v2","confirm_scope_wide":true}}
+```
+
+Reuse jobs' input_snapshot, checkpoint, parent_job_id, and document child jobs for old/target profiles, phase, and rebuild progress;
+no control table is added. The Scope gate permits one unfinished switch operation per Scope. Durable checkpoint phases are
+preparing, rebuilding, publishing, completed, aborted. Failure/process exit does not automatically clear maintenance; running job state
+alone must not decide whether service is paused. Resolve maintenance from the latest effective checkpoint in the original switch
+and successor chain: successor completed/aborted closes the operation while old failed records remain as history, not blockers.
+
+| Phase | Behavior |
+| --- | --- |
+| Acceptance/preparing | Persist switch job and old/target profiles; pause Scope retrieval and ordinary writes/publication, retain management status and exact content reads; finish cleanup for deletions already in effect |
+| rebuilding | Pin current valid document revisions, build isolated target-profile indexes from committed chunks without OCR, validate counts/digests, dimensions, and complete-input token limits |
+| publishing | Publish document revisions changing only index-profile references, reusing body result_id where appropriate, with success evidence; update all active knowledge-base configuration revisions |
+| completed | Verify all valid documents, knowledge-base configuration, and target indexes agree; complete under the gate and release maintenance so queries and subsequent jobs use the target profile together |
+
+Retrieval/ordinary writes return explicit 503 with the switch job reference during maintenance, never mixed-model results or
+silent empty results. Knowledge-base creation also checks maintenance. Repeated deletion/cleanup for effects already committed
+remains allowed so failed cleanup cannot deadlock preparation; new deletion requests are paused ordinary writes.
+Old-profile unpublished jobs cannot commit: freeze their
+eligibility and reconcile; mark unpublished old targets superseded without rewriting their inputs, and let callers submit new
+requests when needed. Queries pin their profile and recheck maintenance/active profile before returning; a change yields 503
+rather than an in-flight old-model result. Exact chunk/history reads still use fixed result_id and deletion guards. Retain old indexes at least until
+switch success.
+
+In preparing/rebuilding, cancellation/failure restores old-profile service only after verifying under the gate that no profile
+revision was published and persisting aborted. Failed job state alone never releases maintenance; superseded jobs do not revive. Once publication starts, cancellation/automatic rollback is forbidden because
+some objects may already use the target. Maintain the pause and complete forward recovery. Repeating switch_model_and_rebuild
+with the same target and a new request key may create a successor job linked to the original switch, skipping already-published
+revisions without reviving failed jobs or duplicating evidence. The same request key returns its existing job. Reject a different
+target while a switch remains unfinished. Insufficient input budget in the new model fails explicitly and requires rechunking
+first; never silently truncate. Neither distributed atomic commits nor uninterrupted switching are required.
 
 ## 9. Implementation and acceptance
 
@@ -417,9 +503,14 @@ Verify on SQLite, SeekDB, and OceanBase:
   and cancellation.
 - Prepared output followed by core rollback; core success followed by lost task acknowledgement; old content availability,
   invisible uncommitted results, and no duplicate publication.
+- Loss of only the plugin connection, loss of only the core connection, uncertain commit outcomes, cancellation/reclaim races,
+  and the core Scope gate preventing old-transaction reconnect/publication.
 - Creation/modification/deletion evidence tied to actual revisions; increment on chunk removal, readable zero chunks, history.
-- Source/document/knowledge-base deletion racing publication, recoverable cascade, and all ordinary/exact/historical/evidence
-  read guards.
+- Source/document/knowledge-base deletion racing publication; tombstones deny derived reads before head/index cleanup.
+- Cancellation rejected after deletion effects; repeated deletes repair failed cleanup, concurrent retries share one active
+  successor, and completed objects do not get duplicate revisions/evidence.
+- Direct active-model configuration edits rejected, Scope-wide switch/rebuild, partial-publication recovery, failed maintenance,
+  and old-profile job invalidation.
 - Directory/single/batch chunk boundaries, complete index lifecycle, rebuild, and valid-candidate refill.
 - OpenDAL snapshots accessible to Server/Worker; later original changes do not change accepted inputs.
 
@@ -460,8 +551,9 @@ does not automatically provide Source cascades or plugin lifecycle guards.
 
 # Unresolved questions
 
-Before implementation, fix composite registration/constrained writer signatures, backend lock order for publication/deletion
-gates, generic read guards, and exclusive Source consumption admission. Implementation fixes OCR models, chunking defaults,
+Before implementation, fix composite registration/constrained writer interfaces for the core Scope gate, generic read guards,
+and exclusive Source consumption admission. Lock order is core Scope, plugin resources/jobs, then Artifact heads; backend
+adapters must verify connection failures and compatibility with existing generic mutation paths. Implementation fixes OCR models, chunking defaults,
 lease/concurrency/retry limits, API count/byte bounds, and concrete schema types without changing ownership or commit semantics.
 Restoration/erasure, job archival and idempotency retention, rename identity, per-base vector spaces, and full edited-document
 export require separate contracts.

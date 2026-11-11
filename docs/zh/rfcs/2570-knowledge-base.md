@@ -75,6 +75,8 @@ Scope 保持授权边界。知识库 Scope 的业务内容只包括文档 Source
 
 插件独立持有 embedding／索引配置，可在安装时从兼容主路径初始化，此后不自动跟随。密钥保持在部署配置中。
 首期同一 Scope 的 document 共用插件 profile，解析／切块可按知识库配置；模型和索引配置固定进任务及结果元数据。
+当前 profile 引用保存在 knowledge-base Artifact 配置，同 Scope 的有效知识库必须一致，新建知识库继承该引用。
+环境变量只提供初始默认值，不能覆盖已有数据的活动 profile。更换模型只能执行 switch_model_and_rebuild，覆盖整个共享 Scope，见 8.1。
 
 ## 2. OpenDAL、身份与去重
 
@@ -136,6 +138,7 @@ Markdown 使用 markdown-it-py 提取结构和来源映射。图片使用 RapidO
 | pc_sources | 不可变原文引用、成功人工／删除操作的 lineage_only 证据；不增加列 |
 | pc_artifacts | knowledge-base 配置、document manifest、不可变 revision |
 | pc_artifact_heads | 当前 revision、lifecycle_state、governance_generation |
+| pc_scopes | 复用既有 Scope 行作为 core 短事务互斥点，不改字段或借用 version 作为任务计数 |
 | pc_artifact_lineage_sources／pc_artifact_lineage_artifacts | 精确版本的输入／操作证据和 base 引用 |
 | 既有权限、tags 和引用设施 | 复用公共语义，不承载无界任务或成员 JSON |
 
@@ -204,8 +207,10 @@ KnowledgeBaseTaskSupervisor 只扫描插件 jobs，负责领取、心跳、过�
 `target_generation` 表示用户期望哪个结果，`execution_token` 表示同一任务哪次执行拥有资格。领取、续租和状态更新均条件校验 token；
 新目标使旧目标 superseded，租约恢复更换 token。SQLite 使用实际支持的事务／CAS，不假设所有后端均支持 SKIP LOCKED。
 
-同键重放在授权及生命周期检查后先识别已接受任务，再检查新请求的当前 base，避免成功重试被旧 ETag 拒绝。
-终态任务不复活；自动有限重试属于同一任务，用户重新执行失败任务使用新幂等键创建新 job。取消不回滚已发布结果。
+普通请求在授权及生命周期检查后先识别同键重放，再检查新请求的当前 base，避免成功重试被旧 ETag 拒绝。
+删除入口允许授权调用者再次访问已删除目标的有限状态以补齐清理，不能先用通用 410 阻断该入口。
+终态任务不复活；自动有限重试属于同一任务，普通处理的人工重试使用新幂等键／job。删除善后按第 7 节由再次删除自动创建新 job。
+取消不回滚已发布结果；任何删除墓碑或 retirement 一经提交，相关删除／善后工作不可取消。状态机的 cancelled 边受此条件约束。
 编辑／移除固定 base，有冲突的活跃变更时拒绝，不静默排队或换基准。逐文件失败不阻塞整个 Scope。
 
 ## 6. 接受、发布与跨存储恢复
@@ -222,14 +227,22 @@ Core 与插件专属存储不共享事务，不能声称 Source、任务、chunk
 | Core 发布短事务 | 校验 base、归属和执行资格；提交 document revision、必要操作证据 Source、lineage 和 head |
 | 插件完成事务 | 写实际 result_revision 和 succeeded；若确认丢失，按 applied_job_id／result_id 对账，不重复发布 |
 
-发布、删除、换目标、取消和租约回收必须共享提交资格闸门。短发布期间，插件锁定／校验相关资源与任务记录并保持到 core 提交结束，
-同时通过受限 writer 校验知识库 head、document base 和生命周期。锁顺序固定，不在闸门内做模型调用、索引构建或 DDL。
-不能先释放插件锁再仅凭 core revision CAS 发布，否则旧 token／已删除 Source 仍可能提交。
-父知识库删除还须与发布的父状态检查互斥，不能只在任务开始检查。
+提交闸门由 core 提供，复用 `pc_scopes` 中已存在的 Scope 行。OceanBase／SeekDB 使用同一 core 事务中的行锁，
+SQLite 使用 core 数据库的 `BEGIN IMMEDIATE` 写事务；不新增锁表、不改 Scope 字段。发布、删除、接受新目标、取消、
+领取／更换执行 token、租约回收及模型切换控制都必须先取得该闸门，再按固定顺序锁定插件资源／job，最后操作 Artifact head。
+普通心跳只按 token 续租，不改变执行所有权；接入和同步 Artifact 修改入口也不得绕过闸门。
 
-Core 成功后插件事务失败，恢复者先查 manifest／lineage 的确定结果；在改变目标或取消前也做对账，不能把已发布成功记为取消。
-准备好的结果永久不可原地覆盖；重新计算不同内容使用新 result_id。发布失败保留旧 head 和旧结果的可检索索引。
-首期在三种后端验证这些短事务与锁的顺序；不引入分布式事务，也不伪装跨库原子性。
+取得两侧锁后重新读取目标、token、租约、Source 墓碑、父知识库生命周期和 core 已发布结果。发布始终在持有 Scope 锁的同一 core
+连接／事务中完成，不能转交另一个无锁连接。取消／换目标／重领先在闸门内对账，再提交插件状态，完成后才释放 core 锁。
+发布路径则先提交 core，再补记插件成功；补记失败按确定结果恢复。这仍是分开提交，不是跨库原子事务。
+
+插件数据库连接丢失时，core 锁仍阻止另一执行者取消或重领；core 连接丢失时，该事务不能再用于发布。
+任一连接报错或提交结果不确定，都退出当前尝试，禁止自动重连后沿用旧资格。恢复必须新取 core 闸门，再对账、重验插件状态。
+所有控制路径都遵循 core 在前、插件在后的锁顺序；不能在持有插件锁时反向等待 core 闸门。
+
+该方案将同 Scope 的短提交串行化；解析、OCR、向量计算、索引构建和目录枚举在锁外并发进行。
+闸门内不做模型调用、DDL 或长时间计算。三种后端验证真实锁／连接失效和超时行为，不用内存锁或仅一次 token 检查替代。
+准备结果不可原地覆盖；重算不同内容使用新 result_id。普通发布失败保留旧 head 和可用旧索引。
 
 ## 7. 操作证据、编辑与软删除
 
@@ -243,7 +256,7 @@ Core 成功后插件事务失败，恢复者先查 manifest／lineage 的确定�
 | 解析／重解析 document | 同 document ID 发布新 revision，lineage 关联原文；人工触发的变更保留操作证据 |
 | 编辑 chunk／移除 chunk | document revision +1，完整新结果；关联成功操作证据，旧行不删 |
 | 删除 document／knowledge-base | 新增含有界删除摘要的删除 revision，并在同一个 core 事务 retire head；关联删除证据 |
-| 删除原文 Source | 标记 source 资源；取消依赖任务，当前 document 仍依赖它时执行可恢复的 document 删除并生成证据 |
+| 删除原文 Source | 标记 source 资源后立即阻断其原文及派生内容读取；document retirement、删除证据和索引清理由后台最终补齐 |
 
 删除整个 Artifact 生成 revision 是本插件的业务约定，不改变其他 family 的治理规则。删除 revision 可复用之前的 result_id，
 无需复制 chunk 正文。操作摘要必须使删除 revision 真正写入，不能被“相同 content 的 put 是 no-op”跳过。
@@ -254,13 +267,35 @@ Core 成功后插件事务失败，恢复者先查 manifest／lineage 的确定�
 
 删除 knowledge-base 先提交父对象删除 revision／retirement，立即阻断全部子内容；接受的 cleanup job 可在进程重启后继续，
 分批标记 Source、删除 document、取消处理任务。每个真正变化的 Artifact 生成自己的证据，使用共同 operation ID 关联级联。
-Cleanup 是已删除父对象下的允许操作，不能被普通处理任务的父状态检查取消。已接受清理任务的固定游标只用于插件分批操作。接受删除时先持久保存删除／清理 job，再退休父对象，避免丢失级联工作。
+Cleanup 是已删除父对象下的允许操作，不能被普通处理任务的父状态检查取消。清理游标只用于插件分批操作。
+先持久接受删除／清理 job，再提交第一个删除标记。Source 墓碑或 Artifact retirement 一旦提交，删除进入不可取消阶段；
+后续错误只能恢复善后，不能报告“已取消”并遗留半完成删除。尚未产生删除效果的排队任务仍可取消。
 
 删除 document 保留原文 Source 可读；原文读取不因 document 单独删除而失效。删除未发布替代 Source 保留基于其他原文的旧版本。
 S1 对应旧 revision、S2 对应完整新解析时，删除 S1 不删除仅依赖 S2 的当前版本，但依赖 S1 的历史读取失效。
-资源标记与 Artifact retirement 可分阶段完成，读取必须同时检查适用的父对象、document、精确 root 和 Source 标记，不能等待索引清理。
+Source 删除入口返回已生效回执（包括 202 清理中）前必须提交墓碑；仅接受 job 不等于已经删除。
+Source 墓碑提交是该原文及其派生内容的可见性截止点。此后开始的 document／chunk／历史／证据读取和检索都必须检查墓碑，
+即使 document head 仍 active 或索引条目还在，也不能返回对应内容。删除开始前已返回给客户端的内容不作撤回保证。
+只允许 document retirement、删除 revision／证据及索引维护最终一致，不允许在等待后台清理时继续暴露内容；检查服务不可用时关闭读取。
+资源标记与 Artifact retirement 可分阶段完成，读取同时检查适用的父对象、document、精确 root 和 Source 标记。
 通用 Source、Artifact 精确／历史和证据读取需要框架可见性扩展点；仅插件检索过滤不满足删除契约。归属登记缺失时拒绝读取，不回退为无约束内容。
 受控内部恢复可以读取 retired 历史以对账；授权管理入口可查看删除后清理任务的有限状态，不开放正文或公共绕过参数。
+
+再次删除复用同一个删除入口／operation，不新增 repair／retry API。鉴权后允许检查已删除目标的原删除记录和清理状态，
+不因删除标记或原来的 ETag 已过时而直接拒绝善后；尚未删除的目标仍执行正常前置条件。重复请求参数冲突仍返回 409。
+
+以下善后规则针对已经产生删除效果的操作。若首次删除在生效前失败或取消，再次删除按正常前置条件接受新删除任务；同幂等键仍重放原回执。
+
+| 再次删除时的状态 | 返回和动作 |
+| --- | --- |
+| 首次删除或清理 job 仍活跃 | 返回同一删除操作标识与当前 job，202；不重复创建 |
+| 清理未完成、上一次 job 已 failed／终止 | 后台创建新的 cleanup job，parent_job_id 关联原删除 job，202；旧任务不复活 |
+| 所有清理已完成 | 200 already_deleted；不新增任务、revision 或证据 |
+
+在 core Scope 闸门内串行检查和创建后继任务，避免并发重复删除产生多个善后任务。新的内部 job 使用新的派生幂等键，
+原客户端删除请求的身份和输入不变；响应可更新 cleanup_job_id／状态，但稳定关联同一次删除操作。
+清理按已提交墓碑、Artifact 删除摘要和原 operation ID 对账，跳过已完成对象；只为尚未实际修改的 Artifact 生成删除 revision／证据。
+该规则覆盖 Source、document 和 knowledge-base。已删除父对象仅允许这些受授权善后行为，不恢复普通写入或内容读取。
 
 ## 8. 接口与检索
 
@@ -276,9 +311,10 @@ S1 对应旧 revision、S2 对应完整新解析时，删除 S1 不删除仅依�
 | 创建知识库 | POST `/v1/scopes/{s}/artifacts`，family=knowledge-base |
 | 知识库／document 概览与历史 | 通用 Artifact GET／revisions，返回有界 manifest |
 | 导入本地文件／目录 | POST `P/imports`，显式 knowledge_base_id、root／paths 和 idempotency_key；202 任务回执 |
-| 重解析／编辑／删除／清理 | POST `P/jobs`，类型化 operation、固定目标和前置条件；cleanup 仅供内部使用，同一业务服务负责现有同步删除／治理入口 |
+| 重解析／编辑／删除 | POST `P/jobs`，类型化 operation、固定目标和前置条件；再次 delete_source／delete_document／delete_knowledge_base 自动补齐清理，cleanup 仅供内部使用 |
+| 更换模型并重建索引 | POST `P/jobs`，operation=switch_model_and_rebuild，显式确认同 Scope 的影响范围；复用任务状态接口 |
 | 任务列表／详情 | GET `P/jobs`、GET `P/jobs/{job_id}`，分页、阶段、状态、有界错误、成功 revision |
-| 取消 | POST `P/jobs/{job_id}/cancel`，仅未发布非终态工作 |
+| 取消 | POST `P/jobs/{job_id}/cancel`，仅未发布且未提交删除效果的非终态工作；模型切换发布开始后也不可取消 |
 | chunk 目录 | GET `P/documents/{d}/revisions/{rev}/chunks`，分页元数据，不含正文 |
 | 单个 chunk | 上述路径追加 `/{chunk_id}`，正文、出处、人工修改信息 |
 | 批量 chunk | 上述路径追加 `/batch-get`，POST 有界 chunk_ids |
@@ -336,12 +372,47 @@ Batch-get 要求非空、无重复 ID，按请求顺序返回；先授权父对�
 检索 limit 计 chunk 数；可选 snippet 有界，正文从 chunk 接口获取。通用 Artifact search 继续返回 Artifact，不混入 chunk 响应。
 索引命中必须对应当前 manifest 的 result_id 和索引 profile，并满足归属、权限及删除规则；过滤后继续补取候选，避免无效结果占满 top-k。
 适配覆盖首次写入、版本替换、重建、coverage／摘要核对、零块、删除过滤和命中定位。保留历史正文不要求保留所有历史索引。
-重建可暂停发布，但不能发布缺失所需索引的新内容；旧可用索引在替代结果发布前保留。
+同 profile 重建保留旧可用索引，不能发布缺少所需索引的新内容；模型切换走 8.1 的受控维护流程。
 
 同 Scope 可选择多个知识库；跨 Scope helper 逐个授权显式目标，调用同一分 Scope 接口，融合排名并保留目标身份／错误，
 不直接比较不兼容向量空间的原始分数。不支持的 filter／rerank 明确拒绝。Python／MCP 复用同一业务服务。
 权限复用 Scope 读／贡献和 Artifact 写／治理能力，跨对象请求逐个检查。接受失败沿用 428／412 前置条件、409 冲突、410 已删除、
 422 校验、413 大小限制和 503 不可用；202 后的失败记录在任务状态中，不再靠日志推测。
+
+### 8.1 更换模型并重建索引
+
+已有数据的活动模型、维度和 embedding 参数不能通过配置 PUT、环境变量刷新或重启直接覆盖。
+只能执行 `switch_model_and_rebuild`；target_profile 固定模型身份／版本、维度、完整 embedding 输入规则和索引配置，密钥仍只保存配置引用。
+由于首期同 Scope 共用 profile，操作需 Scope 管理权限，并确认影响整个 Scope 的知识库；不能声称只修改发起请求的一个知识库。
+
+```json
+{"knowledge_base_id":"ops","operation":"switch_model_and_rebuild","idempotency_key":"model-switch-01","input":{"expected_profile_id":"embedding-v1","target_profile_id":"embedding-v2","confirm_scope_wide":true}}
+```
+
+复用 jobs 的 input_snapshot、checkpoint、parent_job_id 和逐文档子任务保存旧／目标 profile、阶段和重建进度，不新增控制表。
+Scope 闸门保证同 Scope 只有一个未完成的切换操作。其持久 checkpoint 阶段为 preparing、rebuilding、publishing、completed、aborted；
+失败／进程退出不会自动清除维护状态，不能只用 job 是否 running 判断是否暂停。
+按原切换操作及后继任务链的最新有效 checkpoint 判定维护；后继 completed／aborted 可以关闭该操作，旧 failed 记录保留但不单独继续阻断。
+
+| 阶段 | 行为 |
+| --- | --- |
+| 接受／preparing | 持久保存切换任务及旧／目标配置；暂停该 Scope 的检索和普通写入／发布，保留管理状态及精确内容读取；先完成已生效删除的善后 |
+| rebuilding | 固定当前有效 document 版本，从已提交 chunks 构建目标 profile 的隔离索引，不重复 OCR；验证数量／摘要、维度和完整输入 token 上限 |
+| publishing | 逐文档发布仅更新索引 profile 引用的新 revision，正文 result_id 可复用；写成功操作证据；同步更新所有有效 knowledge-base 的配置 revision |
+| completed | 核验全部有效文档、知识库配置与目标索引一致，再在闸门内确认完成并解除维护；查询与后续任务一起使用目标 profile |
+
+检索／普通写入在维护期明确返回 503 和切换任务引用，不能返回混合模型结果或静默空结果。新建知识库也参与维护检查。
+已生效删除的再次删除／善后不被维护阻断，避免清理失败后无法继续准备切换；新删除请求属于暂停的普通写入。
+切换前的旧 profile 待发布任务不得继续提交：冻结其执行资格并对账，未发布的旧目标标记 superseded，输入不原地改写；需要时由调用者提交新请求。
+查询固定本次 profile，返回前复核维护状态及活动 profile；若期间改变，返回 503，不返回在途旧模型结果。
+精确 chunk／历史读取仍使用固定 result_id，并照常执行删除检查。旧索引至少保留到切换成功。
+
+在 preparing／rebuilding 阶段，取消或失败后须在闸门内确认没有 profile revision 发布，再持久记录 aborted 并恢复旧 profile 服务；
+不能仅因任务 failed 就解除维护。原来已 superseded 的任务不自动复活。
+一旦开始发布，禁止取消／自动退回旧配置：部分对象可能已切换，必须保持维护并向前补齐。
+调用同一个 switch_model_and_rebuild 操作、相同目标 profile 和新的请求键可创建后继任务，关联原切换操作并跳过已完成 revision，
+不复活失败任务、不重复成功证据。相同请求键只返回已有任务；未完成切换期间拒绝不同目标模型。
+若新模型输入预算不足，重建失败并明确要求先调整切块，不静默截断。全程不要求跨数据库原子提交或无停机切换。
 
 ## 9. 实施与验收
 
@@ -355,8 +426,11 @@ SQLite、SeekDB、OceanBase 都验证：
 - 同请求重放、不同参数冲突、同目标活跃冲突、内容去重、配置重解析和人工编辑保护。
 - 任务接受后退出、Source 已登记但未确认、租约重领、迟到 token、目标替换、有限重试和取消。
 - 结果准备后 core 回滚、core 成功但任务确认失败；旧版本可用、结果不提前可见、不重复发布。
+- 插件连接单独断开、core 连接单独断开、提交响应未知与取消／重领竞争，验证 core Scope 闸门和禁止旧事务重连发布。
 - 创建／修改／删除证据与实际 revision 一致；删除 chunk 版本递增、零块可读、历史保留。
-- Source／document／knowledge-base 删除与发布竞争，可恢复级联，所有普通／精确／历史／证据读取阻断。
+- Source／document／knowledge-base 删除与发布竞争；墓碑已提交但 head／索引未清理时仍拒绝派生内容读取。
+- 删除生效后取消被拒绝，反复删除补齐失败清理，并发重删只产生一个活跃善后 job，已完成对象不重复 revision／证据。
+- 模型配置直接修改被拒绝，Scope 级切换／重建、部分发布后恢复、失败维护和旧 profile 任务失效。
 - Chunk 目录／单块／批量边界、索引全生命周期、重建及有效候选补取。
 - OpenDAL 本地快照对 Server／Worker 可访问，原文件随后变化不改变已接受输入。
 
@@ -387,7 +461,8 @@ SQLite、SeekDB、OceanBase 都验证：
 
 # 待解决问题
 
-实现前固定复合插件注册／受限 writer 签名、发布与删除闸门的后端锁顺序、通用读取 guard 接入和 Source 排他消费准入。
+实现前固定复合插件注册／受限 writer 的 core Scope 闸门接口、通用读取 guard 接入和 Source 排他消费准入。
+锁顺序遵循 core Scope、插件资源／job、Artifact head，后端适配需验证连接失效和已有通用写入路径兼容性。
 实现时固定 OCR 模型、切块参数、任务租约／并发／重试限额、API 数量／字节上限及 schema 具体类型。这些不改变本文的数据归属和提交语义。
 恢复／擦除、任务归档幂等保留期、改名身份、逐知识库向量空间与完整编辑文档导出另定契约。
 
