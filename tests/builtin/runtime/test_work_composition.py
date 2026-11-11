@@ -155,6 +155,15 @@ def test_composition_registers_every_discoverer_and_handler(tmp_path) -> None:
         MAINTENANCE_WORK_KIND,
     ]
 
+    # Every domain Family publishes under the same opened background principal,
+    # so Profile and Experience recheck contribution and record ownership the
+    # way the Memory handler already does.
+    sentinel_security = object()
+    secured = _work_handlers(config, fake_contexts, security=sentinel_security)
+    assert secured[0]._security is sentinel_security
+    assert secured[1]._security is sentinel_security
+    assert secured[2]._security is sentinel_security
+
 
 def test_single_node_runtime_exposes_operations_without_ledger_execution(tmp_path) -> None:
     async def scenario() -> None:

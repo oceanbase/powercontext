@@ -19,8 +19,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -271,11 +272,31 @@ class OperationMaintenanceDiscoverer:
 
 
 class BackgroundSecurity(Protocol):
-    """The opened worker security a ledger handler must publish under."""
+    """The opened worker security a ledger handler must publish under.
+
+    The publication hooks mirror the Family worker's wiring: an entry-time
+    ``authorize_scope`` cannot cover a grant revoked during generation, so every
+    domain write rechecks contribution inside its transaction and records the
+    background principal as the owner of what it publishes.
+    """
 
     principal: Any
     access: Any
     context: Any
+
+    async def authorize_transaction(self, connection: AsyncConnection, scope_id: str) -> None: ...
+
+    async def experience_commit(
+        self, connection: AsyncConnection, candidates: Sequence[Any], *, scope_id: str
+    ) -> None: ...
+
+    async def authorize_profile(self, scope_id: str, current: Any) -> None: ...
+
+    async def authorize_profile_commit(self, connection: AsyncConnection, current: Any, *, scope_id: str) -> None: ...
+
+    async def profile_commit(
+        self, connection: AsyncConnection, artifact: Any, candidate: Any, *, scope_id: str
+    ) -> None: ...
 
 
 class MemoryWorkHandler:
@@ -393,13 +414,21 @@ class MemoryWorkHandler:
 
 
 class ExperienceWorkHandler:
-    """Prepare Experience proposals and commit Candidates with cursor and Work."""
+    """Prepare Experience proposals and commit Candidates with cursor and Work.
+
+    The fenced publication rechecks the background principal's Scope
+    contribution and attests every written Candidate to it, mirroring the
+    Family worker's ``incubate_experience`` wiring: the entry authorization
+    ran before generation, so a grant revoked during generation must be seen
+    by the transaction that publishes the Candidates.
+    """
 
     kind = EXPERIENCE_WORK_KIND
     supported_versions = frozenset({CURRENT_WORK_PAYLOAD_VERSION})
 
-    def __init__(self, contexts: RelationalContexts) -> None:
+    def __init__(self, contexts: RelationalContexts, *, security: BackgroundSecurity | None = None) -> None:
         self._contexts = contexts
+        self._security = security
 
     async def prepare(self, claim: WorkClaim, /) -> PreparedWork:
         payload = _payload(claim)
@@ -466,51 +495,65 @@ class ExperienceWorkHandler:
         _validate_experience_plans(plans, eligible_rows)
 
         async def commit(connection: AsyncConnection) -> WorkResult:
-            locked = await services.repositories.cursors.load(
-                connection,
-                claim.scope_id,
-                EXPERIENCE_INCUBATION_CURSOR_NAME,
-                for_update=True,
-            )
-            sequence, generation = _cursor_position(locked)
-            _require_exact_cursor(payload, sequence, generation)
-            review = services.review(connection)
-            candidate_ids: list[str] = []
-            for plan in plans:
-                candidate = await review.propose_experience(
-                    plan.proposal,
-                    sources=plan.sources,
-                    artifacts=prompt_refs,
-                    target=None,
-                    reason=plan.reason,
-                )
-                candidate_ids.append(candidate.candidate_id)
-            for proposal in await services.recurrence_ledger().record_window(connection, eligible_rows):
-                target_content = await services.repositories.artifacts.get(
+            try:
+                if self._security is not None:
+                    # Runs first inside the Work completion transaction: a grant
+                    # revoked during generation fails the publication here, before
+                    # any Candidate or cursor write can leave this transaction.
+                    await self._security.authorize_transaction(connection, claim.scope_id)
+                locked = await services.repositories.cursors.load(
                     connection,
                     claim.scope_id,
-                    proposal.target,
+                    EXPERIENCE_INCUBATION_CURSOR_NAME,
+                    for_update=True,
                 )
-                candidate = await review.propose_experience(
-                    proposal.proposal,
-                    sources=proposal.sources,
-                    artifacts=(target_content.as_ref(),),
-                    target=proposal.target,
-                    reason=proposal.reason,
+                sequence, generation = _cursor_position(locked)
+                _require_exact_cursor(payload, sequence, generation)
+                review = services.review(connection)
+                candidates: list[Any] = []
+                for plan in plans:
+                    candidate = await review.propose_experience(
+                        plan.proposal,
+                        sources=plan.sources,
+                        artifacts=prompt_refs,
+                        target=None,
+                        reason=plan.reason,
+                    )
+                    candidates.append(candidate)
+                for proposal in await services.recurrence_ledger().record_window(connection, eligible_rows):
+                    target_content = await services.repositories.artifacts.get(
+                        connection,
+                        claim.scope_id,
+                        proposal.target,
+                    )
+                    candidate = await review.propose_experience(
+                        proposal.proposal,
+                        sources=proposal.sources,
+                        artifacts=(target_content.as_ref(),),
+                        target=proposal.target,
+                        reason=proposal.reason,
+                    )
+                    candidates.append(candidate)
+                await services.repositories.cursors.save(
+                    connection,
+                    claim.scope_id,
+                    EXPERIENCE_INCUBATION_CURSOR_NAME,
+                    SourceCursor(sequence=payload.through),
+                    expected_generation=None if payload.cursor_generation == 0 else payload.cursor_generation,
                 )
-                candidate_ids.append(candidate.candidate_id)
-            await services.repositories.cursors.save(
-                connection,
-                claim.scope_id,
-                EXPERIENCE_INCUBATION_CURSOR_NAME,
-                SourceCursor(sequence=payload.through),
-                expected_generation=None if payload.cursor_generation == 0 else payload.cursor_generation,
-            )
+                if self._security is not None:
+                    await self._security.experience_commit(connection, tuple(candidates), scope_id=claim.scope_id)
+            except PermissionError as error:
+                # AccessDeniedError reaches the fenced commit as PermissionError; a
+                # revoked grant is not transient, so the attempt must not retry.
+                raise WorkExecutionError(
+                    category="authorization", code="experience_publication_denied", retryable=False
+                ) from error
             return _experience_result(
                 payload,
                 source_count=len(eligible_rows),
-                candidate_count=len(candidate_ids),
-                candidate_ids=tuple(candidate_ids),
+                candidate_count=len(candidates),
+                candidate_ids=tuple(candidate.candidate_id for candidate in candidates),
                 code="processed",
             )
 
@@ -536,25 +579,54 @@ class ProfileWorkHandler:
         *,
         max_concurrency: int,
         runner: ProfileWorkRunner | None = None,
+        security: BackgroundSecurity | None = None,
     ) -> None:
         self._profiles = profiles
         self._runner = runner
+        self._security = security
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def prepare(self, claim: WorkClaim, /) -> PreparedWork:
         payload = _profile_payload(claim)
-        async with self._semaphore:
-            prepared = (
-                await self._runner(claim.scope_id, payload.high_watermark, self._profiles)
-                if self._runner is not None
-                else await self._profiles.prepare_flush(claim.scope_id, high_watermark=payload.high_watermark)
-            )
+        authorize_snapshot = (
+            None if self._security is None else partial(self._security.authorize_profile, claim.scope_id)
+        )
+        try:
+            async with self._semaphore:
+                prepared = (
+                    await self._runner(claim.scope_id, payload.high_watermark, self._profiles)
+                    if self._runner is not None
+                    else await self._profiles.prepare_flush(
+                        claim.scope_id,
+                        high_watermark=payload.high_watermark,
+                        authorize_snapshot=authorize_snapshot,
+                    )
+                )
+        except PermissionError as error:
+            # A snapshot the revoked principal may no longer write must fail the
+            # attempt instead of retrying against a grant that is not coming back.
+            raise WorkExecutionError(category="authorization", code="profile_write_denied", retryable=False) from error
         if prepared.result is not None:
             return PreparedWork(result=_profile_result(prepared.result))
 
         async def commit(connection: AsyncConnection) -> WorkResult:
             try:
-                flushed = await self._profiles.commit_flush(connection, prepared)
+                flushed = await self._profiles.commit_flush(
+                    connection,
+                    prepared,
+                    authorize_commit=None
+                    if self._security is None
+                    else partial(self._security.authorize_profile_commit, scope_id=claim.scope_id),
+                    on_commit=None
+                    if self._security is None
+                    else partial(self._security.profile_commit, scope_id=claim.scope_id),
+                )
+            except PermissionError as error:
+                # The fenced publication rechecks the Profile write before the
+                # Head moves: a grant revoked during generation fails here.
+                raise WorkExecutionError(
+                    category="authorization", code="profile_write_denied", retryable=False
+                ) from error
             except (
                 BaseValueConflictError,
                 GenerationConflictError,

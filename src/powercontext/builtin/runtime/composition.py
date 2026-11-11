@@ -1405,10 +1405,11 @@ def _work_handlers(
     runtime = config.runtime
     return (
         MemoryWorkHandler(contexts, window_limit=runtime.source_window_limit, security=security),
-        ExperienceWorkHandler(contexts),
+        ExperienceWorkHandler(contexts, security=security),
         ProfileWorkHandler(
             contexts.profiles,
             max_concurrency=runtime.profile_max_concurrency,
+            security=security,
         ),
         OperationMaintenanceHandler(
             retention_days=config.operations.retention_days,
