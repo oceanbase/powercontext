@@ -226,16 +226,13 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
 
 ### 1.1 Scanning and checks
 
-```text
-Each Server process, every rescan seconds (and at startup):
-  -> list the direct subdirectories of the plugin directory and compute each one's content digest: SHA-256 over the
-     relative paths and contents of all files (excluding __pycache__)
-  -> digest equals the previous scan and the current version: skip
-  -> digest differs from the previous scan: mark as settling and do not check this round
-  -> digest is the same for two consecutive scans and differs from the current version: create a version snapshot
-     (see 1.3) and check it in a time-limited check child process (the same check as RFC #2549's startup check)
-  -> add, update, or unload according to the result
-```
+- Each Server process computes a content digest for every direct subdirectory of the plugin directory at startup and
+  every scan interval.
+- A digest equal to the current version is skipped; a digest that differs from the previous scan waits, and a directory is
+  checked only once its digest is the same for two consecutive scans and differs from the current version, so
+  half-written directories are never checked.
+- The check is RFC #2549's startup check, run on a version snapshot (see 1.3); the plugin is added, updated, or unloaded
+  according to the result.
 
 - The digest is computed from file contents, like the code fingerprint in RFC #2549. File sizes and modification times
   are not enough: a new version unpacked from an archive with normalized timestamps can have exactly the same sizes and
@@ -272,9 +269,9 @@ Deployers can change the plugin directory at any time, so code cannot be importe
 is replaced, a deferred import not yet executed in a running process reads the new files, and one call mixes old and new
 code. Plugin code is therefore imported only from version snapshots:
 
-- **Creation**: once the digest settles, core copies the plugin directory to `plugin-versions/<plugin name>/<content
-  digest>/` under the data directory, makes it read-only, recomputes and verifies the digest after copying, and runs the
-  check on the snapshot. Dependencies are not in the plugin directory, so snapshots are usually small.
+- **Creation**: once the digest settles, core copies the plugin directory into a read-only snapshot under the data
+  directory, named by its content digest, and runs the check on the snapshot. Dependencies are not in the plugin
+  directory, so snapshots are usually small.
 - **Use**: check child processes, host processes, and Workers put the snapshot directory on the import path, and
   `ctx.plugin_dir` points to the snapshot; page static files are also served from the current snapshot. The plugin
   directory itself is used only for scanning.
@@ -287,13 +284,10 @@ code. Plugin code is therefore imported only from version snapshots:
 
 ### 1.4 Host process replacement and background calls
 
-```text
-New version passes its check
-  -> start a new host process from the new snapshot, import the code, and verify the declaration
-  -> once it is ready, new synchronous calls and plugin API requests go to the new process
-  -> the old process accepts no new requests and finishes in-flight ones on the old snapshot; it is terminated once a
-     call exceeds its time limit
-```
+- Once a new version passes its check, core starts a new host process from the new snapshot; when it is ready, new
+  synchronous calls and plugin API requests go to it.
+- The old process accepts no new requests and finishes in-flight ones on the old snapshot; it is terminated once a call
+  exceeds its time limit.
 
 - If the new host process fails to start, this is handled as a failed check: the old process and old snapshot stay in use.
 - A Worker dispatch carries the snapshot path. Workers already dispatched finish on the old snapshot and commit under the
@@ -443,39 +437,21 @@ class PluginPages(BaseModel):
 - Only these types are allowed: `.html`, `.js`, `.css`, `.json`, `.svg`, `.png`, `.jpg`, `.webp`, `.woff2`; each file is at
   most 5 MiB.
 - Static files hold only plugin code and assets, no user data, so they require no sign-in.
-- Response headers:
-
-  ```text
-  Content-Security-Policy: sandbox allow-scripts allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox;
-                           default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-                           img-src 'self' data: https:; font-src 'self'; connect-src https:; frame-ancestors 'self'
-  X-Content-Type-Options: nosniff
-  ```
-
-  - The `sandbox` directive makes the page run in an opaque origin even when opened directly, so it cannot read the
+- The CSP in the response headers:
+  - A `sandbox` directive makes the page run in an opaque origin even when opened directly, so it cannot read the
     Dashboard cookie. Its direct requests to Server are cross-site, so the browser does not send the `SameSite=Strict`
     session cookie, and the page has no API credentials.
-  - `script-src 'self'` runs only scripts from the plugin snapshot, so the code a page runs matches the plugin version.
+  - Scripts can come only from the plugin snapshot, so the code a page runs matches the plugin version.
   - Links, forms, popups, and requests to external HTTPS sites are all allowed: plugins are trusted code and can send
     users to external services or call their public APIs. None of these carry the user's PowerContext session.
-  - `frame-ancestors 'self'` allows only the Dashboard to embed the page.
+  - Only the Dashboard may embed the page.
 
 ### 3.2 Hosting page and forwarding
 
-```text
-/dashboard/plugins/{name}?scope=...            (a core Dashboard page; sign-in required)
-  -> render <iframe sandbox="allow-scripts allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
-            src="/dashboard/plugins/{name}/ui/{entry}">
-  -> after the iframe's first load, send {type: "powercontext.context", scopeId, locale, theme}
-  -> on {type: "powercontext.request", id, method, path, query, body} from the iframe
-     -> accept messages only from that iframe (event.source check), and only if it has not loaded again since its first load
-     -> path must match a route the plugin declared
-     -> fetch /dashboard/plugins/{name}/api{path} (same origin, with the session cookie)
-     -> reply {type: "powercontext.response", id, status, body} (binary responses come back as a Blob)
-  -> when the iframe loads again (navigated to an external site or reloaded): stop forwarding and show "Reopen the plugin
-     page", which rebuilds the iframe
-```
-
+- **Hosting page**: `/dashboard/plugins/{name}` is a core Dashboard page that requires sign-in. It loads the plugin page
+  in a sandboxed iframe and, after the iframe's first load, sends the page the current Scope, locale, and theme; it then
+  accepts request messages only from that iframe, requires the path to match a route the plugin declared, forwards the
+  request through a same-origin server-side call, and returns the result as a message (binary responses as a Blob).
 - **Server-side forwarding**: `/dashboard/plugins/{name}/api/...` is a Dashboard server route. It requires a Dashboard
   session and a `Sec-Fetch-Site` of `same-origin` (checking that `Origin` matches Server when the header is missing), and
   follows the Dashboard's existing approach of calling `/v1/plugins/{name}/api/...` as the session's identity.

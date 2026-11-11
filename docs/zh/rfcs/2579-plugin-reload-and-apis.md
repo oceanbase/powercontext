@@ -198,15 +198,10 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
 
 ### 1.1 扫描与检查
 
-```text
-每个 Server 进程，每隔 rescan 秒（以及启动时）：
-  -> 列出插件目录的直接子目录，为每个目录计算内容摘要：所有文件的相对路径与内容的 SHA-256（不含 __pycache__）
-  -> 摘要与上次扫描相同，且与当前版本相同：跳过
-  -> 摘要与上次扫描不同：记为待稳定，本轮不检查
-  -> 摘要连续两次扫描相同，且与当前版本不同：生成版本快照（见 1.3），在有时限的检查子进程中从快照检查
-     （与 RFC #2549 的启动检查相同）
-  -> 根据检查结果执行新增、更新或卸载
-```
+- 每个 Server 进程启动时和每隔扫描间隔，为插件目录的每个直接子目录计算内容摘要。
+- 摘要与当前版本相同则跳过；与上一次扫描不同时先等待，连续两次扫描相同、且与当前版本不同时才检查，避免检查写了一半的
+  目录。
+- 检查与 RFC #2549 的启动检查相同，在版本快照上执行（见 1.3）；根据结果新增、更新或卸载插件。
 
 - 摘要按文件内容计算，与 RFC #2549 的代码指纹相同。只看文件大小和修改时间不够：用时间戳归一化的归档解压出的新版本，
   大小和修改时间可能与旧版本完全相同。
@@ -236,8 +231,8 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
 插件目录由部署者随时修改，不能直接从中导入：替换目录后，已经运行的进程中尚未执行的延迟导入会读到新文件，一次调用里就会
 混用新旧代码。因此插件代码只从版本快照导入：
 
-- **生成**：摘要稳定后，core 把插件目录复制到数据目录下的 `plugin-versions/<插件名>/<内容摘要>/`，设为只读，复制后重新
-  计算摘要并核对，再在快照上执行检查。依赖不在插件目录中，快照通常很小。
+- **生成**：摘要稳定后，core 把插件目录复制成数据目录下的只读快照，以内容摘要命名，在快照上执行检查。依赖不在插件目录中，
+  快照通常很小。
 - **使用**：检查子进程、宿主进程和 Worker 都把快照目录加入导入路径，`ctx.plugin_dir` 指向快照；页面的静态文件也从当前
   快照提供。插件目录本身只用于扫描。
 - **取代代码指纹核对**：RFC #2549 中 Worker 和宿主进程在导入前核对代码指纹。有了快照，派发时直接把快照路径交给 Worker，
@@ -247,12 +242,8 @@ const result = await client.request("GET", `/knowledge-bases/${scopeId}/document
 
 ### 1.4 宿主进程的替换与后台调用
 
-```text
-新版本检查通过
-  -> 从新快照启动新的宿主进程，导入代码并核对声明
-  -> 新进程就绪后，新的同步调用和自定义接口请求发往新进程
-  -> 旧进程不再接受请求，继续用旧快照完成进行中的请求；超过该调用的时限后终止
-```
+- 新版本检查通过后，core 从新快照启动新的宿主进程；新进程就绪后，新的同步调用和自定义接口请求发往新进程。
+- 旧进程不再接受请求，继续用旧快照完成进行中的请求，超过该调用的时限后终止。
 
 - 新宿主进程启动失败时，按检查失败处理：继续使用旧进程和旧快照。
 - Worker 派发时携带快照路径。已派发的 Worker 用旧快照完成，结果按旧版本的声明提交，相当于"更新前刚好完成"；新派发的
@@ -383,37 +374,19 @@ class PluginPages(BaseModel):
   符号链接。
 - 只允许以下类型：`.html`、`.js`、`.css`、`.json`、`.svg`、`.png`、`.jpg`、`.webp`、`.woff2`；单个文件不超过 5 MiB。
 - 静态文件只包含插件代码和资源，不含用户数据，因此不要求登录。
-- 响应头：
-
-  ```text
-  Content-Security-Policy: sandbox allow-scripts allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox;
-                           default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-                           img-src 'self' data: https:; font-src 'self'; connect-src https:; frame-ancestors 'self'
-  X-Content-Type-Options: nosniff
-  ```
-
-  - `sandbox` 指令让页面即使被直接打开，也运行在不透明来源中，读不到 Dashboard 的 cookie。它直接请求 Server 时属于跨站
+- 响应头中的 CSP：
+  - 以 `sandbox` 指令让页面即使被直接打开，也运行在不透明来源中，读不到 Dashboard 的 cookie。它直接请求 Server 时属于跨站
     请求，浏览器不会带上 `SameSite=Strict` 的会话 cookie，页面也没有 API 凭据。
-  - `script-src 'self'` 只允许执行插件快照中的脚本，页面运行的代码与插件版本一致。
+  - 脚本只能来自插件快照，页面运行的代码与插件版本一致。
   - 链接、表单、弹窗和对外部 HTTPS 站点的请求都允许：插件是可信代码，可以把用户带到外部服务，或调用外部服务的公开接口。
     这些请求都不带用户的 PowerContext 会话。
-  - `frame-ancestors 'self'` 只允许 Dashboard 嵌入。
+  - 只允许 Dashboard 嵌入。
 
 ### 3.2 宿主页面与转发
 
-```text
-/dashboard/plugins/{name}?scope=...            （core 的 Dashboard 页面，要求登录）
-  -> 渲染 <iframe sandbox="allow-scripts allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"
-             src="/dashboard/plugins/{name}/ui/{entry}">
-  -> iframe 第一次加载后，发送 {type: "powercontext.context", scopeId, locale, theme}
-  -> 收到 iframe 的 {type: "powercontext.request", id, method, path, query, body}
-     -> 只接受来自该 iframe 的消息（event.source 校验），且 iframe 自第一次加载后没有再次加载
-     -> path 必须匹配本插件声明的某个路由
-     -> fetch /dashboard/plugins/{name}/api{path}（同源，带会话 cookie）
-     -> 回复 {type: "powercontext.response", id, status, body}（二进制响应以 Blob 传回）
-  -> iframe 再次加载（页面跳转到外部站点或刷新）：停止转发，显示"重新打开插件页面"，重新打开时重建 iframe
-```
-
+- **宿主页面**：`/dashboard/plugins/{name}` 是 core 的 Dashboard 页面，要求登录。它以沙箱 iframe 加载插件页面，iframe 第一次
+  加载后把当前 Scope、语言和主题发给页面；之后只接受来自该 iframe 的请求消息，路径必须匹配本插件声明的路由，再以同源
+  请求经服务端转发，结果用消息传回（二进制响应以 Blob 传回）。
 - **服务端转发**：`/dashboard/plugins/{name}/api/...` 是 Dashboard 的服务端路由，要求 Dashboard 会话，并要求请求的
   `Sec-Fetch-Site` 为 `same-origin`（缺失时校验 `Origin` 与 Server 一致）。它沿用 Dashboard 现有的做法，以会话对应的身份
   调用 `/v1/plugins/{name}/api/...`。
