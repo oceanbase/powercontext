@@ -271,7 +271,19 @@ class OperationMaintenanceDiscoverer:
         )
 
 
-class BackgroundSecurity(Protocol):
+class BackgroundIdentity(Protocol):
+    """The opened worker identity a ledger handler prepares under.
+
+    Preparation only forwards these onto the Atomic Memory execution context, so
+    a handler that publishes through the domain service needs nothing more.
+    """
+
+    principal: Any
+    access: Any
+    context: Any
+
+
+class BackgroundSecurity(BackgroundIdentity, Protocol):
     """The opened worker security a ledger handler must publish under.
 
     The publication hooks mirror the Family worker's wiring: an entry-time
@@ -279,10 +291,6 @@ class BackgroundSecurity(Protocol):
     domain write rechecks contribution inside its transaction and records the
     background principal as the owner of what it publishes.
     """
-
-    principal: Any
-    access: Any
-    context: Any
 
     async def authorize_transaction(self, connection: AsyncConnection, scope_id: str) -> None: ...
 
@@ -316,7 +324,7 @@ class MemoryWorkHandler:
     supported_versions = frozenset({CURRENT_WORK_PAYLOAD_VERSION})
 
     def __init__(
-        self, contexts: RelationalContexts, *, window_limit: int, security: BackgroundSecurity | None = None
+        self, contexts: RelationalContexts, *, window_limit: int, security: BackgroundIdentity | None = None
     ) -> None:
         self._contexts = contexts
         self._window_limit = window_limit

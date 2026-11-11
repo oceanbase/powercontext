@@ -319,8 +319,8 @@ def test_distributed_ledger_wires_the_work_observer_into_every_component(monkeyp
             # The claim gate reads the same membership the composition started,
             # so an incompatible rollout stops claiming before it executes.
             claim_readiness = constructed["worker"]["claim_readiness"]
-            assert claim_readiness.__self__ is background.membership
-            assert claim_readiness.__name__ == "readiness"
+            assert getattr(claim_readiness, "__self__", None) is background.membership
+            assert getattr(claim_readiness, "__name__", None) == "readiness"
 
     asyncio.run(scenario())
 

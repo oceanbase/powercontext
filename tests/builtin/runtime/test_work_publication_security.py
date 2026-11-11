@@ -17,21 +17,26 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
     ExperienceCandidateInput,
     ExperienceContent,
 )
-from powercontext.builtin.artifacts.profile.service import PreparedProfileFlush, ProfileFlushResult
+from powercontext.builtin.artifacts.profile.service import (
+    PreparedProfileFlush,
+    ProfileFlushResult,
+    RelationalProfileService,
+)
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES, CANDIDATE_VERSIONS_TABLE
-from powercontext.builtin.persistence.work import WorkRepository, WorkStatus
+from powercontext.builtin.persistence.work import WorkClaim, WorkRepository, WorkStatus
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.composition import _work_authorizer
 from powercontext.builtin.runtime.config import CoordinationConfig, DeploymentConfig, WorkerConfig
@@ -203,7 +208,9 @@ def test_experience_publication_rechecks_contribution_and_attests_owners(tmp_pat
                     stored = await repository.get(connection, enqueued.work.work_id)
                 assert stored.status is WorkStatus.SUCCEEDED
                 assert stored.result_payload is not None
-                candidate_ids = tuple(stored.result_payload["candidate_ids"])
+                published_ids = stored.result_payload["candidate_ids"]
+                assert isinstance(published_ids, list)
+                candidate_ids = tuple(str(candidate_id) for candidate_id in published_ids)
                 assert len(candidate_ids) == 2
                 assert await _experience_candidate_count(contexts, scope_id) == 2
                 owners = await RelationalAccessRepository(contexts.database).get_candidate_owners(
@@ -217,58 +224,79 @@ def test_experience_publication_rechecks_contribution_and_attests_owners(tmp_pat
     asyncio.run(scenario())
 
 
-def test_profile_handler_wires_the_publication_hooks_and_maps_a_denial(tmp_path) -> None:
+class _ProfileRecordingSecurity:
+    """Records every Profile publication hook the handler is expected to call."""
+
+    principal = BACKGROUND
+    access = None
+    context = AUDIT
+
+    def __init__(self, recorded: dict[str, Any]) -> None:
+        self._recorded = recorded
+
+    async def authorize_transaction(self, connection: Any, scope_id: str) -> None:
+        self._recorded["transaction_scope"] = scope_id
+
+    async def experience_commit(self, connection: Any, candidates: Any, *, scope_id: str) -> None:
+        self._recorded["experience_scope"] = scope_id
+
+    async def authorize_profile(self, scope_id: str, current: Any) -> None:
+        self._recorded["prepare_scope"] = scope_id
+
+    async def authorize_profile_commit(self, connection: Any, current: Any, *, scope_id: str) -> None:
+        # The grant is revoked between generation and the fenced publication.
+        self._recorded["commit_scope"] = scope_id
+        raise PermissionError("scope.contribute revoked during generation")  # noqa: TRY003
+
+    async def profile_commit(self, connection: Any, artifact: Any, candidate: Any, *, scope_id: str) -> None:
+        self._recorded["owner_scope"] = scope_id
+
+
+class _RecordingProfiles:
+    """Stands in for the Profile service and invokes the hooks the handler passes."""
+
+    def __init__(self, recorded: dict[str, Any]) -> None:
+        self._recorded = recorded
+
+    async def prepare_flush(self, scope_id, *, high_watermark=None, authorize_snapshot=None):
+        self._recorded["snapshot_hook"] = authorize_snapshot
+        if authorize_snapshot is not None:
+            await authorize_snapshot(None)
+        return PreparedProfileFlush(scope_id=scope_id, after=0, high=high_watermark or 1, evidence_count=1, result=None)
+
+    async def commit_flush(self, connection, prepared, *, authorize_commit=None, on_commit=None):
+        self._recorded["commit_hook"] = authorize_commit
+        self._recorded["owner_hook"] = on_commit
+        if authorize_commit is not None:
+            await authorize_commit(connection, None)
+        return ProfileFlushResult(
+            status="updated", previous_cursor=0, current_cursor=1, high_watermark=1, processed_source_count=1
+        )
+
+
+class _ProfileClaim:
+    scope_id = "scp_publication"
+    payload: ClassVar[dict[str, int]] = {"cursor_generation": 0, "after": 0, "high_watermark": 1}
+
+
+def test_profile_handler_wires_the_publication_hooks_and_maps_a_denial() -> None:
     """The Profile ledger path carries the Family worker's snapshot/commit hooks."""
 
     recorded: dict[str, Any] = {}
 
-    class _DenyingSecurity:
-        principal = BACKGROUND
-        access = None
-        context = AUDIT
-
-        async def authorize_profile(self, scope_id: str, current: Any) -> None:
-            recorded["prepare_scope"] = scope_id
-
-        async def authorize_profile_commit(self, connection: Any, current: Any, *, scope_id: str) -> None:
-            recorded["commit_scope"] = scope_id
-            raise PermissionError("scope.contribute revoked during generation")  # noqa: TRY003
-
-        async def profile_commit(self, connection: Any, artifact: Any, candidate: Any, *, scope_id: str) -> None:
-            recorded["owner_scope"] = scope_id
-
-    class _FakeProfiles:
-        async def prepare_flush(self, scope_id, *, high_watermark=None, authorize_snapshot=None):
-            recorded["snapshot_hook"] = authorize_snapshot
-            if authorize_snapshot is not None:
-                await authorize_snapshot(None)
-            return PreparedProfileFlush(
-                scope_id=scope_id, after=0, high=high_watermark or 1, evidence_count=1, result=None
-            )
-
-        async def commit_flush(self, connection, prepared, *, authorize_commit=None, on_commit=None):
-            recorded["commit_hook"] = authorize_commit
-            recorded["owner_hook"] = on_commit
-            if authorize_commit is not None:
-                await authorize_commit(connection, None)
-            return ProfileFlushResult(status="processed")
-
-    class _Claim:
-        scope_id = "scp_publication"
-        payload: ClassVar[dict[str, int]] = {"cursor_generation": 0, "after": 0, "high_watermark": 1}
-
     async def scenario() -> None:
-        handler = ProfileWorkHandler(_FakeProfiles(), max_concurrency=1, security=_DenyingSecurity())
-        prepared = await handler.prepare(_Claim())
+        profiles = cast(RelationalProfileService, _RecordingProfiles(recorded))
+        handler = ProfileWorkHandler(profiles, max_concurrency=1, security=_ProfileRecordingSecurity(recorded))
+        prepared = await handler.prepare(cast(WorkClaim, _ProfileClaim()))
         assert prepared.commit is not None
         assert recorded["snapshot_hook"] is not None
         with pytest.raises(WorkExecutionError) as excinfo:
-            await prepared.commit(None)
+            await prepared.commit(cast(AsyncConnection, None))
         assert excinfo.value.failure.category == "authorization"
         assert excinfo.value.failure.code == "profile_write_denied"
         assert excinfo.value.failure.retryable is False
-        assert recorded["prepare_scope"] == _Claim.scope_id
-        assert recorded["commit_scope"] == _Claim.scope_id
+        assert recorded["prepare_scope"] == _ProfileClaim.scope_id
+        assert recorded["commit_scope"] == _ProfileClaim.scope_id
         assert recorded["commit_hook"] is not None and recorded["owner_hook"] is not None
 
     asyncio.run(scenario())
