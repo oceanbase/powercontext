@@ -22,6 +22,7 @@ import inspect
 import json
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,7 +33,7 @@ import republic
 from bub import Settings, config, ensure_config, hookimpl
 from bub.envelope import content_of, field_of
 from bub.hooks.interception import LLMCallRequest, LLMCallResult, ToolCall, ToolCallResult
-from bub.prompt import UserContent, to_content
+from bub.prompt import UserContent, prompt_text, to_content
 from bub.turn import TurnState
 from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import SettingsConfigDict
@@ -57,6 +58,7 @@ CLIENT_ERRORS = (InvalidResponseError, ServerResponseError, TransportError)
 # shared with the hook-based hosts, so a recall also fits a server that measures bytes.
 MAX_QUERY_CHARACTERS = 8192
 MAX_QUERY_BYTES = 8192
+_BUILDING_PROMPT: ContextVar[bool] = ContextVar("powercontext_bub_building_prompt", default=False)
 GUIDANCE = """\
 PowerContext provides durable project memory shared across agent sessions.
 Relevant host-supplied context is injected automatically before each model call.
@@ -173,16 +175,27 @@ class PowerContextPlugin:
         }
 
     @hookimpl(tryfirst=True)
-    async def build_prompt(self, message: Any, session_id: str, state: TurnState) -> list[UserContent]:
+    async def build_prompt(self, message: Any, session_id: str, state: TurnState) -> list[UserContent] | None:
         # Bub frames each inbound message with channel metadata and the time, which would outweigh the user's words in
         # lexical recall. Building the prompt here, ahead of the other implementations, ties every model-facing user
         # message, steered follow-ups included, to the text the user sent.
-        prompt = to_content(await self._build_prompt_without_self(message, session_id, state) or content_of(message))
+        if _BUILDING_PROMPT.get():
+            # Another plugin delegating the same way called back in; let it continue with the rest.
+            return None
+        token = _BUILDING_PROMPT.set(True)
+        try:
+            built = await self._build_prompt_without_self(message, session_id, state)
+        finally:
+            _BUILDING_PROMPT.reset(token)
+        prompt = to_content(built or content_of(message))
         # ``text`` is what the sender wrote when ``content`` wraps it with channel metadata (Bub after 0.6.1).
         recall_text = field_of(message, "text") or field_of(message, "content")
         capture_state = state.get(STATE_KEY)
         if isinstance(capture_state, dict) and isinstance(recall_text, str):
-            capture_state["recall_texts"][republic.user(*prompt).text.strip()] = recall_text.strip()
+            # A steered message reaches the model with its text parts joined as built; the turn's message passes
+            # through Bub's legacy prompt form, which joins them with newlines.
+            for key in {republic.user(*prompt).text.strip(), prompt_text(prompt).strip()}:
+                capture_state["recall_texts"][key] = recall_text.strip()
         return prompt
 
     async def _build_prompt_without_self(self, message: Any, session_id: str, state: TurnState) -> Any:

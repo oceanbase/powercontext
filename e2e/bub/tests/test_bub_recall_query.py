@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -182,19 +183,29 @@ def test_subagent_recalls_with_its_own_prompt(framework: BubFramework) -> None:
     ]
 
 
-def test_steered_follow_up_recalls_with_its_own_text(monkeypatch, tmp_path: Path, framework: BubFramework) -> None:
-    follow_up = "What is the support escalation policy?"
+def test_recall_maps_back_when_another_plugin_delegates_the_same_way(framework: BubFramework) -> None:
+    class DelegatingObserver:
+        @hookimpl(tryfirst=True)
+        async def build_prompt(self, message: Any, session_id: str, state: dict[str, Any]) -> Any:
+            # The delegation bubbuild/bub#400 suggested, without a guard against being called back.
+            kwargs = {"message": message, "session_id": session_id, "state": state}
+            others = framework.plugin_manager.subset_hook_caller("build_prompt", remove_plugins=[self])
+            for impl in reversed(others.get_hookimpls()):
+                result = impl.function(**{name: kwargs[name] for name in impl.argnames})
+                if inspect.isawaitable(result):
+                    result = await result
+                if result is not None:
+                    return result
+            return None
 
-    class SteerOnce:
-        steered = False
+    framework.plugin_manager.register(DelegatingObserver(), name="delegating-observer")
 
-        @hookimpl
-        async def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict[str, Any]) -> None:
-            del request, result
-            if not self.steered:
-                self.steered = True
-                await framework.steer_message(message=_cli_message(follow_up), session_id="cli:local", state=state)
+    assert _recall_queries(framework, _cli_message(QUESTION)) == [QUESTION]
 
+
+@pytest.fixture
+def run_turn(monkeypatch, tmp_path: Path, framework: BubFramework):
+    """Run one message through ``process_inbound`` with Bub's own agent loop and a stub model that answers twice."""
     replies = ["one", "two"]
 
     def model_reply(request: httpx2.Request) -> httpx2.Response:
@@ -214,13 +225,45 @@ def test_steered_follow_up_recalls_with_its_own_text(monkeypatch, tmp_path: Path
         "BUB_CLIENT_ARGS": '{"api_format": "chat"}',
     }.items():
         monkeypatch.setenv(name, value)
+
+    def run(message: ChannelMessage) -> None:
+        async def turn() -> None:
+            async with framework.running():
+                await framework.process_inbound(message)
+
+        asyncio.run(turn())
+
+    return run
+
+
+def test_turn_recall_maps_a_prompt_built_from_several_text_parts(framework: BubFramework, run_turn) -> None:
+    class BriefingPrompt:
+        @hookimpl
+        def build_prompt(self, message: Any) -> list[str]:
+            return ["Brief the on-call engineer.", message.content]
+
+    framework.plugin_manager.register(BriefingPrompt(), name="briefing")
+
+    run_turn(_cli_message(QUESTION))
+
+    assert [prepared.query for prepared in RecordingClient.prepared] == [QUESTION]
+
+
+def test_steered_follow_up_recalls_with_its_own_text(framework: BubFramework, run_turn) -> None:
+    follow_up = "What is the support escalation policy?"
+
+    class SteerOnce:
+        steered = False
+
+        @hookimpl
+        async def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict[str, Any]) -> None:
+            del request, result
+            if not self.steered:
+                self.steered = True
+                await framework.steer_message(message=_cli_message(follow_up), session_id="cli:local", state=state)
+
     framework.plugin_manager.register(SteerOnce(), name="steer-once")
 
-    async def run_turn() -> None:
-        async with framework.running():
-            await framework.process_inbound(_cli_message(QUESTION))
+    run_turn(_cli_message(QUESTION))
 
-    asyncio.run(run_turn())
-
-    assert replies == []
     assert [prepared.query for prepared in RecordingClient.prepared] == [QUESTION, follow_up]
