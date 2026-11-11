@@ -235,8 +235,9 @@ jobs:
     name: tests (${{ matrix.python-version }}, ${{ matrix.suite }})
     needs: [quality]
     if: ${{ !cancelled() && needs.quality.result == 'success' && (fromJSON(needs.quality.outputs.suites || '{}').tests) }}
-    # Allow end-to-end suites' subprocess tails to finish on internal runners.
-    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 40 }}
+    # Unit jobs must outlast pytest plus uv cache publication. End-to-end jobs
+    # also need time for subprocess tails on internal runners.
+    timeout-minutes: ${{ matrix.suite == 'e2e' && 55 || 50 }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: true

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -36,6 +37,116 @@ DSH_PLUGIN_NAME = "powercontext-dsh"
 DSH_PLUGIN_RELATIVE = Path("integrations") / "dsh" / "plugins" / "powercontext"
 DSH_PROFILE = "web"
 DSH_BUNDLE = Path("lib") / "index.js"
+DSH_CLIENT_BUNDLE = Path("lib") / "client.js"
+DSH_ASSETS = Path("lib") / "assets"
+
+
+@dataclass(frozen=True, slots=True)
+class PluginCapabilities:
+    """Installation and browser-entry capabilities reported separately from connectivity."""
+
+    name: str
+    version: str
+    host_bundle: str
+    browser_client: str
+    client_declaration: str
+    asset_export: str
+
+    @property
+    def browser_ui(self) -> bool:
+        """Return whether the package can contribute a browser entry."""
+
+        return self.browser_client == "present" and self.client_declaration == "present"
+
+    def checks(self) -> dict[str, str]:
+        """Return stable, non-secret capability checks for ``doctor`` output."""
+
+        return {
+            "package": self.name,
+            "version": self.version,
+            "host_bundle": self.host_bundle,
+            "browser_client": self.browser_client,
+            "client_declaration": self.client_declaration,
+            "asset_export": self.asset_export,
+        }
+
+    def as_json(self) -> dict[str, str]:
+        """Return the install-result representation."""
+
+        return self.checks()
+
+
+def _export_target(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        target = value.get("default")
+        return target if isinstance(target, str) else None
+    return None
+
+
+def inspect_plugin_package(path: Path) -> PluginCapabilities:
+    """Read a built package without executing it or starting the host."""
+
+    try:
+        manifest = json.loads((path / "package.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SetupError(f"PowerContext DSH plugin at {path} has no readable package.json") from error  # noqa: TRY003
+    if not isinstance(manifest, dict) or manifest.get("name") != DSH_PLUGIN_NAME:
+        raise SetupError(f"PowerContext DSH plugin at {path} is not named {DSH_PLUGIN_NAME}")  # noqa: TRY003
+    raw_version = manifest.get("version")
+    version = raw_version.strip() if isinstance(raw_version, str) and raw_version.strip() else "unknown"
+    exports = manifest.get("exports")
+    client_target = _export_target(exports.get("./client")) if isinstance(exports, dict) else None
+    declaration = manifest.get("dsh")
+    client_declaration = declaration.get("client") if isinstance(declaration, dict) else None
+    declared = (
+        isinstance(client_declaration, dict)
+        and client_declaration.get("platform") == "web"
+        and isinstance(client_target, str)
+        and client_target.endswith("client.js")
+    )
+    try:
+        assets = (path / DSH_ASSETS).is_dir() and any((path / DSH_ASSETS).iterdir())
+    except OSError:
+        assets = False
+    return PluginCapabilities(
+        name=DSH_PLUGIN_NAME,
+        version=version,
+        host_bundle="present" if (path / DSH_BUNDLE).is_file() else "missing",
+        browser_client="present" if (path / DSH_CLIENT_BUNDLE).is_file() else "missing",
+        client_declaration="present" if declared else "missing",
+        asset_export="present" if isinstance(exports, dict) and "./assets/*" in exports and assets else "missing",
+    )
+
+
+def installed_plugin_path(target: DshTarget) -> Path | None:
+    """Locate the package DSH installed into the selected profile, if present."""
+
+    candidate = target.directory / "node_modules" / DSH_PLUGIN_NAME
+    return candidate if (candidate / "package.json").is_file() else None
+
+
+def capability_checks(target: DshTarget) -> dict[str, str]:
+    """Report installed browser-entry capability without claiming host execution."""
+
+    path = installed_plugin_path(target)
+    if path is None:
+        return {
+            "host_bundle": "not_observed",
+            "browser_client": "not_observed",
+            "client_declaration": "not_observed",
+            "asset_export": "not_observed",
+        }
+    try:
+        return inspect_plugin_package(path).checks()
+    except SetupError:
+        return {
+            "host_bundle": "invalid",
+            "browser_client": "invalid",
+            "client_declaration": "invalid",
+            "asset_export": "invalid",
+        }
 
 
 def require_built_plugin(path: Path) -> None:
@@ -56,10 +167,24 @@ def _desktop_diagnostics(target: DshTarget) -> dict[str, Diagnostic]:
         plugin = Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
         protocol = Diagnostic(DiagnosticStatus.SKIPPED, "installed plugin could not be inspected")
     else:
+        capabilities = capability_checks(target)
+        browser_ui = (
+            capabilities.get("browser_client") == "present" and capabilities.get("client_declaration") == "present"
+        )
+        detail = (
+            "powercontext-dsh is registered in the Desktop profile. Reopen Desktop and run /pc doctor "
+            "inside that session to check the running host and Server. "
+            + (
+                "Browser client assets are installed; the running host must load the plugin entry "
+                "before the sidebar status appears."
+                if browser_ui
+                else "No browser client is installed; headless tools remain available and the sidebar "
+                "status is disabled."
+            )
+        )
         plugin = Diagnostic(
             status=DiagnosticStatus.OK,
-            detail="powercontext-dsh is registered in the Desktop profile. Reopen Desktop and run /pc doctor "
-            "inside that session to check the running host and Server.",
+            detail=detail,
             checks={
                 "registration": "present",
                 "running_host_configuration": "not_observed",
@@ -67,6 +192,7 @@ def _desktop_diagnostics(target: DshTarget) -> dict[str, Diagnostic]:
                 "server_readiness": "not_checked",
                 "route_compatibility": "not_checked",
                 "session_scope": "not_checked",
+                **capabilities,
             },
         )
     return {
@@ -124,7 +250,16 @@ def _run_dsh(*arguments: str, executable: str | None = None) -> str:
     return completed.stdout or ""
 
 
-__all__ = ["DSH_PLUGIN_NAME", "dsh_executable", "plugin_id_installed", "require_built_plugin"]
+__all__ = [
+    "DSH_PLUGIN_NAME",
+    "PluginCapabilities",
+    "capability_checks",
+    "dsh_executable",
+    "inspect_plugin_package",
+    "installed_plugin_path",
+    "plugin_id_installed",
+    "require_built_plugin",
+]
 
 
 @dataclass
@@ -148,9 +283,11 @@ class DshInstaller:
                     [(staged, skill)],
                     action=lambda: _run_dsh("plugin", "--profile", profile, "add", str(package), executable=executable),
                 )
+            capabilities = inspect_plugin_package(package)
             return {
                 "plugin": DSH_PLUGIN_NAME,
                 "plugin_path": str(package),
+                "capabilities": capabilities.as_json(),
                 "data_dir": str(powercontext_data_dir()),
                 "profile": profile,
                 "profile_dir": str(dsh_home() / "profiles" / profile),
@@ -227,17 +364,31 @@ class DshInstaller:
             protocol = installed_memory_protocol(settings.get("memoryProtocol"), "dsh")
         except ValueError:
             protocol = installed_memory_protocol(None, "dsh")
+        resolved_target = target or DshTarget(DshProfile.WEB)
+        capabilities = capability_checks(resolved_target)
+        browser_ui = (
+            capabilities.get("browser_client") == "present" and capabilities.get("client_declaration") == "present"
+        )
+        if installed:
+            detail = (
+                f"{DSH_PLUGIN_NAME} is registered in the Web profile. This standalone check cannot observe "
+                "the running DSH process environment or overrides; run /pc doctor inside that session. "
+                + (
+                    "Browser client assets are installed; the running host must load the plugin entry "
+                    "before the sidebar status appears."
+                    if browser_ui
+                    else "No browser client is installed; headless tools remain available and the sidebar "
+                    "status is disabled."
+                )
+            )
+        else:
+            detail = "PowerContext DSH plugin is not registered in the Web profile; run powercontext setup dsh."
         return {
             "dsh": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
             "plugin_memory_protocol": protocol,
             "plugin": Diagnostic(
                 status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,
-                detail=(
-                    f"{DSH_PLUGIN_NAME} is registered in the Web profile. This standalone check cannot observe "
-                    "the running DSH process environment or overrides; run /pc doctor inside that session."
-                    if installed
-                    else "PowerContext DSH plugin is not registered in the Web profile; run powercontext setup dsh."
-                ),
+                detail=detail,
                 checks={
                     "registration": "present" if installed else "missing",
                     "running_host_configuration": "not_observed",
@@ -245,6 +396,7 @@ class DshInstaller:
                     "server_readiness": "not_checked",
                     "route_compatibility": "not_checked",
                     "session_scope": "not_checked",
+                    **capabilities,
                 },
             ),
         }
