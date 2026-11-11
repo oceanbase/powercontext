@@ -1,6 +1,6 @@
 ---
 title: Install and run
-description: Install PowerContext 1.5.1 and run the local Server.
+description: Install the latest stable PowerContext release and run the local Server.
 ---
 
 # Install and run
@@ -82,7 +82,7 @@ To install an integration with the package, pass `--host codex` to the installer
 
 ## Installer version selection
 
-The default `--version latest` installs or upgrades to the newest compatible stable release on the selected index. To install PowerContext 1.5.1, choose the command for your platform:
+Without `--version`, the default installs or upgrades to the newest compatible stable release on the selected index, equivalent to `--version latest`. Specify a version only when you need a pinned release, for example PowerContext 1.5.1:
 
 ```bash tab="macOS / Linux"
 curl -fsSL https://powercontext.oceanbase.io/install.sh | bash -s -- --version 1.5.1
@@ -140,11 +140,16 @@ To choose installation locations, use `UV_INSTALL_DIR` for a missing uv and `UV_
 
 ## Install manually with uv
 
-If you already manage Python and uv, you can install a fixed release directly. Choose a version, then install the required package extras.
+If you already manage Python and uv, you can install or upgrade to the latest stable release directly, then install Agent integrations matching the installed version:
+
+```bash
+uv tool install --upgrade --force --prerelease disallow "powercontext[cli,server]"
+powercontext setup codex --ref "powercontext-v$(powercontext --version)"
+```
 
 ### Choose a version
 
-These instructions use PowerContext 1.5.1. Keep the package and Agent integration on the same version: package `1.5.1` and Git tag `powercontext-v1.5.1`.
+To pin a release, for example PowerContext 1.5.1, keep the package and Agent integration on the same version: package `1.5.1` and Git tag `powercontext-v1.5.1`.
 
 ```bash
 uv tool install --force "powercontext[cli,server]==1.5.1"
@@ -158,10 +163,10 @@ Check the [capability matrix](../integrations/capabilities.md) for host support 
 You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install PowerContext from PyPI:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.1"
+uv tool install --upgrade --force --prerelease disallow "powercontext[cli,server]"
 ```
 
-For a source installation of the same version:
+For a source installation of a pinned release, for example PowerContext 1.5.1:
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.5.1"
