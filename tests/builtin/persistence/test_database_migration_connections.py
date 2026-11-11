@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.migrations.connections import BackendIdent
 from powercontext.builtin.persistence.migrations.locking import local_migration_lock
 from powercontext.builtin.persistence.migrations.models import MigrationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.persistence.oceanbase import profile as oceanbase_profile
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 
 
@@ -262,6 +263,27 @@ def _fake_seekdb_identity_connection(*, compatibility: object, version: str, dat
     return connection
 
 
+def _tenant_gate_connection(*, row: tuple[str, str] | None, version: str):
+    """AsyncConnection double answering the server-run tenant gate in oceanbase.profile."""
+
+    class Result:
+        def __init__(self, rows: tuple[tuple[str, ...], ...]) -> None:
+            self._rows = rows
+
+        def first(self) -> tuple[str, ...] | None:
+            return self._rows[0] if self._rows else None
+
+    class Connection:
+        async def exec_driver_sql(self, statement: str, parameters: object | None = None) -> Result:
+            if "ob_compatibility_mode" in statement:
+                return Result(() if row is None else (row,))
+            if "SELECT VERSION()" in statement:
+                return Result(((version,),))
+            pytest.fail(f"Unexpected tenant gate query: {statement}")
+
+    return Connection()
+
+
 def test_standalone_seekdb_identity_uses_server_uuid_and_database_name() -> None:
     connection = _fake_seekdb_identity_connection(
         compatibility=None,
@@ -299,6 +321,27 @@ def test_standalone_seekdb_identity_accepts_an_empty_compatibility_mode() -> Non
         server_uuid="uuid-1",
     )
     assert connections._oceanbase_identity(connection).product == "seekdb"
+
+
+def test_empty_compatibility_seekdb_is_accepted_by_both_entry_points() -> None:
+    """One input, both entries: the db-migrate identity probe and the server-run
+    tenant gate (oceanbase.profile) must agree on a present-but-empty
+    ob_compatibility_mode with a standalone seekdb banner."""
+    compatibility = ("ob_compatibility_mode", "")
+    version = "5.7.25-OceanBase seekdb-v1.4.0.0"
+
+    identity = connections._oceanbase_identity(
+        _fake_seekdb_identity_connection(
+            compatibility=compatibility,
+            version=version,
+            database="pc_test",
+            server_uuid="uuid-1",
+        )
+    )
+    assert identity.product == "seekdb"
+    assert identity.database_name == "pc_test"
+
+    asyncio.run(oceanbase_profile._require_mysql_tenant(_tenant_gate_connection(row=compatibility, version=version)))
 
 
 @pytest.mark.parametrize(

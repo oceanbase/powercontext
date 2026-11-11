@@ -355,12 +355,15 @@ def _directory_inode(path: Path) -> tuple[int, int]:
 
 def _oceanbase_identity(connection: Connection) -> BackendIdentity:
     try:
-        mode = connection.exec_driver_sql("SHOW VARIABLES LIKE 'ob_compatibility_mode'").first()
-        value = mode[1] if mode is not None and len(mode) >= 2 else None
-        compatibility = "" if value is None else str(value).upper()
-        if compatibility == "MYSQL":
+        row = connection.exec_driver_sql("SHOW VARIABLES LIKE 'ob_compatibility_mode'").first()
+        mode = oceanbase_profile.normalize_compatibility_mode(row)
+        if mode == "MYSQL":
             return _oceanbase_mysql_tenant_identity(connection)
-        if not compatibility and _is_standalone_seekdb(connection):
+        # A missing, NULL or empty compatibility mode falls back to the
+        # version banner, matching the server-run tenant gate in
+        # oceanbase.profile so both entries classify seekdb identically.
+        version = connection.exec_driver_sql("SELECT VERSION()").scalar_one()
+        if oceanbase_profile.classify_compatibility(row, version) == "seekdb":
             return _standalone_seekdb_identity(connection)
         raise MigrationError("unsupported_target", "OceanBase maintenance requires a MySQL user tenant.")
     except (SQLAlchemyError, ValueError, TypeError) as error:
@@ -400,11 +403,6 @@ def _oceanbase_mysql_tenant_identity(connection: Connection) -> BackendIdentity:
         "database_name": database_name,
     })
     return BackendIdentity("oceanbase", database_id, database_name)
-
-
-def _is_standalone_seekdb(connection: Connection) -> bool:
-    version = connection.exec_driver_sql("SELECT VERSION()").scalar_one()
-    return isinstance(version, str) and "-OceanBase seekdb-" in version
 
 
 def _standalone_seekdb_identity(connection: Connection) -> BackendIdentity:
