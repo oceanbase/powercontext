@@ -193,7 +193,7 @@ class ClaudeCliModel(Model):
         except OSError:
             message = "Cannot start Claude CLI; install it or set CLAUDE_CLI_EXECUTABLE"
             raise UserError(message) from None
-        exchange = asyncio.create_task(process.communicate(prompt))
+        exchange = asyncio.create_task(process.communicate(prompt if prompt is not None else b""))
         try:
             async with asyncio.timeout(300):
                 output, _ = await asyncio.shield(exchange)

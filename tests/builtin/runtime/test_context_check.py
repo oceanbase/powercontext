@@ -418,7 +418,8 @@ async def test_responses_streaming_send_requires_approval_and_complete_json_rele
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("protocol", ["google-codeassist", "google-codeassist-chat"])
-async def test_codeassist_checks_final_envelope_and_selected_release_format(protocol):
+@pytest.mark.parametrize("candidate_count", [None, 1, 2])
+async def test_codeassist_checks_final_envelope_and_selected_release_format(protocol, candidate_count):
     profile = UpstreamProfile(
         endpoint="https://cloudcode-pa.googleapis.com/v1internal:generateContent",
         model="test",
@@ -437,7 +438,13 @@ async def test_codeassist_checks_final_envelope_and_selected_release_format(prot
             "generationConfig": {"maxOutputTokens": 64},
         },
     }
+    if candidate_count is not None:
+        envelope["request"]["generationConfig"]["candidateCount"] = candidate_count
     admitted = await _check(_send(payload=_payload(envelope)), codec, config=protection)
+    if candidate_count == 2:
+        assert admitted.decision == "withhold" and admitted.reason_codes == ("multiple_choices_unsupported",)
+        assert admitted.binding is None
+        return
     assert admitted.decision == "allow" and admitted.binding
     raw = {
         "response": {
