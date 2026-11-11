@@ -21,7 +21,7 @@ pub fn buffered_subscription_response(bytes: &[u8]) -> Option<Vec<u8>> {
         if event.data == "[DONE]" {
             continue;
         }
-        let value: Value = serde_json::from_slice(&event.data).ok()?;
+        let value = crate::json::unambiguous_value(&event.data)?;
         if terminal.is_some() {
             return None;
         }

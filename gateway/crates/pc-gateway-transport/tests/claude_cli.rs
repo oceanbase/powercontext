@@ -110,6 +110,10 @@ async fn goose_original_usage_and_errors_with_print_mode_adapter() {
             );
             assert_eq!(body["usage"]["prompt_tokens"], input);
             assert_eq!(body["usage"]["completion_tokens"], output);
+            assert_eq!(
+                body["usage"]["total_tokens"],
+                input.as_u64().unwrap() + output.as_u64().unwrap()
+            );
             assert_eq!(body["choices"][0]["finish_reason"], finish_reason);
         } else {
             assert!(matches!(result, SendOutcome::Indeterminate(_)));

@@ -283,7 +283,7 @@ pub(super) fn restore_response(request: &CanonicalRequest, body: Bytes) -> Optio
     if names.values().all(|identity| identity.namespace.is_empty()) {
         return Some(body);
     }
-    let mut response: Value = serde_json::from_slice(&body).ok()?;
+    let mut response = crate::json::unambiguous_value(&body)?;
     let mut changed = false;
     if let Some(items) = response.get_mut("output").and_then(Value::as_array_mut) {
         for item in items {

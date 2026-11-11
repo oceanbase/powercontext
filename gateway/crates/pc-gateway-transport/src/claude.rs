@@ -127,6 +127,13 @@ pub(super) async fn send(executable: &OsString, send: AdmittedSend) -> SendOutco
                 normalized.remove("prompt_tokens");
             }
         }
+        if let Some(total) = normalized
+            .get("prompt_tokens")
+            .and_then(Value::as_u64)
+            .and_then(|input| input.checked_add(normalized.get("completion_tokens")?.as_u64()?))
+        {
+            normalized.insert("total_tokens".into(), json!(total));
+        }
         body["usage"] = Value::Object(normalized);
     }
     let Ok(bytes) = serde_json::to_vec(&body) else {

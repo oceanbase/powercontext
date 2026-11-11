@@ -25,6 +25,7 @@ mod content;
 mod copilot;
 mod gemini;
 mod grok;
+mod json;
 mod render;
 mod responses;
 mod sse;

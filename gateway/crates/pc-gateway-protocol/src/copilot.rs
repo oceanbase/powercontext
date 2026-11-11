@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Match Pydantic AI's Copilot completion metadata defaults before release checking.
 /// Copilot omits fields that ordinary OpenAI clients validate as required.
 pub fn chat_response(bytes: &[u8]) -> Option<Vec<u8>> {
-    let mut response: Value = serde_json::from_slice(bytes).ok()?;
+    let mut response = crate::json::unambiguous_value(bytes)?;
     let choices = response.get_mut("choices")?.as_array_mut()?;
     for (index, choice) in choices.iter_mut().enumerate() {
         let choice = choice.as_object_mut()?;

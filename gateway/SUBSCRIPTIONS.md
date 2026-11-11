@@ -68,7 +68,7 @@ Do not route Core's own generation calls back through a Gateway with automatic r
 
 ## Compatibility and tests
 
-Grok Responses follows Magpie's tool adaptation: namespaced functions are flattened for the upstream and restored before Core release checks and client JSON/SSE delivery. `allowed_tools` restricts the forwarded declarations while preserving `auto` or `required`. Ambiguous flattened names, names longer than 64 bytes, unsupported explicit tool choices and top-level union tool schemas are rejected before sending. A required choice with no supported tools is rejected. Claude CLI supports single-turn text execution rather than Magpie's persistent session and tool bridge; token-limit stops are reported as truncated responses.
+Grok Responses follows Magpie's tool adaptation: namespaced functions are flattened for the upstream and restored before Core release checks and client JSON/SSE delivery. Codex, Copilot, Grok and Code Assist reject duplicate JSON keys before response rewriting. When identity restoration changes the response, Core checks both its original bytes and the final response before release. `allowed_tools` restricts the forwarded declarations while preserving `auto` or `required`. Ambiguous flattened names, names longer than 64 bytes, unsupported explicit tool choices and top-level union tool schemas are rejected before sending. A required choice with no supported tools is rejected. Claude CLI supports single-turn text execution rather than Magpie's persistent session and tool bridge; token-limit stops are reported as truncated responses.
 
 Run the controlled workspace tests from `gateway/`:
 

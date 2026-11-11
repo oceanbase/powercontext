@@ -196,7 +196,7 @@ pub(crate) fn codeassist_request(body: &Value, project: &str) -> Result<Value, R
 
 /// Convert before release admission. Unknown content is not silently hidden behind success.
 pub fn codeassist_chat_response(bytes: &[u8], model: &str) -> Option<Vec<u8>> {
-    let wrapped: Value = serde_json::from_slice(bytes).ok()?;
+    let wrapped = crate::json::unambiguous_value(bytes)?;
     let response = wrapped.get("response")?.as_object()?;
     let candidates = response.get("candidates")?.as_array()?;
     if candidates.is_empty() {
