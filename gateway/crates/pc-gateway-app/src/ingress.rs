@@ -15,14 +15,18 @@
 //! 模型入口：OpenAI 兼容 `/gateway/v1/chat/completions`。
 //! 客户端只改 Base URL 与 API Key 即接入（PR #2199 产品形态）。
 
+use crate::evidence_body::FirstContentOffset;
 use crate::{proxy::SharedProxy, AppState, Injection};
 use axum::body::Bytes;
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pc_gateway_core::{ManagedCall, ManagedOutcome};
-use pc_gateway_protocol::{CanonicalMessage, CanonicalRequest, OutputLimits, Role};
+use pc_gateway_core::{ManagedCall, ManagedOutcome, RequestControl};
+use pc_gateway_protocol::{
+    first_model_content_offset, CanonicalMessage, CanonicalRequest, OutputLimits, OutputProtocol,
+    Role,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -43,6 +47,8 @@ struct OpenAiChatRequest {
     tool_choice: Option<serde_json::Value>,
     #[serde(default)]
     stream: Option<bool>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,12 +60,15 @@ struct OpenAiMessage {
     tool_calls: Option<Vec<serde_json::Value>>,
     #[serde(default)]
     tool_call_id: Option<String>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Responses API 入口请求（同格式进出，不与 chat 互转）。
 #[derive(Debug, Deserialize)]
 struct OpenAiResponsesRequest {
     model: String,
+    #[serde(deserialize_with = "deserialize_responses_input")]
     input: Vec<serde_json::Value>,
     #[serde(default)]
     instructions: Option<String>,
@@ -91,6 +100,22 @@ struct OpenAiResponsesRequest {
     extra: serde_json::Map<String, serde_json::Value>,
 }
 
+fn deserialize_responses_input<'de, D>(deserializer: D) -> Result<Vec<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Input {
+        Text(String),
+        Items(Vec<serde_json::Value>),
+    }
+    Ok(match Input::deserialize(deserializer)? {
+        Input::Text(text) => vec![serde_json::json!({"role": "user", "content": text})],
+        Input::Items(items) => items,
+    })
+}
+
 pub async fn chat_completions(
     State((state, _)): State<SharedProxy>,
     headers: HeaderMap,
@@ -118,19 +143,67 @@ async fn ingress_common(
     req: Request,
     format: Format,
 ) -> Response {
+    let control = RequestControl::new(
+        tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+        req.extensions().get::<String>().cloned(),
+    );
+    let observation = control.observation();
+    let cancellation = control.cancellation();
+    let mut response = ingress_model(state.clone(), headers, req, format, control).await;
+    if matches!(
+        observation.snapshot().execution,
+        pc_gateway_core::ExecutionState::Finished(
+            pc_gateway_core::ExecutionTerminal::ReleaseAuthorized
+                | pc_gateway_core::ExecutionTerminal::Degraded
+        )
+    ) {
+        let first_content = response
+            .extensions()
+            .get::<FirstContentOffset>()
+            .and_then(|offset| offset.0);
+        let (parts, body) = response.into_parts();
+        response = Response::from_parts(
+            parts,
+            crate::evidence_body::EvidenceBody::wrap(
+                body,
+                observation.clone(),
+                state.evidence.clone(),
+                first_content,
+            ),
+        );
+    }
+    response.extensions_mut().insert(observation);
+    response.extensions_mut().insert(cancellation);
+    response
+}
+
+async fn ingress_model(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    req: Request,
+    format: Format,
+    control: RequestControl,
+) -> Response {
     // 网关密钥认证（替代服务商 key；上游凭据由受控配置持有）。
     if let Some(expected) = &state.api_key {
-        let provided = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "));
-        if provided != Some(expected.as_str()) {
+        if !crate::authentication::authenticate(expected, &headers) {
             return (
                 StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, "Bearer")],
                 Json(serde_json::json!({ "error": "invalid_gateway_key" })),
             )
                 .into_response();
         }
+    }
+
+    if state.max_body_bytes == 0 {
+        return respond(
+            ManagedOutcome::GatePaused("input_capacity_unconfirmed".into()),
+            match format {
+                Format::Chat => OutputProtocol::OpenAiChat,
+                Format::Responses => OutputProtocol::OpenAiResponses,
+            },
+        );
     }
 
     // Applies the configured limit to the consumed body as well: chunked requests have no Content-Length,
@@ -248,6 +321,7 @@ async fn ingress_common(
             state.inject_responses,
             conversation.is_some(),
         ),
+        include_code: state.inject_code,
         conversation_id: conversation,
         sediment: state.sediment,
         prepared_contexts: Vec::new(),
@@ -255,12 +329,18 @@ async fn ingress_common(
 
     let outcome = state
         .executor
-        .run(call, &renderer, state.evidence.as_ref())
+        .run(control, call, &renderer, state.evidence.as_ref())
         .await;
     if client_stream {
         return respond_responses_sse(outcome);
     }
-    respond(outcome)
+    respond(
+        outcome,
+        match format {
+            Format::Chat => OutputProtocol::OpenAiChat,
+            Format::Responses => OutputProtocol::OpenAiResponses,
+        },
+    )
 }
 
 /// 流式 Responses 客户端：把放行（或允许降级直通）后的完整响应重放为 Responses SSE 事件。
@@ -274,17 +354,23 @@ fn respond_responses_sse(outcome: ManagedOutcome) -> Response {
         ManagedOutcome::Degraded {
             status: 200, body, ..
         } => (body, true),
-        _ => return respond(outcome),
+        _ => return respond(outcome, OutputProtocol::OpenAiResponses),
     };
     let Ok(resp) = serde_json::from_slice::<serde_json::Value>(body) else {
-        return respond(outcome);
+        return respond(outcome, OutputProtocol::OpenAiResponses);
     };
+    let body = responses_sse(&resp);
+    let first_content =
+        first_model_content_offset(body.as_bytes(), OutputProtocol::OpenAiResponses, true);
     let mut response = (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/event-stream")],
-        responses_sse(&resp),
+        body,
     )
         .into_response();
+    response
+        .extensions_mut()
+        .insert(FirstContentOffset(first_content));
     if degraded {
         response.headers_mut().insert(
             "x-pc-degraded",
@@ -320,6 +406,55 @@ fn responses_sse(resp: &serde_json::Value) -> String {
     push("response.created", json!({"response": created}));
     let items = resp.get("output").and_then(Value::as_array);
     for (output_index, item) in items.into_iter().flatten().enumerate() {
+        if item.get("type").and_then(Value::as_str) == Some("reasoning") {
+            let mut added = item.clone();
+            added["summary"] = json!([]);
+            push(
+                "response.output_item.added",
+                json!({"output_index": output_index, "item": added}),
+            );
+            let item_id = item.get("id").cloned().unwrap_or(Value::Null);
+            for (summary_index, part) in item
+                .get("summary")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                let text = part.get("text").cloned().unwrap_or(json!(""));
+                let mut empty = part.clone();
+                empty["text"] = json!("");
+                push(
+                    "response.reasoning_summary_part.added",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "part": empty,
+                    }),
+                );
+                push(
+                    "response.reasoning_summary_text.delta",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "delta": text,
+                    }),
+                );
+                push(
+                    "response.reasoning_summary_text.done",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "text": text,
+                    }),
+                );
+                push(
+                    "response.reasoning_summary_part.done",
+                    json!({
+                        "item_id": item_id, "output_index": output_index, "summary_index": summary_index, "part": part,
+                    }),
+                );
+            }
+            push(
+                "response.output_item.done",
+                json!({"output_index": output_index, "item": item}),
+            );
+            continue;
+        }
         let parts = match (
             item.get("type").and_then(Value::as_str),
             item.get("content"),
@@ -328,10 +463,31 @@ fn responses_sse(resp: &serde_json::Value) -> String {
             _ => None,
         };
         let Some(parts) = parts else {
+            let function_call = item.get("type").and_then(Value::as_str) == Some("function_call");
+            let mut added = item.clone();
+            if function_call {
+                added["arguments"] = json!("");
+                added["status"] = json!("in_progress");
+            }
             push(
                 "response.output_item.added",
-                json!({"output_index": output_index, "item": item}),
+                json!({"output_index": output_index, "item": added}),
             );
+            if function_call {
+                let item_id = item.get("id").cloned().unwrap_or(Value::Null);
+                let arguments = item.get("arguments").cloned().unwrap_or(json!(""));
+                push(
+                    "response.function_call_arguments.delta",
+                    json!({"item_id": item_id, "output_index": output_index, "delta": arguments}),
+                );
+                push(
+                    "response.function_call_arguments.done",
+                    json!({
+                        "item_id": item_id, "output_index": output_index,
+                        "arguments": arguments, "name": item.get("name").cloned().unwrap_or(Value::Null),
+                    }),
+                );
+            }
             push(
                 "response.output_item.done",
                 json!({"output_index": output_index, "item": item}),
@@ -390,6 +546,25 @@ fn responses_sse(resp: &serde_json::Value) -> String {
                     done = with(done, logprobs);
                 }
                 push(&format!("{prefix}.delta"), delta);
+                if is_text {
+                    for (annotation_index, annotation) in part
+                        .get("annotations")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .enumerate()
+                    {
+                        push(
+                            "response.output_text.annotation.added",
+                            with(
+                                at.clone(),
+                                json!({
+                                    "annotation_index": annotation_index, "annotation": annotation,
+                                }),
+                            ),
+                        );
+                    }
+                }
                 push(&format!("{prefix}.done"), done);
             }
             push(
@@ -484,6 +659,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
     for m in chat.messages {
         let role = match m.role.as_str() {
             "system" => Role::System,
+            "developer" => Role::Developer,
             "user" => Role::User,
             "assistant" => Role::Assistant,
             "tool" => Role::Tool,
@@ -501,6 +677,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
             content,
             content_null,
             tool_calls: m.tool_calls,
+            extra_fields: m.extra,
             tool_call_id: m.tool_call_id,
         });
     }
@@ -518,7 +695,7 @@ fn to_canonical_chat(chat: OpenAiChatRequest) -> Result<CanonicalRequest, String
         tool_choice: chat.tool_choice,
         store: None,
         previous_response_id: None,
-        passthrough_fields: None,
+        passthrough_fields: (!chat.extra.is_empty()).then_some(chat.extra),
         token_limit_field: if chat.max_completion_tokens.is_some() {
             Some("max_completion_tokens".into())
         } else if chat.max_tokens.is_some() {
@@ -550,6 +727,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
                 content: vec![item],
                 content_null: false,
                 tool_calls: None,
+                extra_fields: Default::default(),
                 tool_call_id: None,
             });
             continue;
@@ -564,6 +742,7 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
             content,
             content_null: false,
             tool_calls: None,
+            extra_fields: Default::default(),
             tool_call_id: None,
         });
     }
@@ -595,8 +774,35 @@ fn to_canonical_responses(r: OpenAiResponsesRequest) -> Result<CanonicalRequest,
 }
 
 /// 结果映射：不存在静默成功；降级直通必须显式标记。
-fn respond(outcome: ManagedOutcome) -> Response {
-    match outcome {
+fn respond(outcome: ManagedOutcome, protocol: OutputProtocol) -> Response {
+    let first_content = match &outcome {
+        ManagedOutcome::Released {
+            status,
+            content_type,
+            body,
+            ..
+        }
+        | ManagedOutcome::Degraded {
+            status,
+            content_type,
+            body,
+        } if (200..300).contains(status) => {
+            let mime = content_type.split(';').next().unwrap_or("").trim();
+            if mime.eq_ignore_ascii_case("application/json")
+                || mime.eq_ignore_ascii_case("text/event-stream")
+            {
+                first_model_content_offset(
+                    body,
+                    protocol,
+                    mime.eq_ignore_ascii_case("text/event-stream"),
+                )
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    let mut response = match outcome {
         ManagedOutcome::Released {
             status,
             content_type,
@@ -659,7 +865,11 @@ fn respond(outcome: ManagedOutcome) -> Response {
             Json(serde_json::json!({ "decision": "gate_paused", "detail": msg })),
         )
             .into_response(),
-    }
+    };
+    response
+        .extensions_mut()
+        .insert(FirstContentOffset(first_content));
+    response
 }
 
 // 抑制未使用导入警告（Bytes 用于类型别名文档场景）。
@@ -670,6 +880,314 @@ fn _unused(_: Option<Bytes>) {}
 mod tests {
     //! PR #2307 review P2：chat 工具元数据经入口 canonical 化的保真测试。
     use super::*;
+
+    async fn lifecycle_router() -> (axum::Router, tokio::task::JoinHandle<()>) {
+        lifecycle_router_with_evidence(Arc::new(pc_gateway_evidence::NoopEvidenceSink)).await
+    }
+
+    async fn lifecycle_router_with_evidence(
+        evidence: Arc<dyn pc_gateway_evidence::EvidenceSink>,
+    ) -> (axum::Router, tokio::task::JoinHandle<()>) {
+        use axum::routing::post;
+        use pc_gateway_core::{Executor, HttpGateClient};
+        use pc_gateway_types::{CheckPhase, ContextCheckRequest};
+        let mock = axum::Router::new()
+            .route(
+                "/v1/context/check",
+                post(|Json(request): Json<ContextCheckRequest>| async move {
+                    let phase = match request {
+                        ContextCheckRequest::BeforeSend { .. } => CheckPhase::BeforeSend,
+                        ContextCheckRequest::BeforeRelease { .. } => CheckPhase::BeforeRelease,
+                    };
+                    Json(serde_json::json!({
+                        "schema": pc_gateway_types::CONTEXT_CHECK_SCHEMA,
+                        "phase": phase,
+                        "decision": "allow",
+                        "reason_codes": [],
+                        "coverage": {"profile": "text-and-tools.v1", "complete": true},
+                        "policy_version": "test",
+                        "valid_until": "2999-01-01T00:00:00Z",
+                        "binding": "test-binding"
+                    }))
+                }),
+            )
+            .route(
+                "/v1/chat/completions",
+                post(|Json(request): Json<serde_json::Value>| async move {
+                    let usage = serde_json::json!({"prompt_tokens": 100, "completion_tokens": 12, "prompt_tokens_details": {"cached_tokens": 70}});
+                    if request["stream"] == true {
+                        (
+                            StatusCode::CREATED,
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            format!("data: {{\"choices\":[{{\"delta\":{{\"role\":\"assistant\"}}}}]}}\n\ndata: {{\"choices\":[{{\"delta\":{{\"content\":\"SYNTHETIC_SENSITIVE_RESPONSE\"}}}}]}}\n\ndata: {{\"choices\":[],\"usage\":{usage}}}\n\ndata: [DONE]\n\n"),
+                        ).into_response()
+                    } else {
+                        (
+                            StatusCode::CREATED,
+                            Json(serde_json::json!({
+                                "choices": [{"message": {"role": "assistant", "content": "checked"}}],
+                                "usage": usage,
+                                "provider_debug": "SYNTHETIC_SENSITIVE_RESPONSE"
+                            })),
+                        ).into_response()
+                    }
+                }),
+            )
+            .route(
+                "/v1/responses",
+                post(|| async {
+                    Json(serde_json::json!({
+                        "id": "resp-1", "object": "response", "status": "completed", "output": [{"type":"message", "role":"assistant", "content":[{"type":"output_text", "text":"SYNTHETIC_SENSITIVE_RESPONSE"}]}],
+                        "usage": {"input_tokens": 80, "output_tokens": 11, "input_tokens_details": {"cached_tokens": 30}}
+                    }))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = Arc::new(AppState {
+            executor: Arc::new(Executor::new(
+                crate::link::CoreLink::Http(HttpGateClient::with_token(&base, None)),
+                pc_gateway_transport::ReqwestTransport::new(std::time::Duration::from_secs(120)),
+                std::num::NonZeroU32::new(2).unwrap(),
+            )),
+            evidence,
+            upstream_profile: "test".into(),
+            upstream_chat: format!("{base}/v1/chat/completions"),
+            upstream_responses: format!("{base}/v1/responses"),
+            upstream_chat_api_key: "SYNTHETIC_SENSITIVE_CREDENTIAL".into(),
+            upstream_responses_api_key: String::new(),
+            api_key: Some("gateway-key".into()),
+            degrade: pc_gateway_core::DegradePolicy::Pause,
+            injection: Injection::Off,
+            inject_responses: false,
+            inject_code: false,
+            sediment: false,
+            steering: None,
+            default_scope: "test".into(),
+            max_body_bytes: 1024 * 1024,
+            degradation_allowed: false,
+        });
+        let router = crate::middleware::apply_chain(
+            crate::router(state, crate::proxy::ProxyState::from_env()),
+            vec![
+                crate::middleware::ResourceLimits::new(1024 * 1024, 1024 * 1024, 2),
+                Arc::new(crate::middleware::RequestId),
+            ],
+        );
+        (router, server)
+    }
+
+    struct PendingBody {
+        receiver: tokio::sync::oneshot::Receiver<Bytes>,
+        done: bool,
+    }
+
+    impl http_body::Body for PendingBody {
+        type Data = Bytes;
+        type Error = std::convert::Infallible;
+
+        fn poll_frame(
+            mut self: std::pin::Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<http_body::Frame<Bytes>, Self::Error>>> {
+            use std::future::Future;
+            if self.done {
+                return std::task::Poll::Ready(None);
+            }
+            match std::pin::Pin::new(&mut self.receiver).poll(context) {
+                std::task::Poll::Pending => std::task::Poll::Pending,
+                std::task::Poll::Ready(Ok(bytes)) => {
+                    self.done = true;
+                    std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes))))
+                }
+                std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(None),
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn model_routes_create_control_before_reading_the_body_and_retain_it_after_execution() {
+        use pc_gateway_core::{
+            ExecutionObservation, ExecutionState, ExecutionTerminal, ModelSendState,
+            RequestCancellation,
+        };
+        use std::future::Future;
+        use tower::ServiceExt;
+        for (path, body, streaming) in [
+            (
+                "/gateway/v1/chat/completions",
+                serde_json::json!({"model": "test", "messages": [{"role": "user", "content": "hello"}]}),
+                false,
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false}),
+                false,
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false, "stream": true}),
+                true,
+            ),
+        ] {
+            let (router, server) = lifecycle_router().await;
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let started = tokio::time::Instant::now();
+            let request = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header(header::AUTHORIZATION, "Bearer gateway-key")
+                .header("x-powercontext-request-id", "route-request")
+                .body(axum::body::Body::new(PendingBody {
+                    receiver,
+                    done: false,
+                }))
+                .unwrap();
+            let mut response = Box::pin(router.oneshot(request));
+            assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
+                response.as_mut().poll(context)
+            ))
+            .await
+            .is_pending());
+            tokio::time::advance(std::time::Duration::from_secs(11)).await;
+            tokio::time::resume();
+            sender
+                .send(serde_json::to_vec(&body).unwrap().into())
+                .unwrap();
+            let response = response.await.unwrap();
+            let observation = response
+                .extensions()
+                .get::<ExecutionObservation>()
+                .unwrap()
+                .clone();
+            let cancellation = response
+                .extensions()
+                .get::<RequestCancellation>()
+                .unwrap()
+                .clone();
+            assert_eq!(
+                observation.deadline(),
+                started + std::time::Duration::from_secs(180)
+            );
+            assert_eq!(observation.request_id(), Some("route-request"));
+            assert_eq!(
+                observation.snapshot().model_send,
+                ModelSendState::ResponseReceived
+            );
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+            );
+            assert_eq!(
+                response.headers()["x-powercontext-request-id"],
+                "route-request"
+            );
+            assert_eq!(
+                response.status(),
+                if path.contains("chat") {
+                    StatusCode::CREATED
+                } else {
+                    StatusCode::OK
+                }
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                if streaming {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                }
+            );
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            if streaming {
+                let text = std::str::from_utf8(&bytes).unwrap();
+                assert!(text.contains("event: response.created"));
+                assert!(text.contains("event: response.completed"));
+            } else {
+                let content: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                if path.contains("chat") {
+                    assert_eq!(content["choices"][0]["message"]["content"], "checked");
+                } else {
+                    assert_eq!(content["id"], "resp-1");
+                }
+            }
+            let terminal = observation.snapshot();
+            cancellation.cancel();
+            drop(cancellation);
+            assert_eq!(observation.snapshot(), terminal);
+            server.abort();
+            tokio::time::pause();
+        }
+    }
+
+    #[tokio::test]
+    async fn retained_lifecycle_handles_survive_an_unconsumed_response_drop() {
+        use pc_gateway_core::{
+            ExecutionObservation, ExecutionState, ExecutionTerminal, ModelSendState,
+            RequestCancellation,
+        };
+        use tower::ServiceExt;
+
+        for (path, body) in [
+            (
+                "/gateway/v1/chat/completions",
+                serde_json::json!({"model": "test", "messages": [{"role": "user", "content": "hello"}]}),
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false}),
+            ),
+            (
+                "/gateway/v1/responses",
+                serde_json::json!({"model": "test", "input": [{"role": "user", "content": "hello"}], "store": false, "stream": true}),
+            ),
+        ] {
+            let (router, server) = lifecycle_router().await;
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(path)
+                        .header(header::AUTHORIZATION, "Bearer gateway-key")
+                        .header("x-powercontext-request-id", "dropped-response")
+                        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let observation = response
+                .extensions()
+                .get::<ExecutionObservation>()
+                .unwrap()
+                .clone();
+            let cancellation = response
+                .extensions()
+                .get::<RequestCancellation>()
+                .unwrap()
+                .clone();
+            let deadline = observation.deadline();
+            let snapshot = observation.snapshot();
+            assert_eq!(snapshot.model_send, ModelSendState::ResponseReceived);
+            assert_eq!(
+                snapshot.execution,
+                ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+            );
+
+            drop(response);
+
+            assert_eq!(observation.request_id(), Some("dropped-response"));
+            assert_eq!(observation.deadline(), deadline);
+            assert_eq!(observation.snapshot(), snapshot);
+            cancellation.cancel();
+            assert!(cancellation.is_cancelled());
+            drop(cancellation);
+            assert_eq!(observation.snapshot(), snapshot);
+            server.abort();
+        }
+    }
 
     #[test]
     fn chat_ingress_preserves_tool_fields_and_null_content() {
@@ -1202,5 +1720,147 @@ mod tests {
         let canonical = to_canonical_chat(chat).unwrap();
         assert!(canonical.messages[0].content_null);
         assert!(canonical.messages[0].tool_calls.is_none());
+    }
+
+    #[derive(Clone, Default)]
+    struct EvidenceOutput(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for EvidenceOutput {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn real_ingress_exports_usage_and_content_boundaries_without_sensitive_data() {
+        use pc_gateway_evidence::JsonEvidenceSink;
+        use tower::ServiceExt;
+        let output = EvidenceOutput::default();
+        let sink = Arc::new(
+            JsonEvidenceSink::new(output.clone(), std::num::NonZeroUsize::new(1024).unwrap())
+                .unwrap(),
+        );
+        let (router, server) = lifecycle_router_with_evidence(sink.clone()).await;
+        // Exercise JSON/SSE on both public routes with the real reqwest transport.
+        for i in 0..200 {
+            let chat = i % 4 < 2;
+            let stream = i % 2 == 1;
+            let request = Request::builder().method("POST")
+                .uri(if chat { "/gateway/v1/chat/completions" } else { "/gateway/v1/responses" })
+                .header(header::AUTHORIZATION, "Bearer gateway-key")
+                .header("x-powercontext-request-id", "SYNTHETIC_SENSITIVE_CORRELATION")
+                .body(axum::body::Body::from(if chat {
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "messages":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "stream":stream}).to_string()
+                } else {
+                    serde_json::json!({"model":"SYNTHETIC_SENSITIVE_MODEL", "input":[{"role":"user", "content":"SYNTHETIC_SENSITIVE_PROMPT"}], "store":false, "stream":stream}).to_string()
+                })).unwrap();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert!(response.status().is_success());
+            axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while sink.stats().written < 1200 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(sink.stats().dropped, 0);
+        let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+        assert!(!text.contains("SYNTHETIC_SENSITIVE"));
+        assert!(!text.contains("gateway-key"));
+        assert!(!text.contains("/v1/"));
+        let mut records = std::collections::BTreeMap::<String, Vec<serde_json::Value>>::new();
+        for line in text.lines() {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            records
+                .entry(value["evidence"]["call_id"].as_str().unwrap().to_owned())
+                .or_default()
+                .push(value);
+        }
+        assert_eq!(records.len(), 200);
+        for events in records.values() {
+            let names: Vec<_> = events
+                .iter()
+                .map(|e| e["event"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                names,
+                ["attempt", "call", "delivery", "delivery", "delivery", "delivery"]
+            );
+            let call = &events[1]["evidence"];
+            let attempt = &events[0]["evidence"];
+            let chat = call["usage_mapping"] == "open_ai_chat";
+            assert_eq!(
+                call["usage"]["input"]["tokens"],
+                if chat { 100 } else { 80 }
+            );
+            assert_eq!(
+                call["usage"]["cache_read"]["tokens"],
+                if chat { 70 } else { 30 }
+            );
+            assert!(call["usage"]["cache_write"]["tokens"].is_null());
+            assert!(call["upstream_ttft_ms"].is_null());
+            assert!(attempt["response_first_byte_ms"].is_u64());
+            assert!(
+                attempt["response_complete_ms"].as_u64()
+                    >= attempt["response_first_byte_ms"].as_u64()
+            );
+            assert_eq!(events[2]["evidence"]["boundary"], "framework_handoff");
+            assert_eq!(events[3]["evidence"]["boundary"], "first_body_frame");
+            assert_eq!(events[4]["evidence"]["boundary"], "first_model_content");
+            assert_eq!(events[5]["evidence"]["boundary"], "body_completed");
+            assert!(
+                events[4]["evidence"]["elapsed_ms"].as_u64()
+                    >= events[3]["evidence"]["elapsed_ms"].as_u64()
+            );
+            assert!(
+                events[2]["evidence"]["elapsed_ms"].as_u64()
+                    >= call["release_authorized_ms"].as_u64()
+            );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn unconsumed_response_reports_drop_without_claiming_content_delivery() {
+        use pc_gateway_evidence::{BufferedEvidenceSink, DeliveryBoundary, EvidenceEvent};
+        use tower::ServiceExt;
+        let evidence = Arc::new(BufferedEvidenceSink::new());
+        let (router, server) = lifecycle_router_with_evidence(evidence.clone()).await;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/gateway/v1/chat/completions")
+            .header(header::AUTHORIZATION, "Bearer gateway-key")
+            .body(axum::body::Body::from(
+                r#"{"model":"test","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+        drop(response);
+        let delivery: Vec<_> = evidence
+            .events()
+            .into_iter()
+            .filter_map(|e| {
+                if let EvidenceEvent::Delivery(d) = e {
+                    Some(d.boundary)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(matches!(
+            delivery.as_slice(),
+            [
+                DeliveryBoundary::FrameworkHandoff,
+                DeliveryBoundary::BodyDropped
+            ]
+        ));
+        server.abort();
     }
 }

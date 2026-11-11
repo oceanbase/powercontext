@@ -24,9 +24,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import io
 import json
 import os
 import platform
+import re
 import secrets
 import socket
 import ssl
@@ -47,7 +49,9 @@ class HarnessFailure(RuntimeError):
         super().__init__(f"Desktop isolated fixture failed ({code}): {detail}")
 
 
-def probe_measurement(output: str, product_profile_id: str | None = None) -> dict[str, object]:
+def probe_measurement(
+    output: str, product_profile_id: str | None = None, *, require_scoped_authorization: bool = False
+) -> dict[str, object]:
     measurement = json.loads(output)
     if measurement.get("result") != "passed":
         raise HarnessFailure("native_probe_result")
@@ -56,6 +60,8 @@ def probe_measurement(output: str, product_profile_id: str | None = None) -> dic
         or measurement.get("qualificationId") != product_profile_id
     ):
         raise HarnessFailure("product_probe_qualification")
+    if require_scoped_authorization and measurement.get("scopedAuthorizationWithoutObservation") is not True:
+        raise HarnessFailure("scoped_authorization_probe_required")
     return measurement["performance"]
 
 
@@ -249,6 +255,9 @@ def serve(config_path: Path) -> None:
             scope["path"] = scope["path"][len(prefix) :]
             scope["raw_path"] = scope["path"].encode()
             scope["root_path"] = prefix
+            readiness_requests = config.get("readiness_requests_path")
+            if readiness_requests and scope["path"] == "/health/ready":
+                await asyncio.to_thread(record_readiness_request, Path(readiness_requests))
         gate = config.get("response_gate_path")
         if gate and scope["type"] == "http" and scope["path"] == "/v1/memory/remember":
             await forward_with_response_gate(app, scope, receive, send, gate)
@@ -303,6 +312,12 @@ def serve(config_path: Path) -> None:
             await server.serve()
 
     asyncio.run(run())
+
+
+def record_readiness_request(path: Path) -> None:
+    # Count only the fixed synthetic endpoint, without request data.
+    with path.open("a", encoding="utf-8") as observations:
+        observations.write("request\n")
 
 
 def control_pipe(process: subprocess.Popen[bytes]) -> IO[bytes]:
@@ -373,39 +388,99 @@ def retained_fixture_server(
                 print("Fixture Server diagnostics could not be retained.", file=sys.stderr)
 
 
-def product_profile(desktop: Path, profile_id: str) -> dict[str, object]:
-    """Require recorded wheel/contract identity and complete product operation coverage."""
-    from fixture_qualification import build_profile
-
-    profiles = json.loads((desktop / "src-tauri/src/connections/compatibility.json").read_text(encoding="utf-8"))
-    compatibility = next((profile for profile in profiles if profile["id"] == profile_id), None)
-    if compatibility is None:
+def catalog_profile(desktop: Path, profile_id: str):
+    catalog = json.loads((desktop / "src-tauri/src/connections/compatibility.json").read_text(encoding="utf-8"))
+    profile = next((profile for profile in catalog if profile["id"] == profile_id), None)
+    if profile is None:
         raise HarnessFailure("product_qualification_missing")
-    built = build_profile(desktop, compatibility["serverCommit"])
-    if any(compatibility[field] != built[field] for field in ("contractSha256", "artifactSha256")) or not set(
-        built["operations"]
-    ).issubset(compatibility["operations"]):
+    return profile
+
+
+def product_profile(desktop: Path, profile_id: str, wheel: Path | None = None):
+    """Verify the actual archive before extraction, subprocesses, or product evidence."""
+    if wheel is None:
+        wheels = list((desktop / ".artifacts/server-wheel").glob("*.whl"))
+        if len(wheels) != 1:
+            raise HarnessFailure("wheel_count")
+        wheel = wheels[0]
+    profile = catalog_profile(desktop, profile_id)
+    contract = json.loads((desktop / "src-tauri/src/transport/operations.json").read_text(encoding="utf-8"))
+    if (
+        hashlib.sha256(wheel.read_bytes()).hexdigest() != profile["artifactSha256"]
+        or profile["contractSha256"] != contract["contractSha256"]
+        or not set(contract["operations"]).issubset(profile["operations"])
+    ):
         raise HarnessFailure("product_qualification_mismatch")
-    return compatibility
+    return profile
 
 
-def main() -> None:
-    import httpx
+def rebuilt_profile(desktop: Path, profile_id: str, wheel: Path):
+    """Build distinct fixture evidence only after comparing every runtime file to Git."""
+    original = catalog_profile(desktop, profile_id)
+    commit = original["serverCommit"]
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise HarnessFailure("rebuilt_source_required")
+    source = subprocess.check_output(
+        ["git", "-c", "core.autocrlf=false", "archive", "--format=zip", commit], cwd=desktop.parent
+    )
+    prefixes = ("powercontext/", "powercontext_service_bootstrap/")
+    with zipfile.ZipFile(io.BytesIO(source)) as archive, zipfile.ZipFile(wheel) as built:
+        expected = {
+            name[4:]: archive.read(name).replace(b"\r\n", b"\n")
+            for name in archive.namelist()
+            if name.startswith(tuple("src/" + prefix for prefix in prefixes)) and not name.endswith("/")
+        }
+        actual = {
+            name: built.read(name).replace(b"\r\n", b"\n")
+            for name in built.namelist()
+            if name.startswith(prefixes) and not name.endswith("/")
+        }
+    if not expected or expected != actual:
+        raise HarnessFailure("rebuilt_source_mismatch")
+    contract = json.loads((desktop / "src-tauri/src/transport/operations.json").read_text(encoding="utf-8"))
+    return {
+        **original,
+        "id": "rebuilt-" + original["id"],
+        "artifactSha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+        "contractSha256": contract["contractSha256"],
+        "evidence": "Explicit rebuilt-source fixture; not exact product-artifact qualification",
+    }
+
+
+def selected_qualification(desktop: Path, wheel: Path, product: str | None, rebuilt: str | None):
     from fixture_qualification import fixture_profile
+
+    if product:
+        return product_profile(desktop, product, wheel)
+    if rebuilt:
+        return rebuilt_profile(desktop, rebuilt, wheel)
+    profile = fixture_profile()
+    if hashlib.sha256(wheel.read_bytes()).hexdigest() != profile["artifactSha256"]:
+        raise HarnessFailure("fixture_qualification_mismatch")
+    return profile
+
+
+def main(
+    *,
+    product_qualification: str | None = None,
+    wheel_path: Path | None = None,
+    rebuilt_qualification: str | None = None,
+) -> None:
+    import httpx
 
     root = Path(__file__).resolve().parents[2]
     desktop = root / "desktop"
     artifact_dir = desktop / ".artifacts"
-    wheels = list((artifact_dir / "server-wheel").glob("*.whl"))
+    wheels = [wheel_path] if wheel_path else list((artifact_dir / "server-wheel").glob("*.whl"))
     if len(wheels) != 1:
         raise HarnessFailure("wheel_count")
     wheel = wheels[0]
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--product-qualification", help="Use a checked-in product record and the normal native manager")
-    args = parser.parse_args()
-    compatibility = (
-        product_profile(desktop, args.product_qualification) if args.product_qualification else fixture_profile()
-    )
+    wheel_bytes = wheel.read_bytes()
+    compatibility = selected_qualification(desktop, wheel, product_qualification, rebuilt_qualification)
+    wheel_sha256 = hashlib.sha256(wheel_bytes).hexdigest()
+    if wheel_sha256 != compatibility["artifactSha256"]:
+        raise HarnessFailure("qualification_artifact_changed")
+    authenticated_legacy = "get_connection_identity" not in compatibility["operations"]
     executable = (
         desktop / "src-tauri/target/debug/examples" / ("server_probe.exe" if os.name == "nt" else "server_probe")
     )
@@ -413,10 +488,12 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="desktop-real-server-") as directory:
         temp = Path(directory)
         wheel_root = temp / "wheel"
-        with zipfile.ZipFile(wheel) as archive:
+        with zipfile.ZipFile(io.BytesIO(wheel_bytes)) as archive:
             archive.extractall(wheel_root)
         subprocess.run([str(executable), "certificates", str(temp)], check=True, capture_output=True)
         for mode in ("loopback-anonymous", "loopback-bearer", "https-bearer-base-path", "loopback-provider"):
+            if authenticated_legacy and mode == "loopback-anonymous":
+                continue
             case = temp / mode
             case.mkdir()
             with socket.socket() as reservation:
@@ -470,7 +547,7 @@ def main() -> None:
                         artifact_dir,
                         label=f"real-server-{mode}",
                         port=port,
-                        wheel_sha256=hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                        wheel_sha256=wheel_sha256,
                     ),
                     httpx.Client(
                         base_url=endpoint,
@@ -503,7 +580,7 @@ def main() -> None:
                     scope_id = result.json()["scope_id"]
                     fixture = {
                         "compatibility_profile": compatibility,
-                        "product_qualification": bool(args.product_qualification),
+                        "product_qualification": bool(product_qualification),
                         "response_loss_path": config["response_loss_path"],
                         "statistics_usage_path": config["statistics_usage_path"],
                         "reader_token": config["reader_token"] if config["provider"] else None,
@@ -533,9 +610,23 @@ def main() -> None:
                         "providerIdentityChangeInvalidatesContext": bool(config["provider"]),
                         "sameIdentityRevocationDeniesExactMemoryRead": bool(config["provider"]),
                         "sameTitleScopePagination51": bool(config["provider"]),
-                        "performance": probe_measurement(probe.stdout, args.product_qualification),
+                        "scopedNativeAuthorizationWithoutServerObservation": config["provider"]
+                        and not authenticated_legacy,
+                        "performance": probe_measurement(
+                            probe.stdout,
+                            product_qualification,
+                            require_scoped_authorization=config["provider"] and not authenticated_legacy,
+                        ),
                     })
     report = {
+        "qualificationMode": (
+            "bundled-product"
+            if product_qualification
+            else "rebuilt-source-fixture"
+            if rebuilt_qualification
+            else "disposable-fixture"
+        ),
+        "qualificationReference": product_qualification or rebuilt_qualification,
         "environment": {
             "os": platform.platform(),
             "architecture": platform.machine(),
@@ -545,10 +636,11 @@ def main() -> None:
             "budget": "No approved numerical budget; observation only",
         },
         "qualificationId": compatibility["id"],
-        "qualificationSource": "bundled product records" if args.product_qualification else "disposable CI fixture",
+        "qualificationSource": "bundled product records" if product_qualification else "explicit fixture",
         "serverWheel": wheel.name,
-        "serverWheelSha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
-        "contractSha256": hashlib.sha256(
+        "serverWheelSha256": wheel_sha256,
+        "contractSha256": compatibility["contractSha256"],
+        "clientContractSha256": hashlib.sha256(
             (root / "openapi/powercontext.yaml").read_text(encoding="utf-8").replace("\r\n", "\n").encode()
         ).hexdigest(),
         "desktopCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
@@ -568,4 +660,16 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--serve":
         serve(Path(sys.argv[2]))
     else:
-        main()
+        parser = argparse.ArgumentParser(description=__doc__)
+        qualification = parser.add_mutually_exclusive_group()
+        qualification.add_argument("--product-qualification", help="Require an exact bundled product artifact")
+        qualification.add_argument(
+            "--rebuilt-qualification", help="Verify source equivalence and report distinct fixture evidence"
+        )
+        parser.add_argument("--wheel", type=Path)
+        args = parser.parse_args()
+        main(
+            product_qualification=args.product_qualification,
+            wheel_path=args.wheel,
+            rebuilt_qualification=args.rebuilt_qualification,
+        )

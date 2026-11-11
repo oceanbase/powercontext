@@ -44,6 +44,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::foundation_info,
             commands::local_diagnostics,
+            commands::connect_local_server,
             commands::ops_references,
             commands::ops_inspect,
             commands::ops_config_validate,
@@ -66,6 +67,7 @@ pub fn run() {
             commands::save_profile,
             commands::remove_profile,
             commands::check_connection,
+            commands::probe_readiness,
             commands::disconnect,
             commands::invalidate_profile,
             commands::list_scopes,

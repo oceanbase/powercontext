@@ -21,7 +21,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
-import httpx
+import httpx2
 import pytest
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
@@ -178,7 +178,7 @@ def test_observation_inspects_each_native_sdk_retry(upstream, provider, mode):
         base_url = f"http://127.0.0.1:{upstream.server_port}" + ("" if provider == "anthropic" else "/v1")
         observations = []
         transport = ProtectedAsyncTransport(_protection(base_url, provider, mode), observer=observations.append)
-        async with httpx.AsyncClient(transport=transport) as http:
+        async with httpx2.AsyncClient(transport=transport) as http:
             if provider == "anthropic":
                 async with AsyncAnthropic(base_url=base_url, api_key="synthetic-retry-key", http_client=http) as sdk:
                     await sdk.messages.create(

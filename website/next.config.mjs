@@ -21,6 +21,8 @@ const withMDX = createMDX();
 /** @type {import('next').NextConfig} */
 const config = {
   basePath: process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/$/, '') || '',
+  // CI uses memory-constrained runners; keep page generation to one worker.
+  experimental: { cpus: process.env.CI ? 1 : 2 },
   images: { unoptimized: true },
   output: 'export',
   reactStrictMode: true,

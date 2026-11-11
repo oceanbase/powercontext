@@ -8,93 +8,29 @@ status: community
 
 `community`
 
-## 安装匹配的 Server 和插件
+## 直接安装已发布版本（推荐）
 
-先安装 DeepSeek Harness Web 或 Desktop。真实宿主验收固定使用 DSH 0.1.2-rc.1。
-选择以下一种 PowerContext 安装方式，让 Server 和插件保持匹配。
+先准备好 DeepSeek Harness Web 或 Desktop。发布包已经包含编译后的插件代码，安装时不需要下载 PowerContext 源码，也不需要本地编译。
 
-使用本站对应的配置向导版本：
+1. 打开 **Plugins → Add plugin**。
+2. 输入 `powercontext-dsh`；需要固定版本时输入 `powercontext-dsh@<version>`。
+3. 点击 **Install**。如果国内镜像还没有同步目标版本，在 Registry 下拉框切换到官方 npm 源。
+4. 安装完成后按提示重启 DSH。
 
-```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup dsh
-```
+![在 DSH 中安装 powercontext-dsh](../../../assets/integrations/dsh/install-plugin-zh.gif)
 
-按照本站流程验收时，Server 和插件都使用这个源码分支。
+上面的动图使用 Desktop 界面演示，Web 版的入口名称相同。npm 安装只负责安装插件，不会启动或配置 PowerContext Server。
 
-开发版从同一个 checkout 安装两个组件，并记录 commit：
+同一个包还导出独立的浏览器入口 `./client`。重启后，DSH Web 和 Desktop 会在账号区域上方显示 PowerContext
+状态控件。没有显示时说明宿主没有加载浏览器入口；已有工具和生命周期行为仍可用，因此这不是 Server 故障。
+这个控件不是 Dashboard 替代品：点击只打开连接诊断，Dashboard 内嵌属于后续工作。
 
-```bash
-git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
-git -C powercontext-dsh-dev rev-parse HEAD
-uv tool install --force "./powercontext-dsh-dev[cli,server]"
-powercontext setup dsh --source ./powercontext-dsh-dev
-```
+npm 版本跟随 PowerContext Release：`1.6.0rc1` 对应 `1.6.0-rc.1`，alpha、beta 同样转换。
+正式版本使用 `latest` 标签，预发布版本使用 `next`；安装前先确认目标 npm 版本已经发布。
+本次实现验收使用的官方最新版本是 `0.2.2-rc.1`（2026-11-04 发布的预发布版）；只在对应真实 Web 和
+Desktop 自带 runtime 上验证过，不能据此推断其他 DSH 版本兼容。
 
-更新时执行 `git -C powercontext-dsh-dev pull --ff-only`，记录新的 commit，再重复两个安装命令。
-本地目录必须包含仓库提交的已构建文件 `lib/index.js`。
-`setup dsh --source oceanbase/powercontext --ref master` 每次安装都会创建新的 checkout，并 clone 指定 ref；
-重复运行会重新解析移动分支，不复用之前的 checkout。Server 也应从同一 ref 更新，并在重装插件后重启 DSH。
-使用 `--json` 时，从 `hosts.dsh.result.plugin_path` 获取插件路径，再执行
-`git -C <plugin_path> rev-parse HEAD` 记录插件 commit；Server checkout 的 commit 单独记录。
-
-在交互终端中运行 `powercontext setup dsh` 会询问安装到 `web` 还是 `desktop`。
-非交互模式或使用 `--json` 时，未指定 profile 默认安装到 `web`。显式指定目标不会询问：
-
-```bash
-powercontext setup dsh --profile web
-powercontext setup dsh --profile desktop
-powercontext doctor dsh --profile desktop
-```
-
-Web 安装目录为 `$DSH_HOME/profiles/web`，Desktop 为 `$DSH_HOME/profiles/desktop`；
-`DSH_HOME` 默认是 `~/.dsh`。Setup 调用 `dsh plugin --profile <profile> add`，在对应 profile 的
-`package.json` 中安装依赖并启用 bundle，再加载插件包自带的 patch。两个 profile 的用户
-`cordis.patch.yml` 均会保留，安装不会改变另一个 profile 的插件启用状态。
-
-Desktop 必须使用**桌面版自带的 dsh 命令**，npm/pnpm 版 dsh 无权管理 desktop profile。
-请先启动一次 Desktop 初始化配置，通过 **Manage dsh Command…** 菜单安装命令并打开新终端，
-然后完全退出 Desktop 再安装插件；关闭窗口可能只是隐藏。即使 npm 命令排在前面，Setup 也会继续
-在 PATH 中查找 Desktop 启动器。未注册 PATH 时可以显式指定：
-
-```powershell
-powercontext setup dsh --profile desktop --dsh-command "D:\Apps\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd"
-```
-
-macOS 启动器位于 `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`。
-`doctor dsh` 同样支持 `--dsh-command`。支持 Windows/macOS 的打包桌面版布局，不支持未打包的开发启动器。
-配置检查使用桌面版自带的 Electron 和配置解析器，不启动插件。注册成功不代表运行中的宿主和 Server
-已经就绪；安装后重新打开 Desktop，在会话中执行 `/pc doctor`。Setup 不会替你启动 Server 或退出 Desktop。
-
-Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powercontext/credentials.json`。
-建议两者连接同一个 Server；修改共享 URL 会影响没有原生覆盖配置的 profile，凭据仍绑定原来的 Server URL。
-同时使用 Web 和 Desktop 时，分别执行两个 profile 的安装命令。
-
-已有界面和模型 patch 可以保留。setup 检查合成后的 PowerContext 连接设置；
-冲突处理及动态配置限制见[远程连接配置](../operate/connect-remote-server.md)。
-检查会遍历 `group: true` 分组及名称为 `@deepseek-ai/cordis-plugin-group` 或 `cordis:group` 的分组内的子项；
-安装前检查和安装后复查都会拒绝多个 PowerContext 条目。
-原生 `@deepseek-ai/cordis-plugin-include` 和 `cordis:include` 配置树使用所选宿主的 YAML/JSON 解析器及
-include patches 检查。相对路径从 profile 目录解析，嵌套 include 从所在文件的目录解析。
-setup 不求值无关的界面和模型表达式。启用的 include 文件必须已存在；循环引用、不支持的文件类型或 URL、
-动态路径或 patch 结构、无法验证的分组子项，都会在保存连接设置或凭据前报错。
-
-`DSH_HOME` 未设置、为空或仅包含空白时使用 `~/.dsh`；非空路径保留开头和末尾的空格。
-配置检查、凭据保存与读取、插件依赖查找都遵循这两条规则。
-
-Setup 不会启动 Server。安装完成后重启 DSH。
-面向模型的 PowerContext 能力通过 DSH 原生的 `@deepseek-ai/dsh-mcp-client` 注册。
-
-召回查询会排除当前 DSH 的 `runtime-context` 消息（包括上下文清空标记），以及旧版
-`@deepseek-ai/dsh-system-prompt` 插件 snapshot，避免宿主目录内容挤掉用户问题。
-
-运行 `powercontext setup dsh --json` 时，`hosts.dsh.setup: "complete"` 表示已完成安装和配置；
-注册结果位于 `hosts.dsh.checks.plugin.checks.registration: "present"`。同一报告还包含 Server 诊断，
-因此安装完成后整体 `ok` 仍可能为 `false`，退出码仍可能为 1。查看 `hosts.dsh.checks` 下的失败项，
-启动或修正所选 Server，再运行 `powercontext doctor dsh --json`。此命令会另行探测 Server；
-注册成功本身不证明运行中会话的连接正常。重启 DSH 后使用 `/pc doctor` 验证当前会话。
-
-## 启动 Server 和宿主
+## 启动 PowerContext Server
 
 需要自动将 Source 提取为 Memory 时，生成并校验 Server 配置：
 
@@ -108,7 +44,9 @@ Server 是前台进程，保持这个终端运行。配置 generation 和定时�
 显式写入 Memory 和全文检索不依赖 embedding。无模型的 Server 可以健康运行，同时关闭自动提取并返回空召回。
 模型与处理配置参见[完整 Memory 闭环](../get-started/configure-models.md)。
 
-在另一个终端指定同一个 Server，然后启动 DSH：
+## 连接 DSH 与 Server
+
+Server 默认地址为 `http://127.0.0.1:8000`。在另一个终端启动 DSH，并指定同一个地址：
 
 ```bash
 export POWERCONTEXT_DSH_BASE_URL=http://127.0.0.1:8000
@@ -116,12 +54,127 @@ dsh web
 ```
 
 PowerShell 使用 `$env:POWERCONTEXT_DSH_BASE_URL = "http://127.0.0.1:8000"`，然后运行 `dsh web`。
-Server 使用其他监听地址时同步修改 URL。鉴权使用 `POWERCONTEXT_DSH_AUTHORIZATION`，
-不要把 Server 的模型凭据复制到插件配置。使用 workspace binding 或 Server 默认 Scope 时不设置
-`POWERCONTEXT_DSH_SCOPE_ID`；需要覆盖时，指定一个已经存在的 Scope。
+如果之前运行过 `powercontext setup dsh`，插件也会读取已保存的连接设置。环境变量优先于插件 patch 配置，
+并且必须存在于启动 DSH 的终端中；修改其他终端的变量不会更新已经运行的宿主。
 
-环境变量优先于插件 patch 配置，patch 配置优先于默认值。环境变量必须存在于启动 DSH 的进程中；
-在其他终端修改变量不会更新已经运行的宿主。
+启用鉴权时，把同一个 token 配置给 Server 和 DSH：
+
+```bash
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
+powercontext server run
+
+export POWERCONTEXT_DSH_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
+dsh web
+```
+
+不要把 token 写进 patch 文件或 Server URL。需要覆盖 Scope 时，再设置一个已经存在的 `POWERCONTEXT_DSH_SCOPE_ID`；使用 workspace binding 或 Server 默认 Scope 时不需要设置它。
+
+## 先做一次最小验证
+
+在 DSH 会话中依次确认：
+
+1. 运行 `/pc doctor`，确认 Server、Scope、prepare 和原生 MCP 工具检查通过。
+2. 在工具列表中确认能看到 `mcp__powercontext__*`，然后调用一次 `remember_memory`，写入一句独特事实，例如：`aurora deployment color is violet-cedar-1457`。
+3. 等待处理完成，或显式运行 `/pc flush`；再打开同一 workspace/Scope 的新会话，询问这句事实。
+4. 展开实际的 PowerContext snapshot，确认召回内容和引用，而不是只看模型是否猜对。
+
+## 高级用户：从源码安装
+
+源码安装适合需要调试插件、验证未发布改动或固定仓库 commit 的场景。Server 和插件应来自同一个 checkout 或同一个 ref。
+
+使用本站对应的配置向导版本：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup dsh
+```
+
+开发版从同一个 checkout 安装两个组件，并记录 commit：
+
+```bash
+git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
+git -C powercontext-dsh-dev rev-parse HEAD
+uv tool install --force "./powercontext-dsh-dev[cli,server]"
+powercontext setup dsh --source ./powercontext-dsh-dev
+```
+
+更新时执行 `git -C powercontext-dsh-dev pull --ff-only`，记录新的 commit，再重复两个安装命令。
+本地目录必须包含仓库提交的已构建文件 `lib/index.js`。`setup dsh --source oceanbase/powercontext --ref master`
+每次都会创建新的 checkout；Server 也应从同一 ref 更新，并在重装插件后重启 DSH。
+
+交互终端会询问安装到 `web` 还是 `desktop`；非交互模式默认使用 `web`，也可以显式指定：
+
+```bash
+powercontext setup dsh --profile web
+powercontext setup dsh --profile desktop
+powercontext doctor dsh --profile desktop
+```
+
+Desktop 必须使用桌面版自带的 dsh 命令，npm/pnpm 版 dsh 无权管理 desktop profile。macOS 启动器位于
+`DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`；Windows 可以显式传入 `--dsh-command`。
+安装前先完全退出 Desktop，安装后重新打开。Setup 不会替你启动 Server。
+
+Web 和 Desktop 共用已保存的 `hosts.dsh` 连接设置及 `$DSH_HOME/powercontext/credentials.json`。
+`DSH_HOME` 默认是 `~/.dsh`。使用 `powercontext setup dsh --json` 时，可从 `hosts.dsh.result.plugin_path`
+取得插件路径并记录插件 commit；`hosts.dsh.setup: "complete"` 只表示注册完成，不代表运行中的 Server 已就绪。
+插件检查还会分别报告 `browser_client`、`client_declaration`、`asset_export` 和 `host_bundle`。缺少浏览器入口时
+属于无界面安装：工具继续可用，侧栏状态不可用，不会因此误报 Server 故障。
+
+已有界面和模型 patch 可以保留。setup 会检查合成后的 PowerContext 连接设置；冲突处理和动态配置限制见
+[远程连接配置](../operate/connect-remote-server.md)。原生 include 文件必须存在，循环引用、不支持的文件类型或无法验证的动态结构会在保存前报错。
+
+## 侧栏状态与诊断
+
+侧栏控件位于账号区域上方，颜色始终配有无障碍标签：
+
+| 状态 | 含义 |
+| --- | --- |
+| 灰色 | 未配置、已禁用，或不是已验证的本机所有者宿主 |
+| 黄色 | 正在连接、重试，或过期观测正在重新核对 |
+| 绿色 | 已通过 liveness、readiness 和所需 PreparedContext 能力 |
+| 红色 | 连接、DSH 认证或必要能力失败 |
+
+点击后打开只读诊断面板，默认使用简体中文。右上角语言图标可切换 English；明确选择会保存在当前浏览器的
+本地存储中，无法读取偏好时回退到中文。默认视图保留连接状态、Server 地址、工作目录和 Scope；会话 ID、
+部署方式、认证配置来源（不显示认证值）、就绪依赖、context schema 和自动处理观测放在可展开的“技术详情”中。
+页脚通过 Host 读取 `GET /v1/server-info` 的 `package_version`，显示当前 Server 包版本。旧 Server 不支持该接口、
+读取失败或连接观测过期时显示“未知”，不会替换为插件版本或 API 合约版本。版本读取有界且不影响就绪判断。
+面板复用 `/pc` 使用的内存 `RuntimeStatus`，不从日志重建历史，也不调用模型、发送诊断 prompt 或轮询 `/pc doctor`。
+
+桥接接口是插件自有、经 DSH 认证的 `GET /powercontext/status`。DSH 原有 `requestRejection` 始终先执行，不会被削弱；
+此外还必须到达已验证的本机所有者界面：
+
+- DSH Desktop 通过 Desktop Host 提供的受管 `desktop` profile 上下文识别；用同一个 Electron 可执行程序运行
+  Web profile 不会被当作 Desktop 权限。
+- DSH Web 只有在 loopback 请求且所有者明确设置 `ownerLocal: true`（或 `POWERCONTEXT_DSH_OWNER_LOCAL=true`）时接受。
+  只应在自己的本机 Web 宿主上设置。
+- 非 loopback、SSH 启动或未配置的 Web 宿主会被拒绝。非 loopback 显示为可处理失败；SSH 启动或未配置 Web
+  显示为灰色未配置；都不会被静默标为 local。
+
+本机 Web 可在 profile 或 home 的 `cordis.patch.yml` 中加入：
+
+```yaml
+- id: powercontext-dsh
+  config:
+    ownerLocal: true
+```
+
+或在启动 `dsh web` 前设置：
+
+```bash
+POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
+```
+
+不要在远程、共享、容器或 SSH 转发的宿主上设置。桥接不增加 launch、install、target 或 Dashboard 路由。
+
+页面可见时每十秒刷新；隐藏时暂停，恢复可见后立即重新核对；失败后从 2 秒退避到 30 秒；成功观测超过 30 秒
+会标为过期而不是继续显示绿色。DSH 的 401/403、Server 离线、readiness 依赖失败或缺少 context schema 分别显示
+不同诊断。面板只展示允许字段，不打印启动 token、Authorization 值或 Bearer header。切换会话会更新观测会话并
+丢弃上一会话的迟到响应；没有会话时如实显示，不创建会话。
+
+更新插件是重新安装并重启，保留已有 profile 和连接设置。卸载会移除浏览器入口、`/powercontext/status` 路由、
+订阅和定时器；无界面宿主或没有浏览器入口的包继续保留工具和生命周期 hook。
 
 ## 诊断运行中的配置
 
@@ -149,6 +202,7 @@ Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不
 | `not_ready` / `degraded` | 检查报告指出的依赖，例如 `database` 或 `inference.generation`，按该项恢复提示处理。 |
 | `required_route_missing` | 指定操作返回无业务码的 404；检查代理路由、base path 和版本匹配，404 本身不能确定是版本问题。 |
 | `required_route_undeclared` | Server 的 OpenAPI 文档缺少列出的操作声明。 |
+| `memory_protocol_mismatch` / `legacy_memory_operation_unsupported` | 对齐 Server/CLI/插件协议，为实际 profile 重新 setup、重启，再搜索取得 Atomic 引用；不得移除集合 CAS。 |
 | `contract_unavailable` | 无法核对路由声明；通过同一 base path 提供 `/openapi.json`，或单独核对部署的契约。 |
 | `scope_not_found` / `unscoped` | 检查显式 Scope 覆盖、workspace binding 和 Server 默认 Scope；Doctor 不修改它们。 |
 | `invalid_response` | 响应未通过协议校验，即使 HTTP status 是 200。 |
@@ -158,10 +212,10 @@ Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不
 Doctor 不执行 capture、remember、flush、binding 修改或注入。契约不可读时标为未检查；
 Scope 不可用时跳过 prepare 并说明原因。实际写入与处理由下方显式验收负责。
 
-独立 CLI 的 `powercontext doctor dsh` 仅检查 Web profile 注册，并明确报告没有观察到运行中宿主的配置，
-没有执行 Server 检查。退出成功只表示注册检查通过。
-`powercontext doctor` 使用自己的 `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`；
-对齐 URL 后可复用它的 service/health 诊断，但不能认为它观察到了 DSH 的覆盖配置。
+独立 CLI 的 `powercontext doctor dsh` 检查所选 profile 的注册状态和已安装插件 Memory 协议声明，并检查 CLI
+解析到的端点上的 Server。这些检查不能观察已运行 DSH 进程的环境覆盖或工具缓存；请重启受影响的 profile，
+再在会话里运行 `/pc doctor`。已安装包未声明协议或 Server 契约不可读时，整体结果不会显示成功；注册通过本身
+不足以证明兼容。不指定 Host 的 `powercontext doctor` 使用其选定的客户端端点。
 
 ## 查看最近一次自动执行
 
@@ -323,7 +377,8 @@ Source 被接收不代表已经生成 Memory，后者需要 Server 成功处理�
 非空 PreparedContext 只追加一次，消息带有 `source.form=snapshot` 和名为 `PowerContext` 的 section。
 在 DSH 0.1.2-rc.1 Web 中，展开已完成轮次的“已思考”过程内容，再展开“上下文注入 — powercontext-dsh”。
 其他宿主版本也可能将它展示在上下文浏览器中。section 与发给模型、
-保存到会话日志的文字一致，包含不可信历史证据的提示，以及当前请求替换此前快照的说明。
+保存到会话日志的文字一致：先是插件关于当前请求替换此前快照的说明，然后是 Server 准备的上下文，
+其中 Server 的信任策略（trust policy）位于召回条目之前。
 重新打开会话历史时，这些元数据仍然保留。
 
 空结果和自动失败不会生成 snapshot，也不会向模型注入错误通知。展示使用宿主已有的 snapshot 能力，
@@ -394,3 +449,11 @@ Doctor 在 `configuration.readiness_request_timeout_ms` 中报告该预算，同
 环回地址默认允许明文 HTTP；远程 HTTP 需要显式设置 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`，
 HTTPS 证书校验仍然启用。主机地址变量依次读取 `BASE_URL`、`SERVER_URL`、`ENDPOINT`，然后才读取
 `POWERCONTEXT_CLIENT_SERVER_URL`。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
+
+
+### Memory 协议升级检查
+
+独立的 `powercontext doctor dsh` 会检查所选 Web/Desktop profile 的注册状态与已安装插件协议声明。缺少声明的旧包
+显示为未验证/degraded，并提示更新；不能仅凭包版本号或健康检查判定兼容。会话内的 `/pc doctor` 还会核对 Server 的
+Memory 协议声明、Atomic 路由及过期的原生 MCP 修改工具。恢复时保留 `legacy_memory_operation_unsupported`，不移除
+CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-memory-migration.md#客户端与-agent-host-的协议兼容)。

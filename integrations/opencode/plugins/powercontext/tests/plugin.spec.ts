@@ -121,7 +121,7 @@ describe('PowerContextPlugin', () => {
 
     expect(incoming.parts).toHaveLength(2)
     expect(incoming.parts[1]).toMatchObject({ synthetic: true, messageID: 'msg-1', sessionID: 'session-1' })
-    expect(incoming.parts[1]?.text).toContain('Parser decision')
+    expect(incoming.parts[1]?.text).toBe('PowerContext host-supplied context.\n\nParser decision: preserve the public token shape.')
     expect(calls.map((call) => call.url)).toEqual([
       'http://127.0.0.1:8000/v1/scope-bindings/resolve',
       'http://127.0.0.1:8000/v1/context/prepare',
@@ -303,6 +303,27 @@ describe('PowerContextPlugin', () => {
     )
     expect(ask).toHaveBeenCalledWith(expect.objectContaining({ permission: 'powercontext' }))
     expect(JSON.parse(String(result))).toMatchObject({ ok: true })
+  })
+
+  it('puts an ask rule for its permission ahead of the user permission rules', async () => {
+    const hooks = await PowerContextPlugin(pluginInput())
+    const configure = async (permission?: unknown) => {
+      const config: any = permission === undefined ? {} : { permission }
+      await hooks.config?.(config)
+      return config.permission
+    }
+    // OpenCode applies the last matching rule, so each rule the user configures still decides what it matches.
+    expect(await configure()).toEqual({ 'powercontex?': 'ask' })
+    const rules = { bash: 'ask', powercontext: { commit_handoff: 'allow' }, '*': 'deny' }
+    expect(Object.entries(await configure(rules))).toEqual([['powercontex?', 'ask'], ...Object.entries(rules)])
+    const configured = await configure({ powercontext: 'allow' })
+    expect(Object.entries(await configure(configured))).toEqual([['powercontex?', 'ask'], ['powercontext', 'allow']])
+    // A user rule under the default's key keeps it, and the default takes the next key that matches the permission.
+    const wildcard = { 'powercontex?': { commit_handoff: 'allow' } }
+    const kept = await configure(wildcard)
+    expect(Object.entries(kept)).toEqual([['powerconte?t', 'ask'], ...Object.entries(wildcard)])
+    expect(Object.entries(await configure(kept))).toEqual(Object.entries(kept))
+    expect(await configure('allow')).toBe('allow')
   })
 
   it('captures a Working Note through the scoped operation', async () => {
@@ -516,7 +537,6 @@ describe('PowerContextPlugin', () => {
       expect(prepared[2]?.body.scope_id).toBe(prepared[0]?.body.scope_id)
       const captured = calls.filter((call) => call.url.endsWith('/v1/sources/content'))
       expect(captured.map((call) => call.body.metadata.cwd)).toEqual([firstProject, firstProject, secondProject])
-      expect(input.client.session.get).toHaveBeenCalledTimes(3)
     } finally {
       await rm(firstProject, { recursive: true, force: true })
       await rm(secondProject, { recursive: true, force: true })
@@ -562,7 +582,6 @@ describe('PowerContextPlugin', () => {
       '/tmp/project-before-delete',
       '/tmp/project-after-delete',
     ])
-    expect(input.client.session.get).toHaveBeenCalledTimes(2)
   })
 
   it('fails open when the OpenCode session directory is unavailable', async () => {

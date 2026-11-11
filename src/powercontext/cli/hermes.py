@@ -223,6 +223,8 @@ class HermesInstaller:
                 ),
             }
 
+        from powercontext.cli.memory_protocol import installed_memory_protocol, read_plugin_memory_protocol
+
         config = _hermes_config()
         provider = config.get("memory", {}).get("provider")
         plugins = config.get("plugins", {})
@@ -272,6 +274,9 @@ class HermesInstaller:
         return {
             "hermes": Diagnostic(status=DiagnosticStatus.OK, detail=f"{executable} (Hermes Agent v{hermes_version})"),
             "plugin": plugin_diagnostic,
+            "plugin_memory_protocol": installed_memory_protocol(
+                read_plugin_memory_protocol(plugin, "powercontext.json"), "hermes"
+            ),
             "command_plugin": command_diagnostic,
             "provider": Diagnostic(
                 DiagnosticStatus.OK if provider == HERMES_PLUGIN_NAME else DiagnosticStatus.FAILED,

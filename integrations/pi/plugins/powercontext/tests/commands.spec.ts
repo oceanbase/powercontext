@@ -57,7 +57,8 @@ describe('/pc command', () => {
         url: requestUrl,
         body: init?.body ? JSON.parse(String(init.body)) : undefined,
       })
-      return new Response(JSON.stringify({ items: [] }))
+      return Response.json(requestUrl.pathname === '/v1/server-info'
+        ? { feature_contracts: { 'memory.explicit': { version: { major: 1, minor: 0 } } } } : { items: [] })
     }
     const context = {
       cwd: '/workspace/repo',
@@ -153,4 +154,16 @@ describe('/pc command', () => {
       level: 'error',
     }])
   })
+})
+
+
+it.each([undefined, { version: { major: 2, minor: 0 } }])('Pi Doctor rejects incompatible Memory declarations %j', async memory => {
+  const messages: string[] = []
+  const fetch = async (url: string | URL | Request) => Response.json(new URL(String(url)).pathname === '/v1/server-info'
+    ? { feature_contracts: { 'memory.explicit': memory } } : { status: 'ok' })
+  await handlePcCommand('doctor', runtime(fetch), { cwd: '/workspace/repo', hasUI: true,
+    ui: { notify: message => messages.push(message), confirm: async () => true } })
+  expect(JSON.parse(messages[0])).toMatchObject({ ok: false, memory: {
+    code: 'memory_protocol_mismatch', recovery: expect.stringContaining('powercontext setup pi'),
+  } })
 })

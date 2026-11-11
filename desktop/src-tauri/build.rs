@@ -35,6 +35,7 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "foundation_info",
             "local_diagnostics",
+            "connect_local_server",
             "ops_references",
             "ops_inspect",
             "ops_config_validate",
@@ -57,6 +58,7 @@ fn main() {
             "save_profile",
             "remove_profile",
             "check_connection",
+            "probe_readiness",
             "disconnect",
             "invalidate_profile",
             "list_scopes",

@@ -20,6 +20,14 @@ Typed adapters separate liveness, readiness, identity and capabilities. Native c
 
 The renderer retains submitted input in window-local memory independently of form lifetime. Automatic disconnection does not discard it, and a retry cannot remove an earlier unresolved attempt. Recovery copies contain only user input and original-target metadata, never returned private Server bodies. Each copy is at most 8192 UTF-8 bytes plus metadata; retention grows with explicit user submissions awaiting success, recovery or discard. Successful receipts remove their own copy; rejected saves retain input for explicit recovery or discard; users can explicitly discard individual copies or all copies through navigation confirmation. Discarded identities cannot be revived by late receipts. Window close loses all copies. There is no disk persistence, background replay or export through session diagnostics.
 
+Connection checks and ordinary Scope/Memory operations do not invoke readiness. Explicit readiness observations
+are revision/deployment-bound, timestamped independently, and cannot activate a context or authorize a business action.
+Anonymous identity requires independently qualified `get_connection_identity` evidence matching live discovery,
+disabled authentication and Access, and no Principal. Generic failures, renderer-selected modes and previous probes
+are not anonymous evidence. Qualified authenticated legacy profiles can retain the existing Principal contract.
+Current identity failures never fall back; authentication/Access mode changes invalidate the context. Capability
+observation denial alone does not disable independently qualified and authorized resource actions.
+
 ## Budgets and error projection
 
 | Boundary | Limit |
@@ -60,6 +68,8 @@ Native code writes private files atomically (0600/0700 on POSIX; current-user pr
 links/reparse points, and validates ownership/protection on existing control files. This same-user bridge is not a
 privilege boundary against another process running as that user.
 
+The native reference file stores operation IDs, binding fingerprints and the approved action/options before dispatch. It stores no outcome, raw plan, endpoint, path or credential. Legacy references without action metadata remain queryable but cannot authorize resume. Resume must match the retained action/options. Progress is correlated to the native approval ID as well as operation/attempt. Ops journals and locks
+
 The native reference file stores only operation IDs and binding fingerprints before dispatch. Ops journals and locks
 remain the sole recovery authority. Four ordinary and two reserved status/cancel helpers bound native concurrency;
 timed-out children retain their slot until exit. Each invocation bounds JSONL messages to 64 KiB, aggregate output to
@@ -76,3 +86,9 @@ See [Local Server Ops](../docs/en/docs/operate/local-server-ops.md#desktop-nativ
 resource configuration, producer pins, stable paths and recovery API. The bridge does not ship production resources or
 an installation wizard. Real service mutations, signing/notarization and clean-machine acceptance require separate
 platform evidence.
+
+## Explicit local connection handoff
+
+`connect_local_server` accepts only the current context generation. It obtains the endpoint through trusted native Ops, requires an owned/current registration, active process, valid configuration, present runtime, responding service and installation identity. It matches the observed resource ID/digest to the pinned catalog and selects only its named bundled Desktop qualification for the current HTTP contract. Known qualification IDs also require the catalog source commit and `wheel-sha256:` reference to match the record's original Server source and qualification wheel; a matching API contract cannot reinterpret historical evidence. Candidate/unrecognized qualifications fail closed. The discovery package version, Principal, basic Memory operation set and exact public default Scope must pass before a local activation is published. Pending or failed qualification/Scope reads expose no active local context and cannot replace a newer context. Existing Bearer/CA profiles are not overwritten. Page opening and application reopen never invoke this command.
+
+Local handoff completion preserves newer navigation and editor intent.

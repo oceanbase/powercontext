@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "1.5.0",
+        "version": "1.5.1",
     },
     "paths": {
         "/v1/recall/manifest": {
@@ -258,7 +258,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5053,7 +5053,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "family",
@@ -5123,7 +5123,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "family",
@@ -5199,7 +5199,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5269,7 +5269,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     },
                     {
                         "name": "artifact_id",
@@ -5339,7 +5339,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
                     }
                 ],
                 "requestBody": {
@@ -5673,6 +5673,46 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+            }
+        },
+        "/v1/connection/identity": {
+            "get": {
+                "tags": ["access"],
+                "summary": "Observe the current connection identity without readiness probes",
+                "description": "Returns the actual deployment, "
+                "access mode and request "
+                "authentication identity. Does not "
+                "invoke model, "
+                "authentication-provider or "
+                "access-provider readiness probes, "
+                "require server.observe, or grant "
+                "resource permissions. Anonymous "
+                "identity is explicit only when "
+                "authentication and access "
+                "enforcement are disabled. "
+                "Authentication errors and "
+                "unavailable enforced access remain "
+                "errors, never anonymous fallback.",
+                "operationId": "get_connection_identity",
+                "responses": {
+                    "200": {
+                        "description": "Current "
+                        "request "
+                        "identity; not "
+                        "an operation "
+                        "authorization "
+                        "or binary "
+                        "attestation.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectionIdentity"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+                "x-powercontext-feature-contracts": ["connection.identity"],
+                "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
             }
         },
         "/v1/access/me": {
@@ -7766,6 +7806,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8893,6 +8934,266 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["period", "estimator", "totals", "daily"],
             },
+            "ProcessingState": {
+                "type": "string",
+                "enum": ["idle", "dirty", "pending", "acknowledged", "queued", "running", "retry_wait", "blocked"],
+            },
+            "ProcessingReason": {
+                "type": "string",
+                "enum": [
+                    "unobserved",
+                    "waiting_schedule",
+                    "waiting_dispatch",
+                    "waiting_capacity",
+                    "executing",
+                    "retry_backoff",
+                    "policy_block",
+                    "idle",
+                ],
+            },
+            "ProcessingObservation": {
+                "properties": {
+                    "binding": {"type": "string"},
+                    "family": {"type": "string", "nullable": True},
+                    "state": {"$ref": "#/components/schemas/ProcessingState"},
+                    "observed_at": {"type": "string", "format": "date-time"},
+                    "scheduler_observed": {"type": "boolean", "default": False},
+                    "reason": {"$ref": "#/components/schemas/ProcessingReason", "default": "unobserved"},
+                    "requested_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "handled_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "dirty_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "clean_generation": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "pending_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Local lower bound, not the durable age of all pending work.",
+                        "nullable": True,
+                    },
+                    "running_seconds": {"type": "number", "minimum": 0.0, "nullable": True},
+                    "next_check_seconds": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "description": "Estimated seconds until a scheduler check, not a promised execution deadline.",
+                        "nullable": True,
+                    },
+                    "worker_id": {"type": "string", "nullable": True},
+                    "attempt_generation": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "retry_failures": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "block_code": {"type": "string", "nullable": True},
+                    "last_error_code": {
+                        "type": "string",
+                        "description": "Content-free "
+                        "failure "
+                        "category "
+                        "for "
+                        "this "
+                        "Scope "
+                        "and "
+                        "binding's "
+                        "current "
+                        "local "
+                        "retry "
+                        "cycle. "
+                        "Absent "
+                        "before "
+                        "observation "
+                        "or "
+                        "after "
+                        "acknowledgement, "
+                        "restart, "
+                        "or "
+                        "retry-cache "
+                        "eviction. "
+                        "Never "
+                        "an "
+                        "exception "
+                        "message.",
+                        "nullable": True,
+                    },
+                    "last_error_stage": {
+                        "type": "string",
+                        "description": "Owning "
+                        "observation "
+                        "boundary "
+                        "such "
+                        "as "
+                        "authorization, "
+                        "inference, "
+                        "worker, "
+                        "work_admission, "
+                        "or "
+                        "completion. "
+                        "Does "
+                        "not "
+                        "locate "
+                        "an "
+                        "internal "
+                        "domain "
+                        "operation.",
+                        "nullable": True,
+                    },
+                    "last_error_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "UTC "
+                        "time "
+                        "the "
+                        "local "
+                        "supervisor "
+                        "observed "
+                        "this "
+                        "failure, "
+                        "not "
+                        "the "
+                        "child "
+                        "event "
+                        "time "
+                        "or "
+                        "a "
+                        "durable "
+                        "history.",
+                        "nullable": True,
+                    },
+                    "last_error_worker_id": {
+                        "type": "string",
+                        "description": "Existing "
+                        "execution "
+                        "identity "
+                        "of "
+                        "the "
+                        "last "
+                        "failed "
+                        "worker "
+                        "in "
+                        "this "
+                        "local "
+                        "retry "
+                        "cycle. "
+                        "Absent "
+                        "for "
+                        "admission "
+                        "failures "
+                        "without "
+                        "a "
+                        "launched "
+                        "worker. "
+                        "Not "
+                        "a "
+                        "metric "
+                        "label.",
+                        "nullable": True,
+                    },
+                    "last_error_trace_id": {
+                        "type": "string",
+                        "description": "Existing "
+                        "trace "
+                        "identity "
+                        "of "
+                        "the "
+                        "last "
+                        "failed "
+                        "worker "
+                        "when "
+                        "supplied "
+                        "by "
+                        "the "
+                        "tracing "
+                        "adapter. "
+                        "Does "
+                        "not "
+                        "prove "
+                        "sampling "
+                        "or "
+                        "backend "
+                        "storage. "
+                        "Cleared "
+                        "with "
+                        "the "
+                        "local "
+                        "failure "
+                        "observation.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "state", "observed_at"],
+                "description": "Durable invocation counters "
+                "plus an optional local "
+                "scheduler sample. "
+                "Acknowledgement is not "
+                "artifact creation. Missing "
+                "local coverage does not "
+                "imply stopped work.",
+            },
+            "BootstrapDeliveryReading": {
+                "properties": {
+                    "integration": {"type": "string"},
+                    "state": {"$ref": "#/components/schemas/BootstrapReceiptState"},
+                    "receipts": {"type": "integer", "minimum": 0.0},
+                    "content_bytes": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Sum "
+                        "of "
+                        "prepared "
+                        "package "
+                        "UTF-8 "
+                        "bytes "
+                        "in "
+                        "this "
+                        "current "
+                        "receipt "
+                        "state, "
+                        "not "
+                        "model "
+                        "tokens "
+                        "or "
+                        "proof "
+                        "of "
+                        "adoption.",
+                    },
+                    "last_prepared_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Latest preparation time in this group, not the delivery completion time.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["integration", "state", "receipts", "content_bytes", "last_prepared_at"],
+                "description": "Retained receipt metadata "
+                "grouped by integration "
+                "and current state; "
+                "package content and "
+                "receipt identities are "
+                "excluded.",
+            },
+            "BootstrapDeliveryStatistics": {
+                "properties": {
+                    "period": {"$ref": "#/components/schemas/ResolvedUsagePeriod"},
+                    "retention_days": {"type": "integer", "default": 30},
+                    "actual_adoption": {"type": "string", "enum": ["unobserved"]},
+                    "by_integration": {
+                        "items": {"$ref": "#/components/schemas/BootstrapDeliveryReading"},
+                        "type": "array",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["period", "retention_days", "actual_adoption", "by_integration"],
+                "description": "Current states of "
+                "retained receipts "
+                "prepared within the "
+                "selected UTC period. "
+                "Injected is "
+                "host-reported and does "
+                "not prove model "
+                "adoption or billing "
+                "savings. Missing "
+                "records do not prove "
+                "no host use.",
+            },
             "ScopeStats": {
                 "properties": {
                     "scope_id": {"type": "string"},
@@ -8900,6 +9201,29 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "usage": {"$ref": "#/components/schemas/UsageStatistics"},
                     "recall": {"$ref": "#/components/schemas/RecallTokenStatistics"},
                     "recurrence": {"$ref": "#/components/schemas/RecurrenceStatistics"},
+                    "processing": {
+                        "items": {"$ref": "#/components/schemas/ProcessingObservation"},
+                        "type": "array",
+                        "description": "Current "
+                        "durable "
+                        "bindings "
+                        "and "
+                        "locally "
+                        "observed "
+                        "scheduling "
+                        "state for "
+                        "this "
+                        "Scope; "
+                        "not a "
+                        "complete "
+                        "attempt "
+                        "history.",
+                        "default": [],
+                    },
+                    "bootstrap_delivery": {
+                        "$ref": "#/components/schemas/BootstrapDeliveryStatistics",
+                        "nullable": True,
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -8923,6 +9247,29 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "selection": {"$ref": "#/components/schemas/ScopeSelection"},
                     "period": {"$ref": "#/components/schemas/StatsPeriod", "default": "30d"},
+                    "include_processing": {
+                        "type": "boolean",
+                        "description": "Include "
+                        "current "
+                        "processing "
+                        "intent "
+                        "counters "
+                        "and "
+                        "optional "
+                        "local "
+                        "scheduler "
+                        "observations. "
+                        "Does "
+                        "not "
+                        "reconstruct "
+                        "remote "
+                        "worker "
+                        "state "
+                        "or "
+                        "complete "
+                        "history.",
+                        "default": False,
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -13737,6 +14084,61 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["items", "next_cursor"],
             },
+            "SourceSequenceLocator": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["sequence"]},
+                    "sequence": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "sequence"],
+                "description": "Position of this exact Source in its scope journal; zero is distinct from absence.",
+            },
+            "SourceLineRangeLocator": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["line_range"]},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "end_line": {"type": "integer", "minimum": 1.0},
+                    "heading_path": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Optional "
+                        "adapter-supplied "
+                        "heading "
+                        "path, "
+                        "bounded "
+                        "in "
+                        "Unicode "
+                        "characters "
+                        "rather "
+                        "than "
+                        "UTF-8 "
+                        "bytes.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "start_line", "end_line"],
+                "description": "Inclusive one-based lines "
+                "in adapter-supplied text, "
+                "at most 200 lines. Never a "
+                "revision redirect.",
+                "x-powercontext-source-line-range": True,
+            },
+            "SourceLocator": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/SourceSequenceLocator"},
+                    {"$ref": "#/components/schemas/SourceLineRangeLocator"},
+                ],
+                "discriminator": {
+                    "propertyName": "kind",
+                    "mapping": {
+                        "sequence": "#/components/schemas/SourceSequenceLocator",
+                        "line_range": "#/components/schemas/SourceLineRangeLocator",
+                    },
+                },
+            },
             "SourceTypeReference": {
                 "properties": {
                     "source_type": {
@@ -13759,6 +14161,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "interior "
                         "spaces.",
                     },
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -13768,6 +14171,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "name": {"type": "string", "description": "Stable Source type."},
                     "source_id": {"type": "string"},
+                    "locator": {"$ref": "#/components/schemas/SourceLocator", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -13909,6 +14313,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["family", "enabled", "share_unit", "actions", "grantable_roles"],
+            },
+            "ConnectionAuthentication": {"type": "string", "enum": ["disabled", "authenticated"]},
+            "ConnectionIdentity": {
+                "properties": {
+                    "server_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "authentication": {"$ref": "#/components/schemas/ConnectionAuthentication"},
+                    "access_mode": {"$ref": "#/components/schemas/AccessControlMode"},
+                    "principal": {"allOf": [{"$ref": "#/components/schemas/AccessPrincipal"}], "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["server_id", "authentication", "access_mode", "principal"],
             },
             "AccessMeResponse": {
                 "properties": {
@@ -15025,6 +15441,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     },
     "security": [{"BearerAuth": []}, {}],
     "x-powercontext-feature-contracts": {
+        "connection.identity": {"major": 1, "minor": 0},
         "access.principal": {"major": 1, "minor": 0},
         "scope.selection": {"major": 1, "minor": 0},
         "memory.explicit": {"major": 1, "minor": 0},

@@ -1,0 +1,188 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: powercontext-observability
+services:
+  prometheus:
+    image: prom/prometheus:v3.8.0@sha256:d936808bdea528155c0154a922cd42fd75716b8bb7ba302641350f9f3eaeba09
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - --config.file=/etc/prometheus/prometheus.yaml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=7d
+    - --storage.tsdb.retention.size=1GB
+    - --enable-feature=exemplar-storage
+    volumes:
+    - ./prometheus:/etc/prometheus:ro
+    - ./.local/observe-token:/run/local/observe-token:ro
+    - ./.local/targets.json:/run/local/targets.json:ro
+    - prometheus:/prometheus
+    extra_hosts:
+    - host.docker.internal:host-gateway
+  tempo:
+    image: grafana/tempo:2.9.0@sha256:65a5789759435f1ef696f1953258b9bbdb18eb571d5ce711ff812d2e128288a4
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - -config.file=/etc/tempo.yaml
+    volumes:
+    - ./tempo.yaml:/etc/tempo.yaml:ro
+    - tempo:/var/tempo
+    user: 0:0
+  loki:
+    image: grafana/loki:3.6.0@sha256:6a705de65df88aa0d90a44779606b0042722c86637335a73858f65f9fe9f9557
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - -config.file=/etc/loki.yaml
+    volumes:
+    - ./loki.yaml:/etc/loki.yaml:ro
+    - loki:/loki
+    user: 0:0
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.141.0@sha256:b14234c4bc1b7364629af272e564913bb57bdc9736d45b8b6db5ab3417dc75f9
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - --config=/etc/collector.yaml
+    volumes:
+    - ./collector/config.yaml:/etc/collector.yaml:ro
+    - ./.local/logs:/logs:ro
+    - collector:/var/lib/otelcol
+    user: 0:0
+    depends_on:
+    - tempo
+    - loki
+  phoenix:
+    image: arizephoenix/phoenix:20.1.0@sha256:ba16766ace2aaadd4cda8a8d41c655c6e0eee1b3b5deccda4456184b8636bd22
+    restart: unless-stopped
+    mem_limit: 1024m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+    ports:
+    - 127.0.0.1:${PC_PHOENIX_PORT:-6006}:6006
+    volumes:
+    - phoenix:/mnt/data
+  gateway:
+    image: nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    volumes:
+    - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    - ./.local/htpasswd:/etc/nginx/htpasswd:ro
+    ports:
+    - 127.0.0.1:${PC_OBSERVABILITY_PORT:-14318}:8080
+    depends_on:
+    - collector
+    - tempo
+    - loki
+    - prometheus
+  grafana:
+    image: grafana/grafana:12.3.0@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    volumes:
+    - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    - ./.local/grafana-password:/run/secrets/grafana-password:ro
+    - grafana:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-password
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_PLUGINS_PREINSTALL_SYNC: yesoreyeram-infinity-datasource@4.1.3
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/main/pc-overview.json
+    ports:
+    - 127.0.0.1:${PC_GRAFANA_PORT:-13000}:3000
+    env_file:
+    - ./.local/stats.env
+  stats:
+    image: python:3.11-slim-bookworm@sha256:eb769d88622468aea09986df8172151981bf6622b5eec58dc38301e20673ff84
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    read_only: true
+    user: 65534:65534
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+        max-file: '2'
+    command:
+    - python
+    - -B
+    - /app/stats-proxy.py
+    - --bind
+    - 0.0.0.0
+    volumes:
+    - ./stats-proxy.py:/app/stats-proxy.py:ro
+    - ./.local/stats.json:/run/local/stats.json:ro
+    extra_hosts:
+    - host.docker.internal:host-gateway
+volumes:
+  prometheus: {}
+  tempo: {}
+  loki: {}
+  collector: {}
+  grafana: {}
+  phoenix: {}

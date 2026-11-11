@@ -35,8 +35,8 @@ use the same secret and key ID:
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_SIGNING_KEY_ID` | `atomic-memory-v1` | Current key ID, 1–128 characters; deployment configuration loads only this one key |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_PREVIEW_TTL_SECONDS` | `300` | Preview lifetime, 1–3600 seconds |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RESTORE_RETRY_BUDGET` | `3` | Re-read and preparation retries after `atomic_memory_changed` during restoration without a token, 0–10; the default permits the initial attempt plus 3 retries |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Related-memory recall during Source processing: `auto`, `fts`, `vector` or `hybrid`; auto selects fts without a profile and hybrid with one |
-| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration, nonnegative; does not apply to ordinary searches with a limit |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MODE` | `auto` | Related-memory recall during Source processing, also applied to earlier candidates of the same window under built-in Prompts: `auto`, `fts`, `vector` or `hybrid`; auto selects fts without a profile and hybrid with one |
+| `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_MAX_DISTANCE` | `1.0` | Maximum exact L2 distance for complete related-vector enumeration and for earlier candidates of the same window, nonnegative; does not apply to ordinary searches with a limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_RELATED_FTS_FALLBACK` | `false` | Explicitly permit full-text enumeration when the related query vector is unavailable, profiles mismatch or vector projections are incomplete; ordinary search error handling is unchanged |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_COMPARISON_BATCH_SIZE` | `20` | Maximum related objects per comparison call, positive integer; it is not a total candidate limit |
 | `POWERCONTEXT_SERVER_RUNTIME_ATOMIC_MEMORY_INPUT_TOKENS_LIMIT` | `24000` | Estimated tokens per extraction/comparison input, including instructions and complete input, positive integer |
@@ -136,7 +136,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` or structured `json` output |
 | `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | Log external HTTP and logical MCP request completion |
 | `POWERCONTEXT_SERVER_LOGGING_FILE` | `false` | Write managed files instead of stdout; enabled by default for macOS/Windows personal services |
-| `POWERCONTEXT_SERVER_LOGGING_DIRECTORY` | User data directory + `logs/` | Managed log directory |
+| `POWERCONTEXT_SERVER_LOGGING_DIRECTORY` | User data directory + `logs/` | Managed log directory; an explicit directory with `LOGGING_FILE=false` adds per-process JSON files alongside stdout |
 | `POWERCONTEXT_SERVER_LOGGING_MAX_BYTES` | `20971520` | Positive size threshold for rotation |
 | `POWERCONTEXT_SERVER_LOGGING_BACKUP_COUNT` | `10` | Positive maximum archive count per active file |
 | `POWERCONTEXT_SERVER_LOGGING_COMPRESSION` | `gzip` | Archive compression: `gzip` or `none` |
@@ -178,7 +178,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | Relative FTS contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes FTS-only matches from hybrid results |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | Relative vector contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes vector-only matches from hybrid results |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code, ZCode, and DSH |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code and DSH; ZCode allows 3 seconds per request within its 4-second Hook budget |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -628,6 +628,17 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 
 The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
 defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
+
+Atomic Memory uses native `minimum_should_match` filtering when the connected OceanBase or seekDB engine supports it.
+Older engines retain the whole-word `LOCATE` coverage check. Capability detection does not treat query timeouts,
+permission failures, or connection errors as an unsupported feature. Both paths keep the same analyzed, deduplicated
+query terms and admission threshold, including recovery probes and complete related-memory enumeration.
+Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
+Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
+OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.
+Queries containing Analyzer terms omitted by the SPACE parser, such as `com`, also retain whole-word coverage
+for search, complete enumeration, and recovery. The threshold still counts every distinct Analyzer term.
+This selection requires no new setting, table, or index migration; the existing `SPACE` full-text index is reused.
 
 seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
 without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;

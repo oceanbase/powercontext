@@ -14,23 +14,34 @@
  * limitations under the License.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
-import { dirname, join } from 'node:path'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import spawn from 'cross-spawn'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stampPublishManifest } from './stamp-version.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const manifestPath = join(root, 'package.json')
-const original = readFileSync(manifestPath, 'utf8')
-const current = JSON.parse(original)
+const current = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const version = process.argv[2]?.trim() || current.version
+const packed = stampPublishManifest(current, version)
+const destination = resolve(process.argv[3] || join(root, 'dist'))
+const staging = mkdtempSync(join(tmpdir(), 'powercontext-dsh-pack-'))
 
 try {
-  const packed = stampPublishManifest(current, version)
-  writeFileSync(manifestPath, `${JSON.stringify(packed, null, 2)}\n`)
-  const result = spawnSync('pnpm', ['pack'], { cwd: root, stdio: 'inherit', shell: true })
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  // Copy only published assets; never stamp or sanitize the checkout in place.
+  for (const file of [...packed.files, 'README.md', 'LICENSE']) {
+    const target = join(staging, file)
+    mkdirSync(dirname(target), { recursive: true })
+    cpSync(join(root, file), target, { recursive: true })
+  }
+  writeFileSync(join(staging, 'package.json'), `${JSON.stringify(packed, null, 2)}\n`)
+  mkdirSync(destination, { recursive: true })
+  const result = spawn.sync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', destination], {
+    cwd: staging, stdio: 'inherit',
+  })
+  if (result.error) throw result.error
+  process.exitCode = result.status ?? 1
 } finally {
-  writeFileSync(manifestPath, original)
+  rmSync(staging, { recursive: true, force: true })
 }

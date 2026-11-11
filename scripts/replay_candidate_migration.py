@@ -33,7 +33,7 @@ from typing import Any
 from unittest.mock import patch
 from xml.etree import ElementTree
 
-from sqlalchemy import Connection, Engine, event
+from sqlalchemy import Connection, event
 
 from powercontext.builtin.persistence.migrations.bundle import MigrationBundle, sqlite_inventory
 from powercontext.builtin.persistence.migrations.models import digest
@@ -189,7 +189,7 @@ class CandidateReplay:
             yield
 
     @contextmanager
-    def sqlite(self) -> Iterator[None]:
+    def sqlite(self, runner: Any) -> Iterator[None]:
         fingerprints = self.bundle.fingerprints["s1400"]
 
         def observed(connection, _cursor, statement, _parameters, _context, _executemany):
@@ -225,11 +225,21 @@ class CandidateReplay:
             finally:
                 self.recording = False
 
-        event.listen(Engine, "after_cursor_execute", observed)
-        try:
+        original_connect = runner._connect
+
+        @contextmanager
+        def governed_connect(*args: Any, **kwargs: Any) -> Iterator[Any]:
+            with original_connect(*args, **kwargs) as connection:
+                event.listen(connection, "after_cursor_execute", observed)
+                try:
+                    yield connection
+                finally:
+                    event.remove(connection, "after_cursor_execute", observed)
+
+        # Observe only the migration's own connections; other SQLite engines in the
+        # process must not consume the requested interruption.
+        with patch.object(runner, "_connect", governed_connect):
             yield
-        finally:
-            event.remove(Engine, "after_cursor_execute", observed)
 
     def finish(self, **evidence: Any) -> None:
         self.bundle.assert_unchanged()
@@ -255,7 +265,9 @@ def main() -> int:
         arguments.backend,
         "-vv",
         "-o",
-        "faulthandler_timeout=180",
+        # A background stack dump can crash native-driver threads (CPython #116008).
+        # CI enforces a process deadline and captures database diagnostics instead.
+        "faulthandler_timeout=0",
         f"--junitxml={report}",
     ])
     if result:

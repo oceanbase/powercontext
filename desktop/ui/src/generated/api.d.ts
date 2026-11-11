@@ -2295,6 +2295,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/connection/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe the current connection identity without readiness probes
+         * @description Returns the actual deployment, access mode and request authentication identity. Does not invoke model, authentication-provider or access-provider readiness probes, require server.observe, or grant resource permissions. Anonymous identity is explicit only when authentication and access enforcement are disabled. Authentication errors and unavailable enforced access remain errors, never anonymous fallback.
+         */
+        get: operations["get_connection_identity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/access/me": {
         parameters: {
             query?: never;
@@ -3279,6 +3299,7 @@ export interface components {
         DreamSourceReference: {
             source_type: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         ListDreamRunsRequest: {
             status?: components["schemas"]["DreamStatus"];
@@ -3714,12 +3735,89 @@ export interface components {
             totals: components["schemas"]["RecallTokenValue"];
             daily: components["schemas"]["RecallTokenDay"][];
         };
+        /** @enum {string} */
+        ProcessingState: "idle" | "dirty" | "pending" | "acknowledged" | "queued" | "running" | "retry_wait" | "blocked";
+        /** @enum {string} */
+        ProcessingReason: "unobserved" | "waiting_schedule" | "waiting_dispatch" | "waiting_capacity" | "executing" | "retry_backoff" | "policy_block" | "idle";
+        /** @description Durable invocation counters plus an optional local scheduler sample. Acknowledgement is not artifact creation. Missing local coverage does not imply stopped work. */
+        ProcessingObservation: {
+            binding: string;
+            family?: string | null;
+            state: components["schemas"]["ProcessingState"];
+            /** Format: date-time */
+            observed_at: string;
+            /** @default false */
+            scheduler_observed: boolean;
+            /** @default unobserved */
+            reason: components["schemas"]["ProcessingReason"];
+            /** @default 0 */
+            requested_generation: number;
+            /** @default 0 */
+            handled_generation: number;
+            /** @default 0 */
+            dirty_generation: number;
+            /** @default 0 */
+            clean_generation: number;
+            /**
+             * Format: date-time
+             * @description Local lower bound, not the durable age of all pending work.
+             */
+            pending_since?: string | null;
+            running_seconds?: number | null;
+            /** @description Estimated seconds until a scheduler check, not a promised execution deadline. */
+            next_check_seconds?: number | null;
+            worker_id?: string | null;
+            attempt_generation?: number | null;
+            retry_failures?: number | null;
+            block_code?: string | null;
+            /** @description Content-free failure category for this Scope and binding's current local retry cycle. Absent before observation or after acknowledgement, restart, or retry-cache eviction. Never an exception message. */
+            last_error_code?: string | null;
+            /** @description Owning observation boundary such as authorization, inference, worker, work_admission, or completion. Does not locate an internal domain operation. */
+            last_error_stage?: string | null;
+            /**
+             * Format: date-time
+             * @description UTC time the local supervisor observed this failure, not the child event time or a durable history.
+             */
+            last_error_at?: string | null;
+            /** @description Existing execution identity of the last failed worker in this local retry cycle. Absent for admission failures without a launched worker. Not a metric label. */
+            last_error_worker_id?: string | null;
+            /** @description Existing trace identity of the last failed worker when supplied by the tracing adapter. Does not prove sampling or backend storage. Cleared with the local failure observation. */
+            last_error_trace_id?: string | null;
+        };
+        /** @description Retained receipt metadata grouped by integration and current state; package content and receipt identities are excluded. */
+        BootstrapDeliveryReading: {
+            integration: string;
+            state: components["schemas"]["BootstrapReceiptState"];
+            receipts: number;
+            /** @description Sum of prepared package UTF-8 bytes in this current receipt state, not model tokens or proof of adoption. */
+            content_bytes: number;
+            /**
+             * Format: date-time
+             * @description Latest preparation time in this group, not the delivery completion time.
+             */
+            last_prepared_at: string;
+        };
+        /** @description Current states of retained receipts prepared within the selected UTC period. Injected is host-reported and does not prove model adoption or billing savings. Missing records do not prove no host use. */
+        BootstrapDeliveryStatistics: {
+            period: components["schemas"]["ResolvedUsagePeriod"];
+            /** @default 30 */
+            retention_days: number;
+            /** @enum {string} */
+            actual_adoption: "unobserved";
+            by_integration: components["schemas"]["BootstrapDeliveryReading"][];
+        };
         ScopeStats: {
             scope_id: string;
             inventory: components["schemas"]["InventoryStatistics"];
             usage: components["schemas"]["UsageStatistics"];
             recall: components["schemas"]["RecallTokenStatistics"];
             recurrence: components["schemas"]["RecurrenceStatistics"];
+            /**
+             * @description Current durable bindings and locally observed scheduling state for this Scope; not a complete attempt history.
+             * @default []
+             */
+            processing: components["schemas"]["ProcessingObservation"][];
+            bootstrap_delivery?: components["schemas"]["BootstrapDeliveryStatistics"];
         };
         ScopedStats: {
             selection: components["schemas"]["ScopeSelection"];
@@ -3735,6 +3833,11 @@ export interface components {
             selection: components["schemas"]["ScopeSelection"];
             /** @default 30d */
             period: components["schemas"]["StatsPeriod"];
+            /**
+             * @description Include current processing intent counters and optional local scheduler observations. Does not reconstruct remote worker state or complete history.
+             * @default false
+             */
+            include_processing: boolean;
         };
         /**
          * @description Use declared for inspected conversation or repository facts, even when the user calls progress verified. verified requires nonempty exact PowerContext citations returned by an earlier operation.
@@ -5657,16 +5760,40 @@ export interface components {
             items: components["schemas"]["SourceRecord"][];
             next_cursor: string | null;
         };
+        /** @description Position of this exact Source in its scope journal; zero is distinct from absence. */
+        SourceSequenceLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sequence";
+            sequence: number;
+        };
+        /** @description Inclusive one-based lines in adapter-supplied text, at most 200 lines. Never a revision redirect. */
+        SourceLineRangeLocator: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "line_range";
+            start_line: number;
+            end_line: number;
+            /** @description Optional adapter-supplied heading path, bounded in Unicode characters rather than UTF-8 bytes. */
+            heading_path?: string | null;
+        };
+        SourceLocator: components["schemas"]["SourceSequenceLocator"] | components["schemas"]["SourceLineRangeLocator"];
         SourceTypeReference: {
             /** @description Stable Source type, including dynamically registered Source names. */
             source_type: string;
             /** @description Source identity as accepted at ingestion, including Unicode and interior spaces. */
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         SourceReference: {
             /** @description Stable Source type. */
             name: string;
             source_id: string;
+            locator?: components["schemas"]["SourceLocator"];
         };
         /** @enum {string} */
         CaptureStatus: "accepted";
@@ -5769,6 +5896,14 @@ export interface components {
             share_unit: "artifact" | "memory_entry";
             actions: components["schemas"]["AccessAction"][];
             grantable_roles: components["schemas"]["AccessRole"][];
+        };
+        /** @enum {string} */
+        ConnectionAuthentication: "disabled" | "authenticated";
+        ConnectionIdentity: {
+            server_id: string;
+            authentication: components["schemas"]["ConnectionAuthentication"];
+            access_mode: components["schemas"]["AccessControlMode"];
+            principal: components["schemas"]["AccessPrincipal"] | null;
         };
         AccessMeResponse: {
             principal: components["schemas"]["AccessPrincipal"];
@@ -10395,6 +10530,29 @@ export interface operations {
             404: components["responses"]["NotFound"];
             422: components["responses"]["InvalidRequest"];
             500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    get_connection_identity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current request identity; not an operation authorization or binary attestation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionIdentity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             503: components["responses"]["Unavailable"];
         };
     };

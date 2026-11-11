@@ -9,14 +9,15 @@
 
 *[English](README.md) · [中文](README_CN.md) · [日本語](README_JP.md)*
 
-[Web サイト](https://powercontext.oceanbase.io/en/) · [クイックスタート](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) · [手動起動](docs/en/docs/get-started/manual-start.md) · [Agent 連携](https://powercontext.oceanbase.io/en/docs/integrations/) · [ベンチマーク](https://powercontext.oceanbase.io/en/benchmarks/) · [インターフェース](https://powercontext.oceanbase.io/en/docs/develop/interfaces/)
+> ドキュメントは英語版と中国語版のみ提供されています（日本語版はありません）。本文中のドキュメントリンクは英語版を指します。
+
+[Web サイト](https://powercontext.oceanbase.io/en/) · [クイックスタート](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/) · [手動起動](https://powercontext.oceanbase.io/en/docs/get-started/manual-start/) · [Agent 連携](https://powercontext.oceanbase.io/en/docs/integrations/) · [ベンチマーク](https://powercontext.oceanbase.io/en/benchmarks/) · [インターフェース](https://powercontext.oceanbase.io/en/docs/develop/interfaces/)
 
 ## PowerContext とは何か？
 
 **PowerContext は、AI Agent 向けのオープンソース・コンテキストサービスです。** 作業のうち長く使う価値のある部分 —— 確定した判断、制約、根拠、進捗 —— を単一の会話の外に置きます。これにより、次のセッション、次の Agent、あるいは次の担当者が、記録をすべて読み返すのではなく現在の状態から続けられます。
 
-PowerContext は、そのまま使える Server としても、同じ契約を別のアプリケーションに組み込む形でも利用できます。
-まずは次の 3 層で理解すると分かりやすくなります。
+PowerContext は、そのまま使える Server としても、同じ契約を別のアプリケーションに組み込む形でも利用できます。まずは次の 3 層で理解すると分かりやすくなります。
 
 | レイヤー | 担当 | 使う場面 |
 | --- | --- | --- |
@@ -26,7 +27,7 @@ PowerContext は、そのまま使える Server としても、同じ契約を�
 
 作業を始めた人や Agent が、そのまま最後まで終えるとは限りません。あなたが Agent にタスクを渡し、Agent が途中まで進めた後、あなたや別の誰かが引き継ぐことがあります。そのとき、判断の理由や現在の状態は、その会話に置き去りになりがちです。PowerContext はそれらを会話の外に移し、検査可能なリビジョン付きの Artifact として保持します。
 
-![あなたと Agent が作業を引き継ぎ、保存されたコンテキストから継続する流れ](docs/assets/readme-workflow.svg)
+![あなたと Agent が作業を引き継ぎ、保存されたコンテキストから継続する流れ](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-workflow.svg)
 
 すべての項目は **Scope** に属します。Scope は、独立した Source ジャーナル、Memory のライフサイクル、レビュー受信トレイ、Handoff 履歴の単位です。Scope ID はデータを選択するためのものであり、ユーザー識別の証明、ツールアクセス権の付与、実行の認可を行うものではありません。
 
@@ -39,7 +40,7 @@ Scope
 └── Topic Memory      # 対象となる Source からバックグラウンドで抽出
 ```
 
-*以下の録画は、実際に動作する Dashboard とネイティブのデスクトッププレビューをダークテーマに設定し、合成のデモ記録を表示しています。*
+*以下の録画は、実際に動作する Dashboard とネイティブのデスクトッププレビューをライトテーマに設定し、合成のデモ記録を表示しています。*
 
 ### Memory — セッションを超えて残る判断と制約
 
@@ -48,7 +49,7 @@ Memory は、再利用可能な判断・制約・事実・状態・次の手順�
 > 「古い auth モジュールはリファクタリングしないで。モバイル側がまだ使っているから。」
 > これほど価値のある文脈を、毎セッション誰かが言い直すことに依存させるべきではありません。
 
-![ダークテーマの Dashboard：プロジェクトの記憶を検索し、保存済みリビジョンを開く](docs/assets/readme-dashboard-demo.gif)
+![ライトテーマの Dashboard：プロジェクトの記憶を検索し、保存済みリビジョンを開く](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-dashboard-demo.gif)
 
 ### Handoff — 全文ではなく現在の状態
 
@@ -60,7 +61,7 @@ Work Contract → Prepared Handoff → Acknowledgement → Task Outcome
 
 `handoff_current_work` は検査済みの境界を取り込み、一時的な Prepared Handoff を返します。コミットして永続的なリビジョンになるのは、マイルストーンとして残したいとユーザーが判断した場合だけです。受け手は Handoff を解決して Acknowledgement を記録し、Task Outcome が最終状態とチェック内容を Source の根拠として保存します。[Handoff Report](https://powercontext.oceanbase.io/en/docs/workflows/use-handoff-report/) は、選択した各 Scope の最新 Handoff リビジョンを投影して閲覧・エクスポートできます。読み取り専用で、Memory を書き換えることはありません。
 
-![ダークテーマの Dashboard：Handoff を開き、保存済みリビジョンを確認する](docs/assets/readme-dashboard-handoff.gif)
+![ライトテーマの Dashboard：Handoff を開き、保存済みリビジョンを確認する](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-dashboard-handoff.gif)
 
 ### Experience — レビューを経て再利用される知見
 
@@ -72,10 +73,9 @@ Experience は、状況・行動・観察された結果・再利用可能な教
 
 ### デスクトップ — 接続したワークスペースでプロジェクトの記憶を確認する
 
-Server に接続して正確な Scope を選択すると、その記憶を検索できます。検索結果を開いて保存済みの特定リビジョンを読み、次のセッションに向けたメモも保存できます。
-[デスクトッププレビュー](desktop/README.md)は内部検証用です。署名付き配布と各プラットフォームのリリース認定は、別途検証が必要です。
+Server に接続して正確な Scope を選択すると、その記憶を検索できます。検索結果を開いて保存済みの特定リビジョンを読み、次のセッションに向けたメモも保存できます。[デスクトッププレビュー](desktop/README.md)は内部検証用です。署名付き配布と各プラットフォームのリリース認定は、別途検証が必要です。
 
-![ダークテーマのネイティブデスクトップ：プロジェクトの記憶を検索して保存済みの特定リビジョンを読む](docs/assets/readme-desktop-demo.gif)
+![ライトテーマのネイティブデスクトップ：プロジェクトの記憶を検索して保存済みの特定リビジョンを読む](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-desktop-demo.gif)
 
 ## なぜ PowerContext なのか？
 
@@ -103,7 +103,7 @@ Server に接続して正確な Scope を選択すると、その記憶を検索
 
 ## 効果の検証
 
-![LoCoMo の精度と SWE-bench Pro の 100 タスクあたりの入力トークン消費量をベースラインと比較した図](docs/assets/readme-benchmark-summary.svg)
+![LoCoMo の精度と SWE-bench Pro の 100 タスクあたりの入力トークン消費量をベースラインと比較した図](https://raw.githubusercontent.com/oceanbase/powercontext/master/docs/assets/readme-benchmark-summary.svg)
 
 - **長い会話の記憶（LoCoMo；カテゴリ 1–4 の 1,540 件の採点対象質問）：精度 90.78%**。全文コンテキストの再生は 52.9% で、**+37.88 ポイント**です。
 - **コーディングタスク（SWE-bench Pro のペア比較）：100 タスクあたりの入力トークンは PowerContext 有効時に約 2 億 2,532 万、無効時に約 3 億 218 万**。入力トークンは約 **25.4%**、100 タスクあたり約 7,686 万少なくなりました。
@@ -119,7 +119,7 @@ Server に接続して正確な Scope を選択すると、その記憶を検索
 
 ## クイックスタート
 
-設定ウィザードを使わずに手動で設定・起動する場合は、[手動起動ガイド](docs/en/docs/get-started/manual-start.md)を参照してください。
+設定ウィザードを使わずに手動で設定・起動する場合は、[手動起動ガイド](https://powercontext.oceanbase.io/en/docs/get-started/manual-start/)を参照してください。
 
 PowerContext は、長く使うプロジェクトのコンテキストを 1 つの会話の外に保持します。最初の実行は次の流れです。
 
@@ -127,7 +127,7 @@ PowerContext は、長く使うプロジェクトのコンテキストを 1 つ�
 Agent の入力 → Source の証拠 → Memory / Topic Memory → PreparedContext → 新しいセッションまたは Agent
 ```
 
-PowerContext 1.5.0 には対話式セットアップウィザードが含まれています。Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](docs/en/docs/get-started/install-and-run.md)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。
+PowerContext 1.5.1 には対話式セットアップウィザードが含まれています。Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) が必要です。必要に応じて uv が Python を用意できます。Agent に接続するには、その CLI もインストールしてください。ウィザードでは、モデル API なしで明示的な保存と想起を試す場合は Basic memory、自動抽出を有効にする場合は Full memory を選択してください。Full memory には Generation と Embedding API の個別の認証情報が必要です。モデル API なしでローカル Server だけを起動する場合は[インストールと実行](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/)を参照してください。macOS と Linux をサポートし、Windows のサポートは `experimental` です。Python と uv を自動で用意する場合は、[インストールスクリプト](https://powercontext.oceanbase.io/en/docs/get-started/install-and-run/#install-with-the-recommended-script)を使ってください。
 
 目的に合う経路を選択してください：
 
@@ -140,16 +140,24 @@ PowerContext 1.5.0 には対話式セットアップウィザードが含まれ�
 ### 1. ウィザードをインストールして実行する
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.5.0"
+uv tool install --force "powercontext[cli,server]==1.5.1"
 mkdir -p powercontext-config && cd powercontext-config
 powercontext config init --language en --output .env
-powercontext config validate --env-file .env
-powercontext server run --env-file .env      # このターミナルは開いたままにする
 ```
 
 ウィザードでは、ストレージ、ローカルまたはリモート利用、メモリ機能、Dashboard/アクセス制御、Agent 接続を選択します。最初は SQLite が簡単です。組み込み seekdb は必要な場合だけ選び、依存関係のインストールを許可してください。
 
-ウィザードは `.env` と `.env.next-steps.md` を生成します。これらのファイルには認証情報が含まれることがあるため、コミットしないでください。Server を起動したまま、別のターミナルで `powercontext-config` に戻り、生成された環境ファイルを読み込んで接続を確認します。
+ウィザードは `.env` と `.env.next-steps.md` を生成します。これらのファイルには認証情報が含まれることがあるため、コミットしないでください。Linux のユーザーサービスには利用可能な `systemd --user` マネージャーが必要です。
+
+`.env` を保存してから、設定を検証してユーザーサービスを登録します。
+
+```bash
+powercontext config validate --env-file .env
+powercontext service install --env-file .env
+powercontext service status
+```
+
+サービスはターミナルを閉じた後も Server を実行します。生成された環境ファイルを読み込んで接続を確認します。
 
 ```bash
 set -a
@@ -159,25 +167,18 @@ powercontext ready
 powercontext capabilities
 ```
 
-続いて `.env.next-steps.md` の手順に従い、Scope を作成して紐付けます。作成リクエストが返す実際の `scope_id` を使ってください。
-計画された `codex-...` タイトルは ID ではありません。ディレクトリを変えても分離は作られないため、Dashboard と Agent で同じ Server と
-Scope を使います。その後、対応するプラグインをインストールして新しい Agent セッションを起動します。[完全な手順](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)では、Codex と Claude Code、Dashboard へのログイン、SSH 転送、HTTPS の前提条件、確認可能な受け入れチェックを扱っています。対応する Codex のインストールは次のとおりです。
+続いて `.env.next-steps.md` の手順に従い、Scope を作成して紐付けます。作成リクエストが返す実際の `scope_id` を使ってください。計画された `codex-...` タイトルは ID ではありません。ディレクトリを変えても分離は作られないため、Dashboard と Agent で同じ Server と Scope を使います。`.env` を編集したら、`powercontext service install --env-file .env` を再実行してサービスの設定を反映します。その後、対応するプラグインをインストールして新しい Agent セッションを起動します。[完全な手順](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)では、Codex と Claude Code、Dashboard へのログイン、SSH 転送、HTTPS の前提条件、確認可能な受け入れチェックを扱っています。対応する Codex のインストールは次のとおりです。
 
 ```bash
-powercontext setup codex --ref powercontext-v1.5.0
+powercontext setup codex --ref powercontext-v1.5.1
 powercontext doctor codex
 ```
 
-新しい Codex セッションで最初のメッセージを送る前に、`/hooks` で PowerContext Hook を確認し、求められたら信頼を許可してください。
-`UserPromptSubmit` Hook が無効な場合、MCP に接続できても入力の自動取得と想起は動作しません。
-[初回確認と復旧](docs/en/docs/integrations/codex.md#first-session-hook-trust)を参照してください。
-以下の確認後は、[機能と操作のガイド](docs/en/docs/get-started/quickstart.md#5-choose-your-next-workflow)から
-7 種類の Artifact、Source、Tag を試せます。Basic memory は Server 用の独立したモデル API が不要ですが、Agent 自身のモデルは使用します。
+新しい Codex セッションで最初のメッセージを送る前に、`/hooks` で PowerContext Hook を確認し、求められたら信頼を許可してください。`UserPromptSubmit` Hook が無効な場合、MCP に接続できても入力の自動取得と想起は動作しません。[初回確認と復旧](https://powercontext.oceanbase.io/en/docs/integrations/codex/#first-session-hook-trust)を参照してください。以下の確認後は、[機能と操作のガイド](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/#5-choose-your-next-workflow)から 7 種類の Artifact、Source、Tag を試せます。Basic memory は Server 用の独立したモデル API が不要ですが、Agent 自身のモデルは使用します。
 
 ### 2. 最初のエンドツーエンド結果を確認する
 
-この確認では、PowerContext が役立つ流れを検証します：Source の取得 → バックグラウンド処理 → セッションをまたぐ想起。
-同じ Scope に紐付けた新しい Agent セッションで、次のような具体的な決定を送ります。
+この確認では、PowerContext が役立つ流れを検証します：Source の取得 → バックグラウンド処理 → セッションをまたぐ想起。同じ Scope に紐付けた新しい Agent セッションで、次のような具体的な決定を送ります。
 
 ```text
 Aurora の受け入れプロジェクトを設計しています。Python の依存関係には uv、設定には .env を使います。
@@ -185,16 +186,14 @@ Aurora の受け入れプロジェクトを設計しています。Python の依
 これらの制約を変えずに言い直してください。コードは変更しないでください。
 ```
 
-Dashboard を有効にした場合は、ウィザードが表示した URL を開いてください。取得前に Dashboard が空なのは正常です。
-その後、次を確認します。
+Dashboard を有効にした場合は、ウィザードが表示した URL を開いてください。取得前に Dashboard が空なのは正常です。その後、次を確認します。
 
 1. 入力が Source として表示されること。
 2. 設定した検査間隔とモデル処理の後、関連する Topic Memory が現れること。
 3. 関連する更新を送り、新しい Source が入り、トピックの内容またはリビジョン履歴に反映されること。
 4. 同じ Scope で新しい Agent セッションを開始し、Aurora の決定を引用付きで探すこと。
 
-`doctor codex` はインストールと接続だけを確認します。Source の取得だけでは Memory や Topic Memory は作成されず、バックグラウンド処理には設定したスケジュールとモデルの実行が必要です。
-Basic memory では Agent に決定を明示的に保存させ、新しいセッションで検索してください。ただし、これは自動抽出の検証ではありません。
+`doctor codex` はインストールと接続だけを確認します。Source の取得だけでは Memory や Topic Memory は作成されず、バックグラウンド処理には設定したスケジュールとモデルの実行が必要です。Basic memory では Agent に決定を明示的に保存させ、新しいセッションで検索してください。ただし、これは自動抽出の検証ではありません。
 
 ### 3. Python で最初に試す
 
@@ -205,8 +204,7 @@ uv sync --locked --group notebooks
 uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
 ```
 
-まず [01 · Memory across sessions](examples/jupyter/01_memory_across_sessions.ipynb) を実行し、その後 [22 本の Jupyter チュートリアル（中国語）](examples/jupyter/README.md)で、Memory、コンテキストの準備、Handoff、Experience、Skill、実際の Agent を動かしながら学べます。
-最初の 7 本はモデルや API キーなしで実行できます。
+まず [01 · Memory across sessions](examples/jupyter/01_memory_across_sessions.ipynb) を実行し、その後 [22 本の Jupyter チュートリアル（中国語、うち 1 本はチームワークフロー全体）](examples/jupyter/README.md)で、Memory、コンテキストの準備、Handoff、Experience、Skill、実際の Agent を動かしながら学べます。最初の 7 本はモデルや API キーなしで実行できます。
 
 ### よくある問題
 
@@ -214,8 +212,8 @@ uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
 - Python 依存関係のダウンロードが遅い、または失敗する場合は、[uv](https://docs.astral.sh/uv/configuration/indexes/) にパッケージインデックス（ミラー）を設定してから再試行してください。
 - 自動 Memory と Topic Memory を試すには **Full memory** を選択し、Generation と Embedding の API 接続を設定してください。Agent のサブスクリプションとは別の認証情報が必要です。**Basic memory** は追加のモデル API なしで明示的な保存・検索を利用できます。
 - seekdb のインストールが必要な場合、ウィザードが一度確認し、依存関係をバックグラウンドでインストールします。
-- オプションの想起十分性ゲートは、Scope ごとの 1 日あたりの検索量と予算超過を記録し、後からポリシー評価に使えます。記録範囲と失敗時の挙動は[設定リファレンス](docs/en/docs/operate/configuration.md)を参照してください。
-- Server が別のマシンにある場合は HTTPS を使用するか、[リモート接続ガイド](docs/en/docs/operate/connect-remote-server.md)に従ってください。セットアップはフラグや環境変数からリモート HTTP URL を認識し、明示的な同意を求めます。自動化されたセットアップでは `--allow-insecure-http` を使います。
+- オプションの想起十分性ゲートは、Scope ごとの 1 日あたりの検索量と予算超過を記録し、後からポリシー評価に使えます。記録範囲と失敗時の挙動は[設定リファレンス](https://powercontext.oceanbase.io/en/docs/operate/configuration/)を参照してください。
+- Server が別のマシンにある場合は HTTPS を使用するか、[リモート接続ガイド](https://powercontext.oceanbase.io/en/docs/operate/connect-remote-server/)に従ってください。セットアップはフラグや環境変数からリモート HTTP URL を認識し、明示的な同意を求めます。自動化されたセットアップでは `--allow-insecure-http` を使います。
 
 ## Agent と接続する
 
@@ -253,8 +251,7 @@ make check
 make test
 ```
 
-開発ワークフロー全体については [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
-コーディング評価、メモリ品質評価、性能ベンチマーク、Skill 回帰テストは [`evaluation/`](evaluation/README.md) にまとめています。
+開発ワークフロー全体については [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。コーディング評価、メモリ品質評価、性能ベンチマーク、Skill 回帰テストは [`evaluation/`](evaluation/README.md) にまとめています。
 
 ## さらに詳しく
 
@@ -263,6 +260,8 @@ make test
 - [コンテキストの管理](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [デプロイと運用](https://powercontext.oceanbase.io/en/docs/operate/)
 - [開発と API](https://powercontext.oceanbase.io/en/docs/develop/)
+- [Python API リファレンス](https://powercontext.oceanbase.io/en/modules/)
+- [RFC](https://powercontext.oceanbase.io/en/rfcs/)
 
 PowerContext は [PowerMem](https://www.powermem.ai/) の後継プロジェクトです。
 
@@ -274,8 +273,7 @@ PowerContext に貢献してくださる皆さまに感謝します。❤️
   <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext のコントリビューター" />
 </a>
 
-[すべてのコントリビューターを見る](https://github.com/oceanbase/powercontext/graphs/contributors) ·
-[開発に参加する](CONTRIBUTING.md)
+[すべてのコントリビューターを見る](https://github.com/oceanbase/powercontext/graphs/contributors) · [開発に参加する](CONTRIBUTING.md)
 
 ## ライセンス
 

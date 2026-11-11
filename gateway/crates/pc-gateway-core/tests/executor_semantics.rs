@@ -15,13 +15,14 @@
 //! PR #2264 失败语义表的状态机级验证（真实契约形态）。
 
 use pc_gateway_core::{
-    DegradePolicy, Executor, GateClient, GateError, ManagedCall, ManagedOutcome,
+    DegradePolicy, ExecutionState, ExecutionTerminal, Executor, GateClient, GateError, ManagedCall,
+    ManagedOutcome, ModelSendState, RequestControl,
 };
 use pc_gateway_evidence::{BufferedEvidenceSink, NoopEvidenceSink};
 use pc_gateway_protocol::{
     CanonicalMessage, CanonicalRequest, OutputLimits, RenderedPayload, Role, WireRenderer,
 };
-use pc_gateway_transport::{AdmittedSend, SendOutcome, Transport};
+use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
     CaptureContentSourceRequest, CheckDecision, CheckPhase, ContextCheckRequest,
     ContextCheckResult, PrepareContextRequest, PrepareContextResult, PreparedContext,
@@ -74,12 +75,16 @@ impl WireRenderer for RecordingRenderer {
 
 /// 脚本化检查客户端：按序弹出结果，记录请求阶段与载荷。
 struct FakeGate {
+    check_holds: Mutex<VecDeque<Option<Arc<tokio::sync::Notify>>>>,
     results: Mutex<VecDeque<Result<ContextCheckResult, GateError>>>,
     seen: Mutex<Vec<(CheckPhase, String)>>,
     prepared_seen: Mutex<Vec<Vec<PreparedContextLocation>>>,
     prepare_result: Mutex<Option<Result<PrepareContextResult, GateError>>>,
     prepare_queries: Mutex<Vec<String>>,
+    /// 每次 prepare 是否请求了代码证据。
+    prepare_include_code: Mutex<Vec<bool>>,
     captured: Mutex<Vec<(String, String)>>,
+    captured_metadata: Mutex<Vec<serde_json::Value>>,
     /// 设置后，capture 记录请求后返回该错误。
     capture_error: Mutex<Option<GateError>>,
     /// 设置后，prepare 在返回前等待屏障，用于让并发请求的准备互相重叠。
@@ -112,7 +117,13 @@ impl GateClient for FakeGate {
         self.prepared_seen.lock().unwrap().push(declared);
         self.seen.lock().unwrap().push((phase, note));
         let step = self.results.lock().unwrap().pop_front();
-        async move { step.expect("gate script exhausted") }
+        let hold = self.check_holds.lock().unwrap().pop_front().flatten();
+        async move {
+            if let Some(hold) = hold {
+                hold.notified().await;
+            }
+            step.expect("gate script exhausted")
+        }
     }
 
     async fn capabilities(&self) -> Result<serde_json::Value, GateError> {
@@ -124,6 +135,10 @@ impl GateClient for FakeGate {
         request: PrepareContextRequest,
     ) -> impl Future<Output = Result<PrepareContextResult, GateError>> + Send {
         self.prepare_queries.lock().unwrap().push(request.query);
+        self.prepare_include_code
+            .lock()
+            .unwrap()
+            .push(request.include_code);
         let queued = self.prepare_queue.lock().unwrap().pop_front();
         let hold = self.prepare_holds.lock().unwrap().pop_front().flatten();
         let step =
@@ -155,6 +170,10 @@ impl GateClient for FakeGate {
         &self,
         request: CaptureContentSourceRequest,
     ) -> Result<serde_json::Value, GateError> {
+        self.captured_metadata
+            .lock()
+            .unwrap()
+            .push(request.metadata.clone().unwrap_or(serde_json::Value::Null));
         self.captured
             .lock()
             .unwrap()
@@ -167,6 +186,7 @@ impl GateClient for FakeGate {
 }
 
 struct FakeTransport {
+    send_holds: Mutex<VecDeque<Option<Arc<tokio::sync::Notify>>>>,
     outcomes: Mutex<VecDeque<SendOutcome>>,
     sends: Mutex<Vec<bytes::Bytes>>,
     bindings: Mutex<Vec<String>>,
@@ -178,7 +198,13 @@ impl Transport for FakeTransport {
         let outcome = self.outcomes.lock().unwrap().pop_front();
         self.sends.lock().unwrap().push(send.payload);
         self.bindings.lock().unwrap().push(send.binding);
-        async move { outcome.unwrap_or_else(|| panic!("transport script exhausted")) }
+        let hold = self.send_holds.lock().unwrap().pop_front().flatten();
+        async move {
+            if let Some(hold) = hold {
+                hold.notified().await;
+            }
+            outcome.unwrap_or_else(|| panic!("transport script exhausted"))
+        }
     }
 
     async fn cancel(&self, _send: &AdmittedSend) {
@@ -190,7 +216,8 @@ fn raw_response() -> SendOutcome {
     SendOutcome::Delivered(pc_gateway_transport::RawResponse {
         status: 200,
         content_type: "application/json".into(),
-        ttft_ms: None,
+        response_first_byte_ms: None,
+        response_complete_ms: None,
         body: bytes::Bytes::from_static(br#"{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"total_tokens":1}}"#),
         usage: Some(serde_json::json!({"total_tokens": 1})),
     })
@@ -224,6 +251,7 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
                 content: vec![serde_json::json!("hello")],
                 content_null: false,
                 tool_calls: None,
+                extra_fields: Default::default(),
                 tool_call_id: None,
             }],
             tools: vec![],
@@ -245,10 +273,18 @@ fn call(degrade: DegradePolicy) -> ManagedCall {
         headers: vec![("authorization".into(), "Bearer secret".into())],
         degrade_policy: degrade,
         inject_context: false,
+        include_code: false,
         conversation_id: None,
         sediment: false,
         prepared_contexts: Vec::new(),
     }
+}
+
+fn request_control() -> RequestControl {
+    RequestControl::new(
+        tokio::time::Instant::now() + std::time::Duration::from_secs(180),
+        None,
+    )
 }
 
 #[derive(Clone)]
@@ -319,12 +355,14 @@ fn harness(
         renders: Mutex::new(0),
     });
     let transport = Arc::new(FakeTransport {
+        send_holds: Mutex::new(VecDeque::new()),
         outcomes: Mutex::new(transport_outcomes.into()),
         sends: Mutex::new(Vec::new()),
         bindings: Mutex::new(Vec::new()),
         cancels: Mutex::new(0),
     });
     let gate = Arc::new(FakeGate {
+        check_holds: Mutex::new(VecDeque::new()),
         results: Mutex::new(gate_results.into()),
         seen: Mutex::new(Vec::new()),
         prepared_seen: Mutex::new(Vec::new()),
@@ -333,7 +371,9 @@ fn harness(
         prepare_queue: Mutex::new(VecDeque::new()),
         prepare_holds: Mutex::new(VecDeque::new()),
         prepare_queries: Mutex::new(Vec::new()),
+        prepare_include_code: Mutex::new(Vec::new()),
         captured: Mutex::new(Vec::new()),
+        captured_metadata: Mutex::new(Vec::new()),
         capture_error: Mutex::new(None),
     });
     let executor = Executor::new(
@@ -347,6 +387,374 @@ fn harness(
 // ---------- 用例 ----------
 
 #[tokio::test]
+async fn released_execution_retains_control_and_complete_response_facts() {
+    let (executor, renderer, transport, _) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(37);
+    let control = RequestControl::new(deadline, Some("request-1".into()));
+    let observation = control.observation();
+    let cancellation = control.cancellation();
+    assert_eq!(observation.snapshot().execution, ExecutionState::NotStarted);
+    assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+
+    let outcome = executor
+        .run(
+            control,
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    assert_eq!(observation.deadline(), deadline);
+    assert_eq!(observation.request_id(), Some("request-1"));
+    assert_eq!(
+        observation.snapshot().model_send,
+        ModelSendState::ResponseReceived
+    );
+    assert_eq!(
+        observation.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+    );
+    let terminal = observation.snapshot();
+    cancellation.cancel();
+    drop(cancellation);
+    assert_eq!(observation.snapshot(), terminal);
+}
+
+#[tokio::test]
+async fn abandonment_preserves_sending_facts_at_each_pending_boundary() {
+    for (boundary, expected_send, expected_attempts) in [
+        ("admission", ModelSendState::NoSend, 0),
+        ("model", ModelSendState::PossiblySent, 1),
+        ("release", ModelSendState::ResponseReceived, 1),
+        ("readmission", ModelSendState::DefinitelyNotSent, 1),
+        ("degraded", ModelSendState::PossiblySent, 1),
+    ] {
+        let degraded = boundary == "degraded";
+        let (executor, renderer, transport, gate) = harness(
+            if degraded {
+                vec![Err(GateError::GateUnavailable("offline".into()))]
+            } else {
+                vec![
+                    Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                    Ok(result(
+                        if boundary == "readmission" {
+                            CheckPhase::BeforeSend
+                        } else {
+                            CheckPhase::BeforeRelease
+                        },
+                        CheckDecision::Allow,
+                        &[],
+                    )),
+                ]
+            },
+            vec![if boundary == "readmission" {
+                SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused)
+            } else {
+                raw_response()
+            }],
+            2,
+        );
+        let hold = Arc::new(tokio::sync::Notify::new());
+        match boundary {
+            "admission" => gate.check_holds.lock().unwrap().push_back(Some(hold)),
+            "release" | "readmission" => {
+                gate.check_holds.lock().unwrap().extend([None, Some(hold)]);
+            }
+            _ => transport.send_holds.lock().unwrap().push_back(Some(hold)),
+        }
+        let control = request_control();
+        let observation = control.observation();
+        let cancellation = control.cancellation();
+        let renderer = RendererRef(renderer);
+        let mut execution = Box::pin(executor.run(
+            control,
+            call(if degraded {
+                DegradePolicy::PassthroughWithoutMemory
+            } else {
+                DegradePolicy::Pause
+            }),
+            &renderer,
+            &NoopEvidenceSink,
+        ));
+        assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
+            execution.as_mut().poll(context)
+        ))
+        .await
+        .is_pending());
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Running,
+            "{boundary}"
+        );
+        assert_eq!(
+            observation.snapshot().model_send,
+            expected_send,
+            "{boundary}"
+        );
+        drop(execution);
+        let terminal = observation.snapshot();
+        assert_eq!(
+            terminal.execution,
+            ExecutionState::Finished(ExecutionTerminal::Abandoned),
+            "{boundary}"
+        );
+        assert_eq!(terminal.model_send, expected_send, "{boundary}");
+        assert_eq!(
+            transport.sends.lock().unwrap().len(),
+            expected_attempts,
+            "{boundary}"
+        );
+        cancellation.cancel();
+        drop(cancellation);
+        assert_eq!(observation.snapshot(), terminal);
+    }
+}
+
+#[tokio::test]
+async fn cancellation_is_shared_intent_and_does_not_finalize_pending_execution() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![Ok(result(
+            CheckPhase::BeforeSend,
+            CheckDecision::Block,
+            &["privacy.denied"],
+        ))],
+        vec![],
+        2,
+    );
+    let hold = Arc::new(tokio::sync::Notify::new());
+    gate.check_holds
+        .lock()
+        .unwrap()
+        .push_back(Some(hold.clone()));
+    let control = request_control();
+    let observer = control.observation();
+    let cancellation = control.cancellation();
+    let other_cancellation = cancellation.clone();
+    let renderer = RendererRef(renderer);
+    let mut execution = Box::pin(executor.run(
+        control,
+        call(DegradePolicy::PassthroughWithoutMemory),
+        &renderer,
+        &NoopEvidenceSink,
+    ));
+    assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
+        execution.as_mut().poll(context)
+    ))
+    .await
+    .is_pending());
+    let mut cancelled = Box::pin(other_cancellation.cancelled());
+    assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
+        cancelled.as_mut().poll(context)
+    ))
+    .await
+    .is_pending());
+    cancellation.cancel();
+    cancelled.await;
+    assert!(other_cancellation.is_cancelled());
+    other_cancellation.cancelled().await;
+    assert_eq!(observer.snapshot().execution, ExecutionState::Running);
+    hold.notify_one();
+    assert!(matches!(execution.await, ManagedOutcome::Blocked { .. }));
+    assert_eq!(
+        observer.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::Blocked)
+    );
+    assert_eq!(observer.snapshot().model_send, ModelSendState::NoSend);
+    assert!(transport.sends.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn readmission_keeps_the_callers_deadline_even_when_it_has_expired() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![
+            SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
+            raw_response(),
+        ],
+        2,
+    );
+    let hold = Arc::new(tokio::sync::Notify::new());
+    gate.check_holds
+        .lock()
+        .unwrap()
+        .extend([None, Some(hold.clone())]);
+    let deadline = tokio::time::Instant::now() - std::time::Duration::from_secs(1);
+    let control = RequestControl::new(deadline, None);
+    let observer = control.observation();
+    let renderer = RendererRef(renderer);
+    let mut execution = Box::pin(executor.run(
+        control,
+        call(DegradePolicy::Pause),
+        &renderer,
+        &NoopEvidenceSink,
+    ));
+    assert!(std::future::poll_fn(|context| std::task::Poll::Ready(
+        execution.as_mut().poll(context)
+    ))
+    .await
+    .is_pending());
+    assert_eq!(observer.deadline(), deadline);
+    assert_eq!(
+        observer.snapshot().model_send,
+        ModelSendState::DefinitelyNotSent
+    );
+    hold.notify_one();
+    assert!(matches!(execution.await, ManagedOutcome::Released { .. }));
+    assert_eq!(observer.deadline(), deadline);
+    assert_eq!(
+        observer.snapshot().model_send,
+        ModelSendState::ResponseReceived
+    );
+    assert_eq!(transport.sends.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn release_failures_preserve_complete_response_facts() {
+    let mut malformed = result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[]);
+    malformed.coverage.complete = false;
+    let mut expired = result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[]);
+    expired.valid_until = "2000-01-01T00:00:00Z".into();
+    for (release, expected) in [
+        (
+            Ok(result(
+                CheckPhase::BeforeRelease,
+                CheckDecision::Block,
+                &["privacy.denied"],
+            )),
+            ExecutionTerminal::Blocked,
+        ),
+        (
+            Ok(result(
+                CheckPhase::BeforeRelease,
+                CheckDecision::Withhold,
+                &["privacy.withheld"],
+            )),
+            ExecutionTerminal::Withheld,
+        ),
+        (
+            Err(GateError::GateUnavailable("offline".into())),
+            ExecutionTerminal::GatePaused,
+        ),
+        (Ok(malformed), ExecutionTerminal::GatePaused),
+        (Ok(expired), ExecutionTerminal::AdmissionExpired),
+    ] {
+        let (executor, renderer, transport, _) = harness(
+            vec![
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                release,
+            ],
+            vec![raw_response()],
+            2,
+        );
+        let control = request_control();
+        let observer = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                call(DegradePolicy::Pause),
+                &RendererRef(renderer),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(
+            (&outcome, expected),
+            (ManagedOutcome::Blocked { .. }, ExecutionTerminal::Blocked)
+                | (ManagedOutcome::Withheld { .. }, ExecutionTerminal::Withheld)
+                | (ManagedOutcome::GatePaused(_), ExecutionTerminal::GatePaused)
+                | (
+                    ManagedOutcome::AdmissionExpired,
+                    ExecutionTerminal::AdmissionExpired
+                )
+        ));
+        assert_eq!(
+            observer.snapshot().model_send,
+            ModelSendState::ResponseReceived
+        );
+        assert_eq!(
+            observer.snapshot().execution,
+            ExecutionState::Finished(expected)
+        );
+        assert_eq!(transport.sends.lock().unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn degraded_and_checked_sends_preserve_their_transport_facts() {
+    for degraded in [false, true] {
+        for send_state in [
+            ModelSendState::DefinitelyNotSent,
+            ModelSendState::PossiblySent,
+            ModelSendState::ResponseReceived,
+        ] {
+            let send = match send_state {
+                ModelSendState::DefinitelyNotSent => {
+                    SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused)
+                }
+                ModelSendState::PossiblySent => SendOutcome::Indeterminate(
+                    pc_gateway_transport::SendIndeterminateReason::LostAfterHandoff,
+                ),
+                _ => raw_response(),
+            };
+            let (executor, renderer, transport, _) = harness(
+                if degraded {
+                    vec![Err(GateError::GateUnavailable("offline".into()))]
+                } else {
+                    vec![
+                        Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                        Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+                    ]
+                },
+                vec![send],
+                1,
+            );
+            let control = request_control();
+            let observer = control.observation();
+            let outcome = executor
+                .run(
+                    control,
+                    call(if degraded {
+                        DegradePolicy::PassthroughWithoutMemory
+                    } else {
+                        DegradePolicy::Pause
+                    }),
+                    &RendererRef(renderer),
+                    &NoopEvidenceSink,
+                )
+                .await;
+            let terminal = match outcome {
+                ManagedOutcome::NotSent { attempts: 1 } => ExecutionTerminal::NotSent,
+                ManagedOutcome::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
+                ManagedOutcome::Degraded { .. } if degraded => ExecutionTerminal::Degraded,
+                ManagedOutcome::Released { .. } if !degraded => {
+                    ExecutionTerminal::ReleaseAuthorized
+                }
+                unexpected => panic!("unexpected outcome: {unexpected:?}"),
+            };
+            assert_eq!(observer.snapshot().model_send, send_state);
+            assert_eq!(
+                observer.snapshot().execution,
+                ExecutionState::Finished(terminal)
+            );
+            assert_eq!(transport.sends.lock().unwrap().len(), 1);
+        }
+    }
+}
+
+#[tokio::test]
 async fn allow_send_allow_release() {
     let (executor, renderer, transport, gate) = harness(
         vec![
@@ -358,6 +766,7 @@ async fn allow_send_allow_release() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -396,6 +805,7 @@ async fn before_send_block_never_sends() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -421,6 +831,7 @@ async fn withhold_is_terminal_in_pr2264_contract() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -441,6 +852,7 @@ async fn gate_unavailable_pauses_never_allow() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -460,6 +872,7 @@ async fn gate_unavailable_degrades_when_allowed() {
     let evidence = BufferedEvidenceSink::new();
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::PassthroughWithoutMemory),
             &RendererRef(renderer.clone()),
             &evidence,
@@ -483,6 +896,7 @@ async fn block_does_not_degrade() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::PassthroughWithoutMemory),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -508,6 +922,7 @@ async fn deterministic_not_sent_retries_bounded() {
     let evidence = BufferedEvidenceSink::new();
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &evidence,
@@ -532,6 +947,7 @@ async fn indeterminate_never_resends() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -557,6 +973,7 @@ async fn before_release_block_blocks_and_cancels() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -581,6 +998,7 @@ async fn credentials_never_enter_check_payload() {
     );
     executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -630,7 +1048,12 @@ async fn injects_block_and_declares_exact_location() {
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
 
@@ -690,6 +1113,7 @@ async fn responses_injection_targets_input_text_and_declares_input_pointer() {
                 "content": [{"type": "input_text", "text": "base"}]})],
             content_null: false,
             tool_calls: None,
+            extra_fields: Default::default(),
             tool_call_id: None,
         },
         CanonicalMessage {
@@ -700,12 +1124,14 @@ async fn responses_injection_targets_input_text_and_declares_input_pointer() {
             ],
             content_null: false,
             tool_calls: None,
+            extra_fields: Default::default(),
             tool_call_id: None,
         },
     ];
     c.inject_context = true;
     let outcome = executor
         .run(
+            request_control(),
             c,
             &pc_gateway_protocol::OpenAiResponsesRenderer,
             &NoopEvidenceSink,
@@ -756,6 +1182,7 @@ async fn responses_string_content_uses_a_supported_location_only_when_injected()
         c.inject_context = inject;
         let outcome = executor
             .run(
+                request_control(),
                 c,
                 &pc_gateway_protocol::GatewayRenderer::Responses(
                     pc_gateway_protocol::OpenAiResponsesRenderer,
@@ -812,7 +1239,12 @@ async fn empty_prepare_injects_nothing() {
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     let seen = gate.seen.lock().unwrap().clone();
     assert!(
@@ -837,7 +1269,12 @@ async fn prepare_failure_still_sends_without_injection() {
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &evidence,
+        )
         .await;
     assert!(
         matches!(outcome, ManagedOutcome::Released { .. }),
@@ -861,7 +1298,12 @@ async fn sediment_captures_released_turn_synchronously() {
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
     let captured = gate.captured.lock().unwrap().clone();
@@ -870,6 +1312,15 @@ async fn sediment_captures_released_turn_synchronously() {
         captured[0].0.starts_with("gw-turn-"),
         "幂等键: {}",
         captured[0].0
+    );
+    let metadata = gate.captured_metadata.lock().unwrap();
+    assert_eq!(metadata[0]["kind"], "gateway_turn");
+    assert_eq!(
+        metadata[0]["powercontext_capture_coverage"],
+        serde_json::json!({
+            "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
+            "unit": "gateway_turn_projection", "status": "complete", "reasons": []
+        })
     );
     let v: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
     assert_eq!(
@@ -892,7 +1343,12 @@ async fn blocked_turn_never_sediments() {
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(gate.captured.lock().unwrap().is_empty(), "被拦内容不得沉淀");
 }
@@ -907,6 +1363,7 @@ async fn malformed_gate_never_degrades_even_with_passthrough() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::PassthroughWithoutMemory),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -926,7 +1383,8 @@ async fn non_utf8_response_is_never_released() {
         status: 200,
         body: bytes::Bytes::from_static(b"{\"text\":\"\xff\xfe\"}"), // 非法 UTF-8
         content_type: "application/json".into(),
-        ttft_ms: None,
+        response_first_byte_ms: None,
+        response_complete_ms: None,
         usage: None,
     });
     let (executor, renderer, transport, gate) = harness(
@@ -938,8 +1396,11 @@ async fn non_utf8_response_is_never_released() {
         vec![bad],
         2,
     );
+    let control = request_control();
+    let observation = control.observation();
     let outcome = executor
         .run(
+            control,
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -955,6 +1416,14 @@ async fn non_utf8_response_is_never_released() {
     // cancel 不适用：非流式调用响应已完整到达，无进行中的上游工作可取消。
     assert_eq!(gate.seen.lock().unwrap().len(), 1);
     assert_eq!(*transport.cancels.lock().unwrap(), 0);
+    assert_eq!(
+        observation.snapshot().model_send,
+        ModelSendState::ResponseReceived
+    );
+    assert_eq!(
+        observation.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::Withheld)
+    );
 }
 
 // ---------- P1-3 / P1-4 探针 ----------
@@ -974,7 +1443,12 @@ async fn degraded_send_carries_no_injected_memory() {
     let mut c = call(DegradePolicy::PassthroughWithoutMemory);
     c.inject_context = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Degraded { .. }));
     // 关键断言：发送的字节不含注入标记（降级必须用原始请求）
@@ -998,8 +1472,11 @@ async fn expired_send_verdict_never_sends() {
         vec![raw_response()],
         2,
     );
+    let control = request_control();
+    let observation = control.observation();
     let outcome = executor
         .run(
+            control,
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1007,6 +1484,11 @@ async fn expired_send_verdict_never_sends() {
         .await;
     assert!(matches!(outcome, ManagedOutcome::AdmissionExpired));
     assert_eq!(transport.sends.lock().unwrap().len(), 0, "过期准入零发送");
+    assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+    assert_eq!(
+        observation.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::AdmissionExpired)
+    );
 }
 
 #[tokio::test]
@@ -1029,6 +1511,7 @@ async fn retry_re_admits_and_revocation_blocks_second_send() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1061,7 +1544,12 @@ async fn release_expired_after_capture_withholds() {
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(
         matches!(outcome, ManagedOutcome::AdmissionExpired),
@@ -1085,6 +1573,7 @@ async fn empty_valid_until_never_sends() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1111,6 +1600,7 @@ async fn malformed_valid_until_never_sends() {
         );
         let outcome = executor
             .run(
+                request_control(),
                 call(DegradePolicy::Pause),
                 &RendererRef(renderer.clone()),
                 &NoopEvidenceSink,
@@ -1151,7 +1641,12 @@ async fn capture_duration_expires_deadline_withholds_release() {
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     // 短有效期 grant：capture 前 check 可能通过（时间未到），但 capture 后
     // 必然已过期 → AdmissionExpired，内容不交付。
@@ -1204,7 +1699,12 @@ async fn prepare_requests_memory_only_assembly() {
     let mut c = call(DegradePolicy::Pause);
     c.inject_context = true;
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     // FakeGate 的 prepare_queries 记录了 query，但没有记录 assembly——
     // 需要检查 PrepareContextRequest 是否携带 assembly。
@@ -1223,9 +1723,103 @@ async fn prepare_requests_memory_only_assembly() {
 // ---------- P2 allow 完整性验证探针 ----------
 
 #[tokio::test]
+async fn non_enforcing_core_can_admit_retry_and_release_without_privacy_coverage() {
+    let verdicts = [
+        (CheckPhase::BeforeSend, "initial"),
+        (CheckPhase::BeforeSend, "retry"),
+        (CheckPhase::BeforeRelease, "release"),
+    ]
+    .into_iter()
+    .map(|(phase, binding)| {
+        let mut verdict = result(phase, CheckDecision::Allow, &[]);
+        verdict.coverage.complete = false;
+        verdict.binding = Some(binding.into());
+        Ok(verdict)
+    })
+    .collect();
+    let (executor, renderer, transport, gate) = harness(
+        verdicts,
+        vec![
+            SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
+            raw_response(),
+        ],
+        2,
+    );
+    let outcome = executor
+        .with_core_enforcement(false)
+        .run(
+            request_control(),
+            call(DegradePolicy::Pause),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::Released { binding: Some(ref b), .. } if b == "release")
+    );
+    assert_eq!(*transport.bindings.lock().unwrap(), ["initial", "retry"]);
+    assert_eq!(gate.seen.lock().unwrap().last().unwrap().1, "retry");
+}
+
+#[tokio::test]
+async fn non_enforcing_core_still_requires_valid_admission_for_each_phase() {
+    for phase in [CheckPhase::BeforeSend, CheckPhase::BeforeRelease] {
+        for invalid in [
+            "binding", "deadline", "schema", "phase", "block", "withhold",
+        ] {
+            let mut verdict = result(phase, CheckDecision::Allow, &[]);
+            verdict.coverage.complete = false;
+            match invalid {
+                "binding" => verdict.binding = None,
+                "deadline" => verdict.valid_until = "2000-01-01T00:00:00Z".into(),
+                "schema" => verdict.schema = "invalid".into(),
+                "phase" => {
+                    verdict.phase = if phase == CheckPhase::BeforeSend {
+                        CheckPhase::BeforeRelease
+                    } else {
+                        CheckPhase::BeforeSend
+                    }
+                }
+                "block" => verdict.decision = CheckDecision::Block,
+                "withhold" => verdict.decision = CheckDecision::Withhold,
+                _ => unreachable!(),
+            }
+            let mut verdicts = Vec::new();
+            if phase == CheckPhase::BeforeRelease {
+                verdicts.push(Ok(result(
+                    CheckPhase::BeforeSend,
+                    CheckDecision::Allow,
+                    &[],
+                )));
+            }
+            verdicts.push(Ok(verdict));
+            let (executor, renderer, transport, _) = harness(verdicts, vec![raw_response()], 1);
+            let outcome = executor
+                .with_core_enforcement(false)
+                .run(
+                    request_control(),
+                    call(DegradePolicy::Pause),
+                    &RendererRef(renderer),
+                    &NoopEvidenceSink,
+                )
+                .await;
+            match invalid {
+                "deadline" => assert!(matches!(outcome, ManagedOutcome::AdmissionExpired)),
+                "block" => assert!(matches!(outcome, ManagedOutcome::Blocked { .. })),
+                "withhold" => assert!(matches!(outcome, ManagedOutcome::Withheld { .. })),
+                _ => assert!(matches!(outcome, ManagedOutcome::GatePaused(_))),
+            }
+            assert_eq!(
+                transport.sends.lock().unwrap().len(),
+                usize::from(phase == CheckPhase::BeforeRelease)
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn allow_with_incomplete_coverage_pauses() {
-    // 契约："Only allow with complete coverage permits the corresponding phase."
-    // coverage.complete=false 的 allow 是畸形 → 必须暂停。
+    // Without an explicit non-enforcing configuration, incomplete coverage pauses.
     let (executor, renderer, transport, _gate) = harness(
         vec![Ok(ContextCheckResult {
             coverage: pc_gateway_types::ContextCheckCoverage {
@@ -1239,6 +1833,7 @@ async fn allow_with_incomplete_coverage_pauses() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1264,6 +1859,7 @@ async fn allow_without_binding_pauses() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1290,6 +1886,7 @@ async fn allow_with_phase_mismatch_pauses() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1315,6 +1912,7 @@ async fn allow_with_wrong_schema_pauses() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1329,7 +1927,7 @@ async fn allow_with_wrong_schema_pauses() {
 
 #[tokio::test]
 async fn release_allow_with_incomplete_coverage_pauses() {
-    // 释放阶段同样验证——incomplete coverage 的 release allow 不放行内容。
+    // The default coverage requirement also applies to release admission.
     let (executor, renderer, _transport, _gate) = harness(
         vec![
             Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
@@ -1346,6 +1944,7 @@ async fn release_allow_with_incomplete_coverage_pauses() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::Pause),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1369,6 +1968,7 @@ async fn gate_rejected_does_not_degrade() {
     );
     let outcome = executor
         .run(
+            request_control(),
             call(DegradePolicy::PassthroughWithoutMemory),
             &RendererRef(renderer.clone()),
             &NoopEvidenceSink,
@@ -1399,7 +1999,12 @@ async fn sediment_uses_pristine_user_text_not_enriched() {
     c.inject_context = true;
     c.sediment = true;
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     let captured = gate.captured.lock().unwrap();
     assert_eq!(captured.len(), 1);
@@ -1436,7 +2041,12 @@ async fn typed_content_parts_preserved_in_query_and_transcript() {
         "type": "text", "text": "alpha port 8080"
     })];
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
 
     // 1. 注入 query 取到了 typed text（prepare 被调用，query 非默认值）
@@ -1473,7 +2083,12 @@ async fn mixed_content_preserves_non_text_parts_during_injection() {
         serde_json::json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,xxx"}}),
     ];
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
 
     // 上游收到的载荷必须同时包含注入的 text 和原始的 image_url
@@ -1510,7 +2125,12 @@ async fn multi_text_parts_memory_injected_only_once() {
         serde_json::json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}),
     ];
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
 
     // 上游载荷：记忆块只出现一次（第一个 text 部件），第二个 text 不注入
@@ -1539,7 +2159,12 @@ async fn typed_parts_pointer_targets_text_field() {
     c.inject_context = true;
     c.request.messages[0].content = vec![serde_json::json!({"type": "text", "text": "hello"})];
     executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
 
     let declared = gate.prepared_seen.lock().unwrap();
@@ -1579,6 +2204,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
         content: vec![user],
         content_null: false,
         tool_calls: None,
+        extra_fields: Default::default(),
         tool_call_id: None,
     }];
     for i in 0..step {
@@ -1593,6 +2219,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
                     content: vec![item],
                     content_null: false,
                     tool_calls: None,
+                    extra_fields: Default::default(),
                     tool_call_id: None,
                 });
             }
@@ -1604,6 +2231,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
                 tool_calls: Some(vec![serde_json::json!({
                     "id": id, "type": "function", "function": {"name": "run", "arguments": "{}"}
                 })]),
+                extra_fields: Default::default(),
                 tool_call_id: None,
             });
             c.request.messages.push(CanonicalMessage {
@@ -1611,6 +2239,7 @@ fn tool_loop_call(user_text: &str, step: usize, responses: bool) -> ManagedCall 
                 content: vec![serde_json::json!("ok")],
                 content_null: false,
                 tool_calls: None,
+                extra_fields: Default::default(),
                 tool_call_id: Some(id),
             });
         }
@@ -1650,6 +2279,7 @@ async fn run_tool_loop(responses: bool) {
         let outcome = if responses {
             executor
                 .run(
+                    request_control(),
                     c,
                     &pc_gateway_protocol::OpenAiResponsesRenderer,
                     &NoopEvidenceSink,
@@ -1657,7 +2287,12 @@ async fn run_tool_loop(responses: bool) {
                 .await
         } else {
             executor
-                .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+                .run(
+                    request_control(),
+                    c,
+                    &RendererRef(renderer.clone()),
+                    &NoopEvidenceSink,
+                )
                 .await
         };
         assert!(matches!(outcome, ManagedOutcome::Released { .. }));
@@ -1687,6 +2322,7 @@ async fn run_tool_loop(responses: bool) {
     if responses {
         executor
             .run(
+                request_control(),
                 c,
                 &pc_gateway_protocol::OpenAiResponsesRenderer,
                 &NoopEvidenceSink,
@@ -1694,7 +2330,12 @@ async fn run_tool_loop(responses: bool) {
             .await;
     } else {
         executor
-            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .run(
+                request_control(),
+                c,
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
             .await;
     }
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
@@ -1718,6 +2359,7 @@ async fn empty_preparation_is_reused_within_the_turn() {
     for step in 0..3 {
         let outcome = executor
             .run(
+                request_control(),
                 tool_loop_call("hello", step, false),
                 &RendererRef(renderer.clone()),
                 &NoopEvidenceSink,
@@ -1738,6 +2380,7 @@ async fn failed_preparation_is_retried_on_the_next_step_without_blocking() {
     for step in 0..2 {
         let outcome = executor
             .run(
+                request_control(),
                 tool_loop_call("hello", step, false),
                 &RendererRef(renderer.clone()),
                 &NoopEvidenceSink,
@@ -1761,7 +2404,12 @@ async fn conversations_with_identical_messages_prepare_separately() {
         let mut c = tool_loop_call("hello", 0, false);
         c.conversation_id = Some(conversation.into());
         executor
-            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .run(
+                request_control(),
+                c,
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
             .await;
     }
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
@@ -1777,7 +2425,12 @@ async fn requests_without_a_conversation_id_never_inherit_an_injection() {
         let mut c = tool_loop_call("hello", step, false);
         c.conversation_id = None;
         executor
-            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .run(
+                request_control(),
+                c,
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
             .await;
     }
     // 每个请求各自准备；第二次准备返回空，第二个请求不得沿用第一个请求的块。
@@ -1797,8 +2450,18 @@ async fn concurrent_requests_of_a_turn_commit_one_prepared_value() {
     *gate.prepare_barrier.lock().unwrap() = Some(Arc::new(tokio::sync::Barrier::new(2)));
     let r = RendererRef(renderer.clone());
     let (a, b) = tokio::join!(
-        executor.run(tool_loop_call("hello", 0, false), &r, &NoopEvidenceSink),
-        executor.run(tool_loop_call("hello", 1, false), &r, &NoopEvidenceSink),
+        executor.run(
+            request_control(),
+            tool_loop_call("hello", 0, false),
+            &r,
+            &NoopEvidenceSink
+        ),
+        executor.run(
+            request_control(),
+            tool_loop_call("hello", 1, false),
+            &r,
+            &NoopEvidenceSink
+        ),
     );
     assert!(matches!(a, ManagedOutcome::Released { .. }));
     assert!(matches!(b, ManagedOutcome::Released { .. }));
@@ -1811,7 +2474,12 @@ async fn concurrent_requests_of_a_turn_commit_one_prepared_value() {
 
     // 稍后的同一回合请求重放已提交的那一份。
     executor
-        .run(tool_loop_call("hello", 2, false), &r, &NoopEvidenceSink)
+        .run(
+            request_control(),
+            tool_loop_call("hello", 2, false),
+            &r,
+            &NoopEvidenceSink,
+        )
         .await;
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
     let injected = |(body, declared): &(String, Vec<PreparedContextLocation>)| {
@@ -1859,20 +2527,35 @@ async fn a_late_preparation_from_an_earlier_turn_does_not_replace_the_current_tu
     // 上一回合的请求先开始准备、最后才完成；用户在此期间发了新消息，新回合先准备并提交。
     let current_turn = async {
         let outcome = executor
-            .run(tool_loop_call("second", 0, false), &r, &NoopEvidenceSink)
+            .run(
+                request_control(),
+                tool_loop_call("second", 0, false),
+                &r,
+                &NoopEvidenceSink,
+            )
             .await;
         earlier.notify_one();
         outcome
     };
     let (late, current) = tokio::join!(
-        executor.run(tool_loop_call("first", 0, false), &r, &NoopEvidenceSink),
+        executor.run(
+            request_control(),
+            tool_loop_call("first", 0, false),
+            &r,
+            &NoopEvidenceSink
+        ),
         current_turn,
     );
     assert!(matches!(late, ManagedOutcome::Released { .. }));
     assert!(matches!(current, ManagedOutcome::Released { .. }));
     // 当前回合的续写仍重放它已提交的内容，不再准备。
     executor
-        .run(tool_loop_call("second", 1, false), &r, &NoopEvidenceSink)
+        .run(
+            request_control(),
+            tool_loop_call("second", 1, false),
+            &r,
+            &NoopEvidenceSink,
+        )
         .await;
     assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
     let current_turn_sends: Vec<_> = sends(&gate)
@@ -1894,7 +2577,8 @@ fn delivered(body: serde_json::Value) -> SendOutcome {
     SendOutcome::Delivered(pc_gateway_transport::RawResponse {
         status: 200,
         content_type: "application/json".into(),
-        ttft_ms: None,
+        response_first_byte_ms: None,
+        response_complete_ms: None,
         body: bytes::Bytes::from(body.to_string()),
         usage: None,
     })
@@ -1962,7 +2646,9 @@ async fn chat_tool_loop_captures_once_at_the_terminal_response() {
     for step in 0..2 {
         let mut c = tool_loop_call("fix the bug", step, false);
         c.sediment = true;
-        let outcome = executor.run(c, &r, &NoopEvidenceSink).await;
+        let outcome = executor
+            .run(request_control(), c, &r, &NoopEvidenceSink)
+            .await;
         assert!(matches!(outcome, ManagedOutcome::Released { .. }));
         let expected = step;
         assert_eq!(
@@ -2018,12 +2704,14 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
                     content: vec![reasoning_item()],
                     content_null: false,
                     tool_calls: None,
+                    extra_fields: Default::default(),
                     tool_call_id: None,
                 },
             );
         }
         let outcome = executor
             .run(
+                request_control(),
                 c,
                 &pc_gateway_protocol::OpenAiResponsesRenderer,
                 &NoopEvidenceSink,
@@ -2050,6 +2738,319 @@ async fn responses_tool_loop_captures_once_at_the_terminal_response() {
 }
 
 #[tokio::test]
+async fn responses_call_coverage_requires_a_measurable_payload() {
+    for (item, name, arguments, measurable) in [
+        (
+            serde_json::json!({"type": "apply_patch_call", "call_id": "call_0",
+                "operation": {"type": "update_file", "path": "example.py", "diff": "@@\n-old\n+new"}}),
+            "apply_patch_call",
+            "",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "future_tool_call", "call_id": "call_0", "payload": {"text": "hidden"}}),
+            "future_tool_call",
+            "",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "future_tool_call", "call_id": "call_0", "arguments": "visible", "payload": "hidden"}),
+            "future_tool_call",
+            "visible",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run"}),
+            "run",
+            "",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run", "arguments": null}),
+            "run",
+            "",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "function_call", "call_id": "call_0", "name": "run", "arguments": ""}),
+            "run",
+            "",
+            true,
+        ),
+        (
+            serde_json::json!({"type": "custom_tool_call", "call_id": "call_0", "name": "run", "input": "ls"}),
+            "run",
+            "ls",
+            true,
+        ),
+        (
+            serde_json::json!({"type": "computer_call", "call_id": "call_0", "action": {"type": "screenshot"}}),
+            "computer_call",
+            "{\"type\":\"screenshot\"}",
+            true,
+        ),
+    ] {
+        for clipped in [false, true] {
+            let (executor, _renderer, transport, gate) = harness(
+                allow_runs(2),
+                vec![
+                    responses_output(serde_json::json!([item.clone()])),
+                    responses_output(serde_json::json!([
+                        {"type": "message", "role": "assistant", "content": "done"}
+                    ])),
+                ],
+                2,
+            );
+            let output = if clipped {
+                "x".repeat(8193)
+            } else {
+                "ok".into()
+            };
+            let output_item = serde_json::json!({
+                "type": format!("{}_output", item["type"].as_str().unwrap()),
+                "call_id": "call_0", "output": output
+            });
+            for step in 0..2 {
+                let mut c = tool_loop_call("fix the bug", step, true);
+                c.inject_context = false;
+                c.sediment = true;
+                if step == 1 {
+                    c.request.messages[1].content = vec![item.clone()];
+                    c.request.messages[2].content = vec![output_item.clone()];
+                }
+                let outcome = executor
+                    .run(
+                        request_control(),
+                        c,
+                        &pc_gateway_protocol::OpenAiResponsesRenderer,
+                        &NoopEvidenceSink,
+                    )
+                    .await;
+                assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+                assert_eq!(gate.captured.lock().unwrap().len(), step);
+            }
+            let sent: serde_json::Value =
+                serde_json::from_slice(&transport.sends.lock().unwrap()[1]).unwrap();
+            assert_eq!(sent["input"][1], item);
+            assert_eq!(sent["input"][2], output_item);
+            let captured = gate.captured.lock().unwrap();
+            let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+            let projected_output = if clipped {
+                format!("{}\n[truncated 1 bytes]", "x".repeat(8192))
+            } else {
+                output
+            };
+            assert_eq!(
+                body,
+                serde_json::json!({
+                    "kind": "gateway_turn", "user": "fix the bug",
+                    "steps": [
+                        {"type": "tool_call", "name": name, "arguments": arguments},
+                        {"type": "tool_output", "output": projected_output}
+                    ],
+                    "assistant": "done"
+                })
+            );
+            let mut reasons = Vec::new();
+            if clipped {
+                reasons.push("field_byte_limit");
+            }
+            if !measurable {
+                reasons.push("unmeasured_projection");
+            }
+            assert_eq!(
+                gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
+                serde_json::json!({
+                    "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
+                    "unit": "gateway_turn_projection",
+                    "status": if clipped { "partial" } else if measurable { "complete" } else { "unknown" },
+                    "reasons": reasons
+                }),
+                "item: {item}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn responses_hosted_call_without_projected_payload_is_unmeasured() {
+    let (executor, _renderer, _transport, gate) = harness(
+        allow_runs(1),
+        vec![responses_output(serde_json::json!([
+            {"type": "code_interpreter_call", "output": "tool result"},
+            {"type": "message", "role": "assistant", "content": "done"}
+        ]))],
+        2,
+    );
+    let mut c = tool_loop_call("fix the bug", 0, true);
+    c.inject_context = false;
+    c.sediment = true;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &pc_gateway_protocol::OpenAiResponsesRenderer,
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+    let captured = gate.captured.lock().unwrap();
+    let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "kind": "gateway_turn", "user": "fix the bug",
+            "steps": [
+                {"type": "tool_call", "name": "code_interpreter_call", "arguments": ""},
+                {"type": "tool_output", "output": "tool result"}
+            ],
+            "assistant": "done"
+        })
+    );
+    let metadata = gate.captured_metadata.lock().unwrap();
+    assert_eq!(
+        metadata[0]["powercontext_capture_coverage"]["status"],
+        "unknown"
+    );
+    assert_eq!(
+        metadata[0]["powercontext_capture_coverage"]["reasons"],
+        serde_json::json!(["unmeasured_projection"])
+    );
+}
+
+#[tokio::test]
+async fn responses_output_coverage_requires_a_measurable_payload() {
+    for (output, projected_output, measurable) in [
+        (
+            serde_json::json!({"type": "mcp_approval_response", "approval_request_id": "approval-1",
+                "approve": false, "reason": "Denied because production data"}),
+            "",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "mcp_approval_response", "approval_request_id": "approval-1",
+                "approve": true, "output": "visible", "reason": "Unprojected decision"}),
+            "visible",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "future_tool_call_output", "call_id": "call_0", "payload": "hidden"}),
+            "",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "future_tool_call_output", "call_id": "call_0", "output": "visible", "payload": "hidden"}),
+            "visible",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "function_call_output", "call_id": "call_0"}),
+            "",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "function_call_output", "call_id": "call_0", "output": null}),
+            "null",
+            false,
+        ),
+        (
+            serde_json::json!({"type": "function_call_output", "call_id": "call_0", "output": ""}),
+            "",
+            true,
+        ),
+        (
+            serde_json::json!({"type": "custom_tool_call_output", "call_id": "call_0", "output": "ok"}),
+            "ok",
+            true,
+        ),
+    ] {
+        for clipped in [false, true] {
+            let assistant = if clipped {
+                "x".repeat(8193)
+            } else {
+                "done".into()
+            };
+            let (executor, _renderer, transport, gate) = harness(
+                allow_runs(2),
+                vec![
+                    responses_output(serde_json::json!([output.clone()])),
+                    responses_output(serde_json::json!([
+                        {"type": "message", "role": "assistant", "content": assistant}
+                    ])),
+                ],
+                2,
+            );
+            for step in 0..2 {
+                let mut c = tool_loop_call("fix the bug", step, true);
+                c.inject_context = false;
+                c.sediment = true;
+                if step == 1 {
+                    if output["type"] == "mcp_approval_response" {
+                        c.request.messages[1].content = vec![serde_json::json!({
+                            "type": "mcp_approval_request", "id": "approval-1",
+                            "name": "run", "server_label": "docs", "arguments": "{}"
+                        })];
+                    } else if output["type"] == "custom_tool_call_output" {
+                        c.request.messages[1].content = vec![serde_json::json!({
+                            "type": "custom_tool_call", "call_id": "call_0", "name": "run", "input": "{}"
+                        })];
+                    }
+                    c.request.messages[2].content = vec![output.clone()];
+                }
+                let outcome = executor
+                    .run(
+                        request_control(),
+                        c,
+                        &pc_gateway_protocol::OpenAiResponsesRenderer,
+                        &NoopEvidenceSink,
+                    )
+                    .await;
+                assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+                assert_eq!(gate.captured.lock().unwrap().len(), step);
+            }
+            let sent: serde_json::Value =
+                serde_json::from_slice(&transport.sends.lock().unwrap()[1]).unwrap();
+            assert_eq!(sent["input"][2], output);
+            let captured = gate.captured.lock().unwrap();
+            let body: serde_json::Value = serde_json::from_str(&captured[0].1).unwrap();
+            let projected_assistant = if clipped {
+                format!("{}\n[truncated 1 bytes]", "x".repeat(8192))
+            } else {
+                assistant
+            };
+            assert_eq!(
+                body,
+                serde_json::json!({
+                    "kind": "gateway_turn", "user": "fix the bug",
+                    "steps": [
+                        {"type": "tool_call", "name": "run", "arguments": "{}"},
+                        {"type": "tool_output", "output": projected_output}
+                    ],
+                    "assistant": projected_assistant
+                })
+            );
+            let mut reasons = Vec::new();
+            if clipped {
+                reasons.push("field_byte_limit");
+            }
+            if !measurable {
+                reasons.push("unmeasured_projection");
+            }
+            assert_eq!(
+                gate.captured_metadata.lock().unwrap()[0]["powercontext_capture_coverage"],
+                serde_json::json!({
+                    "schema": "powercontext.capture-coverage.v1", "projection": "gateway-turn-text.v1",
+                    "unit": "gateway_turn_projection",
+                    "status": if clipped { "partial" } else if measurable { "complete" } else { "unknown" },
+                    "reasons": reasons
+                }),
+                "output: {output}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn a_failed_capture_still_releases_and_is_recorded() {
     let (executor, renderer, _transport, gate) =
         harness(allow_runs(1), vec![chat_final_response("done")], 2);
@@ -2058,7 +3059,12 @@ async fn a_failed_capture_still_releases_and_is_recorded() {
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &evidence,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
     assert_eq!(gate.captured.lock().unwrap().len(), 1);
@@ -2085,7 +3091,12 @@ async fn a_blocked_release_is_never_captured() {
     let mut c = call(DegradePolicy::Pause);
     c.sediment = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Blocked { .. }));
     assert!(gate.captured.lock().unwrap().is_empty());
@@ -2101,7 +3112,12 @@ async fn a_degraded_delivery_is_never_captured() {
     let mut c = call(DegradePolicy::PassthroughWithoutMemory);
     c.sediment = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Degraded { .. }));
     assert_eq!(transport.sends.lock().unwrap().len(), 1);
@@ -2151,14 +3167,34 @@ async fn retried_and_concurrent_terminal_requests_of_a_turn_share_one_source_id(
     };
     // 同一回合：先后重试两次，再并发重复两次。
     executor
-        .run(terminal("conversation-a"), &r, &NoopEvidenceSink)
+        .run(
+            request_control(),
+            terminal("conversation-a"),
+            &r,
+            &NoopEvidenceSink,
+        )
         .await;
     executor
-        .run(terminal("conversation-a"), &r, &NoopEvidenceSink)
+        .run(
+            request_control(),
+            terminal("conversation-a"),
+            &r,
+            &NoopEvidenceSink,
+        )
         .await;
     tokio::join!(
-        executor.run(terminal("conversation-a"), &r, &NoopEvidenceSink),
-        executor.run(terminal("conversation-a"), &r, &NoopEvidenceSink),
+        executor.run(
+            request_control(),
+            terminal("conversation-a"),
+            &r,
+            &NoopEvidenceSink
+        ),
+        executor.run(
+            request_control(),
+            terminal("conversation-a"),
+            &r,
+            &NoopEvidenceSink
+        ),
     );
     let ids = captured_ids(&gate);
     assert_eq!(ids.len(), 4);
@@ -2168,7 +3204,12 @@ async fn retried_and_concurrent_terminal_requests_of_a_turn_share_one_source_id(
     );
     // 另一个会话中相同的消息是另一个回合。
     executor
-        .run(terminal("conversation-b"), &r, &NoopEvidenceSink)
+        .run(
+            request_control(),
+            terminal("conversation-b"),
+            &r,
+            &NoopEvidenceSink,
+        )
         .await;
     assert_ne!(captured_ids(&gate)[4], ids[0]);
 }
@@ -2186,7 +3227,12 @@ async fn without_a_conversation_identical_turns_are_never_merged() {
         c.sediment = true;
         c.conversation_id = None;
         executor
-            .run(c, &RendererRef(renderer.clone()), &NoopEvidenceSink)
+            .run(
+                request_control(),
+                c,
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
             .await;
     }
     let ids = captured_ids(&gate);
@@ -2205,7 +3251,12 @@ async fn a_turn_already_captured_with_other_content_is_recorded_as_a_duplicate()
     c.inject_context = false;
     c.sediment = true;
     let outcome = executor
-        .run(c, &RendererRef(renderer.clone()), &evidence)
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &evidence,
+        )
         .await;
     assert!(matches!(outcome, ManagedOutcome::Released { .. }));
     let reasons: Vec<String> = evidence.not_sent().into_iter().map(|(_, r)| r).collect();
@@ -2239,6 +3290,7 @@ async fn a_hosted_tool_response_is_terminal_but_a_client_tool_call_is_not() {
         c.sediment = true;
         executor
             .run(
+                request_control(),
                 c,
                 &pc_gateway_protocol::OpenAiResponsesRenderer,
                 &NoopEvidenceSink,
@@ -2254,4 +3306,839 @@ async fn a_hosted_tool_response_is_terminal_but_a_client_tool_call_is_not() {
             "arguments": "{\"query\":\"loader\",\"type\":\"search\"}"}])
     );
     assert_eq!(transcript["assistant"], "found it");
+}
+
+#[tokio::test]
+async fn terminal_evidence_covers_zero_send_release_refusal_and_paid_possibility() {
+    use pc_gateway_evidence::{EvidenceEvent, Sending, Terminal};
+    for (case, expected_terminal, expected_send, expected_attempts) in [
+        ("block", Terminal::Blocked, Sending::NoSend, 0),
+        ("withhold", Terminal::Withheld, Sending::NoSend, 0),
+        ("expired", Terminal::AdmissionExpired, Sending::NoSend, 0),
+        (
+            "release_block",
+            Terminal::Blocked,
+            Sending::ResponseReceived,
+            1,
+        ),
+        (
+            "release_withhold",
+            Terminal::Withheld,
+            Sending::ResponseReceived,
+            1,
+        ),
+        (
+            "release_expired",
+            Terminal::AdmissionExpired,
+            Sending::ResponseReceived,
+            1,
+        ),
+        (
+            "released",
+            Terminal::ReleaseAuthorized,
+            Sending::ResponseReceived,
+            1,
+        ),
+        (
+            "upstream_error",
+            Terminal::ReleaseAuthorized,
+            Sending::ResponseReceived,
+            1,
+        ),
+        ("not_sent", Terminal::NotSent, Sending::DefinitelyNotSent, 1),
+        (
+            "indeterminate",
+            Terminal::SendIndeterminate,
+            Sending::PossiblySent,
+            1,
+        ),
+        ("gate_error", Terminal::GatePaused, Sending::NoSend, 0),
+        ("degraded", Terminal::Degraded, Sending::ResponseReceived, 1),
+    ] {
+        let mut admission = result(
+            CheckPhase::BeforeSend,
+            if case == "block" {
+                CheckDecision::Block
+            } else if case == "withhold" {
+                CheckDecision::Withhold
+            } else {
+                CheckDecision::Allow
+            },
+            &[],
+        );
+        let mut release = result(
+            CheckPhase::BeforeRelease,
+            if case == "release_block" {
+                CheckDecision::Block
+            } else if case == "release_withhold" {
+                CheckDecision::Withhold
+            } else {
+                CheckDecision::Allow
+            },
+            &[],
+        );
+        if case == "expired" {
+            admission.valid_until = "2000-01-01T00:00:00Z".into();
+        }
+        if case == "release_expired" {
+            release.valid_until = "2000-01-01T00:00:00Z".into();
+        }
+        let initial = if matches!(case, "gate_error" | "degraded") {
+            Err(GateError::GateUnavailable(
+                "SENSITIVE_PROVIDER_ERROR".into(),
+            ))
+        } else {
+            Ok(admission)
+        };
+        let response = match case {
+            "not_sent" => SendOutcome::NotSent(pc_gateway_transport::NotSentReason::ConnectRefused),
+            "indeterminate" => SendOutcome::Indeterminate(
+                pc_gateway_transport::SendIndeterminateReason::LostAfterHandoff,
+            ),
+            "upstream_error" => {
+                let SendOutcome::Delivered(mut raw) = raw_response() else {
+                    unreachable!()
+                };
+                raw.status = 500;
+                SendOutcome::Delivered(raw)
+            }
+            _ => raw_response(),
+        };
+        let (executor, renderer, _, _) = harness(vec![initial, Ok(release)], vec![response], 1);
+        let evidence = BufferedEvidenceSink::new();
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                call(if case == "degraded" {
+                    DegradePolicy::PassthroughWithoutMemory
+                } else {
+                    DegradePolicy::Pause
+                }),
+                &RendererRef(renderer),
+                &evidence,
+            )
+            .await;
+        let calls = evidence.calls();
+        assert_eq!(calls.len(), 1, "{case}");
+        let record = &calls[0];
+        assert_eq!(record.call_id, observation.call_id());
+        assert_eq!(record.terminal, expected_terminal, "{case}");
+        assert_eq!(record.sending, expected_send, "{case}");
+        let snapshot = observation.snapshot();
+        assert_eq!(
+            snapshot.execution,
+            ExecutionState::Finished(record.terminal),
+            "{case}"
+        );
+        assert_eq!(snapshot.model_send, record.sending, "{case}");
+        assert_eq!(record.attempts, expected_attempts, "{case}");
+        assert!(record.upstream_ttft_ms.is_none());
+        assert!(
+            record.usage.input.tokens.is_none(),
+            "total_tokens alone cannot establish input usage"
+        );
+        let attempts: Vec<_> = evidence
+            .events()
+            .into_iter()
+            .filter_map(|event| {
+                if let EvidenceEvent::Attempt(a) = event {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(attempts.len(), expected_attempts as usize, "{case}");
+        for a in &attempts {
+            assert_eq!(a.call_id, record.call_id);
+        }
+        if case == "upstream_error" {
+            assert_eq!(
+                attempts[0].outcome,
+                pc_gateway_evidence::AttemptOutcome::UpstreamError
+            );
+        }
+        if case == "gate_error" {
+            assert!(!format!("{outcome:?}").contains("SENSITIVE_PROVIDER_ERROR"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn interrupted_model_send_keeps_paid_possibility_and_observed_stop_facts() {
+    use pc_gateway_evidence::{AttemptOutcome, EvidenceEvent, Interruption, Sending, Terminal};
+    for (stop, expected) in [
+        ("cancel", Interruption::CancellationRequested),
+        ("deadline", Interruption::DeadlineElapsed),
+        ("drop", Interruption::FutureDropped),
+    ] {
+        let (executor, renderer, transport, _) = harness(
+            vec![Ok(result(
+                CheckPhase::BeforeSend,
+                CheckDecision::Allow,
+                &[],
+            ))],
+            vec![raw_response()],
+            1,
+        );
+        transport
+            .send_holds
+            .lock()
+            .unwrap()
+            .push_back(Some(Arc::new(tokio::sync::Notify::new())));
+        let evidence = BufferedEvidenceSink::new();
+        let control = RequestControl::new(
+            tokio::time::Instant::now()
+                + if stop == "deadline" {
+                    std::time::Duration::ZERO
+                } else {
+                    std::time::Duration::from_secs(30)
+                },
+            None,
+        );
+        let cancellation = control.cancellation();
+        let observation = control.observation();
+        let renderer = RendererRef(renderer);
+        let mut future =
+            Box::pin(executor.run(control, call(DegradePolicy::Pause), &renderer, &evidence));
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        if stop == "cancel" {
+            cancellation.cancel();
+        }
+        drop(future);
+        let record = &evidence.calls()[0];
+        assert_eq!(record.terminal, Terminal::Abandoned);
+        assert_eq!(record.sending, Sending::PossiblySent);
+        assert_eq!(record.interruption, Some(expected));
+        let snapshot = observation.snapshot();
+        assert_eq!(
+            snapshot.execution,
+            ExecutionState::Finished(record.terminal)
+        );
+        assert_eq!(snapshot.model_send, record.sending);
+        let EvidenceEvent::Attempt(attempt) = &evidence.events()[0] else {
+            panic!("missing attempt")
+        };
+        assert_eq!(attempt.outcome, AttemptOutcome::PossiblySent);
+        assert_eq!(attempt.call_id, record.call_id);
+        assert!(record.usage.input.tokens.is_none());
+    }
+}
+
+#[tokio::test]
+async fn readmission_evidence_keeps_each_real_attempt_and_release_order() {
+    use pc_gateway_evidence::{AttemptOutcome, EvidenceEvent};
+    let (executor, renderer, _, gate) = harness(
+        vec![
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![
+            SendOutcome::NotSent(pc_gateway_transport::NotSentReason::RejectedLocally),
+            raw_response(),
+        ],
+        2,
+    );
+    let hold = Arc::new(tokio::sync::Notify::new());
+    gate.check_holds
+        .lock()
+        .unwrap()
+        .extend([None, None, Some(hold.clone())]);
+    let evidence = BufferedEvidenceSink::new();
+    let renderer = RendererRef(renderer);
+    let mut future = Box::pin(executor.run(
+        request_control(),
+        call(DegradePolicy::Pause),
+        &renderer,
+        &evidence,
+    ));
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx)))
+            .await
+            .is_pending()
+    );
+    assert!(evidence.calls().is_empty(), "release decision is pending");
+    let attempts: Vec<_> = evidence
+        .events()
+        .into_iter()
+        .filter_map(|e| {
+            if let EvidenceEvent::Attempt(a) = e {
+                Some(a)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        attempts.iter().map(|a| a.outcome).collect::<Vec<_>>(),
+        [AttemptOutcome::RejectedLocally, AttemptOutcome::Delivered]
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    hold.notify_one();
+    assert!(matches!(future.await, ManagedOutcome::Released { .. }));
+    let record = &evidence.calls()[0];
+    assert_eq!(record.attempts, 2);
+    assert_eq!(record.call_id, attempts[0].call_id);
+    assert_eq!(record.call_id, attempts[1].call_id);
+    assert!(record.release_decision_ms.unwrap() >= 20);
+    assert!(record.release_authorized_ms.unwrap() >= record.release_decision_ms.unwrap());
+    assert!(record.duration_ms >= record.release_authorized_ms.unwrap());
+}
+
+struct EvidenceFaultWriter {
+    entered: std::sync::mpsc::Sender<()>,
+    resume: Option<std::sync::mpsc::Receiver<()>>,
+}
+impl std::io::Write for EvidenceFaultWriter {
+    fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+        let _ = self.entered.send(());
+        if let Some(resume) = self.resume.take() {
+            resume.recv().unwrap();
+        }
+        Err(std::io::Error::other("SENSITIVE_WRITER_ERROR"))
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn failing_or_blocked_full_evidence_output_cannot_change_release_or_cancellation() {
+    use pc_gateway_evidence::JsonEvidenceSink;
+    for blocked_writer in [false, true] {
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let sink = JsonEvidenceSink::new(
+            EvidenceFaultWriter {
+                entered: entered_tx,
+                resume: blocked_writer.then_some(resume_rx),
+            },
+            std::num::NonZeroUsize::new(1).unwrap(),
+        )
+        .unwrap();
+        let (executor, renderer, _, _) = harness(allow_runs(1), vec![raw_response()], 1);
+        let outcome = executor
+            .run(
+                request_control(),
+                call(DegradePolicy::Pause),
+                &RendererRef(renderer),
+                &sink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Released { .. }));
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .unwrap();
+        let (executor, renderer, transport, _) = harness(
+            vec![Ok(result(
+                CheckPhase::BeforeSend,
+                CheckDecision::Allow,
+                &[],
+            ))],
+            vec![raw_response()],
+            1,
+        );
+        transport
+            .send_holds
+            .lock()
+            .unwrap()
+            .push_back(Some(Arc::new(tokio::sync::Notify::new())));
+        let control = request_control();
+        let observation = control.observation();
+        let cancellation = control.cancellation();
+        let renderer = RendererRef(renderer);
+        let mut future =
+            Box::pin(executor.run(control, call(DegradePolicy::Pause), &renderer, &sink));
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        cancellation.cancel();
+        drop(future);
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::PossiblySent
+        );
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::Abandoned)
+        );
+        let (executor, renderer, _, _) = harness(
+            vec![
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+                Ok(result(
+                    CheckPhase::BeforeRelease,
+                    CheckDecision::Withhold,
+                    &[],
+                )),
+            ],
+            vec![raw_response()],
+            1,
+        );
+        assert!(matches!(
+            executor
+                .run(
+                    request_control(),
+                    call(DegradePolicy::Pause),
+                    &RendererRef(renderer),
+                    &sink
+                )
+                .await,
+            ManagedOutcome::Withheld { .. }
+        ));
+        if blocked_writer {
+            assert!(sink.stats().dropped > 0);
+            resume_tx.send(()).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn partial_response_facts_survive_without_claiming_complete_delivery_or_usage() {
+    let (executor, renderer, _, _) = harness(
+        vec![Ok(result(
+            CheckPhase::BeforeSend,
+            CheckDecision::Allow,
+            &[],
+        ))],
+        vec![SendOutcome::IncompleteResponse {
+            reason: pc_gateway_transport::SendIndeterminateReason::BufferLimitExceeded,
+            status: 429,
+            response_first_byte_ms: Some(17),
+        }],
+        2,
+    );
+    let evidence = BufferedEvidenceSink::new();
+    assert!(matches!(
+        executor
+            .run(
+                request_control(),
+                call(DegradePolicy::Pause),
+                &RendererRef(renderer),
+                &evidence
+            )
+            .await,
+        ManagedOutcome::Withheld { reason_codes }
+            if reason_codes == ["response_buffer_limit_exceeded"]
+    ));
+    let call = &evidence.calls()[0];
+    assert_eq!(call.attempts, 1);
+    assert_eq!(call.sending, pc_gateway_evidence::Sending::PossiblySent);
+    assert_eq!(call.upstream_status, Some(429));
+    let pc_gateway_evidence::EvidenceEvent::Attempt(attempt) = &evidence.events()[0] else {
+        panic!("missing attempt")
+    };
+    assert_eq!(attempt.response_first_byte_ms, Some(17));
+    assert!(attempt.response_complete_ms.is_none());
+    assert!(call.usage.input.tokens.is_none());
+}
+
+// ---------- #2405：复用证明的依赖变化后重新准备一次 ----------
+
+fn refresh_required() -> Result<ContextCheckResult, GateError> {
+    Ok(result(
+        CheckPhase::BeforeSend,
+        CheckDecision::Withhold,
+        &["context-refresh-required"],
+    ))
+}
+
+#[tokio::test]
+async fn a_stale_reuse_proof_drops_the_replay_and_prepares_once_more() {
+    let allow_send = || Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]));
+    let allow_release = || Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[]));
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            // 第一步：准备 snapshot-1 并发送。
+            allow_send(),
+            allow_release(),
+            // 第二步：重放的 snapshot-1 已失效 → 重新准备 snapshot-2 → 放行。
+            refresh_required(),
+            allow_send(),
+            allow_release(),
+            // 第三步：重放 snapshot-2。
+            allow_send(),
+            allow_release(),
+        ],
+        (0..3).map(|_| raw_response()).collect(),
+        2,
+    );
+    for snapshot in ["memory-snapshot-1", "memory-snapshot-2"] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(snapshot)));
+    }
+    let r = RendererRef(renderer.clone());
+    for step in 0..3 {
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                tool_loop_call("fix the bug", step, false),
+                &r,
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(
+            matches!(outcome, ManagedOutcome::Released { .. }),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            observation.snapshot().model_send,
+            ModelSendState::ResponseReceived
+        );
+        assert_eq!(
+            observation.snapshot().execution,
+            ExecutionState::Finished(ExecutionTerminal::ReleaseAuthorized)
+        );
+    }
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(
+        transport.sends.lock().unwrap().len(),
+        3,
+        "the stale value is never sent"
+    );
+    let checked: Vec<_> = sends(&gate).into_iter().map(|(body, _)| body).collect();
+    assert_eq!(checked.len(), 4);
+    assert!(checked[0].contains("memory-snapshot-1"));
+    assert!(checked[1].contains("memory-snapshot-1"));
+    assert!(checked[2].contains("memory-snapshot-2") && !checked[2].contains("memory-snapshot-1"));
+    assert!(checked[3].contains("memory-snapshot-2"));
+}
+
+#[tokio::test]
+async fn a_request_refreshes_at_most_once() {
+    let (executor, renderer, transport, gate) =
+        harness(vec![refresh_required(), refresh_required()], vec![], 2);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result("memory-snapshot-1")));
+    let outcome = executor
+        .run(
+            request_control(),
+            tool_loop_call("fix the bug", 0, false),
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(
+        matches!(outcome, ManagedOutcome::Withheld { ref reason_codes } if reason_codes == &["context-refresh-required"]),
+        "{outcome:?}"
+    );
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(sends(&gate).len(), 2);
+    assert!(transport.sends.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn refresh_required_without_an_injection_is_withheld_directly() {
+    let (executor, renderer, _transport, gate) = harness(vec![refresh_required()], vec![], 2);
+    let mut c = tool_loop_call("fix the bug", 0, false);
+    c.inject_context = false;
+    let outcome = executor
+        .run(
+            request_control(),
+            c,
+            &RendererRef(renderer.clone()),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Withheld { .. }));
+    assert!(gate.prepare_queries.lock().unwrap().is_empty());
+    assert_eq!(sends(&gate).len(), 1);
+}
+
+#[tokio::test]
+async fn code_evidence_is_requested_only_when_enabled() {
+    let (executor, renderer, _transport, gate) =
+        harness(allow_runs(2), (0..2).map(|_| raw_response()).collect(), 2);
+    let r = RendererRef(renderer.clone());
+    for include_code in [false, true] {
+        let mut c = call(DegradePolicy::Pause);
+        c.inject_context = true;
+        c.include_code = include_code;
+        executor
+            .run(request_control(), c, &r, &NoopEvidenceSink)
+            .await;
+    }
+    assert_eq!(
+        *gate.prepare_include_code.lock().unwrap(),
+        vec![false, true]
+    );
+}
+
+#[tokio::test]
+async fn refreshed_context_cannot_exceed_the_rendered_input_limit() {
+    let (executor, renderer, transport, gate) = harness(
+        vec![
+            refresh_required(),
+            Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[])),
+            Ok(result(CheckPhase::BeforeRelease, CheckDecision::Allow, &[])),
+        ],
+        vec![raw_response()],
+        2,
+    );
+    let executor = executor.with_input_limit(1024);
+    for snapshot in ["small snapshot".to_string(), "私密\n\"".repeat(1000)] {
+        gate.prepare_queue
+            .lock()
+            .unwrap()
+            .push_back(Ok(reuse_result(&snapshot)));
+    }
+    let control = request_control();
+    let observation = control.observation();
+    let outcome = executor
+        .run(
+            control,
+            tool_loop_call("fix the bug", 0, false),
+            &RendererRef(renderer),
+            &NoopEvidenceSink,
+        )
+        .await;
+    assert!(matches!(outcome, ManagedOutcome::Blocked { reason_codes }
+        if reason_codes == ["request_payload_too_large"]));
+    assert_eq!(gate.prepare_queries.lock().unwrap().len(), 2);
+    assert_eq!(gate.seen.lock().unwrap().len(), 1);
+    assert!(transport.sends.lock().unwrap().is_empty());
+    assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+    assert_eq!(
+        observation.snapshot().execution,
+        ExecutionState::Finished(ExecutionTerminal::Blocked)
+    );
+}
+
+#[tokio::test]
+async fn rendered_capacity_includes_prepared_context_and_replay() {
+    let (executor, renderer, transport, gate) = harness(vec![], vec![], 2);
+    let executor = executor.with_input_limit(256);
+    *gate.prepare_result.lock().unwrap() = Some(Ok(reuse_result(&"私密\n\"".repeat(100))));
+    for _ in 0..2 {
+        let control = request_control();
+        let observation = control.observation();
+        let outcome = executor
+            .run(
+                control,
+                ManagedCall {
+                    inject_context: true,
+                    conversation_id: Some("capacity-test".into()),
+                    ..call(DegradePolicy::Pause)
+                },
+                &RendererRef(renderer.clone()),
+                &NoopEvidenceSink,
+            )
+            .await;
+        assert!(matches!(outcome, ManagedOutcome::Blocked { reason_codes }
+            if reason_codes == ["request_payload_too_large"]));
+        assert_eq!(observation.snapshot().model_send, ModelSendState::NoSend);
+    }
+    assert!(transport.sends.lock().unwrap().is_empty());
+    assert!(gate.seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn response_capacity_withholds_without_retry_and_preserves_possible_billing() {
+    use pc_gateway_evidence::{AttemptOutcome, EvidenceEvent, Sending, Terminal};
+    for degrade in [
+        DegradePolicy::Pause,
+        DegradePolicy::PassthroughWithoutMemory,
+    ] {
+        for partial in [false, true] {
+            let check = if degrade == DegradePolicy::Pause {
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))
+            } else {
+                Err(GateError::GateUnavailable("offline".into()))
+            };
+            let send = if partial {
+                SendOutcome::IncompleteResponse {
+                    reason: SendIndeterminateReason::BufferLimitExceeded,
+                    status: 200,
+                    response_first_byte_ms: Some(17),
+                }
+            } else {
+                SendOutcome::Indeterminate(SendIndeterminateReason::BufferLimitExceeded)
+            };
+            let (executor, renderer, transport, _) = harness(vec![check], vec![send], 3);
+            let control = request_control();
+            let observation = control.observation();
+            let evidence = BufferedEvidenceSink::new();
+            let outcome = executor
+                .run(control, call(degrade), &RendererRef(renderer), &evidence)
+                .await;
+            assert!(matches!(outcome, ManagedOutcome::Withheld { reason_codes }
+                if reason_codes == ["response_buffer_limit_exceeded"]));
+            assert_eq!(
+                observation.snapshot().model_send,
+                ModelSendState::PossiblySent
+            );
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(ExecutionTerminal::Withheld)
+            );
+            assert_eq!(transport.sends.lock().unwrap().len(), 1, "no paid resend");
+            let calls = evidence.calls();
+            assert_eq!(calls.len(), 1);
+            let record = &calls[0];
+            assert_eq!(record.terminal, Terminal::Withheld);
+            assert_eq!(record.sending, Sending::PossiblySent);
+            assert_eq!(record.attempts, 1);
+            assert!(record.usage.input.tokens.is_none());
+            assert!(record.release_authorized_ms.is_none());
+            let events = evidence.events();
+            let [EvidenceEvent::Attempt(attempt), EvidenceEvent::Call(_)] = events.as_slice()
+            else {
+                panic!("expected one attempt followed by its call terminal")
+            };
+            assert_eq!(attempt.call_id, record.call_id);
+            assert_eq!(attempt.outcome, AttemptOutcome::BufferLimitExceeded);
+            assert_eq!(attempt.upstream_status, partial.then_some(200));
+            assert_eq!(attempt.response_first_byte_ms, partial.then_some(17));
+            assert!(attempt.response_complete_ms.is_none());
+        }
+    }
+}
+
+#[tokio::test]
+async fn real_body_timeout_exports_timeout_attempt_and_unknown_usage_without_release_or_retry() {
+    use pc_gateway_evidence::JsonEvidenceSink;
+    use pc_gateway_transport::ReqwestTransport;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[derive(Clone, Default)]
+    struct Output(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Output {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    for degrade in [
+        DegradePolicy::Pause,
+        DegradePolicy::PassthroughWithoutMemory,
+    ] {
+        for stream in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                loop {
+                    let n = socket.read(&mut buffer).await.unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                        let length: usize = head
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                let (mime, partial) = if stream {
+                    ("text/event-stream", "data: {\"usage\":{\"prompt_tokens\":80},\"secret\":\"SYNTHETIC_PARTIAL_SECRET\"}\n\n")
+                } else {
+                    ("application/json", "{\"usage\":{\"prompt_tokens\":80},\"secret\":\"SYNTHETIC_PARTIAL_SECRET\"}")
+                };
+                socket.write_all(format!("HTTP/1.1 201 Created\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{partial}", partial.len() + 100).as_bytes()).await.unwrap();
+                let _ = finish_rx.await;
+            });
+            let verdict = if degrade == DegradePolicy::Pause {
+                Ok(result(CheckPhase::BeforeSend, CheckDecision::Allow, &[]))
+            } else {
+                Err(GateError::GateUnavailable("SYNTHETIC_GATE_SECRET".into()))
+            };
+            let (_, renderer, _, gate) = harness(vec![verdict], vec![], 3);
+            let executor = Executor::new(
+                FakeGateRef(gate.clone()),
+                ReqwestTransport::new(Duration::from_millis(250)),
+                NonZeroU32::new(3).unwrap(),
+            );
+            let mut call = call(degrade);
+            call.target_url =
+                format!("http://SYNTHETIC_USER:SYNTHETIC_PASSWORD@{address}/SYNTHETIC_PATH");
+            call.request.stream = stream;
+            let control = request_control();
+            let observation = control.observation();
+            let output = Output::default();
+            let sink =
+                JsonEvidenceSink::new(output.clone(), std::num::NonZeroUsize::new(8).unwrap())
+                    .unwrap();
+            let outcome = executor
+                .run(control, call, &RendererRef(renderer), &sink)
+                .await;
+            let _ = finish_tx.send(());
+            server.await.unwrap();
+            assert!(matches!(outcome, ManagedOutcome::SendIndeterminate));
+            assert_eq!(
+                gate.seen.lock().unwrap().len(),
+                1,
+                "no release check or readmission"
+            );
+            assert_eq!(
+                observation.snapshot().model_send,
+                ModelSendState::PossiblySent
+            );
+            assert_eq!(
+                observation.snapshot().execution,
+                ExecutionState::Finished(ExecutionTerminal::SendIndeterminate)
+            );
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while sink.stats().written < 2 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+            assert!(!text.contains("SYNTHETIC_"));
+            let records: Vec<serde_json::Value> = text
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(
+                records.len(),
+                2,
+                "one attempt and one call, without delivery"
+            );
+            assert_eq!(records[0]["event"], "attempt");
+            assert_eq!(records[1]["event"], "call");
+            let attempt = &records[0]["evidence"];
+            let call = &records[1]["evidence"];
+            assert_eq!(attempt["call_id"], call["call_id"]);
+            assert_eq!(attempt["outcome"], "timeout_awaiting_response");
+            assert_eq!(attempt["upstream_status"], 201);
+            assert!(attempt["response_first_byte_ms"].is_number());
+            assert!(attempt["response_complete_ms"].is_null());
+            assert_eq!(call["terminal"], "send_indeterminate");
+            assert_eq!(call["sending"], "possibly_sent");
+            assert_eq!(call["attempts"], 1);
+            assert_eq!(call["upstream_status"], 201);
+            assert!(call["release_decision_ms"].is_null());
+            assert!(call["release_authorized_ms"].is_null());
+            for evidence in [attempt, call] {
+                for field in ["input", "output", "cache_read", "cache_write"] {
+                    assert_eq!(evidence["usage"][field]["completeness"], "unknown");
+                    assert!(evidence["usage"][field]["tokens"].is_null());
+                }
+            }
+        }
+    }
 }

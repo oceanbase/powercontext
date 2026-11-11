@@ -17,7 +17,6 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from types import SimpleNamespace
 
 import pytest
 from pydantic import SecretStr
@@ -33,6 +32,7 @@ from powercontext.server.cli import _run_background_async
 from powercontext.server.factory import create_server_app
 from powercontext.server.processing_security import WorkerSecuritySpec, build_worker_security
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, ServerSettings
+from powercontext.server.tracing import ServerTracing
 
 
 class CustomAuthorizationProvider(BuiltinAuthorizationProvider):
@@ -140,7 +140,11 @@ def test_background_cli_preserves_deployment_identity_when_building_the_worker_s
 
         monkeypatch.setattr("powercontext.server.cli.open_builtin_access_control", access_control)
         monkeypatch.setattr("powercontext.server.cli.open_builtin_runtime", runtime)
-        await _run_background_async(settings, SimpleNamespace(instrumentation=None))
+        tracing = ServerTracing.context_only(role="background")
+        try:
+            await _run_background_async(settings, tracing)
+        finally:
+            tracing.shutdown()
         security = observed["runtime"]["worker_security"]
         assert security["principal"]["id"] == "background-worker"
         assert security["deployment_id"] == observed["access"]["deployment_id"] == "test"
