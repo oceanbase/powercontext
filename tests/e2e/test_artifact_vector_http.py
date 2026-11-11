@@ -168,10 +168,10 @@ def test_reload_accepts_embedding_profile_schema_persisted_by_existing_registrat
             engine = create_engine(f"sqlite:///{tmp_path / 'server.db'}")
             try:
                 with engine.begin() as connection:
-                    declaration = connection.scalar(select(schemas.c.declaration).where(family))
+                    declaration = connection.execute(select(schemas.c.declaration).where(family)).scalar_one()
                     declaration["content_schema"]["$defs"]["EmbeddingProfile"] = _PERSISTED_EMBEDDING_PROFILE
                     connection.execute(update(schemas).where(family).values(declaration=declaration))
-                    spec = connection.scalar(select(states.c.plugin_spec).where(binding))
+                    spec = connection.execute(select(states.c.plugin_spec).where(binding)).scalar_one()
                     spec["declaration"]["content_schema"]["$defs"]["EmbeddingProfile"] = _PERSISTED_EMBEDDING_PROFILE
                     connection.execute(update(states).where(binding).values(plugin_spec=spec))
             finally:
