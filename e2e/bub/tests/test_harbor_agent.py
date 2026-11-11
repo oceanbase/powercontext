@@ -25,9 +25,9 @@ from pathlib import Path
 from harbor.agents.installed import acp as harbor_acp
 
 from powercontext_e2e.harbor_agent import (
-    ACP_RUNNER_SDK_REQUIREMENT,
     ACP_SDK_REQUIREMENT,
     BUB_ACP_SERVER_VERSION,
+    HARBOR_ACP_SDK_REQUIREMENT,
     REMOTE_BIN_DIR,
     REMOTE_SOURCE_OVERRIDE,
     _install_acp_server_command,
@@ -77,7 +77,7 @@ def test_acp_server_install_names_the_pre_release_sdk_and_keeps_the_harness_bub(
 
 
 def test_harbor_acp_runner_completes_a_prompt_with_the_pinned_client_sdk(tmp_path: Path) -> None:
-    assert f"agent-client-protocol=={version('agent-client-protocol')}" == ACP_RUNNER_SDK_REQUIREMENT
+    assert f"agent-client-protocol=={version('agent-client-protocol')}" == HARBOR_ACP_SDK_REQUIREMENT
     # Copy as Harbor does in the task container, away from its sibling acp.py module.
     runner = tmp_path / "acp_runner.py"
     shutil.copy2(Path(harbor_acp.__file__).with_name("acp_runner.py"), runner)

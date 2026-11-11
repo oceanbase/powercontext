@@ -26,7 +26,6 @@ import subprocess
 import threading
 import time
 import urllib.request
-from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
 from typing import NamedTuple
@@ -445,7 +444,7 @@ class _RecordingEnvironment:
     ("setting", "expected"),
     [(None, "https://pypi.org/simple"), ("https://mirror.test/simple", "https://mirror.test/simple")],
 )
-def test_bub_runtime_install_does_not_use_the_task_images_pip_index(
+def test_bub_runtime_install_uses_its_own_index_and_compatible_harbor_sdk(
     monkeypatch, tmp_path: Path, setting: str | None, expected: str
 ) -> None:
     # SWE-bench Pro images configure pip for the index their build used, which no longer answers. The host's own
@@ -463,10 +462,9 @@ def test_bub_runtime_install_does_not_use_the_task_images_pip_index(
         env for command, env in zip(environment.commands, environment.envs, strict=True) if "pip install" in command
     ]
     assert install_env["PIP_INDEX_URL"] == expected
-    assert any(
-        f"/bin/pip install agent-client-protocol=={version('agent-client-protocol')}" in command
-        for command in environment.commands
-    )
+    constraint_path = install_env["PIP_CONSTRAINT"]
+    assert f"upload harbor-acp-constraints.txt {constraint_path}" in environment.commands
+    assert (tmp_path / "harbor-acp-constraints.txt").read_text(encoding="utf-8") == "agent-client-protocol==0.10.0\n"
 
 
 def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:

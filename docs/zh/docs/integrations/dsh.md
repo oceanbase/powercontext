@@ -142,6 +142,7 @@ Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不
 | `not_ready` / `degraded` | 检查报告指出的依赖，例如 `database` 或 `inference.generation`，按该项恢复提示处理。 |
 | `required_route_missing` | 指定操作返回无业务码的 404；检查代理路由、base path 和版本匹配，404 本身不能确定是版本问题。 |
 | `required_route_undeclared` | Server 的 OpenAPI 文档缺少列出的操作声明。 |
+| `memory_protocol_mismatch` / `legacy_memory_operation_unsupported` | 对齐 Server/CLI/插件协议，为实际 profile 重新 setup、重启，再搜索取得 Atomic 引用；不得移除集合 CAS。 |
 | `contract_unavailable` | 无法核对路由声明；通过同一 base path 提供 `/openapi.json`，或单独核对部署的契约。 |
 | `scope_not_found` / `unscoped` | 检查显式 Scope 覆盖、workspace binding 和 Server 默认 Scope；Doctor 不修改它们。 |
 | `invalid_response` | 响应未通过协议校验，即使 HTTP status 是 200。 |
@@ -151,10 +152,10 @@ Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不
 Doctor 不执行 capture、remember、flush、binding 修改或注入。契约不可读时标为未检查；
 Scope 不可用时跳过 prepare 并说明原因。实际写入与处理由下方显式验收负责。
 
-独立 CLI 的 `powercontext doctor dsh` 仅检查 Web profile 注册，并明确报告没有观察到运行中宿主的配置，
-没有执行 Server 检查。退出成功只表示注册检查通过。
-`powercontext doctor` 使用自己的 `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`；
-对齐 URL 后可复用它的 service/health 诊断，但不能认为它观察到了 DSH 的覆盖配置。
+独立 CLI 的 `powercontext doctor dsh` 检查所选 profile 的注册状态和已安装插件 Memory 协议声明，并检查 CLI
+解析到的端点上的 Server。这些检查不能观察已运行 DSH 进程的环境覆盖或工具缓存；请重启受影响的 profile，
+再在会话里运行 `/pc doctor`。已安装包未声明协议或 Server 契约不可读时，整体结果不会显示成功；注册通过本身
+不足以证明兼容。不指定 Host 的 `powercontext doctor` 使用其选定的客户端端点。
 
 ## 查看最近一次自动执行
 
@@ -388,3 +389,11 @@ Doctor 在 `configuration.readiness_request_timeout_ms` 中报告该预算，同
 环回地址默认允许明文 HTTP；远程 HTTP 需要显式设置 `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`，
 HTTPS 证书校验仍然启用。主机地址变量依次读取 `BASE_URL`、`SERVER_URL`、`ENDPOINT`，然后才读取
 `POWERCONTEXT_CLIENT_SERVER_URL`。安装与持久化同意见[连接远程 Server](../operate/connect-remote-server.md)。
+
+
+### Memory 协议升级检查
+
+独立的 `powercontext doctor dsh` 会检查所选 Web/Desktop profile 的注册状态与已安装插件协议声明。缺少声明的旧包
+显示为未验证/degraded，并提示更新；不能仅凭包版本号或健康检查判定兼容。会话内的 `/pc doctor` 还会核对 Server 的
+Memory 协议声明、Atomic 路由及过期的原生 MCP 修改工具。恢复时保留 `legacy_memory_operation_unsupported`，不移除
+CAS、不自动重放写入。具体步骤见 [协议升级](../operate/atomic-memory-migration.md#客户端与-agent-host-的协议兼容)。

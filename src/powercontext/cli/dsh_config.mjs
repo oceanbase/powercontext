@@ -96,9 +96,11 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
   const exemptions = typeof boot.readProfileVersionExemptions === 'function'
     ? read(dir, () => boot.readProfileVersionExemptions(dir)) : {}
   const skippedBundles = []
+  let memoryProtocol
   function bundle(name, packageDir) {
     const file = join(packageDir, 'package.json')
     const metadata = read(file, () => boot.readProfileManifest('powercontext', packageDir))
+    if (name === plugin) memoryProtocol = metadata.powercontext?.memoryProtocol
     if (typeof boot.evaluatePluginCompatibility === 'function') {
       const issue = read(file, () => boot.evaluatePluginCompatibility(metadata, exemptions))
       if (issue && !issue.exempted) {
@@ -226,7 +228,7 @@ async function inspect(executable, home, profile, prospective, desktopAnchor, re
   if (!config || typeof config !== 'object' || Array.isArray(config) || '__jsExpr' in config) {
     fail('PowerContext config is not a static object', dir)
   }
-  const settings = {}
+  const settings = memoryProtocol === undefined ? {} : { memoryProtocol }
   for (const [key, type] of [['baseUrl', 'string'], ['allowInsecureHttp', 'boolean']]) {
     if (config[key] === undefined) continue
     if (typeof config[key] !== type || (type === 'string' && !config[key].trim())) {

@@ -166,7 +166,16 @@ impl Trust {
         let p = self.provision.as_ref().map_err(|e| *e)?;
         let support = self.support.as_ref().ok_or(Error::Unavailable)?;
         private_directory(support, true)?;
-        let root = support.join("bundle");
+        let packaged = self
+            .resources
+            .as_ref()
+            .ok_or(Error::Unavailable)?
+            .join("ops");
+        let root = match fs::symlink_metadata(&packaged) {
+            Ok(_) => provision_bundle(&packaged, support, &p.bundle_manifest_sha256)?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => support.join("bundle"),
+            Err(_) => return Err(Error::Unavailable),
+        };
         let executable = verify_bundle(&root, &p.bundle_manifest_sha256)?;
         // Digest-named copies remain immutable across concurrent operations and catalog updates.
         let mode = if p.binding_mode == Mode::TargetFile {
@@ -282,6 +291,60 @@ struct Manifest {
     installed_bytes: u64,
     files_sha256: BTreeMap<String, String>,
 }
+// Only the application's pinned helper is copied here; Server installation and
+// service mutation remain approved Ops operations. Never overwrite the legacy
+// user-provisioned bundle, journals, configuration or Server data.
+fn provision_bundle(source: &Path, support: &Path, pin: &str) -> Result<PathBuf, Error> {
+    verify_bundle(source, pin)?;
+    let bundles = support.join("bundles");
+    private_directory(&bundles, true)?;
+    let lock_path = bundles.join("provision.lock");
+    no_links(&lock_path)?;
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|_| Error::Storage)?;
+    security::restrict(&lock_path, false)?;
+    lock.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => Error::Busy,
+        std::fs::TryLockError::Error(_) => Error::Storage,
+    })?;
+    let destination = bundles.join(pin);
+    if verify_bundle(&destination, pin).is_ok() {
+        return Ok(destination);
+    }
+    let temporary = tempfile::Builder::new()
+        .prefix("prepare-")
+        .tempdir_in(&bundles)
+        .map_err(|_| Error::Storage)?;
+    security::restrict(temporary.path(), true)?;
+    let mut files = BTreeSet::new();
+    inventory(source, source, &mut files)?;
+    for name in files {
+        let target = temporary.path().join(relative(&name)?);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|_| Error::Storage)?;
+        }
+        fs::copy(source.join(&name), &target).map_err(|_| Error::Storage)?;
+    }
+    verify_bundle(temporary.path(), pin)?;
+    // A broken cache is preserved for diagnosis. A failed copy leaves it intact;
+    // only a completely verified replacement can move it aside.
+    if fs::symlink_metadata(&destination).is_ok() {
+        no_links(&destination)?;
+        fs::rename(
+            &destination,
+            bundles.join(format!("damaged-{}", uuid::Uuid::new_v4())),
+        )
+        .map_err(|_| Error::Storage)?;
+    }
+    fs::rename(temporary.path(), &destination).map_err(|_| Error::Storage)?;
+    Ok(destination)
+}
+
 fn verify_bundle(root: &Path, pin: &str) -> Result<PathBuf, Error> {
     no_links(root)?;
     let manifest_bytes = read(&root.join("bundle.json"), MAX_MANIFEST)?;

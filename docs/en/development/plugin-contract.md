@@ -170,3 +170,28 @@ This contract does not define:
 - the Bub integration.
 
 Those decisions require their own implementation evidence and review boundary.
+
+
+## Memory protocol upgrades
+
+`legacy_memory_operation_unsupported` (HTTP 422) MUST survive direct-tool and command mapping with fixed recovery
+instructions: update the CLI/SDK and affected host plugin, rerun setup for the selected profile, fully restart the host,
+rerun Doctor, and obtain a fresh Atomic Memory reference. Never drop collection CAS or automatically replay writes.
+Do not render arbitrary Server error details as recovery text. This code stays a domain rejection; it is not inferred
+from an exception message and is not rewritten to `version_mismatch` or `invalid_response`.
+
+A Doctor compatibility check MUST be independent of liveness/readiness. DSH inspects the OpenAPI `memory.explicit`
+contract major and required Atomic routes; Pi, OpenCode and Hermes inspect the same feature's version in ServerInfo.
+Supported major 1 accepts additive minor versions. Missing declarations, inaccessible discovery, and uninspectable
+installed packages cannot establish compatibility. A legacy mutation still visible in DSH's native MCP catalog fails
+Doctor even when the Server itself advertises a current contract.
+
+The CLI inspects installed Memory contract declarations for DSH, Pi, OpenCode, OpenClaw and Hermes. DSH resolves the
+selected Web/Desktop bundle with the installed host's parser; Pi uses the paths reported by `pi list`; OpenClaw uses
+native `plugins inspect`; OpenCode records the source package declaration beside the copied managed bundle; Hermes
+ships it in `powercontext.json`. JS packages use `package.json`'s `powercontext.memoryProtocol`. The declaration is
+`atomic-artifact-v1`; absence is unverified/degraded. Neither package version strings nor registration prove compatibility.
+A managed OpenCode marker does not attest to separately configured plugins or externally modified files.
+
+Native MCP adapters (Codex, Claude Code, WorkBuddy, ZCode and Kimi Code) discover tool schemas from the Server. Their
+HTTP hook success does not attest to session MCP caches or mutation behavior. See [upgrade recovery](../docs/operate/atomic-memory-migration.md#client-and-agent-host-compatibility).

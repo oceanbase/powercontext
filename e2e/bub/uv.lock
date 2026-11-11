@@ -12,14 +12,14 @@ resolution-markers = [
 
 [[package]]
 name = "agent-client-protocol"
-version = "0.12.1"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/95/2c28ca34e545ce0282e88272aa3a8abdf8f3f926a0492f567ea11acd071b/agent_client_protocol-0.12.1.tar.gz", hash = "sha256:9963ccb590ed96d7dc542c9c023e90676fc76b1c6562e21a9ee112f4fbcb0095", size = 130605, upload-time = "2026-08-16T14:08:22.545Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/5c/d60196c536c8f66bb6a238c8a6d0d6fa84a2e3436008c139cb4a79003a25/agent_client_protocol-0.10.0.tar.gz", hash = "sha256:f8a6041e27423131e42e4d0cdd850d5b094b1092f79cc29501ab2bd57b92ee88", size = 81502, upload-time = "2026-05-07T19:11:56.784Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/61/0a2186c8ca53cf464767d4c4fb7fd9e23f48ce4547c2fa0d1c83a4d52410/agent_client_protocol-0.12.1-py3-none-any.whl", hash = "sha256:aaf3cc301ed87d9e2c4ccb91adfe1cd58784355f6ce7e513f50e7ca2391862ef", size = 85929, upload-time = "2026-08-16T14:08:21.307Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/cc/139895c0c5cd2acefc365085da0735d93df0cf8427ff4ee351961090e1af/agent_client_protocol-0.10.0-py3-none-any.whl", hash = "sha256:97a1a69c5d094e2625b09c4dbc2d5cf19637c4943630ceed52ab0578ecd5e14c", size = 65400, upload-time = "2026-05-07T19:11:55.614Z" },
 ]
 
 [[package]]
@@ -1916,7 +1916,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "agent-client-protocol", specifier = "==0.12.1" },
+    { name = "agent-client-protocol", specifier = "==0.10.0" },
     { name = "pytest", specifier = ">=9,<10" },
 ]
 
