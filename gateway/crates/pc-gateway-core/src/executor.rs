@@ -28,6 +28,7 @@
 //!                   └── 降级时用此原始请求（不含注入）重新渲染
 //! ```
 
+use crate::evidence::CallRecorder;
 use crate::lifecycle::Execution;
 use crate::replay_cache::{message_anchor, PreparedBlock, ReplayCache, MAX_REPLAY_MS};
 use crate::transcript::turn_transcript;
@@ -37,6 +38,7 @@ const CONTEXT_REFRESH_REQUIRED: &str = "context-refresh-required";
 use crate::{GateClient, GateError};
 use crate::{ModelSendState, RequestControl};
 use pc_gateway_evidence::EvidenceSink;
+use pc_gateway_evidence::UsageMapping;
 use pc_gateway_protocol::{CanonicalRequest, WireRenderer};
 use pc_gateway_transport::{AdmittedSend, SendIndeterminateReason, SendOutcome, Transport};
 use pc_gateway_types::{
@@ -102,6 +104,23 @@ pub enum ManagedOutcome {
     AdmissionExpired,
 }
 
+impl ManagedOutcome {
+    /// One terminal interpretation shared by lifecycle snapshots and evidence.
+    pub(crate) fn terminal(&self) -> crate::ExecutionTerminal {
+        use crate::ExecutionTerminal;
+        match self {
+            Self::Released { .. } => ExecutionTerminal::ReleaseAuthorized,
+            Self::Blocked { .. } => ExecutionTerminal::Blocked,
+            Self::Withheld { .. } => ExecutionTerminal::Withheld,
+            Self::SendIndeterminate => ExecutionTerminal::SendIndeterminate,
+            Self::NotSent { .. } => ExecutionTerminal::NotSent,
+            Self::GatePaused(_) => ExecutionTerminal::GatePaused,
+            Self::Degraded { .. } => ExecutionTerminal::Degraded,
+            Self::AdmissionExpired => ExecutionTerminal::AdmissionExpired,
+        }
+    }
+}
+
 pub struct Executor<G, T> {
     gate: G,
     transport: T,
@@ -109,6 +128,7 @@ pub struct Executor<G, T> {
     /// 会话内按消息锚点重放的准备结果（RFC 2199）。
     replays: ReplayCache,
     max_input_bytes: usize,
+    require_privacy_coverage: bool,
 }
 
 /// 单次发送尝试的准入凭证。
@@ -131,6 +151,7 @@ where
             max_attempts,
             replays: ReplayCache::default(),
             max_input_bytes: pc_gateway_types::CONTEXT_CHECK_BODY_LIMIT,
+            require_privacy_coverage: true,
         }
     }
 
@@ -141,6 +162,13 @@ where
         self
     }
 
+    /// Apply enforcement discovered from the trusted Core. Non-enforcing
+    /// admission still requires Core's allow verdict, binding, and deadline.
+    pub fn with_core_enforcement(mut self, enforcing: bool) -> Self {
+        self.require_privacy_coverage = enforcing;
+        self
+    }
+
     pub async fn run<R: WireRenderer>(
         &self,
         control: RequestControl,
@@ -148,8 +176,22 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
     ) -> ManagedOutcome {
+        let mut recording = CallRecorder::new(
+            evidence,
+            control.observation(),
+            control.cancellation(),
+            &call.target_url,
+            match renderer.message_list_key() {
+                "input" => Some(UsageMapping::OpenAiResponses),
+                "messages" => Some(UsageMapping::OpenAiChat),
+                _ => None,
+            },
+        );
         let mut execution = control.start();
-        let outcome = self.execute(call, renderer, evidence, &mut execution).await;
+        let outcome = self
+            .execute(call, renderer, evidence, &mut execution, &mut recording)
+            .await;
+        recording.finish(&outcome);
         execution.finish(&outcome);
         outcome
     }
@@ -160,6 +202,7 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
+        recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
         let mut call = call;
         // P1-3：enrich 之前快照原始请求。降级路径必须用这份（不含注入内容）
@@ -233,14 +276,24 @@ where
                                 prepared_contexts: Vec::new(),
                             };
                             degraded_call.request.stream = call.request.stream;
-                            self.degraded_send(&degraded_call, renderer, evidence, execution)
-                                .await
+                            self.degraded_send(
+                                &degraded_call,
+                                renderer,
+                                evidence,
+                                execution,
+                                recording,
+                            )
+                            .await
                         }
                         (e, _) => ManagedOutcome::GatePaused(classify_gate_error(e)),
                     };
                 }
                 Ok(result) => match result.decision {
-                    CheckDecision::Allow => match validate_allow(&result, CheckPhase::BeforeSend) {
+                    CheckDecision::Allow => match validate_allow(
+                        &result,
+                        CheckPhase::BeforeSend,
+                        self.require_privacy_coverage,
+                    ) {
                         Ok((binding, deadline)) => Admission {
                             binding,
                             valid_until_ms: deadline,
@@ -301,21 +354,28 @@ where
                     stream: call.request.stream,
                 };
                 let sent_binding = current.binding.clone();
+                recording.begin_attempt();
                 execution.model_send(ModelSendState::PossiblySent);
                 match self.transport.send(send).await {
                     SendOutcome::Delivered(raw) => {
+                        recording.received(&raw);
                         execution.model_send(ModelSendState::ResponseReceived);
                         break (raw, sent_binding);
                     }
-                    SendOutcome::Indeterminate(SendIndeterminateReason::BufferLimitExceeded) => {
-                        // A partial response cannot establish complete receipt. Keep PossiblySent:
-                        // the provider may have charged, and this call must never be retried.
-                        return ManagedOutcome::Withheld {
-                            reason_codes: vec!["response_buffer_limit_exceeded".into()],
-                        };
+                    SendOutcome::IncompleteResponse {
+                        reason,
+                        status,
+                        response_first_byte_ms,
+                    } => {
+                        recording.incomplete_response(&reason, status, response_first_byte_ms);
+                        return indeterminate_outcome(reason);
                     }
-                    SendOutcome::Indeterminate(_) => return ManagedOutcome::SendIndeterminate,
+                    SendOutcome::Indeterminate(reason) => {
+                        recording.indeterminate(&reason);
+                        return indeterminate_outcome(reason);
+                    }
                     SendOutcome::NotSent(reason) => {
+                        recording.not_sent(&reason);
                         execution.model_send(ModelSendState::DefinitelyNotSent);
                         evidence.record_not_sent(attempt, &reason.to_string());
                         if attempt >= self.max_attempts.get() {
@@ -337,7 +397,11 @@ where
                         };
                         match self.gate.check(recheck).await {
                             Ok(r) if r.decision == CheckDecision::Allow => {
-                                match validate_allow(&r, CheckPhase::BeforeSend) {
+                                match validate_allow(
+                                    &r,
+                                    CheckPhase::BeforeSend,
+                                    self.require_privacy_coverage,
+                                ) {
                                     Ok((binding, deadline)) => {
                                         current = Admission {
                                             binding,
@@ -384,16 +448,21 @@ where
             ),
             completion: pc_gateway_types::CONTEXT_CHECK_COMPLETION.into(),
         };
-        match self.gate.check(release_check).await {
+        let verdict = self.gate.check(release_check).await;
+        recording.release_decision();
+        match verdict {
             Err(e) => ManagedOutcome::GatePaused(classify_gate_error(e)),
             Ok(result) => match result.decision {
                 CheckDecision::Allow => {
-                    // P2 review：验证完整 allow（schema/phase/coverage/binding）。
-                    let (_release_binding_used, _release_deadline_used) =
-                        match validate_allow(&result, CheckPhase::BeforeRelease) {
-                            Ok(v) => v,
-                            Err(outcome) => return outcome,
-                        };
+                    // Release requires its own valid admission under the configured mode.
+                    let (_release_binding_used, _release_deadline_used) = match validate_allow(
+                        &result,
+                        CheckPhase::BeforeRelease,
+                        self.require_privacy_coverage,
+                    ) {
+                        Ok(v) => v,
+                        Err(outcome) => return outcome,
+                    };
                     // P1-4：释放前验 release verdict 的 valid_until（fail-closed）。
                     let release_deadline = parse_rfc3339_ms(&result.valid_until).unwrap_or(0);
                     if now_ms() >= release_deadline {
@@ -422,10 +491,11 @@ where
                         let capture = CaptureContentSourceRequest {
                             scope_id: call.scope_id.clone(),
                             source_id: format!("gw-turn-{digest}"),
-                            content: transcript,
+                            content: transcript.text,
                             metadata: Some(serde_json::json!({
                                 "kind": "gateway_turn",
                                 "target_profile": call.target_profile,
+                                "powercontext_capture_coverage": transcript.coverage,
                             })),
                         };
                         match self.gate.capture(capture).await {
@@ -434,13 +504,14 @@ where
                             Err(GateError::GateRejected(409)) => {
                                 evidence.record_not_sent(0, "sediment_duplicate")
                             }
-                            Err(e) => evidence.record_not_sent(0, &format!("sediment_failed:{e}")),
+                            Err(_) => evidence.record_not_sent(0, "sediment_failed:gate_error"),
                         }
                         // P1-4 残留：capture 完成后复核——沉淀耗时可能跨越截止时间。
                         if now_ms() >= release_deadline {
                             return ManagedOutcome::AdmissionExpired;
                         }
                     }
+                    recording.authorized();
                     ManagedOutcome::Released {
                         binding: result.binding,
                         status: raw.status,
@@ -538,9 +609,9 @@ where
             .await
         {
             Ok(p) => p,
-            Err(e) => {
-                evidence.record_not_sent(0, &format!("prepare_failed:{e}"));
-                tracing::warn!(error = %e, "prepare failed; injecting nothing");
+            Err(_) => {
+                evidence.record_not_sent(0, "prepare_failed");
+                tracing::warn!("prepare failed; injecting nothing");
                 return None;
             }
         };
@@ -635,6 +706,7 @@ where
         renderer: &R,
         evidence: &dyn EvidenceSink,
         execution: &mut Execution,
+        recording: &mut CallRecorder<'_>,
     ) -> ManagedOutcome {
         evidence.record_not_sent(0, "degraded_passthrough");
         let payload = match renderer.render(&call.request, None) {
@@ -657,9 +729,11 @@ where
             headers: call.headers.clone(),
             stream: call.request.stream,
         };
+        recording.begin_attempt();
         execution.model_send(ModelSendState::PossiblySent);
         match self.transport.send(send).await {
             SendOutcome::Delivered(raw) => {
+                recording.received(&raw);
                 execution.model_send(ModelSendState::ResponseReceived);
                 ManagedOutcome::Degraded {
                     status: raw.status,
@@ -667,18 +741,36 @@ where
                     body: raw.body,
                 }
             }
-            SendOutcome::Indeterminate(SendIndeterminateReason::BufferLimitExceeded) => {
-                ManagedOutcome::Withheld {
-                    reason_codes: vec!["response_buffer_limit_exceeded".into()],
-                }
+            SendOutcome::IncompleteResponse {
+                reason,
+                status,
+                response_first_byte_ms,
+            } => {
+                recording.incomplete_response(&reason, status, response_first_byte_ms);
+                indeterminate_outcome(reason)
             }
-            SendOutcome::Indeterminate(_) => ManagedOutcome::SendIndeterminate,
+            SendOutcome::Indeterminate(reason) => {
+                recording.indeterminate(&reason);
+                indeterminate_outcome(reason)
+            }
             SendOutcome::NotSent(reason) => {
+                recording.not_sent(&reason);
                 execution.model_send(ModelSendState::DefinitelyNotSent);
                 evidence.record_not_sent(1, &reason.to_string());
                 ManagedOutcome::NotSent { attempts: 1 }
             }
         }
+    }
+}
+
+// Capacity failure withholds the incomplete body without clearing possible billing.
+// Other uncertain sends keep their existing indeterminate terminal; none is retried.
+fn indeterminate_outcome(reason: SendIndeterminateReason) -> ManagedOutcome {
+    match reason {
+        SendIndeterminateReason::BufferLimitExceeded => ManagedOutcome::Withheld {
+            reason_codes: vec!["response_buffer_limit_exceeded".into()],
+        },
+        _ => ManagedOutcome::SendIndeterminate,
     }
 }
 
@@ -695,19 +787,19 @@ fn content_headers(headers: &[(String, String)], content_type: &str) -> BTreeMap
     out
 }
 
-/// 验证 allow 响应的完整性：schema/phase/coverage/binding 四项缺一不可。
-/// 契约："Only allow with complete coverage permits the corresponding phase."
-/// 畸形对端返回不完整 allow 时必须暂停（fail-closed），不得替代或放行。
+/// Validate phase, binding and deadline independently of privacy enforcement.
+/// Complete privacy coverage is required unless the trusted Core explicitly
+/// advertises non-enforcing operation.
 fn validate_allow(
     result: &ContextCheckResult,
     expected_phase: CheckPhase,
+    require_privacy_coverage: bool,
 ) -> Result<(String, u64), ManagedOutcome> {
     // 1. schema 必须匹配
     if result.schema != pc_gateway_types::CONTEXT_CHECK_SCHEMA {
-        return Err(ManagedOutcome::GatePaused(format!(
-            "malformed_verdict: schema mismatch: {}",
-            result.schema
-        )));
+        return Err(ManagedOutcome::GatePaused(
+            "malformed_verdict: schema mismatch".into(),
+        ));
     }
     // 2. phase 必须与请求阶段一致
     if result.phase != expected_phase {
@@ -716,8 +808,8 @@ fn validate_allow(
             result.phase
         )));
     }
-    // 3. coverage.complete 必须为 true
-    if !result.coverage.complete {
+    // 3. Enforcing admission requires complete privacy coverage.
+    if require_privacy_coverage && !result.coverage.complete {
         return Err(ManagedOutcome::GatePaused(
             "malformed_verdict: incomplete coverage on allow".into(),
         ));
@@ -737,7 +829,8 @@ fn validate_allow(
 
 fn classify_gate_error(e: GateError) -> String {
     match e {
-        GateError::GateUnavailable(msg) | GateError::Malformed(msg) => msg,
+        GateError::GateUnavailable(_) => "gate_unavailable".into(),
+        GateError::Malformed(_) => "malformed_gate_response".into(),
         GateError::GateRejected(status) => format!("gate rejected: HTTP {status}"),
     }
 }

@@ -13,6 +13,7 @@
     "context-protection",
     "atomic-memory-migration",
     "observability",
+    "gateway-evidence",
     "reference-observability-stack",
     "trace-with-phoenix",
     "trace-with-langfuse",

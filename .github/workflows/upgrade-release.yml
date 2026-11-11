@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       selection:
-        description: full or automatic runs all 12 cases; seekdb-code is a diagnostic subset without publication
+        description: full or automatic runs all 12 cases; sqlite and seekdb-code are subsets without publication
         type: string
         default: full
       release:
@@ -33,6 +33,7 @@ permissions:
 
 env:
   PC_UPGRADE_SOURCE_SHA: ${{ inputs.source_ref || github.sha }}
+  UPGRADE_GATE_ROOT: .
 
 jobs:
   prepare:
@@ -59,15 +60,21 @@ jobs:
             test "$RELEASE" = true
           fi
 
+      - name: Check out the pinned release gate tooling
+        if: inputs.release && !inputs.skip_upgrade_acceptance
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-gate
+          persist-credentials: false
+      - name: Keep gate tooling outside the tagged build tree
+        if: inputs.release && !inputs.skip_upgrade_acceptance
+        run: |
+          mv .release-gate "$RUNNER_TEMP/release-gate"
+          echo "UPGRADE_GATE_ROOT=$RUNNER_TEMP/release-gate" >> "$GITHUB_ENV"
+
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
-
-      - name: Download the frozen Release metadata
-        if: inputs.release
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: release-metadata
-          path: ${{ runner.temp }}/release-metadata/
 
       - name: Verify package version from Release tag
         if: inputs.release
@@ -126,7 +133,7 @@ jobs:
       - name: Build release distributions
         run: |
           uv build --out-dir dist
-          uvx --from twine twine check dist/*
+          uvx --from 'twine>=7.0.0' twine check dist/*
 
       - name: Freeze distributions and resolve the source matrix once
         if: ${{ !inputs.skip_upgrade_acceptance }}
@@ -137,10 +144,11 @@ jobs:
         run: |
           args=()
           if [ "$RELEASE" = true ]; then
-            args+=(--release --release-event "$RUNNER_TEMP/release-metadata/event.json")
+            args+=(--release)
           fi
-          uv run python scripts/parallel_upgrade_release_gate.py prepare \
-            --output "$RUNNER_TEMP/upgrade-prepared" --selection "$SELECTION" "${args[@]}"
+          uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py prepare \
+            --root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/upgrade-prepared" \
+            --selection "$SELECTION" "${args[@]}"
 
       - name: Share the exact prepared inputs
         if: ${{ !inputs.skip_upgrade_acceptance }}
@@ -249,7 +257,7 @@ jobs:
     needs: prepare
     if: ${{ !inputs.skip_upgrade_acceptance }}
     runs-on: ${{ inputs.internal_runner && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.backend == 'oceanbase' && 75 || 60 }}
     strategy:
       max-parallel: 3
       fail-fast: false
@@ -263,6 +271,19 @@ jobs:
         with:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
+      - name: Check out the pinned release gate tooling
+        if: inputs.release && !inputs.skip_upgrade_acceptance
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-gate
+          persist-credentials: false
+      - name: Keep gate tooling outside the tagged build tree
+        if: inputs.release && !inputs.skip_upgrade_acceptance
+        run: |
+          mv .release-gate "$RUNNER_TEMP/release-gate"
+          echo "UPGRADE_GATE_ROOT=$RUNNER_TEMP/release-gate" >> "$GITHUB_ENV"
+
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
       - name: Download the shared prepared inputs
@@ -277,7 +298,8 @@ jobs:
         env:
           CASE_INDEX: ${{ matrix.index }}
         run: >-
-          uv run python scripts/parallel_upgrade_release_gate.py case
+          uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py case
+          --root "$GITHUB_WORKSPACE"
           --prepared "$RUNNER_TEMP/upgrade-prepared"
           --index "$CASE_INDEX"
           --output "$RUNNER_TEMP/upgrade-case"
@@ -311,6 +333,19 @@ jobs:
         with:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
+      - name: Check out the pinned release gate tooling
+        if: inputs.release && !inputs.skip_upgrade_acceptance
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-gate
+          persist-credentials: false
+      - name: Keep gate tooling outside the tagged build tree
+        if: inputs.release && !inputs.skip_upgrade_acceptance
+        run: |
+          mv .release-gate "$RUNNER_TEMP/release-gate"
+          echo "UPGRADE_GATE_ROOT=$RUNNER_TEMP/release-gate" >> "$GITHUB_ENV"
+
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
       - name: Download the shared prepared inputs
@@ -325,7 +360,8 @@ jobs:
           path: ${{ runner.temp }}/upgrade-case-reports/
       - name: Require all selected evidence for the exact prepared distributions
         run: >-
-          uv run python scripts/parallel_upgrade_release_gate.py collect
+          uv run python "$UPGRADE_GATE_ROOT"/scripts/parallel_upgrade_release_gate.py collect
+          --root "$GITHUB_WORKSPACE"
           --prepared "$RUNNER_TEMP/upgrade-prepared"
           --reports "$RUNNER_TEMP/upgrade-case-reports"
           --output "$RUNNER_TEMP/upgrade-release-evidence"

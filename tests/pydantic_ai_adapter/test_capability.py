@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from copy import deepcopy
 from typing import Any
 
 import powercontext_pydantic_ai.toolset as toolset_module
@@ -46,14 +47,18 @@ def test_context_is_replaced_once_per_run_when_reusing_old_history(
     RecordingClient.prepare_result = prepared_response("context-one")
     monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
     model_contexts: list[list[str]] = []
+    stored_contexts: list[list[str]] = []
 
     async def respond(messages, _info):
+        # Recalled context reaches the model as a leading `SystemPromptPart` on every step, including the
+        # tool step whose request is rebuilt from persisted history.
         model_contexts.append([
             part.content
             for message in messages
             for part in message.parts
             if isinstance(part, SystemPromptPart) and CONTEXT_MARKER in part.content
         ])
+        assert isinstance(messages[0].parts[0], SystemPromptPart)
         if isinstance(messages[-1].parts[-1], ToolReturnPart):
             return ModelResponse(parts=[TextPart("complete")])
         return ModelResponse(parts=[ToolCallPart("powercontext_search", {"query": "context"}, "search-1")])
@@ -66,6 +71,13 @@ def test_context_is_replaced_once_per_run_when_reusing_old_history(
         RecordingClient.prepare_result = prepared_response("context-three")
         third = await agent.run("third prompt", message_history=second.all_messages())
         assert third.output == "complete"
+        for result in (first, second, third):
+            stored_contexts.append([
+                part.content
+                for message in result.all_messages()
+                for part in message.parts
+                if isinstance(part, SystemPromptPart) and CONTEXT_MARKER in part.content
+            ])
 
     asyncio.run(scenario())
 
@@ -73,6 +85,14 @@ def test_context_is_replaced_once_per_run_when_reusing_old_history(
     expected_contexts = ["context-one", "context-one", "context-two", "context-two", "context-three", "context-three"]
     # The Server's prepared content carries the trust policy; the capability adds only its marker.
     assert model_contexts == [[f"{CONTEXT_MARKER}\n\n{expected}"] for expected in expected_contexts]
+    # Persisted history stores recalled context as a `SystemPromptPart`, not as user text.
+    assert len(stored_contexts) == 3
+    assert all(len(contexts) == 1 for contexts in stored_contexts)
+    assert [contexts[0].split("\n\n", 1)[1].split('"')[0] for contexts in stored_contexts] == [
+        "context-one",
+        "context-two",
+        "context-three",
+    ]
 
 
 def test_context_from_earlier_releases_is_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,6 +119,107 @@ def test_context_from_earlier_releases_is_replaced(monkeypatch: pytest.MonkeyPat
     asyncio.run(scenario())
 
     assert system_prompts == [f"{CONTEXT_MARKER}\n\ncurrent context"]
+
+
+def test_recalled_context_preserves_new_messages_boundary_across_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    RecordingClient.reset()
+    RecordingClient.prepare_result = prepared_response("boundary-one")
+    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
+
+    turns: list[int] = []
+
+    async def respond(messages, _info):
+        if not turns or any(isinstance(part, ToolReturnPart) for part in messages[-1].parts):
+            turns.append(len(turns) + 1)
+            return ModelResponse(parts=[TextPart(f"answer {turns[-1]}")])
+        return ModelResponse(parts=[ToolCallPart("powercontext_search", {"query": "q"}, "search-1")])
+
+    def prompts_and_calls(messages: list[Any]) -> list[tuple[str, str]]:
+        return [
+            (type(part).__name__, str(getattr(part, "content", getattr(part, "tool_name", ""))))
+            for message in messages
+            for part in message.parts
+            if isinstance(part, (UserPromptPart, SystemPromptPart, ToolCallPart, ToolReturnPart, TextPart))
+        ]
+
+    def part_projection(messages: list[Any]) -> list[tuple[Any, ...]]:
+        """An immutable view of the caller's message content, captured before the next run.
+
+        Message metadata such as `run_id` and `timestamp` is excluded: the framework may stamp it on the
+        caller's history for its own bookkeeping, so only content, tool arguments, results, and ids are
+        claimed unchanged.
+        """
+        return [
+            (
+                type(part).__name__,
+                getattr(part, "content", None),
+                getattr(part, "tool_name", None),
+                getattr(part, "tool_call_id", None),
+                repr(getattr(part, "args", None)),
+                repr(getattr(part, "tool_return", None)),
+            )
+            for message in messages
+            for part in message.parts
+        ]
+
+    async def scenario() -> tuple[list[Any], list[Any], list[Any]]:
+        agent = Agent(FunctionModel(respond), capabilities=[PowerContext(scope_id="project:boundary")])
+        first = await agent.run("first prompt")
+        RecordingClient.prepare_result = prepared_response("boundary-two")
+        second = await agent.run("second prompt", message_history=first.all_messages())
+        # Resume from an explicit history that ends in a `ModelRequest`, not a completed response.
+        history_before_resume = [*second.all_messages(), ModelRequest(parts=[UserPromptPart("unanswered prompt")])]
+        RecordingClient.prepare_result = prepared_response("boundary-three")
+        before_run = deepcopy(part_projection(history_before_resume))
+        third = await agent.run(message_history=history_before_resume)
+        # Compare against the projection captured before the run, so an in-place part mutation cannot hide by
+        # shifting the snapshot too. Only the documented context replacement happens inside the result's copy.
+        assert part_projection(history_before_resume) == before_run
+        return second.new_messages(), third.new_messages(), third.all_messages()
+
+    second_new, third_new, third_all = asyncio.run(scenario())
+
+    def text(messages: list[Any]) -> str:
+        return "\n".join(value for _, value in prompts_and_calls(messages))
+
+    # A new prompt with prior history: only this run's prompt and its own recalled context are new.
+    assert "second prompt" in text(second_new)
+    assert "first prompt" not in text(second_new)
+    assert "boundary-two" in text(second_new)
+    assert "boundary-one" not in text(second_new)
+    # A multi-step tool turn stays inside the boundary with exactly one call/return pair, and appending
+    # `new_messages()` to the caller's history reproduces the run's history instead of duplicating a turn.
+    assert [value for name, value in prompts_and_calls(second_new) if name == "ToolCallPart"] == ["powercontext_search"]
+    assert [
+        part.tool_call_id
+        for message in second_new
+        for part in message.parts
+        if isinstance(part, (ToolCallPart, ToolReturnPart))
+    ] == ["search-1", "search-1"]
+    second_run_ids = {message.run_id for message in second_new}
+    assert len(second_run_ids) == 1 and None not in second_run_ids
+    assert text(second_new).count("second prompt") == 1
+    assert text(second_new).count("answer 2") == 1
+
+    # A history-only continuation resumes the trailing `ModelRequest`, which the framework treats as prior
+    # context, so no earlier prompt, answer, or tool return is reported as new either.
+    assert "second prompt" not in text(third_new)
+    assert "first prompt" not in text(third_new)
+    assert "unanswered prompt" not in text(third_new)
+    assert "answer 1" not in text(third_new)
+    assert "answer 2" not in text(third_new)
+    assert "boundary-two" not in text(third_new)
+    assert [value for name, value in prompts_and_calls(third_new) if name == "ToolCallPart"] == ["powercontext_search"]
+
+    # The prior turns and the reviewed prompt survive exactly once in the result: none duplicated, none dropped.
+    assert text(third_all).count("first prompt") == 1
+    assert text(third_all).count("second prompt") == 1
+    assert text(third_all).count("unanswered prompt") == 1
+    # Recalled context is stored once for this run, replacing the prior run's context instead of accumulating it.
+    assert text(third_all).count("boundary-three") == 1
+    assert "boundary-one" not in text(third_all)
 
 
 def test_empty_context_is_not_injected(monkeypatch: pytest.MonkeyPatch) -> None:

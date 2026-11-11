@@ -127,6 +127,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         try:
             print(f"Liveness: {json.dumps(provider._client.get_liveness(), ensure_ascii=False)}")
             print(f"Readiness: {json.dumps(provider._client.get_readiness(), ensure_ascii=False)}")
+            from .commands import memory_protocol_status
+
+            print(f"Memory protocol: {json.dumps(memory_protocol_status(provider._client), ensure_ascii=False)}")
         except PowerContextError as error:
             print(f"Server: unavailable ({error})")
     finally:

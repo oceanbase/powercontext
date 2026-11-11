@@ -240,6 +240,8 @@ def test_run_openclaw_diagnostics_reads_memory_slot_when_plugin_list_omits_selec
             return CompletedProcess(command, 0, output, "")
         if command[1:4] == ["config", "get", "plugins.slots.memory"]:
             return CompletedProcess(command, 0, json.dumps("memory-powercontext"), "")
+        if command[1:3] == ["plugins", "inspect"]:
+            return CompletedProcess(command, 0, "{}", "")
         raise AssertionError(command)
 
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", lambda: "/usr/bin/openclaw")
@@ -323,10 +325,12 @@ def test_doctor_openclaw_reports_an_installed_plugin_as_json(
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "openclaw", "--json"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     report = json.loads(result.output)["hosts"]["openclaw"]
     assert report["checks"]["openclaw"]["ok"] is True
     assert report["checks"]["plugin"]["ok"] is True
+    assert report["checks"]["plugin_memory_protocol"]["status"] == "degraded"
+    assert "powercontext setup openclaw" in report["checks"]["plugin_memory_protocol"]["detail"]
 
 
 def test_doctor_openclaw_exits_nonzero_when_plugin_is_missing(monkeypatch: pytest.MonkeyPatch, server_checks) -> None:

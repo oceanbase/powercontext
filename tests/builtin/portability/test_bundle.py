@@ -38,7 +38,9 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
+    ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
+    ARTIFACT_SOURCE_LOCATORS_TABLE,
     ARTIFACT_TAGS_TABLE,
     ARTIFACTS_TABLE,
     BUILTIN_TABLES,
@@ -570,10 +572,30 @@ def test_bundle_round_trips_authoritative_scope_data_and_excludes_projections(tm
                         searchable_text="not portable",
                     )
                 )
+                edge = {
+                    "scope_id": "project:one",
+                    "family": "handoff",
+                    "artifact_id": "handoff",
+                    "revision": 1,
+                    "ordinal": 0,
+                }
+                await connection.execute(
+                    insert(ARTIFACT_LINEAGE_SOURCES_TABLE).values(
+                        **edge,
+                        source_type="content",
+                        source_id="source-1",
+                    )
+                )
+                await connection.execute(
+                    insert(ARTIFACT_SOURCE_LOCATORS_TABLE).values(
+                        **edge,
+                        locator=b'{"kind":"line_range","start_line":1,"end_line":1}',
+                    )
+                )
             receipt = await PortableBundleService(source.database).export(
                 ["project:one"], archive, authorize=_authorize_export
             )
-            assert receipt.record_count == 5
+            assert receipt.record_count == 7
 
         async with SQLiteProfile.open(
             SQLiteConfig(url=f"sqlite+aiosqlite:///{target_path}"), tables=BUILTIN_TABLES
@@ -582,11 +604,14 @@ def test_bundle_round_trips_authoritative_scope_data_and_excludes_projections(tm
             inspection = await service.validate(archive, supported_source_types=("content",))
             assert inspection.scopes == ("project:one",)
             restored = await service.restore(archive, supported_source_types=("content",))
-            assert restored.inserted == 5
+            assert restored.inserted == 7
             repeated = await service.restore(archive, supported_source_types=("content",))
-            assert repeated.already_present == 5
+            assert repeated.already_present == 7
             async with target.database.transaction() as connection:
                 assert await connection.scalar(select(ARTIFACT_HEADS_TABLE.c.searchable_text)) is None
+                locator = await connection.scalar(select(ARTIFACT_SOURCE_LOCATORS_TABLE.c.locator))
+                assert isinstance(locator, bytes)
+                assert json.loads(locator) == {"kind": "line_range", "start_line": 1, "end_line": 1}
 
     asyncio.run(scenario())
 
@@ -889,6 +914,69 @@ def test_export_rejects_secret_fields_without_echoing_values(tmp_path: Path) -> 
                     ["project:one"], archive, authorize=_authorize_export
                 )
             assert "credential-shaped" in str(caught.value)
+            assert "do-not-echo" not in str(caught.value)
+            assert not archive.exists()
+
+    asyncio.run(scenario())
+
+
+def test_bundle_preserves_source_metadata_with_absolute_working_directory(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = tmp_path / "prompt.pcb"
+        payload = (
+            ContentSource(
+                name="prompt-1",
+                materialization=SourceMaterialization.CAPTURED,
+                content="Refactor the parser.",
+                metadata={"origin": "claude-code", "event": "user_prompt_submit", "cwd": "/workspace/powercontext"},
+            )
+            .model_dump_json()
+            .encode()
+        )
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as source:
+            async with source.database.transaction() as connection:
+                await _insert_scope(connection)
+                await connection.execute(insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project:one", position=1))
+                await connection.execute(
+                    insert(SOURCES_TABLE).values(
+                        scope_id="project:one",
+                        source_type="content",
+                        source_id="prompt-1",
+                        payload=payload,
+                        journal_position=1,
+                    )
+                )
+            await PortableBundleService(source.database).export(["project:one"], archive, authorize=_authorize_export)
+
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as target:
+            service = PortableBundleService(target.database, source_decoder=_SOURCES.decode_source)
+            await service.restore(archive, supported_source_types=("content",))
+            async with target.database.transaction() as connection:
+                assert await connection.scalar(select(SOURCES_TABLE.c.payload)) == payload
+
+    asyncio.run(scenario())
+
+
+def test_export_rejects_absolute_host_paths_outside_sources(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        archive = tmp_path / "host-path.pcb"
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as source:
+            async with source.database.transaction() as connection:
+                await _insert_scope(connection)
+                await connection.execute(
+                    insert(ARTIFACTS_TABLE).values(
+                        scope_id="project:one",
+                        family="handoff",
+                        artifact_id="handoff",
+                        revision=1,
+                        content=b'{"content":{"summary":"hello","install_path":"/opt/powercontext/do-not-echo"}}',
+                    )
+                )
+            with pytest.raises(BundleFormatError) as caught:
+                await PortableBundleService(source.database).export(
+                    ["project:one"], archive, authorize=_authorize_export
+                )
+            assert "absolute host path" in str(caught.value)
             assert "do-not-echo" not in str(caught.value)
             assert not archive.exists()
 

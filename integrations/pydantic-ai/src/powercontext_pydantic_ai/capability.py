@@ -129,18 +129,21 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
 
         if state.context_injected or _has_current_run_context(request_context.messages, ctx.run_id):
             state.context_injected = True
-            return request_context
+            # Later tool steps rebuild the request from persisted history, where recalled context sits at the
+            # new-message boundary. Lead with it for the model so it keeps its system role on every step.
+            return _leading_context(request_context, ctx.run_id)
 
-        request_context = replace(
-            request_context,
-            messages=_without_powercontext_context(request_context.messages),
-        )
+        messages = _without_powercontext_context(request_context.messages)
+        # Request-only replacements no longer update the history used by later tool steps.
+        history = _without_powercontext_context(ctx.messages)
         if not query:
-            return request_context
+            ctx.messages[:] = history
+            return replace(request_context, messages=list(messages))
 
         prepared_content = await self._prepare_context(query)
         if not prepared_content:
-            return request_context
+            ctx.messages[:] = history
+            return replace(request_context, messages=list(messages))
 
         state.context_injected = True
         context_request = ModelRequest(
@@ -148,7 +151,10 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             run_id=ctx.run_id,
             conversation_id=ctx.conversation_id,
         )
-        return replace(request_context, messages=[context_request, *request_context.messages])
+        # Persisted history keeps recalled context at the current-run boundary so `new_messages()` stays exact,
+        # while the request sent to the model leads with it as a real system prompt.
+        ctx.messages[:] = _insert_context(history, context_request)
+        return replace(request_context, messages=[context_request, *messages])
 
     @override
     async def after_model_request(
@@ -367,6 +373,52 @@ def _content_text(content: Any) -> str:
                 values.append(item.content)
         return "\n".join(values).strip()
     return ""
+
+
+def _insert_context(messages: Sequence[Any], context_request: ModelRequest) -> list[Any]:
+    """Place recalled context ahead of the current run's first message, after the caller's earlier turns.
+
+    `new_messages()` slices history from the first message stamped with this run's `run_id`, so recalled context
+    has to be inserted at that boundary. Prepending it to position 0 instead moves the boundary and makes the
+    caller's earlier turns look new, which duplicates them when the result is appended to the conversation.
+
+    The prompt request being prepared is stamped with this run's `run_id` only after this hook returns, so a
+    history with no current-run message yet anchors to the trailing request instead. That covers both a fresh
+    prompt and a history-only continuation, where the trailing request still carries the previous run's id.
+    """
+    for index, message in enumerate(messages):
+        if message.run_id == context_request.run_id:
+            return [*messages[:index], context_request, *messages[index:]]
+    boundary = len(messages) - 1 if messages and isinstance(messages[-1], ModelRequest) else len(messages)
+    return [*messages[:boundary], context_request, *messages[boundary:]]
+
+
+def _leading_context(request_context: ModelRequestContext, run_id: str | None) -> ModelRequestContext:
+    """Put this run's recalled context first for the model, keeping every other message in order.
+
+    Persisted history stores recalled context at the new-message boundary so `new_messages()` excludes earlier
+    turns. The model-facing request is a separate list, so it can lead with that context as a system prompt without
+    changing what is persisted.
+    """
+    messages = request_context.messages
+    if not messages:
+        return request_context
+    first = messages[0]
+    if isinstance(first, ModelRequest) and _is_context_request(first, run_id):
+        return request_context
+    for index, message in enumerate(messages):
+        if isinstance(message, ModelRequest) and _is_context_request(message, run_id):
+            return replace(request_context, messages=[message, *messages[:index], *messages[index + 1 :]])
+    return request_context
+
+
+def _is_context_request(message: ModelRequest, run_id: str | None) -> bool:
+    """Whether `message` carries this run's recalled context and nothing else."""
+    if run_id is not None and message.run_id != run_id:
+        return False
+    return bool(message.parts) and all(
+        isinstance(part, SystemPromptPart) and CONTEXT_MARKER in part.content for part in message.parts
+    )
 
 
 def _has_current_run_context(messages: Sequence[Any], run_id: str | None) -> bool:

@@ -107,6 +107,7 @@ def native_options(host: str, **options: Any) -> dict[str, Any]:
 
 def doctor_checks(host: str, **options) -> dict[str, Any]:
     """Run native verification and Server checks through the doctor boundary."""
+    from powercontext.cli.authorization import credential_path, read_stored_authorization
     from powercontext.cli.installation import installers
     from powercontext.cli.native_transport import resolve_host_transport
     from powercontext.cli.system import Diagnostic, DiagnosticStatus, server_diagnostics
@@ -130,8 +131,16 @@ def doctor_checks(host: str, **options) -> dict[str, Any]:
             return checks
         target = {"dsh_target": installer.dsh_target} if host == "dsh" else {}
         endpoint, allowed = resolve_host_transport(host, **target)
+        authorization = None
+        if host in {"codex", "claude-code", "workbuddy", "dsh", "pi", "opencode"}:
+            authorization = read_stored_authorization(credential_path(host), server_url=endpoint).authorization
         checks.update(
-            server_diagnostics(server_url=endpoint, allow_insecure_http=allowed, readiness=checks.get("server"))
+            server_diagnostics(
+                server_url=endpoint,
+                allow_insecure_http=allowed,
+                readiness=checks.get("server"),
+                authorization=authorization,
+            )
         )
     except Exception as error:  # A failed Server probe must not hide completed installation.
         checks["transport"] = Diagnostic(DiagnosticStatus.FAILED, str(error))
