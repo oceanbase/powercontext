@@ -79,6 +79,13 @@ export const STATUS_STYLES = `
 .pc-icon-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 1px; }
 .pc-icon-button:disabled { opacity: .5; cursor: not-allowed; }
 .pc-panel-body { min-height: 0; overflow: auto; padding: 12px 14px 14px; overscroll-behavior: contain; }
+.pc-dashboard-entry { display: grid; gap: 9px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); }
+.pc-dashboard-intro { display: grid; gap: 2px; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 12px; line-height: 17px; }
+.pc-dashboard-intro strong { color: var(--dsw-alias-label-primary, CanvasText); font-size: 13px; line-height: 18px; }
+.pc-dashboard-button { min-height: 34px; padding: 6px 12px; border: 0; border-radius: 8px; background: var(--dsw-alias-button-primary-bg, var(--dsw-alias-interactive-bg-hover, #345d9d)); color: var(--dsw-alias-button-primary-label, #fff); font: inherit; font-weight: 600; cursor: pointer; }
+.pc-dashboard-button:disabled { opacity: .6; cursor: wait; }
+.pc-dashboard-button:focus-visible { outline: 2px solid var(--dsw-alias-state-focus, Highlight); outline-offset: 2px; }
+.pc-dashboard-notice { margin: 0; color: var(--dsw-alias-label-secondary, CanvasText); font-size: 12px; line-height: 17px; overflow-wrap: anywhere; }
 .pc-summary { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.2)); border-radius: 10px; background: var(--dsw-alias-bg-l2, rgba(127,127,127,.05)); }
 .pc-summary .pc-dot { position: static; margin-top: 5px; }
 .pc-summary-copy { min-width: 0; flex: 1; }
