@@ -238,6 +238,16 @@ def test_live_vector_initialization_is_concurrent_and_repeatable() -> None:
             await asyncio.wait_for(asyncio.gather(*(initialize() for _ in range(8))), timeout=120)
             await initialize()
             async with profile.database.transaction() as connection:
+                atomic = OceanBaseAtomicMemoryIndex(embedding_profile)
+                topics = OceanBaseTopicMemoryVectorIndex(embedding_profile)
+                quoted = (await connection.exec_driver_sql("SELECT @@SESSION.sql_quote_show_create")).scalar_one()
+                await connection.exec_driver_sql("SET SESSION sql_quote_show_create=OFF")
+                try:
+                    ddl = (await connection.exec_driver_sql("SHOW CREATE TABLE pc_atomic_memory_current")).one()[1]
+                    assert "VECTOR KEY ix_pc_atomic_memory_current_embedding (embedding)" in ddl
+                    await atomic.initialize(connection)
+                finally:
+                    await connection.exec_driver_sql("SET SESSION sql_quote_show_create=" + ("ON" if quoted else "OFF"))
                 expected = {
                     ("pc_atomic_memory_current", "ix_pc_atomic_memory_current_embedding"),
                     ("pc_topic_memory_vector_topics", "ix_pc_topic_memory_vector_topics_embedding"),
@@ -255,9 +265,7 @@ def test_live_vector_initialization_is_concurrent_and_repeatable() -> None:
                 assert set(rows) == expected
                 # The ANN executor needs a native index, not a regular index
                 # accidentally created on a VECTOR column. No model is called.
-                atomic = OceanBaseAtomicMemoryIndex(embedding_profile)
-                topics = OceanBaseTopicMemoryVectorIndex(embedding_profile)
-                for table in (*atomic.tables, *topics.tables):
+                for table in (atomic.table, topics.topic_table, topics.chunk_table):
                     probe = select(table.c.embedding).order_by(
                         func.l2_distance(table.c.embedding, bindparam("query_vector", type_=VECTOR(3)))
                     )
