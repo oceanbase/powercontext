@@ -267,13 +267,11 @@ def _dream_error_diagnostics(code: str) -> ProcessingDiagnostics | None:  # noqa
     if value == "evidence_limit_exceeded":
         return ProcessingDiagnostics(
             stage=ProcessingStage.BUSINESS_VALIDATION,
-            reason=ProcessingFailureReason.CONTEXT_OVERFLOW,
             failure_location=value,
         )
     if value == "memory_entry_inactive":
         return ProcessingDiagnostics(
-            stage=ProcessingStage.PERSISTENCE,
-            reason=ProcessingFailureReason.STORAGE_FAILURE,
+            stage=ProcessingStage.BUSINESS_VALIDATION,
             failure_location=value,
         )
     if value == "source_not_eligible":
@@ -307,8 +305,8 @@ def _handoff_error_diagnostics(code: str) -> ProcessingDiagnostics | None:
         )
     if value == "budget":
         return ProcessingDiagnostics(
-            stage=ProcessingStage.GENERATION,
-            reason=ProcessingFailureReason.USAGE_LIMIT,
+            stage=ProcessingStage.BUSINESS_VALIDATION,
+            reason=ProcessingFailureReason.INVALID_OUTPUT,
             failure_location=value,
         )
     if value == "objective":
@@ -368,7 +366,7 @@ def stage_for_operation(operation: object) -> ProcessingStage | None:
     value = operation.lower()
     if "embed" in value or "index" in value:
         return ProcessingStage.EMBEDDING
-    if "extract" in value or "generate" in value or "reconcile" in value or "incubate" in value:
+    if value == "generation" or any(term in value for term in ("extract", "generate", "reconcile", "incubate")):
         return ProcessingStage.GENERATION
     return None
 

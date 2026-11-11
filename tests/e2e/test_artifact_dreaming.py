@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 from collections.abc import Iterator
 from contextlib import nullcontext, suppress
@@ -61,6 +63,7 @@ from powercontext.builtin.evidence.models import EvidenceResolutionError
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.processing_diagnostics import ProcessingStage, classify_processing_error
 from powercontext.builtin.records import ArtifactWrite, BaseValueConflictError
 from powercontext.builtin.runtime import (
     ApproveCandidateRequest,
@@ -1611,14 +1614,17 @@ def test_concurrent_admission_and_workers_create_one_candidate(database: Databas
     asyncio.run(scenario())
 
 
-def test_transient_failure_retries_same_projection_with_bounded_calls(database: DatabaseConfig) -> None:
+@pytest.mark.parametrize("diagnostic_failure", [None, "classification", "logging"])
+def test_transient_failure_retries_same_projection_with_bounded_calls(
+    database: DatabaseConfig, caplog, monkeypatch, diagnostic_failure
+) -> None:
     from powercontext.builtin.inference.errors import InferenceUnavailableError
 
     class TransientGenerator(Generator):
         async def generate(self, value):
             result = await super().generate(value)
             if len(self.inputs) == 1:
-                raise InferenceUnavailableError("generation")
+                raise InferenceUnavailableError("generation", "private-provider-response")
             return result
 
     async def scenario() -> None:
@@ -1630,6 +1636,16 @@ def test_transient_failure_retries_same_projection_with_bounded_calls(database: 
             accepted = await runtime.dream.for_scope(scope).create(
                 CreateDreamRunRequest(operation="refine_experience", artifacts=(citation,), idempotency_key="retry")
             )
+
+            def reject_observation(*args, **kwargs):
+                raise RuntimeError("private-diagnostic-failure")
+
+            if diagnostic_failure == "classification":
+                monkeypatch.setattr(
+                    "powercontext.builtin.processing_diagnostics.classify_processing_error", reject_observation
+                )
+            elif diagnostic_failure == "logging":
+                monkeypatch.setattr("powercontext.builtin.dream.service.logger.log", reject_observation)
             await process_pending(runtime)
             first = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
             assert first.status == "queued"
@@ -1641,8 +1657,33 @@ def test_transient_failure_retries_same_projection_with_bounded_calls(database: 
             assert complete.input_manifest == first.input_manifest
             assert generator.inputs[0] == generator.inputs[1]
             assert complete.usage.input_tokens is None  # The failed call's token usage is unknown.
+            records = [record for record in caplog.records if getattr(record, "event", None) == "dream.attempt.failed"]
+            if diagnostic_failure == "logging":
+                assert records == []
+                return
+            assert len(records) == 1
+            record = records[0]
+            assert record.operation == "refine_experience"
+            assert record.family == "experience"
+            assert record.worker_id
+            assert record.request_generation >= 1
+            from powercontext.server.logging import JsonFormatter, _HumanContextFilter
 
-    asyncio.run(scenario())
+            payload = JsonFormatter().format(record)
+            if diagnostic_failure == "classification":
+                assert "processing_stage" not in json.loads(payload)
+                assert "private-diagnostic-failure" not in payload
+                return
+            assert record.processing_stage == "generation"
+            assert record.failure_reason == "provider_unavailable"
+            assert json.loads(payload)["failure_reason"] == "provider_unavailable"
+            _HumanContextFilter().filter(record)
+            assert 'failure_reason="provider_unavailable"' in record.processing_context
+            assert "private-provider-response" not in payload
+            assert "private-provider-response" not in caplog.text
+
+    with caplog.at_level(logging.WARNING, logger="powercontext.builtin.dream.service"):
+        asyncio.run(scenario())
 
 
 def test_explicit_dream_preserves_incubation_cursor_and_pending_source_work(database: DatabaseConfig) -> None:
@@ -2809,10 +2850,15 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                 stored = await runtime.experience.for_scope(scope).get(GetExperienceRequest(artifact=target))
                 assert stored.lineage.sources == (source.source_ref,)
                 assert stored.lineage.artifacts == (*refs, *(citations if revision == 1 else ()))
-            with pytest.raises(EvidenceResolutionError, match="evidence_limit_exceeded"):
+            with pytest.raises(EvidenceResolutionError, match="evidence_limit_exceeded") as limited:
                 await runtime.dream.for_scope(scope).create(
                     CreateDreamRunRequest(operation="derive_skill", artifacts=(target,), idempotency_key="bounded")
                 )
+            diagnostics = classify_processing_error(limited.value)
+            assert diagnostics is not None
+            assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+            assert diagnostics.reason is None
+            assert diagnostics.failure_location == "evidence_limit_exceeded"
             if citations:
                 candidate = await runtime.skill.for_scope(scope).propose(
                     ProposeSkillRequest(
@@ -2826,10 +2872,15 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                     )
                 )
                 await forget_memory(runtime, scope, citations[0])
-                with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
+                with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive") as inactive:
                     await runtime.review.for_scope(scope).approve(
                         ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                     )
+                diagnostics = classify_processing_error(inactive.value)
+                assert diagnostics is not None
+                assert diagnostics.stage is ProcessingStage.BUSINESS_VALIDATION
+                assert diagnostics.reason is None
+                assert diagnostics.failure_location == "memory_entry_inactive"
                 pending = await runtime.review.for_scope(scope).get(
                     GetCandidateRequest(candidate_id=candidate.candidate_id)
                 )
