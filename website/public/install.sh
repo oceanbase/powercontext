@@ -20,6 +20,7 @@ UV_VERSION=0.12.23
 PROFILE=local
 REGION=${POWERCONTEXT_INSTALL_REGION:-auto}
 PYTHON_BIN=""
+PYTHON_BIN_DIR=""
 INDEX_URL=""
 HOSTS=()
 NO_HOSTS=false
@@ -303,6 +304,33 @@ ensure_python() {
     PYTHON_BIN=$("$UV_BIN" python find --system --no-project --no-python-downloads 3.12) || fail "Installed Python was not found."
 }
 
+ensure_python3() {
+    if ! command -v python3 >/dev/null 2>&1 &&
+        "$UV_BIN" python find --managed-python --no-project --no-python-downloads 3.12 >/dev/null 2>&1; then
+        # uv normally exposes only python3.12; Claude Code hooks need python3.
+        "$UV_BIN" python install --default 3.12 || fail "Could not expose the installed Python as python3."
+        PYTHON_BIN_DIR=$("$UV_BIN" python dir --bin) || fail "Could not locate Python executables."
+        export PATH="$PYTHON_BIN_DIR:$PATH"
+    fi
+}
+
+resolve_latest_version() {
+    # Restrict only PowerContext to stable releases; its dependencies may require betas.
+    printf 'powercontext\n' >"$TEMP_DIR/release.in"
+    local resolve_args=(pip compile --no-deps --upgrade --prerelease disallow
+        --python "$PYTHON_BIN" --no-python-downloads --no-header --no-annotate
+        --output-file "$TEMP_DIR/release.txt" "$TEMP_DIR/release.in")
+    [[ -z "$INDEX_URL" ]] || resolve_args+=(--default-index "$INDEX_URL")
+    "$UV_BIN" "${resolve_args[@]}" >/dev/null || fail "Could not select the latest stable PowerContext release. Check uv indexes and Python compatibility."
+    local line
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^powercontext==([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VERSION=${BASH_REMATCH[1]}
+        fi
+    done <"$TEMP_DIR/release.txt"
+    [[ "$VERSION" != latest ]] || fail "uv did not resolve a stable PowerContext release."
+}
+
 main() {
     parse_args "$@"
     case "$(uname -s)" in
@@ -319,6 +347,7 @@ main() {
     detect_region
     ensure_uv
     ensure_python
+    ensure_python3
     check_index
     [[ -z "$INDEX_URL" ]] || export UV_DEFAULT_INDEX="$INDEX_URL"
 
@@ -326,15 +355,14 @@ main() {
     [[ "$PROFILE" != client ]] || requirement='powercontext[cli]'
     local install_args=(tool install --python "$PYTHON_BIN" --no-python-downloads)
     if [[ "$VERSION" == latest ]]; then
+        resolve_latest_version
         # Older uv retains installed prereleases unless it resolves a fresh tool environment.
-        install_args+=(--upgrade --force --prerelease disallow)
-    else
-        requirement="$requirement==$VERSION"
+        install_args+=(--upgrade --force)
     fi
+    requirement="$requirement==$VERSION"
     if [[ ${#HOSTS[@]} -gt 0 && "$PROFILE" == client ]]; then
         # Verify the selected client package supports setup before replacing the installed tool.
         local probe_args=(tool run --isolated --python "$PYTHON_BIN" --no-python-downloads --from "$requirement")
-        [[ "$VERSION" != latest ]] || probe_args+=(--prerelease disallow)
         [[ -z "$INDEX_URL" ]] || probe_args+=(--default-index "$INDEX_URL")
         "$UV_BIN" "${probe_args[@]}" powercontext setup --help >/dev/null ||
             fail "Client integration setup preflight failed. Check uv output, use --profile local, or omit --host."
@@ -366,7 +394,11 @@ main() {
     VERSION=$installed_version
     printf 'Runtime installed: %s (%s)\n' "$VERSION" "$PROFILE"
     printf 'For a new terminal, add these directories to PATH if needed:\n'
-    printf '  export PATH=%q:%q:"%s"\n' "$(dirname "$UV_BIN")" "$tool_bin" "\$PATH"
+    if [[ -n "$PYTHON_BIN_DIR" ]]; then
+        printf '  export PATH=%q:%q:%q:"%s"\n' "$PYTHON_BIN_DIR" "$(dirname "$UV_BIN")" "$tool_bin" "\$PATH"
+    else
+        printf '  export PATH=%q:%q:"%s"\n' "$(dirname "$UV_BIN")" "$tool_bin" "\$PATH"
+    fi
 
     local setup_status=0
     if [[ ${#HOSTS[@]} -gt 0 ]]; then

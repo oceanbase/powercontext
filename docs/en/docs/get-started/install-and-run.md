@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((irm https://pow
 
 With `wget`, use `wget -qO- https://powercontext.oceanbase.io/install.sh | bash`.
 
-Run the PATH command printed at completion before using `powercontext` in your terminal. The script prints how to make the installed commands available; it leaves shell startup files and the persistent Windows PATH unchanged.
+Run the PATH command printed at completion before using `powercontext` or starting an Agent in your terminal. The script prints how to make the installed commands available; it leaves shell startup files and the persistent Windows PATH unchanged.
 
 The default installs the latest stable release and local Server dependencies. After installation, continue with the personal-service steps below. For a remote Server, use `--profile client` and follow the [remote connection guide](../operate/connect-remote-server.md).
 
@@ -143,7 +143,7 @@ To choose installation locations, use `UV_INSTALL_DIR` for a missing uv and `UV_
 If you already manage Python and uv, you can install or upgrade to the latest stable release directly, then install Agent integrations matching the installed version:
 
 ```bash
-uv tool install --upgrade --force --prerelease disallow "powercontext[cli,server]"
+uv tool install --upgrade --force "powercontext[cli,server]"
 powercontext setup codex --ref "powercontext-v$(powercontext --version)"
 ```
 
@@ -163,7 +163,7 @@ Check the [capability matrix](../integrations/capabilities.md) for host support 
 You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install PowerContext from PyPI:
 
 ```bash
-uv tool install --upgrade --force --prerelease disallow "powercontext[cli,server]"
+uv tool install --upgrade --force "powercontext[cli,server]"
 ```
 
 For a source installation of a pinned release, for example PowerContext 1.5.1:
