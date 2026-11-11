@@ -39,8 +39,8 @@ class _Connection:
     def __init__(self) -> None:
         self.batches: list[list[str]] = []
 
-    async def execute(self, statement, parameters=None):
-        identities = list(parameters["body_ids"])
+    async def execute(self, statement, parameters: dict[str, Any] | None = None):
+        identities = list((parameters or {})["body_ids"])
         self.batches.append(identities)
         return _Result(tuple(_body_row(identity) for identity in identities))
 
@@ -73,9 +73,7 @@ def test_sqlite_related_page_batches_body_reads_within_the_bind_limit() -> None:
             )
             for number in range(PAGE_SIZE)
         )
-        page = await SQLiteAtomicMemoryIndex()._related_page_from_ranks(
-            cast(Any, connection), "scope", ranks, None
-        )
+        page = await SQLiteAtomicMemoryIndex()._related_page_from_ranks(cast(Any, connection), "scope", ranks, None)
         assert page is not None
         assert [len(batch) for batch in connection.batches] == [CHUNK_SIZE, PAGE_SIZE - CHUNK_SIZE]
         assert all(len(batch) + 1 <= 999 for batch in connection.batches)
