@@ -526,7 +526,6 @@ var StatusController = class {
 				data: payload,
 				error: null,
 				last_success_at: now,
-				session_id: payload.session?.id ?? null,
 				generation
 			});
 			this.schedule(payload.connection.state === "ready" ? STATUS_REFRESH_INTERVAL_MS : STATUS_CONNECTING_RETRY_MS);

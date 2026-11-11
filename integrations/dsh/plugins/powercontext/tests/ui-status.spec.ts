@@ -169,6 +169,29 @@ describe('status controller', () => {
     controller.dispose()
   })
 
+  it('retains the selected Session while the host restores it', async () => {
+    vi.useFakeTimers()
+    const document = new FakeDocument()
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(statusPayload({ notices: ['session_unavailable'] })))
+      .mockResolvedValueOnce(response(statusPayload({
+        session: { id: 'restoring-session', scope_id: 'scope-a', scope_state: 'resolved' },
+      })))
+    const controller = new StatusController({ fetch: fetcher, document })
+    controller.setSession('restoring-session')
+    const unsubscribe = controller.subscribe(() => undefined)
+    await flush()
+
+    expect(controller.getSnapshot().session_id).toBe('restoring-session')
+    expect(controller.getSnapshot().data?.session).toBeNull()
+    controller.refreshNow()
+    await flush()
+    expect(fetcher.mock.calls[1]![0]).toBe('/powercontext/status?session_id=restoring-session')
+    expect(controller.getSnapshot().data?.session?.scope_id).toBe('scope-a')
+    unsubscribe()
+    controller.dispose()
+  })
+
   it('maps 401 to an authentication failure and recovers after the bounded retry', async () => {
     vi.useFakeTimers()
     const document = new FakeDocument()
