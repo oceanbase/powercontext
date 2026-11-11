@@ -12,341 +12,535 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Read-only processing status inspection model tests."""
+"""Processing inspection over real SQLite records, without doing work on reads."""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
-from powercontext.builtin.persistence.processing_intents import StoredArtifactProcessingIntent
-from powercontext.builtin.processing_status import (
-    ObservationOrigin,
-    ProcessingStatusInspector,
-    ProcessingStatusProgress,
-    ProcessingStatusState,
-    _unsupported_snapshot,
-    _utc_now,
+import pytest
+from sqlalchemy import event, insert, select, update
+from sqlalchemy.exc import OperationalError
+
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+from powercontext.builtin.catalog_changes.models import TagDreamTarget
+from powercontext.builtin.dream.models import CreateDreamRunRequest, DreamRecord, DreamRun
+from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.dream import DreamRepository
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_PROCESSING_LEASES_TABLE,
+    DREAM_RUNS_TABLE,
+    TOPIC_MEMORY_WORK_BLOCKS_TABLE,
+    TOPIC_MEMORY_WORK_BUDGETS_TABLE,
 )
+from powercontext.builtin.processing_diagnostics import ProcessingStage
+from powercontext.builtin.processing_status import (
+    ProcessingStatusApplication,
+    ProcessingStatusInspector,
+    ProcessingStatusState,
+)
+from powercontext.builtin.runtime import BuiltinConfig, CaptureSource, open_builtin_runtime
+from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
+from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS
+from powercontext.builtin.runtime.processing_observation import observe_processing
+from powercontext.builtin.scope import ScopeDraft
+from powercontext.builtin.scope.errors import ScopeNotFoundError
+from powercontext.builtin.scope.repository import ScopeRepository
+from powercontext.builtin.sources import SourceCursor
+from powercontext.builtin.statistics.models import ProcessingObservation
+from powercontext.builtin.tags import ArtifactTagTarget
 
 
-def _run(async_fn):
-    """Helper to run async test functions synchronously."""
-    return asyncio.run(async_fn)
+@asynccontextmanager
+async def _runtime(tmp_path):
+    async with open_builtin_runtime(
+        BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'inspection.db'}"))
+    ) as runtime:
+        assert runtime.scopes is not None
+        scopes = tuple([
+            (await runtime.scopes.create(ScopeDraft(title=name, summary=name, idempotency_key=name))).scope_id
+            for name in ("first", "second")
+        ])
+        yield runtime, scopes
 
 
-def test_progress_pending_inputs_when_head_ahead_of_cursor() -> None:
-    progress = ProcessingStatusProgress(source_cursor=10, source_head=15)
-    assert progress.pending_inputs is True
-    assert progress.outstanding_work is False
-
-
-def test_progress_no_pending_when_head_equals_cursor() -> None:
-    progress = ProcessingStatusProgress(source_cursor=10, source_head=10)
-    assert progress.pending_inputs is False
-
-
-def test_progress_outstanding_work_when_dirty_ahead_of_clean() -> None:
-    progress = ProcessingStatusProgress(dirty_generation=5, clean_generation=3)
-    assert progress.outstanding_work is True
-
-
-def test_progress_no_outstanding_work_when_dirty_equals_clean() -> None:
-    progress = ProcessingStatusProgress(dirty_generation=5, clean_generation=5)
-    assert progress.outstanding_work is False
-
-
-def test_unsupported_snapshot_marks_unknown() -> None:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    result = _unsupported_snapshot("unknown-family", "scope-1", now, "test_reason")
-
-    assert result.family == "unknown-family"
-    assert result.state is ProcessingStatusState.UNKNOWN
-    assert result.details == {"reason": "test_reason"}
-    assert result.observed_at == now
-
-
-def _make_intent(**overrides: int) -> StoredArtifactProcessingIntent:
-    return StoredArtifactProcessingIntent.model_validate({
-        "binding_name": overrides.pop("binding_name", "source-window"),
-        "scope_id": "scope-1",
-        "pending_sequence": 0,
-        "dirty_generation": overrides.pop("dirty_generation", 0),
-        "clean_generation": overrides.pop("clean_generation", 0),
-        "requested_generation": overrides.pop("requested_generation", 0),
-        "handled_generation": overrides.pop("handled_generation", 0),
-        "last_auto_scan_generation": 0,
-        "consecutive_dream_attempts": 0,
-        **overrides,
-    })
-
-
-class TestProcessingStatusInspector:
-    def test_source_consumption_idle_when_no_intent(self) -> None:
-        intents = MagicMock()
-        intents.load = AsyncMock(return_value=None)
-        inspector = ProcessingStatusInspector(intents=intents)
-
-        result = _run(
-            inspector._source_consumption_snapshot(Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC))
+async def _run_record(connection, scope, index, operation="derive_skill", status="succeeded", *, tag_family=None):
+    family = {
+        "derive_skill": "experience",
+        "refine_experience": "experience",
+        "revise_profile": "profile",
+        "revise_memory": "atomic-memory",
+        "refresh_handoff": "handoff",
+        "revise_prompt": "prompt",
+    }.get(operation, "experience")
+    ref = ArtifactRef(family=family, artifact_id="profile" if family == "profile" else "target", revision=1)
+    request = CreateDreamRunRequest(
+        operation=operation,
+        artifacts=(ref,),
+        target=ref if operation not in {"derive_skill", "refine_experience", "revise_tags"} else None,
+        tag_target=TagDreamTarget(
+            target=ArtifactTagTarget(family=tag_family, artifact_id="target"),
+            expected_etag='"tags:test"',
+            basis_ref=ArtifactRef(family=tag_family, artifact_id="target", revision=1),
         )
+        if tag_family is not None
+        else None,
+        idempotency_key=f"request-{index}",
+    )
+    accepted = datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=index)
+    record = DreamRecord(
+        run=DreamRun(
+            scope_id=scope,
+            run_id=f"dr_{index}",
+            operation=operation,
+            status=status,
+            outcome="no_change" if status == "succeeded" else None,
+            error="private-error-text" if status == "failed" else None,
+            accepted_at=accepted,
+            completed_at=accepted if status in {"failed", "succeeded"} else None,
+        ),
+        request=request,
+        principal_id="runtime",
+        request_generation=1,
+    )
+    await DreamRepository().create(connection, record)
+    return record
 
-        assert result.state is ProcessingStatusState.IDLE
-        assert result.progress is None
-        assert result.details["binding"] == "memory-source-window"
 
-    def test_source_consumption_pending_when_inputs_outstanding(self) -> None:
-        intent = _make_intent(dirty_generation=15, clean_generation=10)
-        intents = MagicMock()
-        intents.load = AsyncMock(return_value=intent)
-        inspector = ProcessingStatusInspector(intents=intents)
+@pytest.mark.parametrize("family", ["memory", "atomic-memory", "profile", "experience"])
+def test_real_cursor_is_not_an_intent_generation(tmp_path, family):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            scope = scopes[0]
+            for index in range(3):
+                await runtime.sources.for_scope(scope).capture(
+                    CaptureSource(source_id=str(index), content="private", metadata={})
+                )
+            binding = FAMILY_BINDINGS["memory" if family == "atomic-memory" else family]
+            async with runtime.primary_database.transaction() as connection:
+                intents = ArtifactProcessingIntentRepository()
+                await intents.ensure(connection, scope, binding)
+                await intents.mark_dirty_many(connection, scope, (binding,), increment=10)
+                intent = await intents.request(connection, scope, binding)
+                await intents.acknowledge(
+                    connection, scope, binding, intent.requested_generation, clean_generation=intent.dirty_generation
+                )
+                await SourceCursorRepository().save(
+                    connection, scope, binding, SourceCursor(sequence=2), expected_generation=None
+                )
+            result = await ProcessingStatusApplication(runtime).for_scope(scope).status(family)
+            assert result.progress is not None
+            assert (result.progress.source_cursor, result.progress.source_head) == (2, 3)
+            assert result.invocation is not None and result.invocation.state == "acknowledged"
+            assert result.state is ProcessingStatusState.PENDING
+            assert result.executor is None
+            observations = await observe_processing(runtime.primary_database, (scope,), None)
+            assert result.invocation.model_dump(exclude={"observed_at"}) == next(
+                row for row in observations[scope] if row.binding == binding
+            ).model_dump(exclude={"observed_at"})
 
-        result = _run(
-            inspector._source_consumption_snapshot(Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC))
+    asyncio.run(scenario())
+
+
+def test_unhandled_request_is_pending_without_source_work(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            async with runtime.primary_database.transaction() as connection:
+                await ArtifactProcessingIntentRepository().request(connection, scopes[0], FAMILY_BINDINGS["memory"])
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("memory")
+            assert result.state is ProcessingStatusState.PENDING
+            assert result.progress is not None and not result.progress.pending_inputs
+            assert result.invocation is not None and result.invocation.state == "pending"
+            assert result.executor is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("family", ["memory", "experience", "profile", "skill", "handoff", "prompt", "topic-memory"])
+def test_empty_scope_has_no_proven_publication_or_executor(tmp_path, family):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status(family)
+            assert result.state is ProcessingStatusState.IDLE
+            assert result.executor is None and result.invocation is None and result.block is None
+            assert result.dream_operations == () and result.dream_pending is False
+            if family in {"skill", "handoff", "prompt"}:
+                assert result.source_consumption_applicable is False and result.progress is None
+            else:
+                assert result.progress is not None and result.progress.source_cursor == result.progress.source_head == 0
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("latest", ["failed", "succeeded"])
+def test_historical_outcome_is_not_a_persistent_block(tmp_path, latest):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            async with runtime.primary_database.transaction() as connection:
+                await _run_record(connection, scopes[0], 1, status="failed")
+                if latest == "succeeded":
+                    await _run_record(connection, scopes[0], 2)
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("skill")
+            assert result.state is ProcessingStatusState.IDLE
+            assert result.block is None and result.dream_pending is False
+            assert result.dream_operations[0].status == latest
+            assert "private-error-text" not in repr(result)
+
+    asyncio.run(scenario())
+
+
+def test_family_filter_and_pending_query_precede_limits(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            async with runtime.primary_database.transaction() as connection:
+                await _run_record(connection, scopes[0], 0, status="running")
+                for index in range(1, 13):
+                    await _run_record(connection, scopes[0], index)
+                for index in range(13, 26):
+                    await _run_record(connection, scopes[0], index, "refine_experience")
+                await _run_record(connection, scopes[1], 100, status="queued")
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("skill")
+            assert len(result.dream_operations) == 10
+            assert all(row.operation == "derive_skill" for row in result.dream_operations)
+            assert result.dream_operations[0].status == "succeeded"
+            assert result.dream_pending is True and result.state is ProcessingStatusState.PENDING
+            assert result.executor is None
+            other = await ProcessingStatusApplication(runtime).for_scope(scopes[1]).status("skill")
+            assert [row.run_id for row in other.dream_operations] == ["dr_100"]
+
+    asyncio.run(scenario())
+
+
+def test_revise_tags_is_filtered_by_actual_target_family(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            async with runtime.primary_database.transaction() as connection:
+                await _run_record(connection, scopes[0], 1, "revise_tags", "queued", tag_family="skill")
+                for index in range(2, 15):
+                    await _run_record(connection, scopes[0], index, "revise_tags", tag_family="experience")
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("skill")
+            assert [row.run_id for row in result.dream_operations] == ["dr_1"]
+            assert result.dream_pending is True
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "family,operation",
+    [("memory", "revise_memory"), ("experience", "refine_experience"), ("profile", "revise_profile")],
+)
+def test_source_and_dream_progress_are_independent(tmp_path, family, operation):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            async with runtime.primary_database.transaction() as connection:
+                await _run_record(connection, scopes[0], 1, operation, "queued")
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status(family)
+            assert result.progress is not None and not result.progress.pending_inputs
+            assert result.dream_pending is True and result.state is ProcessingStatusState.PENDING
+            assert result.dream_operations[0].operation == operation
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("family", ["skill", "memory"])
+def test_failed_query_is_unavailable_not_idle(tmp_path, monkeypatch, family):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+
+            async def failed(*args, **kwargs):
+                raise OperationalError("private-sql", {}, RuntimeError("private-connection"))
+
+            monkeypatch.setattr(ProcessingStatusInspector, "_dream_status", failed)
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status(family)
+            assert result.state is ProcessingStatusState.UNKNOWN
+            assert result.dream_pending is None and result.unavailable_reason == "dream_query_failed"
+            assert "private" not in repr(result)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("payload", [b"{}", b"private-broken-json"])
+def test_corrupt_dream_payload_is_unavailable_without_exposing_content(tmp_path, payload):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            async with runtime.primary_database.transaction() as connection:
+                await _run_record(connection, scopes[0], 1)
+                await connection.execute(
+                    update(DREAM_RUNS_TABLE).where(DREAM_RUNS_TABLE.c.scope_id == scopes[0]).values(payload=payload)
+                )
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("skill")
+            assert result.state is ProcessingStatusState.UNKNOWN
+            assert result.dream_pending is None and result.unavailable_reason == "dream_query_failed"
+            assert "private" not in repr(result)
+            async with runtime.primary_database.transaction() as connection:
+                assert await connection.scalar(select(DREAM_RUNS_TABLE.c.payload)) == payload
+
+    asyncio.run(scenario())
+
+
+async def _topic_budget(connection, scope, *, started=False, finished=False):
+    binding = TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+    await connection.execute(
+        insert(TOPIC_MEMORY_WORK_BUDGETS_TABLE).values(
+            scope_id=scope,
+            binding_name=binding,
+            source_after=0,
+            source_through=1,
+            attempt_id="attempt-1",
+            attempts=3,
+            requests=4,
+            tokens=120,
+            failure_code="",
+            attempt_source_through=1,
+            started_at=datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None) if started else None,
+            finished_at=datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None) if finished else None,
+            supervisor_group="global" if started else None,
+            supervisor_generation=1 if started else None,
+            holder_id="owner" if started else None,
         )
-
-        assert result.state is ProcessingStatusState.PENDING
-        assert result.progress is not None
-        assert result.progress.source_cursor == 10
-        assert result.progress.source_head == 15
-
-    def test_source_consumption_pending_when_requested_ahead_of_handled(self) -> None:
-        """Acknowledged request with unhandled work must report PENDING."""
-        intent = _make_intent(dirty_generation=4, clean_generation=4, requested_generation=4, handled_generation=3)
-        intents = MagicMock()
-        intents.load = AsyncMock(return_value=intent)
-        inspector = ProcessingStatusInspector(intents=intents)
-
-        result = _run(
-            inspector._source_consumption_snapshot(Mock(), "scope-1", "memory", datetime(2026, 1, 1, tzinfo=UTC))
-        )
-
-        assert result.state is ProcessingStatusState.PENDING
-        assert result.progress.pending_inputs is False
-        assert result.progress.outstanding_work is False
-
-    def test_source_consumption_idle_when_caught_up(self) -> None:
-        intent = _make_intent(dirty_generation=10, clean_generation=10)
-        intents = MagicMock()
-        intents.load = AsyncMock(return_value=intent)
-        inspector = ProcessingStatusInspector(intents=intents)
-
-        result = _run(
-            inspector._source_consumption_snapshot(Mock(), "scope-1", "profile", datetime(2026, 1, 1, tzinfo=UTC))
-        )
-
-        assert result.state is ProcessingStatusState.IDLE
-        assert result.progress is not None
-        assert result.progress.pending_inputs is False
-        assert result.progress.outstanding_work is False
-
-    def test_topic_memory_unavailable_when_no_status_provider(self) -> None:
-        inspector = ProcessingStatusInspector(topic_memory_status=None)
-
-        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
-
-        assert result.state is ProcessingStatusState.UNKNOWN
-        assert result.details["reason"] == "recovery_not_configured"
-
-    def test_topic_memory_graceful_on_status_provider_error(self) -> None:
-        failing_status = AsyncMock(side_effect=RuntimeError("boom"))
-        inspector = ProcessingStatusInspector(topic_memory_status=failing_status)
-
-        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
-
-        assert result.state is ProcessingStatusState.UNKNOWN
-        assert result.details["reason"] == "status_query_failed"
-
-    def test_topic_memory_maps_idle_state(self) -> None:
-        raw = Mock(state=Mock(value="idle"), block=None, source_cursor=5, source_head=10, target_source_through=None)
-        status_fn = AsyncMock(return_value=raw)
-        inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
-
-        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
-
-        assert result.state is ProcessingStatusState.IDLE
-        assert result.progress is not None
-        assert result.progress.source_cursor == 5
-        assert result.progress.source_head == 10
-
-    def test_topic_memory_maps_blocked_state_with_diagnostics(self) -> None:
-        raw = Mock(
-            state=Mock(value="blocked"),
-            block=Mock(block_id="b1", stage="topic_memory", error_code="window_attempt_limit"),
-            source_cursor=3,
-            source_head=5,
-            target_source_through=None,
-        )
-        status_fn = AsyncMock(return_value=raw)
-        inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
-
-        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
-
-        assert result.state is ProcessingStatusState.BLOCKED
-        assert result.block is not None
-        assert result.block.block_id == "b1"
-        assert result.block.stage == "topic_memory"
-        assert result.block.error_code == "window_attempt_limit"
-        assert result.block.diagnostics is not None
-
-    def test_topic_memory_maps_pending_state(self) -> None:
-        raw = Mock(state=Mock(value="pending"), block=None, source_cursor=3, source_head=8, target_source_through=None)
-        status_fn = AsyncMock(return_value=raw)
-        inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
-
-        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
-
-        assert result.state is ProcessingStatusState.PENDING
-        assert result.progress is not None
-        assert result.progress.source_cursor == 3
-        assert result.progress.source_head == 8
-
-    def test_topic_memory_unknown_state_fallback(self) -> None:
-        raw = Mock(
-            state=Mock(value="future_state"), block=None, source_cursor=0, source_head=0, target_source_through=None
-        )
-        status_fn = AsyncMock(return_value=raw)
-        inspector = ProcessingStatusInspector(topic_memory_status=status_fn)
-
-        result = _run(inspector._topic_memory_snapshot(Mock(), "scope-1", datetime(2026, 1, 1, tzinfo=UTC)))
-
-        assert result.state is ProcessingStatusState.UNKNOWN
-
-    def test_dream_idle_when_no_matching_runs(self) -> None:
-        dream = MagicMock()
-        dream.list = AsyncMock(return_value=Mock(runs=()))
-        inspector = ProcessingStatusInspector(dream=dream)
-
-        result = _run(inspector.status(Mock(), "scope-1", "skill"))
-
-        assert result.state is ProcessingStatusState.IDLE
-        assert result.dream_operations == ()
-
-    def test_dream_blocked_when_latest_run_failed(self) -> None:
-        failed_run = Mock(
-            run_id="dr_1",
-            operation="derive_skill",
-            status="failed",
-            outcome=None,
-            error="budget_exceeded",
-        )
-        dream = MagicMock()
-        dream.list = AsyncMock(return_value=Mock(runs=(failed_run,)))
-        inspector = ProcessingStatusInspector(dream=dream)
-
-        result = _run(inspector.status(Mock(), "scope-1", "skill"))
-
-        assert result.state is ProcessingStatusState.BLOCKED
-        assert len(result.dream_operations) == 1
-        assert result.dream_operations[0].run_id == "dr_1"
-
-    def test_dream_pending_when_latest_run_queued(self) -> None:
-        queued_run = Mock(run_id="dr_2", operation="refresh_handoff", status="queued", outcome=None, error=None)
-        dream = MagicMock()
-        dream.list = AsyncMock(return_value=Mock(runs=(queued_run,)))
-        inspector = ProcessingStatusInspector(dream=dream)
-
-        result = _run(inspector.status(Mock(), "scope-1", "handoff"))
-
-        assert result.state is ProcessingStatusState.PENDING
-
-    def test_dream_pending_when_latest_run_running(self) -> None:
-        running_run = Mock(run_id="dr_3", operation="revise_prompt", status="running", outcome=None, error=None)
-        dream = MagicMock()
-        dream.list = AsyncMock(return_value=Mock(runs=(running_run,)))
-        inspector = ProcessingStatusInspector(dream=dream)
-
-        result = _run(inspector.status(Mock(), "scope-1", "prompt"))
-
-        assert result.state is ProcessingStatusState.PENDING
-
-    def test_dream_idle_when_latest_succeeded(self) -> None:
-        succeeded_run = Mock(
-            run_id="dr_4",
-            operation="derive_skill",
-            status="succeeded",
-            outcome="proposed",
-            error=None,
-        )
-        dream = MagicMock()
-        dream.list = AsyncMock(return_value=Mock(runs=(succeeded_run,)))
-        inspector = ProcessingStatusInspector(dream=dream)
-
-        result = _run(inspector.status(Mock(), "scope-1", "skill"))
-
-        assert result.state is ProcessingStatusState.IDLE
-
-    def test_dream_idle_when_query_fails(self) -> None:
-        dream = MagicMock()
-        dream.list = AsyncMock(side_effect=RuntimeError("db unavailable"))
-        inspector = ProcessingStatusInspector(dream=dream)
-
-        result = _run(inspector.status(Mock(), "scope-1", "skill"))
-
-        assert result.state is ProcessingStatusState.UNKNOWN
-        assert result.details["reason"] == "dream_query_failed"
-
-    def test_status_routes_to_correct_family(self) -> None:
-        intent = _make_intent(dirty_generation=0, clean_generation=0)
-        intents = MagicMock()
-        intents.load = AsyncMock(return_value=intent)
-        inspector = ProcessingStatusInspector(intents=intents)
-
-        result = _run(inspector.status(Mock(), "scope-1", "memory"))
-
-        assert result.family == "memory"
-        assert result.state is ProcessingStatusState.IDLE
-
-    def test_unknown_family_returns_unsupported(self) -> None:
-        inspector = ProcessingStatusInspector()
-
-        result = _run(inspector.status(Mock(), "scope-1", "nonexistent-family"))
-
-        assert result.state is ProcessingStatusState.UNKNOWN
-        assert result.details["reason"] == "family_not_supported"
-
-    def test_dream_filters_runs_by_family_operations(self) -> None:
-        """Runs from other families must not appear in this family's status."""
-        skill_run = Mock(
-            run_id="dr_skill",
-            operation="derive_skill",
-            status="succeeded",
-            outcome="proposed",
-            error=None,
-        )
-        handoff_run = Mock(
-            run_id="dr_handoff",
-            operation="refresh_handoff",
-            status="failed",
-            outcome=None,
-            error="err",
-        )
-        dream = MagicMock()
-        dream.list = AsyncMock(return_value=Mock(runs=(skill_run, handoff_run)))
-        inspector = ProcessingStatusInspector(dream=dream)
-
-        result = _run(inspector.status(Mock(), "scope-1", "skill"))
-
-        assert result.state is ProcessingStatusState.IDLE
-        assert len(result.dream_operations) == 1
-        assert result.dream_operations[0].operation == "derive_skill"
+    )
 
 
-def test_utc_now_is_timezone_aware() -> None:
-    now = _utc_now()
-    assert now.tzinfo is not None
-    assert now.tzinfo.utcoffset(now) is not None
+@pytest.mark.parametrize("persisted", [False, True])
+def test_topic_legacy_projection_and_real_block_are_passive(tmp_path, persisted):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            scope = scopes[0]
+            await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="one", content="private", metadata={})
+            )
+            async with runtime.primary_database.transaction() as connection:
+                await _topic_budget(connection, scope)
+                if persisted:
+                    await connection.execute(
+                        insert(TOPIC_MEMORY_WORK_BLOCKS_TABLE).values(
+                            block_id="block-1",
+                            attempt_id="attempt-1",
+                            scope_id=scope,
+                            binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                            source_after=0,
+                            source_through=1,
+                            budget_source_through=1,
+                            target_source_through=1,
+                            attempts=3,
+                            requests=4,
+                            tokens=120,
+                            error_code="window_attempt_limit",
+                            blocked_at=datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+                        )
+                    )
+            statements = []
+
+            def capture(conn, cursor, statement, parameters, context, executemany):
+                statements.append(statement)
+
+            engine = runtime.primary_database.engine.sync_engine
+            event.listen(engine, "before_cursor_execute", capture)
+            try:
+                first = await ProcessingStatusApplication(runtime).for_scope(scope).status("topic-memory")
+                second = await ProcessingStatusApplication(runtime).for_scope(scope).status("topic-memory")
+            finally:
+                event.remove(engine, "before_cursor_execute", capture)
+            assert first.state is second.state is ProcessingStatusState.BLOCKED
+            assert first.block is not None and first.block.persisted is persisted
+            assert first.block.diagnostics is not None
+            assert first.block.diagnostics.stage is ProcessingStage.GENERATION
+            assert first.block.requests == 4 and first.block.tokens == 120
+            if not persisted:
+                assert first.block.block_id is None and first.block.blocked_at is None
+            assert all(
+                not any(word in sql.upper() for word in ("INSERT", "UPDATE", "DELETE", "FOR UPDATE"))
+                for sql in statements
+            )
+            async with runtime.primary_database.transaction() as connection:
+                blocks = (await connection.execute(select(TOPIC_MEMORY_WORK_BLOCKS_TABLE))).all()
+                assert len(blocks) == int(persisted)
+
+    asyncio.run(scenario())
 
 
-def test_observation_origin_values() -> None:
-    assert ObservationOrigin.DURABLE == "durable"
-    assert ObservationOrigin.LOCAL == "local"
-    assert ObservationOrigin.EXTERNAL == "external"
+@pytest.mark.parametrize("dream_pending", [None, False, True])
+def test_topic_block_survives_unavailable_dream_observations(tmp_path, monkeypatch, dream_pending):
+    async def dream_status(self, connection, scope, family):
+        if dream_pending is None:
+            raise OperationalError("query", {}, RuntimeError("private-dream-query"))
+        return (), dream_pending
+
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            scope = scopes[0]
+            await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="one", content="private", metadata={})
+            )
+            async with runtime.primary_database.transaction() as connection:
+                await _topic_budget(connection, scope)
+            monkeypatch.setattr(ProcessingStatusInspector, "_dream_status", dream_status)
+            result = await ProcessingStatusApplication(runtime).for_scope(scope).status("topic-memory")
+            assert result.block is not None
+            assert result.state is (
+                ProcessingStatusState.PENDING if dream_pending is True else ProcessingStatusState.BLOCKED
+            )
+            assert result.dream_pending is dream_pending
+            assert result.unavailable_reason == ("dream_query_failed" if dream_pending is None else None)
+            assert "private" not in repr(result)
+
+    asyncio.run(scenario())
 
 
-def test_processing_status_state_values() -> None:
-    assert ProcessingStatusState.IDLE == "idle"
-    assert ProcessingStatusState.PENDING == "pending"
-    assert ProcessingStatusState.BLOCKED == "blocked"
-    assert ProcessingStatusState.UNKNOWN == "unknown"
+def test_retry_removes_current_block_from_projection(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            scope = scopes[0]
+            await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="one", content="private", metadata={})
+            )
+            async with runtime.primary_database.transaction() as connection:
+                await _topic_budget(connection, scope)
+            first = await ProcessingStatusApplication(runtime).for_scope(scope).status("topic-memory")
+            assert first.block is not None
+            async with runtime.primary_database.transaction() as connection:
+                await connection.execute(update(TOPIC_MEMORY_WORK_BUDGETS_TABLE).values(attempts=1, attempt_id="new"))
+            result = await ProcessingStatusApplication(runtime).for_scope(scope).status("topic-memory")
+            assert result.block is None and result.state is ProcessingStatusState.PENDING
+
+    asyncio.run(scenario())
+
+
+def test_only_scope_bound_local_observations_identify_executor(tmp_path, monkeypatch):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            local = ProcessingObservation(
+                binding=FAMILY_BINDINGS["memory"],
+                family="memory",
+                state="running",
+                observed_at=datetime.now(UTC),
+                scheduler_observed=True,
+                worker_id="worker",
+            )
+            monkeypatch.setattr(
+                ArtifactProcessingSupervisors,
+                "observe_scope",
+                lambda self, scope: (local,) if scope == scopes[0] else (),
+            )
+            supervisors = ArtifactProcessingSupervisors(())
+            async with runtime.primary_database.transaction(consistent_snapshot=True) as connection:
+                result = await ProcessingStatusInspector().status(
+                    connection, scopes[0], "memory", supervisors=supervisors
+                )
+                other = await ProcessingStatusInspector().status(
+                    connection, scopes[1], "memory", supervisors=supervisors
+                )
+            assert result.executor is local and other.executor is None
+            restarted = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("memory")
+            assert restarted.executor is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("finished", [False, True])
+def test_active_final_topic_attempt_is_not_reported_as_a_block(tmp_path, finished):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            scope = scopes[0]
+            await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="one", content="private", metadata={})
+            )
+            async with runtime.primary_database.transaction() as connection:
+                await ArtifactProcessingLeaseRepository().start_single_process_term(connection, "owner")
+                await _topic_budget(connection, scope, started=True, finished=finished)
+            result = await ProcessingStatusApplication(runtime).for_scope(scope).status("topic-memory")
+            assert (result.block is not None) is finished
+            assert result.state is (ProcessingStatusState.BLOCKED if finished else ProcessingStatusState.PENDING)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("family", ["memory", "experience", "profile", "skill", "handoff", "prompt", "topic-memory"])
+def test_public_inspection_does_not_flush_usage_or_trigger_work(tmp_path, monkeypatch, family):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+
+            def forbidden(*args, **kwargs):
+                pytest.fail("inspection must not enter a usage-flushing or model-owning context")
+
+            monkeypatch.setattr(runtime, "_scoped_operation", forbidden)
+            if runtime._topic_memory_recovery is not None:
+                monkeypatch.setattr(runtime._topic_memory_recovery, "status", forbidden)
+            statements = []
+
+            def capture(conn, cursor, statement, parameters, context, executemany):
+                statements.append(statement)
+
+            engine = runtime.primary_database.engine.sync_engine
+            event.listen(engine, "before_cursor_execute", capture)
+            try:
+                for _ in range(2):
+                    await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status(family)
+            finally:
+                event.remove(engine, "before_cursor_execute", capture)
+            assert all(
+                not any(word in sql.upper() for word in ("INSERT", "UPDATE", "DELETE", "FOR UPDATE"))
+                for sql in statements
+            )
+            assert len(statements) < 25
+
+    asyncio.run(scenario())
+
+
+def test_snapshot_lease_uses_pre_snapshot_clock_not_later_time(tmp_path, monkeypatch):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            scope = scopes[0]
+            await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="one", content="private", metadata={})
+            )
+            base = datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+            async with runtime.primary_database.transaction() as connection:
+                await _topic_budget(connection, scope, started=True)
+                await connection.execute(
+                    insert(ARTIFACT_PROCESSING_LEASES_TABLE).values(
+                        supervisor_group="global",
+                        holder_id="owner",
+                        supervisor_generation=1,
+                        lease_expires_at=base + timedelta(seconds=10),
+                    )
+                )
+            calls = []
+
+            async def clock(connection):
+                calls.append(None)
+                return base if len(calls) == 1 else base + timedelta(seconds=20)
+
+            monkeypatch.setattr("powercontext.builtin.processing_status.database_utc_now", clock)
+            original = ScopeRepository.get
+
+            async def delayed_read(self, connection, selected, *args, **kwargs):
+                await clock(connection)
+                return await original(self, connection, selected, *args, **kwargs)
+
+            monkeypatch.setattr(ScopeRepository, "get", delayed_read)
+            result = await ProcessingStatusApplication(runtime).for_scope(scope).status("topic-memory")
+            assert len(calls) >= 2
+            assert result.state is ProcessingStatusState.PENDING
+            assert result.block is None
+
+    asyncio.run(scenario())
+
+
+def test_nonexistent_scope_and_unsupported_family_stay_distinct(tmp_path):
+    async def scenario():
+        async with _runtime(tmp_path) as (runtime, scopes):
+            with pytest.raises(ScopeNotFoundError):
+                await ProcessingStatusApplication(runtime).for_scope("missing").status("skill")
+            result = await ProcessingStatusApplication(runtime).for_scope(scopes[0]).status("custom-family")
+            assert result.state is ProcessingStatusState.UNKNOWN
+            assert result.unavailable_reason == "family_not_supported"
+            assert result.progress is None and result.executor is None
+
+    asyncio.run(scenario())
