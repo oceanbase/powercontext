@@ -112,13 +112,22 @@ def test_context_from_earlier_releases_is_replaced(monkeypatch: pytest.MonkeyPat
         )
         return ModelResponse(parts=[TextPart("complete")])
 
-    async def scenario() -> None:
+    async def scenario() -> list[Any]:
         agent = Agent(FunctionModel(respond), capabilities=[PowerContext(scope_id="project:context")])
-        await agent.run("second prompt", message_history=history)
+        result = await agent.run("second prompt", message_history=history)
+        return result.all_messages()
 
-    asyncio.run(scenario())
+    stored = asyncio.run(scenario())
 
     assert system_prompts == [f"{CONTEXT_MARKER}\n\ncurrent context"]
+    # Persisted history drops the earlier part too, and keeps the earlier prompt it shared a request with.
+    assert [part.content for message in stored for part in message.parts if isinstance(part, SystemPromptPart)] == [
+        f"{CONTEXT_MARKER}\n\ncurrent context"
+    ]
+    assert [part.content for message in stored for part in message.parts if isinstance(part, UserPromptPart)] == [
+        "first prompt",
+        "second prompt",
+    ]
 
 
 def test_recalled_context_preserves_new_messages_boundary_across_turns(
