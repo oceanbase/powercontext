@@ -1,0 +1,21 @@
+docs/en/rfcs/2570-rag-knowledge-base.md
+  s_13fec9a57c9104::t_59bf03481c3d58 67-68,74-76,97-103,135-139,195-196,210-215,292-299,335,361-365,407-438,441,444-450,474-477
+docs/zh/rfcs/2570-rag-knowledge-base.md
+  s_13fec9a57c9104::t_59bf03481c3d58 59-60,65-67,83-87,117-120,169-170,183-186,250-254,283,307-311,351-379,382,385-389,411-414
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e9a4ebf50478de3fb3bb11539a12c49dd6655942",
+  "prompts": {},
+  "sessions": {
+    "s_13fec9a57c9104": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1617e-79d4-7103-bf67-e341786d4978",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Frey <370805886@qq.com>"
+    }
+  }
+}
