@@ -105,6 +105,13 @@ describe('config env overrides', () => {
     expect(resolved.scopeId).toBe('project:from-env')
     expect(resolved.capturePrompts).toBe(false)
   })
+
+  it('requires an explicit owner-local assertion and lets the environment override it', () => {
+    expect(resolveConfig({}, {}).ownerLocal).toBeUndefined()
+    expect(resolveConfig({ ownerLocal: false }, {}).ownerLocal).toBe(false)
+    expect(resolveConfig({ ownerLocal: false }, { POWERCONTEXT_DSH_OWNER_LOCAL: 'true' }).ownerLocal).toBe(true)
+    expect(() => resolveConfig({ ownerLocal: 'yes' as never }, {})).toThrow(/ownerLocal must be a boolean/)
+  })
 })
 
 describe('capture source id', () => {
