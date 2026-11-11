@@ -127,6 +127,10 @@ def test_blog_language_is_consistent_in_text_examples_and_diagrams() -> None:
         "deepseek-harness-powercontext/dsh-web.png",
         "deepseek-harness-powercontext/plugin-list.png",
         "deepseek-harness-powercontext/pc-command.png",
+        # These supplied diagrams are intentionally shared by both locales.
+        "power-system-agent-memory/memory.svg",
+        "power-system-agent-memory/task-recovery.svg",
+        "power-system-agent-memory/power-system-agent-architecture.svg",
         # Preserve the reviewed project screenshots, paired by interface language.
         *(
             f"magpie-gateway-powercontext-memory/{name}.{language}.png"

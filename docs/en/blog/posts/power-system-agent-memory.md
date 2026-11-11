@@ -56,7 +56,7 @@ This stack already covers the main capabilities required to run the business age
 
 ## 03 Overall architecture: LangGraph orchestrates; the Runtime manages context, memory, and tasks
 
-![LangGraph multi-agent architecture for a power system](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.en.svg)
+![LangGraph multi-agent architecture for a power system](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.svg)
 
 *Figure 1. The Agent Runtime for a power system. LangGraph orchestrates business agents and calls context, memory, and task capabilities; the lower layers connect local models, knowledge services, data, and domain algorithms.*
 
@@ -160,7 +160,7 @@ Context Manager answers “what should this inference see?” Memory Manager ans
 
 We do not treat Memory as a complete log or a copy of every conversation. The useful material is organized, traceable, and reusable in similar tasks.
 
-![Memory extraction, validation, and reuse from operational evidence](../../../assets/blog/power-system-agent-memory/memory.en.svg)
+![Memory extraction, validation, and reuse from operational evidence](../../../assets/blog/power-system-agent-memory/memory.svg)
 
 ### 5.1 Short-term and long-term memory
 
@@ -321,7 +321,7 @@ During recovery, the system checks whether original data is still valid, whether
 
 **Recovery restores more than a program position; it restores the task's business meaning and currently valid evidence.**
 
-![Persistent task and recovery flow, including checkpoints, operation storage, and evidence storage](../../../assets/blog/power-system-agent-memory/task-recovery.en.svg)
+![Persistent task and recovery flow, including checkpoints, operation storage, and evidence storage](../../../assets/blog/power-system-agent-memory/task-recovery.svg)
 
 ## 07 How the three Managers cooperate in one diagnosis
 

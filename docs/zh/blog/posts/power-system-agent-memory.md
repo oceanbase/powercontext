@@ -62,7 +62,7 @@ pin: false
 
 先看整体结构：
 
-![面向电力系统的 LangGraph 多智能体技术架构](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.zh.svg)
+![面向电力系统的 LangGraph 多智能体技术架构](../../../assets/blog/power-system-agent-memory/power-system-agent-architecture.svg)
 
 *图 1：面向电力系统的 Agent Runtime。LangGraph 统一编排业务智能体，并调用上下文、记忆和任务管理能力；底层连接本地模型、知识服务、数据与领域算法。*
 
@@ -166,7 +166,7 @@ Context Manager 解决的是“本轮推理看什么”，Memory Manager 解决�
 
 我们不把 Memory 理解成完整日志，也不保存所有聊天记录。真正值得沉淀的是经过整理、能够追溯来源，并且在相似任务中有复用价值的事实和经验。
 
-![从运行证据到经验证经验的记忆提取、验证与复用流程](../../../assets/blog/power-system-agent-memory/memory.zh.svg)
+![从运行证据到经验证经验的记忆提取、验证与复用流程](../../../assets/blog/power-system-agent-memory/memory.svg)
 
 ### 5.1 短期记忆与长期记忆
 
@@ -326,7 +326,7 @@ State 中保存当前流程真正需要的信息，例如任务目标、当前�
 
 **任务恢复不只是恢复程序执行位置，还要恢复任务的业务语义和当前有效依据。**
 
-![任务持久化与恢复流程，以及检查点、操作存储和证据存储的关系](../../../assets/blog/power-system-agent-memory/task-recovery.zh.svg)
+![任务持久化与恢复流程，以及检查点、操作存储和证据存储的关系](../../../assets/blog/power-system-agent-memory/task-recovery.svg)
 
 
 ## 07 三个 Manager 如何在一次诊断中协同？
