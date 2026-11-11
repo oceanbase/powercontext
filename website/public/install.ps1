@@ -354,7 +354,9 @@ try {
         $ReleaseInput = Join-Path $TempDir 'release.in'
         $ReleaseOutput = Join-Path $TempDir 'release.txt'
         [IO.File]::WriteAllText($ReleaseInput, "powercontext`n")
-        $ResolveArgs = @('pip', 'compile', '--no-deps', '--upgrade', '--prerelease', 'disallow',
+        # Ignore the invoking project's settings while retaining user and explicit uv configuration.
+        [IO.File]::WriteAllText((Join-Path $TempDir 'uv.toml'), '')
+        $ResolveArgs = @('pip', 'compile', '--project', $TempDir, '--no-deps', '--upgrade', '--prerelease', 'disallow',
             '--python', $Python.Trim(), '--no-python-downloads', '--no-header', '--no-annotate',
             '--output-file', $ReleaseOutput, $ReleaseInput)
         if ($IndexUrl) { $ResolveArgs += @('--default-index', $IndexUrl) }
