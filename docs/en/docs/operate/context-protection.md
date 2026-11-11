@@ -5,7 +5,7 @@ description: Reuse exact prepared Atomic Memory and check final requests and res
 
 # Context reuse and final admission
 
-Prepare context once, retain its short-lived reuse proof, and validate the exact bytes before each model request and complete response delivery. Configure an enforcing target using [Inference privacy protection](inference-protection.md) before using the public admission API. The caller owns model execution and delivery; a check does not execute a model or authorize spending.
+Prepare context once, retain its short-lived reuse proof, and validate the exact bytes before each model request and complete response delivery. Configure a target and privacy mode using [Inference privacy protection](inference-protection.md). Callers that require complete privacy checks must use enforcing mode. The caller owns model execution and delivery; a check does not execute a model or authorize spending.
 
 Before upgrading a Server with this API, follow the [coordinated SDK/CLI upgrade requirements](../get-started/install-and-run.md#update-or-replace-an-installation). Older clients reject the new capability field even when protection is disabled.
 
@@ -99,10 +99,16 @@ the prepared value. A gateway must not mask an approved request or restore value
 reuse that approval for the changed bytes. A changed payload needs its own admission; this API supplies no
 placeholder mapping or authorization to reverse a privacy transformation.
 
-Only `allow` with `coverage.complete=true` permits the corresponding action. `block` and `withhold` return HTTP
+Callers requiring complete privacy checks accept only `allow` with `coverage.complete=true`. `block` and `withhold` return HTTP
 200 because a decision was made, but neither permits execution. Invalid carriers/locators return 422; authorization
 failure returns 401/403; an oversized payload returns 413. If the required check is unavailable, do not send or release.
-The public operation withholds when enforcing is not configured.
+In `disabled`, `shadow`, and `advisory` modes, Core can return `allow` with a binding after validating authorization
+and context reuse, but reports `coverage.complete=false`. Disabled skips privacy inspection; shadow and advisory
+observe requests without blocking and do not inspect responses. Enforcing retains request and response enforcement.
+Gateway accepts incomplete privacy coverage only when its trusted Core capability discovery explicitly reports
+`enforcing=false`; it still requires an allowed decision, a valid binding, and an unexpired deadline. Discovery failure
+does not enable this behavior. Restart Gateway after changing the Core privacy mode to refresh its startup discovery.
+The reference external executor continues to require complete privacy coverage.
 
 An allowed send returns a payload-, target-, policy-, identity-, and Scope-bound permit. Its 60-second send deadline
 is separate from its five-minute response-correlation deadline. Pass it as `request_binding` to

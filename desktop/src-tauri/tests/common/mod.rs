@@ -33,9 +33,13 @@ pub fn discovery_document(id: &str) -> serde_json::Value {
 }
 
 pub fn connection_manager(profiles: ProfileRepository) -> ConnectionManager {
+    ConnectionManager::with_compatibility(profiles, vec![compatibility_profile()])
+}
+
+pub fn compatibility_profile() -> CompatibilityProfile {
     let contract: serde_json::Value =
         serde_json::from_str(include_str!("../../src/transport/operations.json")).unwrap();
-    let profile = CompatibilityProfile {
+    CompatibilityProfile {
         id: PROFILE_ID.into(),
         server_commit: "synthetic-http-fixture-not-a-server-release".into(),
         contract_sha256: contract["contractSha256"].as_str().unwrap().into(),
@@ -43,6 +47,5 @@ pub fn connection_manager(profiles: ProfileRepository) -> ConnectionManager {
         authenticated_clients: Default::default(),
         operations: contract["operations"].as_object().unwrap().keys().cloned().collect(),
         evidence: "Synthetic HTTP fixtures in tests/memory.rs and tests/session.rs; not release qualification".into(),
-    };
-    ConnectionManager::with_compatibility(profiles, vec![profile])
+    }
 }

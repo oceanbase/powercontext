@@ -129,8 +129,9 @@ def _download(url: str, partial: Path) -> None:
         try:
             subprocess.run(command, check=True, env=env, timeout=1900)
         except subprocess.CalledProcessError as error:
-            # curl's own retry cannot recover from a process crash on the Windows runner.
-            if attempt or error.returncode != _WINDOWS_ACCESS_VIOLATION:
+            # curl does not retry every TLS connection reset, or a Windows
+            # process crash. Retry once from an empty partial, then fail closed.
+            if attempt or error.returncode not in {35, _WINDOWS_ACCESS_VIOLATION}:
                 raise
             partial.unlink(missing_ok=True)
         else:

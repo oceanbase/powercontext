@@ -202,6 +202,20 @@ jobs:
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
       - run: pnpm ipc:check
+      - name: Set up Python for product resource bundle regression
+        if: matrix.runner == 'macos-15'
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+          enable-cache: true
+      - name: Verify full-size product resources with the real Tauri CLI
+        if: matrix.runner == 'macos-15'
+        working-directory: .
+        env:
+          POWERCONTEXT_TEST_TAURI_PRODUCT_BUNDLE: '1'
+        run: |
+          uv sync --locked --no-dev --group resource-build --python 3.12
+          uv run --no-sync python -m pytest tests/test_desktop_product.py::test_tauri_cli_bundles_the_complete_helper_inventory -q
       - name: Verify native Keychain across processes
         run: cargo run --locked --manifest-path src-tauri/Cargo.toml --example credential_probe
       - name: Build unsigned macOS app and DMG

@@ -27,6 +27,7 @@ from shutil import which
 from powercontext.cli.dsh_runtime import DshProfile, DshTarget, dsh_home
 from powercontext.cli.guidance import SKILL_DIRECTORY, refresh_skill
 from powercontext.cli.installation import publish
+from powercontext.cli.memory_protocol import installed_memory_protocol
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError
 from powercontext.cli.transport import configure_connection
 from powercontext.paths import powercontext_data_dir
@@ -49,9 +50,11 @@ def _desktop_diagnostics(target: DshTarget) -> dict[str, Diagnostic]:
     from powercontext.cli.dsh_transport import read_dsh_settings
 
     try:
-        read_dsh_settings(profile=target.profile, executable=target.command, require_installed=True)
+        settings = read_dsh_settings(profile=target.profile, executable=target.command, require_installed=True)
+        protocol = installed_memory_protocol(settings.get("memoryProtocol"), "dsh")
     except ValueError as error:
         plugin = Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
+        protocol = Diagnostic(DiagnosticStatus.SKIPPED, "installed plugin could not be inspected")
     else:
         plugin = Diagnostic(
             status=DiagnosticStatus.OK,
@@ -69,6 +72,7 @@ def _desktop_diagnostics(target: DshTarget) -> dict[str, Diagnostic]:
     return {
         "dsh": Diagnostic(status=DiagnosticStatus.OK, detail=target.command or "Desktop-installed dsh"),
         "plugin": plugin,
+        "plugin_memory_protocol": protocol,
     }
 
 
@@ -216,8 +220,16 @@ class DshInstaller:
                 "plugin": Diagnostic(status=DiagnosticStatus.SKIPPED, detail="plugin list is unavailable"),
             }
         installed = plugin_id_installed(output)
+        from powercontext.cli.dsh_transport import read_dsh_settings
+
+        try:
+            settings = read_dsh_settings(profile=DSH_PROFILE, executable=executable, require_installed=True)
+            protocol = installed_memory_protocol(settings.get("memoryProtocol"), "dsh")
+        except ValueError:
+            protocol = installed_memory_protocol(None, "dsh")
         return {
             "dsh": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
+            "plugin_memory_protocol": protocol,
             "plugin": Diagnostic(
                 status=DiagnosticStatus.OK if installed else DiagnosticStatus.FAILED,
                 detail=(

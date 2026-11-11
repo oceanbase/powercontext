@@ -405,6 +405,7 @@ from powercontext.errors import (
     InvalidConnectorRunError,
     InvalidSourceDefinitionError,
     InvalidSourceObservationError,
+    InvalidSourceReferenceError,
     PowerContextError,
     RevisionConflictError,
     SourceConflictError,
@@ -6284,6 +6285,9 @@ def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] 
                 422,
                 "legacy_memory_operation_unsupported",
                 "The legacy Memory collection contract cannot continue for this operation. "
+                "Update the client/SDK and host plugin to a release compatible with this Server, "
+                "rerun powercontext setup for the affected host and profile, fully restart the host, "
+                "and rerun Doctor. Search again for an Atomic Memory artifact reference. "
                 "Reconstruct the request using Atomic Memory operations; do not drop collection CAS "
                 "preconditions and retry automatically.",
                 {
@@ -6751,6 +6755,13 @@ _WORKING_NOTE_EXPIRY_REASONS = {
 
 
 def _map_source_ingestion_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, InvalidSourceReferenceError):
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_request",
+            "The Source reference is invalid.",
+            {"field": error.field},
+        )
     if isinstance(error, SourceConflictError):
         return status.HTTP_409_CONFLICT, "source_conflict", "The Source identity has different content.", None
     if isinstance(error, InvalidConnectorRunError):

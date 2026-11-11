@@ -165,7 +165,7 @@ MCP 使用 stateless Streamable HTTP，每次工具执行都采用当前请求�
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | 已启用 `MEMORY_RERANK_ENABLED` 时是否仍允许追加搜索；默认在 rerank 之后不再追加 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | hybrid Atomic Memory 和 Topic Memory RRF 中 FTS 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 FTS 的候选 |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | hybrid Atomic Memory 和 Topic Memory RRF 中 vector 的相对贡献；`0` 会从 hybrid 结果中排除仅命中 vector 的候选 |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | 一次上下文准备等待查询 embedding 的总秒数，上限 `60`。该 Scope 及其每个 context reference 的 Atomic Memory 检索与 Topic Memory 检索共用这一预算，且只有等待 embedding 的时间计入：每次检索只等待前面检索剩下的时间，所以无论检索多少个 Scope，准备的等待都不超过它，而检索之间的数据库读取和重排不会占用它。耗尽预算的那次 embedding 等待所在的检索记录一次 `memory.search.embedding_fallback` 或 `topic_memory.search.embedding_fallback`。同一次准备中之后的检索不再发起新的 embedding 请求，也不记录回退事件：已有前面检索拿到的查询向量时仍使用它，否则只用词法匹配继续。默认值覆盖一次典型的远程 embedding 往返；应小于所用宿主的 prepare 请求超时，其中默认值最短的是 Kimi Code、ZCode 和 DSH 的 1 秒 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | 一次上下文准备等待查询 embedding 的总秒数，上限 `60`。该 Scope 及其每个 context reference 的 Atomic Memory 检索与 Topic Memory 检索共用这一预算，且只有等待 embedding 的时间计入：每次检索只等待前面检索剩下的时间，所以无论检索多少个 Scope，准备的等待都不超过它，而检索之间的数据库读取和重排不会占用它。耗尽预算的那次 embedding 等待所在的检索记录一次 `memory.search.embedding_fallback` 或 `topic_memory.search.embedding_fallback`。同一次准备中之后的检索不再发起新的 embedding 请求，也不记录回退事件：已有前面检索拿到的查询向量时仍使用它，否则只用词法匹配继续。默认值覆盖一次典型的远程 embedding 往返；应小于所用宿主的 prepare 请求超时，其中默认值最短的是 Kimi Code 和 DSH 的 1 秒；ZCode 单次请求允许 3 秒，并受 4 秒 Hook 总预算限制 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
@@ -566,6 +566,13 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 
 URL 必须使用 `mysql+aoceanbase` 驱动、明确的端口，并设置 `charset=utf8mb4`。省略库名时使用 `powercontext`，
 显式库名保持有效。租户必须使用 MySQL 兼容模式。
+
+Atomic Memory 会在连接的 OceanBase 或 seekDB 引擎支持时，使用原生 `minimum_should_match` 过滤；旧版引擎继续使用
+完整词 `LOCATE` 覆盖检查。能力检测不会把查询超时、权限错误或连接错误当作功能不支持。两条路径使用相同的分析、去重后的
+查询词和准入阈值，也适用于恢复探测与完整关联记忆枚举。超过 256 个不同词的查询，仅在确认版本为 OceanBase 4.6 或更新版本时使用
+原生过滤；更早的 OceanBase、seekDB 和无法识别版本的引擎继续使用完整词覆盖检查，因为 OceanBase CE 4.4.2.1 虽然接受原生语法，
+但超过该词数时可能忽略匹配阈值。查询包含 `com` 等被 SPACE 分词器省略的 Analyzer 词时，检索、完整枚举和恢复探测
+也会保留完整词覆盖检查，阈值仍按所有不同的 Analyzer 词计算。该选择无需新增配置、表或索引迁移，沿用现有 `SPACE` 全文索引。
 
 seekDB 启动和 OceanBase Python SDK 初始化会先创建缺失的目标库，再初始化表；已有可用库不会执行建库语句。
 完整 OceanBase Server 需要先准备数据库并通过显式维护初始化 Server 表结构，再启动服务；自动建库不替代该准入规则。

@@ -318,6 +318,13 @@ test("saved records cannot open an unqualified exact read while saving remains a
 test("Overview shows availability and restriction for each feature", () => {
   render(
     <Overview
+      onOpenLocalServer={vi.fn()}
+      onOpenProfile={vi.fn()}
+      onOpenScopes={vi.fn()}
+      stateLoading={false}
+      contextPending={false}
+      guideDismissed={false}
+      onGuideDismissedChange={vi.fn()}
       state={restrictedState("remember_memory", "operation_missing")}
       language="en"
       onNavigate={vi.fn()}
@@ -1320,6 +1327,13 @@ test("overview refresh shows the latest readiness instead of the activation snap
   };
   render(
     <Overview
+      onOpenLocalServer={vi.fn()}
+      onOpenProfile={vi.fn()}
+      onOpenScopes={vi.fn()}
+      stateLoading={false}
+      contextPending={false}
+      guideDismissed={false}
+      onGuideDismissedChange={vi.fn()}
       state={{
         ...state,
         active: { ...active, report: ready },

@@ -178,7 +178,7 @@ still occupies an HTTP slot until it finishes; reserve other slots for concurren
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_FTS_WEIGHT` | `1.0` | Relative FTS contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes FTS-only matches from hybrid results |
 | `POWERCONTEXT_SERVER_RUNTIME_RECALL_VECTOR_WEIGHT` | `1.0` | Relative vector contribution in hybrid Atomic Memory and Topic Memory RRF; `0` excludes vector-only matches from hybrid results |
-| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code, ZCode, and DSH |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_EMBEDDING_TIMEOUT_SECONDS` | `0.5` | Seconds one context preparation waits for query embeddings in total, at most `60`. The Atomic Memory searches of the Scope and each of its context references and the Topic Memory search share this budget, and only the time spent waiting for an embedding is charged to it: each search waits only for what the earlier ones left, so the preparation's wait stays within it however many Scopes are searched, while database reads and reranking between the searches do not use it up. The search whose embedding wait spends the budget logs `memory.search.embedding_fallback` or `topic_memory.search.embedding_fallback` once. A later search in the same preparation sends no new embedding request and logs no fallback event: it still uses a query vector an earlier search obtained, and otherwise continues with lexical matching only. The default covers a typical remote embedding round trip; keep it below the prepare request timeout of the hosts in use, the shortest default being 1 second on Kimi Code and DSH; ZCode allows 3 seconds per request within its 4-second Hook budget |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -628,6 +628,17 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 
 The URL must use the `mysql+aoceanbase` driver, include an explicit port, and set `charset=utf8mb4`. An omitted database
 defaults to `powercontext`; an explicit database is preserved. The tenant must use MySQL compatibility mode.
+
+Atomic Memory uses native `minimum_should_match` filtering when the connected OceanBase or seekDB engine supports it.
+Older engines retain the whole-word `LOCATE` coverage check. Capability detection does not treat query timeouts,
+permission failures, or connection errors as an unsupported feature. Both paths keep the same analyzed, deduplicated
+query terms and admission threshold, including recovery probes and complete related-memory enumeration.
+Queries with more than 256 distinct terms use native filtering only on identified OceanBase 4.6 or newer engines.
+Earlier OceanBase versions, seekDB, and unrecognized version strings retain whole-word coverage for these queries:
+OceanBase CE 4.4.2.1 accepts the native syntax but can ignore the threshold above that term count.
+Queries containing Analyzer terms omitted by the SPACE parser, such as `com`, also retain whole-word coverage
+for search, complete enumeration, and recovery. The threshold still counts every distinct Analyzer term.
+This selection requires no new setting, table, or index migration; the existing `SPACE` full-text index is reused.
 
 seekDB startup and OceanBase Python SDK initialization create a missing selected database before initializing tables and reuse existing databases
 without issuing a database-creation statement. Missing-database creation failures include manual provisioning guidance;

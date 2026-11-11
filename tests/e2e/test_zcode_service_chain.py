@@ -43,6 +43,8 @@ from powercontext.server.settings import McpConfig, ServerSettings
 from tests.e2e.dream_support import atomic_memory_pipeline, memory_source_text
 
 HOOK = Path(__file__).resolve().parents[2] / "integrations/zcode/plugins/powercontext/hooks/user_prompt_submit.mjs"
+# Exceed the Hook's 3-second request limit; Stop has a separate 800 ms network budget.
+SLOW_HOOK_RESPONSE_SECONDS = 3.5
 
 
 @pytest.fixture
@@ -166,7 +168,7 @@ def _delay_first_capture_response():
             # The source commits before this delay. The Hook must report an
             # unknown receipt, and the caller must verify the committed source.
             delayed = True
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(SLOW_HOOK_RESPONSE_SECONDS)
         return response
 
     return middleware
@@ -190,7 +192,7 @@ class _HookBoundaryFaults:
             await asyncio.sleep(1.2)
         response = await call_next(request)
         if delay_prepare:
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(SLOW_HOOK_RESPONSE_SECONDS)
         if is_flush and self.slow_flush_receipt:
             # The real Server commits before the response exceeds Stop's 800 ms budget.
             await asyncio.sleep(1.2)
@@ -306,28 +308,31 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
             probe_sources = client.get(f"/v1/scopes/{session_scope}/sources")
             probe_sources.raise_for_status()
             assert len(probe_sources.json()["items"]) == 1
+            probe_status = subprocess.run(
+                [
+                    node,
+                    str(HOOK.parent.parent / "scripts/status.mjs"),
+                    "--cwd",
+                    str(HOOK.parents[5]),
+                    "--session-id",
+                    "binding-probe",
+                ],
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            assert probe_status.returncode == 0, probe_status.stdout + probe_status.stderr
+            stages = json.loads(probe_status.stdout)["observation"]["stages"]
             if slow_initial_prepare:
-                probe_status = subprocess.run(
-                    [
-                        node,
-                        str(HOOK.parent.parent / "scripts/status.mjs"),
-                        "--cwd",
-                        str(HOOK.parents[5]),
-                        "--session-id",
-                        "binding-probe",
-                    ],
-                    env=environment,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                    timeout=10,
-                )
-                assert probe_status.returncode == 0, probe_status.stdout + probe_status.stderr
-                stages = json.loads(probe_status.stdout)["observation"]["stages"]
                 assert stages["prepare"]["state"] == "failed"
                 assert stages["prepare"]["code"] == "timeout"
                 assert stages["capture"]["state"] == "accepted"
                 assert stages["capture"]["source_position"] == probe_sources.json()["items"][0]["position"]
+            else:
+                assert stages["capture"]["state"] == "unknown"
+                assert stages["capture"]["code"] == "timeout"
             assert run_scope("unbind")["scope_id"] == session_scope
             first = _invoke_hook(
                 node=node,
@@ -438,7 +443,13 @@ def test_zcode_source_is_processed_and_recalled_in_a_new_session(
                 f"/revisions/{reference['revision']}"
             )
             revision.raise_for_status()
-            assert revision.json()["sources"] == [{"source_type": "content", "source_id": captured[0]["source_id"]}]
+            assert revision.json()["sources"] == [
+                {
+                    "source_type": "content",
+                    "source_id": captured[0]["source_id"],
+                    "locator": {"kind": "sequence", "sequence": captured[0]["position"]},
+                }
+            ]
 
             second = _invoke_hook(
                 node=node,

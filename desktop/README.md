@@ -51,7 +51,11 @@ Reopening Desktop loads saved profiles without activating a private session. The
 
 ## Local Server preparation
 
-Overview remains the initial page. In disconnected Memories, **Set up locally** opens and focuses **Settings & diagnostics → Local Server**; **Connect an existing Server** opens the existing connection editor. Selecting either path does not install software, activate a connection, run diagnostics or probe readiness.
+Overview remains the initial page. Its **Get started with PowerContext** guide offers **View local setup** and **Add connection**. Local setup opens and focuses the same **Settings & diagnostics → Local Server** preparation page; installation and recovery remain unavailable in this preview pending [#2306](https://github.com/oceanbase/powercontext/pull/2306). Adding a connection opens the existing editor. A saved-profile selector opens the exact selected profile for review, checking and explicit activation; reopening never restores a private connection or Scope.
+
+After activation, the guide opens the shared exact-Scope picker and continues to Memories only after an explicit successful selection. With a selected Scope, it displays the actual connection and full `scope_id`, opens the existing save/search/exact-read/copy workspace, and explains unavailable operations. The three steps describe the journey; they do not track first-memory completion, usage counts or a complete inventory. **Dismiss guide** collapses the tutorial while preserving next actions and recovery; **Revisit guide** restores it. This preference lasts only until Desktop closes. Keyboard focus, existing draft-discard guards, English/Chinese and theme settings apply to these entries.
+
+In disconnected Memories, **Set up locally** opens and focuses **Settings & diagnostics → Local Server**; **Connect an existing Server** opens the existing connection editor. Selecting either path does not install software, activate a connection, run diagnostics or probe readiness.
 
 The Local Server guidance is also available by opening Settings directly, including when native state is loading or unavailable. It explicitly marks Desktop installation, recovery and service management as unavailable; that status makes no claim about an actual local installation or running service. Settings stays at the bottom of the sidebar.
 

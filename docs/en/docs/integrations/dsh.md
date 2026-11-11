@@ -174,6 +174,7 @@ messages or recalled content. `ok: true` means these read-only checks passed, no
 | `not_ready` / `degraded` | Inspect the reported dependency, such as `database` or `inference.generation`; use its recovery action. |
 | `required_route_missing` | The named operation returned untyped 404. Inspect its proxy route/base path and matching versions; 404 alone does not prove a version mismatch. |
 | `required_route_undeclared` | The Server OpenAPI document lacks the listed operation declarations. |
+| `memory_protocol_mismatch` / `legacy_memory_operation_unsupported` | Align Server/CLI/plugin contracts, rerun setup for the active profile, restart, and search again for an Atomic reference. Never drop collection CAS. |
 | `contract_unavailable` | Declarations are unchecked; expose `/openapi.json` through the same base path or verify the contract separately. |
 | `scope_not_found` / `unscoped` | Check the explicit Scope override, workspace binding, and Server default. Doctor does not alter them. |
 | `invalid_response` | The response fails protocol checks, even if HTTP status was 200. |
@@ -183,10 +184,11 @@ The route check reads the Server's existing `/openapi.json` and distinguishes de
 Doctor never executes capture, remember, flush, binding changes or injection. A missing contract is unchecked, and
 a missing Scope skips prepare with an explicit reason. Write/processing verification belongs to acceptance below.
 
-Standalone `powercontext doctor dsh` checks Web-profile registration only and reports that the running host
-configuration and Server checks were not observed. Exit success means registration checks passed.
-`powercontext doctor` uses its own `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`; use it for the existing
-service/health diagnostics after aligning that URL, without assuming it observes DSH overrides.
+Standalone `powercontext doctor dsh` checks registration and the installed plugin Memory protocol declaration for the
+selected profile. It also checks the Server at the endpoint resolved by the CLI. These checks cannot observe environment
+overrides or cached tools inside an already running DSH process. Restart the affected profile and run `/pc doctor` there.
+An undeclared installed protocol or unavailable Server contract produces a non-success result; registration alone is
+insufficient. Bare `powercontext doctor` uses its own selected client endpoint.
 
 ## Inspect the last automatic attempt
 
@@ -415,7 +417,7 @@ powercontext doctor
 powercontext doctor dsh
 ```
 
-`doctor` checks the package and Server. `doctor dsh` checks the DeepSeek Harness CLI and that dump-config contains the plugin id `powercontext-dsh`.
+`doctor` checks the package and Server. `doctor dsh` checks the DeepSeek Harness CLI, registration and installed Memory protocol declaration. A package without a declaration is unverified/degraded; update the plugin and restart the actual Web/Desktop profile. See [protocol upgrade recovery](../operate/atomic-memory-migration.md#client-and-agent-host-compatibility).
 
 ## Environment variables
 

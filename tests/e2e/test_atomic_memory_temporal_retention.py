@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 from pydantic_ai.embeddings import TestEmbeddingModel
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, RetryPromptPart, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from powercontext.builtin.inference import InvalidInferenceOutputError
@@ -52,14 +52,15 @@ class _Provider:
     async def respond(self, messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         request = messages[-1]
         assert isinstance(request, ModelRequest)
-        retry = any(isinstance(part, RetryPromptPart) for part in request.parts)
-        (prompt,) = (
+        prompt = next(
             part.content
             for message in messages
             if isinstance(message, ModelRequest)
             for part in message.parts
             if isinstance(part, UserPromptPart)
         )
+        # FunctionModel receives normalized retry feedback as another user prompt.
+        retry = any(isinstance(part, UserPromptPart) and part.content != prompt for part in request.parts)
         value = json.loads(str(prompt))
         if "proposal" not in value:
             (evidence,) = value["evidence"]
@@ -154,7 +155,7 @@ def test_flush_accepts_effective_times_adjacent_to_chinese_words(monkeypatch, tm
     text = f"自{literal}起，{statement}"  # noqa: RUF001 - Chinese punctuation
 
     async def respond(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
-        (prompt,) = (
+        prompt = next(
             part.content
             for message in messages
             if isinstance(message, ModelRequest)
