@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from typing import Any, Literal, cast
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.persistence.atomic_memory_index import (
@@ -42,13 +43,29 @@ class _Result:
     def mappings(self) -> tuple[dict[str, Any], ...]:
         return self.rows
 
+    def close(self) -> None:
+        pass
+
+
+class _Pool:
+    """Weak-referenceable stand-in for a SQLAlchemy pool."""
+
 
 class _Connection:
-    def __init__(self, *, scalar: int = 0, batches: tuple[tuple[dict[str, Any], ...], ...] = ()) -> None:
+    def __init__(
+        self,
+        *,
+        scalar: int = 0,
+        batches: tuple[tuple[dict[str, Any], ...], ...] = (),
+        native_fts: bool = False,
+    ) -> None:
         self.dialect = SimpleNamespace(name="mysql")
         self.scalar_value = scalar
         self.batches = list(batches)
+        self.native_fts = native_fts
+        self.pool = _Pool()
         self.executed: list[tuple[str, dict[str, object]]] = []
+        self.driver_statements: list[str] = []
 
     async def execute(self, statement, parameters=None):
         self.executed.append((str(statement), dict(parameters or {})))
@@ -58,6 +75,15 @@ class _Connection:
     async def scalar(self, statement, parameters=None):
         self.executed.append((str(statement), dict(parameters or {})))
         return self.scalar_value
+
+    async def run_sync(self, fn):
+        return fn(SimpleNamespace(engine=SimpleNamespace(pool=self.pool)))
+
+    async def exec_driver_sql(self, statement):
+        self.driver_statements.append(statement)
+        if not self.native_fts:
+            raise DBAPIError(statement, {}, Exception(1064))
+        return _Result(())
 
 
 def _placeholder_names(statement: str) -> set[str]:
@@ -181,6 +207,29 @@ def test_oceanbase_related_page_reports_ranked_memories_without_bodies_as_stale_
         with pytest.raises(AtomicMemoryIndexError) as raised:
             await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
         assert raised.value.code == "stale-recall"
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_related_ranks_select_native_fts_when_supported() -> None:
+    async def scenario() -> None:
+        connection = _Connection(batches=(_fts_rows("memory-1"), _body_rows("memory-1")), native_fts=True)
+        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
+        rank_sql, rank_parameters = connection.executed[0]
+        assert "MATCH(searchable_text^1, :fts_query, :fts_options)" in rank_sql
+        assert "LOCATE(BINARY" not in rank_sql
+        assert str(rank_parameters["fts_options"]).startswith("operator=or;minimum_should_match=")
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_related_ranks_fall_back_to_coverage_without_native_fts() -> None:
+    async def scenario() -> None:
+        connection = _Connection(batches=(_fts_rows("memory-1"), _body_rows("memory-1")))
+        await OceanBaseAtomicMemoryIndex(PROFILE).related_page(cast(Any, connection), "scope", _request("fts"))
+        rank_sql, _ = connection.executed[0]
+        assert "LOCATE(BINARY" in rank_sql
+        assert "searchable_text^1" not in rank_sql
 
     asyncio.run(scenario())
 

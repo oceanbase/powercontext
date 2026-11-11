@@ -429,7 +429,7 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         eligibility: str,
         parameters: dict[str, object],
     ) -> tuple[AtomicMemoryRelatedRank, ...]:
-        rank_sql = self._related_fts_rank_sql(eligibility, request, parameters)
+        rank_sql = await self._related_fts_rank_sql(connection, eligibility, request, parameters)
         if rank_sql is None:
             return ()
         sql = f"{rank_sql} ORDER BY score DESC, artifact_id"
@@ -473,23 +473,34 @@ class OceanBaseAtomicMemoryIndex(RelationalAtomicMemoryIndex):
         rows = tuple((await connection.execute(self._related_vector_rank_sql(eligibility), parameters)).mappings())
         return combine_atomic_memory_related_ranks(fts_ranks, atomic_memory_channel_ranks(rows, vector=True))
 
-    def _related_fts_rank_sql(
-        self, eligibility: str, request: AtomicMemoryRelatedRequest, parameters: dict[str, object]
+    async def _related_fts_rank_sql(
+        self,
+        connection: AsyncConnection,
+        eligibility: str,
+        request: AtomicMemoryRelatedRequest,
+        parameters: dict[str, object],
     ) -> str | None:
         terms, required = fts_query_requirements(request.query, floor=request.admission)
         if not terms or required > len(terms):
             # Whole-word coverage can never reach a threshold above the query's distinct terms.
             return None
-        coverage, coverage_parameters = oceanbase_fts_coverage_sql(terms)
-        parameters.update(coverage_parameters)
         parameters.update(fts_query=" ".join(terms), fts_required=required)
-        score = "MATCH(searchable_text) AGAINST (:fts_query)"
+        if await self._supports_native_fts(connection, terms=terms):
+            parameters["fts_options"] = f"operator=or;minimum_should_match={required}"
+            score = "SCORE()"
+            coverage = ":fts_required"
+            admission = _NATIVE_FTS_MATCH
+        else:
+            coverage, coverage_parameters = oceanbase_fts_coverage_sql(terms)
+            parameters.update(coverage_parameters)
+            score = "MATCH(searchable_text) AGAINST (:fts_query)"
+            admission = f"{score} > 0 AND ({coverage}) >= :fts_required"
         return (
             "SELECT artifact_id, revision, state_version, kind, "  # noqa: S608
             f"{score} AS score, {score} AS raw_score, 'oceanbase_match' AS score_metric, "
             f"{coverage} AS coverage FROM pc_atomic_memory_current "
             "WHERE scope_id = :scope_id "
-            f"AND ({eligibility}) AND {score} > 0 AND ({coverage}) >= :fts_required"
+            f"AND ({eligibility}) AND {admission}"
         )
 
     async def _require_related_vectors(
