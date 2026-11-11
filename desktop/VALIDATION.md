@@ -384,6 +384,27 @@ cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 
 [Desktop CI](../.github/workflows/desktop.yml) also builds a Server wheel, runs real Server and CLI tests, checks Windows credentials and process containment, builds the installer, and exercises installation, the installed UI and uninstallation. Consult the PR checks for the exact commit being reviewed. Reports, logs and screenshots are generated under ignored `.artifacts/` and uploaded as Actions artifacts; do not copy them into the repository.
 
+## Local Server validation at c256f59f
+
+On 2026-11-02, clean sources at `c256f59f3a61923289ee9da51bde558be8d62b87`, including
+master `e192e08c39b098dd56b2de342c83ff6ae86ded23`, passed 192 frontend tests and 130 native
+tests, with two native opt-ins ignored. The focused Desktop/Ops/admission, spawned-worker,
+ZCode and DMG recovery selection passed 146 Python tests with one platform skip. All 63 API
+contract checks, `make check`, `make docs-test`, frontend lint/typecheck/build, Rust formatting,
+Clippy and IPC drift checks passed. The host was macOS arm64, Python 3.12.15, Rust 1.95.0,
+Node 24.22.1, pnpm 11.13.1 and MacOSX26.5.sdk; Node differs from the 24.14.1 engine pin.
+
+The fixture-qualified native adapter and the built wheel passed all four real SQLite Server
+modes: anonymous loopback, Bearer, HTTPS with an explicit CA/base path, and an enforced Provider.
+They cover save/search/exact reads, lost-response handling without replay, identity/revocation,
+Scope pagination and Server survival after client exit. The wheel is
+`powercontext-1.4.2.dev146+gc256f59f3-py3-none-any.whl`, with SHA-256
+`bb00af89974333187e2605576da31c15b43142b9eca60c81b2e292cbc9ae071e`;
+normalized OpenAPI SHA-256 is `0f6befcd87645b83e63ea6393ba57002387302b4e53cf85fc474a218292f4104`.
+Product qualification records remain unchanged. These isolated local processes do not qualify
+external production deployments, managed installation/apply, installed Windows/macOS UI,
+login/reboot, signing or notarization. UI tests mock IPC, and native unit HTTP fixtures are synthetic.
+
 ## Deployment context validation
 
 On 2026-10-28, Windows 10 x64 / Python 3.11.15 / Rust 1.95.0 ran the deployment-identity
@@ -2387,6 +2408,25 @@ are documented in [Local Server Ops](../docs/en/docs/operate/local-server-ops.md
 上述两项可选检查分别验证源码 Ops 子进程和完整独立分发包与原生桥接的只读兼容性。测试使用临时 home、绑定和状态目录，
 不执行服务修改；真实服务管理器归属无法确认时保留预检拒绝。分发包测试要求另行提供已批准的清单摘要，并检查依赖被改动时
 原生端拒绝启动。这些证据不代替签名／公证、真实服务修改、随包配置或干净机器验收。
+
+## Local Server setup, recovery and management
+
+Local checks use macOS arm64, Python 3.12.15, Rust 1.95.0, Node 24.22.1, pnpm 11.13.1 and MacOSX26.5.sdk. The host Node patch differs from the package's 24.14.1 engine pin; pinned CI qualification remains separate. The frontend suite passes 163 tests, including both languages, explicit plan approval, plan dismissal during an awaited context guard, retained operation recovery, lost progress/reply reference discovery, cancellation, rejected resources and a generation-bound handoff into the exact returned default Scope. Deferred progress subscriptions are exercised through StrictMode remount and cleanup. A browser smoke check of the unavailable-native view at 800×600 found no horizontal overflow; it is not a native WebView or complete layout qualification.
+
+The Rust suite passes 126 top-level tests, with two opt-ins ignored by default. Synthetic HTTP scenarios verify no local activation before version/identity/basic-Memory/default-Scope validation completes, no activation after denied Scope resolution or an identity change during the exact read, monotonically newer Scope publication, exact-Scope reauthorization on ordinary refresh and loss of revoked selections. The local handoff and retained-Scope rechecks carry the original discovered Server ID through every identity check: a replacement during default-Scope resolution prevents the exact read, a replacement during an exact read prevents publication, and a new deployment cannot inherit the former Scope selection. Real disposable helper processes verify approved recovery metadata, progress correlation, legacy query-only references and refusal of changed actions/options. A shared valid catalog is accepted by actual Python `ResourceCatalog` and by Rust, including omitted `executable=false` defaults and rejection of resource/source/wheel evidence mismatches.
+
+The source Ops opt-in was separately executed with `POWERCONTEXT_OPS_TEST_PYTHON` pointing to the prepared Python environment. It uses a disposable home, missing Server runtime and read-only inspection/preflight; it does not apply service operations or register a service. The independent distributed-bundle opt-in was not executed for this change.
+
+`make check`, Rust formatting/all-target Clippy with `-D warnings`, IPC export drift, frontend lint/typecheck/production build and `make docs-test` pass. The focused Python contract/fixture/Ops/installer/local-policy selection passes 89 tests with one platform skip. The commands at the top of this guide reproduce the checks; the setup behavior and supported recovery choices are documented in both locales under [Desktop local setup](../docs/en/development/desktop-local-server.md).
+
+UI tests mock native IPC; HTTP fixtures simulate Server responses. These results do not establish actual managed installation/apply, Windows execution, signed/notarized packages, clean-machine bootstrap, login/reboot, real IME, screen readers or installed credential/clipboard behavior. Product qualification records are unchanged. Required installed acceptance uses the exact published resources and final Windows/macOS packages under #2108/#2109/#2112; #2117 remains open until that evidence is linked.
+
+
+## Local handoff and submitted-input retention
+
+Local macOS arm64 UI checks use Node 24.22.1 and pnpm 11.13.1; Node differs from the 24.14.1 engine pin. The 176 frontend tests pass, including English/Chinese deferred local handoff, preserved newer connection input and discard confirmation, navigation without editing, concurrent read disconnection before a write receipt, unknown-write retry failure, independent recovery copies, explicit discard and late success/unknown/rejected receipts. The three local-handoff regressions fail against the prior App implementation. IPC is mocked; these checks do not qualify installed WebView, clipboard, actual managed apply or service lifecycle behavior.
+
+本地 macOS arm64 使用 Node 24.22.1、pnpm 11.13.1，Node 与固定的 24.14.1 不同。176 项前端测试通过，覆盖中英文延迟本地交接、新连接输入及丢弃确认保护、未编辑时的页面导航、写入回执前并发读取断连、未知写入重试失败、独立恢复副本、明确丢弃和晚到的成功／未知／拒绝回执。三项本地交接回归在原 App 实现上失败。IPC 使用模拟响应；这些检查不代表安装版 WebView、剪贴板、真实受管安装或服务生命周期验收。
 
 ## Server d6820d88 protocol qualification
 
