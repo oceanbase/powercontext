@@ -1,7 +1,7 @@
 .PHONY: install
 install: ## Install the virtual environment and install the prek hooks
 	@echo "🚀 Creating virtual environment using uv"
-	@uv sync
+	@uv sync --locked --python 3.13
 	@uv run prek install
 
 .PHONY: skills-install
