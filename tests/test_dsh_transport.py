@@ -1058,6 +1058,12 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(dsh_profi
     import powercontext.cli.dsh as dsh
     from powercontext.cli.system import doctor_app
 
+    source = Path(__file__).resolve().parents[1] / "integrations/dsh/plugins/powercontext"
+    installed = dsh_profile / "node_modules/powercontext-dsh"
+    installed.mkdir(parents=True)
+    for name in ("package.json", "cordis.patch.yml"):
+        shutil.copyfile(source / name, installed / name)
+    (dsh_profile / "package.json").write_text(json.dumps({"dsh": {"profile": {"bundles": ["powercontext-dsh"]}}}))
     desktop = dsh_profile.parent / "desktop"
     desktop.mkdir()
     (desktop / "package.json").write_bytes((dsh_profile / "package.json").read_bytes())
@@ -1070,4 +1076,6 @@ def test_explicit_web_doctor_does_not_read_desktop_environment_profile(dsh_profi
     monkeypatch.setattr(dsh, "_run_dsh", lambda *_args, **_kwargs: "id: powercontext-dsh\n")
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--profile", "web", "--json"])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["hosts"]["dsh"]["ok"] is True
+    checks = json.loads(result.stdout)["hosts"]["dsh"]
+    assert checks["ok"] is True
+    assert checks["checks"]["plugin_memory_protocol"]["status"] == "ok"
