@@ -312,6 +312,17 @@ previous result_id without copying chunk bodies. Its operation summary must actu
 by an identical-content put no-op. Evidence, lineage, revision, and head commit together in core; failure creates no success
 evidence, and replaying the same accepted operation does not add revisions.
 
+Deletion must distinguish a published document from a logical file that has never published an Artifact. Under the existing
+core Scope gate and plugin resource/job locks, reread the head and reconcile publication before selecting the branch. If a head
+exists, use the revision/retirement protocol above. If the file has never published, deleting it marks its document resource
+and invalidates pending publication; no Artifact ETag, empty Artifact, deletion revision, or Artifact-success evidence is required.
+Knowledge-base cascades include these unpublished resources. Source deletion marks the selected Source and invalidates only
+work depending on it; it does not retire a nonexistent document or delete unrelated Source versions. Direct document deletion
+still leaves original Sources readable. Missing heads for previously published files are consistency errors, not this branch.
+The resource tombstone and invalidation commit before releasing the gate, so a concurrent first publication cannot slip through.
+The job records completion; repeated deletion succeeds without inventing an Artifact operation. A committed resource tombstone
+is a deletion effect and prevents cancellation, even when no Artifact exists.
+
 Manual text replacement may retain a logical chunk ID, but references include a revision. Rechunking may create new IDs.
 Edited text is marked non-verbatim with original locators and edit provenance. Removing the last chunk permits a zero-chunk
 result with no current retrieval hits. Duplicate import cannot overwrite manual edits; explicit reprocessing requires discard.
@@ -320,7 +331,7 @@ Knowledge-base deletion first commits its deletion revision/retirement, immediat
 job survives restart, marks Sources, deletes documents, and cancels processing in batches. Each changed Artifact gets its own
 evidence, sharing an operation ID for the cascade. Cleanup is allowed under a deleted parent and is not cancelled by ordinary
 processing parent checks. Its cursor is plugin batch progress only. Persist the deletion/cleanup job before the first deletion
-effect. Once a Source tombstone or Artifact retirement commits, deletion is non-cancellable: failures require completion or
+effect. Once a resource tombstone or Artifact retirement commits, deletion is non-cancellable: failures require completion or
 recovery rather than reporting cancellation with unfinished side effects. Queued deletion without effects remains cancellable.
 
 Deleting a document leaves its original Source readable. Deleting an unpublished replacement Source preserves an old result
@@ -507,6 +518,8 @@ Verify on SQLite, SeekDB, and OceanBase:
   and the core Scope gate preventing old-transaction reconnect/publication.
 - Creation/modification/deletion evidence tied to actual revisions; increment on chunk removal, readable zero chunks, history.
 - Source/document/knowledge-base deletion racing publication; tombstones deny derived reads before head/index cleanup.
+- Delete a first-import queued/failed file without an Artifact, cascade over unpublished resources, and race deletion against
+  first publication; no fabricated deletion revision/evidence and no cancellation after a resource tombstone commits.
 - Cancellation rejected after deletion effects; repeated deletes repair failed cleanup, concurrent retries share one active
   successor, and completed objects do not get duplicate revisions/evidence.
 - Direct active-model configuration edits rejected, Scope-wide switch/rebuild, partial-publication recovery, failed maintenance,

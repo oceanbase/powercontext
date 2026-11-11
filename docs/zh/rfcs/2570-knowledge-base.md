@@ -262,13 +262,21 @@ SQLite 使用 core 数据库的 `BEGIN IMMEDIATE` 写事务；不新增锁表、
 无需复制 chunk 正文。操作摘要必须使删除 revision 真正写入，不能被“相同 content 的 put 是 no-op”跳过。
 证据、lineage、revision、head 在 core 同事务提交；失败不产生成功证据。同一已接受操作重放不增加 revision。
 
+删除必须区分“已有 document Artifact”和“从未发布 Artifact 的逻辑文件”。在既有 core Scope 闸门及插件资源／job 锁内，
+重新读取 head 并对账发布结果后选择分支：已有 head 按上述 revision／retirement 协议处理；确认从未发布时，删除逻辑文件只标记
+其 document 资源并使待发布任务失效，不要求 Artifact ETag，不创建空 Artifact、删除 revision 或 Artifact 成功操作证据。
+知识库级联也必须处理这些未发布资源。删除 Source 只标记指定 Source 并使依赖它的任务失效，不 retire 不存在的 document，
+不删除无关 Source 版本；单独删除 document 仍保留原文 Source 可读。曾经发布但 head 缺失属于一致性错误，不能按未发布分支跳过。
+资源墓碑和任务失效须在释放闸门前提交，避免判断无 head 后后台又完成首次发布。Job 记录完成，重复删除不虚构 Artifact 动作。
+资源墓碑一经提交即属于删除生效，即使尚无 Artifact，也不能再取消该删除。
+
 手动替换文字可保留逻辑 chunk ID，但引用必须带 revision；重切块可产生新 ID。人工正文标记非原文逐字引用，保留原始定位与编辑依据。
 移除最后一块允许零 chunk 结果，当前检索无命中。重复导入不得覆盖人工修改，显式重新解析需要 discard 授权。
 
 删除 knowledge-base 先提交父对象删除 revision／retirement，立即阻断全部子内容；接受的 cleanup job 可在进程重启后继续，
 分批标记 Source、删除 document、取消处理任务。每个真正变化的 Artifact 生成自己的证据，使用共同 operation ID 关联级联。
 Cleanup 是已删除父对象下的允许操作，不能被普通处理任务的父状态检查取消。清理游标只用于插件分批操作。
-先持久接受删除／清理 job，再提交第一个删除标记。Source 墓碑或 Artifact retirement 一旦提交，删除进入不可取消阶段；
+先持久接受删除／清理 job，再提交第一个删除标记。资源墓碑或 Artifact retirement 一旦提交，删除进入不可取消阶段；
 后续错误只能恢复善后，不能报告“已取消”并遗留半完成删除。尚未产生删除效果的排队任务仍可取消。
 
 删除 document 保留原文 Source 可读；原文读取不因 document 单独删除而失效。删除未发布替代 Source 保留基于其他原文的旧版本。
@@ -429,6 +437,7 @@ SQLite、SeekDB、OceanBase 都验证：
 - 插件连接单独断开、core 连接单独断开、提交响应未知与取消／重领竞争，验证 core Scope 闸门和禁止旧事务重连发布。
 - 创建／修改／删除证据与实际 revision 一致；删除 chunk 版本递增、零块可读、历史保留。
 - Source／document／knowledge-base 删除与发布竞争；墓碑已提交但 head／索引未清理时仍拒绝派生内容读取。
+- 首次导入排队／失败且尚无 Artifact 时删除，知识库级联覆盖未发布资源；与首次发布竞争时不漏删，不虚构删除 revision／证据，资源墓碑提交后不可取消。
 - 删除生效后取消被拒绝，反复删除补齐失败清理，并发重删只产生一个活跃善后 job，已完成对象不重复 revision／证据。
 - 模型配置直接修改被拒绝，Scope 级切换／重建、部分发布后恢复、失败维护和旧 profile 任务失效。
 - Chunk 目录／单块／批量边界、索引全生命周期、重建及有效候选补取。
