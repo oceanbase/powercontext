@@ -211,6 +211,7 @@ function StatusPanel(props: StatusProps & { locale: Locale; changeLocale: (local
     }
     if (!openDashboard(result.url)) {
       setDashboardNotice('dashboardContainerUnavailable')
+      setExternalDashboard(result.url)
       return
     }
     setOpen(false)

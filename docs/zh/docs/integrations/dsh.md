@@ -191,8 +191,8 @@ POWERCONTEXT_DSH_OWNER_LOCAL=true dsh web
 所选 Scope；登录失败可在原登录页更正。
 
 Dashboard 未开启时，面板提示在 Server 配置中开启。Host 凭据被拒绝或 Server 不可用会分别提示；Dashboard
-可用性不会改变 API 连接状态。DSH Browser 容器不可用时，面板保留诊断入口并提示无法打开侧栏。Browser 导航
-失败由 DSH Browser 标签页显示，恢复 Server 后可刷新。PowerContext Server 不支持 Dashboard 与自定义认证
+可用性不会改变 API 连接状态。DSH Browser 容器不可用时，面板保留诊断入口、提示无法打开侧栏，并提供
+**在浏览器中打开**。Browser 导航失败由 DSH Browser 标签页显示，恢复 Server 后可刷新。PowerContext Server 不支持 Dashboard 与自定义认证
 Provider 同时启动；应将该 Server 启动错误与 Browser 加载失败分开排查。插件不会自行开启 Dashboard 或降低认证要求。
 此浏览器入口已在官方 DSH 0.2.2-rc.1 Web 和 Desktop 发行版中实测；其他宿主版本需要分别验收容器。
 

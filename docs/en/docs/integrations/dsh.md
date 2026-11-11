@@ -238,8 +238,9 @@ selected Scope. A failed sign-in stays on the Dashboard login page for correctio
 
 If Dashboard is disabled, the panel says to enable it in Server configuration. A rejected Host credential or an
 unavailable Server is reported separately; the API connection status is not changed by Dashboard availability.
-If the DSH Browser container is unavailable, the panel keeps diagnostics open and reports that it could not open
-the sidebar. A Browser navigation failure is shown by DSH's Browser tab; refresh it after restoring the Server.
+If the DSH Browser container is unavailable, the panel keeps diagnostics open, reports that it could not open
+the sidebar, and offers **Open in browser**. A Browser navigation failure is shown by DSH's Browser tab; refresh
+it after restoring the Server.
 PowerContext Server rejects Dashboard startup with a custom authentication Provider; diagnose that Server startup
 error separately from Browser loading. This plugin neither enables Dashboard nor changes Server authentication.
 The browser entry has been exercised on the official DSH 0.2.2-rc.1 Web and Desktop release; other host releases
