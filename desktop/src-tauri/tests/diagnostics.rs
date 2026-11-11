@@ -157,3 +157,36 @@ async fn non_regular_registration_is_rejected_without_blocking_shutdown() {
     .expect("shutdown must not wait on a FIFO registration")
     .unwrap();
 }
+
+#[test]
+fn memory_protocol_checks_survive_projection_without_private_details() {
+    for status in ["ok", "skipped", "degraded", "failed"] {
+        let ok = status == "ok";
+        let host_ok = ok || status == "skipped";
+        let input = serde_json::json!({
+            "ok": host_ok,
+            "hosts": {"pi": {
+                "ok": host_ok, "status": if host_ok { "ok" } else { status },
+                "checks": {
+                    "server_memory_protocol": {"ok": ok, "status": status, "detail": "private-server"},
+                    "plugin_memory_protocol": {"ok": ok, "status": status,
+                        "detail": "private-package", "checks": {"memory_protocol": "secret-token"}}
+                }
+            }}
+        });
+        let report = project(
+            DiagnosticKind::Integrations,
+            &serde_json::to_vec(&input).unwrap(),
+            i32::from(!host_ok),
+        )
+        .unwrap();
+        assert_eq!(report.hosts.len(), 1);
+        assert_eq!(report.hosts[0].checks.len(), 2);
+        for check in &report.hosts[0].checks {
+            assert_eq!(check.status, status);
+        }
+        let output = serde_json::to_string(&report).unwrap();
+        assert!(!output.contains("private"));
+        assert!(!output.contains("secret-token"));
+    }
+}

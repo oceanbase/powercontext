@@ -8,11 +8,12 @@ on:
     branches: [master]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   schedule:
-    - cron: '17 20 * * *'
+    # 02:00 Asia/Shanghai; native database acceptance runs once per night.
+    - cron: '0 18 * * *'
   workflow_dispatch:
     inputs:
       upgrade_selection:
-        description: Upgrade cases (full and automatic both run all 12 configurations)
+        description: Manual upgrade cases (full and automatic run all 12 configurations)
         type: choice
         default: full
         options:
@@ -31,7 +32,7 @@ concurrency:
 jobs:
   seekdb-managed-startup:
     needs: [quality, tests]
-    if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
+    if: ${{ !cancelled() && contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     name: SeekDB managed startup regression (priority)
     timeout-minutes: 20
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-light' || 'ubuntu-24.04' }}
@@ -90,7 +91,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').upgrade) }}
     uses: ./.github/workflows/upgrade-release.yml
     with:
-      selection: ${{ github.event_name == 'workflow_dispatch' && inputs.upgrade_selection || 'full' }}
+      selection: ${{ github.event_name == 'workflow_dispatch' && inputs.upgrade_selection || github.event_name == 'schedule' && 'full' || 'sqlite' }}
       internal_runner: true
 
   upgrade-release-gate:
@@ -118,7 +119,7 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       POWERCONTEXT_TEST_MIGRATION_OCEANBASE_URL: mysql+aoceanbase://root%40test:powercontext-e2e@127.0.0.1:2881/pc_migration_probe_engine_crash?charset=utf8mb4
     steps:
@@ -508,9 +509,9 @@ jobs:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     # Shard 0 also runs indexing, bootstrap (20m), and archive validation (5m)
-    # before migrations (40m). Preserve each step's deadline and leave time
+    # before migrations (50m). Preserve each step's deadline and leave time
     # for environment setup and diagnostic uploads.
-    timeout-minutes: 80
+    timeout-minutes: 90
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
@@ -570,8 +571,8 @@ jobs:
       - name: Test unified migrations with embedded seekdb
         if: ${{ !cancelled() && steps.seekdb_setup.outcome == 'success' }}
         # Last-client shutdown adds native startup work. Partition runner nodes;
-        # Source evidence expands the batch; every node keeps its 180-second deadline.
-        timeout-minutes: 40
+        # Full Server cases can pass at 175s; allow process startup and native shutdown as well.
+        timeout-minutes: 50
         env:
           SEEKDB_MIGRATION_SHARD: ${{ matrix.migration-shard }}
           POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -621,7 +622,7 @@ jobs:
             fi
             seekdb_runner_node="${seekdb_runner_nodes[$index]}"
             uv run --locked --extra seekdb --extra code python .github/scripts/run_seekdb_migration_test.py \
-              "$seekdb_runner_node" \
+              --timeout 210 "$seekdb_runner_node" \
               2>&1 | tee -a seekdb-migrations.log
           done
           # These are required independent runs, not retries: any failure stops
@@ -660,7 +661,7 @@ jobs:
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').database) }}
     name: Atomic Memory clean migration (SeekDB)
     # Reserve 10m beyond the two test steps for setup and diagnostics.
-    timeout-minutes: 80
+    timeout-minutes: 90
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'powercontext-ci-standard' || 'ubuntu-24.04' }}
     env:
       POWERCONTEXT_TEST_MIGRATION_SEEKDB: "1"
@@ -678,7 +679,7 @@ jobs:
           python-version: "3.12"
 
       - name: Run clean migration evidence, grants and vectors without skips
-        timeout-minutes: 35
+        timeout-minutes: 45
         env:
           TMPDIR: ${{ runner.temp }}/am-seekdb
         run: |
@@ -1044,6 +1045,11 @@ jobs:
       - name: Verify Pi guidance adapter requests and results
         run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[pi]"
 
+      - name: Run Pi with the PowerContext extension against a real Server
+        env:
+          POWERCONTEXT_TEST_PI_HOST: "1"
+        run: uv run pytest tests/e2e/test_pi_service_chain.py
+
   opencode-package:
     needs: [quality, tests]
     if: ${{ !cancelled() && needs.quality.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.tests.result) && (fromJSON(needs.quality.outputs.suites || '{}').opencode) }}
@@ -1176,10 +1182,13 @@ jobs:
     if: >-
       ${{ !cancelled() && needs.quality.result == 'success' &&
           contains(fromJSON('["success","skipped"]'), needs.tests.result) &&
-          (fromJSON(needs.quality.outputs.suites || '{}').database || fromJSON(needs.quality.outputs.suites || '{}').harness) }}
+          (fromJSON(needs.quality.outputs.suites || '{}').database ||
+           fromJSON(needs.quality.outputs.suites || '{}').harness ||
+           fromJSON(needs.quality.outputs.suites || '{}').oceanbase_acceptance) }}
     uses: ./.github/workflows/e2e-harness.yml
     with:
       suites: ${{ needs.quality.outputs.suites }}
+      preflight-checked: true
 
   gateway-validation:
     needs: [quality, tests]

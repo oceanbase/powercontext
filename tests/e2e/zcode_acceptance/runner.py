@@ -286,6 +286,8 @@ class AcceptanceRun:
         if resume:
             args.extend(["--resume", resume])
         completed = self.process(args, environment=environment)
+        if self.model is not None and self.model.failure_code:
+            raise AssertionError(self.model.failure_code)
         events = _cli_events(completed.stdout, failed=completed.returncode != 0)
         self.last_events = events
         if self.live:

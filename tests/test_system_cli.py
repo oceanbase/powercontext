@@ -1921,6 +1921,13 @@ class _Response(BytesIO):
         return self._status
 
 
+_MEMORY_CONTRACT = {
+    "openapi": "3.0.3",
+    "paths": {},
+    "x-powercontext-feature-contracts": {"memory.explicit": {"major": 1, "minor": 0}},
+}
+
+
 def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> None:
     _mock_optional_personal_service(monkeypatch)
     monkeypatch.setattr(
@@ -1935,6 +1942,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
             side_effect=[
                 _Response(200, {"status": "ok"}),
                 _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+                _Response(200, _MEMORY_CONTRACT),
             ]
         ),
     )
@@ -1951,6 +1959,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
         "service_registration",
         "server_liveness",
         "server_readiness",
+        "server_memory_protocol",
     ]
 
 
@@ -1960,6 +1969,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
         side_effect=[
             _Response(200, {"status": "ok"}),
             _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+            _Response(200, _MEMORY_CONTRACT),
         ]
     )
     monkeypatch.setattr(system_cli, "urlopen", urlopen)
@@ -1972,6 +1982,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
         "http://127.0.0.1:8888/health/live",
         "http://127.0.0.1:8888/health/ready",
+        "http://127.0.0.1:8888/openapi.json",
     ]
 
     # Explicit CLI argument should override the environment variable.
@@ -1979,6 +1990,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     urlopen.side_effect = [
         _Response(200, {"status": "ok"}),
         _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+        _Response(200, _MEMORY_CONTRACT),
     ]
     override = CliRunner().invoke(
         create_cli([doctor_app]),
@@ -1991,6 +2003,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
         "http://127.0.0.1:9999/health/live",
         "http://127.0.0.1:9999/health/ready",
+        "http://127.0.0.1:9999/openapi.json",
     ]
 
 
@@ -2044,7 +2057,7 @@ def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monk
                 },
             ),
         )
-        return [_Response(200, {"status": "ok"}), readiness]
+        return [_Response(200, {"status": "ok"}), readiness, _Response(200, _MEMORY_CONTRACT)]
 
     monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
     human = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
@@ -2085,7 +2098,7 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
                     },
                 },
             ),
-            _Response(200, {"status": "ok"}),
+            _Response(200, _MEMORY_CONTRACT),
             _Response(200, [{"scope_id": "default", "display_name": "Default", "summary": ""}]),
         ]
 
@@ -2098,7 +2111,9 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
     assert "server readiness: degraded - http://127.0.0.1:8000 status=degraded" in human.output
     assert "  inference.embedding: misconfigured" in human.output
     assert machine.exit_code == 1
-    assert json.loads(machine.output) == {
+    payload = json.loads(machine.output)
+    assert payload["checks"].pop("server_memory_protocol")["status"] == "ok"
+    assert payload == {
         "ok": False,
         "status": "degraded",
         "checks": {

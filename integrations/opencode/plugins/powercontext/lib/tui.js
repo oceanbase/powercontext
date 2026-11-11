@@ -2148,6 +2148,27 @@ var PowerContextClient = class {
 };
 
 //#endregion
+//#region src/memory-compatibility.ts
+const MEMORY_PROTOCOL_RECOVERY = "Update the PowerContext CLI/SDK and plugin to a release compatible with the Server; run powercontext setup opencode for the affected profile, then fully restart the host and rerun Doctor. Search again for an Atomic Memory artifact reference before retrying. Do not drop collection CAS preconditions or automatically replay writes.";
+function record(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function memoryProtocolCheck(contracts, projection = "server-info") {
+	const memory = record(contracts) ? contracts["memory.explicit"] : void 0;
+	const version = record(memory) ? projection === "openapi" ? memory : memory.version : void 0;
+	return record(version) && version.major === 1 && Number.isInteger(version.minor) && Number(version.minor) >= 0 ? {
+		ok: true,
+		code: "memory_protocol_compatible",
+		message: "The Server declares Atomic Memory protocol v1. Write behavior was not tested."
+	} : {
+		ok: false,
+		code: "memory_protocol_mismatch",
+		message: "The Server does not declare the Atomic Memory protocol required by this plugin. Health checks alone do not establish compatibility.",
+		recovery: MEMORY_PROTOCOL_RECOVERY
+	};
+}
+
+//#endregion
 //#region src/memory-operations.ts
 var MemoryOperationError = class extends Error {
 	code;
@@ -2271,6 +2292,14 @@ function errorResult(error) {
 		message: error.message
 	};
 	if (error instanceof ServerResponseError) {
+		if (error.statusCode === 422 && error.code === "legacy_memory_operation_unsupported") return {
+			ok: false,
+			code: error.code,
+			message: "This request uses the unsupported legacy Memory collection protocol.",
+			recovery: MEMORY_PROTOCOL_RECOVERY,
+			status: 422,
+			request_id: error.requestId
+		};
 		if (error.statusCode === 401) return {
 			ok: false,
 			code: "authentication_failed",
@@ -2394,14 +2423,20 @@ async function handleReview(tokens, runtime, scopeId, signal) {
 async function handleDoctor(runtime, scopeId, signal) {
 	const live = await invokeOperation(runtime.client, "get_liveness", {}, scopeId, signal);
 	const ready = await invokeOperation(runtime.client, "get_readiness", {}, scopeId, signal);
-	const ok = live.ok && ready.ok;
+	const info = await invokeOperation(runtime.client, "get_server_info", {}, scopeId, signal);
+	const memory = info.ok ? memoryProtocolCheck(info.data?.feature_contracts) : {
+		...info,
+		recovery: "Memory compatibility is unverified. Check the discovery endpoint and its permissions. " + MEMORY_PROTOCOL_RECOVERY
+	};
+	const ok = live.ok && ready.ok && memory.ok;
 	return {
 		kind: ok ? "success" : "error",
 		text: formatResult({
 			ok,
 			data: {
 				live,
-				ready
+				ready,
+				memory
 			}
 		})
 	};

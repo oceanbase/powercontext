@@ -265,7 +265,9 @@ def main() -> int:
         arguments.backend,
         "-vv",
         "-o",
-        "faulthandler_timeout=180",
+        # A background stack dump can crash native-driver threads (CPython #116008).
+        # CI enforces a process deadline and captures database diagnostics instead.
+        "faulthandler_timeout=0",
         f"--junitxml={report}",
     ])
     if result:
