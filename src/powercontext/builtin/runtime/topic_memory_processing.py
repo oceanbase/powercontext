@@ -261,7 +261,7 @@ class PreparedTopicMemoryOperation:
 
 
 class TopicMemoryWindowSelector:
-    """Choose the largest contiguous Source prefix within the Probe input budget."""
+    """Choose the largest contiguous Source prefix that projects within the Window budgets."""
 
     def __init__(
         self,
@@ -298,22 +298,32 @@ class TopicMemoryWindowSelector:
             range(source_after + 1, source_ceiling + 1)
         ):
             raise TopicMemoryGenerationError("source_window_changed")
-        try:
-            evidence = await _project_window(stored, self._sources)
-        except TopicMemoryGenerationError:
-            # Let a singleton Worker persist rejection at the current frontier.
-            # Earlier healthy Sources still make progress before a bad suffix.
-            return source_after + 1
-        return await asyncio.to_thread(self._largest_prefix, evidence, source_after, source_ceiling)
-
-    def _largest_prefix(self, evidence: tuple[TopicMemoryEvidence, ...], source_after: int, source_ceiling: int) -> int:
-        for size in range(1, len(evidence) + 1):
-            request = f"{self._probe_fixed_prompt}\n{TopicMemoryProbeInput(evidence=evidence[:size]).model_dump_json()}"
-            tokens = self._estimator.estimate(request)
-            if tokens > self._input_limit and size > 1:
-                return source_after + _opaque_ordinal(evidence[size - 1].evidence_id) - 1
-        # Lineage-only entries still belong to the contiguous Journal window.
+        # End the Window before the first Source it cannot take, without projecting
+        # later ones: a failing or oversized Source must not shrink the prefix before it.
+        evidence: list[TopicMemoryEvidence] = []
+        characters = 0
+        for index, item in enumerate(stored, start=1):
+            # Lineage-only entries still belong to the contiguous Journal window.
+            if not is_generation_eligible(item.value):
+                continue
+            try:
+                projected = await _project_evidence(index, item, self._sources)
+            except TopicMemoryGenerationError:
+                # End before it; at the frontier, a singleton Worker persists its rejection.
+                return source_after + max(index - 1, 1)
+            characters += len(projected.content)
+            evidence.append(projected)
+            # The first eligible Source forms a Window even when it alone exceeds the budget.
+            if (
+                characters > MAX_TOPIC_MEMORY_SOURCE_CHARACTERS
+                or not await asyncio.to_thread(self._probe_fits, evidence)
+            ) and len(evidence) > 1:
+                return source_after + index - 1
         return source_ceiling
+
+    def _probe_fits(self, evidence: Sequence[TopicMemoryEvidence]) -> bool:
+        request = f"{self._probe_fixed_prompt}\n{TopicMemoryProbeInput(evidence=tuple(evidence)).model_dump_json()}"
+        return self._estimator.estimate(request) <= self._input_limit
 
 
 class TopicMemoryAtomicPublisher:

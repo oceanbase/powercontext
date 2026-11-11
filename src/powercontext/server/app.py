@@ -6300,6 +6300,9 @@ def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] 
                 422,
                 "legacy_memory_operation_unsupported",
                 "The legacy Memory collection contract cannot continue for this operation. "
+                "Update the client/SDK and host plugin to a release compatible with this Server, "
+                "rerun powercontext setup for the affected host and profile, fully restart the host, "
+                "and rerun Doctor. Search again for an Atomic Memory artifact reference. "
                 "Reconstruct the request using Atomic Memory operations; do not drop collection CAS "
                 "preconditions and retry automatically.",
                 {

@@ -97,7 +97,14 @@ def test_three_shards_execute_every_collected_node_exactly_once(
     # Verify actual runner reports through the aggregate CLI's artifact layout.
     for index, report in enumerate(reports):
         artifact = tmp_path / "artifacts" / f"shard-{index}"
-        for group in ("scope-search", "background-metrics", "clean-migration", "startup-snapshot", "long-query"):
+        for group in (
+            "scope-search",
+            "background-metrics",
+            "clean-migration",
+            "grant-migration",
+            "startup-snapshot",
+            "long-query",
+        ):
             destination = artifact / group
             destination.mkdir(parents=True)
             (destination / "summary.json").write_text(json.dumps(report), encoding="utf-8")
@@ -108,6 +115,12 @@ def test_three_shards_execute_every_collected_node_exactly_once(
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+    # A successful evidence/vector group cannot stand in for the separately budgeted grant cases.
+    (tmp_path / "artifacts" / "shard-0" / "grant-migration" / "summary.json").unlink()
+    missing = subprocess.run(result.args, capture_output=True, text=True, check=False)
+    assert missing.returncode == 1
+    assert "grant-migration" in missing.stderr
 
 
 def test_valid_collection_can_produce_an_empty_shard(tmp_path: Path) -> None:
