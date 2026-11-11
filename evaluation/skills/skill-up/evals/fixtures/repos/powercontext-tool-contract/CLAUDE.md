@@ -273,7 +273,7 @@ not replace those schemas or enforce their constraints. It contains no scenario 
 ## mcp__powercontext__remember_memory
 
 - Required: `kind: string`, `scope_id: string`, `text: string`.
-- Optional: `description: string | null`, `expected_revision: integer | null`, `reason: string | null`.
+- Optional: `description: string | null`, `expected_revision: integer | null`, `idempotency_key: string | null`, `reason: string | null`.
 
 ## mcp__powercontext__replace_artifact
 
