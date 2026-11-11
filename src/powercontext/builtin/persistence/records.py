@@ -457,17 +457,20 @@ class RelationalRecordService:
     ) -> MemoryIdempotencyReceipt:
         """Create one memory bound to a retry key, or return the creation the key already names.
 
-        Validation and the request digest finish before the key lookup. Only a miss prepares
+        Validation and the request digest finish before the key lookup. The caller's current
+        creation authority is required before the lookup, so a replay or a conflict is never
+        reported to a caller who may no longer create in the Scope. Only a miss prepares
         projections; the key record commits in the same transaction as the creation.
         """
         writer = self._atomic_creation_writer()
         command = cast(AtomicMemoryContent, writer.validate_create(content))
         key = MemoryIdempotencyKey(namespace_digest(scope_id, principal, idempotency_key), command)
         request_digest(command)
+        artifact_id = self._id_factory("atomic-memory")
+        await writer.authorize_creates(scope_id, (artifact_id,), execution_context=execution_context)
         stored = await find_receipt(self._database, key)
         if stored is not None and stored.live:
             return _replay_receipt(stored, key, scope_id)
-        artifact_id = self._id_factory("atomic-memory")
         prepared = await self._prepare_atomic_creations(writer, scope_id, ((artifact_id, command),), execution_context)
         receipt = MemoryIdempotencyReceipt(artifact_id=artifact_id, revision=1, state_version=0)
         try:

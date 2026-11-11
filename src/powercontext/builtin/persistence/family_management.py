@@ -547,6 +547,18 @@ class AtomicMemoryManagementWriter:
             scope_id, tuple((artifact_id, content, None) for artifact_id, content in items), execution_context
         )
 
+    async def authorize_creates(self, scope_id: str, artifact_ids: Sequence[str], *, execution_context=None) -> None:
+        """Check creation authority alone, for callers that may answer without preparing a write."""
+        from powercontext.builtin.runtime.atomic_memory import deferred_decision_audit
+
+        if execution_context is None or execution_context.access is None:
+            return
+        async with (
+            deferred_decision_audit(execution_context),
+            self.application.database.transaction() as connection,
+        ):
+            await self.application.service.authorize_creates(connection, scope_id, artifact_ids, execution_context)
+
     async def _prepare_commands(self, scope_id, items, context) -> tuple[AtomicMemoryManagementPrepared, ...]:
         """Inspect one write window, then prepare its projections outside the transaction."""
         from powercontext.builtin.artifacts.atomic_memory.models import AtomicMemoryContent

@@ -507,6 +507,13 @@ class AtomicMemoryService:
             )
         )
 
+    async def authorize_creates(
+        self, connection: AsyncConnection, scope_id: str, artifact_ids: Sequence[str], context: Any
+    ) -> None:
+        """Require the caller's current creation authority without inspecting any content."""
+        refs = tuple(ArtifactRef(family="atomic-memory", artifact_id=value, revision=1) for value in artifact_ids)
+        await self.shared.security.authorize_creates(connection, scope_id, context, refs)
+
     async def inspect_creates(
         self,
         connection: AsyncConnection,

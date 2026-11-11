@@ -470,3 +470,68 @@ def test_access_controlled_keys_are_per_principal_and_replays_reauthorize(tmp_pa
             )
 
     asyncio.run(scenario())
+
+
+def test_in_process_keyed_create_requires_current_scope_contribution(tmp_path: Path) -> None:
+    """A revoked contributor learns neither a replay nor a conflict from an old key."""
+    from powercontext.artifacts.search import ArtifactSearchExecutionContext
+    from powercontext.server.authz import AccessAuditContext, AccessDeniedError
+
+    database = tmp_path / "in-process-access.db"
+
+    async def scenario() -> None:
+        server_settings = _settings(
+            database,
+            runtime=RuntimeConfig(artifact_processing_families=()),
+            access=AccessControlConfig(mode="enforced", deployment_id="idempotency"),
+        )
+        await asyncio.to_thread(prepare_server_database, server_settings)
+        async with open_builtin_access_control(
+            server_settings.database, bootstrap_administrators=(ADMIN,), deployment_id="idempotency"
+        ) as access:
+            app = create_server_app(
+                settings=server_settings,
+                authentication_provider=_Authentication(),
+                access_control=access,
+                scheduler_path=tmp_path / "scheduler.db",
+            )
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+            ):
+                created = await client.post(
+                    "/v1/scopes", json={"title": "Keys", "summary": "Idempotent writes", "idempotency_key": "keys"}
+                )
+                assert created.status_code == 201, created.text
+                scope_id = created.json()["scope_id"]
+                grant = await _grant(client, scope_id, "alice")
+                memory = app.state.application.atomic_memory.for_scope(scope_id)
+                context = ArtifactSearchExecutionContext(
+                    principal=PrincipalRef(type="user", id="alice"),
+                    access=access,
+                    audit=AccessAuditContext(transport="http", operation="test"),
+                )
+                content = AtomicMemoryContent(kind="note", text="Private plan")
+
+                first = await memory.create((content,), idempotency_key="in-process", context=context)
+                replayed = await memory.create((content,), idempotency_key="in-process", context=context)
+                assert replayed.records[0].artifact == first.records[0].artifact
+                assert _memories(database) == 1
+
+                revoked = await client.post(
+                    "/v1/access/bindings/revoke",
+                    json={
+                        "binding_id": grant["binding_id"],
+                        "expected_version": grant["version"],
+                        "idempotency_key": "revoke-alice",
+                    },
+                )
+                assert revoked.status_code == 200, revoked.text
+                other = AtomicMemoryContent(kind="note", text="Different plan")
+                for value, key in ((content, "in-process"), (other, "in-process"), (content, "unused")):
+                    with pytest.raises(AccessDeniedError):
+                        await memory.create((value,), idempotency_key=key, context=context)
+                assert _memories(database) == 1
+                assert _count(database, "SELECT COUNT(*) FROM pc_atomic_memory_idempotency") == 1
+
+    asyncio.run(scenario())
