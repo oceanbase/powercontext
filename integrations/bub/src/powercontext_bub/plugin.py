@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -29,8 +30,9 @@ from typing import Any, ClassVar, cast
 import httpx
 import republic
 from bub import Settings, config, ensure_config, hookimpl
-from bub.envelope import field_of
+from bub.envelope import content_of, field_of
 from bub.hooks.interception import LLMCallRequest, LLMCallResult, ToolCall, ToolCallResult
+from bub.prompt import UserContent, to_content
 from bub.turn import TurnState
 from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import SettingsConfigDict
@@ -146,9 +148,7 @@ class PowerContextPlugin:
 
     @hookimpl
     def load_state(self, message: Any, session_id: str) -> TurnState:
-        # Bub's prompt builder frames the content with channel metadata and the time, which would outweigh the user's
-        # words in lexical recall, so recall reads the inbound content before that framing.
-        content = field_of(message, "content")
+        del message, session_id
         workspace_key = workspace_binding_key(getattr(self._framework, "workspace", None))
         binding_keys = [workspace_key] if workspace_key is not None else []
         return {
@@ -168,10 +168,35 @@ class PowerContextPlugin:
                 "captured_position": 0,
                 "flushed_position": 0,
                 "prompt_captured": False,
-                "recall_session_id": session_id,
-                "recall_text": content.strip() if isinstance(content, str) else None,
+                "recall_texts": {},
             }
         }
+
+    @hookimpl(tryfirst=True)
+    async def build_prompt(self, message: Any, session_id: str, state: TurnState) -> list[UserContent]:
+        # Bub frames each inbound message with channel metadata and the time, which would outweigh the user's words in
+        # lexical recall. Building the prompt here, ahead of the other implementations, ties every model-facing user
+        # message, steered follow-ups included, to the text the user sent.
+        prompt = to_content(await self._build_prompt_without_self(message, session_id, state) or content_of(message))
+        # ``text`` is what the sender wrote when ``content`` wraps it with channel metadata (Bub after 0.6.1).
+        recall_text = field_of(message, "text") or field_of(message, "content")
+        capture_state = state.get(STATE_KEY)
+        if isinstance(capture_state, dict) and isinstance(recall_text, str):
+            capture_state["recall_texts"][republic.user(*prompt).text.strip()] = recall_text.strip()
+        return prompt
+
+    async def _build_prompt_without_self(self, message: Any, session_id: str, state: TurnState) -> Any:
+        # Resolve like Bub's own call: in precedence order, awaiting each implementation until one returns a result.
+        # Calling the subset caller instead would apply pluggy's synchronous first-result rule to coroutines.
+        others = self._framework.plugin_manager.subset_hook_caller("build_prompt", remove_plugins=[self])
+        kwargs = {"message": message, "session_id": session_id, "state": state}
+        for impl in reversed(others.get_hookimpls()):
+            result = impl.function(**{name: kwargs[name] for name in impl.argnames if name in kwargs})
+            if inspect.isawaitable(result):
+                result = await result
+            if result is not None:
+                return result
+        return None
 
     @hookimpl
     def system_prompt(self, prompt: str | list[dict[str, Any]], state: TurnState) -> str:
@@ -201,10 +226,8 @@ class PowerContextPlugin:
         if any(_contains_context_marker(message) for message in request.messages):
             return None
 
-        query = prompt
-        # Subagents run with a copy of this state under their own session and recall with their own prompt.
-        if capture_state["recall_session_id"] == state.get("session_id") and capture_state["recall_text"] is not None:
-            query = capture_state["recall_text"]
+        # A prompt Bub did not build from an inbound message, such as a subagent's, is recalled as the model sees it.
+        query = capture_state["recall_texts"].get(prompt, prompt)
         if not query:
             return None
 
