@@ -309,15 +309,22 @@ class DreamService:
             self._log_attempt_failure(record, error)
             await self._fail_or_retry(record, _error_code(error), retry=True)
         except TimeoutError as error:
-            self._log_attempt_failure(record, error)
+            self._log_attempt_failure(record, error, classification_error=DreamError("budget_exceeded"))
             await self._fail_or_retry(record, "budget_exceeded", retry=False)
         except Exception as error:
             self._log_attempt_failure(record, error)
             await self._fail_or_retry(record, _error_code(error), retry=False)
         return True
 
-    def _log_attempt_failure(self, record: DreamRecord, error: Exception) -> None:
+    def _log_attempt_failure(
+        self,
+        record: DreamRecord,
+        error: Exception,
+        *,
+        classification_error: Exception | None = None,
+    ) -> None:
         work = self.processing
+        diagnostic_error = error if classification_error is None else classification_error
         log_safely(
             logger,
             logging.WARNING,
@@ -334,7 +341,7 @@ class DreamService:
                 "request_generation": None if work is None else work.assignment.claimed_request_generation,
                 "exception_type": type(error).__name__,
                 "error_code": processing_error_code(type(error)),
-                **safe_log_fields(safe_classify_processing_error(error)),
+                **safe_log_fields(safe_classify_processing_error(diagnostic_error)),
             },
         )
 

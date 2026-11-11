@@ -1615,15 +1615,18 @@ def test_concurrent_admission_and_workers_create_one_candidate(database: Databas
 
 
 @pytest.mark.parametrize("diagnostic_failure", [None, "classification", "logging"])
+@pytest.mark.parametrize("provider_failure", ["unavailable", "timeout"])
 def test_transient_failure_retries_same_projection_with_bounded_calls(
-    database: DatabaseConfig, caplog, monkeypatch, diagnostic_failure
+    database: DatabaseConfig, caplog, monkeypatch, diagnostic_failure, provider_failure
 ) -> None:
-    from powercontext.builtin.inference.errors import InferenceUnavailableError
+    from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
 
     class TransientGenerator(Generator):
         async def generate(self, value):
             result = await super().generate(value)
             if len(self.inputs) == 1:
+                if provider_failure == "timeout":
+                    raise InferenceTimeoutError("generation", 1)
                 raise InferenceUnavailableError("generation", "private-provider-response")
             return result
 
@@ -1675,10 +1678,11 @@ def test_transient_failure_retries_same_projection_with_bounded_calls(
                 assert "private-diagnostic-failure" not in payload
                 return
             assert record.processing_stage == "generation"
-            assert record.failure_reason == "provider_unavailable"
-            assert json.loads(payload)["failure_reason"] == "provider_unavailable"
+            expected_reason = "timeout" if provider_failure == "timeout" else "provider_unavailable"
+            assert record.failure_reason == expected_reason
+            assert json.loads(payload)["failure_reason"] == expected_reason
             _HumanContextFilter().filter(record)
-            assert 'failure_reason="provider_unavailable"' in record.processing_context
+            assert f'failure_reason="{expected_reason}"' in record.processing_context
             assert "private-provider-response" not in payload
             assert "private-provider-response" not in caplog.text
 
@@ -1730,6 +1734,83 @@ def test_explicit_dream_preserves_incubation_cursor_and_pending_source_work(data
             assert len(incubation.calls) == 2
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("diagnostic_failure", [None, "classification", "logging"])
+def test_execution_deadline_matches_terminal_budget_diagnostics(
+    database: DatabaseConfig, caplog, monkeypatch, diagnostic_failure
+) -> None:
+    from types import SimpleNamespace
+
+    async def scenario() -> None:
+        deadline: asyncio.Timeout | None = None
+
+        def execution_timeout(seconds):
+            nonlocal deadline
+            deadline = asyncio.timeout(seconds)
+            return deadline
+
+        class DeadlineGenerator(Generator):
+            async def generate(self, value):
+                assert deadline is not None
+                deadline.reschedule(asyncio.get_running_loop().time())
+                return await super().generate(value)
+
+        monkeypatch.setattr(
+            "powercontext.builtin.dream.service.asyncio", SimpleNamespace(timeout=execution_timeout)
+        )
+        generator = DeadlineGenerator(blocked=True)
+        async with open_builtin_runtime(
+            config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
+        ) as runtime:
+            scope, _, citation = await seed(runtime)
+            request = CreateDreamRunRequest(
+                operation="refine_experience", artifacts=(citation,), idempotency_key="deadline"
+            )
+            accepted = await runtime.dream.for_scope(scope).create(request)
+
+            def reject_observation(*args, **kwargs):
+                raise RuntimeError("private-diagnostic-failure")
+
+            if diagnostic_failure == "classification":
+                monkeypatch.setattr(
+                    "powercontext.builtin.processing_diagnostics.classify_processing_error", reject_observation
+                )
+            elif diagnostic_failure == "logging":
+                monkeypatch.setattr("powercontext.builtin.dream.service.logger.log", reject_observation)
+            await process_pending(runtime)
+            run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
+            assert (run.status, run.error, run.candidate, run.attempt_count) == ("failed", "budget_exceeded", None, 1)
+            assert len(generator.inputs) == 1
+            assert (await runtime.review.for_scope(scope).list(ListCandidatesRequest())).candidates == ()
+            assert (await runtime.dream.for_scope(scope).create(request)).run_id == run.run_id
+            await process_pending(runtime)
+            assert len(generator.inputs) == 1
+            records = [record for record in caplog.records if getattr(record, "event", None) == "dream.attempt.failed"]
+            if diagnostic_failure == "logging":
+                assert records == []
+                return
+            assert len(records) == 1
+            record = records[0]
+            assert record.exception_type == "TimeoutError"
+            assert record.operation == "refine_experience" and record.family == "experience"
+            assert record.worker_id and record.request_generation >= 1
+            from powercontext.server.logging import JsonFormatter, _HumanContextFilter
+
+            payload = JsonFormatter().format(record)
+            assert "private" not in payload
+            if diagnostic_failure == "classification":
+                assert "processing_stage" not in json.loads(payload)
+                return
+            assert record.processing_stage == "generation"
+            assert record.failure_reason == "usage_limit"
+            assert record.failure_location == run.error
+            assert json.loads(payload)["failure_location"] == "budget_exceeded"
+            _HumanContextFilter().filter(record)
+            assert 'failure_reason="usage_limit"' in record.processing_context
+
+    with caplog.at_level(logging.WARNING, logger="powercontext.builtin.dream.service"):
+        asyncio.run(scenario())
 
 
 def test_provider_exceeding_output_budget_leaves_no_candidate(database: DatabaseConfig) -> None:

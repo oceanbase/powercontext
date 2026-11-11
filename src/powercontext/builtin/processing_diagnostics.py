@@ -341,8 +341,6 @@ def classify_block_code(stage: str | None, code: str | None) -> ProcessingDiagno
     try:
         if stage == "topic_memory":
             return _topic_memory_diagnostics(code)
-        elif stage == "dream":
-            return _dream_error_diagnostics(code)
         else:
             return None
     except Exception:

@@ -101,7 +101,15 @@ Experience, Profile, Skill, and Handoff operation-level coverage:
 The matrices describe classification coverage, not completion of the whole issue. Dream failure
 records contain bounded diagnostic fields only, never exception text or evidence content. Its
 persisted run outcome and retry policy remain authoritative; the failure record is an observation,
-not a new durable failure history.
+not a new durable failure history. Durable-block classification currently covers Topic Memory only;
+Dream uses its existing Run outcomes and attempt logs, not a durable scheduler block.
+
+A bare timeout caught at the Dream execution boundary retains the terminal Run code `budget_exceeded`.
+Its attempt log reports `generation` / `usage_limit` with `failure_location=budget_exceeded`, matching
+that execution-budget outcome while retaining `exception_type=TimeoutError`. This stage identifies
+Dream's execution-budget owner, not proof that a model call was active when the deadline elapsed.
+Provider `InferenceTimeoutError` keeps its operation-specific stage and `timeout` reason and remains
+retryable within the existing Run budget.
 
 ## Rollout
 

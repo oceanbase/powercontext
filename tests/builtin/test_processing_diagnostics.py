@@ -550,6 +550,7 @@ def test_durable_blocks_classify_only_for_topic_memory() -> None:
     assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
     assert diagnostics.failure_location == "window_attempt_limit"
     assert classify_block_code("memory", "window_attempt_limit") is None
+    assert classify_block_code("dream", "budget_exceeded") is None
     assert classify_block_code("topic_memory", "") is None
 
 
@@ -660,16 +661,8 @@ def test_evidence_resolution_error_codes_classify(code) -> None:
     assert diagnostics.failure_location == code
 
 
-def test_dream_blocks_classify_for_dream_stage() -> None:
-    diagnostics = classify_block_code("dream", "budget_exceeded")
-
-    assert diagnostics is not None
-    assert diagnostics.stage is ProcessingStage.GENERATION
-    assert diagnostics.reason is ProcessingFailureReason.USAGE_LIMIT
-    assert diagnostics.failure_location == "budget_exceeded"
-
-    assert classify_block_code("dream", "") is None
-    assert classify_block_code("experience", "budget_exceeded") is None
+def test_dream_block_stage_is_not_supported() -> None:
+    assert classify_block_code("dream", "budget_exceeded") is None
     assert classify_block_code("dream", "unknown_future_code") is None
 
 

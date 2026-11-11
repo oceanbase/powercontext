@@ -93,7 +93,13 @@ Experience、Profile、Skill 与 Handoff 的 operation 级覆盖：
 | Usage accounting | Usage accounting | Missing | 账务失败仍与处理结果分离。 |
 
 矩阵描述分类覆盖情况，不表示整个 issue 已完成。Dream 失败记录只包含有界诊断字段，不含异常文本或证据正文。
-持久化 run 结果和重试规则仍是权威状态；日志属于观测，不新增持久化失败历史。
+持久化 run 结果和重试规则仍是权威状态；日志属于观测，不新增持久化失败历史。当前 durable block 分类只覆盖
+Topic Memory；Dream 使用既有 Run 结果和 attempt 日志，不产生持久化调度阻塞。
+
+Dream 执行边界捕获的裸超时保留终止 Run 错误码 `budget_exceeded`。对应 attempt 日志记录
+`generation` / `usage_limit` 和 `failure_location=budget_exceeded`，与执行预算结果一致，同时保留
+`exception_type=TimeoutError`。这里的 stage 表示 Dream 执行预算的归属，不证明期限耗尽时正在调用模型。
+Provider 的 `InferenceTimeoutError` 保留操作对应的 stage 和 `timeout` 原因，仍可在既有 Run 预算内重试。
 
 ## 落地顺序
 
