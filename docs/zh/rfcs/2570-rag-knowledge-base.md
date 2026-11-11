@@ -56,13 +56,15 @@ Scope
     独立的原文 Source、请求和 document
 
 Source 插件：OpenDAL 采集、快照访问、原文与受信操作 Source 类型
-Document 插件：Markdown／OCR、chunks、revision 写入、操作消费和溯源
-rag 插件：集合配置、检索策略和 chunk 索引适配
+Document 插件：Markdown／OCR、chunks、revision、操作消费、溯源与 chunk 索引生命周期
+rag 插件：集合配置与 document chunk 检索编排
 共享设施：Source／Artifact API、Supervisor／Worker、cursor、事务、数据库／模型适配器
 ```
 
 三个逻辑插件可放在同一集成包，应用服务负责协调，不新增第四个插件。Rag 可先于 Source 存在，配置使用 Artifact revision，
-删除使用 head 治理，不设 rag 运行状态表。归属显式保存在不可变 Source payload 和 document manifest，不从 tags 或证据 lineage 推断。
+删除使用 head 治理。知识库 Scope 只启用文档业务：文档 Source、document 和预创建的 rag；请求／编辑证据是这条管线的内部记录，
+不是其他 family 的输入。通过 Scope 接受规则和消费 binding 执行限制，无需新增 Scope 表。
+不设 rag 运行状态表。归属显式保存在不可变 Source payload 和 document manifest，不从 tags 或证据 lineage 推断。
 每个原文、请求和 document 只属于一个 rag。
 
 插件独立持有 embedding／索引配置。显式配置优先；安装时可从主路径初始化兼容的缺省项，并固定解析后的 profile 和凭据引用。
@@ -77,6 +79,11 @@ rag 插件：集合配置、检索策略和 chunk 索引适配
 OpenDAL／opendalfs 负责本地列举／读取和受管目录中的不可变快照。插件实例必须能访问选定路径。固定根目录、相对路径和
 符号链接规范化策略，拒绝越界。先保存快照，再接受 Source，对保存字节计算 hash 并解析该快照，不能解析随后变化的文件。
 mtime／size 仅是提示，不证明内容相同。复用已有 Source 时保留首次 canonical 采集信息。
+
+首期仅支持本地可访问目录，使用 OpenDAL fs 后端。导入进程、Server 和 Worker 必须能访问同一受管快照目录，
+可直接访问或使用本机容器卷映射；接受处理请求前校验存储配置与访问能力。Source 用 original_path 记录出处，
+用 snapshot_ref（store_id、object_key、digest）供实际读取，存储别名解析到各进程配置的本地根目录。
+原文件随后修改或移除，Worker 仍读取已采集快照。远端客户端上传、跨机器文件传输、对象存储原文和远端共享存储均不在本期范围。
 
 ```text
 file_key       = (scope_id, rag_id, collection_id, normalized_relative_path)
@@ -106,6 +113,10 @@ Collection 由已注册存储实例／绑定和规范化根目录派生，不使
 文件回到旧字节可能复用较早的 Source，因此期望输入依据最新接受的 import／reprocess 请求，而不是最大原文 Source journal position。
 找到 Source 不证明当前 document 已匹配。首期改名视为新身份，目录文件消失不自动删除。已删除 Source 身份与 retired document
 不能被静默恢复。
+
+Parser／chunker 选择不参与 document 身份。同一 Source 改用新的切分方法时，显式重解析沿用 document_id 和 rag_id，
+内容／索引准备成功后提交下一个 revision，替换当前有效内容和索引，不覆盖历史行。失败保留旧 head；
+已有人工修改仍需明确 discard 授权。重新切块可以产生新的 chunk ID。
 
 复用 Source collect 的发现／add／status／control。客户端生成的 scan_token 放在插件 input 中标识一次显式扫描；重试相同输入
 复用采集目标。再次扫描使用新 token，但文件身份不变。每 token 扫描一次，不暗示定时同步或重复 add 会启动 stopped target。
@@ -155,7 +166,8 @@ Chunk metadata 保存有界出处映射，canonical chunks 不存向量，Artifa
 已有 Source 回填 active，payload、身份和 journal position 保持不可变，生命周期元数据不参与内容 hash。
 通过行锁／条件更新和统一锁定顺序与 document 提交互斥，首期不额外增加 Source 删除代次列。
 适配 add/get/list、证据／生成访问和 family 读取；重复 add 命中已删身份时不能返回可用内容或恢复。
-内部迁移／级联扫描可包含已删行，公共读取不能绕过。三个后端验证加法迁移，不能把 Artifact retirement 当作已有 Source 软删除能力。
+内部迁移／级联扫描可包含已删行，公共读取不能绕过。本期删除能力只覆盖知识库管线的原文和内部记录，
+不扩展到无关 Source 类型或其他 family 级联。三个后端验证加法迁移，不能把 Artifact retirement 当作已有 Source 软删除能力。
 
 唯一新增领域表为 pc_document_chunks：
 
@@ -168,8 +180,10 @@ Chunk metadata 保存有界出处映射，canonical chunks 不存向量，Artifa
 | 溯源 | 规范化跨度、原文字节／图片定位、origin/verbatim、base/edit 引用 |
 
 使用后端安全键长与有界元数据。每个 revision 是完整不可变 chunk 快照：100 块移除一块生成新 manifest 和 99 行，保留旧的 100 行。
-Manifest 保存 owner rag、文件身份、root SourceRef、schema／处理指纹、chunk 数量／摘要、人工修改标记和 applied_request_ref。
-历史读取使用精确 revision，而非当前 head。
+现有 Artifact 封装标识 document／revision，有界 manifest 保存标题、owner rag、文件身份、root SourceRef、处理指纹、
+chunk 数量／摘要、人工修改标记和 applied_request_ref。客户端由精确 document 引用确定 chunk 目录路径；
+manifest 不嵌入 chunk 正文或无界 chunk ID 列表。历史读取使用精确 revision，而非当前 head。
+Chunk 行提供 text_length（Unicode 码点数量），供目录只返回长度等元数据，不返回正文。
 
 首期成员和可用性查询可以按 Scope／类型分页扫描解码 payload，再按确定性 document ID 精确读 Artifact。不能假设 canonical payload
 已具备可查询的 JSON owner/path 索引。过滤分页按扫描位置继续，不能丢失后续匹配项；写入／读取验证归属和完整身份。
@@ -233,6 +247,11 @@ Cursor 表示已消费，包含跳过，不表示成功。成功 revision 通过
 重建读取已提交 chunks，不重复 OCR；明确不可用，不回退 Memory／纯全文，也不保证零停机。
 三个后端需验证实际事务，包括 SQLite 写锁；ANN 过滤限制需通过限定集合精确检索或明确能力错误处理。
 
+Document 插件负责统一的精确版本 chunk 投影边界，覆盖首次写入、版本替换、重建、coverage 校验、删除过滤和检索。
+重建读取精确已提交 chunk 行，不能把有界 manifest 当全文。Coverage 核对 manifest 数量／摘要、该 revision 的 chunks 与投影；
+零 chunk revision 对应合法的零片段 coverage。评分／融合保留精确 document revision 和 chunk ID，使后续读取能定位实际命中。
+通用投影／重建代码需要接入该边界，只适配首次写入不足以完成实现。Rag 服务复用这些投影，不改变通用 Artifact 搜索结果契约。
+
 ## 6. 编辑、chunk 移除与删除
 
 编辑 If-Match 在接受和提交时分别校验，成功生成完整新快照。未变 chunk 保留逻辑 ID，重切块分配新 ID；引用始终带 revision。
@@ -261,7 +280,7 @@ Remove 同样算人工修改，重新解析需明确丢弃授权。完整 embedd
 内部包含已删行，无需 cascade job 表。即使传播未完成，也必须在排名前排除无效对象。
 派生索引沿用替换／移除／重建；保留业务历史不等于保留每个历史索引条目。
 
-## 7. 可用性与统一接口
+## 7. 可用性、Artifact 接口与 chunk 读取
 
 | 展示 | 推导依据 |
 | --- | --- |
@@ -285,8 +304,11 @@ Rag 配置变化影响后续请求，可提示需要重处理，但不自动入�
 | 文件与可用结果列表 | 现有 Source list/get、Artifact list/get/history，验证 owner-rag filter，helper 按 document ID 合并；不设 R/processing 任务列表 |
 | 显式重解析 | POST D/processing，source_ref、action=reprocess、request_id、可选配置／discard；202 表示请求接受 |
 | 编辑／移除 chunk | POST D/edits，当前 If-Match、有界类型化操作和 request ID；202 表示请求接受 |
-| 读取 chunks | GET `D/revisions/{rev}/chunks`，精确版本、items/next_cursor |
-| 检索 | 现有 POST `/v1/scopes/{s}/artifacts/document/search`，query/mode/limit/fusion，经过验证的 filters.rag_ids |
+| 获取 document | 现有 Artifact GET／历史接口，返回标题、精确版本、归属、chunk 数量和原文引用，不返回 chunk 正文 |
+| 获取 chunk 目录 | GET `D/revisions/{rev}/chunks`，分页返回 ID／顺序／标题路径／长度等元数据 |
+| 获取单个 chunk | GET `D/revisions/{rev}/chunks/{chunk_id}`，返回正文、出处和人工修改标记 |
+| 批量获取 chunk | POST `D/revisions/{rev}/chunks/batch-get`，按明确且有界的一组 chunk ID 返回正文 |
+| 知识库检索 | 新增 POST `/v1/scopes/{s}/rag/retrieve`，明确 rag_ids、query/mode/limit，返回 chunk 命中引用 |
 | 软删除 | 在既有精确 Source／Artifact 路由增加 DELETE；Artifact 治理 expected_generation，Source 单向生命周期 |
 
 已有 head 的重解析需 If-Match，无 head 时使用确定性 document ID 和 If-None-Match: *。验证 Source 归属／文件身份确实解析到该 ID，
@@ -326,16 +348,45 @@ current_revision_at_accept 是观察值，不是输出。通过 revision 的 app
 {"action":"reprocess","request_id":"reparse-04","source_ref":{"source_type":"document_file","source_id":"source-1"},"manual_edits_policy":"discard"}
 ```
 
-同 Scope 检索选定 rag：
+Document GET／精确历史沿用 Artifact 封装和有界 manifest。Chunk 目录使用 items/next_cursor，按 ordinal 排序，
+不返回正文或摘要片段。Cursor 绑定 Scope／document／revision，head 并发变化不会混入其他版本；单个和批量读取也使用同一精确版本，
+不回退当前 head。三个 chunk 入口均校验 owner／document／root 生命周期，包括历史读取。零 chunk revision 返回空目录。
+单个 chunk 返回 text、source_ref／locator、origin/verbatim 和编辑依据。
+
+Batch-get 接受非空、无重复的 chunk_ids，按请求顺序返回，不允许混合 revision。限制配置的 ID 数量与响应字节数，
+超限拒绝而非截断正文。先授权父对象，再验证该 revision 内的所有 ID；任一 ID 不存在则整个批次返回 404，不静默忽略。
+已删对象沿用授权后 410。该接口仅批量读取，不是通用批量修改接口。
+
+一个精确 revision 的目录响应示例：
 
 ```json
-{"query":"How should I restart a follower?","mode":"hybrid","limit":10,"filters":{"rag_ids":["ops"]},"include_scores":true}
+{"document_ref":{"family":"document","artifact_id":"doc-1","revision":2},"items":[{"chunk_id":"chunk-1","ordinal":0,"heading_path":["Operations","Restart"],"text_length":128}],"next_cursor":null}
 ```
 
-搜索结果保留完整有界 document manifest 和 lineage，增加可选类型化 matches 表示有界精确 chunk 命中，携带 revision／chunk ID、
-text、locator、origin/verbatim 和得分。这是响应投影，不写入 Artifact content。Limit 计算文档数，每篇片段另有限额。
-不支持的 filter／rerank 明确拒绝，缺少 rag 选择不能扩大范围。跨 Scope helper 逐个授权明确的 (scope, rag)，调用相同分 Scope 搜索，
-按排名融合，保留目标错误／身份；不比较不兼容原始分数，不另建 /rag/query 协议。
+POST `D/revisions/2/chunks/batch-get` 请求：
+
+```json
+{"chunk_ids":["chunk-1","chunk-2"]}
+```
+
+知识库检索使用 POST `/v1/scopes/{s}/rag/retrieve`，不套用通用 Artifact 搜索响应：
+
+```json
+{"rag_ids":["ops"],"query":"How should I restart a follower?","mode":"hybrid","limit":10}
+```
+
+结果为有界 chunk 命中，携带 rag ID、精确 document 引用、chunk ID、得分和原文定位；可选摘要片段必须有界，不能替代正文接口。
+这里 limit 计算 chunk 命中数。例如：
+
+```json
+{"hits":[{"rag_id":"ops","document_ref":{"family":"document","artifact_id":"doc-1","revision":2},"chunk_id":"chunk-1","score":0.82,"source_ref":{"source_type":"document_file","source_id":"source-1"},"locator":{"heading_path":["Operations","Restart"]}}]}
+```
+
+通用 Artifact GET／历史／搜索契约保持原义：Artifact 搜索返回 Artifact，不能随意返回 chunks 或另一 family 的 document。
+Document 专用内部处理器复用索引／模型设施，独立 rag 检索入口避免给所有通用搜索项增加知识库 matches。
+要求非空且经过验证的 rag 选择，排名前过滤归属和生命周期。不支持的 filter／rerank 明确报错。
+跨 Scope helper 逐个授权明确的 (scope, rag)，调用同一分 Scope rag 检索接口，按排名融合并保留目标错误／身份，不比较不兼容原始分数。
+HTTP、Python、MCP 提供等价的概览、chunk 读取与检索操作，复用公共授权和错误封装。
 
 接受阶段沿用 428／412 前置条件、409 payload／discard 冲突、授权后 410 删除、422 校验（传输层可用 413）和 503 服务不可用，
 保持 error.code/message/details 错误封装。202 之后的请求局部失败／冲突按日志与消费规则处理，不提供持久错误状态端点。
@@ -357,6 +408,10 @@ SQLite、SeekDB、OceanBase 使用相同公开流程验证：
 - Chunk 移除包括最后一块，历史完整，当前索引正确。
 - Source／document／rag 删除竞争，可恢复级联，替代 root 独立性。
 - 插件配置独立、索引隔离、重建不可用、分页、契约生成和 SDK／MCP 一致性。
+- Document／目录只读元数据，精确版本的单个／批量 chunk 正文、字节／数量上限及不存在 ID 的行为。
+- 同一 Source 更换切块方法保留 document／rag 身份，更新当前 revision 并保留历史。
+- Chunk 投影／重建／coverage 一致，包括零块和检索命中精确定位。
+- OpenDAL 本地快照对导入进程／Worker 可访问，包括本机容器映射；不接受远端路径。
 
 Mock 不证明真实后端／OCR 支持。#2441 负责接入／归属／Source 生命周期，#2442 负责处理、请求／chunks／原子写入，
 #2443 负责检索／接口，#2444 负责诊断／验收。一个实现分支／PR 可分阶段交付；RFC 不关闭实施 Issue，也不证明大规模容量。
