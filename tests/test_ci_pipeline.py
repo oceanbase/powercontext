@@ -184,12 +184,7 @@ def test_explicit_full_pr_profile_overrides_the_small_matrix():
 def test_selected_scopes_have_a_complete_terminal_result_contract():
     main = workflow("master.yml")["jobs"]
     assert RULES["checks"].keys() == RULES["suites"].keys()
-    covered = {
-        job
-        for table in ("checks", "nightly_checks")
-        for jobs in RULES[table].values()
-        for job in jobs
-    }
+    covered = {job for table in ("checks", "nightly_checks") for jobs in RULES[table].values() for job in jobs}
     assert covered | {"quality", "upgrade-release-gate", "ci-result"} <= set(main)
     assert "managed-resource-candidates-linux" in set(main) - set(main["ci-result"]["needs"])
     assert set(main["ci-result"]["needs"]) == set(main) - {"ci-result", "managed-resource-candidates-linux"}
