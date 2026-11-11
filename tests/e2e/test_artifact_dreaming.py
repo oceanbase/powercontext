@@ -1756,9 +1756,7 @@ def test_execution_deadline_matches_terminal_budget_diagnostics(
                 deadline.reschedule(asyncio.get_running_loop().time())
                 return await super().generate(value)
 
-        monkeypatch.setattr(
-            "powercontext.builtin.dream.service.asyncio", SimpleNamespace(timeout=execution_timeout)
-        )
+        monkeypatch.setattr("powercontext.builtin.dream.service.asyncio", SimpleNamespace(timeout=execution_timeout))
         generator = DeadlineGenerator(blocked=True)
         async with open_builtin_runtime(
             config(database), candidate_pipeline=atomic_memory_pipeline(MemoryPipeline()), dream_generator=generator
