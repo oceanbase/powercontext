@@ -220,6 +220,8 @@ pub fn project(
                         "service_manager",
                         "server_liveness",
                         "server_readiness",
+                        "server_memory_protocol",
+                        "plugin_memory_protocol",
                     ]
                     .contains(&field.as_str())
                     {

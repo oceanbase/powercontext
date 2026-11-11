@@ -305,6 +305,27 @@ describe('PowerContextPlugin', () => {
     expect(JSON.parse(String(result))).toMatchObject({ ok: true })
   })
 
+  it('puts an ask rule for its permission ahead of the user permission rules', async () => {
+    const hooks = await PowerContextPlugin(pluginInput())
+    const configure = async (permission?: unknown) => {
+      const config: any = permission === undefined ? {} : { permission }
+      await hooks.config?.(config)
+      return config.permission
+    }
+    // OpenCode applies the last matching rule, so each rule the user configures still decides what it matches.
+    expect(await configure()).toEqual({ 'powercontex?': 'ask' })
+    const rules = { bash: 'ask', powercontext: { commit_handoff: 'allow' }, '*': 'deny' }
+    expect(Object.entries(await configure(rules))).toEqual([['powercontex?', 'ask'], ...Object.entries(rules)])
+    const configured = await configure({ powercontext: 'allow' })
+    expect(Object.entries(await configure(configured))).toEqual([['powercontex?', 'ask'], ['powercontext', 'allow']])
+    // A user rule under the default's key keeps it, and the default takes the next key that matches the permission.
+    const wildcard = { 'powercontex?': { commit_handoff: 'allow' } }
+    const kept = await configure(wildcard)
+    expect(Object.entries(kept)).toEqual([['powerconte?t', 'ask'], ...Object.entries(wildcard)])
+    expect(Object.entries(await configure(kept))).toEqual(Object.entries(kept))
+    expect(await configure('allow')).toBe('allow')
+  })
+
   it('captures a Working Note through the scoped operation', async () => {
     process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
     const calls: Array<{ url: string; body: any }> = []

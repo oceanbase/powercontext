@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { MEMORY_PROTOCOL_RECOVERY } from './memory-compatibility.ts'
 import type { JsonObject, PowerContextClient } from './client.ts'
 import {
   SecretRejectedError,
@@ -29,6 +30,7 @@ export interface ToolResult {
   ok: boolean
   code?: string
   message?: string
+  recovery?: string
   status?: number
   request_id?: string
   etag?: string
@@ -97,6 +99,10 @@ const WRITE_OPERATIONS = new Set<OperationId>([
 ])
 
 function mapServerError(error: ServerResponseError): ToolResult {
+  if (error.statusCode === 422 && error.code === 'legacy_memory_operation_unsupported') return {
+    ok: false, code: error.code, message: 'This request uses the unsupported legacy Memory collection protocol.',
+    recovery: MEMORY_PROTOCOL_RECOVERY, status: 422, request_id: error.requestId,
+  }
   if (error.statusCode === 401) {
     return {
       ok: false,

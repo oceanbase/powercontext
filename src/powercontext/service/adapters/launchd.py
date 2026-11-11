@@ -402,8 +402,24 @@ def _launchd_block(output: str, name: str) -> list[str]:
 
 
 def _launchd_environment_value(output: str, name: str) -> str | None:
-    match = re.search(rf"^\s*{re.escape(name)} => (.+?)\s*$", output, re.MULTILINE)
-    return match.group(1) if match is not None else None
+    """Read one environment value out of `launchctl print` output.
+
+    Most values are printed as `NAME => value`. A value ending in `=` is echoed
+    as `NAME=value =>` with that trailing `=` consumed, which strips the padding
+    from urlsafe-base64 service metadata. Accept both shapes and rebuild it.
+    """
+    match = re.search(
+        rf"^\s*{re.escape(name)}\s*(?P<separator>=>|=)\s*(?P<value>.+?)\s*(?:=>)?\s*$",
+        output,
+        re.MULTILINE,
+    )
+    if match is None:
+        return None
+    value = match.group("value")
+    if match.group("separator") == "=":
+        stripped = value.rstrip("=")
+        value = stripped + "=" * (-len(stripped) % 4)
+    return value
 
 
 def _require_owned_or_not_loaded(registration: ManagerRegistration) -> None:
