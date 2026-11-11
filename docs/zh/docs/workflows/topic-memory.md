@@ -150,7 +150,8 @@ retry 需要 `scope.admin` 权限，查询还需要该角色未包含的 `scope.
 Worker 生成期间，手动 replace 或 Dream 可能移动它所基于的 Topic head。此时 Worker 的发布无法通过 head 检查，
 不写入任何内容；Worker 将 `head_conflict` 记为该次尝试的最后错误，下一次尝试重新读取 head 后重新计算。这类尝试
 不计入三次尝试上限，但其 provider 预留仍然计入。因此 head 持续变化时会以 `window_provider_budget_exceeded`
-结束，对应阻塞记录的 `last_error_code` 可能为 `head_conflict`。
+结束。由于额度通常在某次尝试中途耗尽，阻塞记录的 `last_error_code` 一般也是该原因；`attempts` 很小说明预算主要
+消耗在 head 冲突后的重新计算上，而不是失败的尝试。
 
 Python Client SDK 对应方法为 `get_topic_memory_processing_status`、`get_topic_memory_processing_block` 和
 `retry_topic_memory_processing`。HTTP 路径分别为 `POST /v1/topic-memory/processing/status`、

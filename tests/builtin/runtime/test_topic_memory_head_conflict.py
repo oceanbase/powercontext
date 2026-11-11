@@ -238,9 +238,11 @@ def test_real_failures_still_spend_attempts_between_head_conflicts(steps, exhaus
 
 
 def test_a_head_that_never_settles_is_stopped_by_the_frontier_provider_ceiling() -> None:
-    # Large stage reservations make the durable token ceiling reachable in a few recomputations.
-    limit = MAX_TOPIC_MEMORY_WORK_TOKENS // 10
+    # Large stage reservations make the durable token ceiling reachable in a few recomputations. The
+    # ceiling is not a multiple of one attempt's charge, so it is crossed inside an attempt, as usual.
+    limit = MAX_TOPIC_MEMORY_WORK_TOKENS // 9
     per_attempt = 2 * 2 * (limit + limit // 4)  # probe + global, each reserving two requests of capacity
+    assert MAX_TOPIC_MEMORY_WORK_TOKENS % per_attempt
 
     async def scenario() -> None:
         manager, profile, _, _, stage, processor, _ = await _setup(["move-head"] * 1_000, limit=limit)
@@ -256,10 +258,12 @@ def test_a_head_that_never_settles_is_stopped_by_the_frontier_provider_ceiling()
             assert 0 < conflicts <= MAX_TOPIC_MEMORY_WORK_TOKENS // per_attempt
             assert stage.calls == conflicts
             row = await _budget(profile)
-            assert row is not None and row["attempts"] == 1
+            assert row is not None
             assert exhausted_reason(row) == "window_provider_budget_exceeded"
-            # The ceiling stopped the next attempt before it began, so the conflict stays the visible cause.
-            assert row["last_error_code"] == "head_conflict"
+            # The attempt that crossed the ceiling records its own cause. A single spent attempt is what
+            # shows that recomputations after head conflicts, not failed attempts, used the budget.
+            assert row["last_error_code"] == "window_provider_budget_exceeded"
+            assert row["attempts"] == 1
         finally:
             await manager.__aexit__(None, None, None)
 
