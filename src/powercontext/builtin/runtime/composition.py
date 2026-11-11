@@ -1555,6 +1555,11 @@ async def _open_work_background(
                 worker_id=f"{membership.instance_id}:worker",
                 handlers=_work_handlers(config, contexts, security=opened_security),
                 config=config.worker,
+                # The claim gate mirrors the membership check an incompatible
+                # rollout already reports: when any live member advertises a
+                # different behavior revision (or schema/payload range), the
+                # worker stops claiming instead of executing queued work.
+                claim_readiness=membership.readiness,
                 authorizer=_work_authorizer(opened_security),
                 observer=observer,
                 tracing=tracing,

@@ -273,6 +273,9 @@ def test_distributed_ledger_wires_the_work_observer_into_every_component(monkeyp
             async def stop(self) -> None:
                 self._stopped.set()
 
+            async def readiness(self) -> str:
+                return "ready"
+
         class _SpyMembership(_SpyComponent):
             _role = "membership"
 
@@ -313,6 +316,11 @@ def test_distributed_ledger_wires_the_work_observer_into_every_component(monkeyp
             assert constructed["scheduler"]["observer"] is observer
             assert constructed["worker"]["observer"] is observer
             assert constructed["membership"]["observer"] is observer
+            # The claim gate reads the same membership the composition started,
+            # so an incompatible rollout stops claiming before it executes.
+            claim_readiness = constructed["worker"]["claim_readiness"]
+            assert claim_readiness.__self__ is background.membership
+            assert claim_readiness.__name__ == "readiness"
 
     asyncio.run(scenario())
 
@@ -468,6 +476,9 @@ def test_distributed_worker_authorizes_every_claimed_scope(monkeypatch) -> None:
 
             async def stop(self) -> None:
                 self._stopped.set()
+
+            async def readiness(self) -> str:
+                return "ready"
 
         class _SpyMembership(_SpyComponent):
             _role = "membership"

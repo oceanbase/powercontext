@@ -273,3 +273,81 @@ def test_profile_handler_wires_the_publication_hooks_and_maps_a_denial(tmp_path)
 
     asyncio.run(scenario())
 
+
+def test_membership_gate_leaves_queued_work_unclaimed(tmp_path) -> None:
+    """An incompatible rollout blocks claiming; the gate reopens when it ends."""
+
+    async def scenario() -> None:
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'claim-gate-work.db'}"))
+        async with open_builtin_contexts(config, experience_pipeline=_RevokingExperiencePipeline()) as contexts:
+            scope = await contexts.scopes.create(
+                ScopeDraft(title="Claim gate", summary="Incompatible rollout", idempotency_key="gate")
+            )
+            context = await contexts.get(scope.scope_id)
+            await context.sources.capture(ContentCapture(source_id="one", content="First durable fact."))
+            spec = await experience_work_spec(contexts, scope.scope_id, limit=10, max_attempts=3, payload_version=1)
+            assert spec is not None
+            repository = WorkRepository()
+            async with contexts.database.transaction() as connection:
+                enqueued = await repository.enqueue(connection, spec)
+
+            compatible = DeploymentConfig(mode="distributed", role="worker", id="dep-a", behavior_revision="a")
+            incompatible = DeploymentConfig(mode="distributed", role="worker", id="dep-b", behavior_revision="b")
+            coordination = CoordinationConfig(member_ttl_seconds=3, member_heartbeat_seconds=1)
+            membership = RuntimeMembership(
+                database=contexts.database,
+                deployment=compatible,
+                coordination=coordination,
+                build_version="test",
+            )
+            peer = RuntimeMembership(
+                database=contexts.database,
+                deployment=incompatible,
+                coordination=coordination,
+                build_version="test",
+            )
+            await membership.start()
+            await peer.start()
+            worker = DurableWorker(
+                database=contexts.database,
+                worker_id=f"{membership.instance_id}:worker",
+                handlers=(ExperienceWorkHandler(contexts),),
+                config=WorkerConfig(concurrency=1),
+                claim_readiness=membership.readiness,
+            )
+            # The live peer advertises another behavior revision: membership
+            # reports misconfigured and the worker claims nothing.
+            assert await membership.readiness() == "misconfigured"
+            assert await worker.readiness() == "misconfigured"
+            assert await worker.run_once() == 0
+
+            # Both memberships stop heartbeating; their rows expire with the TTL.
+            await membership.stop()
+            await peer.stop()
+            await asyncio.sleep(3.4)
+
+            membership = RuntimeMembership(
+                database=contexts.database,
+                deployment=compatible,
+                coordination=coordination,
+                build_version="test",
+            )
+            await membership.start()
+            try:
+                worker = DurableWorker(
+                    database=contexts.database,
+                    worker_id=f"{membership.instance_id}:worker",
+                    handlers=(ExperienceWorkHandler(contexts),),
+                    config=WorkerConfig(concurrency=1),
+                    claim_readiness=membership.readiness,
+                )
+                assert await membership.readiness() == "ready"
+                assert await worker.readiness() == "ready"
+                assert await worker.run_once() == 1
+                async with contexts.database.transaction() as connection:
+                    stored = await repository.get(connection, enqueued.work.work_id)
+                assert stored.status is WorkStatus.SUCCEEDED
+            finally:
+                await membership.stop()
+
+    asyncio.run(scenario())
