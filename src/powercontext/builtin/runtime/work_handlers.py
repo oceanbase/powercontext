@@ -336,7 +336,7 @@ class MemoryWorkHandler:
                     code="already_committed",
                 )
             )
-        if _is_superseded_window(payload, current_sequence, current_generation):
+        if _is_superseded_window(payload, current_sequence):
             # A committed racing window consumed this snapshot's prefix; retire
             # the key so the lane keeps moving and discovery re-enqueues the rest.
             return PreparedWork(
@@ -423,7 +423,7 @@ class ExperienceWorkHandler:
                         code="already_committed",
                     )
                 )
-            if _is_superseded_window(payload, current_sequence, current_generation):
+            if _is_superseded_window(payload, current_sequence):
                 # A committed racing window consumed this snapshot's prefix.
                 # Retire instead of failing so the key is released and the lane
                 # keeps moving; discovery re-enqueues the remaining Sources.
@@ -809,19 +809,20 @@ def _require_exact_cursor(payload: SourceWindowPayload, sequence: int, generatio
         raise WorkExecutionError(category="conflict", code="cursor_changed", retryable=False)
 
 
-def _is_superseded_window(payload: SourceWindowPayload, sequence: int, generation: int) -> bool:
+def _is_superseded_window(payload: SourceWindowPayload, sequence: int) -> bool:
     """True when a committed racing window already consumed this snapshot's prefix.
 
-    A generation mismatch means the Source cursor was regenerated and the
-    window identity no longer holds, which stays a terminal failure — except
-    for snapshots taken before the cursor row existed at all: the racing
-    window's first commit creates that row at generation 1, which is an
-    ordinary advance, not a reset.
+    Every cursor save both advances the sequence and increments its generation,
+    so any forward movement inside the window is an ordinary commit of a racing
+    window and the snapshot retires as superseded. Requiring the snapshot's
+    generation here rejected those ordinary partial advances as a terminal
+    ``cursor_changed`` whose failed lane head blocked the lane: only the very
+    first generation (the special 0 -> 1 creation) matched. A reset keeps the
+    sequence at or before the snapshot's prefix, which falls through to the
+    exact-cursor check and stays a terminal failure.
     """
 
-    if payload.cursor_generation == 0:
-        return generation == 1 and payload.after < sequence < payload.through
-    return generation == payload.cursor_generation and payload.after < sequence < payload.through
+    return payload.after < sequence < payload.through
 
 
 def _require_complete_window(rows, payload: SourceWindowPayload) -> None:

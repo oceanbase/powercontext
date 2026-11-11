@@ -158,3 +158,95 @@ def test_stale_discovery_snapshot_retires_instead_of_blocking_the_lane(tmp_path)
             assert cursor_state is not None and cursor_state.cursor.sequence == 2
 
     asyncio.run(scenario())
+
+
+def test_snapshot_taken_after_the_first_generation_retires_when_a_racing_window_advances(tmp_path) -> None:
+    """The generation equality only ever matched the very first cursor.
+
+    Every cursor save increments the generation, so a snapshot taken at
+    ``(after=1, cursor_generation=1)`` whose prefix is consumed by a racing
+    window sees ``(2, 2)``. Retiring that snapshot as superseded keeps the
+    lane moving; failing it with ``cursor_changed`` blocked the lane head
+    behind a row no retry could clear.
+    """
+
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'stale-second-generation.db'}"),
+        )
+        async with open_builtin_contexts(config, experience_pipeline=_TaskOutcomePipeline()) as contexts:
+            scope = await contexts.scopes.create(
+                ScopeDraft(title="Durable work", summary="Second generation retirement", idempotency_key="stale-2")
+            )
+            context = await contexts.get(scope.scope_id)
+            await context.sources.capture(ContentCapture(source_id="one", content="First durable fact."))
+            await context.sources.capture(ContentCapture(source_id="two", content="Second durable fact."))
+
+            # The first window commits: the cursor exists at (1, 1).
+            first = await experience_work_spec(contexts, scope.scope_id, limit=1, max_attempts=5, payload_version=1)
+            assert first is not None
+            repository = WorkRepository()
+            async with contexts.database.transaction() as connection:
+                first_enqueued = await repository.enqueue(connection, first)
+            assert first_enqueued.created is True
+            worker = DurableWorker(
+                database=contexts.database,
+                worker_id="worker-a",
+                handlers=(ExperienceWorkHandler(contexts),),
+                config=WorkerConfig(concurrency=1),
+            )
+            assert await worker.run_once() == 1
+
+            # The window (1 -> 2) is enqueued and stays pending.
+            racing = await experience_work_spec(contexts, scope.scope_id, limit=2, max_attempts=5, payload_version=1)
+            assert racing is not None
+            async with contexts.database.transaction() as connection:
+                racing_enqueued = await repository.enqueue(connection, racing)
+            assert racing_enqueued.created is True
+
+            # Source three arrives and the snapshot through it is taken while
+            # the racing window is still pending.
+            await context.sources.capture(ContentCapture(source_id="three", content="Third durable fact."))
+            snapshot = await experience_work_spec(contexts, scope.scope_id, limit=3, max_attempts=5, payload_version=1)
+            assert snapshot is not None
+            assert snapshot.payload["cursor_generation"] == 1
+            assert snapshot.payload["after"] == 1 and snapshot.payload["through"] == 3
+
+            # The racing window commits before the snapshot is enqueued, so the
+            # cursor advances to (2, 2) under the snapshot's generation 1.
+            assert await worker.run_once() == 1
+            async with contexts.database.transaction() as connection:
+                stored = await repository.get(connection, racing_enqueued.work.work_id)
+                cursor_state = await SourceCursorRepository().load(
+                    connection, scope.scope_id, EXPERIENCE_INCUBATION_CURSOR_NAME
+                )
+            assert stored.status is WorkStatus.SUCCEEDED and stored.result_code == "processed"
+            assert cursor_state is not None and cursor_state.cursor.sequence == 2
+
+            async with contexts.database.transaction() as connection:
+                snapshot_enqueued = await repository.enqueue(connection, snapshot)
+            assert snapshot_enqueued.created is True
+            assert await worker.run_once() == 1
+            async with contexts.database.transaction() as connection:
+                stored = await repository.get(connection, snapshot_enqueued.work.work_id)
+            assert stored.status is WorkStatus.SUCCEEDED
+            assert stored.result_code == "superseded"
+
+            # The lane kept moving: discovery covers sources two and three.
+            remainder = await experience_work_spec(contexts, scope.scope_id, limit=3, max_attempts=5, payload_version=1)
+            assert remainder is not None
+            async with contexts.database.transaction() as connection:
+                remainder_enqueued = await repository.enqueue(connection, remainder)
+            assert remainder_enqueued.created is True
+            assert await worker.run_once() == 1
+            async with contexts.database.transaction() as connection:
+                stored = await repository.get(connection, remainder_enqueued.work.work_id)
+                cursor_state = await SourceCursorRepository().load(
+                    connection, scope.scope_id, EXPERIENCE_INCUBATION_CURSOR_NAME
+                )
+            assert stored.status is WorkStatus.SUCCEEDED
+            assert stored.result_code == "processed"
+            assert stored.result_payload is not None and stored.result_payload["candidate_count"] == 1
+            assert cursor_state is not None and cursor_state.cursor.sequence == 3
+
+    asyncio.run(scenario())
