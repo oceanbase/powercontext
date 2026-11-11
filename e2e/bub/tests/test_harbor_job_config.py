@@ -26,6 +26,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
 from typing import NamedTuple
@@ -462,6 +463,10 @@ def test_bub_runtime_install_does_not_use_the_task_images_pip_index(
         env for command, env in zip(environment.commands, environment.envs, strict=True) if "pip install" in command
     ]
     assert install_env["PIP_INDEX_URL"] == expected
+    assert any(
+        f"/bin/pip install agent-client-protocol=={version('agent-client-protocol')}" in command
+        for command in environment.commands
+    )
 
 
 def _opencode_agent(tmp_path: Path, *, powercontext: bool) -> PowerContextOpenCodeAgent:
